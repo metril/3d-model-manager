@@ -55,6 +55,16 @@ const COLLECTIONS_PATH_PATTERN = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?@[^/]+\/collec
 // pre-filtered to ids we know are real collections -- see its own doc.)
 const COLLECTION_DETAIL_PATH_PATTERN = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?collections\/(\d+)(?:-[^/?#]*)?\/?$/i;
 
+/** Match patterns for the supported gallery sites (kept equal to manifest `host_permissions`). */
+export const GALLERY_HOST_PATTERNS = [
+  "https://makerworld.com/*",
+  "https://www.makerworld.com/*",
+  "https://thingiverse.com/*",
+  "https://www.thingiverse.com/*",
+  "https://printables.com/*",
+  "https://www.printables.com/*",
+];
+
 /**
  * @param {string} url
  * @returns {"makerworld"|"thingiverse"|"printables"|null}

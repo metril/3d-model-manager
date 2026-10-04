@@ -31,6 +31,8 @@ export function createClient({ baseUrl, token }) {
         method,
         headers,
         body: payload,
+        credentials: "omit",
+        signal: AbortSignal.timeout(15000),
       });
     } catch (err) {
       // Network-level failure (offline, DNS, CORS, refused connection —

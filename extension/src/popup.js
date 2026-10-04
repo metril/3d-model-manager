@@ -227,4 +227,4 @@ async function init() {
   renderNotAModelPage();
 }
 
-init();
+init().catch((err) => setStatus(err?.message || "Something went wrong.", "error"));

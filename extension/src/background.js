@@ -8,7 +8,7 @@
  * `test/syncFlow.test.js`.
  */
 
-import { isCollectionDetailPage, isCollectionsPage, isModelPage } from "./detect.js";
+import { GALLERY_HOST_PATTERNS, isCollectionDetailPage, isCollectionsPage, isModelPage } from "./detect.js";
 import { createClient } from "./api.js";
 import { getConfig, isConfigured, setConfig } from "./config.js";
 import { hashToken, pickCookieValue, shouldPush } from "./courier.js";
@@ -24,15 +24,6 @@ import {
   syncCollections,
   upsertCollectionItemsHash,
 } from "./syncFlow.js";
-
-const GALLERY_HOST_PATTERNS = [
-  "*://makerworld.com/*",
-  "*://www.makerworld.com/*",
-  "*://thingiverse.com/*",
-  "*://www.thingiverse.com/*",
-  "*://printables.com/*",
-  "*://www.printables.com/*",
-];
 
 const CONTEXT_MENU_PAGE_ID = "save-to-my-library-page";
 const CONTEXT_MENU_LINK_ID = "save-to-my-library-link";
@@ -69,19 +60,24 @@ function ensureContextMenu() {
   });
 }
 
-function ensureCourierAlarm() {
-  chrome.alarms.create(COURIER_ALARM_NAME, { periodInMinutes: COURIER_ALARM_PERIOD_MINUTES });
+// `alarms.create` with an existing name resets its period, so only create
+// when missing (otherwise every browser start would postpone the next tick).
+async function ensureCourierAlarm() {
+  const existing = await chrome.alarms.get(COURIER_ALARM_NAME);
+  if (!existing || existing.periodInMinutes !== COURIER_ALARM_PERIOD_MINUTES) {
+    chrome.alarms.create(COURIER_ALARM_NAME, { periodInMinutes: COURIER_ALARM_PERIOD_MINUTES });
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureContextMenu();
-  ensureCourierAlarm();
+  ensureCourierAlarm().catch((err) => console.warn("courier alarm setup failed", err));
 });
 
 // Alarms persist across browser restarts, but re-asserting on startup is
 // cheap and guards against the alarm having been cleared some other way.
 chrome.runtime.onStartup.addListener(() => {
-  ensureCourierAlarm();
+  ensureCourierAlarm().catch((err) => console.warn("courier alarm setup failed", err));
 });
 
 /**
@@ -99,9 +95,14 @@ async function saveUrl(url) {
   return client.createImport(url);
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (sender?.id !== chrome.runtime.id) {
+    return false; // only our own extension pages may trigger a save
+  }
   if (message && message.type === "save" && typeof message.url === "string") {
-    saveUrl(message.url).then(sendResponse);
+    saveUrl(message.url)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err?.message || "Save failed" }));
     return true; // keep the message channel open for the async response
   }
   return false;
@@ -360,7 +361,20 @@ async function runCollectionDetailSync(tabId, url) {
   await setConfig({ lastCollectionItemsHash: upsertCollectionItemsHash(lastHashes, listId, itemsHash) });
 }
 
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+// `status:"complete"` can fire repeatedly for one tab (SPA navigations,
+// subframes); skip a trigger while the same tab+type is still running.
+const inFlight = new Set();
+function runOnce(key, fn) {
+  if (inFlight.has(key)) {
+    return Promise.resolve();
+  }
+  inFlight.add(key);
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => inFlight.delete(key));
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete") {
     return;
   }
@@ -375,7 +389,7 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     return;
   }
   if (MAKERWORLD_COOKIE_HOSTS.has(hostname)) {
-    runCourier();
+    runOnce("courier", runCourier).catch((err) => console.warn("courier failed", err));
   }
   if (tab.id !== undefined && isCollectionsPage(url)) {
     // `runCollectionsSync` isn't awaited here (this listener can't be
@@ -384,14 +398,14 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     // try/catch -- would otherwise surface as an unhandled promise
     // rejection instead of the silent-to-the-user, logged-only failure this
     // background sync is meant to be.
-    runCollectionsSync(tab.id, url).catch((err) =>
+    runOnce(`${tabId}:collections`, () => runCollectionsSync(tab.id, url)).catch((err) =>
       console.warn("collections auto-sync failed", err),
     );
   }
   if (tab.id !== undefined && isCollectionDetailPage(url)) {
     // Same not-awaited/`.catch`-guarded shape as `runCollectionsSync` above,
     // for the same reason.
-    runCollectionDetailSync(tab.id, url).catch((err) =>
+    runOnce(`${tabId}:collection-detail`, () => runCollectionDetailSync(tab.id, url)).catch((err) =>
       console.warn("collection detail auto-sync failed", err),
     );
   }
@@ -399,6 +413,6 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === COURIER_ALARM_NAME) {
-    runCourier();
+    runCourier().catch((err) => console.warn("courier failed", err));
   }
 });
