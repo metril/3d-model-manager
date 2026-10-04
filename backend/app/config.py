@@ -43,7 +43,18 @@ class Settings(BaseSettings):
     )
     admin_username: str = "admin"
     admin_password: SecretStr | None = None
+    # NOTE: leave False only for plain-http dev/tests; set COOKIE_SECURE=true
+    # whenever the app is served over https (public_url starts with https://).
     cookie_secure: bool = False
+    # Byte caps on streamed ingest: PUT /api/uploads + slicer intake
+    # (`MAX_UPLOAD_BYTES`, default 4 GiB) and remote importer downloads
+    # (`MAX_DOWNLOAD_BYTES`, default 2 GiB). Exceeding them aborts the stream.
+    max_upload_bytes: int = Field(
+        default=4 * 1024**3, validation_alias=AliasChoices("MAX_UPLOAD_BYTES")
+    )
+    max_download_bytes: int = Field(
+        default=2 * 1024**3, validation_alias=AliasChoices("MAX_DOWNLOAD_BYTES")
+    )
     # How often GET /api/events sends a `: ping` heartbeat comment while idle
     # (Task 6). Overridable so tests don't have to wait a real 15s.
     # Env: `SSE_HEARTBEAT_INTERVAL` (seconds; the field keeps the unit suffix).

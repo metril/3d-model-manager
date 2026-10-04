@@ -116,3 +116,16 @@ def test_stream_remote_to_spool_rel_path_from_response_raising_leaves_no_spool(
         )
     spooled = list((get_settings().data_dir / "spool").glob("*"))
     assert spooled == []
+
+
+def test_stream_remote_to_spool_enforces_max_download_bytes(monkeypatch, data_dir):
+    monkeypatch.setattr(download, "_download_client", lambda: _mock_client(b"x" * 100))
+    get_settings.cache_clear()
+    settings = get_settings()
+    monkeypatch.setattr(settings, "max_download_bytes", 10)
+    with pytest.raises(ValueError, match="exceeds"):
+        download.stream_remote_to_spool(
+            settings, url="https://files.test/big.stl", rel_path="big.stl"
+        )
+    spool_dir = data_dir / "spool"
+    assert not spool_dir.exists() or list(spool_dir.iterdir()) == []

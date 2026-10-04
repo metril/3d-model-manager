@@ -420,3 +420,50 @@ def test_safe_path_segment_falls_back_for_dot_only_results() -> None:
     """A title that sanitizes down to just ``.`` (or ``..``) must not be
     used as a zip path segment -- it falls back to the default instead."""
     assert zip_export._safe_path_segment(".", fallback="collection-1") == "collection-1"
+
+
+async def test_project_tree_dedupes_colliding_sibling_segments(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    """Sibling projects whose names sanitize to the same segment ("ab" and
+    "a/b") must get distinct zip prefixes."""
+    from app.db import get_sessionmaker
+    from app.models import Project
+
+    root = (await authenticated_client.post("/api/projects", json={"name": "Root"})).json()
+    for name in ("ab", "a/b"):
+        r = await authenticated_client.post(
+            "/api/projects", json={"name": name, "parent_id": root["id"]}
+        )
+        assert r.status_code == 201, r.text
+
+    async with get_sessionmaker()() as db:
+        project = await db.get(Project, root["id"])
+        assert project is not None
+        tree = await zip_export._get_project_tree(db, project)
+    prefixes = [prefix for _, prefix in tree]
+    assert len(prefixes) == 3
+    assert len(set(prefixes)) == 3
+
+
+async def test_project_tree_dedupe_keeps_dots_in_folder_names(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    """Folder segments are not filenames: ``Proj v1.2`` collides as
+    ``Proj v1.2 (2)``, never ``Proj v1 (2).2``."""
+    from app.db import get_sessionmaker
+    from app.models import Project
+
+    root = (await authenticated_client.post("/api/projects", json={"name": "Root"})).json()
+    for name in ("Proj v1.2", "Proj v1/.2"):
+        r = await authenticated_client.post(
+            "/api/projects", json={"name": name, "parent_id": root["id"]}
+        )
+        assert r.status_code == 201, r.text
+
+    async with get_sessionmaker()() as db:
+        project = await db.get(Project, root["id"])
+        assert project is not None
+        tree = await zip_export._get_project_tree(db, project)
+    prefixes = {prefix for _, prefix in tree}
+    assert {"Root/Proj v1.2", "Root/Proj v1.2 (2)"} <= prefixes

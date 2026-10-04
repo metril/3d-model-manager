@@ -57,8 +57,10 @@ async def intake(
             async for chunk in request.stream():
                 if not chunk:
                     continue
-                hasher.update(chunk)
                 size += len(chunk)
+                if size > settings.max_upload_bytes:
+                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "upload too large")
+                hasher.update(chunk)
                 await anyio.to_thread.run_sync(fh.write, chunk)
             await anyio.to_thread.run_sync(fh.flush)
         finally:

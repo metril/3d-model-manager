@@ -1796,3 +1796,31 @@ async def test_merge_models_moves_files_and_deletes_source(
     assert rev_files.status_code == 200
     files = rev_files.json()["files"]
     assert any(f["rel_path"] == "plate_1.gcode.3mf" for f in files)
+
+
+async def test_merge_copy_failure_keeps_source_bytes(
+    authenticated_client: httpx.AsyncClient,
+    backend: LocalStorageBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = await _create_model(authenticated_client, "Target Copyfail")
+    source = await _create_model(authenticated_client, "Source Copyfail")
+    up = await _upload(
+        authenticated_client,
+        model_id=source["id"],
+        revision_id=source["current_revision"]["id"],
+        rel_path="part.stl",
+        content=b"source-bytes",
+    )
+    assert up.status_code in (200, 201), up.text
+
+    def _boom(self: LocalStorageBackend, src: str, dst: str) -> None:
+        raise OSError("copy failed")
+
+    monkeypatch.setattr(LocalStorageBackend, "copy", _boom)
+    resp = await authenticated_client.post(
+        f"/api/models/{target['slug']}/merge", json={"source_slug": source["slug"]}
+    )
+    assert resp.status_code == 500
+    # Source must still exist, with its file intact.
+    assert (await authenticated_client.get(f"/api/models/{source['slug']}")).status_code == 200

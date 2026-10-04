@@ -177,6 +177,7 @@ def test_parse_gcode_3mf_extracts_bambu_ground_truth(corpus: CorpusPaths) -> Non
     assert sliced.plates == [
         {
             "index": 1,
+            "name": None,
             "prediction_s": 3600,
             "weight_g": pytest.approx(12.5),
             "gcode_file": "Metadata/plate_1.gcode",
@@ -192,6 +193,7 @@ def test_parse_gcode_3mf_extracts_bambu_ground_truth(corpus: CorpusPaths) -> Non
         },
         {
             "index": 2,
+            "name": None,
             "prediction_s": 1800,
             "weight_g": pytest.approx(7.5),
             "gcode_file": "Metadata/plate_2.gcode",

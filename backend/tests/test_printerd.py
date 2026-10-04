@@ -557,3 +557,134 @@ def test_run_tears_down_and_restarts_all_workers_on_db_flag_flip(
     finally:
         daemon.stop()
         thread.join(timeout=2.0)
+
+
+def _terminate_seeded_job(job_id: int) -> None:
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).state = PrintJobState.CANCELED.value
+        s.commit()
+
+
+def _job_count() -> int:
+    with base.sync_session() as s:
+        return len(s.query(PrintJob).all())
+
+
+def test_unknown_subtask_creates_no_job(worker):
+    w, _adapter, pid, _client = worker
+    _terminate_seeded_job(_seed_active_job(pid))
+    w.handle_report(cass.SNAPSHOT_PRINTING)  # subtask "widget" matches no file
+    assert _job_count() == 1
+
+
+def test_matched_subtask_creates_and_persists_job(worker):
+    w, _adapter, pid, _client = worker
+    _terminate_seeded_job(_seed_active_job(pid))
+    w.handle_report({**cass.SNAPSHOT_PRINTING, "subtask_name": "p.gcode.3mf"})
+    assert _job_count() == 2
+    with base.sync_session() as s:
+        job = s.query(PrintJob).order_by(PrintJob.id.desc()).first()
+        assert job.state == PrintJobState.PRINTING.value
+        assert job.started_at is not None
+        file = s.get(File, job.file_id)
+        assert file.rel_path == "p.gcode.3mf"
+        model = s.get(Model, s.get(Revision, file.revision_id).model_id)
+        assert model.print_status == "printing"
+
+
+def test_subtask_match_requires_path_boundary(worker):
+    w, _adapter, pid, _client = worker
+    _terminate_seeded_job(_seed_active_job(pid))
+    # "gcode.3mf" is a raw suffix of ".../p.gcode.3mf" but not a path segment.
+    w.handle_report({**cass.SNAPSHOT_PRINTING, "subtask_name": "gcode.3mf"})
+    assert _job_count() == 1
+
+
+def test_subtask_percent_is_not_a_wildcard(worker):
+    w, _adapter, pid, _client = worker
+    _terminate_seeded_job(_seed_active_job(pid))
+    w.handle_report({**cass.SNAPSHOT_PRINTING, "subtask_name": "%"})
+    assert _job_count() == 1
+
+
+def test_finish_snapshot_failure_does_not_lose_finished_state(worker, monkeypatch):
+    import httpx
+
+    from app.services import camera_snapshot, library
+
+    w, adapter, pid, _client = worker
+    job_id = _seed_active_job(pid)
+    monkeypatch.setattr(
+        adapter, "get_camera_urls", lambda: {"snapshot_url": "http://cam/snap.jpg"}, raising=False
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=b"jpegbytes"))
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        camera_snapshot.httpx, "Client", lambda **kw: real_client(transport=transport, **kw)
+    )
+
+    def _boom(session, *, model, revision, staged):
+        session.add(File(revision_id=10**9, blob_hash="z" * 64, rel_path="x", storage_path="x"))
+        session.flush()  # FK violation -> session needs rollback
+
+    monkeypatch.setattr(library, "store_imported_file_sync", _boom)
+    w.handle_report(cass.SNAPSHOT_PRINTING)
+    w.handle_report(cass.SNAPSHOT_FINISH)
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == PrintJobState.FINISHED.value
+        file = s.get(File, job.file_id)
+        rev = s.get(Revision, file.revision_id)
+        assert s.get(Model, rev.model_id).quantity_printed == 1
+
+
+def test_finish_snapshot_duplicate_blob_keeps_finished_state(worker, monkeypatch):
+    """Real store_imported_file_sync hitting a duplicate-blob IntegrityError
+    must not roll back the caller's pending finished-job state."""
+    import httpx
+    from blake3 import blake3
+    from sqlalchemy.orm import Session
+
+    from app.services import camera_snapshot
+
+    w, adapter, pid, _client = worker
+    job_id = _seed_active_job(pid)
+    data = b"jpegbytes"
+    with base.sync_session() as s:
+        s.add(
+            Blob(
+                hash=blake3(data).hexdigest(),
+                size=len(data),
+                kind=BlobKind.IMAGE,
+                format=BlobFormat.JPG,
+            )
+        )
+        s.commit()
+    monkeypatch.setattr(
+        adapter, "get_camera_urls", lambda: {"snapshot_url": "http://cam/snap.jpg"}, raising=False
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=data))
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        camera_snapshot.httpx, "Client", lambda **kw: real_client(transport=transport, **kw)
+    )
+    real_get = Session.get
+    hidden = {"n": 0}
+
+    def _get(self, entity, ident, *a, **kw):
+        if entity is Blob and ident == blake3(data).hexdigest() and hidden["n"] == 0:
+            hidden["n"] += 1  # simulate a concurrent insert: first lookup misses
+            return None
+        return real_get(self, entity, ident, *a, **kw)
+
+    monkeypatch.setattr(Session, "get", _get)
+    w.handle_report(cass.SNAPSHOT_PRINTING)
+    w.handle_report(cass.SNAPSHOT_FINISH)
+    assert hidden["n"] == 1
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == PrintJobState.FINISHED.value
+        file = s.get(File, job.file_id)
+        rev = s.get(Revision, file.revision_id)
+        assert s.get(Model, rev.model_id).quantity_printed == 1
+        assert s.query(File).filter(File.rel_path.like("print-result-%")).count() == 1

@@ -14,6 +14,7 @@ function, when a probe actually runs with the flag on (see
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import anyio
@@ -367,6 +368,20 @@ async def toggle_printer_light(
     return {"status": "sent"}
 
 
+_SNAPSHOT_MAX_BYTES = 5 * 1024 * 1024
+_SNAPSHOT_TYPES = {"image/jpeg", "image/png"}
+
+
+async def _camera_urls(printer: Printer, settings: Settings) -> dict:
+    """Ask the printer adapter for its camera URLs, always releasing it."""
+    adapter = build_adapter(printer.kind, connection_from_printer(settings, printer))
+    try:
+        return await anyio.to_thread.run_sync(adapter.get_camera_urls)
+    finally:
+        with contextlib.suppress(Exception):
+            await anyio.to_thread.run_sync(adapter.close)
+
+
 @router.get("/{printer_id}/camera", response_model=PrinterCameraOut)
 async def get_printer_camera(
     printer_id: int,
@@ -374,9 +389,7 @@ async def get_printer_camera(
     settings: Settings = Depends(get_settings),
 ) -> PrinterCameraOut:
     printer = await _get_or_404(db, printer_id)
-    conn = connection_from_printer(settings, printer)
-    adapter = build_adapter(printer.kind, conn)
-    cam = await anyio.to_thread.run_sync(adapter.get_camera_urls)
+    cam = await _camera_urls(printer, settings)
     stream_url = cam.get("stream_url")
     if not stream_url:
         return PrinterCameraOut(available=False)
@@ -398,29 +411,36 @@ async def get_printer_camera_snapshot(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     printer = await _get_or_404(db, printer_id)
-    conn = connection_from_printer(settings, printer)
-    adapter = build_adapter(printer.kind, conn)
-    cam = await anyio.to_thread.run_sync(adapter.get_camera_urls)
-    snapshot_url = cam.get("snapshot_url") or cam.get("stream_url")
+    cam = await _camera_urls(printer, settings)
+    snapshot_url = cam.get("snapshot_url")
     if not snapshot_url:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera snapshot not available")
 
+    unavailable = HTTPException(status.HTTP_502_BAD_GATEWAY, "Camera snapshot unavailable")
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(snapshot_url)
-            if not resp.is_success:
-                raise HTTPException(
-                    status.HTTP_502_BAD_GATEWAY,
-                    f"Camera snapshot failed with status {resp.status_code}",
-                )
-            return Response(
-                content=resp.content,
-                media_type=resp.headers.get("content-type", "image/jpeg"),
-            )
+        async with (
+            httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client,
+            client.stream("GET", snapshot_url) as resp,
+        ):
+            media_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+            # Some mjpg-streamer builds omit Content-Type on snapshots.
+            media_type = media_type or "image/jpeg"
+            if not resp.is_success or media_type not in _SNAPSHOT_TYPES:
+                raise unavailable
+            buf = bytearray()
+            async for chunk in resp.aiter_bytes():
+                buf.extend(chunk)
+                if len(buf) > _SNAPSHOT_MAX_BYTES:
+                    raise unavailable
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Camera snapshot error: {exc}") from exc
+        raise unavailable from exc
+    return Response(
+        content=bytes(buf),
+        media_type=media_type,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/{printer_id}/camera/stream")
@@ -429,16 +449,15 @@ async def get_printer_camera_stream(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    printer = await _get_or_404(db, printer_id)
-    conn = connection_from_printer(settings, printer)
-    adapter = build_adapter(printer.kind, conn)
-    cam = await anyio.to_thread.run_sync(adapter.get_camera_urls)
+    printer = await _get_enabled_or_404(db, printer_id)
+    cam = await _camera_urls(printer, settings)
     stream_url = cam.get("stream_url")
     if not stream_url:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera stream not available")
 
     async def stream_generator():
-        async with httpx.AsyncClient(timeout=None) as client:
+        timeout = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             try:
                 async with client.stream("GET", stream_url) as resp:
                     if not resp.is_success:

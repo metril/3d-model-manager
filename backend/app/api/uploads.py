@@ -53,7 +53,9 @@ async def upload_file(
     # Any failure between here and the job dispatch below must not orphan
     # the spool file (once dispatched, the spool's lifecycle belongs to
     # store_to_backend: deleted on success, kept on failure for retry).
-    token, path, blob_hash, size = await spool.stream_to_spool(request, settings)
+    token, path, blob_hash, size = await spool.stream_to_spool(
+        request, settings, max_size=settings.max_upload_bytes
+    )
     try:
         if size == 0:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload body")

@@ -179,3 +179,111 @@ def test_upload_and_start(tmp_path: Path, monkeypatch):
     )
     adapter.upload_and_start(spec)
     assert "multipart/form-data" in uploaded["content_type"]
+
+
+def test_cancelled_maps_to_canceled_job_state():
+    from app.printers.base import PrinterPublicState
+
+    adapter = MoonrakerAdapter(CONN)
+    merged = {"gcode_state": "CANCELED"}
+    public = adapter.public_state(merged)
+    assert isinstance(public, PrinterPublicState)
+    assert adapter.job_state(public) == PrintJobState.CANCELED
+    from app.printers.moonraker import _GCODE_STATE_TO_JOB, _MOONRAKER_STATE_MAP
+
+    assert _GCODE_STATE_TO_JOB[_MOONRAKER_STATE_MAP["cancelled"]] == PrintJobState.CANCELED
+
+
+def test_set_light_falls_back_to_m355_on_http_error(monkeypatch):
+    adapter = MoonrakerAdapter(CONN)
+    scripts = []
+
+    def handler(request: httpx.Request):
+        import json
+
+        script = json.loads(request.content)["script"]
+        scripts.append(script)
+        return httpx.Response(400 if script.startswith("SET_PIN") else 200)
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _ORIG_CLIENT(transport=transport, **kw))
+    adapter.set_light(True)
+    assert scripts == ["SET_PIN PIN=caselight VALUE=1", "M355 S1"]
+
+
+def test_upload_uses_remote_name_for_gcode(tmp_path: Path, monkeypatch):
+    adapter = MoonrakerAdapter(CONN)
+    src = tmp_path / "orig.gcode.3mf"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("Metadata/plate_1.gcode", "G28\n")
+    src.write_bytes(buf.getvalue())
+    uploaded = {}
+
+    def handler(request: httpx.Request):
+        uploaded["body"] = request.content
+        return httpx.Response(201, json={})
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _ORIG_CLIENT(transport=transport, **kw))
+    adapter.upload_and_start(
+        PrintSpec(source_path=src, remote_name="tdmm-7.gcode.3mf", plate=1, subtask_name="x")
+    )
+    assert b'filename="tdmm-7.gcode"' in uploaded["body"]
+
+
+def test_camera_urls_reject_foreign_absolute_hosts(monkeypatch):
+    adapter = MoonrakerAdapter(PrinterConnection(host="10.0.0.5", serial="S", access_code=""))
+    payload = {
+        "result": {
+            "webcams": [
+                {
+                    "stream_url": "http://evil.example/x",
+                    "snapshot_url": "http://10.0.0.5:8080/snap",
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: httpx.Response(200, json=payload))
+    cam = adapter.get_camera_urls()
+    assert cam["stream_url"] == "http://10.0.0.5/webcam/?action=stream"
+    assert cam["snapshot_url"] == "http://10.0.0.5:8080/snap"
+
+
+def test_test_connection_port_fallback_resets_cached_client(monkeypatch):
+    adapter = MoonrakerAdapter(PrinterConnection(host="10.0.0.5", serial="S", access_code=""))
+    old = adapter._http_client()
+
+    def handler(request: httpx.Request):
+        if request.url.port == 7125:
+            return httpx.Response(200, json={"result": {"moonraker_version": "v1"}})
+        raise httpx.ConnectError("refused")
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(httpx, "Client", lambda **kw: _ORIG_CLIENT(transport=transport, **kw))
+    assert adapter.test_connection().ok
+    assert adapter.base_url.endswith(":7125")
+    assert old.is_closed and adapter._client is None
+
+
+def _cam_for(monkeypatch, url: str, host: str = "10.0.0.5") -> dict:
+    adapter = MoonrakerAdapter(PrinterConnection(host=host, serial="S", access_code=""))
+    payload = {"result": {"webcams": [{"stream_url": url, "snapshot_url": url}]}}
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: httpx.Response(200, json=payload))
+    return adapter.get_camera_urls()
+
+
+def test_camera_urls_never_leave_printer_host(monkeypatch):
+    from urllib.parse import urlparse
+
+    for bad in ("@evil.com/x", ".evil.com/x", "//evil.com/x"):
+        cam = _cam_for(monkeypatch, bad)
+        for key in ("stream_url", "snapshot_url"):
+            assert urlparse(cam[key]).hostname == "10.0.0.5", (bad, cam[key])
+
+
+def test_camera_urls_plain_relative_and_same_host_port(monkeypatch):
+    cam = _cam_for(monkeypatch, "webcam/snap")
+    assert cam["snapshot_url"] == "http://10.0.0.5/webcam/snap"
+    cam = _cam_for(monkeypatch, "http://10.0.0.5:8080/snap")
+    assert cam["snapshot_url"] == "http://10.0.0.5:8080/snap"

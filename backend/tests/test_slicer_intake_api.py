@@ -410,3 +410,13 @@ def test_resolve_and_attach_sync_replace_never_deletes_old_bytes_before_store(
         assert files[0].blob_hash == blake3.blake3(content1).hexdigest()
         backend = resolve_backend_sync(s, settings)
         assert b"".join(backend.read(old_storage_path)) == content1  # bytes never touched either
+
+
+async def test_intake_over_max_upload_bytes_is_413(
+    authenticated_client: httpx.AsyncClient, slicer_token: str, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "max_upload_bytes", 4)
+    response = await _intake(
+        authenticated_client, slicer_token, filename="Benchy.gcode.3mf", content=b"0123456789"
+    )
+    assert response.status_code == 413
