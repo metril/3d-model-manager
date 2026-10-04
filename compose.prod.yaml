@@ -34,26 +34,26 @@
 
 services:
   api:
-    image: ghcr.io/floriangeoffr/3d-model-manager:${IMAGE_TAG:-latest}
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
 
   worker-io:
-    image: ghcr.io/floriangeoffr/3d-model-manager:${IMAGE_TAG:-latest}
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
 
   worker-cpu:
-    image: ghcr.io/floriangeoffr/3d-model-manager:${IMAGE_TAG:-latest}
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
 
   beat:
-    image: ghcr.io/floriangeoffr/3d-model-manager:${IMAGE_TAG:-latest}
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
 
   printerd:
-    image: ghcr.io/floriangeoffr/3d-model-manager:${IMAGE_TAG:-latest}
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
