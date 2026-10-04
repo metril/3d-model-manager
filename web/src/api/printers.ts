@@ -109,7 +109,10 @@ export function usePrinterCommand(id: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (cmd: "pause" | "resume" | "stop") => api.post<void>(`/printers/${id}/${cmd}`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers", id, "status"] }),
+    // Return the promise so the mutation stays pending until the status
+    // refetch lands; callers that hold optimistic UI state clear it in
+    // onSettled without snapping back to the stale cached value first.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["printers", id, "status"] }),
   });
 }
 
@@ -117,7 +120,10 @@ export function useTogglePrinterLight(id: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (on?: boolean) => api.post<void>(`/printers/${id}/light`, on !== undefined ? { on } : {}),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers", id, "status"] }),
+    // Return the promise so the mutation stays pending until the status
+    // refetch lands; callers that hold optimistic UI state clear it in
+    // onSettled without snapping back to the stale cached value first.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["printers", id, "status"] }),
   });
 }
 

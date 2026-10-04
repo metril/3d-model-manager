@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isHttpUrl } from "@/lib/url";
 
 export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
   const status = usePrinterStatus(printer.id);
@@ -84,7 +85,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                   const next = !isLightOn;
                   setOptimisticLight(next);
                   toggleLight.mutate(next, {
-                    onError: () => setOptimisticLight(null),
+                    onSettled: () => setOptimisticLight(null),
                   });
                 }}
                 disabled={toggleLight.isPending}
@@ -135,6 +136,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 <img
                   key={streamKey}
                   src={camera.data.stream_url}
+                  referrerPolicy="no-referrer"
                   alt={camera.data.name || `${printer.name} camera`}
                   className="h-full w-full object-contain"
                   onError={() => setStreamError(true)}
@@ -160,7 +162,11 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                       title={isLightOn ? "Turn off chamber light" : "Turn on chamber light"}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleLight.mutate(!isLightOn);
+                        const next = !isLightOn;
+                        setOptimisticLight(next);
+                        toggleLight.mutate(next, {
+                          onSettled: () => setOptimisticLight(null),
+                        });
                       }}
                       disabled={toggleLight.isPending}
                     >
@@ -180,7 +186,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                   >
                     <RefreshCw className="size-3.5" />
                   </Button>
-                  {camera.data.direct_stream_url ? (
+                  {isHttpUrl(camera.data.direct_stream_url) ? (
                     <Button
                       size="icon-xs"
                       variant="ghost"
