@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.0](https://github.com/metril/3d-model-manager/compare/v0.3.0...v0.4.0) (2026-10-04)
+
+
+### Features
+
+* add OrcaSlicer auto-upload script, multi-plate printing & preview, and finish snapshot capture ([f1e7f66](https://github.com/metril/3d-model-manager/commit/f1e7f661f5f2a929daa6d94ea7594e9bc49e4ae8))
+* add project organization and manufacturing print tracking ([e6deecf](https://github.com/metril/3d-model-manager/commit/e6deecf887d53e70d9d5b7dbcf5b92ef407cde5c))
+* folder improvements, sub-projects, custom icons, zip export and multiplate explode ([668196a](https://github.com/metril/3d-model-manager/commit/668196afc80de0c239c34450318bd1d2d9e797a8))
+* **gallery:** streamline card content layout and integrate file format filter popover ([415cecd](https://github.com/metril/3d-model-manager/commit/415cecdfe1e574778a1f1117133ab652fd5f4ef2))
+* improve printer status, plate navigation, markdown description and studio surface ([d25acb3](https://github.com/metril/3d-model-manager/commit/d25acb35f46a85b5b586708e5676c50f1e02bddd))
+* **library:** fix explode-plates, add drag-drop merge, multi-selection and folder drop ([37ffe3e](https://github.com/metril/3d-model-manager/commit/37ffe3ed6fc09a79a9f1dc540d904c110f0203a4))
+* **library:** handle duplicate uploads gracefully and enable 1-click selection mode ([919a4da](https://github.com/metril/3d-model-manager/commit/919a4dae560149ac13f7c49d34a20c9f8dbc202c))
+* **library:** visual folder view and drag-and-drop organization into projects ([664755a](https://github.com/metril/3d-model-manager/commit/664755a4c3d9fba08f7ef1d96a8b0488dc4910dd))
+* **printers:** add live camera stream and snapshot support for Moonraker/Qidi printers ([a5c7ddc](https://github.com/metril/3d-model-manager/commit/a5c7ddc2dd42f2f1272c5f4fca7e3c247b7eb067))
+* **printers:** add Moonraker and Klipper support for Qidi Q2 ([3d1854c](https://github.com/metril/3d-model-manager/commit/3d1854c26ad4a127a39a6ceb892d14e234a4b11d))
+* **release:** v0.4.0 — Moonraker/Klipper support, chamber light, camera stream, multi-plate printing & G-code viewer ([cb25473](https://github.com/metril/3d-model-manager/commit/cb25473deb7e721c527f4a1a5e3e0d5fb5ecac3e))
+* **slicer:** enable Open in Slicer (OrcaSlicer/BambuStudio) for gcode.3mf files ([532fc15](https://github.com/metril/3d-model-manager/commit/532fc15ecf4e59f29b452fd1a39accfb28f8e826))
+
+
+### Bug Fixes
+
+* **backend:** close data-loss, SSRF and job-tracking bugs from the v0.4.0 merge ([83f13f1](https://github.com/metril/3d-model-manager/commit/83f13f140ae3965b2747223dbb26ab44f4ce7fa7))
+* **ci:** fix auth sweep token path, printer bare gcode check, and release-please tolerance ([a1c6ec3](https://github.com/metril/3d-model-manager/commit/a1c6ec375577a6de826ec3072a505c0bada7cf92))
+* **config:** support LIBRARY_DIR and DATA_DIR env aliases and add local dev files ([dafb2f8](https://github.com/metril/3d-model-manager/commit/dafb2f8d8ca0f92ea10a483b6186b47464c7d127))
+* **docker:** ensure entrypoint has LF line endings and strip CRLF in Dockerfile ([25756ec](https://github.com/metril/3d-model-manager/commit/25756ec0a5e05d60fa5e885d363b946be15be5b3))
+* **extension:** harden background worker, config writes and host permissions ([399226c](https://github.com/metril/3d-model-manager/commit/399226c5827db0822c747cdc81560818635e569f))
+* **library:** enable page-wide drag-and-drop for files and models ([7dc871a](https://github.com/metril/3d-model-manager/commit/7dc871a42b29744da3076be179c95e35aa7355f9))
+* post-v0.4.0 hardening, restored release gates, and release-please realignment ([c8b1e47](https://github.com/metril/3d-model-manager/commit/c8b1e4772ae40b522e65fc74dfd55295cee17b9f))
+* selection bug, folder upload, explode-plates folder + plate navigation ([c5106be](https://github.com/metril/3d-model-manager/commit/c5106be2981731c08f573314075e5a49a1fbb4dc))
+* sidebar pinning, root model filtering, and folder/model card responsive design ([86e7a43](https://github.com/metril/3d-model-manager/commit/86e7a436689d6eb936661a8eb4eb9bc4449f8ea2))
+* **slicer:** embed token in download path for OrcaSlicer and optimize viewer re-renders ([d7fb557](https://github.com/metril/3d-model-manager/commit/d7fb55768bc80c41a91db37a6af2839e69cfe0b6))
+* **web:** stable query fallbacks, shared link sanitizer, camera URL guard ([b14f94a](https://github.com/metril/3d-model-manager/commit/b14f94a505bbf3cd1c0e539229690a5ac7867aae))
+
 ## [0.3.0](https://github.com/metril/3d-model-manager/compare/v0.2.0...v0.3.0) (2026-09-13)
 
 
