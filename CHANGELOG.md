@@ -1,40 +1,6 @@
 # Changelog
 
-## [0.4.0] (2026-09-20)
-
-### Features
-
-* **printers (Moonraker & Klipper):** native integration for Klipper/Moonraker printers (including Qidi Q2 and compatible series)
-  * Real-time telemetry: nozzle/bed temperatures, layer count, print progress, subtask name, error status.
-  * Direct print job dispatch via Moonraker multipart upload API with automated start.
-  * Pause, resume, and stop controls mapped to Klipper native print commands.
-* **printers (Enclosure / Chamber Light):**
-  * Live status monitoring of enclosure light (`output_pin caselight`) with automatic polling.
-  * Dedicated endpoint `POST /api/printers/{id}/light` with toggle and explicit on/off control.
-  * Interactive light toggle in the printer status card header and camera video overlay.
-* **printers (Live Camera Feed):**
-  * Live MJPEG video stream proxy (`/api/printers/{id}/camera/stream`) and snapshot endpoint (`/api/printers/{id}/camera/snapshot`).
-  * In-app video stream player with live indicator, fullscreen toggle, stream refresh, and direct stream link.
-* **printing (Multi-Plate Sliced Projects):**
-  * Automatic multi-plate detection from `.gcode.3mf` sliced archives.
-  * "Print Plate N" direct trigger from plate cards and plate selector in the print dialog.
-  * Embedded plate g-code layer visualizer with per-plate selection.
-* **viewer (Plain G-code & Toolpath Preview):**
-  * In-browser 3D layer-by-layer simulation and toolpath visualizer for plain `.gcode` files in the model studio.
-  * Direct g-code streaming via `/api/files/{id}/download?member=gcode`.
-* **automation (OrcaSlicer & Slicers Integration):**
-  * One-click upload integration scripts for OrcaSlicer (`orcaslicer_postprocess.py`, `orcaslicer_upload.bat`).
-  * Automatic token injection into download paths for seamless external slicer imports.
-  * Automatic finish snapshot: webcam photo automatically captured on print completion (`FINISHED` state) and stored in the model revision directory.
-* **config:**
-  * Environment variable aliases `LIBRARY_DIR` and `DATA_DIR` for direct NAS and volume mappings.
-
-### Bug Fixes
-
-* **downloads:** stream plain `.gcode` files properly when requested with `member=gcode`.
-* **daemon:** robust MQTT and Moonraker reconnection handling with safe logging.
-* **lint:** ruff and oxlint compliance across all backend and frontend files.
-
+## [0.3.0](https://github.com/metril/3d-model-manager/compare/v0.2.0...v0.3.0) (2026-09-13)
 
 
 ### Features
