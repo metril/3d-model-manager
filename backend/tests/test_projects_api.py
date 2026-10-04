@@ -226,3 +226,14 @@ async def test_subprojects_and_icons(authenticated_client: httpx.AsyncClient) ->
     zip_resp = await authenticated_client.get(f"/api/projects/{parent['id']}/zip")
     assert zip_resp.status_code == 200
     assert zip_resp.headers["content-type"] == "application/zip"
+
+
+async def test_project_parent_cycle_rejected(authenticated_client: httpx.AsyncClient) -> None:
+    a = (await authenticated_client.post("/api/projects", json={"name": "Cycle A"})).json()
+    b = (
+        await authenticated_client.post(
+            "/api/projects", json={"name": "Cycle B", "parent_id": a["id"]}
+        )
+    ).json()
+    resp = await authenticated_client.patch(f"/api/projects/{a['id']}", json={"parent_id": b["id"]})
+    assert resp.status_code == 400

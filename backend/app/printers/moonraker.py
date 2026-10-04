@@ -40,6 +40,7 @@ _MOONRAKER_STATE_MAP = {
     "paused": "PAUSE",
     "complete": "FINISH",
     "error": "FAILED",
+    "cancelled": "CANCELED",
 }
 
 _GCODE_STATE_TO_JOB = {
@@ -48,6 +49,7 @@ _GCODE_STATE_TO_JOB = {
     "PAUSE": PrintJobState.PAUSED,
     "FINISH": PrintJobState.FINISHED,
     "FAILED": PrintJobState.FAILED,
+    "CANCELED": PrintJobState.CANCELED,
 }
 
 
@@ -162,6 +164,9 @@ class MoonrakerAdapter(PrinterAdapter):
 
                     if url != self.base_url:
                         self.base_url = url
+                        # The cached client is bound to the old base_url.
+                        self.close()
+                        self._client = None
 
                     detail = f"Connected to Moonraker v{moonraker_ver} (Klipper: {klipper_state})"
                     return ProbeResult(ok=True, detail=detail, gcode_state=gcode_state)
@@ -271,7 +276,7 @@ class MoonrakerAdapter(PrinterAdapter):
         cmd = f"SET_PIN PIN=caselight VALUE={val}"
         client = self._http_client(timeout=5.0)
         try:
-            client.post("/printer/gcode/script", json={"script": cmd})
+            client.post("/printer/gcode/script", json={"script": cmd}).raise_for_status()
         except Exception:
             with contextlib.suppress(Exception):
                 client.post("/printer/gcode/script", json={"script": f"M355 S{val}"})
@@ -300,7 +305,11 @@ class MoonrakerAdapter(PrinterAdapter):
     # -- send ----------------------------------------------------------
     def upload_and_start(self, spec: PrintSpec) -> None:
         """Uploads file to Moonraker and initiates print."""
-        target_name, gcode_data = extract_gcode_bytes(spec.source_path, plate=spec.plate)
+        _, gcode_data = extract_gcode_bytes(spec.source_path, plate=spec.plate)
+        # Per-job remote name; the bytes sent are always plain gcode.
+        target_name = spec.remote_name.removesuffix(".3mf")
+        if not target_name.endswith(".gcode"):
+            target_name = f"{target_name}.gcode"
         client = self._http_client(timeout=60.0)
 
         # Moonraker file upload endpoint: POST /server/files/upload
@@ -334,7 +343,12 @@ class MoonrakerAdapter(PrinterAdapter):
 
         for endpoint in candidates:
             try:
-                resp = httpx.get(f"{endpoint}/server/webcams/list", headers=headers, timeout=3.0)
+                resp = httpx.get(
+                    f"{endpoint}/server/webcams/list",
+                    headers=headers,
+                    timeout=3.0,
+                    follow_redirects=False,
+                )
                 if resp.is_success:
                     data = resp.json()
                     webcams = data.get("result", {}).get("webcams", [])
@@ -343,15 +357,22 @@ class MoonrakerAdapter(PrinterAdapter):
                             stream_rel = cam.get("stream_url") or "/webcam/?action=stream"
                             snapshot_rel = cam.get("snapshot_url") or "/webcam/?action=snapshot"
 
-                            def to_abs(url: str) -> str:
+                            def to_abs(url: str, default: str) -> str:
+                                # Webcam config is remote-controlled data: whatever
+                                # the final URL is, it must stay on the printer's host.
                                 if url.startswith(("http://", "https://")):
-                                    return url
-                                return f"http://{hostname}{url}"
+                                    result = url
+                                else:
+                                    path = url if url.startswith("/") else f"/{url}"
+                                    result = f"http://{hostname}{path}"
+                                if urlparse(result).hostname == hostname:
+                                    return result
+                                return f"http://{hostname}{default}"
 
                             return {
                                 "name": cam.get("name", "Camera"),
-                                "stream_url": to_abs(stream_rel),
-                                "snapshot_url": to_abs(snapshot_rel),
+                                "stream_url": to_abs(stream_rel, "/webcam/?action=stream"),
+                                "snapshot_url": to_abs(snapshot_rel, "/webcam/?action=snapshot"),
                                 "aspect_ratio": cam.get("aspect_ratio", "4:3"),
                             }
             except Exception:

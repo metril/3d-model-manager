@@ -20,6 +20,8 @@ from app.services import library, spool
 
 log = logging.getLogger(__name__)
 
+MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024
+
 
 def capture_and_save_finish_snapshot(
     settings: Settings,
@@ -30,16 +32,27 @@ def capture_and_save_finish_snapshot(
     """Capture camera snapshot when print finishes and attach as photo to model revision."""
     try:
         cam = adapter.get_camera_urls()
-        snapshot_url = cam.get("snapshot_url") or cam.get("stream_url")
+        snapshot_url = cam.get("snapshot_url")
         if not snapshot_url:
             return
 
-        with httpx.Client(timeout=6.0) as client:
-            resp = client.get(snapshot_url)
-            if not resp.is_success or not resp.content:
+        buf = bytearray()
+        with (
+            httpx.Client(timeout=6.0, follow_redirects=False) as client,
+            client.stream("GET", snapshot_url) as resp,
+        ):
+            if not resp.is_success:
                 log.warning("Snapshot request failed with status %s", resp.status_code)
                 return
-            img_bytes = resp.content
+            for chunk in resp.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > MAX_SNAPSHOT_BYTES:
+                    log.warning("Snapshot for job %s exceeds %d bytes", job.id, MAX_SNAPSHOT_BYTES)
+                    return
+        if not buf:
+            log.warning("Snapshot request returned an empty body")
+            return
+        img_bytes = bytes(buf)
 
         file = session.get(File, job.file_id)
         if file is None or file.revision_id is None:
@@ -67,10 +80,13 @@ def capture_and_save_finish_snapshot(
             size=len(img_bytes),
             rel_path=rel_name,
             kind=BlobKind.IMAGE,
-            format_=BlobFormat.JPEG,
+            format_=BlobFormat.JPG,
         )
 
-        library.store_imported_file_sync(session, model=model, revision=revision, staged=staged)
+        # Savepoint: a failed store rolls back only itself, not the caller's
+        # pending job-state update.
+        with session.begin_nested():
+            library.store_imported_file_sync(session, model=model, revision=revision, staged=staged)
         log.info("Captured finish snapshot for job %s: saved as %s", job.id, rel_name)
     except Exception as exc:
         log.warning("Could not capture finish snapshot for job %s: %s", job.id, exc)

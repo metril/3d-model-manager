@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import uuid
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,7 +18,7 @@ from app.api.deps import get_storage_backend
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind, DerivativeKind, DerivativeStatus
-from app.models.library import Blob, File, Model, Revision
+from app.models.library import Blob, File, Model, Project, Revision
 from app.models.processing import Derivative
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
@@ -402,6 +403,7 @@ async def explode_plates(
         )
 
     # Ensure project exists
+    attached_new_project = model.project_id is None
     if model.project_id is None:
         proj = await projects_service.create_project(
             db,
@@ -421,6 +423,7 @@ async def explode_plates(
         project_id = proj.id
 
     created_models: list[Model] = []
+    copied_keys: list[str] = []
     for plate in plates:
         idx = plate.get("index", 1)
         p_name = plate.get("name") or f"Plateau {idx}"
@@ -450,7 +453,7 @@ async def explode_plates(
         cover_hash = None
         plate_thumb_path = derivatives.plate_thumb_path(settings, target_blob.hash, idx)
         if plate_thumb_path.is_file():
-            png_bytes = plate_thumb_path.read_bytes()
+            png_bytes = await anyio.to_thread.run_sync(plate_thumb_path.read_bytes)
             cover_hash = hashlib.sha256(png_bytes).hexdigest()
 
             # Ensure Blob exists
@@ -474,7 +477,7 @@ async def explode_plates(
             deriv_path = derivatives.derivative_path(settings, cover_hash, DerivativeKind.THUMB_256)
             deriv_path.parent.mkdir(parents=True, exist_ok=True)
             if not deriv_path.is_file():
-                deriv_path.write_bytes(png_bytes)
+                await anyio.to_thread.run_sync(deriv_path.write_bytes, png_bytes)
 
             if deriv is None:
                 deriv = Derivative(
@@ -506,14 +509,45 @@ async def explode_plates(
                 layout.revision_dir_name(1, "initial"),
                 target_file.rel_path,
             )
+            copied_keys.append(dest_storage_path)
             try:
                 await anyio.to_thread.run_sync(
                     lambda src=target_file.storage_path, dst=dest_storage_path: backend.copy(
                         src, dst
                     )
                 )
-            except Exception:
-                dest_storage_path = target_file.storage_path
+            except Exception as exc:
+                # Best-effort cleanup: copied bytes (incl. the failed key) and
+                # the project this call auto-created if it is still empty.
+                await db.rollback()
+                for key in copied_keys:
+                    with contextlib.suppress(Exception):
+                        await anyio.to_thread.run_sync(lambda k=key: backend.delete(k))
+                try:
+                    if attached_new_project:
+                        await db.execute(
+                            update(Model)
+                            .where(Model.id == model.id, Model.project_id == proj.id)
+                            .values(project_id=None)
+                        )
+                    has_models = await db.scalar(
+                        select(func.count()).select_from(Model).where(Model.project_id == proj.id)
+                    )
+                    has_children = await db.scalar(
+                        select(func.count())
+                        .select_from(Project)
+                        .where(Project.parent_id == proj.id)
+                    )
+                    if not has_models and not has_children:
+                        await projects_service.delete_project(db, proj.id)
+                except Exception:
+                    await db.rollback()
+                # Never share storage_path between File rows: deleting one
+                # model would remove the other's bytes.
+                raise HTTPException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    f"Failed to copy plate file '{target_file.rel_path}'",
+                ) from exc
 
             file_row = File(
                 revision_id=child.current_revision_id,

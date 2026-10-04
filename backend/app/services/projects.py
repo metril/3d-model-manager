@@ -179,6 +179,21 @@ async def update_project(
                 raise HTTPException(
                     status.HTTP_404_NOT_FOUND, f"parent project {new_parent_id} not found"
                 )
+            # Walk the new parent's ancestors: project_id among them is a cycle.
+            seen: set[int] = set()
+            ancestor: Project | None = parent
+            while ancestor is not None and ancestor.id not in seen:
+                if ancestor.id == project_id:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        "A project cannot be moved under one of its own descendants",
+                    )
+                seen.add(ancestor.id)
+                ancestor = (
+                    await db.get(Project, ancestor.parent_id)
+                    if ancestor.parent_id is not None
+                    else None
+                )
         project.parent_id = new_parent_id  # type: ignore[assignment]
 
     try:

@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { usePatchModel } from "@/api/library";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InlineEdit } from "@/components/InlineEdit";
@@ -11,6 +13,10 @@ import type { ModelDetail } from "@/api/types";
  * `TagEditor`. */
 export function DescriptionCard({ model, editMode }: { model: ModelDetail; editMode: boolean }) {
   const patchModel = usePatchModel(model.slug);
+  const descriptionHtml = useMemo(
+    () => (model.description ? renderMarkdown(model.description) : ""),
+    [model.description],
+  );
 
   return (
     <Card>
@@ -30,7 +36,7 @@ export function DescriptionCard({ model, editMode }: { model: ModelDetail; editM
         ) : model.description ? (
           <div
             className={cn("text-muted-foreground", MARKDOWN_CLASSNAME)}
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(model.description) }}
+            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
           />
         ) : (
           <p className="text-sm text-muted-foreground">No description yet.</p>

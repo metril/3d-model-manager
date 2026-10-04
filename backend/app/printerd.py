@@ -96,6 +96,7 @@ class PrinterWorker:
         new_state = self.adapter.job_state(public)
         if new_state is None:
             return
+        created = False
         with base.sync_session() as session:
             job = self._active_job(session)
             if job is None:
@@ -105,6 +106,7 @@ class PrinterWorker:
                     PrintJobState.PAUSED,
                 )
                 if new_state in active_states:
+                    created = True
                     matched_file = None
                     if public.subtask_name:
                         matched_file = (
@@ -112,17 +114,16 @@ class PrinterWorker:
                                 select(File)
                                 .where(
                                     (File.rel_path == public.subtask_name)
-                                    | File.storage_path.like(f"%{public.subtask_name}")
+                                    | File.storage_path.endswith(
+                                        "/" + public.subtask_name, autoescape=True
+                                    )
                                 )
                                 .order_by(File.id.desc())
                             )
                             .scalars()
                             .first()
                         )
-                    if matched_file is None:
-                        matched_file = (
-                            session.execute(select(File).order_by(File.id.desc())).scalars().first()
-                        )
+                    # No match -> no job: never credit an unrelated library file.
 
                     if matched_file is not None:
                         job = PrintJob(
@@ -130,14 +131,15 @@ class PrinterWorker:
                             file_id=matched_file.id,
                             subtask_name=public.subtask_name or matched_file.rel_path,
                             state=new_state.value,
-                            started_at=datetime.now(UTC),
                         )
                         session.add(job)
                         session.flush()
                 else:
                     return
 
-            if job is None or job.state == new_state.value:
+            # A job created above already carries ``new_state``; it must still
+            # fall through so its fields are populated and the session commits.
+            if job is None or (not created and job.state == new_state.value):
                 return
             job.state = new_state.value
             job.progress_pct = public.mc_percent

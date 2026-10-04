@@ -105,6 +105,10 @@ def stream_remote_to_spool(
                         continue
                     hasher.update(chunk)
                     size += len(chunk)
+                    if size > settings.max_download_bytes:
+                        raise ValueError(
+                            f"remote file {rel_path!r} exceeds {settings.max_download_bytes} bytes"
+                        )
                     fh.write(chunk)
     except BaseException:
         path.unlink(missing_ok=True)  # never orphan a spool file on a failed stream

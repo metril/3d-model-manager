@@ -5,7 +5,7 @@
  * hard-code the user's app address), and offers a "Test connection" ping.
  */
 
-import { getConfig, setConfig } from "./config.js";
+import { getConfig, hashResetPatch, setConfig } from "./config.js";
 import { createClient } from "./api.js";
 
 const baseUrlInput = document.getElementById("app-base-url");
@@ -71,7 +71,9 @@ saveButton.addEventListener("click", async () => {
       );
       return;
     }
+    const prev = await getConfig();
     await setConfig({
+      ...hashResetPatch(prev, { appBaseUrl: baseUrl, apiToken: token }),
       appBaseUrl: baseUrl,
       apiToken: token,
       autoCourier: autoCourierInput.checked,

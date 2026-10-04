@@ -239,10 +239,22 @@ async def _get_project_tree(db: AsyncSession, root_project: Project) -> list[tup
 
     results: list[tuple[Project, str]] = []
 
+    seen: set[int] = set()
+
     def _traverse(proj: Project, current_prefix: str) -> None:
+        if proj.id in seen:
+            return
+        seen.add(proj.id)
         results.append((proj, current_prefix))
+        used_segments: set[str] = set()
         for child in by_parent.get(proj.id, []):
             child_seg = _safe_path_segment(child.name, fallback=f"project-{child.id}")
+            if child_seg in used_segments:
+                n = 2
+                while f"{child_seg} ({n})" in used_segments:
+                    n += 1
+                child_seg = f"{child_seg} ({n})"
+            used_segments.add(child_seg)
             _traverse(child, f"{current_prefix}/{child_seg}")
 
     root_seg = _safe_path_segment(root_project.name, fallback=f"project-{root_project.id}")

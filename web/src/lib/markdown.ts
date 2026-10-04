@@ -2,7 +2,7 @@
  * Tiny markdown renderer for notes (Task 8 decision: `marked` + DOMPurify
  * sanitize, no larger markdown/editor dependency).
  */
-import DOMPurify from "dompurify";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { marked } from "marked";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -10,7 +10,7 @@ marked.setOptions({ gfm: true, breaks: true });
 /** Render markdown to sanitized HTML safe to drop into `dangerouslySetInnerHTML`. */
 export function renderMarkdown(source: string): string {
   const html = marked.parse(source, { async: false });
-  return DOMPurify.sanitize(html);
+  return sanitizeHtml(html);
 }
 
 /** Utility classes giving rendered markdown reasonable typography without

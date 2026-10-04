@@ -8,16 +8,15 @@
     "storage",
     "alarms",
     "contextMenus",
-    "activeTab",
     "scripting"
   ],
   "host_permissions": [
-    "*://makerworld.com/*",
-    "*://www.makerworld.com/*",
-    "*://thingiverse.com/*",
-    "*://www.thingiverse.com/*",
-    "*://printables.com/*",
-    "*://www.printables.com/*"
+    "https://makerworld.com/*",
+    "https://www.makerworld.com/*",
+    "https://thingiverse.com/*",
+    "https://www.thingiverse.com/*",
+    "https://printables.com/*",
+    "https://www.printables.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

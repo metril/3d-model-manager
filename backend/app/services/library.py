@@ -399,11 +399,13 @@ def store_imported_file_sync(
         blob = Blob(
             hash=staged.blob_hash, size=staged.size, kind=staged.kind, format=staged.format_
         )
-        session.add(blob)
         try:
-            session.flush()
+            # Savepoint: a duplicate-blob failure rolls back only the insert,
+            # never the caller's pending (possibly nested) transaction state.
+            with session.begin_nested():
+                session.add(blob)
+                session.flush()
         except IntegrityError:
-            session.rollback()
             blob = session.get(Blob, staged.blob_hash)  # concurrent insert of same content
     elif blob.format == BlobFormat.OTHER and staged.format_ != BlobFormat.OTHER:
         # Same bytes landed before under a name `infer_blob_kind_format`
@@ -699,6 +701,7 @@ async def merge_models(
     )
     existing_paths = {f.rel_path: f for f in target_files}
 
+    copied_keys: list[str] = []
     for source in sources:
         if source.id == target.id:
             continue
@@ -732,8 +735,17 @@ async def merge_models(
                 await anyio.to_thread.run_sync(
                     lambda src=sf.storage_path, dst=dest_storage_key: backend.copy(src, dst)
                 )
-            except Exception:
-                dest_storage_key = sf.storage_path
+                copied_keys.append(dest_storage_key)
+            except Exception as exc:
+                for key in copied_keys:
+                    with contextlib.suppress(Exception):
+                        await anyio.to_thread.run_sync(lambda k=key: backend.delete(k))
+                # Never fall back to the source's storage_path: the source is
+                # hard-deleted below and would take the target's bytes with it.
+                raise HTTPException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    f"Failed to copy '{sf.rel_path}' to the target model",
+                ) from exc
 
             new_file = File(
                 revision_id=target_rev.id,

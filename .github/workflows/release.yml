@@ -37,13 +37,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/floriangeoffr/3d-model-manager
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
   UV_VERSION: "0.11.29"
-
-permissions:
-  contents: write
-  packages: write
-  pull-requests: write
 
 jobs:
   release-please:
@@ -61,17 +56,126 @@ jobs:
     steps:
       - id: rp
         uses: googleapis/release-please-action@v4
-        continue-on-error: true
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Config lives in release-please-config.json +
           # .release-please-manifest.json at the repo root (default locations).
 
+  # ---- Gates -------------------------------------------------------------
+  # Copies of ci.yml's jobs. ci.yml is pull_request-only, so these do not
+  # duplicate work -- they are what stops a red main from publishing :edge.
+
+  backend-lint:
+    name: Backend lint (ruff)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install "uv==${{ env.UV_VERSION }}"
+      - working-directory: backend
+        run: uv run ruff check .
+      - working-directory: backend
+        run: uv run ruff format --check .
+
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"   # for scripts/fetch-gltfpack.sh, see ci.yml
+      - run: pip install "uv==${{ env.UV_VERSION }}"
+      - name: Fetch gltfpack
+        run: scripts/fetch-gltfpack.sh
+      - name: Install f3d's GL runtime (OSMesa software rendering)
+        # Without this, render.py's EGL fallback segfaults the pytest process
+        # (exit 139) instead of failing a test -- see ci.yml for the full why.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libosmesa6 libgl1-mesa-dri libgl1
+          so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
+          if [ -z "$so" ]; then
+            echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.*"
+            exit 1
+          fi
+          sudo ln -sf "$so" "$(dirname "$so")/libOSMesa.so"
+          sudo ldconfig
+      - name: Verify f3d can render headless
+        working-directory: backend
+        run: |
+          uv run python -c "
+          import f3d
+          f3d.Engine.autoload_plugins()
+          engine = f3d.Engine.create_osmesa()
+          engine.window.size = (64, 64)
+          engine.window.render_to_image(False)
+          print('f3d OSMesa engine OK')
+          "
+      - name: Pre-pull testcontainer images
+        run: |
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+          docker pull bitnamilegacy/minio:2025.5.24
+      - name: pytest
+        working-directory: backend
+        # See ci.yml for why the full `-m` expression is repeated verbatim.
+        run: uv run pytest -q -m 'not e2e and not live_importer and not perf'
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: npm ci
+      - name: oxlint (baseline-gated)
+        working-directory: web
+        # Keep OXLINT_BASELINE in step with ci.yml's copy.
+        env:
+          OXLINT_BASELINE: "14"
+        run: npx oxlint --max-warnings="$OXLINT_BASELINE"
+      - working-directory: web
+        run: npm run build
+      - working-directory: web
+        run: npm run test
+
+  extension:
+    name: Extension tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      # Glob form -- the bare-directory form is broken on Node 24.
+      - run: node --test extension/test/*.test.js
+
   # ---- Build -------------------------------------------------------------
 
   build:
     name: Build ${{ matrix.arch }}
-    needs: [release-please]
+    needs: [release-please, backend-lint, backend-test, web, extension]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read     # checkout only
@@ -218,7 +322,7 @@ jobs:
           tags: |
             type=raw,value=edge,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ needs.release-please.outputs.release_created == 'true' }}
             type=raw,value=${{ needs.release-please.outputs.version }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
             type=raw,value=${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
             type=raw,value=${{ needs.release-please.outputs.major }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
@@ -319,9 +423,9 @@ jobs:
             ## Container images
 
             ```
-            docker pull ${{ env.IMAGE_NAME }}:${{ needs.release-please.outputs.tag_name }}
-            docker pull ${{ env.IMAGE_NAME }}:${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}
-            docker pull ${{ env.IMAGE_NAME }}:latest
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.release-please.outputs.tag_name }}
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}
+            docker pull ghcr.io/${{ github.repository }}:latest
             ```
 
             `linux/amd64`. One image serves every app service (`api`,
