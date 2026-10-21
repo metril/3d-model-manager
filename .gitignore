@@ -28,3 +28,7 @@ slicer-watch/
 .idea/
 .vscode/
 .DS_Store
+
+# Playwright MCP / ad-hoc screenshots
+.playwright-mcp/
+/*.png
