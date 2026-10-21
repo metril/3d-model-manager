@@ -33,12 +33,17 @@ import pytest
 import smbclient
 from botocore.client import Config as BotoConfig
 from testcontainers.core.container import DockerContainer
-from testcontainers.core.wait_strategies import LogMessageWaitStrategy
-from testcontainers.minio import MinioContainer
+from testcontainers.core.wait_strategies import HttpWaitStrategy, LogMessageWaitStrategy
 
 from app.storage.config import S3Config, SmbConfig
 
-MINIO_IMAGE = "quay.io/minio/minio:latest"
+# MinIO's own images are gone: Docker Hub ``minio/minio`` no longer exists and
+# ``quay.io/minio/minio`` now refuses anonymous pulls. Bitnami's frozen legacy
+# build is a stock MinIO server that is still publicly served, so the S3
+# contract keeps running against real MinIO. Keep CI's pre-pull step in sync.
+MINIO_IMAGE = "bitnamilegacy/minio:2025.5.24"
+MINIO_PORT = 9000
+MINIO_ACCESS_KEY, MINIO_SECRET_KEY = "minioadmin", "minioadmin"
 
 SMB_USER, SMB_PASS, SMB_SHARE = "tdmm", "tdmm-pass", "library"
 
@@ -69,17 +74,37 @@ def samba_container() -> Iterator[DockerContainer]:
 
 
 @pytest.fixture(scope="session")
-def minio_container() -> Iterator[MinioContainer]:
+def minio_container() -> Iterator[DockerContainer]:
     """One real MinIO container for the whole test session.
 
     Only started when a test actually requests ``s3_backend`` (directly, or
     transitively once Task 4 wires ``storage_backend``'s ``s3`` param to
-    it).
+    it). A plain ``DockerContainer`` rather than testcontainers'
+    ``MinioContainer``: the Bitnami image has its own entrypoint, so the
+    ``server /data`` command override the helper injects must not be sent.
     """
-    # Docker Hub stopped serving ``minio/minio`` (testcontainers' default);
-    # the image now lives on Quay only. Keep CI's pre-pull step in sync.
-    with MinioContainer(image=MINIO_IMAGE) as container:
+    ready = HttpWaitStrategy(MINIO_PORT, "/minio/health/live")
+    container = (
+        DockerContainer(MINIO_IMAGE, _wait_strategy=ready)
+        .with_exposed_ports(MINIO_PORT)
+        .with_env("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
+        .with_env("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
+    )
+    with container:
         yield container
+
+
+def _minio_config(container: DockerContainer) -> dict[str, str]:
+    """``{"endpoint", "access_key", "secret_key"}`` for the running container
+    (the shape testcontainers' ``MinioContainer.get_config`` used to return).
+    """
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(MINIO_PORT)
+    return {
+        "endpoint": f"{host}:{port}",
+        "access_key": MINIO_ACCESS_KEY,
+        "secret_key": MINIO_SECRET_KEY,
+    }
 
 
 @pytest.fixture
@@ -108,13 +133,13 @@ def smb_backend(samba_container: DockerContainer) -> Iterator[object]:
 
 
 @pytest.fixture
-def s3_backend(minio_container: MinioContainer) -> Iterator[object]:
+def s3_backend(minio_container: DockerContainer) -> Iterator[object]:
     """A fresh, empty ``S3StorageBackend`` against a freshly created bucket
     on the shared ``minio_container`` (Task 4 consumes this).
     """
     from app.storage.s3 import S3StorageBackend
 
-    conn = minio_container.get_config()  # {"endpoint", "access_key", "secret_key"}
+    conn = _minio_config(minio_container)
     endpoint = f"http://{conn['endpoint']}"
     bucket = f"tdmm-{uuid.uuid4().hex}"
     client = boto3.client(
