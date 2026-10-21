@@ -41,7 +41,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { chunkIntoRows, columnsForWidth, estimateListRowHeight, estimateRowHeight } from "@/lib/grid";
 import { useDebouncedValue } from "@/lib/format";
-import { BLOB_FORMATS, type BlobFormat, type ModelSummary } from "@/api/types";
+import {
+  BLOB_FORMATS,
+  type BlobFormat,
+  type CategoryOut,
+  type FollowedCollection,
+  type ModelSummary,
+} from "@/api/types";
 import { FORMAT_LABELS } from "@/lib/formatMeta";
 import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
@@ -53,6 +59,10 @@ const SORT_OPTIONS = [
   { value: "-print_count", label: "Most printed" },
   { value: "name", label: "Name" },
 ] as const;
+
+// Stable fallbacks so `data ?? []` does not hand `useMemo` deps a fresh array every render.
+const EMPTY_COLLECTIONS: FollowedCollection[] = [];
+const EMPTY_CATEGORIES: CategoryOut[] = [];
 
 type ViewMode = "grid" | "list" | "folders";
 const VIEW_MODE_KEY = "library-view";
@@ -225,10 +235,10 @@ export function LibraryPage() {
 
   const tagsQuery = useTags();
   const collectionsQuery = useFollowedCollections();
-  const collections = collectionsQuery.data ?? [];
+  const collections = collectionsQuery.data ?? EMPTY_COLLECTIONS;
   const activeCollectionTitle = collections.find((collection) => collection.id === activeCollection)?.title;
   const categoriesQuery = useCategories();
-  const categories = categoriesQuery.data ?? [];
+  const categories = categoriesQuery.data ?? EMPTY_CATEGORIES;
 
   const filters = useMemo(
     () => ({
@@ -256,11 +266,12 @@ export function LibraryPage() {
   );
 
   const modelsQuery = useModelsQuery(filters);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = modelsQuery;
   const items = useMemo(
     () => modelsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [modelsQuery.data],
   );
-  const selectedItems = items.filter((model) => selectedIds.has(model.id));
+  const selectedItems = useMemo(() => items.filter((model) => selectedIds.has(model.id)), [items, selectedIds]);
 
   function selectAll() {
     setSelectedIds(new Set(items.map((model) => model.id)));
@@ -383,10 +394,10 @@ export function LibraryPage() {
   useEffect(() => {
     const lastVisible = virtualRows.at(-1);
     if (!lastVisible) return;
-    if (lastVisible.index >= rows.length - 1 && modelsQuery.hasNextPage && !modelsQuery.isFetchingNextPage) {
-      void modelsQuery.fetchNextPage();
+    if (lastVisible.index >= rows.length - 1 && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
     }
-  }, [virtualRows, rows.length, modelsQuery]);
+  }, [virtualRows, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const isEmpty = !modelsQuery.isLoading && items.length === 0;
   const tags = tagsQuery.data ?? [];
