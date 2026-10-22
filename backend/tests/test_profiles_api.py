@@ -287,6 +287,63 @@ async def test_import_path_admin_ok(authenticated_client: httpx.AsyncClient, tmp
     assert r.json()["created"] > 0
 
 
+async def test_import_multipart_over_size_cap_is_413(
+    authenticated_client: httpx.AsyncClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    import app.api.profiles as profiles_api
+
+    monkeypatch.setattr(profiles_api, "_MAX_UPLOAD_BYTES", 10)
+    zip_path = write_bundle_zip(tmp_path / "bundle.zip", tmp_path / "tree")
+    files = {"bundle": ("bundle.zip", zip_path.read_bytes(), "application/zip")}
+    r = await authenticated_client.post("/api/profiles/import", files=files)
+    assert r.status_code == 413
+
+
+async def test_import_zip_too_many_members_is_422(
+    authenticated_client: httpx.AsyncClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    from app.services import slicer_profiles
+
+    monkeypatch.setattr(slicer_profiles, "_MAX_ZIP_MEMBERS", 2)
+    zip_path = write_bundle_zip(tmp_path / "bundle.zip", tmp_path / "tree")
+    files = {"bundle": ("bundle.zip", zip_path.read_bytes(), "application/zip")}
+    r = await authenticated_client.post("/api/profiles/import", files=files)
+    assert r.status_code == 422
+
+
+async def test_import_zip_uncompressed_too_large_is_422(
+    authenticated_client: httpx.AsyncClient, tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    from app.services import slicer_profiles
+
+    monkeypatch.setattr(slicer_profiles, "_MAX_ZIP_UNCOMPRESSED_BYTES", 4)
+    zip_path = write_bundle_zip(tmp_path / "bundle.zip", tmp_path / "tree")
+    files = {"bundle": ("bundle.zip", zip_path.read_bytes(), "application/zip")}
+    r = await authenticated_client.post("/api/profiles/import", files=files)
+    assert r.status_code == 422
+
+
+async def test_import_malformed_json_body_is_422(authenticated_client: httpx.AsyncClient):
+    r = await authenticated_client.post(
+        "/api/profiles/import",
+        content=b"{not valid json",
+        headers={"content-type": "application/json"},
+    )
+    assert r.status_code == 422
+
+
+async def test_import_path_malformed_preset_json_is_422(
+    authenticated_client: httpx.AsyncClient, tmp_path
+):
+    root = tmp_path / "broken-bundle"
+    (root / "machine").mkdir(parents=True)
+    (root / "BBL.json").write_text('{"name": "BBL"}')
+    (root / "machine" / "broken.json").write_text("{not valid json")
+
+    r = await authenticated_client.post("/api/profiles/import", json={"path": str(root)})
+    assert r.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Sidecar health
 # ---------------------------------------------------------------------------
@@ -336,3 +393,34 @@ async def test_health_down(
     assert body["configured"] is True
     assert body["ok"] is False
     assert body["error"]
+
+
+async def test_health_non_object_body_is_502(
+    authenticated_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """M4: a 2xx body that isn't even a JSON object (here, a bare list) is
+    a protocol violation, not a plain "unhealthy" report -- 502, not a 200
+    with `ok: false`."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+    try:
+        with respx.mock:
+            respx.get("http://slicer:3001/health").mock(
+                return_value=httpx.Response(200, json=[1, 2, 3])
+            )
+            r = await authenticated_client.get("/api/slicer/health")
+    finally:
+        get_settings.cache_clear()
+    assert r.status_code == 502
+
+
+async def test_profile_create_source_is_builtin(authenticated_client: httpx.AsyncClient):
+    """M7: hand-entered profiles are tagged `source: builtin` (renamed
+    from `manual` to match the spec's own wording)."""
+    r = await authenticated_client.post(
+        "/api/profiles", json={"name": "Hand entered", "kind": "process", "data": {}}
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["source"] == "builtin"

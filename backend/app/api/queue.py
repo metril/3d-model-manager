@@ -105,8 +105,12 @@ async def move_entry(
     payload: QueueReorderIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[QueueEntryOut]:
     """Reorder the queue, returning the whole updated (ordered) list -- the
     UI re-renders the whole thing on any reorder.
     """
-    return await queue_service.move_entry(db, settings, entry_id, payload.position)
+    entry = await db.get(PrintQueueEntry, entry_id)
+    if entry is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, entry.created_by_user_id)
+    return await queue_service.move_entry(db, settings, entry_id, payload.position, ctx)

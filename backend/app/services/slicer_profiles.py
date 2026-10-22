@@ -38,6 +38,13 @@ _KIND_BY_DIR = {
     "filament": ProfileKind.FILAMENT,
 }
 
+# I7: a hostile/corrupt zip could otherwise either exhaust disk via a huge
+# uncompressed payload (a "zip bomb") or exhaust inodes/time via an absurd
+# member count -- both checked BEFORE `extractall`, off the archive's own
+# directory (no decompression needed to read `file_size`/count members).
+_MAX_ZIP_MEMBERS = 5000
+_MAX_ZIP_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
+
 
 class ProfileImportError(ValueError):
     """The bundle is malformed: a broken `inherits` chain (missing parent or
@@ -80,7 +87,10 @@ def _load_folder(root: Path, dirname: str) -> dict[str, dict]:
     if not folder.is_dir():
         return by_name
     for path in sorted(folder.glob("*.json")):
-        raw = json.loads(path.read_text())
+        try:
+            raw = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            raise ProfileImportError(f"{path.name!r} is not valid JSON: {exc}") from exc
         name = raw.get("name", path.stem)
         by_name[name] = raw
     return by_name
@@ -124,7 +134,18 @@ def _compatible_printer_model_and_nozzle(
 
 def _extract_zip(zip_path: Path, dest: Path) -> None:
     with zipfile.ZipFile(zip_path) as zf:
-        for member in zf.infolist():
+        infolist = zf.infolist()
+        if len(infolist) > _MAX_ZIP_MEMBERS:
+            raise ProfileImportError(
+                f"zip has too many members ({len(infolist)} > {_MAX_ZIP_MEMBERS})"
+            )
+        total_size = sum(member.file_size for member in infolist)
+        if total_size > _MAX_ZIP_UNCOMPRESSED_BYTES:
+            raise ProfileImportError(
+                f"zip's uncompressed contents are too large "
+                f"({total_size} > {_MAX_ZIP_UNCOMPRESSED_BYTES} bytes)"
+            )
+        for member in infolist:
             name = member.filename
             dest_resolved = dest.resolve()
             member_path = (dest / name).resolve()
@@ -143,16 +164,21 @@ def _extract_zip(zip_path: Path, dest: Path) -> None:
 
 
 def parse_bundle(root: Path, printer_model: str | None = None) -> list[ParsedProfile]:
-    """Parses a BBL bundle (directory, or a zip -- extracted to a tempdir)
-    into one `ParsedProfile` per instantiable preset. `printer_model`, when
-    given, keeps only machine presets of that model plus process/filament
-    presets compatible with at least one of them."""
+    """Parses a BBL bundle (directory, or a zip -- extracted to a tempdir
+    that's always cleaned up afterwards, I7) into one `ParsedProfile` per
+    instantiable preset. `printer_model`, when given, keeps only machine
+    presets of that model plus process/filament presets compatible with at
+    least one of them."""
     root = Path(root)
     if root.is_file():
-        tmp_dir = Path(tempfile.mkdtemp(prefix="slicer-bundle-"))
-        _extract_zip(root, tmp_dir)
-        root = tmp_dir
+        with tempfile.TemporaryDirectory(prefix="slicer-bundle-") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            _extract_zip(root, tmp_path)
+            return _parse_bundle_dir(tmp_path, printer_model)
+    return _parse_bundle_dir(root, printer_model)
 
+
+def _parse_bundle_dir(root: Path, printer_model: str | None) -> list[ParsedProfile]:
     machines_by_name = _load_folder(root, "machine")
     processes_by_name = _load_folder(root, "process")
     filaments_by_name = _load_folder(root, "filament")

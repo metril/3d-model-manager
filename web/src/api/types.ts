@@ -1549,7 +1549,7 @@ export type OidcProviderPatchIn = Partial<OidcProviderCreateIn>;
 // slicing.py, P6 "slicer, profiles and dispatch" plan) -------------------
 
 export type ProfileKind = "printer" | "process" | "filament";
-export type ProfileSource = "import" | "manual";
+export type ProfileSource = "import" | "builtin";
 export type Fanout = "single" | "spread" | "first_n";
 
 export interface SlicerProfile {

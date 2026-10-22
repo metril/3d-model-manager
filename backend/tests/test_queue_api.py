@@ -152,6 +152,46 @@ async def test_patch_position_clamps_to_valid_range(
     assert [e["model_id"] for e in too_low.json()] == [models[0]["id"], models[1]["id"]]
 
 
+async def test_patch_position_member_cannot_move_another_users_entry(
+    authenticated_client: httpx.AsyncClient,
+    make_user,
+    make_group,
+    login_as,
+) -> None:
+    """I8: `PATCH /queue/{id}` applies the same owner-or-admin check as
+    DELETE/retry -- a member with `printers:print` can still move their OWN
+    entries, but not one created by someone else."""
+    model = await _create_model(authenticated_client, "Owner Check")
+    entry = (await authenticated_client.post("/api/queue", json={"model_id": model["id"]})).json()
+
+    member = await make_user("member")
+    await make_group("owner-check-folks", permissions=["printers:print"], members=[member])
+    client = await login_as(member)
+
+    r = await client.patch(f"/api/queue/{entry['id']}", json={"position": 1})
+    assert r.status_code == 403
+
+
+async def test_patch_position_member_can_move_own_entry(
+    authenticated_client: httpx.AsyncClient,
+    make_user,
+    make_group,
+    login_as,
+) -> None:
+    member = await make_user("member")
+    await make_group("own-entry-folks", permissions=["printers:print"], members=[member])
+    client = await login_as(member)
+
+    model_a = await _create_model(authenticated_client, "Own Entry A")
+    model_b = await _create_model(authenticated_client, "Own Entry B")
+    entry_a = (await client.post("/api/queue", json={"model_id": model_a["id"]})).json()
+    await client.post("/api/queue", json={"model_id": model_b["id"]})
+
+    r = await client.patch(f"/api/queue/{entry_a['id']}", json={"position": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["model_id"] == model_a["id"]
+
+
 async def test_patch_unknown_entry_is_404(authenticated_client: httpx.AsyncClient) -> None:
     response = await authenticated_client.patch("/api/queue/999999", json={"position": 1})
 

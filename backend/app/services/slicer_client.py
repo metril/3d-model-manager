@@ -17,14 +17,18 @@ no sync step.
 
 from __future__ import annotations
 
+import logging
 import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from app.services.app_config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 # The ONLY place that knows this image's actual paths. Unverified against a
 # live instance -- update here (and nowhere else) once confirmed.
@@ -36,6 +40,10 @@ _ENDPOINTS = {
 
 _DEFAULT_TIMEOUT = 120.0
 _DEFAULT_SLICE_TIMEOUT_S = 600.0
+# M5: a well-behaved sidecar's gcode.3mf is a few hundred MB at most -- this
+# stops a misbehaving/compromised one from handing back something that
+# blows up worker memory/disk.
+_MAX_SLICE_RESPONSE_BYTES = 100 * 1024 * 1024
 
 
 class SlicerError(Exception):
@@ -47,6 +55,13 @@ class SlicerUnavailable(SlicerError):
     """Could not reach the sidecar at all (connection refused/timeout)."""
 
 
+class SlicerProtocolError(SlicerError):
+    """The sidecar responded 2xx, but with a body shape this client can't
+    make sense of at all (M4: e.g. `/health`'s body isn't even a JSON
+    object) -- distinct from a well-formed-but-unhealthy report, which
+    stays a normal `ok=False` result rather than an error."""
+
+
 @dataclass(frozen=True)
 class SliceOptions:
     auto_orient: bool = False
@@ -54,10 +69,14 @@ class SliceOptions:
     plate: int | None = None
 
 
-def _parse_health(data: dict) -> dict:
+def _parse_health(data: Any) -> dict:
     """Image-specific: pulls a version string out of whatever shape the
     health payload turns out to have, tolerating a couple of plausible key
-    names since this is unverified."""
+    names since this is unverified. M4: a body that isn't even a JSON
+    object at all (list/string/number) can't be tolerated the same way --
+    raises `SlicerProtocolError` instead of blowing up on `.get`."""
+    if not isinstance(data, dict):
+        raise SlicerProtocolError(f"slicer health returned a non-object body: {data!r}")
     version = data.get("version") or data.get("app_version") or ""
     status = data.get("status") or data.get("state")
     ok = bool(data.get("ok", True)) and (status in (None, "ok", "healthy", "up"))
@@ -139,9 +158,14 @@ class SlicerClient:
             # consume an attempt, unlike a plain connection failure.
             raise SlicerError(f"slicer request to {path!r} failed: {exc}") from exc
         if response.status_code >= 400:
-            raise SlicerError(
-                f"slicer returned {response.status_code} for {path!r}: {response.text[:200]}"
+            # M5: the sidecar's error body can be arbitrarily large or
+            # contain anything -- log it (server-side only) and never put
+            # it in the exception message, which can surface all the way
+            # out to a queue entry's `last_error`/an API response.
+            logger.warning(
+                "slicer returned %s for %r: %s", response.status_code, path, response.text[:2000]
             )
+            raise SlicerError(f"slicer returned {response.status_code} for {path!r}")
         return response
 
     def health(self) -> dict:
@@ -192,6 +216,11 @@ class SlicerClient:
             "POST", _ENDPOINTS["slice"], timeout=self._slice_timeout_s, **request_kwargs
         )
         content = response.content
+        if len(content) > _MAX_SLICE_RESPONSE_BYTES:
+            raise SlicerError(
+                f"slicer response exceeds the {_MAX_SLICE_RESPONSE_BYTES} byte limit "
+                f"({len(content)} bytes)"
+            )
         if not zipfile.is_zipfile(BytesIO(content)):
             raise SlicerError("slicer response body is not a valid .gcode.3mf archive")
         return content

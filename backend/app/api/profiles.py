@@ -10,6 +10,7 @@ intake) and would otherwise make this endpoint carry the wrong auth plane.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -35,8 +36,13 @@ from app.schemas.slicing import (
     SlicerHealthOut,
 )
 from app.services.app_config import get_app_config
-from app.services.slicer_client import SlicerError, client_from_config
+from app.services.slicer_client import SlicerError, SlicerProtocolError, client_from_config
 from app.services.slicer_profiles import ProfileImportError, parse_bundle, upsert_profiles
+
+# I7: a hand-entered or scripted bundle upload shouldn't be able to exhaust
+# worker memory/disk -- a legitimate Bambu Studio BBL export is a few MB at
+# most.
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 router = APIRouter(tags=["profiles"])
 slicer_status_router = APIRouter(prefix="/slicer", tags=["slicer"])
@@ -115,7 +121,7 @@ async def create_profile(
         printer_model=payload.printer_model,
         nozzle_mm=payload.nozzle_mm,
         data=payload.data,
-        source=ProfileSource.MANUAL,
+        source=ProfileSource.BUILTIN,
         created_by_user_id=ctx.user.id,
     )
     db.add(profile)
@@ -186,6 +192,12 @@ async def import_profiles(
     content_type = request.headers.get("content-type", "")
 
     if content_type.startswith("multipart/form-data"):
+        content_length = request.headers.get("content-length")
+        if content_length is not None and int(content_length) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                f"upload exceeds the {_MAX_UPLOAD_BYTES} byte limit",
+            )
         form = await request.form()
         bundle = form.get("bundle")
         if bundle is None or not hasattr(bundle, "read"):
@@ -194,13 +206,21 @@ async def import_profiles(
                 "multipart upload must include a 'bundle' file",
             )
         data = await bundle.read()
+        if len(data) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                f"upload exceeds the {_MAX_UPLOAD_BYTES} byte limit",
+            )
         with tempfile.TemporaryDirectory() as tmp:
             zip_path = Path(tmp) / "bundle.zip"
             zip_path.write_bytes(data)
             result = await _import_from_path(db, zip_path, printer_model, ctx.user.id)
         return result
 
-    payload: dict[str, Any] = await request.json()
+    try:
+        payload: dict[str, Any] = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"invalid JSON: {exc}") from None
 
     if payload.get("from_sidecar"):
         cfg = await get_app_config(db, get_settings())
@@ -428,10 +448,17 @@ async def slicer_health(
         return SlicerHealthOut(configured=False, ok=False)
 
     try:
+        # M4: `abandon_on_cancel=True` lets `fail_after`'s timeout actually
+        # give up waiting on the worker thread instead of blocking until
+        # that thread call returns on its own -- the thread itself may
+        # still run to completion in the background, but this request no
+        # longer waits on it.
         with anyio.fail_after(3.0):
-            result = await anyio.to_thread.run_sync(client.health)
+            result = await anyio.to_thread.run_sync(client.health, abandon_on_cancel=True)
     except TimeoutError:
         return SlicerHealthOut(configured=True, ok=False, error="timed out")
+    except SlicerProtocolError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
     except SlicerError as exc:
         return SlicerHealthOut(configured=True, ok=False, error=str(exc))
 

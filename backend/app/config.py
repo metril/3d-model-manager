@@ -120,9 +120,7 @@ class Settings(BaseSettings):
     # (seconds) before giving up -- separate from `_DEFAULT_TIMEOUT`
     # (health/profiles, fast calls) since a real slice can run long. Env:
     # `TDMM_SLICE_TIMEOUT_S`.
-    slice_timeout_s: int = Field(
-        default=600, validation_alias=AliasChoices("TDMM_SLICE_TIMEOUT_S")
-    )
+    slice_timeout_s: int = Field(default=600, validation_alias=AliasChoices("TDMM_SLICE_TIMEOUT_S"))
 
 
 @lru_cache

@@ -356,11 +356,18 @@ async def remove_entry(db: AsyncSession, entry_id: int) -> None:
 
 
 async def move_entry(
-    db: AsyncSession, settings: Settings, entry_id: int, position: int
+    db: AsyncSession,
+    settings: Settings,
+    entry_id: int,
+    position: int,
+    ctx: AuthContext | None = None,
 ) -> list[QueueEntryOut]:
     """Move ``entry_id`` to 1-based ``position``, clamped to ``[1, n]``,
     shifting every other entry to make room. Returns the whole reordered
-    queue (the UI re-renders the whole thing on any reorder).
+    queue (the UI re-renders the whole thing on any reorder) -- I8: through
+    the same visibility filter (``ctx``) ``list_queue`` applies everywhere
+    else, so a reorder never hands a non-admin back entries on printers
+    outside their own ACL.
     """
     entry = await _get_entry_or_404(db, entry_id)
     entries = await _ordered_entries(db)
@@ -373,4 +380,4 @@ async def move_entry(
         reordered_entry.position = new_position
     await db.commit()
 
-    return await list_queue(db, settings)
+    return await list_queue(db, settings, ctx)

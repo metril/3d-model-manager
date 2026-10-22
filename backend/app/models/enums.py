@@ -209,10 +209,12 @@ class ProfileKind(StrEnum):
 
 class ProfileSource(StrEnum):
     """How a ``slicer_profiles`` row came to exist (P6): parsed from an
-    imported bundle/sidecar (default), or hand-entered via the API."""
+    imported bundle/sidecar (default), or hand-entered via the API (M7
+    final-review fix wave: renamed from ``manual`` to ``builtin`` to match
+    the spec's own wording)."""
 
     IMPORT = "import"
-    MANUAL = "manual"
+    BUILTIN = "builtin"
 
 
 class Fanout(StrEnum):

@@ -21,6 +21,7 @@ from app.services.slicer_client import (
     SliceOptions,
     SlicerClient,
     SlicerError,
+    SlicerProtocolError,
     SlicerUnavailable,
     client_from_config,
 )
@@ -43,6 +44,14 @@ def test_health_contract():
     client = SlicerClient(BASE_URL)
     result = client.health()
     assert result == {"version": "1.2.5.7", "ok": True}
+
+
+@respx.mock
+def test_health_non_dict_body_raises_slicer_protocol_error():
+    respx.get(f"{BASE_URL}/health").mock(return_value=httpx.Response(200, json=[1, 2, 3]))
+    client = SlicerClient(BASE_URL)
+    with pytest.raises(SlicerProtocolError):
+        client.health()
 
 
 @respx.mock
@@ -91,6 +100,57 @@ def test_slice_non_2xx_raises_slicer_error():
             bed_type="textured_pei",
             options=SliceOptions(),
         )
+
+
+@respx.mock
+def test_slice_non_2xx_never_leaks_response_body_to_the_exception():
+    """M5: the sidecar's error body must only ever be logged server-side,
+    never put in the exception message that can surface out to a queue
+    entry's `last_error`."""
+    secret_body = "super-secret-internal-stack-trace-detail"
+    respx.post(f"{BASE_URL}/slice").mock(return_value=httpx.Response(500, text=secret_body))
+    client = SlicerClient(BASE_URL)
+    with pytest.raises(SlicerError) as exc_info:
+        client.slice(
+            model=b"x",
+            filename="model.3mf",
+            printer_profile={},
+            process_profile={},
+            filament_profiles=[],
+            bed_type="textured_pei",
+            options=SliceOptions(),
+        )
+    assert secret_body not in str(exc_info.value)
+
+
+@respx.mock
+def test_slice_response_over_size_cap_raises_slicer_error():
+    """M5: a response over the configured cap is rejected instead of being
+    buffered/written out."""
+    from app.services import slicer_client as slicer_client_module
+
+    oversized = _zip_bytes() + b"\x00" * 10
+    respx.post(f"{BASE_URL}/slice").mock(
+        return_value=httpx.Response(
+            200, content=oversized, headers={"content-type": "application/zip"}
+        )
+    )
+    client = SlicerClient(BASE_URL)
+    old_cap = slicer_client_module._MAX_SLICE_RESPONSE_BYTES
+    slicer_client_module._MAX_SLICE_RESPONSE_BYTES = len(oversized) - 1
+    try:
+        with pytest.raises(SlicerError):
+            client.slice(
+                model=b"x",
+                filename="model.3mf",
+                printer_profile={},
+                process_profile={},
+                filament_profiles=[],
+                bed_type="textured_pei",
+                options=SliceOptions(),
+            )
+    finally:
+        slicer_client_module._MAX_SLICE_RESPONSE_BYTES = old_cap
 
 
 @respx.mock
