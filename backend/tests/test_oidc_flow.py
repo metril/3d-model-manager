@@ -175,9 +175,7 @@ async def test_providers_list_public_enabled_only(client, make_provider):
     assert r.json() == [{"slug": "authentik", "name": "Authentik"}]
 
 
-async def test_callback_without_binding_cookie_rejected(
-    client, fake_idp, make_provider, make_user
-):
+async def test_callback_without_binding_cookie_rejected(client, fake_idp, make_provider, make_user):
     await make_provider()
     await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
     await fake_idp.start(client, "authentik")

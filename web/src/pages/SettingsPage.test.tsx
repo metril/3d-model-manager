@@ -174,7 +174,7 @@ beforeEach(() => {
   postMock.mockReset();
   putMock.mockReset();
   deleteMock.mockReset();
-  authState.perms = ["admin", "settings:write"];
+  authState.perms = ["admin", "settings:write", "inventory:write"];
   authState.has_password = true;
 });
 
@@ -206,14 +206,33 @@ describe("SettingsPage access gating", () => {
   });
 });
 
+describe("SettingsPage materials gating", () => {
+  it("shows Materials to an inventory:write member without settings:write", async () => {
+    mockGet();
+    authState.perms = ["inventory:write"];
+    renderSettingsPage();
+    await screen.findAllByRole("tab");
+    expect(screen.queryByRole("tab", { name: "Printer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Materials" })).toBeInTheDocument();
+  });
+
+  it("hides Materials without inventory:write", async () => {
+    mockGet();
+    authState.perms = ["settings:write"];
+    renderSettingsPage();
+    await screen.findAllByRole("tab");
+    expect(screen.queryByRole("tab", { name: "Materials" })).not.toBeInTheDocument();
+  });
+});
+
 describe("SettingsPage tabs", () => {
-  it("shows exactly General, Storage, Printer, Accounts, and Access tabs (admin) -- no Scan tab", async () => {
+  it("shows exactly General, Storage, Printer, Materials, Accounts, and Access tabs (admin) -- no Scan tab", async () => {
     mockGet();
 
     renderSettingsPage();
 
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Accounts", "Access"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Materials", "Accounts", "Access"]);
     expect(screen.queryByRole("tab", { name: "Scan" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Imports" })).not.toBeInTheDocument();
   });

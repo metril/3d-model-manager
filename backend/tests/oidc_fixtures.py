@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 from joserfc import jwt
-from joserfc.jwk import OctKey, RSAKey
+from joserfc.jwk import RSAKey
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -64,9 +64,7 @@ class FakeIdp:
             "nonce": self.nonce_override or self.nonce,
             **self.claims,
         }
-        id_token = jwt.encode(
-            {"alg": self.alg, "kid": "k1"}, claims, self.sign_key or self.key
-        )
+        id_token = jwt.encode({"alg": self.alg, "kid": "k1"}, claims, self.sign_key or self.key)
         return httpx.Response(
             200, json={"access_token": "at", "token_type": "Bearer", "id_token": id_token}
         )
