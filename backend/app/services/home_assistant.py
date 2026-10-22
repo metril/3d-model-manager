@@ -16,8 +16,10 @@ from sqlalchemy.orm import Session
 from app.models.enums import HaRole
 from app.models.home_assistant import HaLink
 from app.models.printing import Printer
+from app.printers.base import command_channel
 from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import HaConfig
+from app.services.ha_discovery import PRINTING_STATES
 from app.services.ha_state import (
     ALERT_TTL_S,
     STATUS_KEY,
@@ -25,7 +27,9 @@ from app.services.ha_state import (
     alert_key,
     energy_acc_key,
     energy_key,
+    fired_key,
 )
+from app.services.printer_state import read_state_sync
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +87,32 @@ def _firing_entities(
             entities.append(link.entity_id)
             hold = hold or link.pause_print or link.hold_queue
     return entities, hold
+
+
+def _handle_pause_edge(
+    r: Redis, links: list[HaLink], states: dict[str, dict | None], pid: int
+) -> None:
+    """Edge-triggered pause (Task 5): for each ``pause_print`` link relevant
+    to ``pid``, a firing->fired transition (``ha:alert:fired:{link_id}``,
+    ``SET ... NX``) publishes one ``pause`` command iff the printer is
+    currently printing (``PRINTING_STATES``) -- fires exactly once per
+    alert episode, not once per tick. A link that stops firing clears its
+    fired key so the next episode can fire again."""
+    for link in links:
+        if link.printer_id is not None and link.printer_id != pid:
+            continue
+        if not link.pause_print:
+            continue
+        state_obj = states.get(link.entity_id)
+        state_val = state_obj.get("state") if state_obj else None
+        if evaluate(link.alert_condition, state_val):
+            if r.set(fired_key(link.id), 1, nx=True):
+                printer_state = read_state_sync(r, pid)
+                if (printer_state or {}).get("gcode_state") in PRINTING_STATES:
+                    r.publish(command_channel(pid), json.dumps({"command": "pause"}))
+                    logger.info("HA alert paused printer %s (%s)", pid, link.entity_id)
+        else:
+            r.delete(fired_key(link.id))
 
 
 def poll_once(
@@ -147,6 +177,7 @@ def poll_once(
                 r.set(alert_key(pid), json.dumps(payload), ex=ALERT_TTL_S)
             else:
                 r.delete(alert_key(pid))
+            _handle_pause_edge(r, alert_links, states, pid)
 
         for link in energy_links:
             pid = link.printer_id
