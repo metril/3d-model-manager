@@ -1338,9 +1338,7 @@ export interface PrinterOverviewItem {
   can_control: boolean;
   // P6 Task 8: up to 3 non-terminal queue entries targeting THIS printer
   // (`printer_id == id` or, once dispatched, `assigned_printer_id == id`).
-  // Optional here only until Task 10 updates every `PrinterOverviewItem`
-  // test fixture to carry it; made required then.
-  up_next?: QueueEntry[];
+  up_next: QueueEntry[];
 }
 
 export interface PrintersOverviewOut {

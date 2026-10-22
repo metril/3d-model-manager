@@ -67,6 +67,7 @@ describe("overviewRefetchInterval (usePrintersOverview poll cadence, Task 3)", (
           last_runs: [],
           can_print: true,
           can_control: true,
+          up_next: [],
         },
       ],
     });
@@ -83,6 +84,7 @@ describe("overviewRefetchInterval (usePrintersOverview poll cadence, Task 3)", (
           last_runs: [],
           can_print: true,
           can_control: true,
+          up_next: [],
         },
       ],
     });

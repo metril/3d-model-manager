@@ -1,27 +1,53 @@
 /**
- * Print queue (backend/app/schemas/queue.py, Branch 4 Task 1): an ordered
- * "models to print" worklist. Mirrors `library.ts`'s hook conventions --
+ * Print queue (backend/app/schemas/queue.py, Branch 4 Task 1; extended by
+ * the P6 "slicer, profiles and dispatch" plan, Task 6/10, with per-file
+ * dispatch columns and retry). Mirrors `library.ts`'s hook conventions --
  * `useQuery`/`useMutation` + `queryClient.invalidateQueries`.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { QueueEntry } from "@/api/types";
+import type { QueueEnqueueBody, QueueEntry } from "@/api/types";
 
-const queueQueryKey = ["queue"] as const;
+// The default (`includeDone: false`) case keeps the original bare `["queue"]`
+// key -- `PrintsTab.test.tsx` (and anything else reading the cache
+// directly rather than through `useQueue`) depends on that exact shape.
+function queueQueryKey(includeDone: boolean) {
+  return includeDone ? (["queue", "done"] as const) : (["queue"] as const);
+}
 
-/** The whole queue, ordered by position (1-based). */
-export function useQueue() {
+/** The whole queue, ordered by position (1-based). `includeDone` also
+ * returns terminal (`done`) entries, which the backend otherwise omits. */
+export function useQueue({ includeDone = false }: { includeDone?: boolean } = {}) {
   return useQuery({
-    queryKey: queueQueryKey,
-    queryFn: () => api.get<QueueEntry[]>("/queue"),
+    queryKey: queueQueryKey(includeDone),
+    queryFn: () => api.get<QueueEntry[]>(`/queue${includeDone ? "?include_done=true" : ""}`),
   });
 }
 
-/** `POST /queue` -- appends a model to the end of the queue. Idempotent:
- * the backend answers 200 (not 201) if the model is already queued instead
- * of erroring or duplicating it -- either way this resolves, so callers
- * don't need to special-case "already queued" as a failure.
+function invalidateQueue(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: ["queue"] });
+  // P3 Task 3: the overview's `up_next` is the queue's head -- keep it
+  // in sync with every queue mutation, not just a manual overview poll.
+  void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
+}
+
+/** `POST /queue` -- the general per-file enqueue (P6 Task 6): a `file_id`
+ * entry (optionally plate/printer/recipe/copies/ams_mapping/options) is
+ * never idempotent, always creating a new row. */
+export function useEnqueue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: QueueEnqueueBody) => api.post<QueueEntry>("/queue", body),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /queue` -- appends a bare model-only entry to the end of the
+ * queue. Idempotent: the backend answers 200 (not 201) if the model is
+ * already queued instead of erroring or duplicating it -- either way this
+ * resolves, so callers don't need to special-case "already queued" as a
+ * failure.
  *
  * `silentError` suppresses the global `MutationCache` error toast
  * (`queryClient.ts`) for callers that fan this mutation out over a
@@ -32,12 +58,7 @@ export function useEnqueueModel({ silentError = false }: { silentError?: boolean
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (modelId: number) => api.post<QueueEntry>("/queue", { model_id: modelId }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
-      // P3 Task 3: the overview's `up_next` is the queue's head -- keep it
-      // in sync with every queue mutation, not just a manual overview poll.
-      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
-    },
+    onSuccess: () => invalidateQueue(queryClient),
     meta: { silentError },
   });
 }
@@ -46,10 +67,7 @@ export function useRemoveQueueEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (entryId: number) => api.delete<void>(`/queue/${entryId}`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
-      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
-    },
+    onSuccess: () => invalidateQueue(queryClient),
   });
 }
 
@@ -60,9 +78,16 @@ export function useMoveQueueEntry() {
   return useMutation({
     mutationFn: ({ entryId, position }: { entryId: number; position: number }) =>
       api.patch<QueueEntry[]>(`/queue/${entryId}`, { position }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
-      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
-    },
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /queue/{entry_id}/retry` -- re-arms a `failed`/`held` entry (P6
+ * Task 6) back to `waiting` so the dispatcher picks it up again. */
+export function useRetryQueueEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: number) => api.post<QueueEntry>(`/queue/${entryId}/retry`),
+    onSuccess: () => invalidateQueue(queryClient),
   });
 }

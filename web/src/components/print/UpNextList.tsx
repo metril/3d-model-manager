@@ -4,6 +4,12 @@
  * "Print…" action that opens the shared `PrintDialog` (P5 Task 11) --
  * only when the entry is sliced AND at least one printer is reachable for
  * this user. A footer link hands off to the full queue.
+ *
+ * P6 Task 10: an optional `printerId` renders the SAME widget scoped to
+ * one printer's own `up_next` (`PrinterCard`/`PrinterDetailPage`, from
+ * `PrinterOverviewItem.up_next`) rather than the dashboard's unassigned
+ * head (`PrintersOverviewOut.up_next`) -- only the empty-state copy and a
+ * `data-printer-id` marker differ; the rows themselves are identical.
  */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -71,12 +77,14 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
   );
 }
 
-export function UpNextList({ entries }: { entries: QueueEntry[] }) {
+export function UpNextList({ entries, printerId }: { entries: QueueEntry[]; printerId?: number }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-printer-id={printerId}>
       <span className="label-caps">Up next</span>
       {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing queued.</p>
+        <p className="text-sm text-muted-foreground">
+          {printerId != null ? "Nothing queued for this printer." : "Nothing queued."}
+        </p>
       ) : (
         <ul className="divide-y divide-border">
           {entries.map((entry) => (

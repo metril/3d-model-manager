@@ -6,6 +6,12 @@
  * (the "primary printer" pin, P3 renders nothing there either), then the
  * active job or an "Idle" line, nozzle/bed temps, and AMS tray chips.
  * Header links to the printer's detail page.
+ *
+ * P6 Task 10: a compact `UpNextList` (THIS printer's own `up_next`, from
+ * `PrinterOverviewItem`) renders below the tray chips when it has anything
+ * queued -- the dashboard's rail `UpNextList` now only shows unassigned
+ * entries, so a printer-targeted queue item would otherwise be invisible
+ * until it dispatches.
  */
 import { Link } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
@@ -13,6 +19,7 @@ import { PrinterIcon } from "lucide-react";
 import type { PrinterOverviewItem } from "@/api/types";
 import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { ActiveJobStrip } from "@/components/print/ActiveJobStrip";
+import { UpNextList } from "@/components/print/UpNextList";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
 import { StateBadge } from "@/components/ui/state-badge";
@@ -27,7 +34,7 @@ export function PrinterCard({
   camera?: React.ReactNode;
   badge?: React.ReactNode;
 }) {
-  const { printer, status, active_job: activeJob, can_control: canControl } = item;
+  const { printer, status, active_job: activeJob, can_control: canControl, up_next: upNext } = item;
   const { tone, label } = toneForGcode(status.online, status.gcode_state);
 
   return (
@@ -89,6 +96,8 @@ export function PrinterCard({
             })}
           </div>
         ) : null}
+
+        {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} /> : null}
       </div>
     </div>
   );
