@@ -642,12 +642,29 @@ export interface DetectSerialOut {
   detail: string;
 }
 
-// One loaded AMS filament slot (M8 G3): `color` is `#RRGGBB` (alpha stripped)
-// or null for an empty/unknown slot.
+// One AMS filament slot, loaded or empty (M8 G3 + P5 spool tray plan):
+// `color` is `#RRGGBB` (alpha stripped) or null for an empty/unknown slot.
+// `slot` is the global tray id (unchanged); `ams_unit`/`tray` are the
+// per-unit id/tray-within-unit; `tray_uuid` is the RFID tag read off a
+// spool (null if empty/untagged). `spool` is filled in once Task 6 ships.
 export interface AmsTray {
   slot: number;
+  ams_unit: number | null;
+  tray: number | null;
   color: string | null;
   material: string | null;
+  tray_type: string | null;
+  tray_uuid: string | null;
+  remain_pct: number | null;
+  spool: SpoolBrief | null;
+}
+
+export interface SpoolBrief {
+  id: number;
+  material_type: string;
+  brand: string | null;
+  color_hex: string | null;
+  color_name: string | null;
 }
 
 export interface PrinterStatusOut {

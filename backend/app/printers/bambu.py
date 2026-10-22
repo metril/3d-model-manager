@@ -32,6 +32,7 @@ from app.printers.base import (
     ReportHandler,
 )
 from app.printers.registry import register_adapter
+from app.services.spool_inventory import EXTERNAL_SLOT, EXTERNAL_UNIT, global_tray
 
 _GCODE_STATE_TO_JOB = {
     "PREPARE": PrintJobState.STARTING,
@@ -217,29 +218,69 @@ def _hex6(color) -> str | None:
     return f"#{hexpart[:6].upper()}"
 
 
+def _all_zero_uuid(uuid: str) -> bool:
+    """A reported ``tray_uuid`` of all zeros means "no RFID tag read" --
+    never a real spool identity."""
+    return set(uuid) <= {"0"}
+
+
+def _tray_entry(tray: dict, ams_unit: int, tray_num: int) -> dict:
+    color = _hex6(tray.get("tray_color"))
+    material = tray.get("tray_type") or None
+    uuid = tray.get("tray_uuid") or None
+    if uuid is not None and _all_zero_uuid(uuid):
+        uuid = None
+    remain = _as_int(tray.get("remain"))
+    remain_pct = remain if remain is not None and remain >= 0 else None
+    return {
+        "slot": global_tray(ams_unit, tray_num),
+        "ams_unit": ams_unit,
+        "tray": tray_num,
+        "color": color,
+        "material": material,
+        "tray_type": material,
+        "tray_uuid": uuid,
+        "remain_pct": remain_pct,
+    }
+
+
 def _ams_trays(dump: dict) -> list[dict]:
-    """Loaded AMS filament slots from the raw mqtt dump (M8 G3). Path (per the
-    installed bambulabs_api): ``dump["print"]["ams"]["ams"][unit]["tray"][slot]``
-    with ``tray_color`` (8-hex) + ``tray_type``. Fully tolerant -- a printer
-    with no AMS (or an unexpected shape) yields ``[]``, never raises. Slots are
-    numbered sequentially across all AMS units. DOCUMENTED-not-live-verified
-    (no physical A1+AMS in CI): isolated here so a real capture can correct the
-    path/field names in one place."""
+    """Every AMS tray (loaded or empty) plus the external spool, from the raw
+    mqtt dump (M8 G3 + P5 spool tray plan). Path (per the installed
+    bambulabs_api): ``dump["print"]["ams"]["ams"][unit]["tray"][slot]`` with
+    ``tray_color`` (8-hex), ``tray_type``, ``tray_uuid`` (RFID) and
+    ``remain`` (percent); the external spool is ``dump["print"]["vt_tray"]``.
+    Every tray is reported (not just loaded ones) so printerd's RFID
+    auto-assign can clear a slot whose tray went empty. ``ams_unit``/``tray``
+    come from the unit's/tray's own ``id`` (falling back to its position in
+    the list when absent); ``slot`` keeps its old meaning -- the global id
+    ``app.services.spool_inventory.global_tray`` computes -- so existing
+    chips are unchanged. Fully tolerant -- a printer with no AMS (or an
+    unexpected shape) yields ``[]``, never raises. DOCUMENTED-not-live-
+    verified (no physical A1+AMS in CI): isolated here so a real capture can
+    correct the path/field names in one place."""
     section = dump.get("print") if isinstance(dump.get("print"), dict) else dump
-    ams_units = ((section or {}).get("ams") or {}).get("ams")
-    if not isinstance(ams_units, list):
-        return []
+    section = section or {}
+    ams_units = (section.get("ams") or {}).get("ams")
     trays: list[dict] = []
-    slot = 0
-    for unit in ams_units:
-        for tray in (unit.get("tray") or []) if isinstance(unit, dict) else []:
-            if not isinstance(tray, dict):
+    if isinstance(ams_units, list):
+        for u_pos, unit in enumerate(ams_units):
+            if not isinstance(unit, dict):
                 continue
-            color = _hex6(tray.get("tray_color"))
-            material = tray.get("tray_type") or None
-            if color is not None or material is not None:
-                trays.append({"slot": slot, "color": color, "material": material})
-            slot += 1
+            unit_id = _as_int(unit.get("id"))
+            ams_unit = unit_id if unit_id is not None else u_pos
+            tray_list = unit.get("tray")
+            if not isinstance(tray_list, list):
+                continue
+            for t_pos, tray in enumerate(tray_list):
+                if not isinstance(tray, dict):
+                    continue
+                tray_id = _as_int(tray.get("id"))
+                tray_num = tray_id if tray_id is not None else t_pos
+                trays.append(_tray_entry(tray, ams_unit, tray_num))
+    vt = section.get("vt_tray")
+    if isinstance(vt, dict):
+        trays.append(_tray_entry(vt, EXTERNAL_UNIT, EXTERNAL_SLOT))
     return trays
 
 

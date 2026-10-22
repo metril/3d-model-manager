@@ -36,7 +36,7 @@ from app.printers.base import PrinterAdapter, PrinterPublicState, command_channe
 from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
-from app.services import camera_state
+from app.services import camera_state, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.tasks import base
@@ -70,6 +70,22 @@ def _enqueue_archive(print_job_id: int, result: ArchiveResult) -> None:
     archive_print.apply_async(args=[print_job_id, result.value])
 
 
+def _tray_pcts(trays: list[dict]) -> list[int | None]:
+    """A ``remain_pct``-by-global-tray positional snapshot --
+    ``spool_inventory.record_job_usage``'s ``ams_delta`` fallback indexes
+    straight into this list by global tray id (``spool_for_tray`` takes the
+    same int), so it must stay positional rather than keyed."""
+    if not trays:
+        return []
+    size = max((t.get("slot") or 0) for t in trays) + 1
+    out: list[int | None] = [None] * size
+    for t in trays:
+        slot = t.get("slot")
+        if slot is not None and 0 <= slot < size:
+            out[slot] = t.get("remain_pct")
+    return out
+
+
 def _signature(printer: Printer) -> tuple[str, str, str]:
     """The subset of a ``Printer`` row that a running worker's MQTT session
     is actually built from (Round 8 T2) -- ``connection_from_printer``'s
@@ -96,12 +112,36 @@ class PrinterWorker:
         self.redis = redis_client
         self._merged: dict | None = None
         self._stop_requested = False
+        self._tray_sig: tuple | None = None
 
     def handle_report(self, report: dict) -> None:
         self._merged = self.adapter.merge_report(self._merged, report)
         public = self.adapter.public_state(self._merged)
         self.redis.set(state_key(self.printer_id), json.dumps(dataclasses.asdict(public)))
+        self._auto_assign_on_tray_change(public)
         self._transition_active_job(public)
+
+    def _auto_assign_on_tray_change(self, public: PrinterPublicState) -> None:
+        """RFID auto-assign (P5 spool tray plan): only hits the DB when the
+        tray signature (global slot, RFID uuid, material) actually changed
+        since the last report -- a printer polled every few seconds would
+        otherwise open a session on every tick for nothing."""
+        sig = tuple((t.get("slot"), t.get("tray_uuid"), t.get("tray_type")) for t in public.trays)
+        if sig == self._tray_sig:
+            return
+        self._tray_sig = sig
+        # spool_inventory.auto_assign_from_trays's "tray" key is the GLOBAL
+        # tray id (it `split_tray()`s it itself) -- our adapter's own "tray"
+        # field means something different (the per-unit tray number); remap
+        # from "slot" (the global id) here rather than touching the service.
+        rfid_trays = [
+            {"tray": t.get("slot"), "tray_uuid": t.get("tray_uuid")} for t in public.trays
+        ]
+        try:
+            with base.sync_session() as session:
+                spool_inventory.auto_assign_from_trays(session, self.printer_id, rfid_trays)
+        except Exception:
+            log.exception("printerd: RFID auto-assign failed for printer %s", self.printer_id)
 
     def _active_job(self, session) -> PrintJob | None:
         return (
@@ -140,6 +180,7 @@ class PrinterWorker:
                     progress_pct=public.mc_percent,
                     remaining_min=public.mc_remaining_time,
                     raw_status=self._merged,
+                    tray_snapshot={"start": _tray_pcts(public.trays)},
                 )
                 session.add(job)
                 session.commit()
@@ -170,8 +211,14 @@ class PrinterWorker:
             now = datetime.now(UTC)
             if new_state == PrintJobState.PRINTING and job.started_at is None:
                 job.started_at = now
+            if new_state == PrintJobState.PRINTING and job.tray_snapshot is None:
+                job.tray_snapshot = {"start": _tray_pcts(public.trays)}
             if new_state in _TERMINAL:
                 job.finished_at = now
+                job.tray_snapshot = {
+                    **(job.tray_snapshot or {}),
+                    "end": _tray_pcts(public.trays),
+                }
             job_id = job.id
             session.commit()
         publish_print_job_event_sync(

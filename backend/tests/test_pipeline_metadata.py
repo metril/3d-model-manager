@@ -183,6 +183,7 @@ def test_parse_gcode_3mf_extracts_bambu_ground_truth(corpus: CorpusPaths) -> Non
             "thumbnail_file": "Metadata/plate_1.png",
             "filaments": [
                 {
+                    "filament_id": 1,
                     "type": "PLA",
                     "color": "#FF0000",
                     "used_m": pytest.approx(4.82),
@@ -198,6 +199,7 @@ def test_parse_gcode_3mf_extracts_bambu_ground_truth(corpus: CorpusPaths) -> Non
             "thumbnail_file": "Metadata/plate_2.png",
             "filaments": [
                 {
+                    "filament_id": 1,
                     "type": "PETG",
                     "color": "#0000FF",
                     "used_m": pytest.approx(2.41),
@@ -206,6 +208,14 @@ def test_parse_gcode_3mf_extracts_bambu_ground_truth(corpus: CorpusPaths) -> Non
             ],
         },
     ]
+
+
+def test_slice_info_filament_id(corpus: CorpusPaths) -> None:
+    """P5 spool tray plan: each filament keeps the slicer's own ``id`` attr
+    so ``app.services.archive``'s tray mapping can key off it instead of
+    bare document position."""
+    sliced = slicedmeta.parse_gcode_3mf(corpus.sliced_gcode_3mf)
+    assert [f["filament_id"] for p in sliced.plates for f in p["filaments"]] == [1, 1]
 
 
 def test_parse_gcode_3mf_missing_plate_index_falls_back_to_document_position(

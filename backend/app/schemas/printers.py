@@ -171,13 +171,35 @@ class DetectSerialOut(BaseModel):
     detail: str
 
 
+class SpoolBriefOut(BaseModel):
+    """Minimal spool identity for an AMS tray chip (P5 Task 6 fills this
+    in; declared now so ``AmsTrayOut`` has somewhere to put it)."""
+
+    id: int
+    material_type: str
+    brand: str | None = None
+    color_hex: str | None = None
+    color_name: str | None = None
+
+
 class AmsTrayOut(BaseModel):
-    """One loaded AMS filament slot (M8 G3 color sync). ``color`` is
-    ``#RRGGBB`` (alpha already stripped) or None for an empty/unknown slot."""
+    """One AMS filament slot, loaded or empty (M8 G3 color sync + P5 spool
+    tray plan). ``color`` is ``#RRGGBB`` (alpha already stripped) or None
+    for an empty/unknown slot. ``slot`` is the global tray id (unchanged
+    meaning); ``ams_unit``/``tray`` are the per-unit id/tray-within-unit
+    reported by the printer. ``tray_uuid`` is the RFID tag read off a spool
+    (None if empty or untagged); ``remain_pct`` is the printer's own
+    remaining-material estimate."""
 
     slot: int
+    ams_unit: int | None = None
+    tray: int | None = None
     color: str | None = None
     material: str | None = None
+    tray_type: str | None = None
+    tray_uuid: str | None = None
+    remain_pct: int | None = None
+    spool: SpoolBriefOut | None = None
 
 
 class PrinterStatusOut(BaseModel):

@@ -144,6 +144,7 @@ def _parse_slice_info(data: bytes | None) -> list[dict]:
         meta = _plate_metadata(plate_el)
         filaments = [
             {
+                "filament_id": _parse_int(filament_el.get("id")),
                 "type": filament_el.get("type"),
                 "color": filament_el.get("color"),
                 "used_m": _parse_float(filament_el.get("used_m")),
