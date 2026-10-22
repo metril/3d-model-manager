@@ -1,14 +1,16 @@
 import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 import { ArrowLeftIcon, MenuIcon, SearchIcon } from "lucide-react";
 
+import { usePrinters } from "@/api/printers";
 import { Button } from "@/components/ui/button";
 import { NAV_LABELS } from "@/components/shell/navItems";
 
-/** Slim topbar above the page content (R12 studio shell): a back button
- * (hidden on the library root), a breadcrumb built from the nav config plus
- * a special case for the model detail route, and a search affordance that
- * opens the command palette. Below `lg` it also carries the hamburger that
- * opens the off-canvas sidebar drawer (see `AppSidebar`). */
+/** Slim topbar above the page content (P3 Task 6): a back button (hidden
+ * on the print-dashboard root), a breadcrumb built from the nav config
+ * plus special cases for the model detail and per-printer detail routes,
+ * and a search affordance that opens the command palette. Below `lg` it
+ * also carries the hamburger that opens the off-canvas sidebar drawer
+ * (see `AppSidebar`). */
 export function TopBar({
   onOpenPalette,
   onOpenMobileNav,
@@ -19,10 +21,17 @@ export function TopBar({
   const router = useRouter();
   const { pathname } = useLocation();
   // `strict: false` merges params from whichever matched route has them --
-  // only `/models/$slug` does, so this is `undefined` everywhere else.
-  const { slug } = useParams({ strict: false }) as { slug?: string };
+  // only `/models/$slug` and `/printers/$id` do, so these are `undefined`
+  // everywhere else.
+  const { slug, id } = useParams({ strict: false }) as { slug?: string; id?: string };
+  const printers = usePrinters({ enabled: !!id });
   const isHome = pathname === "/";
-  const crumb = slug ? `Library / ${slug}` : (NAV_LABELS[pathname] ?? "");
+  const printerName = id ? printers.data?.find((p) => String(p.id) === id)?.name ?? id : undefined;
+  const crumb = slug
+    ? `Library / ${slug}`
+    : printerName
+      ? `Print / ${printerName}`
+      : (NAV_LABELS[pathname] ?? "");
 
   return (
     <div className="flex items-center gap-3 border-b border-border bg-background px-6 py-2.5">

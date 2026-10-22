@@ -85,21 +85,23 @@ describe("AppShell nav", () => {
     scanRunsBox.current = undefined;
   });
 
-  it("hides the Printer nav item when the printer feature flag is off", async () => {
+  it("hides the Print group when the printer feature flag is off", async () => {
     featuresBox.current = { printer_enabled: false };
 
     renderShell();
 
-    expect(await screen.findByRole("link", { name: "Library" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Printer/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Models" })).toBeInTheDocument();
+    expect(screen.queryByText("Print")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Queue" })).not.toBeInTheDocument();
   });
 
-  it("shows the Printer nav item when the printer feature flag is on", async () => {
+  it("shows the Print group when the printer feature flag is on", async () => {
     featuresBox.current = { printer_enabled: true };
 
     renderShell();
 
-    expect(await screen.findByRole("link", { name: /Printer/ })).toBeInTheDocument();
+    expect(await screen.findByText("Print")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Queue" })).toHaveAttribute("href", "/print/queue");
   });
 
   it("exposes a single global Add action instead of separate Upload/Import nav items", async () => {
@@ -141,19 +143,20 @@ describe("AppShell nav", () => {
     expect(link.textContent).toBe("Collections");
   });
 
-  // R12 studio shell: nav is grouped (Library / Operations) with visible
-  // group labels, Settings pinned outside both groups.
-  it("renders group labels and keeps Settings out of both groups", async () => {
+  // P3 Task 6: nav is grouped (Print / Library / Inventory) with visible
+  // group labels, System (Background jobs, Settings) pinned outside every
+  // group.
+  it("renders group labels and keeps Settings out of every group", async () => {
     featuresBox.current = { printer_enabled: true };
 
     renderShell();
 
     const nav = await screen.findByRole("navigation");
     const groupLabels = within(nav)
-      .getAllByText(/^(Library|Operations)$/)
+      .getAllByText(/^(Print|Library|Inventory)$/)
       .filter((el) => el.tagName === "DIV")
       .map((el) => el.textContent);
-    expect(groupLabels).toEqual(["Library", "Operations"]);
+    expect(groupLabels).toEqual(["Print", "Library", "Inventory"]);
     expect(screen.getByRole("link", { name: /Settings/ })).toBeInTheDocument();
   });
 });
@@ -167,7 +170,7 @@ describe("AppShell keyboard shortcuts dialog (R9-C item 5)", () => {
 
   it("`?` opens the keyboard shortcuts dialog", async () => {
     renderShell();
-    await screen.findByRole("link", { name: "Library" });
+    await screen.findByRole("link", { name: "Models" });
 
     fireEvent.keyDown(document.body, { key: "?" });
 
@@ -177,7 +180,7 @@ describe("AppShell keyboard shortcuts dialog (R9-C item 5)", () => {
 
   it("the sidebar's Keyboard shortcuts button opens the same dialog", async () => {
     renderShell();
-    await screen.findByRole("link", { name: "Library" });
+    await screen.findByRole("link", { name: "Models" });
 
     fireEvent.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
 
@@ -201,7 +204,7 @@ describe("AppShell scan chip (R9-D item 7)", () => {
 
     renderShell();
 
-    await screen.findByRole("link", { name: "Library" });
+    await screen.findByRole("link", { name: "Models" });
     expect(screen.queryByText(/Scanning/)).not.toBeInTheDocument();
     expect(screen.queryByText("Scan done")).not.toBeInTheDocument();
   });
@@ -250,7 +253,7 @@ describe("AppShell scan chip (R9-D item 7)", () => {
 
     renderShell();
 
-    await screen.findByRole("link", { name: "Library" });
+    await screen.findByRole("link", { name: "Models" });
     expect(screen.queryByText(/Scan/)).not.toBeInTheDocument();
   });
 });

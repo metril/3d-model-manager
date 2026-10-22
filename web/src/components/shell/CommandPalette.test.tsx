@@ -52,7 +52,7 @@ describe("CommandPalette", () => {
     renderPalette(true);
 
     expect(await screen.findByText("Pages")).toBeInTheDocument();
-    expect(screen.getByText("Library")).toBeInTheDocument();
+    expect(screen.getByText("Models")).toBeInTheDocument();
     // "Collections" appears twice: the group heading and the Collections
     // page nav item.
     expect(screen.getAllByText("Collections").length).toBeGreaterThanOrEqual(2);

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
 
@@ -10,8 +10,19 @@ vi.mock("@/api/auth", () => ({
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+const { featuresBox, printersBox } = vi.hoisted(() => ({
+  featuresBox: { current: { printer_enabled: false } },
+  printersBox: { current: [] as Array<{ id: number; name: string }> },
+}));
+
 vi.mock("@/api/features", () => ({
-  useFeatures: () => ({ data: { printer_enabled: false } }),
+  useFeatures: () => ({ data: featuresBox.current }),
+}));
+
+vi.mock("@/api/printers", () => ({
+  usePrinters: (opts?: { enabled?: boolean }) =>
+    opts?.enabled === false ? { data: undefined, isLoading: false } : { data: printersBox.current, isLoading: false },
+  usePrinterStatus: () => ({ data: undefined }),
 }));
 
 vi.mock("@/api/imports", () => ({
@@ -70,7 +81,7 @@ describe("AppSidebar -- Categories (R13b)", () => {
     categoriesBox.current = [];
     renderSidebar();
 
-    await screen.findByRole("link", { name: "Library" });
+    await screen.findByRole("link", { name: "Models" });
     expect(screen.queryByText("Categories")).not.toBeInTheDocument();
   });
 
@@ -102,5 +113,46 @@ describe("AppSidebar -- Categories (R13b)", () => {
     const params = new URLSearchParams(href.split("?")[1]);
     expect(params.get("path")).toBe("figures");
     expect(params.get("category")).toBe("1");
+  });
+});
+
+describe("AppSidebar -- Print group (P3 Task 6)", () => {
+  beforeEach(() => {
+    featuresBox.current = { printer_enabled: false };
+    printersBox.current = [];
+  });
+
+  it("links to each configured printer's detail page when the feature is on", async () => {
+    featuresBox.current = { printer_enabled: true };
+    printersBox.current = [
+      { id: 1, name: "Workshop A1" },
+      { id: 2, name: "Garage X1" },
+    ];
+    renderSidebar();
+
+    const a1 = await screen.findByRole("link", { name: "Workshop A1" });
+    expect(a1).toHaveAttribute("href", "/printers/1");
+    expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
+  });
+
+  it("drops the whole Print group, including printer links, when the feature is off", async () => {
+    featuresBox.current = { printer_enabled: false };
+    printersBox.current = [{ id: 1, name: "Workshop A1" }];
+    renderSidebar();
+
+    await screen.findByRole("link", { name: "Models" });
+    expect(screen.queryByRole("link", { name: "Workshop A1" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Print")).not.toBeInTheDocument();
+  });
+
+  it("pins Background jobs and Settings at the bottom, with no Finance link", async () => {
+    renderSidebar();
+
+    expect(await screen.findByRole("link", { name: "Background jobs" })).toHaveAttribute(
+      "href",
+      "/system/jobs",
+    );
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(screen.queryByRole("link", { name: "Finance" })).not.toBeInTheDocument();
   });
 });
