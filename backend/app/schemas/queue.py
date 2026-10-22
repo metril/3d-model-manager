@@ -1,16 +1,47 @@
-"""Print queue: an ordered "models to print" worklist (Branch 4 Task 1)."""
+"""Print queue: an ordered "models to print" worklist (Branch 4 Task 1),
+extended by the P6 slicer/dispatch plan (Task 6) with per-file queue items
+that carry a plate/printer/recipe and track their own slice-and-send
+lifecycle.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app.models.enums import QueueState
 from app.schemas.library import FileOut, ModelSummary
 
 
+class PlanOptions(BaseModel):
+    """Pre-print toggles shared by the print-plan preview (``app.schemas
+    .print_flow.PlanOut``, which re-exports this) and a per-file queue
+    entry's stored ``print_options`` (P6 Task 6). Defined here rather than
+    in ``print_flow`` to avoid a ``printers -> queue -> print_flow ->
+    printers`` import cycle (``app.schemas.printers`` imports
+    ``QueueEntryOut``, and ``print_flow`` imports from ``printers``).
+    """
+
+    bed_levelling: bool = True
+    flow_cali: bool = True
+    timelapse: bool = False
+
+
 class QueueEnqueueIn(BaseModel):
-    model_id: int
+    # Bare legacy entry (model only, no specific file chosen yet) when
+    # ``file_id`` is None -- idempotent, unchanged from Branch 4 Task 1.
+    model_id: int | None = None
+    file_id: int | None = None
+    plate: int | None = None
+    printer_id: int | None = None
+    recipe_id: int | None = None
+    copies: int = Field(1, ge=1, le=50)
+    ams_mapping: list[int] | None = None
+    options: PlanOptions | None = None
+    # ``PrintDialog``'s "Slice and send": inserts at position 1 instead of
+    # appending at the end.
+    front: bool = False
 
 
 class QueueReorderIn(BaseModel):
@@ -36,3 +67,20 @@ class QueueEntryOut(BaseModel):
     # when the model has no current revision, or none of its current-
     # revision files are a sendable gcode_3mf yet.
     printable_file: FileOut | None = None
+    # P6 Task 6: per-file dispatch columns -- see `PrintQueueEntry`'s
+    # docstring (`app.models.library`) for the full state machine.
+    printer_id: int | None = None
+    recipe_id: int | None = None
+    recipe_name: str | None = None
+    file_id: int | None = None
+    sliced_file_id: int | None = None
+    plate: int | None = None
+    copies: int = 1
+    state: QueueState = QueueState.WAITING
+    assigned_printer_id: int | None = None
+    print_job_id: int | None = None
+    attempts: int = 0
+    last_error: str | None = None
+    # Display name of the requested ``file_id`` (its `rel_path`'s basename),
+    # `None` for a bare entry.
+    file_name: str | None = None

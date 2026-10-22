@@ -65,7 +65,15 @@ const STATUS: PrinterStatusOut = {
 
 const OVERVIEW: PrintersOverviewOut = {
   printers: [
-    { printer: PRINTER, status: STATUS, active_job: null, last_runs: [], can_print: true, can_control: true },
+    {
+      printer: PRINTER,
+      status: STATUS,
+      active_job: null,
+      last_runs: [],
+      can_print: true,
+      can_control: true,
+      up_next: [],
+    },
   ],
   up_next: [],
   recent_runs: [],

@@ -95,9 +95,13 @@ function entry(overrides: Partial<QueueEntry> = {}): QueueEntry {
   };
 }
 
-function renderList(entries: QueueEntry[]) {
+function renderList(entries: QueueEntry[], printerId?: number) {
   const rootRoute = createRootRoute();
-  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <UpNextList entries={entries} /> });
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => <UpNextList entries={entries} printerId={printerId} />,
+  });
   const modelRoute = createRoute({ getParentRoute: () => rootRoute, path: "/models/$slug", component: () => null });
   const queueRoute = createRoute({ getParentRoute: () => rootRoute, path: "/print/queue", component: () => null });
   const router = createRouter({
@@ -116,6 +120,12 @@ describe("UpNextList", () => {
   it("shows an empty state when there's nothing queued", async () => {
     renderList([]);
     expect(await screen.findByText("Nothing queued.")).toBeInTheDocument();
+  });
+
+  it("shows a printer-scoped empty state and marker when given a printerId", async () => {
+    renderList([], 1);
+    expect(await screen.findByText("Nothing queued for this printer.")).toBeInTheDocument();
+    expect(document.querySelector('[data-printer-id="1"]')).toBeInTheDocument();
   });
 
   it("links to the full queue", async () => {

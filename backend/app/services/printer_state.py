@@ -15,9 +15,19 @@ from app.printers.base import state_key
 
 ALLOWED_PREFLIGHT_STATES = {"IDLE", "FINISH", "FAILED"}  # RESEARCH §4
 
+# P6 Task 7: the dispatcher's own, narrower "idle" set -- a manual send may
+# retry a FAILED printer (ALLOWED_PREFLIGHT_STATES above), but the
+# dispatcher must never pick one on its own; a previous failure needs a
+# person's eyes, not another silent auto-retry onto the same machine.
+DISPATCH_IDLE_STATES = {"IDLE", "FINISH"}
+
 
 def preflight_ok(state: dict | None) -> bool:
     return bool(state) and state.get("gcode_state") in ALLOWED_PREFLIGHT_STATES
+
+
+def dispatch_idle(state: dict | None) -> bool:
+    return bool(state) and state.get("gcode_state") in DISPATCH_IDLE_STATES
 
 
 def read_state_sync(redis_client, printer_id: int) -> dict | None:

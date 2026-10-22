@@ -1272,6 +1272,8 @@ export interface ArchiveOut {
 // An ordered "models to print" worklist. `position` is a dense 1-based rank
 // over the whole queue, renumbered on every insert/delete/reorder.
 
+export type QueueState = "waiting" | "slicing" | "ready" | "dispatched" | "held" | "failed" | "done";
+
 export interface QueueEntry {
   id: number;
   model_id: number;
@@ -1283,6 +1285,35 @@ export interface QueueEntry {
   // directly. `null` when the model has no current revision, or none of its
   // current-revision files are a sendable gcode_3mf yet.
   printable_file: FileOut | null;
+  // P6 Task 6/9: per-file dispatch columns (`backend/app/schemas/queue.py`'s
+  // `QueueEntryOut`) -- `printer_id` is the requested target (`null` =
+  // "any printer"/unassigned lane), `assigned_printer_id` is set once the
+  // dispatcher claims the row (state `dispatched` and later).
+  printer_id?: number | null;
+  recipe_id?: number | null;
+  recipe_name?: string | null;
+  file_id?: number | null;
+  sliced_file_id?: number | null;
+  plate?: number | null;
+  copies?: number;
+  state?: QueueState;
+  assigned_printer_id?: number | null;
+  print_job_id?: number | null;
+  attempts?: number;
+  last_error?: string | null;
+  file_name?: string | null;
+}
+
+export interface QueueEnqueueBody {
+  model_id?: number | null;
+  file_id?: number | null;
+  plate?: number | null;
+  printer_id?: number | null;
+  recipe_id?: number | null;
+  copies?: number;
+  ams_mapping?: number[] | null;
+  options?: PlanOptions | null;
+  front?: boolean;
 }
 
 // -- printers overview (backend/app/schemas/printers.py, P3 Task 1) --------
@@ -1306,6 +1337,9 @@ export interface PrinterOverviewItem {
   last_runs: ArchiveOut[];
   can_print: boolean;
   can_control: boolean;
+  // P6 Task 8: up to 3 non-terminal queue entries targeting THIS printer
+  // (`printer_id == id` or, once dispatched, `assigned_printer_id == id`).
+  up_next: QueueEntry[];
 }
 
 export interface PrintersOverviewOut {
@@ -1510,3 +1544,65 @@ export interface OidcProviderCreateIn {
 }
 
 export type OidcProviderPatchIn = Partial<OidcProviderCreateIn>;
+
+// -- slicer profiles, recipes and sidecar health (backend/app/schemas/
+// slicing.py, P6 "slicer, profiles and dispatch" plan) -------------------
+
+export type ProfileKind = "printer" | "process" | "filament";
+export type ProfileSource = "import" | "builtin";
+export type Fanout = "single" | "spread" | "first_n";
+
+export interface SlicerProfile {
+  id: number;
+  name: string;
+  kind: ProfileKind;
+  printer_model: string | null;
+  nozzle_mm: number | null;
+  source: ProfileSource;
+  created_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+  // Only present on `GET /profiles/{id}` or `GET /profiles?full=1`.
+  data?: Record<string, unknown> | null;
+}
+
+export interface ProfileImportResult {
+  created: number;
+  updated: number;
+}
+
+export interface PrintRecipe {
+  id: number;
+  name: string;
+  printer_profile_id: number;
+  process_profile_id: number;
+  filament_profile_ids: (number | null)[];
+  bed_type: string;
+  options: Record<string, unknown>;
+  target_printer_id: number | null;
+  target_printer_model: string | null;
+  fanout: Fanout;
+  n: number | null;
+  created_by_user_id: number | null;
+  created_at: string;
+}
+
+export interface PrintRecipeIn {
+  name: string;
+  printer_profile_id: number;
+  process_profile_id: number;
+  filament_profile_ids?: (number | null)[];
+  bed_type: string;
+  options?: Record<string, unknown>;
+  target_printer_id?: number | null;
+  target_printer_model?: string | null;
+  fanout?: Fanout;
+  n?: number | null;
+}
+
+export interface SlicerHealth {
+  configured: boolean;
+  ok: boolean;
+  version?: string | null;
+  error?: string | null;
+}

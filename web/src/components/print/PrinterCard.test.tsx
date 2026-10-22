@@ -70,6 +70,7 @@ function item(overrides: Partial<PrinterOverviewItem> = {}): PrinterOverviewItem
     last_runs: [],
     can_print: true,
     can_control: true,
+    up_next: [],
     ...overrides,
   };
 }

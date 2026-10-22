@@ -301,6 +301,11 @@ class PrinterOverviewItem(BaseModel):
     last_runs: list[ArchiveOut] = Field(default_factory=list)
     can_print: bool
     can_control: bool
+    # P6 Task 8: up to 3 non-terminal queue entries targeting THIS printer
+    # (``printer_id == id`` or, once dispatched, ``assigned_printer_id ==
+    # id``) -- the top-level ``PrintersOverviewOut.up_next`` now only holds
+    # unassigned entries.
+    up_next: list[QueueEntryOut] = Field(default_factory=list)
 
 
 class PrintersOverviewOut(BaseModel):

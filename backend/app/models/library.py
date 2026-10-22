@@ -29,7 +29,14 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, str_enum
-from app.models.enums import BlobFormat, BlobKind, PrintQuality, PrintResult, PrintSource
+from app.models.enums import (
+    BlobFormat,
+    BlobKind,
+    PrintQuality,
+    PrintResult,
+    PrintSource,
+    QueueState,
+)
 
 if TYPE_CHECKING:
     # Only for static analysis / the `Mapped[...]` string annotations below
@@ -234,27 +241,81 @@ class Note(Base):
 
 
 class PrintQueueEntry(Base):
-    """One model queued to print, in manual print order (Branch 4 Task 1).
+    """One model queued to print, in manual print order (Branch 4 Task 1),
+    extended by the P6 slicer/dispatch plan with a slice-and-send pipeline
+    (``file_id`` -> ``slicing`` -> ``ready`` -> ``dispatched``).
 
-    ``model_id`` is UNIQUE -- a model can only be queued once; re-adding an
-    already-queued model is idempotent (``app.services.queue.enqueue_model``
-    returns the existing entry rather than erroring). ``position`` is a
-    dense 1..n ranking over the whole queue, renumbered by the service layer
-    on every insert/delete/reorder so the UI can always render (and PATCH
-    back) a contiguous list.
+    ``model_id`` was plain-UNIQUE before P6 (a model can only be queued
+    once); P6 relaxes that to a partial unique index over bare entries only
+    (``file_id IS NULL``) so a model CAN be queued more than once as long as
+    each extra entry names a specific ``file_id`` -- re-adding an
+    already-queued BARE model stays idempotent
+    (``app.services.queue.enqueue_model`` returns the existing entry rather
+    than erroring); a non-bare enqueue is never idempotent (P6 task 6).
+    ``position`` is a dense 1..n ranking over the whole queue, renumbered by
+    the service layer on every insert/delete/reorder so the UI can always
+    render (and PATCH back) a contiguous list.
     """
 
     __tablename__ = "print_queue"
+    __table_args__ = (
+        Index(
+            "uq_print_queue_model_id_bare",
+            "model_id",
+            unique=True,
+            postgresql_where=text("file_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     model_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False, unique=True
+        BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     added_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # P6 slicer/dispatch plan columns below. `printer_id` is the user's
+    # requested/preferred target (NULL = any compatible printer);
+    # `assigned_printer_id` is the one the dispatcher actually picked for
+    # THIS dispatch attempt (set when `state` becomes `dispatched`).
+    printer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    recipe_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_recipes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # NULL = a legacy "bare" entry (model only, no specific file chosen yet).
+    file_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    sliced_file_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    plate: Mapped[int | None] = mapped_column(Integer)
+    copies: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    state: Mapped[QueueState] = mapped_column(
+        str_enum(QueueState, "queue_state"),
+        nullable=False,
+        server_default=text("'waiting'"),
+        index=True,
+    )
+    # Set when `state` becomes `slicing` (the dispatcher's own tick, or
+    # `slice_file`'s claim step); the dispatcher's `_reconcile` uses it to
+    # detect a `slicing` entry stuck well past a plausible slice duration
+    # (worker crash/kill mid-slice) and bounce it back to `waiting`.
+    slicing_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    assigned_printer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    print_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    ams_mapping: Mapped[dict | None] = mapped_column(JSONB)
+    print_options: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class Print(Base):

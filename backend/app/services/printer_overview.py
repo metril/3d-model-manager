@@ -185,6 +185,23 @@ async def build_overview(
     active_jobs = await _active_jobs(db, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
 
+    # P6 Task 8: one batched windowed query (per-target ``row_number()``,
+    # not one query per printer) returns up to 3 non-terminal entries per
+    # printer plus up to 3 unassigned ones; split back out in Python so
+    # each printer's card shows only ITS up-next items and the top-level
+    # list keeps only the unassigned ones.
+    up_next_entries = await queue_service.list_queue(
+        db, settings, printer_ids=printer_ids, limit_per_printer=3
+    )
+    up_next_by_printer: dict[int, list] = {}
+    unassigned: list = []
+    for entry in up_next_entries:
+        target = entry.printer_id if entry.printer_id is not None else entry.assigned_printer_id
+        if target is None:
+            unassigned.append(entry)
+        else:
+            up_next_by_printer.setdefault(target, []).append(entry)
+
     items = [
         PrinterOverviewItem(
             printer=PrinterOut.from_model(p),
@@ -193,11 +210,11 @@ async def build_overview(
             last_runs=last_runs.get(p.id, []),
             can_print=_can(ctx, p.id, "print"),
             can_control=_can(ctx, p.id, "control"),
+            up_next=up_next_by_printer.get(p.id, [])[:3],
         )
         for p in printers
     ]
 
-    up_next = await queue_service.list_queue(db, settings, limit=3)
     recent_runs = await _recent_runs(db, printer_ids)
 
-    return PrintersOverviewOut(printers=items, up_next=up_next, recent_runs=recent_runs)
+    return PrintersOverviewOut(printers=items, up_next=unassigned[:3], recent_runs=recent_runs)

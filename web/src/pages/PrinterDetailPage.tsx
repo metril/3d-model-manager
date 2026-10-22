@@ -1,9 +1,10 @@
 /**
  * `/printers/$id` (P3 Task 10): the per-printer detail page, replacing the
  * old `/printer` page (gone) and the Task 5 shell. Left column is a 16:9
- * camera tile above the restyled `PrinterStatusPanel`; right column is the
- * queue's head (`UpNextList`, from the overview's `up_next`) and this
- * printer's own history (`PrintJobHistory printerId`). Mirrors the `/` and
+ * camera tile above the restyled `PrinterStatusPanel`; right column is
+ * THIS printer's own up-next (`UpNextList`, P6 Task 10: from its
+ * `PrinterOverviewItem.up_next`, not the overview's top-level unassigned
+ * list) and its own history (`PrintJobHistory printerId`). Mirrors the `/` and
  * `/printer` redirect policies' flag/not-found handling so a stale link or
  * bookmark lands somewhere clear either way.
  *
@@ -89,7 +90,10 @@ export function PrinterDetailPage() {
         </div>
 
         <div className="flex flex-col gap-6 lg:w-80 lg:shrink-0">
-          <UpNextList entries={overview.data?.up_next ?? []} />
+          <UpNextList
+            entries={overview.data?.printers.find((p) => p.printer.id === printer.id)?.up_next ?? []}
+            printerId={printer.id}
+          />
           <PrintJobHistory printerId={printer.id} />
         </div>
       </div>

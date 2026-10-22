@@ -3,94 +3,61 @@ import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, crea
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ModelSummary, PrinterOut, QueueEntry, QueueState } from "@/api/types";
 import { QueuePage } from "@/pages/QueuePage";
-import type { FileOut, PrinterOut, QueueEntry } from "@/api/types";
 
-vi.mock("@/api/auth", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/auth")>()),
-  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
-}));
-
-
-// Mock the queue hooks directly (same pattern as AppShell.test.tsx mocking
-// `@/api/auth`/`@/api/features`) -- QueuePage's own logic (ordering, the
-// up/down position math, empty state) is what's under test, not the
-// underlying fetch plumbing (already covered by the api-hook conventions
-// shared with `library.ts`/`jobs.ts`).
-const { queueDataBox, moveMock, removeMock, featuresDataBox, printersDataBox } = vi.hoisted(() => ({
+// Mock the queue hooks directly (same pattern the old QueuePage.test.tsx
+// used) -- QueuePage's own logic (lane grouping, the chip, retry gating,
+// the include-done toggle) is what's under test, not the underlying fetch
+// plumbing (already covered by `api/queue.ts`'s own hook conventions).
+const { queueDataBox, moveMock, removeMock, retryMock, printersDataBox, includeDoneCalls } = vi.hoisted(() => ({
   queueDataBox: { current: [] as QueueEntry[] },
   moveMock: vi.fn(),
   removeMock: vi.fn(),
-  featuresDataBox: { current: { printer_enabled: true } },
+  retryMock: vi.fn(),
   printersDataBox: { current: [] as PrinterOut[] },
+  includeDoneCalls: [] as boolean[],
 }));
 
 vi.mock("@/api/queue", () => ({
-  useQueue: () => ({ data: queueDataBox.current, isLoading: false, isError: false }),
+  useQueue: ({ includeDone }: { includeDone?: boolean } = {}) => {
+    includeDoneCalls.push(!!includeDone);
+    return { data: queueDataBox.current, isLoading: false, isError: false };
+  },
   useMoveQueueEntry: () => ({ mutate: moveMock, isPending: false }),
   useRemoveQueueEntry: () => ({ mutate: removeMock, isPending: false }),
+  useRetryQueueEntry: () => ({ mutate: retryMock, isPending: false }),
 }));
 
-vi.mock("@/api/features", () => ({
-  useFeatures: () => ({ data: featuresDataBox.current }),
-}));
-
-// `usePrinters` (Round 8 Task 3): QueueRow's own print-button gate.
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: printersDataBox.current }),
 }));
 
-// `PrintDialog` is unit-tested on its own (`PrintDialog.test.tsx`, P5 Task
-// 11) -- here it's stubbed to a minimal marker, so this file only asserts
-// QueuePage's OWN logic: when the Print button shows, and that a
-// successful send (`onSent`) removes the row.
-vi.mock("@/components/print/PrintDialog", () => ({
-  PrintDialog: ({
-    open,
-    onOpenChange,
-    source,
-    onSent,
-  }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    source: { kind: string; modelId?: number };
-    onSent?: () => void;
-  }) =>
-    open ? (
-      <div data-testid="print-dialog">
-        <span>{`${source.kind}:${source.modelId}`}</span>
-        <button type="button" onClick={() => onOpenChange(false)}>
-          Close dialog
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onSent?.();
-            onOpenChange(false);
-          }}
-        >
-          Send to printer
-        </button>
-      </div>
-    ) : null,
-}));
-
-const PRINTABLE_FILE: FileOut = {
-  id: 42,
-  revision_id: 5,
-  rel_path: "print.gcode.3mf",
-  storage_path: "/data/model/rev/print.gcode.3mf",
-  blob_hash: "slicedhash",
-  size: 4096,
-  format: "gcode_3mf",
-  kind: "sliced",
-  mtime: "2026-06-01T12:00:00Z",
-  verified_at: "2026-06-01T12:00:05Z",
-  meta: null,
-  thumb_ready: false,
-  glb_status: null,
-  glb_preview_ready: false,
-};
+function model(overrides: Partial<ModelSummary> = {}): ModelSummary {
+  return {
+    id: 1,
+    slug: "articulated-dragon",
+    name: "Articulated Dragon",
+    description: null,
+    tags: [],
+    updated_at: "2026-06-01T12:00:00Z",
+    created_at: "2026-06-01T12:00:00Z",
+    file_count: 1,
+    formats: ["stl"],
+    cover: null,
+    render_url: null,
+    print_time_s: null,
+    has_sliced: false,
+    source_site: null,
+    source_collection_id: null,
+    source_collection_title: null,
+    favorite: false,
+    dims_mm: null,
+    best_slicer_file: null,
+    printable_file: null,
+    ...overrides,
+  };
+}
 
 const PRINTER: PrinterOut = {
   id: 1,
@@ -111,29 +78,17 @@ function entry(overrides: Partial<QueueEntry> = {}): QueueEntry {
     model_id: 1,
     position: 1,
     added_at: "2026-06-01T12:00:00Z",
-    model: {
-      id: 1,
-      slug: "articulated-dragon",
-      name: "Articulated Dragon",
-      description: null,
-      tags: [],
-      updated_at: "2026-06-01T12:00:00Z",
-      created_at: "2026-06-01T12:00:00Z",
-      file_count: 1,
-      formats: ["stl"],
-      cover: null,
-      render_url: null,
-      print_time_s: null,
-      has_sliced: false,
-      source_site: null,
-      source_collection_id: null,
-      source_collection_title: null,
-      favorite: false,
-      dims_mm: null,
-      best_slicer_file: null,
-      printable_file: null,
-    },
+    model: model(),
     printable_file: null,
+    printer_id: null,
+    assigned_printer_id: null,
+    recipe_name: null,
+    plate: 1,
+    copies: 1,
+    state: "waiting" as QueueState,
+    attempts: 0,
+    last_error: null,
+    file_name: null,
     ...overrides,
   };
 }
@@ -158,194 +113,118 @@ beforeEach(() => {
   queueDataBox.current = [];
   moveMock.mockClear();
   removeMock.mockClear();
-  featuresDataBox.current = { printer_enabled: true };
+  retryMock.mockClear();
   printersDataBox.current = [PRINTER];
+  includeDoneCalls.length = 0;
 });
 
-describe("QueuePage", () => {
-  it("shows an inviting empty state when the queue is empty", async () => {
+describe("QueuePage lanes", () => {
+  it("renders one lane per visible printer plus Any printer", async () => {
     renderQueuePage();
-
-    expect(await screen.findByText(/Your print queue is empty/)).toBeInTheDocument();
+    expect(await screen.findByText("Bambu A1")).toBeInTheDocument();
+    expect(screen.getByText("Any printer")).toBeInTheDocument();
   });
 
-  it("renders entries in order with their position", async () => {
-    queueDataBox.current = [
-      entry({ id: 1, position: 1, model: { ...entry().model, name: "First Model" } }),
-      entry({ id: 2, position: 2, model: { ...entry().model, slug: "second-model", name: "Second Model" } }),
-    ];
-
+  it("groups an entry with a printer_id into that printer's lane", async () => {
+    queueDataBox.current = [entry({ printer_id: 1 })];
     renderQueuePage();
 
-    expect(await screen.findByText("First Model")).toBeInTheDocument();
-    expect(screen.getByText("Second Model")).toBeInTheDocument();
-    const positions = screen.getAllByText(/^[12]$/).map((node) => node.textContent);
-    expect(positions).toEqual(["1", "2"]);
+    const bambuLane = (await screen.findByText("Bambu A1")).closest('[data-slot="card"]');
+    expect(bambuLane).toHaveTextContent("Articulated Dragon");
+    const anyLane = screen.getByText("Any printer").closest('[data-slot="card"]');
+    expect(anyLane).toHaveTextContent("Nothing here.");
   });
 
-  it("moving an entry up calls move with position - 1", async () => {
-    queueDataBox.current = [
-      entry({ id: 1, position: 1 }),
-      entry({ id: 2, position: 2, model: { ...entry().model, slug: "second-model", name: "Second Model" } }),
-    ];
-
+  it("groups a dispatched entry (assigned_printer_id, no printer_id) into that printer's lane", async () => {
+    queueDataBox.current = [entry({ printer_id: null, assigned_printer_id: 1, state: "dispatched" })];
     renderQueuePage();
-    await screen.findByText("Second Model");
 
-    fireEvent.click(screen.getByRole("button", { name: "Move Second Model up" }));
-
-    await waitFor(() => expect(moveMock).toHaveBeenCalledExactlyOnceWith({ entryId: 2, position: 1 }));
+    const bambuLane = (await screen.findByText("Bambu A1")).closest('[data-slot="card"]');
+    expect(bambuLane).toHaveTextContent("Articulated Dragon");
   });
 
-  it("moving an entry down calls move with position + 1", async () => {
-    queueDataBox.current = [
-      entry({ id: 1, position: 1 }),
-      entry({ id: 2, position: 2, model: { ...entry().model, slug: "second-model", name: "Second Model" } }),
-    ];
-
+  it("groups an entry with neither printer_id nor assigned_printer_id as Any printer", async () => {
+    queueDataBox.current = [entry({ printer_id: null, assigned_printer_id: null })];
     renderQueuePage();
-    await screen.findByText("Articulated Dragon");
 
-    fireEvent.click(screen.getByRole("button", { name: "Move Articulated Dragon down" }));
-
-    await waitFor(() => expect(moveMock).toHaveBeenCalledExactlyOnceWith({ entryId: 1, position: 2 }));
+    const anyLane = (await screen.findByText("Any printer")).closest('[data-slot="card"]');
+    expect(anyLane).toHaveTextContent("Articulated Dragon");
   });
 
-  it("disables up on the first entry and down on the last entry", async () => {
+  it("shows recipe name or 'As sliced' when there's none", async () => {
     queueDataBox.current = [
-      entry({ id: 1, position: 1 }),
-      entry({ id: 2, position: 2, model: { ...entry().model, slug: "second-model", name: "Second Model" } }),
+      entry({ id: 1, recipe_name: "Standard PLA" }),
+      entry({ id: 2, recipe_name: null, model: model({ slug: "other", name: "Other Model" }) }),
     ];
-
     renderQueuePage();
-    await screen.findByText("Second Model");
 
-    expect(screen.getByRole("button", { name: "Move Articulated Dragon up" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Second Model down" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Articulated Dragon down" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Second Model up" })).not.toBeDisabled();
+    expect(await screen.findByText("Standard PLA")).toBeInTheDocument();
+    expect(screen.getByText("As sliced")).toBeInTheDocument();
+  });
+});
+
+describe("QueuePage state chip", () => {
+  it.each<QueueState>(["waiting", "slicing", "ready", "dispatched", "held", "failed", "done"])(
+    "renders a chip for state %s",
+    async (state) => {
+      queueDataBox.current = [entry({ state })];
+      renderQueuePage();
+      const label = state.charAt(0).toUpperCase() + state.slice(1);
+      expect(await screen.findByText(label)).toBeInTheDocument();
+    },
+  );
+
+  it("shows last_error and attempts in the chip's title", async () => {
+    queueDataBox.current = [entry({ state: "failed", last_error: "slicer timed out", attempts: 2 })];
+    renderQueuePage();
+
+    const chip = await screen.findByText("Failed");
+    expect(chip).toHaveAttribute("title", expect.stringContaining("2/3 attempts"));
+    expect(chip).toHaveAttribute("title", expect.stringContaining("slicer timed out"));
+  });
+});
+
+describe("QueuePage retry/remove", () => {
+  it("shows Retry only for failed or held entries", async () => {
+    queueDataBox.current = [
+      entry({ id: 1, state: "failed" }),
+      entry({ id: 2, state: "held", model: model({ slug: "m2", name: "M2" }) }),
+      entry({ id: 3, state: "waiting", model: model({ slug: "m3", name: "M3" }) }),
+      entry({ id: 4, state: "ready", model: model({ slug: "m4", name: "M4" }) }),
+    ];
+    renderQueuePage();
+    await screen.findByText("M3");
+
+    expect(screen.getByRole("button", { name: "Retry Articulated Dragon" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry M2" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry M3" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry M4" })).not.toBeInTheDocument();
+  });
+
+  it("retrying calls the retry mutation with the entry id", async () => {
+    queueDataBox.current = [entry({ id: 5, state: "failed" })];
+    renderQueuePage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Retry Articulated Dragon" }));
+    await waitFor(() => expect(retryMock).toHaveBeenCalledExactlyOnceWith(5));
   });
 
   it("removing an entry calls the delete mutation with its id", async () => {
-    queueDataBox.current = [entry({ id: 7, position: 1 })];
-
+    queueDataBox.current = [entry({ id: 7 })];
     renderQueuePage();
-    await screen.findByText("Articulated Dragon");
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove Articulated Dragon from queue" }));
-
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Articulated Dragon" }));
     await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(7));
-  });
-
-  it("gives each entry's Remove button its own accessible name so they aren't ambiguous", async () => {
-    // Fix-review F2: two Remove buttons with the bare name "Remove" are
-    // indistinguishable to assistive tech / role queries.
-    queueDataBox.current = [
-      entry({ id: 1, position: 1 }),
-      entry({ id: 2, position: 2, model: { ...entry().model, slug: "second-model", name: "Second Model" } }),
-    ];
-
-    renderQueuePage();
-    await screen.findByText("Second Model");
-
-    expect(screen.getByRole("button", { name: "Remove Articulated Dragon from queue" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove Second Model from queue" })).toBeInTheDocument();
-    expect(screen.getAllByText("Remove")).toHaveLength(2);
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Second Model from queue" }));
-    await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(2));
   });
 });
 
-// ---------------------------------------------------------------------------
-// print readiness pill + Print action (Round 8 Task 3)
-// ---------------------------------------------------------------------------
-
-describe("QueuePage print readiness", () => {
-  it("shows a Sliced pill for a row with a printable_file", async () => {
-    queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
-
+describe("QueuePage include-done toggle", () => {
+  it("fetches without includeDone by default, and with it once toggled on", async () => {
     renderQueuePage();
+    await screen.findByText("Any printer");
+    expect(includeDoneCalls.at(-1)).toBe(false);
 
-    expect(await screen.findByText("Sliced")).toBeInTheDocument();
-    expect(screen.queryByText("Needs slicing")).not.toBeInTheDocument();
-  });
-
-  it("shows a Needs slicing pill for a row without a printable_file", async () => {
-    queueDataBox.current = [entry({ printable_file: null })];
-
-    renderQueuePage();
-
-    expect(await screen.findByText("Needs slicing")).toBeInTheDocument();
-    expect(screen.queryByText("Sliced")).not.toBeInTheDocument();
-  });
-
-  it("shows no Print button for a row that still needs slicing", async () => {
-    queueDataBox.current = [entry({ printable_file: null })];
-
-    renderQueuePage();
-    await screen.findByText("Needs slicing");
-
-    expect(screen.queryByRole("button", { name: "Print" })).not.toBeInTheDocument();
-  });
-
-  it("shows no Print button when the printer feature is disabled, even if sliced", async () => {
-    featuresDataBox.current = { printer_enabled: false };
-    queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-    await screen.findByText("Sliced");
-
-    expect(screen.queryByRole("button", { name: "Print" })).not.toBeInTheDocument();
-  });
-
-  it("shows no Print button when no printers are configured, even if sliced", async () => {
-    printersDataBox.current = [];
-    queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-    await screen.findByText("Sliced");
-
-    expect(screen.queryByRole("button", { name: "Print" })).not.toBeInTheDocument();
-  });
-
-  it("shows a Print button when sliced, the feature is on, and a printer exists", async () => {
-    queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-
-    expect(await screen.findByRole("button", { name: "Print" })).toBeInTheDocument();
-  });
-
-  it("clicking Print opens the PrintDialog with this entry's model", async () => {
-    queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-    fireEvent.click(await screen.findByRole("button", { name: "Print" }));
-
-    expect(await screen.findByTestId("print-dialog")).toHaveTextContent("model:1");
-  });
-
-  it("closing the dialog without sending does not remove the entry", async () => {
-    queueDataBox.current = [entry({ id: 9, printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-    fireEvent.click(await screen.findByRole("button", { name: "Print" }));
-    await screen.findByTestId("print-dialog");
-
-    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-
-    await waitFor(() => expect(screen.queryByTestId("print-dialog")).not.toBeInTheDocument());
-    expect(removeMock).not.toHaveBeenCalled();
-  });
-
-  it("a successful send (PrintDialog's onSent) removes the entry from the queue", async () => {
-    queueDataBox.current = [entry({ id: 9, printable_file: PRINTABLE_FILE })];
-
-    renderQueuePage();
-    fireEvent.click(await screen.findByRole("button", { name: "Print" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Send to printer" }));
-
-    await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(9));
+    fireEvent.click(screen.getByRole("switch", { name: "Show finished" }));
+    await waitFor(() => expect(includeDoneCalls.at(-1)).toBe(true));
   });
 });

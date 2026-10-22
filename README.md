@@ -412,6 +412,79 @@ run history**) and each mapped spool's `weight_used_g` is advanced by that
 filament's grams, so inventory and run cost reflect the spool(s) actually
 used rather than a flat filament-cost assumption.
 
+### Slicing, profiles & recipes
+
+**Off by default, like printer integration.** A *recipe* pairs a printer
+profile, a process profile and (optionally) filament profiles into one
+named preset, so **Files → Print**'s Profile step can offer "slice and
+send" for an unsliced source file (3MF/STL/STEP/OBJ) instead of requiring
+an already-sliced `.gcode.3mf`. Enable it with
+`docker compose --profile slicer up -d` (or `COMPOSE_PROFILES=slicer` in
+`.env`), which brings up the pinned `slicer` sidecar
+(`ghcr.io/maziggy/bambu-studio-api:${SLICER_TAG:-bambuddy-1.2.5.7}`,
+`compose.slicer.yaml`) — a container fronting Bambu Studio's CLI slicer
+over HTTP. `TDMM_SLICER_URL` (`.env.example`) points the API at it; unset,
+no slicer integration and recipe actions stay disabled (`GET /api/slicer/
+health` reports `configured: false`).
+
+**Profiles** (`/inventory/profiles`) are the raw printer/process/filament
+JSON a slicer bundle exports, each tagged with a `kind` and (for printer
+profiles) the `printer_model` string recipes filter by. Import them either
+from a Bambu Studio **profile bundle** (`.zip`/folder containing a
+`BBL.json` manifest — the same tree Bambu Studio writes under its own
+config directory, e.g. `~/.config/BambuStudio/system/`\* on Linux or
+`%APPDATA%\BambuStudio\system\` on Windows) via **Import**, or by pulling
+whatever profiles the running sidecar already knows about
+(`from_sidecar: true`) once it's up. A profile edited after import takes
+effect on the very next slice — nothing is cached inside the sidecar
+itself.
+
+**Recipes** (the same page's Recipes tab) combine a printer + process
+profile, optional filament profiles, a `bed_type` (must match one of the
+BBL `curr_bed_type` strings the pinned CLI accepts, not an arbitrary
+label), pre-print `options`, and a **fanout**: `single` (any one eligible
+printer), `spread` (one copy per eligible idle printer) or `first_n`
+(the first *n* eligible printers, by name order). Recipes are listed for
+Profile-step selection filtered to printers whose profile `printer_model`
+matches the one already chosen in the plan, or all of them when none has
+been picked yet.
+
+\* Bambu Studio's exact config path varies by install/version — check
+**Help → Show Configuration Folder** inside Bambu Studio if the above
+doesn't match.
+
+### Queue & dispatch
+
+Each `/api/queue` entry can now carry its own `file_id`, `plate`,
+`printer_id`, `recipe_id`, `ams_mapping`, pre-print `options` and `copies`
+(1–50), tracked through a state machine: `waiting` (has a recipe, not yet
+sliced) → `slicing` → `ready` (has a sliced file — where an as-sliced
+"Add to queue" starts directly) → `dispatched` (a print job sent) →
+`done`/`failed`/`held`. **Files → Print**'s "Slice and send" inserts at
+the front of the queue (`waiting`); "Add to queue" appends at the end.
+
+A beat task (`dispatch_queue`, every 10s, independent of the printer
+status poll's own cadence) drives the whole pipeline: slicing a handful of
+`waiting` items per tick (bounded so a long backlog doesn't flood the CPU
+worker queue), then handing each `ready` item to the first eligible idle
+printer — "eligible" meaning permitted (`can_print`), compatible
+(printer model match when the recipe names one; nozzle diameter within
+0.05mm when both the recipe and the printer's last-reported MQTT
+`nozzle_diameter` are known — the check is skipped, not failed, when
+either side is unknown), and `IDLE`/`FINISH`. A `spread`/`first_n` recipe
+splits its `copies` one-per-printer across every eligible idle printer (up
+to *n* for `first_n`); when a printer **FINISH**es, the next queued item
+targeting it is picked up on the next tick automatically. A dispatch
+failure (sidecar down, send rejected, etc.) retries up to 3 attempts total
+before the entry goes `failed`; a sidecar-down slicing failure does **not**
+consume an attempt. Revoking a user's `inventory:write`/`printers:control`
+permission after they enqueued an item holds it (`held`) rather than
+silently dispatching on their behalf.
+
+`docker compose up` **without** `--profile slicer` still starts every other
+service — the slicer sidecar is additive, same posture as the printer
+integration.
+
 ### Live camera & timelapse
 
 A printer tile and run view can show a **live camera feed** (MJPEG, ~5 fps,

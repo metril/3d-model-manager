@@ -22,7 +22,9 @@ from app.models.enums import (
     PrinterKind,
     PrintJobOrigin,
     PrintJobState,
+    QueueState,
 )
+from app.models.library import PrintQueueEntry
 from app.models.printing import PrintArchive
 from app.printers.base import state_key
 
@@ -63,6 +65,31 @@ async def _finished_archive(
     await db.commit()
     await db.refresh(a)
     return a
+
+
+async def _queue_entry(
+    db: AsyncSession,
+    *,
+    slug: str,
+    printer_id: int | None = None,
+    assigned_printer_id: int | None = None,
+    position: int,
+    state: QueueState = QueueState.WAITING,
+) -> PrintQueueEntry:
+    model = Model(slug=slug, name=slug)
+    db.add(model)
+    await db.flush()
+    entry = PrintQueueEntry(
+        model_id=model.id,
+        position=position,
+        printer_id=printer_id,
+        assigned_printer_id=assigned_printer_id,
+        state=state,
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
 
 
 async def _active_job(db: AsyncSession, printer: Printer) -> PrintJob:
@@ -166,6 +193,32 @@ async def test_overview_constant_query_count(
         engine, authenticated_client.get("/api/printers/overview")
     )
     assert three_count == one_count
+
+
+async def test_overview_up_next_per_printer(
+    authenticated_client: httpx.AsyncClient,
+    printer_enabled: None,
+    db_session: AsyncSession,
+):
+    p1 = await _printer(db_session, "p1")
+    p2 = await _printer(db_session, "p2")
+    await _queue_entry(db_session, slug="p1-a", printer_id=p1.id, position=1)
+    await _queue_entry(db_session, slug="p1-b", printer_id=p1.id, position=2)
+    await _queue_entry(
+        db_session,
+        slug="p2-dispatched",
+        assigned_printer_id=p2.id,
+        position=3,
+        state=QueueState.DISPATCHED,
+    )
+    await _queue_entry(db_session, slug="bare", position=4)
+    await _queue_entry(db_session, slug="done", printer_id=p1.id, position=5, state=QueueState.DONE)
+
+    body = (await authenticated_client.get("/api/printers/overview")).json()
+    items = {item["printer"]["id"]: item for item in body["printers"]}
+    assert [e["model"]["slug"] for e in items[p1.id]["up_next"]] == ["p1-a", "p1-b"]
+    assert [e["model"]["slug"] for e in items[p2.id]["up_next"]] == ["p2-dispatched"]
+    assert [e["model"]["slug"] for e in body["up_next"]] == ["bare"]
 
 
 async def test_overview_503_when_disabled(authenticated_client: httpx.AsyncClient):

@@ -295,3 +295,12 @@ async def test_sync_twins_get_and_set(db_session, monkeypatch):
 
     row = await db_session.get(Setting, "app")
     assert row.value == edited.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_slicer_url_overlays_from_env(db_session, monkeypatch):
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+
+    config = await app_config.get_app_config(db_session, get_settings())
+    assert config.slicer_url == "http://slicer:3001"

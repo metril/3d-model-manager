@@ -187,6 +187,19 @@ def _as_int(value) -> int | None:
         return None
 
 
+def _nozzle_mm(dump: dict) -> float | None:
+    """The lib's own ``nozzle_diameter()`` defaults to ``0`` (never raises)
+    when the printer hasn't reported one -- read the raw dump directly
+    (same ``_dump_get`` path as ``print_error``/``wifi_signal``) and treat
+    a non-positive value as unknown, never a real 0mm nozzle."""
+    value = _dump_get(dump, "nozzle_diameter")
+    try:
+        mm = float(value)
+    except (TypeError, ValueError):
+        return None
+    return mm if mm > 0 else None
+
+
 def _dump_get(dump: dict, key: str):
     """Best-effort lookup of a field in the lib's mqtt_dump(). The real
     v2.6.6 Printer.mqtt_dump() returns the RAW top-level MQTT payload
@@ -320,6 +333,7 @@ class BambuLanAdapter(PrinterAdapter):
             "subtask_name": p.subtask_name() or p.get_file_name() or None,
             "wifi_signal": _dump_get(dump, "wifi_signal"),
             "trays": _ams_trays(dump),
+            "nozzle_mm": _nozzle_mm(dump),
         }
 
     def merge_report(self, prev: dict | None, report: dict) -> dict:
@@ -340,6 +354,7 @@ class BambuLanAdapter(PrinterAdapter):
             subtask_name=merged.get("subtask_name"),
             wifi_signal=merged.get("wifi_signal"),
             trays=merged.get("trays") or [],
+            nozzle_mm=merged.get("nozzle_mm"),
         )
 
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None:

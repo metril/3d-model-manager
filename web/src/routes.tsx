@@ -16,10 +16,10 @@ import { LibraryPage } from "@/pages/LibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { MaterialsPage } from "@/pages/MaterialsPage";
 import { ModelDetailPage } from "@/pages/ModelDetailPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
+import { ProfilesPage } from "@/pages/ProfilesPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SpoolsPage } from "@/pages/SpoolsPage";
@@ -250,9 +250,7 @@ const inventoryMaterialsRoute = createRoute({
 const inventoryProfilesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/profiles",
-  component: () => (
-    <PlaceholderPage title="Profiles & recipes" phase="P6" blurb="Save slicer profiles and print recipes." />
-  ),
+  component: ProfilesPage,
 });
 
 const systemJobsRoute = createRoute({

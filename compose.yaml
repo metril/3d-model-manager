@@ -44,6 +44,9 @@
 # Quickstart: `cp .env.example .env` then `docker compose up -d --build`.
 # See README "Quickstart" for the first-run admin password note.
 
+include:
+  - compose.slicer.yaml
+
 services:
   api:
     build:

@@ -21,8 +21,18 @@
  * On first landing (and only once, so it never fights a manual rail
  * click), the dialog skips forward past any step that has nothing to
  * decide: Source when it doesn't apply, Plate when the file has only one
- * plate, and Profile always (P6 adds recipes -- today it's just "As
- * sliced"). Every step stays reachable from the rail regardless.
+ * plate, and Profile always (its default, "As sliced", needs no further
+ * input -- a recipe is still reached via a manual rail click). Every step
+ * stays reachable from the rail regardless.
+ *
+ * P6 Task 11 adds the Profile step's other option: a recipe (filtered to
+ * ones whose printer profile matches the plan's printer, or all when none
+ * is chosen yet). Picking one swaps the Send step's "Send now" for "Slice
+ * and send" (enqueues at the front, state `waiting` -- the dispatcher
+ * slices then sends) / "Add to queue" (appends, state `ready`), both via
+ * `useEnqueue`, and the Plate/Filament steps -- which need an already-
+ * sliced file -- collapse to "Mapped after slicing" instead of calling
+ * `/print/plan`.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -30,11 +40,12 @@ import { ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/api/client";
-import { useEnqueueModel } from "@/api/queue";
+import { useEnqueue } from "@/api/queue";
 import { useModelSearchQuery } from "@/api/library";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus } from "@/api/printers";
-import type { PlanFilament, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
+import { useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
+import type { BlobFormat, PlanFilament, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -72,10 +83,16 @@ const STATUS_STYLE: Record<PlanFilamentStatus, string> = {
   none: "border-destructive/50 bg-destructive/10",
 };
 
-/** The model's sliced (`gcode_3mf`) files on its current revision -- used
- * by the `model`/`pick` sources' file picker. Piggybacks on the same
+// "As sliced" picks from the model's already-sliced files; choosing a
+// recipe picks from its sliceable sources instead (the recipe does its
+// own slicing).
+const AS_SLICED_FORMATS: BlobFormat[] = ["gcode_3mf"];
+const RECIPE_SOURCE_FORMATS: BlobFormat[] = ["3mf", "stl", "step", "obj"];
+
+/** The model's files matching `formats` on its current revision -- used by
+ * the `model`/`pick` sources' file picker. Piggybacks on the same
  * `["revisions", ...]` query keys `library.ts` uses, so it shares cache. */
-function useModelSlicedFiles(modelId: number | null) {
+function useModelSourceFiles(modelId: number | null, formats: BlobFormat[]) {
   const revisions = useQuery({
     queryKey: ["revisions", modelId ?? undefined] as const,
     queryFn: () => api.get<RevisionSummary[]>(`/models/${modelId}/revisions`),
@@ -87,7 +104,10 @@ function useModelSlicedFiles(modelId: number | null) {
     queryFn: () => api.get<RevisionDetail>(`/revisions/${revisionId}`),
     enabled: revisionId != null,
   });
-  const files = useMemo(() => (detail.data?.files ?? []).filter((f) => f.format === "gcode_3mf"), [detail.data]);
+  const files = useMemo(
+    () => (detail.data?.files ?? []).filter((f) => formats.includes(f.format)),
+    [detail.data, formats],
+  );
   return { files, isLoading: revisions.isLoading || detail.isLoading };
 }
 
@@ -190,6 +210,9 @@ export function PrintDialog({
   const [timelapse, setTimelapse] = useState(false);
   const [optionsSeeded, setOptionsSeeded] = useState(false);
   const [modelQuery, setModelQuery] = useState("");
+  const [profileMode, setProfileMode] = useState<"as-sliced" | "recipe">("as-sliced");
+  const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
+  const [copies, setCopies] = useState(1);
 
   // Reset everything when the dialog is relaunched for a different source
   // (or reopened) -- a stale plate/printer/override set from a previous
@@ -205,11 +228,17 @@ export function PrintDialog({
     setOverrides({});
     setOptionsSeeded(false);
     setModelQuery("");
+    setProfileMode("as-sliced");
+    setSelectedRecipeId(null);
+    setCopies(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   const modelIdForFiles = source.kind === "model" ? source.modelId : pickedModelId;
-  const slicedFiles = useModelSlicedFiles(modelIdForFiles);
+  const slicedFiles = useModelSourceFiles(
+    modelIdForFiles,
+    profileMode === "recipe" ? RECIPE_SOURCE_FORMATS : AS_SLICED_FORMATS,
+  );
   const autoFileId = slicedFiles.files.length === 1 ? slicedFiles.files[0].id : null;
 
   const resolvedFileId =
@@ -269,7 +298,7 @@ export function PrintDialog({
     setAutoAdvanced(true);
   }, [plan, autoAdvanced, step, source, slicedFiles.files.length]);
 
-  const enqueueModel = useEnqueueModel();
+  const enqueue = useEnqueue();
   const sendPrint = useSendPrint();
   const printerStatus = usePrinterStatus(effectivePrinterId ?? -1, { enabled: effectivePrinterId != null });
   const trays = (printerStatus.data?.trays ?? []).map((t) => ({
@@ -280,6 +309,23 @@ export function PrintDialog({
   const modelSearch = useModelSearchQuery(modelQuery);
   const searchResults = modelQuery.trim().length > 0 ? modelSearch.data?.items ?? [] : [];
 
+  // Profile step: recipes filtered to the chosen printer's model (the
+  // plan's own printer, before the person reaches Send and picks one
+  // explicitly), or every recipe when no printer is known yet.
+  const recipes = useRecipes();
+  const printerProfiles = useProfiles("printer");
+  const slicerHealth = useSlicerHealth();
+  const selectedPrinterModel = plan?.printers.find((p) => p.id === effectivePrinterId)?.model ?? null;
+  const recipeList = Array.isArray(recipes.data) ? recipes.data : [];
+  const profileList = Array.isArray(printerProfiles.data) ? printerProfiles.data : [];
+  const filteredRecipes = recipeList.filter((r) => {
+    if (selectedPrinterModel == null) return true;
+    const profile = profileList.find((p) => p.id === r.printer_profile_id);
+    return profile?.printer_model == null || profile.printer_model === selectedPrinterModel;
+  });
+  const selectedRecipe = recipeList.find((r) => r.id === selectedRecipeId) ?? null;
+  const recipeActionsDisabled = slicerHealth.data?.ok !== true;
+
   const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
   // A reprint seeds `printerId` from the archived run before the person
   // ever visits the Send step -- that pre-selected printer can be busy or
@@ -288,7 +334,6 @@ export function PrintDialog({
   // selected printer is actually idle + compatible.
   const selectedPrinter = plan?.printers.find((pp) => pp.id === effectivePrinterId) ?? null;
   const printerNotReady = selectedPrinter != null && !(selectedPrinter.idle && selectedPrinter.compatible);
-  const modelId = plan?.model_id ?? (source.kind === "model" ? source.modelId : null);
 
   function close() {
     onOpenChange(false);
@@ -317,14 +362,66 @@ export function PrintDialog({
     );
   }
 
+  // "As sliced" Add to queue: persists the plan's own plate/printer/mapping
+  // so the dispatcher can send it unchanged later (state `ready`).
   function handleAddToQueue() {
-    if (modelId == null) return;
-    enqueueModel.mutate(modelId, {
-      onSuccess: () => {
-        close();
-        toast.success("Added to queue");
+    if (effectiveFileId == null) return;
+    enqueue.mutate(
+      {
+        file_id: effectiveFileId,
+        plate: effectivePlate ?? undefined,
+        printer_id: effectivePrinterId ?? undefined,
+        ams_mapping: plan?.ams_mapping ?? undefined,
+        options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse },
       },
-    });
+      {
+        onSuccess: () => {
+          close();
+          toast.success("Added to queue");
+        },
+      },
+    );
+  }
+
+  // Recipe "Slice and send": inserted at the front (`front: true`, state
+  // `waiting`) -- the dispatcher slices with the recipe then sends.
+  function handleSliceAndSend() {
+    if (effectiveFileId == null || selectedRecipeId == null) return;
+    enqueue.mutate(
+      {
+        file_id: effectiveFileId,
+        recipe_id: selectedRecipeId,
+        printer_id: effectivePrinterId ?? undefined,
+        copies,
+        front: true,
+      },
+      {
+        onSuccess: () => {
+          close();
+          toast.success(`Slicing, then sending to ${selectedPrinter?.name ?? "printer"}`);
+        },
+      },
+    );
+  }
+
+  // Recipe "Add to queue": appended at the end (`front: false`).
+  function handleQueueRecipe() {
+    if (effectiveFileId == null || selectedRecipeId == null) return;
+    enqueue.mutate(
+      {
+        file_id: effectiveFileId,
+        recipe_id: selectedRecipeId,
+        printer_id: effectivePrinterId ?? undefined,
+        copies,
+        front: false,
+      },
+      {
+        onSuccess: () => {
+          close();
+          toast.success("Added to queue");
+        },
+      },
+    );
   }
 
   const footerPlate = plan?.plates.find((p) => p.index === effectivePlate) ?? plan?.plates[0];
@@ -387,7 +484,9 @@ export function PrintDialog({
               </div>
             ) : null}
 
-            {step === PLATE ? (
+            {step === PLATE && profileMode === "recipe" ? (
+              <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+            ) : step === PLATE ? (
               <div className="flex gap-3 overflow-x-auto pb-2">
                 {(plan?.plates ?? []).map((p) => (
                   <button
@@ -420,17 +519,38 @@ export function PrintDialog({
             ) : null}
 
             {step === PROFILE ? (
-              <RadioGroup value="as-sliced">
+              <RadioGroup
+                value={profileMode === "recipe" && selectedRecipeId != null ? String(selectedRecipeId) : "as-sliced"}
+                onValueChange={(v) => {
+                  if (v === "as-sliced") {
+                    setProfileMode("as-sliced");
+                    setSelectedRecipeId(null);
+                  } else {
+                    setProfileMode("recipe");
+                    setSelectedRecipeId(Number(v));
+                  }
+                }}
+              >
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="as-sliced" id="print-dialog-profile-as-sliced" />
                   <Label htmlFor="print-dialog-profile-as-sliced" className="font-normal">
                     As sliced
                   </Label>
                 </div>
+                {filteredRecipes.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <RadioGroupItem value={String(r.id)} id={`print-dialog-profile-recipe-${r.id}`} />
+                    <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
+                      {r.name}
+                    </Label>
+                  </div>
+                ))}
               </RadioGroup>
             ) : null}
 
-            {step === FILAMENT ? (
+            {step === FILAMENT && profileMode === "recipe" ? (
+              <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+            ) : step === FILAMENT ? (
               <div className="space-y-2">
                 {(plan?.filaments ?? []).map((f) => (
                   <FilamentRow
@@ -497,32 +617,78 @@ export function PrintDialog({
                     Could not send to printer
                   </p>
                 ) : null}
+                {profileMode === "recipe" ? (
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="print-dialog-copies" className="font-normal">
+                      Copies
+                    </Label>
+                    <Input
+                      id="print-dialog-copies"
+                      type="number"
+                      min={1}
+                      max={50}
+                      className="w-20"
+                      value={copies}
+                      onChange={(e) => setCopies(Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
+                    />
+                  </div>
+                ) : null}
                 <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={effectivePrinterId == null || hasRed || printerNotReady || sendPrint.isPending}
-                  >
-                    {sendPrint.isPending ? "Sending..." : "Send now"}
-                  </Button>
-                  {modelId != null ? (
-                    <Button type="button" variant="outline" onClick={handleAddToQueue} disabled={enqueueModel.isPending}>
-                      Add to queue
-                    </Button>
-                  ) : null}
+                  {profileMode === "recipe" ? (
+                    <>
+                      <Button
+                        type="button"
+                        onClick={handleSliceAndSend}
+                        disabled={recipeActionsDisabled || enqueue.isPending}
+                        title={recipeActionsDisabled ? "Slicer sidecar unavailable" : undefined}
+                      >
+                        Slice and send
+                      </Button>
+                      {/* M6: "Add to queue" only queues the recipe for the
+                          dispatcher to slice later -- it doesn't call the
+                          sidecar itself, so a down sidecar shouldn't block it. */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleQueueRecipe}
+                        disabled={enqueue.isPending}
+                      >
+                        Add to queue
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        onClick={handleSend}
+                        disabled={effectivePrinterId == null || hasRed || printerNotReady || sendPrint.isPending}
+                      >
+                        {sendPrint.isPending ? "Sending..." : "Send now"}
+                      </Button>
+                      {effectiveFileId != null ? (
+                        <Button type="button" variant="outline" onClick={handleAddToQueue} disabled={enqueue.isPending}>
+                          Add to queue
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </div>
             ) : null}
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
-          <SpecRow
-            items={[
-              footerPlate?.prediction_s != null ? { label: humanizeDuration(footerPlate.prediction_s) } : null,
-              footerPlate?.weight_g != null ? { label: `${Math.round(footerPlate.weight_g)} g` } : null,
-              plan?.est_cost != null ? { label: formatCost(plan.est_cost) } : null,
-            ]}
-          />
+          {profileMode === "recipe" ? (
+            <p className="text-sm text-muted-foreground">{selectedRecipe?.name ?? "Recipe"}</p>
+          ) : (
+            <SpecRow
+              items={[
+                footerPlate?.prediction_s != null ? { label: humanizeDuration(footerPlate.prediction_s) } : null,
+                footerPlate?.weight_g != null ? { label: `${Math.round(footerPlate.weight_g)} g` } : null,
+                plan?.est_cost != null ? { label: formatCost(plan.est_cost) } : null,
+              ]}
+            />
+          )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" disabled={step === SOURCE} onClick={() => setStep((s) => Math.max(SOURCE, s - 1))}>
               Back

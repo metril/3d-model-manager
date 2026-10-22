@@ -94,6 +94,12 @@ class PrinterPublicState:
     print_error: int | None = None
     nozzle_temper: float | None = None
     bed_temper: float | None = None
+    # P6 Task 7: the nozzle diameter currently registered to the printer
+    # (MQTT `nozzle_diameter`), mm -- the dispatcher's `compatibility_reason`
+    # cross-checks this against a sliced plate's required nozzle size.
+    # `None` when the adapter/printer hasn't reported one (never a bare
+    # `0.0` -- see `app.printers.bambu._nozzle_mm`).
+    nozzle_mm: float | None = None
     subtask_name: str | None = None
     wifi_signal: str | None = None
     # AMS filament slots, loaded or empty (M8 G3 + P5 spool tray plan):

@@ -7,14 +7,27 @@ new ``/print/send`` route both call.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import anyio
 import redis.asyncio as aioredis
 from fastapi import HTTPException, status
+from redis import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
-from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
+
+if TYPE_CHECKING:
+    # Deferred to a function-local import at its one runtime call site
+    # (`build_plan`) -- `app.api.deps` pulls in the whole `app.api` package
+    # (which imports `print_plan` right back, for `build_plan`/`create_job`),
+    # and the P6 dispatcher (`app.services.dispatcher` -> this module) is
+    # reached from the Celery worker's OWN entrypoint (`app.tasks.celery_app`)
+    # before `app.api` is ever loaded -- a top-level import here would be a
+    # real circular import in that process, not just an API-layer one.
+    from app.api.deps import AuthContext
 from app.models import Blob, File, Model, Printer, PrintJob, Revision
 from app.models.enums import BlobFormat, PrintJobState
 from app.models.processing import BlobMeta
@@ -26,12 +39,53 @@ from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
 from app.services.app_config import get_app_config
 from app.services.costing import CostRates, filament_cost, price_run
-from app.services.printer_state import preflight_ok, read_state_async
+from app.services.printer_state import preflight_ok, read_state_async, read_state_sync
 
 
 def _spool_label(s) -> str:
     bits = [s.color_name or s.color_hex, s.brand, s.material_type]
     return " ".join(b for b in bits if b) or f"spool {s.id}"
+
+
+def model_matches(need: str | None, printer_model: str | None) -> bool:
+    """Whether a sliced file's required ``printer_model`` (or a recipe's
+    ``target_printer_model``) is compatible with an actual printer's
+    reported ``model`` -- a case-insensitive substring match (e.g. "Bambu
+    Lab A1 mini" sliced-for vs a printer's "A1 mini"). Either side unset is
+    treated as compatible (nothing to check against). Shared by
+    ``build_plan``'s ``PlanPrinter.compatible`` and the P6 dispatcher's
+    ``compatibility_reason`` (``app.services.dispatcher``) so the two never
+    drift.
+    """
+    if not need or not printer_model:
+        return True
+    a, b = need.lower(), printer_model.lower()
+    return a in b or b in a
+
+
+class NotSendableError(ValueError):
+    """A file/blob isn't in a state ``create_job``/``create_job_sync`` can
+    send to a printer (wrong format, missing blob)."""
+
+
+def _check_sendable(blob: Blob | None) -> None:
+    if blob is None or blob.format != BlobFormat.GCODE_3MF:
+        raise NotSendableError("only sliced .gcode.3mf files can be sent to a printer")
+
+
+def plan_mapping(
+    needs: list[FilamentNeed], trays: list[TrayInfo], overrides: dict[int, int] | None
+) -> tuple[list[Match], list[int], bool]:
+    """Pure AMS-mapping core shared by ``build_plan`` (preview) and the P6
+    dispatcher (``app.services.dispatcher``, both the compatibility check
+    and the actual mapping sent with a dispatched job): match each sliced
+    filament need to a live tray, and derive the flat ``ams_mapping`` array
+    plus whether the AMS is used at all (vs. the single external spool).
+    """
+    matches = match(needs, trays, overrides=overrides)
+    ams_mapping = to_ams_mapping(matches)
+    use_ams = any(m.tray not in (None, sinv.EXTERNAL_SLOT) for m in matches)
+    return matches, ams_mapping, use_ams
 
 
 def _can_print(ctx: AuthContext, printer_id: int) -> bool:
@@ -55,6 +109,8 @@ async def _thumbnail_existence(settings: Settings, blob_hash: str, plates: list[
 async def build_plan(
     db: AsyncSession, settings: Settings, redis: aioredis.Redis, ctx: AuthContext, body: PlanIn
 ) -> PlanOut:
+    from app.api.deps import visible_printer_ids
+
     file = await db.get(File, body.file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
@@ -93,11 +149,8 @@ async def build_plan(
         state = await read_state_async(redis, p.id)
         states[p.id] = state
         idle = preflight_ok(state)
-        compatible = True
-        reason = None
-        if printer_model and p.model and printer_model.lower() not in p.model.lower():
-            compatible = False
-            reason = f"sliced for {printer_model}"
+        compatible = model_matches(printer_model, p.model)
+        reason = f"sliced for {printer_model}" if not compatible else None
         printers.append(
             PlanPrinter(
                 id=p.id, name=p.name, model=p.model, idle=idle, compatible=compatible, reason=reason
@@ -134,9 +187,7 @@ async def build_plan(
             )
         smap = await sinv.slot_map(db, [printer_id])
 
-    matches: list[Match] = match(needs, tray_infos, overrides=body.overrides)
-    ams_mapping = to_ams_mapping(matches)
-    use_ams = any(m.tray not in (None, sinv.EXTERNAL_SLOT) for m in matches)
+    matches, ams_mapping, use_ams = plan_mapping(needs, tray_infos, body.overrides)
 
     cfg = await get_app_config(db, settings)
     rates = CostRates.from_config(cfg)
@@ -250,11 +301,10 @@ async def create_job(
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     blob = await db.get(Blob, file.blob_hash)
-    if blob is None or blob.format != BlobFormat.GCODE_3MF:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "only sliced .gcode.3mf files can be sent to a printer",
-        )
+    try:
+        _check_sendable(blob)
+    except NotSendableError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
@@ -279,4 +329,69 @@ async def create_job(
     await db.refresh(job)
     send_to_printer.apply_async(args=[job.id, req.model_dump()])
     await db.refresh(job)  # eager mode already ran the task through its own sync session
+    return job
+
+
+def create_job_sync(
+    session: Session,
+    settings: Settings,
+    client: Redis,
+    printer_id: int,
+    req: PrintRequest,
+    created_by_user_id: int | None,
+) -> PrintJob:
+    """Worker-side (SYNC world, ``app.tasks.base``) twin of ``create_job``,
+    for the P6 dispatcher (``app.services.dispatcher``) -- same validation
+    (printer exists/enabled, file is a sendable ``.gcode.3mf``, printer
+    preflight-ready), raising a plain exception instead of an
+    ``HTTPException`` (there's no request to 4xx -- the dispatcher's own
+    retry rule handles a raise here). ``created_by_user_id`` is the queue
+    entry's own creator, not an ``AuthContext`` (the dispatcher has no live
+    session). The ``send_to_printer`` task is invoked with its own
+    exception caught, not re-raised: in eager-mode tests that task runs its
+    full authoritative re-check synchronously and writes the job's OWN
+    FAILED state itself on failure -- that's the single source of truth,
+    picked up by ``dispatcher._reconcile``'s retry step on the NEXT tick.
+    If ``apply_async`` itself blows up (I4: before the task ever got a
+    chance to write anything, e.g. the broker is unreachable), the job is
+    marked FAILED here instead -- ``started_at`` stays ``None`` so that very
+    same reconcile step still picks it up, rather than leaving a QUEUED job
+    that will never move again.
+    """
+    from app.tasks.printing import send_to_printer
+
+    printer = session.get(Printer, printer_id)
+    if printer is None:
+        raise ValueError("printer not found")
+    if not printer.enabled:
+        raise ValueError("printer is disabled")
+    file = session.get(File, req.file_id)
+    if file is None:
+        raise ValueError("file not found")
+    blob = session.get(Blob, file.blob_hash)
+    _check_sendable(blob)
+    state = read_state_sync(client, printer_id)
+    if not preflight_ok(state):
+        gs = state.get("gcode_state") if state else "unknown"
+        raise ValueError(f"printer not ready (state={gs}); must be IDLE/FINISH/FAILED")
+    job = PrintJob(
+        printer_id=printer_id,
+        file_id=file.id,
+        state=PrintJobState.QUEUED,
+        subtask_name=req.subtask_name,
+        plate=req.plate,
+        ams_mapping=list(req.ams_mapping),
+        created_by_user_id=created_by_user_id,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    try:
+        send_to_printer.apply_async(args=[job.id, req.model_dump()])
+    except Exception as exc:  # noqa: BLE001 - see docstring: I4
+        job.state = PrintJobState.FAILED
+        job.printer_error = str(exc)
+        job.started_at = None
+        session.commit()
+    session.refresh(job)
     return job
