@@ -87,3 +87,66 @@ class GroupPatchIn(BaseModel):
 
 class GroupMembersIn(BaseModel):
     user_ids: list[int]
+
+
+_SLUG_RE = r"^[a-z0-9][a-z0-9-]{0,62}$"
+
+
+def _https(v: str) -> str:
+    if not v.startswith("https://"):
+        raise ValueError("discovery_url must start with https://")
+    return v
+
+
+class OidcProviderOut(BaseModel):
+    id: int
+    name: str
+    slug: str
+    discovery_url: str
+    client_id: str
+    has_client_secret: bool
+    scopes: str
+    groups_claim: str
+    group_mapping: dict[str, int]
+    admin_group: str | None
+    auto_create_users: bool
+    link_by_email: bool
+    enabled: bool
+    callback_url: str
+
+
+class OidcProviderCreateIn(BaseModel):
+    name: str = Field(min_length=1)
+    slug: str = Field(pattern=_SLUG_RE)
+    discovery_url: str
+    client_id: str = Field(min_length=1)
+    client_secret: str = Field(min_length=1)
+    scopes: str = "openid profile email groups"
+    groups_claim: str = "groups"
+    group_mapping: dict[str, int] = Field(default_factory=dict)
+    admin_group: str | None = None
+    auto_create_users: bool = False
+    link_by_email: bool = False
+    enabled: bool = True
+
+    _v_url = field_validator("discovery_url")(_https)
+
+
+class OidcProviderPatchIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    slug: str | None = Field(default=None, pattern=_SLUG_RE)
+    discovery_url: str | None = None
+    client_id: str | None = Field(default=None, min_length=1)
+    client_secret: str | None = Field(default=None, min_length=1)
+    scopes: str | None = None
+    groups_claim: str | None = None
+    group_mapping: dict[str, int] | None = None
+    admin_group: str | None = None
+    auto_create_users: bool | None = None
+    link_by_email: bool | None = None
+    enabled: bool | None = None
+
+    @field_validator("discovery_url")
+    @classmethod
+    def _v_url(cls, v: str | None) -> str | None:
+        return None if v is None else _https(v)
