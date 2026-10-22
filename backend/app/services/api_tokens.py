@@ -34,12 +34,12 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def mint(db: AsyncSession, *, label: str) -> tuple[str, ApiToken]:
+async def mint(db: AsyncSession, *, user_id: int, label: str) -> tuple[str, ApiToken]:
     """Generate a new token, store only its hash, and return the plaintext
     ONCE -- the caller (``POST /settings/api-tokens``) is the only place the
     plaintext is ever visible; it is never stored or logged."""
     token = secrets.token_urlsafe(TOKEN_BYTES)
-    row = ApiToken(token_hash=_hash(token), label=label)
+    row = ApiToken(token_hash=_hash(token), user_id=user_id, label=label)
     db.add(row)
     await db.commit()
     await db.refresh(row)

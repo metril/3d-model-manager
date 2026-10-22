@@ -5,7 +5,15 @@ Importing this package registers every mapped class on the shared
 see the full schema (SPEC "Data model").
 """
 
-from app.models.auth import ApiToken, Session, User
+from app.models.auth import (
+    ApiToken,
+    Group,
+    GroupMember,
+    OidcProvider,
+    PrinterAccess,
+    Session,
+    User,
+)
 from app.models.base import Base
 from app.models.collections import (
     FollowedCollection,
@@ -41,13 +49,17 @@ __all__ = [
     "File",
     "FileLocation",
     "FollowedCollection",
+    "Group",
+    "GroupMember",
     "Import",
     "Job",
     "Model",
     "Note",
+    "OidcProvider",
     "PendingImport",
     "Print",
     "Printer",
+    "PrinterAccess",
     "PrintJob",
     "PrintQueueEntry",
     "RemoteCollectionCache",

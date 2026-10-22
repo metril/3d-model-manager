@@ -131,3 +131,20 @@ class PrintResult(StrEnum):
     SUCCESS = "success"
     FAIL = "fail"
     PARTIAL = "partial"
+
+
+class UserRole(StrEnum):
+    """Account role (P1 multi-user): ``admin`` manages everything, ``member``
+    works with the library, ``viewer`` is read-only."""
+
+    ADMIN = "admin"
+    MEMBER = "member"
+    VIEWER = "viewer"
+
+
+class MembershipSource(StrEnum):
+    """How a ``group_members`` row came to exist: set by an admin
+    (``local``) or synced from an OIDC groups claim (``oidc``)."""
+
+    LOCAL = "local"
+    OIDC = "oidc"

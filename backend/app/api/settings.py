@@ -20,6 +20,7 @@ import pydantic
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthContext, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.printables import fetch_identity
@@ -612,9 +613,11 @@ async def delete_printables_auth(
 
 @router.post("/api-tokens", status_code=status.HTTP_201_CREATED, response_model=ApiTokenMintOut)
 async def create_api_token(
-    payload: ApiTokenCreateIn, db: AsyncSession = Depends(get_db)
+    payload: ApiTokenCreateIn,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(require_session),
 ) -> ApiTokenMintOut:
-    token, row = await api_tokens.mint(db, label=payload.label)
+    token, row = await api_tokens.mint(db, user_id=auth.user.id, label=payload.label)
     return ApiTokenMintOut(id=row.id, label=row.label, token=token, created_at=row.created_at)
 
 

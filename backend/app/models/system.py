@@ -28,6 +28,9 @@ class Import(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     url: Mapped[str] = mapped_column(Text, nullable=False)
     site: Mapped[ImportSite] = mapped_column(str_enum(ImportSite, "import_site"), nullable=False)
     external_id: Mapped[str | None] = mapped_column(String)

@@ -57,6 +57,9 @@ class PrintJob(Base):
     __tablename__ = "print_jobs"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     printer_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("printers.id"), nullable=False)
     file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("files.id"), nullable=False)
     subtask_name: Mapped[str | None] = mapped_column(String)

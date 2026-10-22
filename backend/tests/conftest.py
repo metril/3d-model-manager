@@ -26,7 +26,7 @@ from app.config import get_settings
 from app.db import get_engine, get_sessionmaker
 from app.main import create_app
 from app.models import Base, Blob, File, Model, Revision, User
-from app.models.enums import BlobFormat, BlobKind
+from app.models.enums import BlobFormat, BlobKind, UserRole
 from app.security import hash_password
 from app.storage.local import LocalStorageBackend
 from app.tasks.base import get_sync_engine, get_sync_sessionmaker
@@ -38,7 +38,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # tests/storage_containers.py (M3 Task 2) supplies the MinIO/dperson-samba
 # container fixtures + smb_backend/s3_backend factory fixtures consumed by
 # tests/test_storage_contract.py and Task 3/4's backend-specific tests.
-pytest_plugins = ("tests.storage_containers", "tests.printer_fixtures", "tests.importer_fixtures")
+pytest_plugins = (
+    "tests.storage_containers",
+    "tests.printer_fixtures",
+    "tests.importer_fixtures",
+    "tests.migration_helpers",
+)
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "correct horse battery staple"
@@ -209,7 +214,9 @@ def printer_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator
 
 @pytest.fixture
 async def admin_user(db_session: AsyncSession) -> User:
-    user = User(username=ADMIN_USERNAME, password_hash=hash_password(ADMIN_PASSWORD))
+    user = User(
+        username=ADMIN_USERNAME, password_hash=hash_password(ADMIN_PASSWORD), role=UserRole.ADMIN
+    )
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)

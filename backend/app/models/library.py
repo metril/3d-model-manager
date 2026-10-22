@@ -84,6 +84,9 @@ class Model(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     slug: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -213,6 +216,9 @@ class Note(Base):
     __tablename__ = "notes"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     model_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False
     )
@@ -241,6 +247,9 @@ class PrintQueueEntry(Base):
     __tablename__ = "print_queue"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     model_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False, unique=True
     )
@@ -261,6 +270,9 @@ class Print(Base):
     __tablename__ = "prints"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     model_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -297,6 +309,9 @@ class Revision(Base):
     __table_args__ = (UniqueConstraint("model_id", "number"),)
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     model_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False
     )
@@ -341,6 +356,9 @@ class File(Base):
     __table_args__ = (UniqueConstraint("revision_id", "rel_path"),)
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     revision_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("revisions.id", ondelete="CASCADE"), nullable=False, index=True
     )

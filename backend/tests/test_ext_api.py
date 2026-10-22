@@ -17,8 +17,8 @@ pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
 
 @pytest.fixture
-async def ext_token(db_session) -> str:
-    token, _ = await api_tokens.mint(db_session, label="Chrome extension")
+async def ext_token(db_session, admin_user) -> str:
+    token, _ = await api_tokens.mint(db_session, user_id=admin_user.id, label="Chrome extension")
     return token
 
 
