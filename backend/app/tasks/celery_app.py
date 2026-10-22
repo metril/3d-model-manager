@@ -19,6 +19,7 @@ this same module-level ``celery_app`` object before any test runs, so
 """
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 from app.config import get_settings
@@ -62,6 +63,7 @@ celery_app.conf.update(
         "app.tasks.scheduler",
         "app.tasks.slicing",
         "app.tasks.dispatch",
+        "app.tasks.billing",
     ),
 )
 
@@ -103,4 +105,12 @@ from app.tasks import dispatch  # noqa: E402
 celery_app.conf.beat_schedule["dispatch-queue"] = {
     "task": "app.tasks.dispatch.dispatch_queue",
     "schedule": dispatch.DISPATCH_INTERVAL_S,
+}
+
+# Additive: P7 Task 7's nightly balance recompute -- reconciles
+# cost_centers.balance against the ledger and retries any over_budget
+# hold (the monthly-cap rollover unhold).
+celery_app.conf.beat_schedule["billing-recompute"] = {
+    "task": "app.tasks.billing.recompute_balances",
+    "schedule": crontab(hour=0, minute=5),
 }

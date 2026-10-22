@@ -273,10 +273,14 @@ def transfer(s: Session, src: PrintQueueEntry, clone: PrintQueueEntry, amount: D
     clone.hold_reason = None
 
 
-def retry_over_budget(s: Session, cfg: Any, cc_id: int) -> int:
+def retry_over_budget(s: Session, cfg: Any, cc_id: int, *, now: datetime | None = None) -> int:
     """Re-attempt every ``over_budget``-held item against ``cc_id``, FIFO by
     queue position (so an earlier item gets first claim on newly-freed
-    budget). Returns the number of items that came off hold.
+    budget). Returns the number of items that came off hold. ``now``
+    (defaulting to the real current time) is forwarded to ``reserve``'s own
+    ``figures()`` call -- the nightly recompute task (P7 Task 7) injects it
+    so a monthly-cap hold can be tested as unholding "on the 1st" without
+    waiting for the real calendar to turn over.
     """
     if not cfg.billing_enabled:
         return 0
@@ -295,7 +299,7 @@ def retry_over_budget(s: Session, cfg: Any, cc_id: int) -> int:
     unheld = 0
     for item in items:
         est = item.reserved_cost or Decimal("0")
-        if reserve(s, cfg, item, est, user_id=item.created_by_user_id):
+        if reserve(s, cfg, item, est, user_id=item.created_by_user_id, now=now):
             unheld += 1
     return unheld
 
