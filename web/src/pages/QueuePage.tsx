@@ -21,10 +21,12 @@ import { Fragment, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowDownIcon, ArrowUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import { useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
+import { ReviewActions } from "@/components/print/ReviewActions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +81,45 @@ export function QueueStateChip({
     <Badge variant="outline" className={STATE_CLASSES[state]} title={title}>
       {STATE_LABELS[state]}
     </Badge>
+  );
+}
+
+// P7 review/billing plan Task 9: Pending review (slate outline), Rejected
+// (destructive outline), Over budget (amber outline) -- next to the
+// dispatch `QueueStateChip`, not replacing it (an entry can be e.g. both
+// `held`/over-budget AND still `review_state=pending`).
+function ReviewChips({ entry }: { entry: QueueEntry }) {
+  const retryEntry = useRetryQueueEntry();
+  const overBudget = entry.hold_reason === "over_budget";
+  return (
+    <>
+      {entry.review_state === "pending" ? (
+        <Badge variant="outline" className="border-slate-400 bg-transparent text-slate-500 dark:text-slate-400">
+          Pending review
+        </Badge>
+      ) : null}
+      {entry.review_state === "rejected" ? (
+        <Badge variant="outline" className="border-destructive bg-transparent text-destructive" title={entry.review_note ?? undefined}>
+          Rejected
+        </Badge>
+      ) : null}
+      {overBudget ? (
+        <span className="inline-flex items-center gap-1.5">
+          <Badge variant="outline" className="border-amber-500 bg-transparent text-amber-600 dark:text-amber-400">
+            Over budget
+          </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={retryEntry.isPending}
+            onClick={() => retryEntry.mutate(entry.id)}
+          >
+            Retry budget
+          </Button>
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -179,6 +220,7 @@ function QueueRow({
   const moveEntry = useMoveQueueEntry();
   const removeEntry = useRemoveQueueEntry();
   const retryEntry = useRetryQueueEntry();
+  const { can } = useAuth();
   const model = entry.model;
   const state = entry.state ?? "waiting";
   const canRetry = state === "failed" || state === "held";
@@ -211,9 +253,15 @@ function QueueRow({
           <span>{entry.recipe_name ?? "As sliced"}</span>
           <span>Added {formatDate(entry.added_at)}</span>
         </div>
-        <div className="mt-1">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
+          <ReviewChips entry={entry} />
         </div>
+        {entry.review_state === "pending" && can("queue:review") ? (
+          <div className="mt-1.5">
+            <ReviewActions entryId={entry.id} />
+          </div>
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">

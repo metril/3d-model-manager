@@ -21,6 +21,7 @@ import logging
 import tempfile
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from blake3 import blake3
@@ -33,9 +34,10 @@ from app.models import PrintRecipe, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, QueueState
 from app.models.library import File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
-from app.services import derivatives, library, spool
+from app.services import billing, derivatives, library, spool
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
+from app.services.print_plan import estimate_item_sync
 from app.services.slicer_client import (
     SliceOptions,
     SlicerClient,
@@ -127,6 +129,15 @@ def slice_file(queue_entry_id: int) -> None:
         current.sliced_file_id = new_file_id
         current.state = QueueState.READY
         current.slicing_started_at = None
+        if current.cost_center_id is not None:
+            est = estimate_item_sync(session, settings, current)
+            billing.reserve(
+                session,
+                cfg,
+                current,
+                Decimal(str(est)) if est is not None else None,
+                user_id=current.created_by_user_id,
+            )
         session.commit()
 
 

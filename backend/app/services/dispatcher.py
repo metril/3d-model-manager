@@ -27,12 +27,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models.enums import Fanout, PrintJobState, QueueState
+from app.models.enums import Fanout, PrintJobState, QueueState, ReviewState
 from app.models.library import File, PrintQueueEntry
 from app.models.printing import Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
+from app.services import billing
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.permissions import can_print_sync
@@ -139,6 +140,8 @@ def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:
             PrintQueueEntry.file_id.is_not(None),
             PrintQueueEntry.state.in_((QueueState.WAITING, QueueState.READY)),
             PrintQueueEntry.attempts < QUEUE_MAX_ATTEMPTS,
+            PrintQueueEntry.review_state.in_((ReviewState.NONE, ReviewState.APPROVED)),
+            PrintQueueEntry.hold_reason.is_(None),
         )
         .order_by(PrintQueueEntry.position)
     )
@@ -359,6 +362,8 @@ def _clone_entry(
         ams_mapping=item.ams_mapping,
         print_options=item.print_options,
         created_by_user_id=item.created_by_user_id,
+        cost_center_id=item.cost_center_id,
+        review_state=item.review_state,
     )
     session.add(clone)
     session.flush()
@@ -439,6 +444,14 @@ def _dispatch(
     none-sent copy count) appearing alongside it.
     """
     original_copies = item.copies
+    # P7: the whole reservation posted at enqueue/slice time covers
+    # `original_copies` copies -- each clone's own share (`unit *
+    # clone.copies`) is handed off via `billing.transfer`, a brand-new
+    # reservation against the SAME center rather than carving the amount
+    # out of `item`'s own (unchanged) reservation -- conservative
+    # double-counting until the original settles (module docstring of
+    # `app.services.billing.transfer`).
+    unit = item.reserved_cost / original_copies if item.reserved_cost is not None else None
     primary = selected[0]
     mapping, use_ams = _resolve_mapping(client, item, primary, need)
     _send_one(session, settings, client, item, primary, mapping, use_ams)
@@ -450,6 +463,8 @@ def _dispatch(
 
     for printer_id in selected[1:]:
         clone = _clone_entry(session, item, copies=1, state=QueueState.READY)
+        if unit is not None:
+            billing.transfer(session, item, clone, unit * clone.copies)
         m, ua = _resolve_mapping(client, item, printer_id, need)
         _send_one(session, settings, client, clone, printer_id, m, ua)
 
@@ -460,6 +475,8 @@ def _dispatch(
         rest = _clone_entry(
             session, item, copies=remaining, state=QueueState.READY, position=item.position
         )
+        if unit is not None:
+            billing.transfer(session, item, rest, unit * rest.copies)
         if fanout == Fanout.SINGLE:
             rest.printer_id = primary
             session.commit()

@@ -485,6 +485,47 @@ silently dispatching on their behalf.
 service — the slicer sidecar is additive, same posture as the printer
 integration.
 
+### Job review & budgets
+
+OFF by default: billing is a runtime toggle, not an env var. An admin or
+`billing:manage` holder flips it at **Finance** (`/system/finance`) —
+`PUT /finance/config {"billing_enabled": true}` — no restart needed. While
+off, every send/queue dialog shows a plain **Send now** and no ledger rows
+are written; a dialog that was already open when billing turns off still
+settles normally (its print isn't retroactively blocked).
+
+**Review gate** (independent of billing): a printer's ACL can carry
+`requires_review`. A member sending/queueing to a `requires_review`
+printer who doesn't themselves hold `queue:review` lands `Pending`
+instead of dispatching. A reviewer with `queue:review` over that printer
+sees it in **Review inbox** and can **Approve** (dispatches/prints
+normally) or **Reject** (`Rejected`, and any reservation already posted
+is released). Billing being on also routes new items into review even
+on printers that don't require it, so a budget can be checked before
+dispatch.
+
+**Cost centers**: a budget bucket owned by exactly one user (a personal
+allowance, lazily created) or exactly one group, never both. Each has an
+optional `budget_total` (lifetime cap) and `budget_monthly` (resets each
+calendar month) — either left `NULL` means unlimited on that axis.
+Reviewers/managers see every center; everyone else sees only their own
+and any their group owns. A queued item against a center reserves its
+estimated cost on dispatch; if the reservation would push the center over
+either budget, the item holds (`over_budget`) instead of dispatching. A
+manager can post a **deposit** (`billing:manage`) to raise the balance,
+which unholds and dispatches anything the new headroom covers. On
+completion the reservation is released and a **charge** for the print's
+actual `total_cost` is posted (a run cancelled partway posts a charge for
+only the elapsed/partial cost); the ledger for a given item is always
+`reservation` → `release` → `charge`.
+
+**Nightly recompute**: a beat task (`recompute_balances`, 00:05 UTC)
+recomputes every cost center's `balance` from its ledger rows, logs a
+warning for any center whose cached balance had drifted from the
+recomputed one, and retries every `over_budget`-held item (covers a
+monthly-cap item that's now unheld because the new month reset its
+spend window).
+
 ### Live camera & timelapse
 
 A printer tile and run view can show a **live camera feed** (MJPEG, ~5 fps,

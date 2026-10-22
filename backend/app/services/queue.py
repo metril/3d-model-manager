@@ -10,20 +10,25 @@ contiguous list, rather than tracking gaps.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models.enums import BlobFormat, QueueState
+from app.models import CostCenter, GroupMember, User
+from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.slicing import PrintRecipe
-from app.schemas.queue import QueueEnqueueIn, QueueEntryOut
-from app.services import library
+from app.schemas.queue import CreatedByOut, QueueEnqueueIn, QueueEntryOut, ReviewIn
+from app.services import billing, library, review
+from app.services.app_config import get_app_config
+from app.services.print_plan import estimate_item_sync
 
 # Formats the slicer sidecar can accept as input (mirrors
 # `app.services.library._GLB_FORMATS` -- the mesh/cad formats the pipeline
@@ -128,10 +133,25 @@ async def _to_out(
             .all()
         }
 
+    # M6: batch the creators the same way -- one query across every
+    # distinct `created_by_user_id` in `entries`, never one query per row.
+    creator_ids = [e.created_by_user_id for e in entries if e.created_by_user_id is not None]
+    creators_by_id: dict[int, User] = {}
+    if creator_ids:
+        creators_by_id = {
+            u.id: u
+            for u in (await db.execute(select(User).where(User.id.in_(creator_ids))))
+            .scalars()
+            .all()
+        }
+
     out = []
     for e in entries:
         file_row = files_by_id.get(e.file_id) if e.file_id is not None else None
         recipe_row = recipes_by_id.get(e.recipe_id) if e.recipe_id is not None else None
+        creator = (
+            creators_by_id.get(e.created_by_user_id) if e.created_by_user_id is not None else None
+        )
         out.append(
             QueueEntryOut(
                 id=e.id,
@@ -155,6 +175,16 @@ async def _to_out(
                 attempts=e.attempts,
                 last_error=e.last_error,
                 file_name=Path(file_row.rel_path).name if file_row is not None else None,
+                cost_center_id=e.cost_center_id,
+                review_state=e.review_state,
+                reviewed_by=e.reviewed_by,
+                reviewed_at=e.reviewed_at,
+                review_note=e.review_note,
+                reserved_cost=float(e.reserved_cost) if e.reserved_cost is not None else None,
+                hold_reason=e.hold_reason,
+                created_by=CreatedByOut(id=creator.id, username=creator.username)
+                if creator is not None
+                else None,
             )
         )
     return out
@@ -300,6 +330,56 @@ async def enqueue_file(
         created_by_user_id=ctx.user.id,
     )
     db.add(entry)
+    await db.flush()
+
+    cfg = await get_app_config(db, settings)
+
+    def _review_and_billing(sync_session) -> None:
+        current = sync_session.get(PrintQueueEntry, entry.id)
+        targets = review.item_targets(sync_session, current)
+        current.review_state = (
+            ReviewState.PENDING if review.needs_review(ctx, targets) else ReviewState.NONE
+        )
+        if not cfg.billing_enabled:
+            return
+        if payload.cost_center_id is not None:
+            cc = sync_session.get(CostCenter, payload.cost_center_id)
+            if cc is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, f"cost center {payload.cost_center_id} not found"
+                )
+            is_member = cc.owner_user_id == ctx.user.id or (
+                cc.group_id is not None
+                and sync_session.scalar(
+                    select(GroupMember).where(
+                        GroupMember.group_id == cc.group_id, GroupMember.user_id == ctx.user.id
+                    )
+                )
+                is not None
+            )
+            if not is_member:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "cost center is not usable by this user"
+                )
+            if not cc.active:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "cost center is inactive"
+                )
+        else:
+            cc = billing.ensure_private_center(sync_session, ctx.user.id)
+        current.cost_center_id = cc.id
+        if current.sliced_file_id is not None:
+            est = estimate_item_sync(sync_session, settings, current)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                Decimal(str(est)) if est is not None else None,
+                user_id=ctx.user.id,
+            )
+
+    await db.run_sync(_review_and_billing)
+
     await db.commit()
     await db.refresh(entry)
     out = await _to_out(db, settings, [entry])
@@ -322,10 +402,86 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     `ready`.
     """
     entry = await _get_entry_or_404(db, entry_id)
+    if entry.hold_reason == billing.HOLD_OVER_BUDGET:
+        # P7: an over-budget hold sits independent of `state`/`attempts` --
+        # retrying it just re-attempts the reservation against (possibly)
+        # newly-freed budget, leaving everything else untouched.
+        cfg = await get_app_config(db, settings)
+
+        def _retry_reserve(sync_session) -> None:
+            current = sync_session.get(PrintQueueEntry, entry.id)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                current.reserved_cost,
+                user_id=current.created_by_user_id,
+            )
+
+        await db.run_sync(_retry_reserve)
+        await db.commit()
+        await db.refresh(entry)
+        out = await _to_out(db, settings, [entry])
+        return out[0]
     if entry.state not in RETRYABLE_STATES:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"cannot retry from state {entry.state.value}"
         )
+
+    # C1: a prior attempt that already posted a `charge` (settled via the
+    # normal archive path, e.g. a partial failure) can never be billed
+    # again on THIS id -- `billing.append`'s own (queue_id, kind)
+    # idempotency index would silently drop the retried print's charge.
+    # Clone into a fresh queue row (new id -> fresh reservation keys) and
+    # retire the old one instead of resetting it in place.
+    already_charged = await db.run_sync(lambda s: billing.charged(s, entry.id))
+    if already_charged:
+        new_state = (
+            QueueState.WAITING
+            if entry.recipe_id is not None and entry.sliced_file_id is None
+            else QueueState.READY
+        )
+        position = await _append_position(db, front=False)
+        clone = PrintQueueEntry(
+            model_id=entry.model_id,
+            file_id=entry.file_id,
+            sliced_file_id=entry.sliced_file_id,
+            printer_id=entry.printer_id,
+            recipe_id=entry.recipe_id,
+            plate=entry.plate,
+            copies=entry.copies,
+            state=new_state,
+            position=position,
+            ams_mapping=entry.ams_mapping,
+            print_options=entry.print_options,
+            created_by_user_id=entry.created_by_user_id,
+            cost_center_id=entry.cost_center_id,
+        )
+        db.add(clone)
+        entry.state = QueueState.DONE
+        await db.flush()
+
+        cfg = await get_app_config(db, settings)
+
+        def _reserve_clone(sync_session) -> None:
+            current = sync_session.get(PrintQueueEntry, clone.id)
+            if current.cost_center_id is None or current.sliced_file_id is None:
+                return
+            est = estimate_item_sync(sync_session, settings, current)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                Decimal(str(est)) if est is not None else None,
+                user_id=current.created_by_user_id,
+            )
+
+        await db.run_sync(_reserve_clone)
+        await db.commit()
+        await db.refresh(clone)
+        out = await _to_out(db, settings, [clone])
+        return out[0]
+
     entry.state = (
         QueueState.WAITING
         if entry.recipe_id is not None and entry.sliced_file_id is None
@@ -344,8 +500,24 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
 async def remove_entry(db: AsyncSession, entry_id: int) -> None:
     """Delete the entry, then compact the remaining positions back to a
     contiguous 1..n.
+
+    C2: a DISPATCHED or SLICING entry is already live against a printer or
+    the slicer sidecar -- deleting it here would silently abandon that
+    in-flight work without ever settling its reservation (the dispatcher/
+    archive path is the only thing that calls `billing.release`/`charge`
+    for it). 409 instead; the reservation stays open and settles normally
+    once the print finishes (or fails) through the usual archive path.
     """
     entry = await _get_entry_or_404(db, entry_id)
+    if entry.state in (QueueState.DISPATCHED, QueueState.SLICING):
+        raise HTTPException(status.HTTP_409_CONFLICT, "cancel the print first")
+
+    def _release(sync_session) -> None:
+        current = sync_session.get(PrintQueueEntry, entry.id)
+        billing.release(sync_session, current)
+
+    await db.run_sync(_release)
+
     await db.delete(entry)
     await db.flush()
 
@@ -381,3 +553,87 @@ async def move_entry(
     await db.commit()
 
     return await list_queue(db, settings, ctx)
+
+
+# ---------------------------------------------------------------------------
+# P7 review/billing plan Task 6: review inbox + approve/reject.
+# ---------------------------------------------------------------------------
+
+
+def _reviewable_ids_sync(s: Session, ctx: AuthContext) -> list[int]:
+    """Every ``pending`` entry ``ctx`` is allowed to act on
+    (``app.services.review.can_review``), oldest position first."""
+    items = (
+        s.execute(
+            select(PrintQueueEntry)
+            .where(PrintQueueEntry.review_state == ReviewState.PENDING)
+            .order_by(PrintQueueEntry.position)
+        )
+        .scalars()
+        .all()
+    )
+    return [item.id for item in items if review.can_review(ctx, s, item)]
+
+
+async def review_inbox(
+    db: AsyncSession, settings: Settings, ctx: AuthContext
+) -> list[QueueEntryOut]:
+    ids = await db.run_sync(_reviewable_ids_sync, ctx)
+    if not ids:
+        return []
+    entries = list(
+        (
+            await db.execute(
+                select(PrintQueueEntry)
+                .where(PrintQueueEntry.id.in_(ids))
+                .order_by(PrintQueueEntry.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return await _to_out(db, settings, entries)
+
+
+async def review_inbox_count(db: AsyncSession, ctx: AuthContext) -> int:
+    ids = await db.run_sync(_reviewable_ids_sync, ctx)
+    return len(ids)
+
+
+async def review_entry(
+    db: AsyncSession,
+    settings: Settings,
+    entry_id: int,
+    payload: ReviewIn,
+    ctx: AuthContext,
+) -> QueueEntryOut:
+    """Approve/reject a pending review. 404 unknown; 403 unless
+    ``can_review``; 409 unless ``review_state == pending``. A reject also
+    releases the item's open reservation (``billing.release``) -- one
+    commit covers the state transition and the release together.
+    """
+    entry = await _get_entry_or_404(db, entry_id)
+
+    def _apply(s: Session) -> None:
+        current = s.get(PrintQueueEntry, entry.id)
+        if not review.can_review(ctx, s, current):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "not a reviewer for this item")
+        if current.review_state != ReviewState.PENDING:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"cannot review from state {current.review_state.value}",
+            )
+        current.review_state = (
+            ReviewState.APPROVED if payload.action == "approve" else ReviewState.REJECTED
+        )
+        current.reviewed_by = ctx.user.id
+        current.reviewed_at = datetime.now(UTC)
+        current.review_note = payload.note
+        if payload.action == "reject":
+            billing.release(s, current, user_id=ctx.user.id)
+
+    await db.run_sync(_apply)
+    await db.commit()
+    await db.refresh(entry)
+    out = await _to_out(db, settings, [entry])
+    return out[0]

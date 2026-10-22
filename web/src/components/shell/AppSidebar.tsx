@@ -13,8 +13,10 @@ import { useAuth, useLogout } from "@/api/auth";
 import { useCategories } from "@/api/categories";
 import { useFeatures } from "@/api/features";
 import { useFollowedCollections } from "@/api/collections";
+import { useFinanceConfig } from "@/api/finance";
 import { useFailedImportsCount } from "@/api/imports";
 import { usePrinters } from "@/api/printers";
+import { useReviewCount } from "@/api/queue";
 import { useScanRuns } from "@/api/scan";
 import type { ScanRunOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -113,7 +115,19 @@ function ScanChip({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function NavLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolean; badge?: number }) {
+function NavLink({
+  item,
+  collapsed,
+  badge,
+  badgeAriaLabel,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  badge?: number;
+  /** Overrides the default "N failed import(s)" label -- e.g. the Queue
+   * item's "N awaiting review" (P7 Task 9). */
+  badgeAriaLabel?: string;
+}) {
   const link = (
     <Link
       to={item.to}
@@ -134,7 +148,7 @@ function NavLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolean
       {!collapsed && badge ? (
         <span
           className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-mono"
-          aria-label={`${badge} failed import${badge === 1 ? "" : "s"}`}
+          aria-label={badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"}`}
         >
           {badge}
         </span>
@@ -181,7 +195,15 @@ export function AppSidebar({
   const failedImports = useFailedImportsCount();
   const followed = useFollowedCollections();
   const categories = useCategories();
+  const financeConfig = useFinanceConfig();
+  const canReview = can("queue:review");
+  const reviewCount = useReviewCount({ enabled: canReview });
   const [collapsed, setCollapsed] = useSidebarCollapsed();
+  // Finance (P7): visible to a manager always, to everyone else only once
+  // billing is on -- not a plain permission check, so it's resolved here
+  // rather than through `filterNavItems`/`filterNavGroups`.
+  const canSeeFinance = can("billing:manage") || !!financeConfig.data?.billing_enabled;
+  const visibleSystemItems = SYSTEM_ITEMS.filter((item) => !item.billingGated || canSeeFinance);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -282,7 +304,18 @@ export function AppSidebar({
                 <NavLink
                   item={item}
                   collapsed={collapsed}
-                  badge={item.to === "/collections" ? failedImports : undefined}
+                  badge={
+                    item.to === "/collections"
+                      ? failedImports
+                      : item.to === "/print/queue"
+                        ? reviewCount.data?.count
+                        : undefined
+                  }
+                  badgeAriaLabel={
+                    item.to === "/print/queue" && reviewCount.data?.count
+                      ? `${reviewCount.data.count} awaiting review`
+                      : undefined
+                  }
                 />
                 {item.to === "/collections" && !collapsed && collections.length > 0 && (
                   <div className="mt-0.5 ml-5 flex flex-col gap-0.5 border-l border-border pl-2.5">
@@ -342,7 +375,7 @@ export function AppSidebar({
         )}
       </nav>
       <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
-        {SYSTEM_ITEMS.map((item) => (
+        {visibleSystemItems.map((item) => (
           <NavLink key={item.to as string} item={item} collapsed={collapsed} />
         ))}
       </div>

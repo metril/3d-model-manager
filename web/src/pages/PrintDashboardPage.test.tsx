@@ -13,7 +13,7 @@ import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
 // rail widgets it composes) runs for real; only the network boundary is
 // faked, so the SSE-driven refetch below exercises the actual
 // invalidate-then-refetch wiring instead of a stand-in.
-const { getMock, patchMock, meBox, featuresBox, overviewBox } = vi.hoisted(() => ({
+const { getMock, patchMock, meBox, featuresBox, overviewBox, reviewCountBox, reviewInboxBox } = vi.hoisted(() => ({
   getMock: vi.fn(),
   patchMock: vi.fn(),
   meBox: {
@@ -31,6 +31,8 @@ const { getMock, patchMock, meBox, featuresBox, overviewBox } = vi.hoisted(() =>
   },
   featuresBox: { current: { printer_enabled: true } },
   overviewBox: { current: { printers: [], up_next: [], recent_runs: [] } as PrintersOverviewOut },
+  reviewCountBox: { current: { count: 0 } },
+  reviewInboxBox: { current: [] as unknown[] },
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -44,6 +46,8 @@ vi.mock("@/api/client", async (importOriginal) => {
         if (url === "/features") return Promise.resolve(featuresBox.current);
         if (url === "/printers/overview") return getMock(url);
         if (url === "/printers") return Promise.resolve([]);
+        if (url === "/queue/review-inbox/count") return Promise.resolve(reviewCountBox.current);
+        if (url === "/queue/review-inbox") return Promise.resolve(reviewInboxBox.current);
         return Promise.reject(new Error(`unexpected GET ${url}`));
       },
       patch: (url: string, body: unknown) => patchMock(url, body),
@@ -395,5 +399,51 @@ describe("PrintDashboardPage queue reorder", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Move Second Model up" }));
 
     await waitFor(() => expect(patchMock).toHaveBeenCalledExactlyOnceWith("/queue/3", { position: 1 }));
+  });
+});
+
+describe("PrintDashboardPage review inbox rail card (P7 Task 9)", () => {
+  beforeEach(() => {
+    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
+    reviewCountBox.current = { count: 0 };
+    reviewInboxBox.current = [];
+  });
+
+  it("mounts the review inbox card when the viewer can review and the count is > 0", async () => {
+    reviewCountBox.current = { count: 1 };
+    reviewInboxBox.current = [
+      {
+        id: 9,
+        model_id: 1,
+        position: 1,
+        added_at: "2026-10-22T10:00:00Z",
+        model: { id: 1, slug: "m", name: "Reviewable Model" },
+        printable_file: null,
+        review_state: "pending",
+        plate: null,
+        printer_id: null,
+      },
+    ];
+    renderPage();
+
+    expect(await screen.findByText("Review inbox")).toBeInTheDocument();
+    expect(await screen.findByText("Reviewable Model")).toBeInTheDocument();
+  });
+
+  it("omits the card when the count is 0", async () => {
+    reviewCountBox.current = { count: 0 };
+    renderPage();
+
+    await screen.findByText("Print");
+    expect(screen.queryByText("Review inbox")).not.toBeInTheDocument();
+  });
+
+  it("omits the card for a viewer who can't review", async () => {
+    meBox.current = { ...meBox.current, role: "member", permissions: [] };
+    reviewCountBox.current = { count: 2 };
+    renderPage();
+
+    await screen.findByText("Print");
+    expect(screen.queryByText("Review inbox")).not.toBeInTheDocument();
   });
 });

@@ -35,7 +35,7 @@ describe("permissions", () => {
     const me: Me = {
       ...memberMe,
       permissions: ["printers:print"],
-      printer_access: { "3": { print: true, control: false } },
+      printer_access: { "3": { print: true, control: false, requires_review: false } },
     };
     expect(canPrinter(me, 3, "print")).toBe(true);
     expect(canPrinter(me, 3, "control")).toBe(false);

@@ -5,14 +5,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
 
+const { authCanBox } = vi.hoisted(() => ({
+  authCanBox: { current: (_p: string) => true as boolean },
+}));
+
 vi.mock("@/api/auth", () => ({
-  useAuth: () => ({ data: { username: "tester" }, can: () => true, canPrinter: () => true }),
+  useAuth: () => ({ data: { username: "tester" }, can: (p: string) => authCanBox.current(p), canPrinter: () => true }),
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-const { featuresBox, printersBox } = vi.hoisted(() => ({
+const { featuresBox, printersBox, financeConfigBox, reviewCountBox } = vi.hoisted(() => ({
   featuresBox: { current: { printer_enabled: false } },
   printersBox: { current: [] as Array<{ id: number; name: string }> },
+  financeConfigBox: { current: { billing_enabled: false } as { billing_enabled: boolean } | undefined },
+  reviewCountBox: { current: undefined as { count: number } | undefined },
+}));
+
+vi.mock("@/api/finance", () => ({
+  useFinanceConfig: () => ({ data: financeConfigBox.current }),
+}));
+
+vi.mock("@/api/queue", () => ({
+  useReviewCount: () => ({ data: reviewCountBox.current }),
 }));
 
 vi.mock("@/api/features", () => ({
@@ -165,7 +179,7 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     expect(screen.queryByText("Print")).not.toBeInTheDocument();
   });
 
-  it("pins Background jobs and Settings at the bottom, with no Finance link", async () => {
+  it("pins Background jobs and Settings at the bottom", async () => {
     renderSidebar();
 
     expect(await screen.findByRole("link", { name: "Background jobs" })).toHaveAttribute(
@@ -173,6 +187,55 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
       "/system/jobs",
     );
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+  });
+});
+
+describe("AppSidebar -- Queue review badge (P7 Task 9)", () => {
+  beforeEach(() => {
+    featuresBox.current = { printer_enabled: true };
+    printersBox.current = [];
+    reviewCountBox.current = undefined;
+  });
+
+  it("shows the review count on the Queue nav item with its own aria-label", async () => {
+    reviewCountBox.current = { count: 3 };
+    renderSidebar();
+
+    const badge = await screen.findByLabelText("3 awaiting review");
+    expect(badge).toHaveTextContent("3");
+  });
+
+  it("shows no badge when the count is zero", async () => {
+    reviewCountBox.current = { count: 0 };
+    renderSidebar();
+    await screen.findByRole("link", { name: "Queue" });
+    expect(screen.queryByLabelText(/awaiting review/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AppSidebar -- Finance nav entry (P7 Task 8)", () => {
+  beforeEach(() => {
+    authCanBox.current = () => true;
+    financeConfigBox.current = { billing_enabled: false };
+    reviewCountBox.current = undefined;
+  });
+
+  it("shows Finance for a billing manager even when billing is off", async () => {
+    renderSidebar();
+    expect(await screen.findByRole("link", { name: "Finance" })).toHaveAttribute("href", "/system/finance");
+  });
+
+  it("hides Finance for a non-manager when billing is off", async () => {
+    authCanBox.current = (p: string) => p !== "billing:manage";
+    renderSidebar();
+    await screen.findByRole("link", { name: "Settings" });
     expect(screen.queryByRole("link", { name: "Finance" })).not.toBeInTheDocument();
+  });
+
+  it("shows Finance for a non-manager once billing is on", async () => {
+    authCanBox.current = (p: string) => p !== "billing:manage";
+    financeConfigBox.current = { billing_enabled: true };
+    renderSidebar();
+    expect(await screen.findByRole("link", { name: "Finance" })).toHaveAttribute("href", "/system/finance");
   });
 });

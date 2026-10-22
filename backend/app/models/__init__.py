@@ -15,6 +15,7 @@ from app.models.auth import (
     User,
 )
 from app.models.base import Base
+from app.models.billing import CostCenter, LedgerEntry
 from app.models.collections import (
     FollowedCollection,
     PendingImport,
@@ -47,6 +48,7 @@ __all__ = [
     "Blob",
     "BlobMeta",
     "Category",
+    "CostCenter",
     "Derivative",
     "File",
     "FileLocation",
@@ -55,6 +57,7 @@ __all__ = [
     "GroupMember",
     "Import",
     "Job",
+    "LedgerEntry",
     "Model",
     "Note",
     "OidcProvider",

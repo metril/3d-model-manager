@@ -6,7 +6,7 @@ import { can, canPrinter, type Perm } from "@/lib/permissions";
 export interface PrinterFlags {
   print: boolean;
   control: boolean;
-  requires_review?: boolean;
+  requires_review: boolean;
 }
 
 export interface Me {

@@ -239,6 +239,31 @@ class QueueState(StrEnum):
     DONE = "done"
 
 
+class LedgerKind(StrEnum):
+    """Kind of a ``ledger_entries`` row (P7 review/billing plan). ``deposit``/
+    ``adjustment``/``charge`` feed the cost center's cached ``balance``
+    (``BALANCE_KINDS``); ``reservation``/``release`` are the paired
+    hold-then-undo pair a queue item posts while its estimate is pending
+    settlement (``RESERVE_KINDS``), netting to zero once released."""
+
+    DEPOSIT = "deposit"
+    ADJUSTMENT = "adjustment"
+    CHARGE = "charge"
+    RESERVATION = "reservation"
+    RELEASE = "release"
+
+
+class ReviewState(StrEnum):
+    """Lifecycle of a ``print_queue`` entry through the P7 review gate:
+    ``none`` (review not required), ``pending`` (awaiting a reviewer),
+    ``approved``, or ``rejected``."""
+
+    NONE = "none"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class SpoolUsageSource(StrEnum):
     """How a ``spool_usage`` row's grams were determined (P5 spool tray
     plan): parsed from a sliced 3MF, inferred from an AMS weight delta, or

@@ -1302,6 +1302,17 @@ export interface QueueEntry {
   attempts?: number;
   last_error?: string | null;
   file_name?: string | null;
+  // P7 review/billing plan (`backend/app/schemas/queue.py`'s
+  // `QueueEntryOut`): review gate + billing columns.
+  cost_center_id?: number | null;
+  review_state?: ReviewState;
+  reviewed_by?: number | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  reserved_cost?: number | null;
+  hold_reason?: string | null;
+  // M6: who queued it, for the review inbox.
+  created_by?: { id: number; username: string } | null;
 }
 
 export interface QueueEnqueueBody {
@@ -1314,6 +1325,79 @@ export interface QueueEnqueueBody {
   ams_mapping?: number[] | null;
   options?: PlanOptions | null;
   front?: boolean;
+  cost_center_id?: number | null;
+}
+
+// -- review gate (backend/app/models/enums.py `ReviewState`, P7 review/
+// billing plan) ------------------------------------------------------------
+
+export type ReviewState = "none" | "pending" | "approved" | "rejected";
+
+export interface ReviewIn {
+  action: "approve" | "reject";
+  note?: string | null;
+}
+
+export interface ReviewCountOut {
+  count: number;
+}
+
+// -- finance (backend/app/schemas/finance.py, P7 review/billing plan Task
+// 5): billing config, cost centers, ledger, deposits/adjustments. Money is
+// always a plain JSON number at 2dp -- never a string. -------------------
+
+export type LedgerKind = "deposit" | "adjustment" | "charge" | "reservation" | "release";
+
+export interface FinanceConfig {
+  billing_enabled: boolean;
+}
+
+export interface CostCenter {
+  id: number;
+  name: string;
+  owner_user_id: number | null;
+  group_id: number | null;
+  budget_total: number | null;
+  budget_monthly: number | null;
+  balance: number;
+  open_reserved: number;
+  month_spent: number;
+  available: number | null;
+  active: boolean;
+}
+
+export interface CostCenterCreateIn {
+  name: string;
+  owner_user_id?: number | null;
+  group_id?: number | null;
+  budget_total?: number | null;
+  budget_monthly?: number | null;
+}
+
+export interface CostCenterPatchIn {
+  name?: string;
+  budget_total?: number | null;
+  budget_monthly?: number | null;
+  active?: boolean;
+}
+
+export interface LedgerEntry {
+  id: number;
+  cost_center_id: number;
+  kind: LedgerKind;
+  amount: number;
+  print_queue_id: number | null;
+  print_id: number | null;
+  created_by_user_id: number | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface DepositIn {
+  cost_center_id: number;
+  amount: number;
+  kind?: LedgerKind;
+  note?: string | null;
 }
 
 // -- printers overview (backend/app/schemas/printers.py, P3 Task 1) --------

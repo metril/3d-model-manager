@@ -5,6 +5,7 @@ PK); ``files`` are a path within a revision snapshot pointing at a blob.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -17,6 +18,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    Numeric,
     String,
     Table,
     Text,
@@ -36,6 +38,7 @@ from app.models.enums import (
     PrintResult,
     PrintSource,
     QueueState,
+    ReviewState,
 )
 
 if TYPE_CHECKING:
@@ -316,6 +319,30 @@ class PrintQueueEntry(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     ams_mapping: Mapped[dict | None] = mapped_column(JSONB)
     print_options: Mapped[dict | None] = mapped_column(JSONB)
+    # P7 review/billing plan columns below. `cost_center_id` is the budget
+    # this entry reserves/charges against (NULL when billing is off or the
+    # creator has none). `review_state` gates dispatch when a review
+    # workflow applies (see `app.services.queue.eligible_queue_items`);
+    # `reviewed_by`/`reviewed_at`/`review_note` record the approve/reject
+    # decision. `reserved_cost` is the ledger `reservation` amount posted
+    # at enqueue/slice time; `hold_reason` (e.g. `"over_budget"`) blocks
+    # dispatch independent of `state`/`review_state`.
+    cost_center_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("cost_centers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    review_state: Mapped[ReviewState] = mapped_column(
+        str_enum(ReviewState, "review_state"),
+        nullable=False,
+        server_default=text("'none'"),
+        index=True,
+    )
+    reviewed_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reserved_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    hold_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Print(Base):

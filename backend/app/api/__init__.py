@@ -49,6 +49,7 @@ from app.api import (
     ext,
     features,
     files,
+    finance,
     imports,
     jobs,
     materials,
@@ -109,6 +110,7 @@ protected_router.include_router(archives.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
+protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)
 protected_router.include_router(categories.router)

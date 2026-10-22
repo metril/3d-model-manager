@@ -123,19 +123,21 @@ async def load_grants(
     return groups, effective_perms(user, groups), merge_printer_acl(rows)
 
 
-def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bool:
-    """Worker-side (SYNC world) twin of ``load_grants`` + ``printer_perms``
-    collapsed to the one question the P6 dispatcher needs: may ``user_id``
-    send to ``printer_id`` right now? A ``None``/inactive/deleted user
-    (e.g. a queue entry whose creator was deactivated or hard-deleted after
-    enqueue) always answers False -- the dispatcher's own ruling is that
-    this holds the item rather than silently dropping its owner check.
+def printer_acl_sync(session: Session, user_id: int | None) -> dict[int, PrinterAcl]:
+    """Worker-side (SYNC world) twin of ``load_grants`` + ``merge_printer_acl``:
+    ``user_id``'s own merged per-printer ACL. A ``None``/inactive/deleted
+    user (e.g. a queue entry whose creator was deactivated or hard-deleted
+    after enqueue) always answers ``{}`` -- callers (``can_print_sync``,
+    ``app.services.review.review_printers``) then treat that as "no access
+    anywhere" rather than silently dropping the owner check. An admin's
+    grant isn't backed by any ``PrinterAccess`` row at all, so it's
+    materialized as ``FULL_ACL`` over every printer that currently exists.
     """
     if user_id is None:
-        return False
+        return {}
     user = session.get(User, user_id)
     if user is None or not user.is_active:
-        return False
+        return {}
     groups = list(
         session.scalars(
             select(Group)
@@ -146,14 +148,21 @@ def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bo
     )
     perms = effective_perms(user, groups)
     if "admin" in perms:
-        return True
+        from app.models.printing import Printer
+
+        printer_ids = session.scalars(select(Printer.id)).all()
+        return {pid: FULL_ACL for pid in printer_ids}
     if "printers:print" not in perms or not groups:
-        return False
+        return {}
     rows = session.scalars(
-        select(PrinterAccess).where(
-            PrinterAccess.group_id.in_([g.id for g in groups]),
-            PrinterAccess.printer_id == printer_id,
-        )
+        select(PrinterAccess).where(PrinterAccess.group_id.in_([g.id for g in groups]))
     ).all()
-    acl = merge_printer_acl(rows)
+    return merge_printer_acl(rows)
+
+
+def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bool:
+    """Worker-side (SYNC world) twin of ``load_grants`` + ``printer_perms``
+    collapsed to the one question the P6 dispatcher needs: may ``user_id``
+    send to ``printer_id`` right now?"""
+    acl = printer_acl_sync(session, user_id)
     return printer_id in acl and acl[printer_id].can_print

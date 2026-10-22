@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { AddPage } from "@/pages/AddPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
 import { DuplicatesPage } from "@/pages/DuplicatesPage";
+import { FinancePage } from "@/pages/FinancePage";
 import { JobsPage } from "@/pages/JobsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -259,6 +260,12 @@ const systemJobsRoute = createRoute({
   component: JobsPage,
 });
 
+const systemFinanceRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/system/finance",
+  component: FinancePage,
+});
+
 // /jobs moved under /system/jobs (P3 Task 5).
 const jobsRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -297,6 +304,7 @@ export const routeTree = rootRoute.addChildren([
     inventoryMaterialsRoute,
     inventoryProfilesRoute,
     systemJobsRoute,
+    systemFinanceRoute,
     jobsRedirectRoute,
     settingsRoute,
   ]),

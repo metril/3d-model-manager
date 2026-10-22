@@ -39,9 +39,12 @@ import { useQuery } from "@tanstack/react-query";
 import { ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { api } from "@/api/client";
+import { useAuth } from "@/api/auth";
+import { api, ApiError } from "@/api/client";
+import { useCostCenters, useFinanceConfig } from "@/api/finance";
 import { useEnqueue } from "@/api/queue";
 import { useModelSearchQuery } from "@/api/library";
+import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus } from "@/api/printers";
 import { useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
@@ -213,6 +216,8 @@ export function PrintDialog({
   const [profileMode, setProfileMode] = useState<"as-sliced" | "recipe">("as-sliced");
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
   const [copies, setCopies] = useState(1);
+  const [costCenterId, setCostCenterId] = useState<number | null>(null);
+  const [costCenterSeeded, setCostCenterSeeded] = useState(false);
 
   // Reset everything when the dialog is relaunched for a different source
   // (or reopened) -- a stale plate/printer/override set from a previous
@@ -231,6 +236,8 @@ export function PrintDialog({
     setProfileMode("as-sliced");
     setSelectedRecipeId(null);
     setCopies(1);
+    setCostCenterId(null);
+    setCostCenterSeeded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
@@ -300,6 +307,22 @@ export function PrintDialog({
 
   const enqueue = useEnqueue();
   const sendPrint = useSendPrint();
+  const auth = useAuth();
+  const financeConfig = useFinanceConfig();
+  const billingOn = !!financeConfig.data?.billing_enabled;
+  const costCenters = useCostCenters({ mine: true });
+  // Default to the person's own ("Personal") center -- their private
+  // center always exists in `?mine=true` (lazily created server-side) and
+  // is the only one with no `owner_user_id`/`group_id` distinction worth
+  // showing specially; it's simply the one owned by them.
+  useEffect(() => {
+    if (!billingOn || costCenterSeeded || costCenterId != null) return;
+    const centers = costCenters.data ?? [];
+    if (centers.length === 0) return;
+    const personal = centers.find((c) => c.owner_user_id === auth.data?.id) ?? centers[0];
+    setCostCenterId(personal.id);
+    setCostCenterSeeded(true);
+  }, [billingOn, costCenterSeeded, costCenterId, costCenters.data, auth.data?.id]);
   const printerStatus = usePrinterStatus(effectivePrinterId ?? -1, { enabled: effectivePrinterId != null });
   const trays = (printerStatus.data?.trays ?? []).map((t) => ({
     slot: t.slot,
@@ -335,12 +358,48 @@ export function PrintDialog({
   const selectedPrinter = plan?.printers.find((pp) => pp.id === effectivePrinterId) ?? null;
   const printerNotReady = selectedPrinter != null && !(selectedPrinter.idle && selectedPrinter.compatible);
 
+  // P7 review/billing plan Task 9: once review or billing applies, the
+  // server answers `POST /print/send` with 409 `queue_required` instead of
+  // actually sending -- "Send now" becomes "Send next" (front-of-queue
+  // enqueue) so the person isn't stuck on a button that always 409s. This
+  // is a best-effort client-side hint (`needsReview`); `handleSend` falls
+  // back to the same enqueue path if the server disagrees anyway.
+  const sendNext = billingOn || needsReview(auth.data, effectivePrinterId);
+
   function close() {
     onOpenChange(false);
   }
 
+  function handleSendNext() {
+    if (effectiveFileId == null) return;
+    enqueue.mutate(
+      {
+        file_id: effectiveFileId,
+        plate: effectivePlate ?? undefined,
+        printer_id: effectivePrinterId ?? undefined,
+        ams_mapping: plan?.ams_mapping ?? undefined,
+        options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse },
+        front: true,
+        cost_center_id: billingOn ? costCenterId : undefined,
+      },
+      {
+        onSuccess: () => {
+          close();
+          toast.success(
+            needsReview(auth.data, effectivePrinterId) ? "Sent for review" : "Queued next",
+          );
+          onSent?.();
+        },
+      },
+    );
+  }
+
   function handleSend() {
     if (!plan || effectivePrinterId == null || effectiveFileId == null) return;
+    if (sendNext) {
+      handleSendNext();
+      return;
+    }
     sendPrint.mutate(
       {
         file_id: effectiveFileId,
@@ -357,6 +416,18 @@ export function PrintDialog({
           close();
           toast.success("Sent to printer");
           onSent?.();
+        },
+        onError: (e) => {
+          // The client's `sendNext` guess can be wrong (e.g. a group's
+          // `requires_review` flag this user's own `Me` doesn't expose) --
+          // the server's 409 `queue_required` is authoritative for THAT
+          // specific case, so fall back to the same enqueue path rather
+          // than leaving the person stuck. Any OTHER 409 (printer busy,
+          // disabled, etc.) is a real failure -- surface its own detail
+          // below instead of silently enqueueing.
+          if (e instanceof ApiError && e.status === 409 && e.detail === "queue_required") {
+            handleSendNext();
+          }
         },
       },
     );
@@ -603,6 +674,28 @@ export function PrintDialog({
                     Timelapse
                   </label>
                 </div>
+                {billingOn ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="print-dialog-cost-center">Cost center</Label>
+                    <Select
+                      value={costCenterId != null ? String(costCenterId) : ""}
+                      onValueChange={(v) => setCostCenterId(Number(v))}
+                      aria-label="Cost center"
+                    >
+                      <SelectTrigger id="print-dialog-cost-center" className="w-64">
+                        <SelectValue placeholder="Choose a cost center" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(costCenters.data ?? []).map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.owner_user_id === auth.data?.id ? "Personal" : c.name}
+                            {c.available != null ? ` — ${formatCost(c.available)} available` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
                 {(plan?.warnings ?? []).length > 0 ? (
                   <ul className="space-y-1">
                     {plan!.warnings.map((w, i) => (
@@ -612,9 +705,19 @@ export function PrintDialog({
                     ))}
                   </ul>
                 ) : null}
-                {sendPrint.isError ? (
+                {sendPrint.isError &&
+                !(
+                  sendPrint.error instanceof ApiError &&
+                  sendPrint.error.status === 409 &&
+                  sendPrint.error.detail === "queue_required"
+                ) ? (
                   <p role="alert" className="text-sm text-destructive">
-                    Could not send to printer
+                    {/* I3: a non-queue_required failure (printer busy,
+                        disabled, etc.) surfaces the server's own detail
+                        instead of a generic message. */}
+                    {sendPrint.error instanceof ApiError
+                      ? sendPrint.error.detail
+                      : "Could not send to printer"}
                   </p>
                 ) : null}
                 {profileMode === "recipe" ? (
@@ -658,13 +761,41 @@ export function PrintDialog({
                     </>
                   ) : (
                     <>
-                      <Button
-                        type="button"
-                        onClick={handleSend}
-                        disabled={effectivePrinterId == null || hasRed || printerNotReady || sendPrint.isPending}
-                      >
-                        {sendPrint.isPending ? "Sending..." : "Send now"}
-                      </Button>
+                      <div className="flex flex-col gap-1">
+                        <Button
+                          type="button"
+                          onClick={handleSend}
+                          disabled={
+                            effectivePrinterId == null ||
+                            hasRed ||
+                            // M4: in "Send next" mode this enqueues rather than
+                            // sending straight to the printer -- queueing is
+                            // the whole point when the printer isn't ready
+                            // yet, so `printerNotReady` only blocks "Send now".
+                            (!sendNext && printerNotReady) ||
+                            sendPrint.isPending ||
+                            enqueue.isPending
+                          }
+                        >
+                          {sendPrint.isPending || enqueue.isPending
+                            ? "Sending..."
+                            : sendNext
+                              ? "Send next"
+                              : "Send now"}
+                        </Button>
+                        {sendNext ? (
+                          <span className="text-xs text-muted-foreground">
+                            {needsReview(auth.data, effectivePrinterId)
+                              ? "Needs review"
+                              : `Billed to ${
+                                  (costCenters.data ?? []).find((c) => c.id === costCenterId)?.owner_user_id ===
+                                  auth.data?.id
+                                    ? "Personal"
+                                    : (costCenters.data ?? []).find((c) => c.id === costCenterId)?.name ?? "cost center"
+                                }`}
+                          </span>
+                        ) : null}
+                      </div>
                       {effectiveFileId != null ? (
                         <Button type="button" variant="outline" onClick={handleAddToQueue} disabled={enqueue.isPending}>
                           Add to queue

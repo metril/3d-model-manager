@@ -304,3 +304,12 @@ async def test_slicer_url_overlays_from_env(db_session, monkeypatch):
 
     config = await app_config.get_app_config(db_session, get_settings())
     assert config.slicer_url == "http://slicer:3001"
+
+
+@pytest.mark.asyncio
+async def test_billing_enabled_defaults_false(db_session):
+    """P7 review/billing plan: the master off switch for cost
+    centers/ledger/review defaults to `False` with no row and no env
+    backing (a literal default, like `filament_cost_per_kg`)."""
+    config = await app_config.get_app_config(db_session, get_settings())
+    assert config.billing_enabled is False
