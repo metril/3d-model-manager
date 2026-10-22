@@ -19,7 +19,9 @@ from sqlalchemy.orm import selectinload
 
 from app.config import Settings
 from app.models.collections import FollowedCollection
+from app.models.enums import PrintSource
 from app.models.library import Blob, File, Material, Model, Print, Tag
+from app.models.printing import PrintArchive
 from app.models.storage import StorageBackendRow
 from app.models.system import Job
 from app.schemas.library import ModelSummary
@@ -114,7 +116,7 @@ async def _files_stats(db: AsyncSession) -> FilesStats:
 
 
 async def _prints_stats(db: AsyncSession) -> PrintsStats:
-    total, succeeded, failed, filament_g_total, duration_min_total = (
+    total, succeeded, failed, filament_g_total, duration_min_total, cost_total = (
         await db.execute(
             select(
                 func.count(),
@@ -122,6 +124,7 @@ async def _prints_stats(db: AsyncSession) -> PrintsStats:
                 func.count().filter(Print.result == "fail"),
                 func.coalesce(func.sum(Print.filament_g), 0.0),
                 func.coalesce(func.sum(Print.duration_min), 0),
+                func.coalesce(func.sum(Print.total_cost), 0.0),
             ).select_from(Print)
         )
     ).one()
@@ -131,6 +134,7 @@ async def _prints_stats(db: AsyncSession) -> PrintsStats:
         failed=failed,
         filament_g_total=float(filament_g_total),
         duration_s_total=int(duration_min_total) * 60,
+        cost_total=float(cost_total),
     )
 
 
@@ -216,18 +220,53 @@ async def _material_usage(db: AsyncSession) -> list[MaterialUsageOut]:
                 func.coalesce(func.sum(Print.filament_g), 0.0),
                 func.count(Print.id),
             )
-            .where(Print.material_id.is_(None), Print.filament.is_not(None), Print.filament != "")
+            .where(
+                Print.material_id.is_(None),
+                Print.source != PrintSource.AUTO,
+                Print.filament.is_not(None),
+                Print.filament != "",
+            )
             .group_by(Print.filament)
         )
     ).all()
+    # Auto runs: split the measured grams across the archive's filament types
+    # in proportion to the slicer estimate.
+    auto_rows = (
+        await db.execute(
+            select(Print.filament_g, PrintArchive.est_filament)
+            .join(PrintArchive, PrintArchive.print_job_id == Print.print_job_id)
+            .where(Print.source == PrintSource.AUTO, Print.filament_g.is_not(None))
+        )
+    ).all()
+    auto: dict[str, tuple[str, float, int]] = {}
+    for run_g, est in auto_rows:
+        per_type: dict[str, float] = {}
+        for entry in est or []:
+            name = str(entry.get("type") or "").strip()
+            if name:
+                per_type[name] = per_type.get(name, 0.0) + float(entry.get("grams") or 0.0)
+        total_est = sum(per_type.values())
+        if total_est <= 0:
+            continue
+        for name, g in per_type.items():
+            key = name.casefold()
+            _, grams, count = auto.get(key, (name, 0.0, 0))
+            auto[key] = (name, grams + g * run_g / total_est, count + 1)
 
     usage = [
         MaterialUsageOut(material_id=material_id, name=name, grams=float(grams), prints=count)
         for material_id, name, grams, count in with_material
     ]
-    usage += [
-        MaterialUsageOut(material_id=None, name=filament, grams=float(grams), prints=count)
+    free: dict[str, tuple[str, float, int]] = {
+        filament.casefold(): (filament, float(grams), count)
         for filament, grams, count in without_material
+    }
+    for key, (name, grams, count) in auto.items():
+        base_name, base_g, base_n = free.get(key, (name, 0.0, 0))
+        free[key] = (base_name, base_g + grams, base_n + count)
+    usage += [
+        MaterialUsageOut(material_id=None, name=name, grams=grams, prints=count)
+        for name, grams, count in free.values()
     ]
     usage.sort(key=lambda row: row.grams, reverse=True)
     return usage
