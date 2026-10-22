@@ -26,6 +26,10 @@ const memberMe: Me = { ...base };
 describe("permissions", () => {
   it("admin can everything", () => expect(can(adminMe, "billing:manage")).toBe(true));
   it("viewer cannot write", () => expect(can(viewerMe, "library:write")).toBe(false));
+  it("group-granted admin perm works for a member", () => {
+    const me: Me = { ...memberMe, permissions: ["admin"] };
+    expect(can(me, "admin")).toBe(true);
+  });
   it("undefined me can nothing", () => expect(can(undefined, "admin")).toBe(false));
   it("canPrinter needs perm and acl", () => {
     const me: Me = {

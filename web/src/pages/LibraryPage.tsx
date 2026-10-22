@@ -433,10 +433,12 @@ export function LibraryPage() {
           </Select>
           <div className="flex-1" />
           <ViewModeToggle value={viewMode} onChange={handleViewModeChange} />
-          <Button type="button" variant="outline" disabled={triggerScan.isPending} onClick={startScan}>
-            <RefreshCwIcon className={triggerScan.isPending ? "animate-spin" : undefined} />
-            Scan library
-          </Button>
+          {can("settings:write") ? (
+            <Button type="button" variant="outline" disabled={triggerScan.isPending} onClick={startScan}>
+              <RefreshCwIcon className={triggerScan.isPending ? "animate-spin" : undefined} />
+              Scan library
+            </Button>
+          ) : null}
           {can("library:write") ? (
             <NewModelDialog
               trigger={

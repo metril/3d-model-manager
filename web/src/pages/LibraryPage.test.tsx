@@ -14,9 +14,14 @@ import { ApiError } from "@/api/client";
 import { LibraryPage } from "@/pages/LibraryPage";
 import type { CategoryOut, FollowedCollection, ModelSummary } from "@/api/types";
 
+const authState = vi.hoisted(() => ({ canAll: true }));
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
-  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+  useAuth: () => ({
+    data: { id: 1, username: "tester" },
+    can: () => authState.canAll,
+    canPrinter: () => true,
+  }),
 }));
 
 
@@ -281,6 +286,18 @@ beforeEach(() => {
 });
 
 describe("LibraryPage", () => {
+  it("hides Scan library without settings:write and shows it with", async () => {
+    authState.canAll = false;
+    const first = renderLibraryPage();
+    await screen.findByRole("button", { name: /table|grid|list/i }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("button", { name: /scan library/i })).not.toBeInTheDocument();
+    first.unmount();
+    authState.canAll = true;
+    renderLibraryPage();
+    expect(await screen.findByRole("button", { name: /scan library/i })).toBeInTheDocument();
+  });
+
   it("renders an error card with a retry button when the gallery fetch fails, not the empty state", async () => {
     getMock.mockImplementation((path: string) => {
       if (path.startsWith("/models")) return Promise.reject(new ApiError(500, "Database is unavailable"));
