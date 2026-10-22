@@ -152,6 +152,12 @@ function Body({ archive }: { archive: ArchiveOut }) {
       ) : null}
       {run ? (
         <dl className="space-y-1">
+          {run.energy_kwh != null ? (
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Energy used</dt>
+              <dd className="font-mono tabular-nums">{run.energy_kwh.toFixed(2)} kWh</dd>
+            </div>
+          ) : null}
           <CostRow label="Filament" value={run.filament_cost} />
           <CostRow label="Machine" value={run.machine_cost} />
           <CostRow label="Energy" value={run.energy_cost} />
