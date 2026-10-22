@@ -7,7 +7,7 @@ import { useFeatures } from "@/api/features";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useModelSearchQuery } from "@/api/library";
-import { usePrintersOverview } from "@/api/printers";
+import { usePrinters } from "@/api/printers";
 import {
   CommandDialog,
   CommandEmpty,
@@ -35,7 +35,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const printerEnabled = !!useFeatures().data?.printer_enabled;
   const followed = useFollowedCollections();
   const categoriesQuery = useCategories();
-  const overview = usePrintersOverview({ enabled: printerEnabled });
+  const printersQuery = usePrinters({ enabled: printerEnabled });
 
   useHotkeys({ "mod+k": () => onOpenChange(!open) });
 
@@ -58,7 +58,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const models = trimmed.length > 0 ? (search.data?.items ?? []) : [];
   const collections = followed.data ?? [];
   const categories = categoriesQuery.data ?? [];
-  const printers = printerEnabled ? printerNavItems(overview.data?.printers.map((p) => p.printer)) : [];
+  const printers = printerEnabled ? printerNavItems(printersQuery.data) : [];
 
   function goTo(to: string) {
     onOpenChange(false);
@@ -91,7 +91,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <CommandList>
         <CommandEmpty>No results.</CommandEmpty>
         <CommandGroup heading="Pages">
-          {filterNavItems(ALL_NAV_ITEMS, { printerEnabled, can }).map((item) => (
+          {filterNavItems(ALL_NAV_ITEMS, {
+            printerEnabled,
+            can,
+            hasPrinter: (printersQuery.data?.length ?? 0) > 0,
+          }).map((item) => (
             <CommandItem key={item.to as string} value={item.label} onSelect={() => goTo(item.to as string)}>
               <item.icon className="size-4" />
               {item.label}

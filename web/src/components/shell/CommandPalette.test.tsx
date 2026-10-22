@@ -26,15 +26,11 @@ vi.mock("@/api/features", () => ({
 }));
 
 vi.mock("@/api/printers", () => ({
-  usePrintersOverview: () => ({
-    data: {
-      printers: [
-        { printer: { id: 1, name: "Bambu A1" } },
-        { printer: { id: 2, name: "Bambu P1S" } },
-      ],
-      up_next: [],
-      recent_runs: [],
-    },
+  usePrinters: () => ({
+    data: [
+      { id: 1, name: "Bambu A1" },
+      { id: 2, name: "Bambu P1S" },
+    ],
   }),
 }));
 

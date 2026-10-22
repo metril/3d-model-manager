@@ -135,6 +135,14 @@ describe("app routes", () => {
     expect(router.state.location.pathname).toBe("/system/jobs");
   });
 
+  it("redirects /printer to /library when the printer flag is off, without querying printers", async () => {
+    mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [fakePrinter({ id: 7 })] });
+    const router = makeRouter("/printer");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/library");
+    expect(getMock).not.toHaveBeenCalledWith("/printers");
+  });
+
   it("redirects /printer to the sole printer's detail page", async () => {
     mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: true }), printers: [fakePrinter({ id: 7 })] });
     const router = makeRouter("/printer");

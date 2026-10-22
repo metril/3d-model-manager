@@ -211,6 +211,8 @@ const printerRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/printer",
   beforeLoad: async ({ context }) => {
+    const features = await context.queryClient.ensureQueryData(featuresQueryOptions);
+    if (!features.printer_enabled) throw redirect({ to: "/library" });
     const printers = await context.queryClient.ensureQueryData(printersQueryOptions);
     throw redirect(printerRedirect(printers));
   },

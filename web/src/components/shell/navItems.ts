@@ -41,6 +41,11 @@ export interface NavItem {
   /** Exact-match activeOptions (the Print group's "/" Dashboard item, so it
    * doesn't read as active on every other route under it). */
   exact?: boolean;
+  /** Hidden when there's no visible printer and the user can't add one
+   * (`settings:write`) -- mirrors `redirectForIndex` (`routes.tsx`)'s rule
+   * for `/`, so the nav never offers a link that would just redirect away
+   * to `/library`. */
+  requiresPrinterAccess?: boolean;
 }
 
 export interface NavGroup {
@@ -56,7 +61,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Print",
     featureGated: true,
     items: [
-      { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
+      { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, requiresPrinterAccess: true },
       { to: "/print/queue", label: "Queue", icon: ListOrdered },
       { to: "/print/history", label: "History", icon: ListChecks },
     ],
@@ -118,13 +123,18 @@ export function printerNavItems(printers: PrinterOut[] | undefined): NavItem[] {
 }
 
 /** Drops items the printer feature flag or the user's permissions rule
- * out -- the command palette's flat "Pages" list. */
+ * out -- the command palette's flat "Pages" list. `hasPrinter` defaults to
+ * `true` (no printer-visibility penalty) for callers that don't pass it. */
 export function filterNavItems(
   items: NavItem[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean },
 ): NavItem[] {
+  const hasPrinter = opts.hasPrinter ?? true;
   return items.filter(
-    (item) => (!item.featureGated || opts.printerEnabled) && (!item.perm || opts.can(item.perm)),
+    (item) =>
+      (!item.featureGated || opts.printerEnabled) &&
+      (!item.perm || opts.can(item.perm)) &&
+      (!item.requiresPrinterAccess || hasPrinter || opts.can("settings:write")),
   );
 }
 
@@ -135,7 +145,7 @@ export function filterNavItems(
  * for future groups) is dropped too. */
 export function filterNavGroups(
   groups: NavGroup[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean },
 ): NavGroup[] {
   return groups
     .filter((group) => !group.featureGated || opts.printerEnabled)

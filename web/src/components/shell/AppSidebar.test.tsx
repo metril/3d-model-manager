@@ -135,6 +135,26 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
   });
 
+  // Fix-review finding 1: every per-printer item shares the same `to`
+  // (`/printers/$id`), so keying solely off `item.to` collided across
+  // printers -- React logs a duplicate-key warning and can misrender the
+  // list on reorder/update. Keying off `to` + the printer id must render
+  // two distinct links with no such warning.
+  it("renders two distinct printer links with no duplicate-key warning", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    featuresBox.current = { printer_enabled: true };
+    printersBox.current = [
+      { id: 1, name: "Workshop A1" },
+      { id: 2, name: "Garage X1" },
+    ];
+    renderSidebar();
+
+    expect(await screen.findByRole("link", { name: "Workshop A1" })).toHaveAttribute("href", "/printers/1");
+    expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
+    expect(errorSpy.mock.calls.some((args) => String(args[0]).includes("same key"))).toBe(false);
+    errorSpy.mockRestore();
+  });
+
   it("drops the whole Print group, including printer links, when the feature is off", async () => {
     featuresBox.current = { printer_enabled: false };
     printersBox.current = [{ id: 1, name: "Workshop A1" }];

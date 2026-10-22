@@ -110,7 +110,7 @@
     --elevation-2: 0 2px 8px -2px rgb(0 0 0 / 12%), 0 1px 2px -1px rgb(0 0 0 / 8%);
     --elevation-3: 0 12px 32px -6px rgb(0 0 0 / 18%), 0 4px 10px -4px rgb(0 0 0 / 10%);
     /* Printer-state tones (P3 Task 4) -- see `@theme inline` above. */
-    --state-printing: oklch(0.646 0.176 41.1); /* = --primary, the one brand amber */
+    --state-printing: var(--primary); /* the one brand amber */
     --state-finished: oklch(0.627 0.17 149);
     --state-failed: var(--destructive);
     --state-paused: oklch(0.554 0.046 257);
@@ -161,7 +161,7 @@
     --elevation-3: 0 16px 40px -8px rgb(0 0 0 / 65%), 0 4px 12px -4px rgb(0 0 0 / 50%);
     /* Printer-state tones (P3 Task 4) -- same hues as :root; dark-mode
        destructive/muted-foreground already lighten themselves above. */
-    --state-printing: oklch(0.646 0.176 41.1);
+    --state-printing: var(--primary);
     --state-finished: oklch(0.627 0.17 149);
     --state-failed: var(--destructive);
     --state-paused: oklch(0.554 0.046 257);
@@ -197,7 +197,7 @@
   line-height: 1rem;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--color-muted-foreground);
 }
 

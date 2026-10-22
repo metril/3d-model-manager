@@ -202,7 +202,11 @@ export function AppSidebar({
     items.splice(historyIndex + 1, 0, ...printerNavItems(printers.data));
     return { ...group, items };
   });
-  const visibleGroups = filterNavGroups(groupsWithPrinters, { printerEnabled, can });
+  const visibleGroups = filterNavGroups(groupsWithPrinters, {
+    printerEnabled,
+    can,
+    hasPrinter: (printers.data?.length ?? 0) > 0,
+  });
   const collections = (followed.data ?? []).slice(0, MAX_COLLECTION_LINKS);
   const hasMoreCollections = (followed.data?.length ?? 0) > MAX_COLLECTION_LINKS;
 
@@ -269,12 +273,12 @@ export function AppSidebar({
         {visibleGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
             {!collapsed && (
-              <div className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              <div className="label-caps px-2.5 pb-1">
                 {group.label}
               </div>
             )}
             {group.items.map((item) => (
-              <div key={item.to as string}>
+              <div key={`${item.to as string}:${item.params?.id ?? ""}`}>
                 <NavLink
                   item={item}
                   collapsed={collapsed}
@@ -315,7 +319,7 @@ export function AppSidebar({
             for `?collection=<id>`. */}
         {!collapsed && (categories.data?.length ?? 0) > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+            <div className="label-caps px-2.5 pb-1">
               Categories
             </div>
             {(categories.data ?? []).map((category) => (

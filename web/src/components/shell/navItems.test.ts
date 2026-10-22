@@ -84,6 +84,38 @@ describe("navItems", () => {
       expect(granted.map((i) => i.to)).toContain("/duplicates");
       expect(granted.map((i) => i.to)).toContain("/inventory/materials");
     });
+
+    // Fix-review finding 9: Dashboard ("/") must disappear under the same
+    // condition `redirectForIndex` (routes.tsx) redirects "/" away from --
+    // no visible printer and no settings:write -- so the nav never offers
+    // a link that would just bounce to /library.
+    it("hides Dashboard when there's no visible printer and the user lacks settings:write", () => {
+      const all = NAV_GROUPS.flatMap((g) => g.items);
+      const items = filterNavItems(all, { printerEnabled: true, can: () => false, hasPrinter: false });
+      expect(items.map((i) => i.to)).not.toContain("/");
+    });
+
+    it("keeps Dashboard when the user has no visible printer but holds settings:write", () => {
+      const all = NAV_GROUPS.flatMap((g) => g.items);
+      const items = filterNavItems(all, {
+        printerEnabled: true,
+        can: (p) => p === "settings:write",
+        hasPrinter: false,
+      });
+      expect(items.map((i) => i.to)).toContain("/");
+    });
+
+    it("keeps Dashboard when the user has a visible printer, settings:write or not", () => {
+      const all = NAV_GROUPS.flatMap((g) => g.items);
+      const items = filterNavItems(all, { printerEnabled: true, can: () => false, hasPrinter: true });
+      expect(items.map((i) => i.to)).toContain("/");
+    });
+
+    it("defaults hasPrinter to true (keeps Dashboard) when the option is omitted", () => {
+      const all = NAV_GROUPS.flatMap((g) => g.items);
+      const items = filterNavItems(all, { printerEnabled: true, can: () => false });
+      expect(items.map((i) => i.to)).toContain("/");
+    });
   });
 
   describe("filterNavGroups", () => {
