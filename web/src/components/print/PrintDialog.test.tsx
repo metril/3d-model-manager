@@ -72,17 +72,62 @@ function basePlan(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockApi() {
+const RECIPE = {
+  id: 9,
+  name: "PLA fast",
+  printer_profile_id: 1,
+  process_profile_id: 2,
+  filament_profile_ids: [],
+  bed_type: "textured_plate",
+  options: {},
+  target_printer_id: null,
+  target_printer_model: "A1",
+  fanout: "single",
+  n: null,
+  created_by_user_id: null,
+  created_at: "2026-06-01T00:00:00Z",
+};
+
+const PRINTER_PROFILE = {
+  id: 1,
+  name: "A1 printer profile",
+  kind: "printer",
+  printer_model: "A1",
+  nozzle_mm: 0.4,
+  source: "import",
+  created_by_user_id: null,
+  created_at: "2026-06-01T00:00:00Z",
+  updated_at: "2026-06-01T00:00:00Z",
+};
+
+function mockApi({
+  trays,
+  slicerOk = true,
+}: {
+  trays?: unknown[];
+  slicerOk?: boolean;
+} = {}) {
   getMock.mockImplementation((path: string) => {
     if (path === "/printers/5/status") {
       return Promise.resolve({
         online: true,
         gcode_state: "IDLE",
-        trays: [
-          { slot: 1, ams_unit: 0, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 80, spool: null },
-          { slot: 4, ams_unit: 1, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 60, spool: null },
-        ],
+        trays:
+          trays ??
+          [
+            { slot: 1, ams_unit: 0, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 80, spool: null },
+            { slot: 4, ams_unit: 1, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 60, spool: null },
+          ],
       });
+    }
+    if (path.startsWith("/profiles")) {
+      return Promise.resolve([PRINTER_PROFILE]);
+    }
+    if (path === "/recipes") {
+      return Promise.resolve([RECIPE]);
+    }
+    if (path === "/slicer/health") {
+      return Promise.resolve({ configured: true, ok: slicerOk, version: slicerOk ? "1.2.5.7" : null });
     }
     return Promise.resolve({});
   });
@@ -217,15 +262,6 @@ describe("PrintDialog", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Sent to printer");
   });
 
-  it("Add to queue posts the model id", async () => {
-    renderDialog({ kind: "file", fileId: 10 });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Add to queue" }));
-
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", { model_id: 42 }));
-  });
 
   it("an archive source hits reprint for its initial plan", async () => {
     renderDialog({ kind: "archive", archiveId: 7 });
@@ -253,18 +289,11 @@ describe("PrintDialog", () => {
   });
 
   it("labels AMS trays by unit/tray and the external slot as External", async () => {
-    getMock.mockImplementation((path: string) => {
-      if (path === "/printers/5/status") {
-        return Promise.resolve({
-          online: true,
-          gcode_state: "IDLE",
-          trays: [
-            { slot: 1, ams_unit: 0, tray: 1, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 80, spool: null },
-            { slot: 254, ams_unit: 255, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: null, spool: null },
-          ],
-        });
-      }
-      return Promise.resolve({});
+    mockApi({
+      trays: [
+        { slot: 1, ams_unit: 0, tray: 1, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 80, spool: null },
+        { slot: 254, ams_unit: 255, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: null, spool: null },
+      ],
     });
     renderDialog({ kind: "file", fileId: 10 });
     await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
@@ -273,5 +302,66 @@ describe("PrintDialog", () => {
     const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
     expect(options).toContain("AMS 0·1");
     expect(options).toContain("External");
+  });
+
+  it("choosing a recipe swaps Send now for Slice and send / Add to queue", async () => {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("button", { name: "Slice and send" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to queue" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send now" })).not.toBeInTheDocument();
+  });
+
+  it("Slice and send posts the recipe with front:true and toasts the printer name", async () => {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/queue",
+        expect.objectContaining({ file_id: 10, recipe_id: 9, printer_id: 5, front: true }),
+      ),
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith("Slicing, then sending to Printer A");
+  });
+
+  it("as-sliced Add to queue posts the file/plate/printer/mapping", async () => {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add to queue" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/queue",
+        expect.objectContaining({ file_id: 10, plate: 1, printer_id: 5, ams_mapping: [0, 2] }),
+      ),
+    );
+  });
+
+  it("disables recipe actions with a tooltip when the slicer sidecar is down", async () => {
+    mockApi({ slicerOk: false });
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const sliceAndSend = await screen.findByRole("button", { name: "Slice and send" });
+    expect(sliceAndSend).toBeDisabled();
+    expect(sliceAndSend).toHaveAttribute("title", "Slicer sidecar unavailable");
+    expect(screen.getByRole("button", { name: "Add to queue" })).toBeDisabled();
   });
 });

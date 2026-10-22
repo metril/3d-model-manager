@@ -1312,6 +1312,7 @@ export interface QueueEnqueueBody {
   recipe_id?: number | null;
   copies?: number;
   ams_mapping?: number[] | null;
+  options?: PlanOptions | null;
   front?: boolean;
 }
 
