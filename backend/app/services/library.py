@@ -61,6 +61,8 @@ from app.schemas.library import (
 )
 from app.services import derivatives, layout
 from app.services import jobs as jobs_service
+from app.services.app_config import get_app_config
+from app.services.costing import CostRates
 from app.services.cursor import decode_cursor, encode_cursor
 from app.services.storage_backends import (
     backend_for_id,
@@ -142,8 +144,12 @@ def _glb_status(blob: Blob) -> Literal["ok", "pending", "failed", "unsupported"]
     return deriv.status.value
 
 
+async def _cost_rates(db: AsyncSession, settings: Settings) -> CostRates:
+    return CostRates.from_config(await get_app_config(db, settings))
+
+
 async def _build_file_enrichments(
-    settings: Settings, blobs: Iterable[Blob]
+    settings: Settings, blobs: Iterable[Blob], rates: CostRates
 ) -> dict[str, FileEnrichment]:
     """``{blob_hash: FileEnrichment}`` for every DISTINCT blob among
     ``blobs`` (already ``selectinload``ed with ``.meta``/``.derivatives`` by
@@ -176,7 +182,9 @@ async def _build_file_enrichments(
             plates_out = (
                 [
                     PlateOut.from_raw(
-                        plate, thumbnail_available=existence.get((blob_hash, plate["index"]), False)
+                        plate,
+                        thumbnail_available=existence.get((blob_hash, plate["index"]), False),
+                        rates=rates,
                     )
                     for plate in raw_plates
                 ]
@@ -1003,7 +1011,9 @@ async def _gallery_aggregates(
             .scalars()
             .all()
         )
-        pick_enrichments = await _build_file_enrichments(settings, pick_blobs)
+        pick_enrichments = await _build_file_enrichments(
+            settings, pick_blobs, await _cost_rates(db, settings)
+        )
 
     aggregates: dict[int, _GalleryAggregate] = {}
     for revision_id, bucket in buckets.items():
@@ -1307,7 +1317,9 @@ async def build_revision_detail(
         (f for f in revision.files if not layout.is_snapshot_path(f.rel_path)),
         key=lambda f: f.rel_path,
     )
-    enrichments = await _build_file_enrichments(settings, (f.blob for f in sorted_files))
+    enrichments = await _build_file_enrichments(
+        settings, (f.blob for f in sorted_files), await _cost_rates(db, settings)
+    )
     files = [FileOut.from_model(f, enrichments.get(f.blob_hash)) for f in sorted_files]
     return RevisionDetail(
         id=revision.id,
@@ -1363,7 +1375,9 @@ async def newest_printable_files(
         return {}
 
     enrichments = await _build_file_enrichments(
-        settings, (file.blob for file in newest_by_revision.values())
+        settings,
+        (file.blob for file in newest_by_revision.values()),
+        await _cost_rates(db, settings),
     )
     return {
         revision_id: FileOut.from_model(file, enrichments.get(file.blob_hash))
