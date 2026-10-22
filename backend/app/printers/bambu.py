@@ -12,6 +12,7 @@ the bambulabs_api client above -- see that module's docstring."""
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from typing import ClassVar
@@ -45,6 +46,45 @@ def _build_printer(conn: PrinterConnection):
     import bambulabs_api as bl
 
     return bl.Printer(conn.host, conn.access_code, conn.serial)
+
+
+def project_file_payload(spec: PrintSpec) -> dict:
+    """Mirrors the vendored ``start_print_3mf`` payload (bambulabs_api
+    v2.6.6, ``PrinterMQTTClient.start_print_3mf``) key-for-key, except
+    ``bed_leveling``/``timelapse`` come from ``spec`` instead of the lib's
+    hardcoded ``True``/missing value."""
+    return {
+        "print": {
+            "command": "project_file",
+            "param": f"Metadata/plate_{spec.plate}.gcode",
+            "file": spec.remote_name,
+            "url": f"ftp:///{spec.remote_name}",
+            "bed_leveling": spec.bed_levelling,
+            "bed_type": "textured_plate",
+            "flow_cali": spec.flow_cali,
+            "vibration_cali": True,
+            "layer_inspect": False,
+            "timelapse": spec.timelapse,
+            "use_ams": spec.use_ams,
+            "ams_mapping": list(spec.ams_mapping),
+            "sequence_id": "10000000",
+            "skip_objects": None,
+        }
+    }
+
+
+def _publish_raw(p, payload: dict) -> None:
+    """Publish ``payload`` on the lib's own command topic, bypassing its
+    typed helpers (which hardcode ``bed_leveling=True`` and drop
+    ``timelapse``). Mirrors the lib's own ``__publish_command`` connected/
+    confirmed checks so a silent drop surfaces as an ``OSError``."""
+    client = p.mqtt_client._client
+    if not client.is_connected():
+        raise OSError("not connected to the MQTT server")
+    result = client.publish(p.mqtt_client.command_topic, json.dumps(payload))
+    result.wait_for_publish(timeout=5)
+    if not result.is_published():
+        raise OSError("project_file publish failed")
 
 
 FTP_TIMEOUT_S = 30
@@ -251,15 +291,10 @@ class BambuLanAdapter(PrinterAdapter):
         p = self._client()
         with spec.source_path.open("rb") as fh:
             p.upload_file(fh, spec.remote_name)  # -> /cache/<remote_name> on the SD
-        # The lib builds the exact project_file payload + url internally; we
-        # forward only what its start_print accepts (no bed_levelling/timelapse).
-        p.start_print(
-            spec.remote_name,
-            spec.plate,
-            use_ams=spec.use_ams,
-            ams_mapping=list(spec.ams_mapping),
-            flow_calibration=spec.flow_cali,
-        )
+        # The lib's start_print/start_print_3mf hardcodes bed_leveling=True
+        # and drops timelapse entirely, so we publish the raw project_file
+        # command ourselves (project_file_payload) to carry both from spec.
+        _publish_raw(p, project_file_payload(spec))
 
     # -- files (FTPS) --------------------------------------------------
     # The vendored client's connect_and_run swallows exceptions and returns

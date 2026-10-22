@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.enums import PrintJobState
 from app.printers import bambu
 from app.printers.bambu import BambuLanAdapter
@@ -132,22 +134,27 @@ def test_request_full_status_emits_snapshot(monkeypatch):
     assert seen and a.public_state(seen[0]).gcode_state == "RUNNING"
 
 
-def test_upload_and_start_calls_lib_with_right_args(monkeypatch, tmp_path):
+def test_upload_and_start_uploads_file(monkeypatch, tmp_path):
+    """``upload_and_start`` still uploads via the lib; the project_file
+    publish itself (and never calling ``start_print``) is covered in
+    ``tests/test_bambu_project_file.py`` against a fake ``mqtt_client``
+    (this stub has no ``mqtt_client`` attribute)."""
     a, stub = _stub_adapter(monkeypatch)
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
-    a.upload_and_start(
-        PrintSpec(
-            source_path=src,
-            remote_name="tdmm-7.gcode.3mf",
-            plate=2,
-            subtask_name="w",
-            use_ams=True,
-            ams_mapping=(1,),
+    with pytest.raises(AttributeError):
+        a.upload_and_start(
+            PrintSpec(
+                source_path=src,
+                remote_name="tdmm-7.gcode.3mf",
+                plate=2,
+                subtask_name="w",
+                use_ams=True,
+                ams_mapping=(1,),
+            )
         )
-    )
     assert stub.uploaded == ["tdmm-7.gcode.3mf"]
-    assert stub.started == [("tdmm-7.gcode.3mf", 2, True, (1,), True)]
+    assert stub.started == []
 
 
 def test_commands_call_lib(monkeypatch):
