@@ -17,6 +17,7 @@ have tried this very attempt again.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 import uuid
 from datetime import UTC, datetime
@@ -44,6 +45,8 @@ from app.services.slicer_client import (
 )
 from app.tasks import base
 from app.tasks.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
 
 # Shared with the dispatcher's own attempt cap -- see module docstring
 # ("slicing + dispatch share the one `attempts` counter").
@@ -75,6 +78,7 @@ def slice_file(queue_entry_id: int) -> None:
         entry = session.get(PrintQueueEntry, queue_entry_id)
         if entry is None or entry.state != QueueState.SLICING:
             return
+        claimed_at = entry.slicing_started_at
 
         if client is None:
             entry.last_error = "slicer sidecar not configured"
@@ -102,9 +106,27 @@ def slice_file(queue_entry_id: int) -> None:
             session.commit()
             return
 
-        entry.sliced_file_id = new_file_id
-        entry.state = QueueState.READY
-        entry.slicing_started_at = None
+        # Re-fetch (bypassing the identity map) right before writing the
+        # result back: a long HTTP slice gives `_reconcile` (stale-slicing
+        # recovery) or a user (manual retry) plenty of time to have reset
+        # this very row out from under us while it ran. If it's no longer
+        # the same `slicing` attempt we claimed, the result is stale --
+        # discard it rather than clobbering whatever state it's in now.
+        current = session.get(PrintQueueEntry, queue_entry_id, populate_existing=True)
+        if (
+            current is None
+            or current.state != QueueState.SLICING
+            or current.slicing_started_at != claimed_at
+        ):
+            logger.warning(
+                "slice result for queue entry %s discarded: entry changed during slicing",
+                queue_entry_id,
+            )
+            return
+
+        current.sliced_file_id = new_file_id
+        current.state = QueueState.READY
+        current.slicing_started_at = None
         session.commit()
 
 
@@ -206,9 +228,13 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
         # happens to produce byte-identical output (same digest) on the
         # same revision reuses that row instead of duplicating it; anything
         # else is stored as a brand-new File at the entry-unique path above.
-        existing = session.execute(
-            select(File).where(File.revision_id == revision.id, File.blob_hash == digest)
-        ).scalar_one_or_none()
+        existing = (
+            session.execute(
+                select(File).where(File.revision_id == revision.id, File.blob_hash == digest)
+            )
+            .scalars()
+            .first()
+        )
         if existing is not None:
             return existing.id
 

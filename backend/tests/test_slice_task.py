@@ -305,6 +305,100 @@ def test_http_slice_call_holds_no_row_lock(
 
 
 @pytest.mark.usefixtures("migrated_db")
+def test_result_discarded_if_entry_reset_during_slice(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    """Re-review follow-up: if the entry is reset to `waiting` (e.g.
+    `_reconcile`'s stale-slicing recovery, or a manual retry) while the HTTP
+    slice is still running, the result must not be written back once it
+    finally returns -- the entry's own current state wins."""
+    with base.sync_session() as session:
+        entry = _seed(session)
+        entry_id = entry.id
+
+    class ResettingClient(FakeSlicerClient):
+        def slice(self, **kwargs) -> bytes:
+            with base.sync_session() as session:
+                session.execute(
+                    PrintQueueEntry.__table__.update()
+                    .where(PrintQueueEntry.id == entry_id)
+                    .values(state=QueueState.WAITING.value, slicing_started_at=None)
+                )
+                session.commit()
+            return super().slice(**kwargs)
+
+    fake_client = ResettingClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+
+    slicing.slice_file(entry_id)
+
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.WAITING
+        assert refreshed.sliced_file_id is None
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_slice_reuses_first_existing_file_when_hash_shared_by_two(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    """Re-review follow-up: the existing-by-hash lookup must not raise when
+    more than one File on the revision shares the same blob hash (no DB
+    uniqueness on (revision_id, blob_hash), only on (revision_id,
+    rel_path))."""
+    from blake3 import blake3
+
+    with base.sync_session() as session:
+        entry = _seed(session)
+        entry_id = entry.id
+        source_file = session.get(File, entry.file_id)
+        revision_id = source_file.revision_id
+
+        digest = blake3(sliced_3mf_bytes).hexdigest()
+        from app.models.enums import BlobFormat as _BlobFormat
+        from app.models.library import Blob
+
+        blob = session.get(Blob, digest)
+        if blob is None:
+            blob = Blob(
+                hash=digest,
+                size=len(sliced_3mf_bytes),
+                kind=BlobKind.SLICED,
+                format=_BlobFormat.GCODE_3MF,
+            )
+            session.add(blob)
+            session.flush()
+
+        dup_a = File(
+            revision_id=revision_id,
+            blob_hash=digest,
+            rel_path="dup-a.gcode.3mf",
+            storage_path="x",
+            verified_at=None,
+        )
+        dup_b = File(
+            revision_id=revision_id,
+            blob_hash=digest,
+            rel_path="dup-b.gcode.3mf",
+            storage_path="x",
+            verified_at=None,
+        )
+        session.add_all([dup_a, dup_b])
+        session.commit()
+        dup_a_id, dup_b_id = dup_a.id, dup_b.id
+
+    fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+
+    slicing.slice_file(entry_id)
+
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.READY
+        assert refreshed.sliced_file_id in (dup_a_id, dup_b_id)
+
+
+@pytest.mark.usefixtures("migrated_db")
 def test_wrong_printer_model_fails(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes):
     with base.sync_session() as session:
         entry = _seed(session, printer_model="Bambu Lab X1 Carbon")
