@@ -47,12 +47,13 @@ function RunRow({ run, onOpen }: { run: ArchiveOut; onOpen: () => void }) {
   );
 }
 
-export function PrintJobHistory() {
+export function PrintJobHistory({ printerId: fixedPrinterId }: { printerId?: number } = {}) {
   const [printerId, setPrinterId] = useState<number | undefined>();
   const [result, setResult] = useState<ArchiveResult | undefined>();
   const [openId, setOpenId] = useState<number | null>(null);
   const printers = usePrinters();
-  const archives = useArchives({ printerId, result });
+  const effectivePrinterId = fixedPrinterId ?? printerId;
+  const archives = useArchives({ printerId: effectivePrinterId, result });
 
   return (
     <Card>
@@ -60,23 +61,25 @@ export function PrintJobHistory() {
         <CardTitle>Print history</CardTitle>
         <CardDescription>Finished runs, most recent first.</CardDescription>
         <div className="flex gap-2 pt-2">
-          <Select
-            aria-label="Printer filter"
-            value={printerId != null ? String(printerId) : ALL}
-            onValueChange={(v) => setPrinterId(v === ALL ? undefined : Number(v))}
-          >
-            <SelectTrigger aria-label="Printer filter" className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All printers</SelectItem>
-              {(printers.data ?? []).map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {fixedPrinterId == null ? (
+            <Select
+              aria-label="Printer filter"
+              value={printerId != null ? String(printerId) : ALL}
+              onValueChange={(v) => setPrinterId(v === ALL ? undefined : Number(v))}
+            >
+              <SelectTrigger aria-label="Printer filter" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All printers</SelectItem>
+                {(printers.data ?? []).map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
           <Select
             aria-label="Result filter"
             value={result ?? ALL}
@@ -106,7 +109,7 @@ export function PrintJobHistory() {
         ) : !archives.data || archives.data.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">No finished prints yet.</p>
         ) : (
-          <Table>
+          <Table className="data-table">
             <TableHeader>
               <TableRow>
                 <TableHead />
