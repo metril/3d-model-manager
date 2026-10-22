@@ -5,6 +5,7 @@ content-addressed blobs, and upsert the ``print_archives`` row plus the auto
 
 from __future__ import annotations
 
+import ftplib
 import hashlib
 import tempfile
 import zipfile
@@ -29,7 +30,7 @@ from app.models.enums import (
 from app.models.library import Blob
 from app.pipeline.slicedmeta import parse_gcode_3mf
 from app.printers.connection import connection_from_printer
-from app.printers.gcode3mf import plates_in_gcode_3mf
+from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
 from app.services.app_config import get_app_config_sync
 from app.services.costing import CostRates, charged_grams, price_run
@@ -97,7 +98,7 @@ def _fetch_ftps(settings: Settings, printer: Printer, job: PrintJob, tmp: Path) 
                     continue
                 return dest.read_bytes()
         return None
-    except (OSError, NotImplementedError) as e:
+    except (OSError, ftplib.Error, NotImplementedError) as e:
         raise OSError(str(e).replace(conn.access_code, "***") or type(e).__name__) from e
     finally:
         adapter.close()
@@ -181,41 +182,50 @@ def archive_job(
         arc.fetch_error = None
     else:
         sha = hashlib.sha256(data).hexdigest()
-        publish_bytes(data, archive_path(settings, sha, "gcode.3mf"))
-        _ensure_blob(session, sha, len(data), BlobKind.SLICED, BlobFormat.GCODE_3MF)
-        arc.archive_blob = sha
-        with tempfile.TemporaryDirectory(prefix="tdmm-arc-") as td:
-            p = Path(td) / "a.gcode.3mf"
-            p.write_bytes(data)
-            meta = parse_gcode_3mf(p)
-        if plate_no is None:
-            plate_no = plates_in_gcode_3mf(data)[0]
-        plate = next((x for x in meta.plates if x["index"] == plate_no), None)
-        if plate is not None:
-            est = [
-                {
-                    "tray": i,
-                    "type": f["type"],
-                    "color": f["color"],
-                    "grams": f["used_g"],
-                    "meters": f["used_m"],
-                }
-                for i, f in enumerate(plate["filaments"])
-            ]
-            thumb = plate.get("thumbnail_file")
-            if thumb:
-                with zipfile.ZipFile(BytesIO(data)) as zf:
-                    if thumb in zf.namelist():
-                        tb = zf.read(thumb)
-                        tsha = hashlib.sha256(tb).hexdigest()
-                        publish_bytes(tb, archive_path(settings, tsha, "png"))
-                        _ensure_blob(session, tsha, len(tb), BlobKind.IMAGE, BlobFormat.PNG)
-                        arc.thumbnail_blob = tsha
-        meta_dict = asdict(meta)
-        meta_dict.pop("plates", None)
-        arc.slicer_meta = meta_dict
-        arc.fetch_state = ArchiveFetchState.DONE
-        arc.fetch_error = None
+        try:
+            with tempfile.TemporaryDirectory(prefix="tdmm-arc-") as td:
+                p = Path(td) / "a.gcode.3mf"
+                p.write_bytes(data)
+                meta = parse_gcode_3mf(p)
+            if plate_no is None:
+                plate_no = plates_in_gcode_3mf(data)[0]
+        except (zipfile.BadZipFile, NotSendableError) as e:
+            # Permanent: the file will never parse, so record and don't retry.
+            sha = None
+            arc.fetch_state = ArchiveFetchState.ERROR
+            arc.fetch_error = f"unreadable 3MF: {e}"[:500]
+        else:
+            publish_bytes(data, archive_path(settings, sha, "gcode.3mf"))
+            _ensure_blob(session, sha, len(data), BlobKind.SLICED, BlobFormat.GCODE_3MF)
+            arc.archive_blob = sha
+            plate = next((x for x in meta.plates if x["index"] == plate_no), None)
+            if plate is not None:
+                mapping = job.ams_mapping
+                for i, f in enumerate(plate["filaments"]):
+                    row = {
+                        "slot": i,
+                        "type": f["type"],
+                        "color": f["color"],
+                        "grams": f["used_g"],
+                        "meters": f["used_m"],
+                    }
+                    if isinstance(mapping, list) and i < len(mapping):
+                        row["tray"] = mapping[i]
+                    est.append(row)
+                thumb = plate.get("thumbnail_file")
+                if thumb:
+                    with zipfile.ZipFile(BytesIO(data)) as zf:
+                        if thumb in zf.namelist():
+                            tb = zf.read(thumb)
+                            tsha = hashlib.sha256(tb).hexdigest()
+                            publish_bytes(tb, archive_path(settings, tsha, "png"))
+                            _ensure_blob(session, tsha, len(tb), BlobKind.IMAGE, BlobFormat.PNG)
+                            arc.thumbnail_blob = tsha
+            meta_dict = asdict(meta)
+            meta_dict.pop("plates", None)
+            arc.slicer_meta = meta_dict
+            arc.fetch_state = ArchiveFetchState.DONE
+            arc.fetch_error = None
 
     arc.plate = plate_no
     arc.est_filament = est
@@ -245,14 +255,18 @@ def archive_job(
     if run is None:
         run = Print(print_job_id=job.id, source=PrintSource.AUTO)
         session.add(run)
+    # Redelivery must not clobber user edits: only write the auto fields when
+    # inserting or while they still hold their auto defaults.
+    if inserting:
+        run.result = RESULT_TO_PRINT_RESULT[result]
+    if inserting or run.filament_g is None:
+        run.filament_g = filament_g
     run.model_id = model_id
     run.created_by_user_id = job.created_by_user_id
     run.printer_name = printer.name
     run.filament = ", ".join(types) or None
-    run.filament_g = filament_g
     run.duration_min = round(duration_s / 60) if duration_s is not None else None
     run.printed_at = job.finished_at or datetime.now(UTC)
-    run.result = RESULT_TO_PRINT_RESULT[result]
     run.filament_cost = cost.filament_cost
     run.machine_cost = cost.machine_cost
     run.energy_cost = cost.energy_cost
@@ -265,3 +279,19 @@ def archive_job(
     if fetch_exc is not None:
         raise ArchiveFetchError(str(fetch_exc)) from fetch_exc
     return arc
+
+
+def mark_archive_error(
+    session: Session, print_job_id: int, result: ArchiveResult, message: str
+) -> None:
+    """Record a non-retried failure (e.g. task time limit) on the archive row."""
+    session.rollback()
+    arc = session.scalars(
+        select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
+    ).first()
+    if arc is None:
+        arc = PrintArchive(print_job_id=print_job_id, result=result)
+        session.add(arc)
+    arc.fetch_state = ArchiveFetchState.ERROR
+    arc.fetch_error = message
+    session.commit()

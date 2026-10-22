@@ -286,6 +286,7 @@ async def start_print(
         state=PrintJobState.QUEUED,
         subtask_name=payload.subtask_name,
         plate=payload.plate,
+        ams_mapping=list(payload.ams_mapping),
         created_by_user_id=ctx.user.id,
     )
     db.add(job)

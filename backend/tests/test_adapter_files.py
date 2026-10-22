@@ -75,3 +75,21 @@ def test_fake_files_and_errors(tmp_path):
     assert a.downloads == ["/cache/a.3mf", "/cache/a.3mf"]
     with pytest.raises(FileNotFoundError):
         a.download_file("/cache/missing", tmp_path / "m")
+
+
+def test_build_ftp_sets_timeout(monkeypatch):
+    import sys
+    import types
+
+    created = []
+
+    class Client:
+        def __init__(self, host, code):
+            self.ftps = types.SimpleNamespace(timeout=None)
+            created.append(self)
+
+    mod = types.ModuleType("bambulabs_api.ftp_client")
+    mod.PrinterFTPClient = Client
+    monkeypatch.setitem(sys.modules, "bambulabs_api.ftp_client", mod)
+    bambu._build_ftp(CONN)
+    assert created[0].ftps.timeout == bambu.FTP_TIMEOUT_S == 30

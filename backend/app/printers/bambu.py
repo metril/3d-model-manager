@@ -45,12 +45,17 @@ def _build_printer(conn: PrinterConnection):
     return bl.Printer(conn.host, conn.access_code, conn.serial)
 
 
+FTP_TIMEOUT_S = 30
+
+
 def _build_ftp(conn: PrinterConnection):
     """Construct the vendored FTPS client (lazy import -- flag-off safety).
     Tests monkeypatch this to inject a stub."""
     from bambulabs_api.ftp_client import PrinterFTPClient
 
-    return PrinterFTPClient(conn.host, conn.access_code)
+    client = PrinterFTPClient(conn.host, conn.access_code)
+    client.ftps.timeout = FTP_TIMEOUT_S  # ftplib.connect() honours the attribute
+    return client
 
 
 def _state_token(state) -> str | None:

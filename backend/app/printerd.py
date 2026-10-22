@@ -122,7 +122,7 @@ class PrinterWorker:
         with base.sync_session() as session:
             job = self._active_job(session)
             if job is None:
-                if public.gcode_state != "RUNNING":
+                if new_state != PrintJobState.PRINTING:
                     return
                 self._stop_requested = False
                 job = PrintJob(
@@ -155,6 +155,8 @@ class PrinterWorker:
                 result = terminal_result(new_state, public.print_error, self._stop_requested)
                 if result in (ArchiveResult.CANCELED, ArchiveResult.STOPPED):
                     new_state = PrintJobState.CANCELED
+                self._stop_requested = False
+            if new_state == PrintJobState.PRINTING:
                 self._stop_requested = False
             job.state = new_state.value
             job.progress_pct = public.mc_percent

@@ -646,3 +646,21 @@ def test_idle_creates_no_external_job(worker):
     w.handle_report({"gcode_state": "IDLE"})
     w.handle_report({"gcode_state": "FINISH"})
     assert _jobs(pid) == []
+
+
+def test_running_with_print_error_creates_no_external_job(worker):
+    w, _adapter, pid, _ = worker
+    for _ in range(3):
+        w.handle_report({"gcode_state": "RUNNING", "print_error": 1234})
+    assert _jobs(pid) == []
+
+
+def test_stale_stop_flag_cleared_when_next_job_starts(worker, monkeypatch):
+    calls = []
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: calls.append((j, r)))
+    w, _adapter, pid, _ = worker
+    w.handle_command("stop")  # no active job; flag would go stale
+    job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 1234})
+    assert calls[-1] == (job_id, ArchiveResult.FAILED)

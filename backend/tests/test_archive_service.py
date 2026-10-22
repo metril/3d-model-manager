@@ -1,4 +1,7 @@
+import ftplib
 import hashlib
+import io
+import zipfile
 
 import pytest
 from sqlalchemy import select
@@ -24,7 +27,7 @@ def test_archive_external_job_from_ftps(fake_adapter, sliced_3mf_bytes, seed):
     arc = archive_job(s, settings, job_id, ArchiveResult.COMPLETED)
     assert arc.fetch_state == "done" and arc.plate == 1 and arc.model_id == model_id
     assert arc.est_filament == [
-        {"tray": 0, "type": "PLA", "color": "#000000", "grams": 61.64, "meters": 21.18}
+        {"slot": 0, "type": "PLA", "color": "#000000", "grams": 61.64, "meters": 21.18}
     ]
     assert archive_path(settings, arc.archive_blob, "gcode.3mf").exists()
     assert arc.archive_blob == hashlib.sha256(sliced_3mf_bytes).hexdigest()
@@ -115,3 +118,74 @@ def test_archive_subtask_traversal_is_sanitized(fake_adapter, seed):
     fake_adapter.files["/etc/x.3mf"] = b"nope"
     arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
     assert arc.fetch_state == "missing" and fake_adapter.downloads == []
+
+
+def _commit_prints(s, job_id):
+    s.expire_all()
+    arc = s.scalar(select(PrintArchive).where(PrintArchive.print_job_id == job_id))
+    return arc, _run(s, job_id)
+
+
+def test_archive_bad_zip_records_error_without_retry(fake_adapter, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    fake_adapter.files["/cache/X_plate_1.3mf"] = b"not a zip"
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    arc, run = _commit_prints(seed.s, job_id)
+    assert arc.fetch_state == "error" and arc.fetch_error and run is not None
+
+
+def test_archive_plateless_3mf_records_error(fake_adapter, seed):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("3D/3dmodel.model", "x")
+    job_id = seed.job(subtask="X_plate_1", plate=None)
+    fake_adapter.files["/cache/X_plate_1.3mf"] = buf.getvalue()
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    arc, run = _commit_prints(seed.s, job_id)
+    assert arc.fetch_state == "error" and run is not None
+
+
+def test_archive_ftplib_error_is_retryable(fake_adapter, seed, monkeypatch):
+    job_id = seed.job(subtask="X_plate_1")
+    fake_adapter.files["/cache/X_plate_1.3mf"] = b"x"
+
+    def boom(path):
+        raise ftplib.error_perm("530 login failed s3cretcode")
+
+    monkeypatch.setattr(fake_adapter, "list_dir", boom)
+    with pytest.raises(ArchiveFetchError):
+        archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    arc, _ = _commit_prints(seed.s, job_id)
+    assert arc.fetch_state == "error"
+
+
+def test_archive_redelivery_keeps_user_edits(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    run = _run(seed.s, job_id)
+    run.filament_g = 10.0
+    run.result = "fail"
+    run.quality = "reject"
+    run.failure_reason = "spaghetti"
+    seed.s.commit()
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    seed.s.expire_all()
+    run = _run(seed.s, job_id)
+    assert (run.filament_g, run.result, run.quality, run.failure_reason) == (
+        10.0,
+        "fail",
+        "reject",
+        "spaghetti",
+    )
+
+
+def test_archive_est_filament_maps_ams_tray(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    from app.models import PrintJob
+
+    seed.s.get(PrintJob, job_id).ams_mapping = [3]
+    seed.s.commit()
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.est_filament[0]["slot"] == 0 and arc.est_filament[0]["tray"] == 3

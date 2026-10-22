@@ -77,3 +77,9 @@ celery_app.conf.beat_schedule = {
         "schedule": scheduler._CADENCE_S,
     }
 }
+
+# Additive: recovers terminal jobs whose archive enqueue was lost (P2).
+celery_app.conf.beat_schedule["archive-sweep"] = {
+    "task": "app.tasks.archive.archive_sweep",
+    "schedule": 300,
+}

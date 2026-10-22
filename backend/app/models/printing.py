@@ -93,6 +93,8 @@ class PrintJob(Base):
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
+    # Slicer filament index -> AMS tray, as sent (app-origin jobs only).
+    ams_mapping: Mapped[list | None] = mapped_column(JSONB)
 
 
 class PrintArchive(Base):
