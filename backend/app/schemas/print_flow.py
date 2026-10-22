@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.library import PlateOut
 from app.schemas.printers import PrintRequest, SpoolBriefOut
+from app.schemas.queue import PlanOptions  # re-exported -- see queue.py's docstring
 
 
 class PlanIn(BaseModel):
@@ -33,12 +34,6 @@ class PlanPrinter(BaseModel):
     idle: bool
     compatible: bool
     reason: str | None = None
-
-
-class PlanOptions(BaseModel):
-    bed_levelling: bool = True
-    flow_cali: bool = True
-    timelapse: bool = False
 
 
 class PlanOut(BaseModel):

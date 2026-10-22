@@ -1,4 +1,7 @@
-"""Print queue: an ordered "models to print" worklist (Branch 4 Task 1).
+"""Print queue: an ordered "models to print" worklist (Branch 4 Task 1),
+extended by the P6 slicer/dispatch plan (Task 6) with per-file queue items
+that carry a plate/printer/recipe and track their own slice-and-send
+lifecycle through to the dispatcher (``app.services.dispatcher``).
 
 Positions are a dense 1..n ranking over the WHOLE queue -- renumbered on
 every insert/delete/reorder so the UI can always render (and PATCH back) a
@@ -7,15 +10,37 @@ contiguous list, rather than tracking gaps.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models.library import Model, PrintQueueEntry
-from app.schemas.queue import QueueEntryOut
+from app.models.enums import BlobFormat, QueueState
+from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
+from app.models.slicing import PrintRecipe
+from app.schemas.queue import QueueEnqueueIn, QueueEntryOut
 from app.services import library
+
+# Formats the slicer sidecar can accept as input (mirrors
+# `app.services.library._GLB_FORMATS` -- the mesh/cad formats the pipeline
+# already knows how to hand a slicer-shaped tool). As-sliced (no-recipe)
+# enqueues skip this entirely -- they must already be `GCODE_3MF`.
+SLICEABLE_FORMATS = (
+    BlobFormat.STL,
+    BlobFormat.OBJ,
+    BlobFormat.THREEMF,
+    BlobFormat.STEP,
+    BlobFormat.IGES,
+)
+
+# Manual retry (`POST /queue/{id}/retry`) is only ever valid from a
+# terminal-ish failure state -- anything else (waiting/slicing/ready/
+# dispatched/done) already has its own forward path.
+RETRYABLE_STATES = (QueueState.FAILED, QueueState.HELD)
 
 
 async def _ordered_entries(db: AsyncSession, limit: int | None = None) -> list[PrintQueueEntry]:
@@ -33,7 +58,9 @@ async def _to_out(
     aggregate-then-assemble gallery logic, plus (Round 8 Task 3) each
     entry's ``printable_file`` -- resolved in ONE batch query via
     ``library.newest_printable_files`` across every distinct current
-    revision in ``entries``, never one query per row.
+    revision in ``entries``, never one query per row. P6 Task 6 additionally
+    batches each entry's requested ``file_id``'s display name and its
+    ``recipe_id``'s name the same way.
     """
     if not entries:
         return []
@@ -54,42 +81,112 @@ async def _to_out(
     ]
     printable_by_revision = await library.newest_printable_files(db, settings, revision_ids)
 
-    return [
-        QueueEntryOut(
-            id=e.id,
-            model_id=e.model_id,
-            position=e.position,
-            added_at=e.added_at,
-            model=summary_by_model_id[e.model_id],
-            printable_file=printable_by_revision.get(models_by_id[e.model_id].current_revision_id),
+    file_ids = [e.file_id for e in entries if e.file_id is not None]
+    files_by_id: dict[int, File] = {}
+    if file_ids:
+        files_by_id = {
+            f.id: f
+            for f in (await db.execute(select(File).where(File.id.in_(file_ids)))).scalars().all()
+        }
+
+    recipe_ids = [e.recipe_id for e in entries if e.recipe_id is not None]
+    recipes_by_id: dict[int, PrintRecipe] = {}
+    if recipe_ids:
+        recipes_by_id = {
+            r.id: r
+            for r in (await db.execute(select(PrintRecipe).where(PrintRecipe.id.in_(recipe_ids))))
+            .scalars()
+            .all()
+        }
+
+    out = []
+    for e in entries:
+        file_row = files_by_id.get(e.file_id) if e.file_id is not None else None
+        recipe_row = recipes_by_id.get(e.recipe_id) if e.recipe_id is not None else None
+        out.append(
+            QueueEntryOut(
+                id=e.id,
+                model_id=e.model_id,
+                position=e.position,
+                added_at=e.added_at,
+                model=summary_by_model_id[e.model_id],
+                printable_file=printable_by_revision.get(
+                    models_by_id[e.model_id].current_revision_id
+                ),
+                printer_id=e.printer_id,
+                recipe_id=e.recipe_id,
+                recipe_name=recipe_row.name if recipe_row is not None else None,
+                file_id=e.file_id,
+                sliced_file_id=e.sliced_file_id,
+                plate=e.plate,
+                copies=e.copies,
+                state=e.state,
+                assigned_printer_id=e.assigned_printer_id,
+                print_job_id=e.print_job_id,
+                attempts=e.attempts,
+                last_error=e.last_error,
+                file_name=Path(file_row.rel_path).name if file_row is not None else None,
+            )
         )
-        for e in entries
-    ]
+    return out
 
 
 async def list_queue(
-    db: AsyncSession, settings: Settings, limit: int | None = None
+    db: AsyncSession,
+    settings: Settings,
+    ctx: AuthContext | None = None,
+    *,
+    include_done: bool = False,
+    limit: int | None = None,
 ) -> list[QueueEntryOut]:
-    return await _to_out(db, settings, await _ordered_entries(db, limit))
+    """Visibility: a non-admin only sees entries with no specific printer
+    target (``printer_id is None`` -- still eligible for any compatible
+    printer) or one in their own ACL (``visible_printer_ids``); an admin
+    (or no ``ctx`` -- internal callers) sees everything. ``include_done``
+    additionally hides (default) or shows terminal `done` entries.
+    """
+    entries = await _ordered_entries(db, limit)
+    if ctx is not None:
+        visible = visible_printer_ids(ctx)
+        if visible is not None:
+            entries = [e for e in entries if e.printer_id is None or e.printer_id in visible]
+    if not include_done:
+        entries = [e for e in entries if e.state != QueueState.DONE]
+    return await _to_out(db, settings, entries)
+
+
+async def _append_position(db: AsyncSession, *, front: bool) -> int:
+    if front:
+        others = await _ordered_entries(db)
+        for other in others:
+            other.position += 1
+        await db.flush()
+        return 1
+    max_position = await db.scalar(select(func.max(PrintQueueEntry.position)))
+    return (max_position or 0) + 1
 
 
 async def enqueue_model(
     db: AsyncSession, settings: Settings, model_id: int, created_by_user_id: int | None = None
 ) -> tuple[QueueEntryOut, bool]:
     """Append ``model_id`` at the end of the queue. Idempotent: re-adding an
-    already-queued model returns its EXISTING entry (``created=False``)
+    already-queued BARE model returns its EXISTING entry (``created=False``)
     rather than erroring or duplicating it. 404s if the model doesn't exist.
     """
     await library.get_model_by_id(db, model_id)  # raises 404 if unknown
 
-    existing = await db.scalar(select(PrintQueueEntry).where(PrintQueueEntry.model_id == model_id))
+    existing = await db.scalar(
+        select(PrintQueueEntry).where(
+            PrintQueueEntry.model_id == model_id, PrintQueueEntry.file_id.is_(None)
+        )
+    )
     if existing is not None:
         out = await _to_out(db, settings, [existing])
         return out[0], False
 
-    max_position = await db.scalar(select(func.max(PrintQueueEntry.position)))
+    position = await _append_position(db, front=False)
     entry = PrintQueueEntry(
-        model_id=model_id, position=(max_position or 0) + 1, created_by_user_id=created_by_user_id
+        model_id=model_id, position=position, created_by_user_id=created_by_user_id
     )
     db.add(entry)
     await db.commit()
@@ -98,11 +195,103 @@ async def enqueue_model(
     return out[0], True
 
 
+async def enqueue_file(
+    db: AsyncSession,
+    settings: Settings,
+    payload: QueueEnqueueIn,
+    ctx: AuthContext,
+) -> QueueEntryOut:
+    """Append a per-file queue entry (P6 Task 6). Never idempotent -- a
+    model can be queued more than once as long as each extra entry names a
+    specific ``file_id`` (the DB's partial unique index only covers bare
+    entries).
+    """
+    if payload.printer_id is not None:
+        ctx.require_printer(payload.printer_id, "print")
+
+    file = await db.get(File, payload.file_id)
+    if file is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {payload.file_id} not found")
+    revision = await db.get(Revision, file.revision_id)
+    if revision is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file's revision not found")
+    blob = await db.get(Blob, file.blob_hash)
+
+    sliced_file_id: int | None = None
+    if payload.recipe_id is not None:
+        recipe = await db.get(PrintRecipe, payload.recipe_id)
+        if recipe is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"recipe {payload.recipe_id} not found")
+        if blob is None or blob.format not in SLICEABLE_FORMATS:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "file is not in a format the slicer can accept",
+            )
+        state = QueueState.WAITING
+    else:
+        if blob is None or blob.format != BlobFormat.GCODE_3MF:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "only sliced .gcode.3mf files can be queued without a recipe",
+            )
+        state = QueueState.READY
+        sliced_file_id = file.id  # already sliced -- nothing for slice_file to do
+
+    position = await _append_position(db, front=payload.front)
+    entry = PrintQueueEntry(
+        model_id=revision.model_id,
+        file_id=file.id,
+        sliced_file_id=sliced_file_id,
+        printer_id=payload.printer_id,
+        recipe_id=payload.recipe_id,
+        plate=payload.plate,
+        copies=payload.copies,
+        state=state,
+        position=position,
+        ams_mapping=payload.ams_mapping,
+        print_options=payload.options.model_dump() if payload.options is not None else None,
+        created_by_user_id=ctx.user.id,
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    out = await _to_out(db, settings, [entry])
+    return out[0]
+
+
 async def _get_entry_or_404(db: AsyncSession, entry_id: int) -> PrintQueueEntry:
     entry = await db.get(PrintQueueEntry, entry_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"queue entry {entry_id} not found")
     return entry
+
+
+async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> QueueEntryOut:
+    """Manual retry: only valid from `failed`/`held` (409 otherwise). Resets
+    the attempt counter and dispatch bookkeeping so the dispatcher's own
+    eligibility filter (`waiting`/`ready`, `attempts < QUEUE_MAX_ATTEMPTS`)
+    picks it back up on its next tick -- re-slicing first if it has a
+    recipe and no sliced file yet, otherwise going straight back to
+    `ready`.
+    """
+    entry = await _get_entry_or_404(db, entry_id)
+    if entry.state not in RETRYABLE_STATES:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"cannot retry from state {entry.state.value}"
+        )
+    entry.state = (
+        QueueState.WAITING
+        if entry.recipe_id is not None and entry.sliced_file_id is None
+        else QueueState.READY
+    )
+    entry.attempts = 0
+    entry.last_error = None
+    entry.assigned_printer_id = None
+    entry.print_job_id = None
+    await db.commit()
+    await db.refresh(entry)
+    out = await _to_out(db, settings, [entry])
+    return out[0]
 
 
 async def remove_entry(db: AsyncSession, entry_id: int) -> None:
@@ -124,7 +313,7 @@ async def move_entry(
 ) -> list[QueueEntryOut]:
     """Move ``entry_id`` to 1-based ``position``, clamped to ``[1, n]``,
     shifting every other entry to make room. Returns the whole reordered
-    queue (the UI re-renders the whole list on any reorder).
+    queue (the UI re-renders the whole thing on any reorder).
     """
     entry = await _get_entry_or_404(db, entry_id)
     entries = await _ordered_entries(db)
