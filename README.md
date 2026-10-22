@@ -370,7 +370,47 @@ the history but are flagged as wasted.
 `tdmm_data` volume), so they are covered by the normal data backup; include
 that directory in any manual backup.
 
-**Reprint** from an archive is a stub for now and arrives in P5.
+**Reprint** from an archive rebuilds a print plan from the job's own sent
+file (falling back to any library file sharing the archived 3MF's blob hash),
+proposing the same AMS/spool mapping the original run used.
+
+### Spools & filament tracking
+
+**Spool inventory** (`/spools`) tracks physical filament spools: material,
+color, label weight, remaining weight (`label_weight_g - weight_used_g`),
+cost per kg, and a low-stock threshold. Usage is recorded per print job
+against whichever spool was mapped to each filament, so weight and cost stay
+accurate without manual bookkeeping.
+
+**AMS slot assignment**: each AMS tray (and the external/vt_tray spool
+holder) can hold a spool assignment. A spool with an RFID tag that's been
+read by the AMS **auto-assigns** to its slot; third-party/non-RFID spools are
+assigned manually from the printer card. Slot ids follow Bambu's own
+encoding (`ams_unit * 4 + tray`, with `254`/unit `255` reserved for the
+external spool) so the mapping sent to the printer lines up with what the
+touchscreen shows.
+
+**Usage history**: the spool page and per-printer stats show filament usage
+over time, broken down by material and by individual spool, sourced from
+each archived run's actual (3MF-estimated or AMS-delta-inferred) grams.
+
+**Spoolman integration is tabled** — this app does its own spool tracking
+rather than talking to a Spoolman instance; there is no plan to add that
+integration currently.
+
+### Printing from the app
+
+**Files → Print** opens a single modal that combines plate/AMS/calibration
+options with filament mapping: for each filament the plate's 3MF calls for,
+pick (or let RFID auto-assign) the spool/AMS tray that will supply it,
+including the external spool holder for single-color prints. Sending
+confirms the plan, uploads the 3MF, and starts the print — the printer must
+be idle first (see **Sending**, above).
+
+Once the job finishes, the run is archived as usual (see **Print archive &
+run history**) and each mapped spool's `weight_used_g` is advanced by that
+filament's grams, so inventory and run cost reflect the spool(s) actually
+used rather than a flat filament-cost assumption.
 
 ### Live camera & timelapse
 
