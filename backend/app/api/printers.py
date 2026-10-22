@@ -40,8 +40,7 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
-from app.models import Blob, File, Printer, PrintJob, User
-from app.models.enums import BlobFormat, PrintJobState
+from app.models import Printer, PrintJob, User
 from app.models.inventory import Spool, SpoolSlot
 from app.printers import discovery
 from app.printers.base import command_channel
@@ -68,9 +67,9 @@ from app.services import camera_state as cs
 from app.services import signed_urls, spool_inventory
 from app.services.app_config import get_app_config
 from app.services.permissions import load_grants
+from app.services.print_plan import create_job
 from app.services.printer_overview import build_overview
-from app.services.printer_state import preflight_ok, read_state_async
-from app.tasks.printing import send_to_printer
+from app.services.printer_state import read_state_async
 
 # AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
 # "external spool" sentinel pair (app.services.spool_inventory).
@@ -297,43 +296,13 @@ async def start_print(
     every heavy step (fetching the file, opening the archive, the FTPS
     upload, the MQTT start) happens in the worker, never on the request
     path.
+
+    P5 Task 7: the body now lives in ``app.services.print_plan.create_job``,
+    shared with the new ``POST /print/send`` route -- this handler is kept as
+    a thin legacy alias so existing callers (and the frontend, until it
+    migrates to the plan/send flow) are unaffected.
     """
-    printer = await _get_or_404(db, printer_id)
-    if not printer.enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, "printer is disabled")
-    file = await db.get(File, payload.file_id)
-    if file is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    blob = await db.get(Blob, file.blob_hash)
-    if blob is None or blob.format != BlobFormat.GCODE_3MF:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "only sliced .gcode.3mf files can be sent to a printer",
-        )
-    client = aioredis.Redis.from_url(settings.redis_url)
-    try:
-        state = await read_state_async(client, printer_id)
-    finally:
-        await client.aclose()
-    if not preflight_ok(state):
-        gs = state.get("gcode_state") if state else "unknown"
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"printer not ready (state={gs}); must be IDLE/FINISH/FAILED"
-        )
-    job = PrintJob(
-        printer_id=printer_id,
-        file_id=file.id,
-        state=PrintJobState.QUEUED,
-        subtask_name=payload.subtask_name,
-        plate=payload.plate,
-        ams_mapping=list(payload.ams_mapping),
-        created_by_user_id=ctx.user.id,
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-    send_to_printer.apply_async(args=[job.id, payload.model_dump()])
-    await db.refresh(job)  # eager mode already ran the task through its own sync session
+    job = await create_job(db, settings, ctx, printer_id, payload)
     return PrintJobOut.from_model(job)
 
 
