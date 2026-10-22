@@ -71,6 +71,20 @@ def price_run(
     return RunCost(filament, machine, energy_cost, sum(parts) if parts else None)
 
 
+def job_energy_kwh(start: float | None, end: float | None) -> float | None:
+    """The kWh consumed by a run, from the ``ha:energy:acc:{pid}`` running
+    total snapshotted at job start/finish (P8 Home Assistant plan, Task 6)
+    -- a plain delta, since the accumulator only ever increases through a
+    counter reset (``app.services.home_assistant.counter_delta`` already
+    folds that in at poll time). ``None`` when either snapshot is missing
+    (HA not configured/linked for this printer) or the delta would be
+    negative (a snapshot taken out of order, or a corrupt read) -- never a
+    negative/garbage cost."""
+    if start is None or end is None or end < start:
+        return None
+    return round(end - start, 4)
+
+
 def filament_cost(usages: list[tuple[Spool | None, float]], global_per_kg: float) -> float | None:
     """Total filament cost across a job's charged ``(spool_or_None, grams)``
     usages (P5 spool tray plan): a spool's own ``cost_per_kg`` prices its
