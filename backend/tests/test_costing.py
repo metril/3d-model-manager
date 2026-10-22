@@ -42,3 +42,10 @@ def test_charged_grams_partial_edges():
         charged_grams(None, ArchiveResult.FAILED, layer=1, total_layers=2, progress_pct=None)
         is None
     )
+
+
+def test_charged_grams_falls_back_to_progress_when_layer_missing():
+    assert (
+        charged_grams(100.0, ArchiveResult.FAILED, layer=None, total_layers=100, progress_pct=40)
+        == 40.0
+    )

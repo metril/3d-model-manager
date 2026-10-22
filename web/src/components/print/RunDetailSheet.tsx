@@ -128,7 +128,7 @@ function Body({ archive }: { archive: ArchiveOut }) {
           {archive.est_filament.map((f, i) => (
             <li key={i} className="flex items-center gap-2">
               <FilamentChip color={f.color ?? undefined} material={f.type ?? "Filament"} size="sm" />
-              {f.weight_g != null ? <span className="font-mono tabular-nums">{f.weight_g} g</span> : null}
+              {f.grams != null ? <span className="font-mono tabular-nums">{f.grams} g</span> : null}
             </li>
           ))}
         </ul>

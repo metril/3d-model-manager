@@ -955,10 +955,13 @@ export type PrintSource = "manual" | "printer" | "external";
 
 /** One per-tray estimated filament row on an archived run. */
 export interface EstFilament {
+  /** Slicer filament index. */
   slot?: number | null;
+  /** Mapped AMS tray, when the job carried an ams_mapping. */
+  tray?: number | null;
   type?: string | null;
   color?: string | null;
-  weight_g?: number | null;
+  grams?: number | null;
   [key: string]: unknown;
 }
 

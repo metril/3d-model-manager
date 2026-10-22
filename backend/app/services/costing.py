@@ -41,7 +41,7 @@ def charged_grams(
         return est_g
     if total_layers and layer is not None:
         ratio = layer / total_layers
-    elif not total_layers and progress_pct is not None:
+    elif progress_pct is not None:
         ratio = progress_pct / 100
     else:
         ratio = 0.0

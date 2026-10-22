@@ -36,7 +36,7 @@ const archive = {
   printer_name: "A1",
   result: "completed",
   duration_s: 3600,
-  est_filament: [{ slot: 1, type: "PLA", color: "#ff0000", weight_g: 12.5 }],
+  est_filament: [{ slot: 1, type: "PLA", color: "#ff0000", grams: 12.5 }],
   fetch_state: "done",
   has_thumbnail: true,
   has_file: true,
