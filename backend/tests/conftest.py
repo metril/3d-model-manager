@@ -43,6 +43,7 @@ pytest_plugins = (
     "tests.printer_fixtures",
     "tests.importer_fixtures",
     "tests.migration_helpers",
+    "tests.auth_fixtures",
 )
 
 ADMIN_USERNAME = "admin"

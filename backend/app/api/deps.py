@@ -5,18 +5,21 @@ protected endpoint individually.
 """
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-from fastapi import Cookie, Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import ApiToken, Session, User
+from app.models import ApiToken, Group, Session, User
 from app.services import api_tokens
 from app.services.app_config import get_app_config
+from app.services.permissions import PERMS, Perm, PrinterAcl, load_grants
 from app.storage.base import StorageBackend
 
 SESSION_COOKIE_NAME = "tdmm_session"
@@ -29,10 +32,30 @@ LAST_SEEN_THROTTLE = timedelta(seconds=60)
 
 @dataclass(slots=True)
 class AuthContext:
-    """The authenticated user and the session row backing the request."""
+    """The authenticated user, their session and resolved grants."""
 
     user: User
-    session: Session
+    session: Session | None
+    perms: frozenset[str]
+    printer_acl: dict[int, PrinterAcl]
+    groups: list[Group]
+
+    @property
+    def is_admin(self) -> bool:
+        return "admin" in self.perms
+
+    def can(self, perm: str) -> bool:
+        return perm in self.perms
+
+    def require_printer(self, printer_id: int, kind: Literal["print", "control"]) -> None:
+        """403 unless the global ``printers:<kind>`` perm AND the per-printer
+        ACL flag both hold (admins always pass)."""
+        if self.is_admin:
+            return
+        acl = self.printer_acl.get(printer_id)
+        flag = acl is not None and (acl.can_print if kind == "print" else acl.can_control)
+        if f"printers:{kind}" not in self.perms or not flag:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "printer access denied")
 
 
 def _unauthenticated() -> HTTPException:
@@ -86,7 +109,62 @@ async def require_session(
         session.last_seen_at = now
         await db.commit()
 
-    return AuthContext(user=user, session=session)
+    groups, perms, acl = await load_grants(db, user)
+    return AuthContext(user=user, session=session, perms=perms, printer_acl=acl, groups=groups)
+
+
+def _check_perms(ctx: AuthContext, perms: tuple[str, ...]) -> None:
+    for p in perms:
+        if not ctx.can(p):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing permission: {p}")
+
+
+def _validate_names(perms: tuple[str, ...]) -> None:
+    for p in perms:
+        if p not in PERMS:
+            raise ValueError(f"unknown permission: {p}")
+
+
+def require_perm(*perms: Perm) -> Callable[..., Awaitable[AuthContext]]:
+    """Dependency factory: every listed permission is required, else 403."""
+    _validate_names(perms)
+
+    async def dep(ctx: AuthContext = Depends(require_session)) -> AuthContext:
+        _check_perms(ctx, perms)
+        return ctx
+
+    return dep
+
+
+def require_perm_on_write(*perms: Perm) -> Callable[..., Awaitable[AuthContext]]:
+    """Like ``require_perm`` but skipped for GET/HEAD/OPTIONS."""
+    _validate_names(perms)
+
+    async def dep(request: Request, ctx: AuthContext = Depends(require_session)) -> AuthContext:
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            _check_perms(ctx, perms)
+        return ctx
+
+    return dep
+
+
+def require_printer_access(
+    kind: Literal["print", "control"],
+) -> Callable[..., Awaitable[AuthContext]]:
+    """Dependency factory reading the ``printer_id`` path param."""
+
+    async def dep(printer_id: int, ctx: AuthContext = Depends(require_session)) -> AuthContext:
+        ctx.require_printer(printer_id, kind)
+        return ctx
+
+    return dep
+
+
+def visible_printer_ids(ctx: AuthContext) -> set[int] | None:
+    """``None`` = all printers (admin); else ids with any ACL row."""
+    if ctx.is_admin:
+        return None
+    return set(ctx.printer_acl)
 
 
 def _unauthenticated_bearer() -> HTTPException:
