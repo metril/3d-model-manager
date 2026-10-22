@@ -84,6 +84,10 @@ _PATH_PARAM_VALUES = {
     "category_id": "1",
     # R13c: materials.
     "material_id": "1",
+    # P5 spool tray plan: spools CRUD + AMS slot assignment.
+    "spool_id": "1",
+    "unit": "0",
+    "slot": "0",
 }
 
 

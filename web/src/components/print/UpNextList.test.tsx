@@ -10,10 +10,9 @@ vi.mock("@/api/auth", async (importOriginal) => ({
   useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
 }));
 
-const { moveMock, printersDataBox, startPrintMock } = vi.hoisted(() => ({
+const { moveMock, printersDataBox } = vi.hoisted(() => ({
   moveMock: vi.fn(),
   printersDataBox: { current: [] as PrinterOut[] },
-  startPrintMock: vi.fn(),
 }));
 
 vi.mock("@/api/queue", () => ({
@@ -22,7 +21,15 @@ vi.mock("@/api/queue", () => ({
 
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: printersDataBox.current }),
-  useStartPrint: () => ({ mutate: startPrintMock, isPending: false, isError: false }),
+}));
+
+// `PrintDialog` is unit-tested on its own (`PrintDialog.test.tsx`) -- here
+// it's stubbed to a visible marker when open, so this file only asserts
+// UpNextList's OWN logic: when the Print… button shows, and that it opens
+// the dialog with the right model source.
+vi.mock("@/components/print/PrintDialog", () => ({
+  PrintDialog: ({ open, source }: { open: boolean; source: { kind: string; modelId?: number } }) =>
+    open ? <div data-testid="print-dialog">{`${source.kind}:${source.modelId}`}</div> : null,
 }));
 
 const PRINTABLE_FILE: FileOut = {
@@ -136,9 +143,9 @@ describe("UpNextList", () => {
     expect(screen.queryByRole("button", { name: "Print…" })).not.toBeInTheDocument();
   });
 
-  it("opens the send-to-printer dialog when printable", async () => {
+  it("opens the PrintDialog with this entry's model when printable", async () => {
     renderList([entry({ printable_file: PRINTABLE_FILE })]);
     fireEvent.click(await screen.findByRole("button", { name: "Print…" }));
-    expect(await screen.findByText(`Send ${PRINTABLE_FILE.rel_path} to a printer`)).toBeInTheDocument();
+    expect(await screen.findByTestId("print-dialog")).toHaveTextContent("model:1");
   });
 });

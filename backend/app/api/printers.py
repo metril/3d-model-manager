@@ -26,6 +26,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, 
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -40,13 +41,15 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
-from app.models import Blob, File, Printer, PrintJob, User
-from app.models.enums import BlobFormat, PrintJobState
+from app.models import Printer, PrintJob, User
+from app.models.inventory import Spool
 from app.printers import discovery
 from app.printers.base import command_channel
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
+from app.schemas.inventory import SlotAssignIn
 from app.schemas.printers import (
+    AmsTrayOut,
     CameraUrlsOut,
     DetectSerialIn,
     DetectSerialOut,
@@ -58,15 +61,22 @@ from app.schemas.printers import (
     PrintJobOut,
     PrintRequest,
     ProbeOut,
+    SpoolBriefOut,
     seed_build_volume_mm,
 )
 from app.services import camera_state as cs
-from app.services import signed_urls
+from app.services import signed_urls, spool_inventory
 from app.services.app_config import get_app_config
 from app.services.permissions import load_grants
+from app.services.print_plan import create_job
 from app.services.printer_overview import build_overview
-from app.services.printer_state import preflight_ok, read_state_async
-from app.tasks.printing import send_to_printer
+from app.services.printer_state import read_state_async
+from app.tasks import base
+
+# AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
+# "external spool" sentinel pair (app.services.spool_inventory).
+_VALID_UNITS = frozenset({0, 1, 2, 3, spool_inventory.EXTERNAL_UNIT})
+_VALID_SLOTS = frozenset({0, 1, 2, 3})
 
 router = APIRouter(
     prefix="/printers", tags=["printers"], dependencies=[Depends(require_printer_enabled)]
@@ -288,44 +298,71 @@ async def start_print(
     every heavy step (fetching the file, opening the archive, the FTPS
     upload, the MQTT start) happens in the worker, never on the request
     path.
+
+    P5 Task 7: the body now lives in ``app.services.print_plan.create_job``,
+    shared with the new ``POST /print/send`` route -- this handler is kept as
+    a thin legacy alias so existing callers (and the frontend, until it
+    migrates to the plan/send flow) are unaffected.
     """
-    printer = await _get_or_404(db, printer_id)
-    if not printer.enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, "printer is disabled")
-    file = await db.get(File, payload.file_id)
-    if file is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    blob = await db.get(Blob, file.blob_hash)
-    if blob is None or blob.format != BlobFormat.GCODE_3MF:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "only sliced .gcode.3mf files can be sent to a printer",
-        )
+    job = await create_job(db, settings, ctx, printer_id, payload)
+    return PrintJobOut.from_model(job)
+
+
+@router.put(
+    "/{printer_id}/slots/{unit}/{slot}",
+    response_model=list[AmsTrayOut],
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def set_slot(
+    printer_id: int,
+    unit: int,
+    slot: int,
+    payload: SlotAssignIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[AmsTrayOut]:
+    """Point an AMS slot at a registered spool, or clear it (P5 Task 6).
+    ``unit``/``slot`` are the PER-UNIT coordinates the printer itself
+    reports (not the global tray id) -- ``unit`` 255 + ``slot`` 254 is the
+    "external spool" sentinel pair (``app.services.spool_inventory``).
+    """
+    valid = unit in _VALID_UNITS and (
+        (unit == spool_inventory.EXTERNAL_UNIT and slot == spool_inventory.EXTERNAL_SLOT)
+        or (unit != spool_inventory.EXTERNAL_UNIT and slot in _VALID_SLOTS)
+    )
+    if not valid:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid unit/slot")
+    await _get_or_404(db, printer_id)
+    if payload.spool_id is not None and await db.get(Spool, payload.spool_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "spool not found")
+
+    # Delegates to the shared `spool_inventory.assign_slot` (sync -- the
+    # same one printerd's RFID auto-assign uses) via its own short-lived
+    # sync session, rather than re-implementing the move/clear logic here
+    # against the async session. A concurrent duplicate assignment racing
+    # past the read-then-write above surfaces as a DB-level IntegrityError
+    # (the `spool_slots` unique constraints) -- caught as a 409, not a 500.
+    def _assign() -> None:
+        with base.sync_session() as s:
+            try:
+                spool_inventory.assign_slot(s, printer_id, unit, slot, payload.spool_id)
+            except IntegrityError:
+                s.rollback()
+                raise
+
+    try:
+        await anyio.to_thread.run_sync(_assign)
+    except IntegrityError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, "slot already assigned") from e
+
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:
         await client.aclose()
-    if not preflight_ok(state):
-        gs = state.get("gcode_state") if state else "unknown"
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"printer not ready (state={gs}); must be IDLE/FINISH/FAILED"
-        )
-    job = PrintJob(
-        printer_id=printer_id,
-        file_id=file.id,
-        state=PrintJobState.QUEUED,
-        subtask_name=payload.subtask_name,
-        plate=payload.plate,
-        ams_mapping=list(payload.ams_mapping),
-        created_by_user_id=ctx.user.id,
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-    send_to_printer.apply_async(args=[job.id, payload.model_dump()])
-    await db.refresh(job)  # eager mode already ran the task through its own sync session
-    return PrintJobOut.from_model(job)
+    trays = [AmsTrayOut(**t) for t in ((state or {}).get("trays") or [])]
+    await _fill_tray_spools(db, printer_id, trays)
+    return trays
 
 
 _STATE_FIELDS = (
@@ -340,6 +377,19 @@ _STATE_FIELDS = (
     "subtask_name",
     "wifi_signal",
 )
+
+
+async def _fill_tray_spools(db: AsyncSession, printer_id: int, trays: list[AmsTrayOut]) -> None:
+    """Enrich each tray's ``spool`` from the printer's current slot
+    assignments (P5 Task 6) -- the printer's own report only knows the
+    RFID ``tray_uuid``, never which registered ``Spool`` that maps to."""
+    if not trays:
+        return
+    smap = await spool_inventory.slot_map(db, [printer_id])
+    for t in trays:
+        spool = smap.get((printer_id, t.slot))
+        if spool is not None:
+            t.spool = SpoolBriefOut.from_model(spool)
 
 
 @router.get("/{printer_id}/status", response_model=PrinterStatusOut)
@@ -367,11 +417,13 @@ async def printer_status(
         return PrinterStatusOut(online=False)
     # `trays` (M8 G3) is a list, not a scalar -- pass it explicitly and coerce a
     # missing/None value (older state written before this field existed) to [].
-    return PrinterStatusOut(
+    out = PrinterStatusOut(
         online=True,
         trays=state.get("trays") or [],
         **{k: state.get(k) for k in _STATE_FIELDS},
     )
+    await _fill_tray_spools(db, printer_id, out.trays)
+    return out
 
 
 async def _publish_command(settings: Settings, printer_id: int, command: str) -> None:

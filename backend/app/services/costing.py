@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.models.enums import ArchiveResult
 from app.services.app_config import AppConfig
+
+if TYPE_CHECKING:
+    from app.models import Spool
 
 
 @dataclass(frozen=True)
@@ -54,8 +58,33 @@ def price_run(
     rates: CostRates,
     *,
     energy_cost: float | None = None,
+    filament_cost: float | None = None,
 ) -> RunCost:
-    filament = None if filament_g is None else filament_g / 1000 * rates.filament_per_kg
+    """``filament_cost``, when given (P5 spool tray plan: per-spool pricing),
+    replaces the flat ``filament_g/1000 x rate`` calculation entirely."""
+    if filament_cost is not None:
+        filament = filament_cost
+    else:
+        filament = None if filament_g is None else filament_g / 1000 * rates.filament_per_kg
     machine = None if duration_s is None else duration_s / 3600 * rates.machine_per_hour
     parts = [c for c in (filament, machine, energy_cost) if c is not None]
     return RunCost(filament, machine, energy_cost, sum(parts) if parts else None)
+
+
+def filament_cost(usages: list[tuple[Spool | None, float]], global_per_kg: float) -> float | None:
+    """Total filament cost across a job's charged ``(spool_or_None, grams)``
+    usages (P5 spool tray plan): a spool's own ``cost_per_kg`` prices its
+    grams, a spool-less tray falls back to ``global_per_kg``. ``None`` when
+    there's nothing to charge (mirrors ``price_run``'s own ``None``-filament
+    convention for an unknown/empty run)."""
+    if not usages:
+        return None
+    total = 0.0
+    for spool, grams in usages:
+        rate = (
+            spool.cost_per_kg
+            if (spool is not None and spool.cost_per_kg is not None)
+            else (global_per_kg)
+        )
+        total += grams / 1000 * rate
+    return total

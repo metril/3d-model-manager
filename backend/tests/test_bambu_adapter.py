@@ -192,6 +192,19 @@ def test_hex6_strips_ams_alpha_and_tolerates_garbage():
     assert bambu._hex6("") is None
 
 
+def _tray(slot, ams_unit, tray, color=None, material=None, tray_uuid=None, remain_pct=None):
+    return {
+        "slot": slot,
+        "ams_unit": ams_unit,
+        "tray": tray,
+        "color": color,
+        "material": material,
+        "tray_type": material,
+        "tray_uuid": tray_uuid,
+        "remain_pct": remain_pct,
+    }
+
+
 def test_ams_trays_parses_loaded_slots_and_tolerates_missing_ams():
     dump = {
         "print": {
@@ -201,7 +214,7 @@ def test_ams_trays_parses_loaded_slots_and_tolerates_missing_ams():
                         "tray": [
                             {"tray_color": "FF0000FF", "tray_type": "PLA"},
                             {"tray_color": "00FF00FF", "tray_type": "PETG"},
-                            {"tray_color": "", "tray_type": ""},  # empty slot -> skipped
+                            {"tray_color": "", "tray_type": ""},  # empty slot -> still reported
                         ]
                     }
                 ]
@@ -209,8 +222,9 @@ def test_ams_trays_parses_loaded_slots_and_tolerates_missing_ams():
         }
     }
     assert bambu._ams_trays(dump) == [
-        {"slot": 0, "color": "#FF0000", "material": "PLA"},
-        {"slot": 1, "color": "#00FF00", "material": "PETG"},
+        _tray(0, 0, 0, color="#FF0000", material="PLA"),
+        _tray(1, 0, 1, color="#00FF00", material="PETG"),
+        _tray(2, 0, 2),
     ]
     # no AMS / unexpected shape -> [] (never raises)
     assert bambu._ams_trays({}) == []
@@ -218,16 +232,78 @@ def test_ams_trays_parses_loaded_slots_and_tolerates_missing_ams():
     assert bambu._ams_trays({"print": {"ams": {"ams": "nope"}}}) == []
 
 
+def test_ams_trays_unit_and_rfid():
+    zero_uuid = "0" * 32
+    dump = {
+        "print": {
+            "ams": {
+                "ams": [
+                    {
+                        "id": "0",
+                        "tray": [
+                            {
+                                "id": "0",
+                                "tray_color": "FF0000FF",
+                                "tray_type": "PLA",
+                                "tray_uuid": "ABCDEF0123456789ABCDEF0123456789",
+                                "remain": "63",
+                            },
+                            {"id": "1", "tray_color": "", "tray_type": "", "tray_uuid": zero_uuid},
+                        ],
+                    },
+                    {
+                        "id": "1",
+                        "tray": [
+                            {
+                                "id": "0",
+                                "tray_color": "0000FFFF",
+                                "tray_type": "PETG",
+                                "remain": "-1",
+                            }
+                        ],
+                    },
+                ]
+            },
+            "vt_tray": {
+                "tray_color": "00FF00FF",
+                "tray_type": "ABS",
+                "tray_uuid": "11112222333344445555666677778888",
+                "remain": "80",
+            },
+        }
+    }
+    trays = bambu._ams_trays(dump)
+    assert trays[0] == _tray(
+        0,
+        0,
+        0,
+        color="#FF0000",
+        material="PLA",
+        tray_uuid="ABCDEF0123456789ABCDEF0123456789",
+        remain_pct=63,
+    )
+    assert trays[1] == _tray(1, 0, 1, tray_uuid=None)  # all-zero uuid -> None
+    assert trays[2] == _tray(4, 1, 0, color="#0000FF", material="PETG", remain_pct=None)
+    assert trays[3] == _tray(
+        254,
+        255,
+        254,
+        color="#00FF00",
+        material="ABS",
+        tray_uuid="11112222333344445555666677778888",
+        remain_pct=80,
+    )
+
+
 def test_snapshot_includes_ams_trays(monkeypatch):
     a, stub = _stub_adapter(monkeypatch)
     stub.mqtt_dump = lambda: {
         "print": {"ams": {"ams": [{"tray": [{"tray_color": "112233FF", "tray_type": "PLA"}]}]}}
     }
-    assert a._snapshot()["trays"] == [{"slot": 0, "color": "#112233", "material": "PLA"}]
+    assert a._snapshot()["trays"] == [_tray(0, 0, 0, color="#112233", material="PLA")]
 
 
 def test_public_state_carries_ams_trays():
-    ps = BambuLanAdapter(CONN).public_state(
-        {"trays": [{"slot": 0, "color": "#ff0000", "material": "PLA"}]}
-    )
-    assert ps.trays == [{"slot": 0, "color": "#ff0000", "material": "PLA"}]
+    tray = _tray(0, 0, 0, color="#ff0000", material="PLA")
+    ps = BambuLanAdapter(CONN).public_state({"trays": [tray]})
+    assert ps.trays == [tray]

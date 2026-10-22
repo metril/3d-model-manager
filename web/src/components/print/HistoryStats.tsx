@@ -6,19 +6,21 @@
  * only printer-specific metric, so it keeps working even with the runs
  * tab hidden behind `printer_enabled=false`.
  */
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { useArchives } from "@/api/archives";
 import { ApiError } from "@/api/client";
-import { useStats } from "@/api/stats";
-import type { PrintResult } from "@/api/types";
+import { useFilamentStats, useStats } from "@/api/stats";
+import type { FilamentSeriesOut, PrintResult } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkline } from "@/components/ui/sparkline";
 import { StatTile } from "@/components/ui/stat-tile";
-import { formatDate, humanizeBytes } from "@/lib/format";
+import { SegmentedControl } from "@/components/viewer/SegmentedControl";
+import { formatCost, formatDate, humanizeBytes } from "@/lib/format";
 import { formatIcon } from "@/lib/formatMeta";
 import { dailyRunCounts } from "@/lib/runSeries";
 
@@ -49,6 +51,91 @@ function Bar({ label, value, max }: { label: string; value: number; max: number 
         <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </div>
     </div>
+  );
+}
+
+const FILAMENT_RANGES = [30, 90, 365] as const;
+type FilamentRange = `${(typeof FILAMENT_RANGES)[number]}`;
+type FilamentView = "material" | "spool";
+
+/** One series row (P5 Task 12): swatch + name, total grams/cost, and a
+ * grams-per-bucket sparkline. A spool row links to its inventory page
+ * (plain `<a>`, not the router's `Link` -- `/inventory/spools` doesn't
+ * declare a `spool` search param, so this is a simple deep link rather
+ * than a typed in-app navigation). */
+function FilamentSeriesRow({ series, kind }: { series: FilamentSeriesOut; kind: FilamentView }) {
+  const row = (
+    <div className="flex items-center gap-3 py-2">
+      <FilamentChip color={series.color_hex ?? undefined} label={series.name} />
+      <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        {Math.round(series.total_g)} g
+      </span>
+      <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        {formatCost(series.total_cost)}
+      </span>
+      <Sparkline
+        values={series.points.map((p) => p.grams)}
+        aria-label={`${series.name} grams per bucket`}
+        className="ml-auto"
+      />
+    </div>
+  );
+  if (kind === "spool") {
+    return (
+      <a
+        href={`/inventory/spools?spool=${series.key}`}
+        className="block rounded-[6px] hover:bg-accent/40"
+      >
+        {row}
+      </a>
+    );
+  }
+  return row;
+}
+
+/** Filament usage section (P5 Task 12): per-material/per-spool grams+cost
+ * over a 30/90/365-day range, fed by `GET /stats/filament`. */
+function FilamentUsageSection() {
+  const [view, setView] = useState<FilamentView>("material");
+  const [range, setRange] = useState<FilamentRange>("90");
+  const filamentStats = useFilamentStats({ days: Number(range), bucket: "week" });
+  const series = (view === "material" ? filamentStats.data?.by_material : filamentStats.data?.by_spool) ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+        <CardTitle>Filament usage</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl<FilamentView>
+            label="View by"
+            options={["material", "spool"]}
+            labels={{ material: "By material", spool: "By spool" }}
+            value={view}
+            onChange={setView}
+          />
+          <SegmentedControl<FilamentRange>
+            label="Range"
+            options={["30", "90", "365"]}
+            labels={{ "30": "30d", "90": "90d", "365": "365d" }}
+            value={range}
+            onChange={setRange}
+          />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {filamentStats.isLoading ? (
+          <Skeleton className="h-24 w-full rounded-lg" />
+        ) : series.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No filament usage logged in this range.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {series.map((s) => (
+              <FilamentSeriesRow key={s.key} series={s} kind={view} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -300,6 +387,8 @@ export function HistoryStats() {
           )}
         </CardContent>
       </Card>
+
+      <FilamentUsageSection />
 
       <Card>
         <CardHeader>

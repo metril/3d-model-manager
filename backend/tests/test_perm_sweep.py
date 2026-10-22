@@ -22,6 +22,10 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     ("DELETE", "/api/settings/api-tokens/{token_id}"),
     # Mints a signed download link for a file the viewer can already read.
     ("POST", "/api/files/{file_id}/slicer-link"),
+    # P5 spool tray plan: a plan preview mutates nothing -- per-printer
+    # access (when a printer_id is given) is checked inside the handler
+    # itself, not via a global permission gate.
+    ("POST", "/api/print/plan"),
 }
 
 # Bearer-token planes carry their own auth, not the session permission model.

@@ -44,4 +44,21 @@ describe("FilamentChip", () => {
     // the sr-only description carries the resolved hex
     expect(screen.getByText(/#123456/)).toBeInTheDocument();
   });
+
+  it("shows a muted Low badge when lowStock is set", () => {
+    render(<FilamentChip color="#ff0000" material="PLA" lowStock />);
+    const badge = screen.getByText("Low");
+    expect(badge).toBeInTheDocument();
+    expect(badge.closest('[data-variant]')).toHaveAttribute("data-variant", "secondary");
+  });
+
+  it("omits the Low badge when lowStock is false", () => {
+    render(<FilamentChip color="#ff0000" material="PLA" />);
+    expect(screen.queryByText("Low")).toBeNull();
+  });
+
+  it("renders the remain% tick when remainPct is given", () => {
+    render(<FilamentChip color="#ff0000" remainPct={42} />);
+    expect(screen.getByText("42%")).toBeInTheDocument();
+  });
 });

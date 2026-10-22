@@ -96,8 +96,10 @@ class PrinterPublicState:
     bed_temper: float | None = None
     subtask_name: str | None = None
     wifi_signal: str | None = None
-    # Loaded AMS filament slots (M8 G3): [{"slot": int, "color": "#RRGGBB"|None,
-    # "material": str|None}]. Plain dicts (not a nested dataclass) so
+    # AMS filament slots, loaded or empty (M8 G3 + P5 spool tray plan):
+    # [{"slot": int, "ams_unit": int, "tray": int, "color": "#RRGGBB"|None,
+    # "material": str|None, "tray_type": str|None, "tray_uuid": str|None,
+    # "remain_pct": int|None}]. Plain dicts (not a nested dataclass) so
     # `dataclasses.asdict` -> `json.dumps` round-trips them into Redis unchanged.
     trays: list[dict] = field(default_factory=list)
 

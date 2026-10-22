@@ -21,6 +21,7 @@ from app.models.collections import (
     RemoteCollectionCache,
     RemoteCollectionItem,
 )
+from app.models.inventory import Spool, SpoolSlot, SpoolUsage
 from app.models.library import (
     Blob,
     Category,
@@ -69,6 +70,9 @@ __all__ = [
     "ScanRun",
     "Session",
     "Setting",
+    "Spool",
+    "SpoolSlot",
+    "SpoolUsage",
     "StorageBackendRow",
     "Tag",
     "User",

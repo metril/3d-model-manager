@@ -1,9 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PrinterOut, PrinterStatusOut } from "@/api/types";
+import type { AmsTray, PrinterOut, PrinterStatusOut } from "@/api/types";
 import { PrinterStatusPanel } from "@/components/printer/PrinterStatusPanel";
+
+vi.mock("@/components/inventory/SlotAssignPopover", () => ({
+  SlotAssignPopover: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="slot-assign-popover">{children}</div>
+  ),
+}));
 
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
@@ -106,5 +113,24 @@ describe("PrinterStatusPanel", () => {
     expect(await screen.findByRole("button", { name: "Resume" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
+  it("wraps AMS tray chips in SlotAssignPopover for a control-capable viewer", async () => {
+    const tray: AmsTray = {
+      slot: 0,
+      ams_unit: 0,
+      tray: 0,
+      color: "#ff0000",
+      material: "PLA",
+      tray_type: "PLA",
+      tray_uuid: null,
+      remain_pct: 80,
+      spool: null,
+    };
+    getMock.mockResolvedValue(fakeStatus({ trays: [tray] }));
+
+    renderPanel();
+
+    expect(await screen.findAllByTestId("slot-assign-popover")).toHaveLength(1);
   });
 });

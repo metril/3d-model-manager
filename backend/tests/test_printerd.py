@@ -9,12 +9,13 @@ import redis as redis_lib
 from app import printerd as printerd_module
 from app.config import get_settings
 from app.crypto import encrypt_secret
-from app.models import Blob, File, Model, Printer, PrintJob, Revision, Setting
+from app.models import Blob, File, Model, Printer, PrintJob, Revision, Setting, Spool
 from app.models.enums import ArchiveResult, BlobFormat, BlobKind, PrinterKind, PrintJobState
 from app.printerd import PrinterDaemon, PrinterWorker
 from app.printers.base import PrinterConnection, state_key
 from app.printers.fake import FakeCamera, FakePrinterAdapter
 from app.services import camera_state as cs
+from app.services import spool_inventory
 from app.tasks import base
 from tests.cassettes import bambu_snapshots as cass
 
@@ -132,6 +133,104 @@ def test_command_dispatch(worker):
     w.handle_command("resume")
     w.handle_command("stop")
     assert adapter.paused == 1 and adapter.resumed == 1 and adapter.stopped == 1
+
+
+def _tray(slot, ams_unit, tray, tray_uuid=None, tray_type=None, remain_pct=None):
+    return {
+        "slot": slot,
+        "ams_unit": ams_unit,
+        "tray": tray,
+        "color": None,
+        "material": tray_type,
+        "tray_type": tray_type,
+        "tray_uuid": tray_uuid,
+        "remain_pct": remain_pct,
+    }
+
+
+def _spool(s, *, tray_uuid=None, material_type="PLA") -> int:
+    spool = Spool(material_type=material_type, tray_uuid=tray_uuid)
+    s.add(spool)
+    s.commit()
+    return spool.id
+
+
+def test_rfid_auto_assign_moves_spool(worker):
+    w, _adapter, pid, _client = worker
+    with base.sync_session() as s:
+        rfid_id = _spool(s, tray_uuid="U")
+        manual_id = _spool(s, tray_uuid=None)
+        spool_inventory.assign_slot(s, pid, 0, 2, rfid_id)  # old location for U
+        spool_inventory.assign_slot(s, pid, 0, 3, manual_id)  # untouched
+
+    w.handle_report({"trays": [_tray(0, 0, 0, tray_uuid="U"), _tray(2, 0, 2, tray_uuid=None)]})
+
+    with base.sync_session() as s:
+        assert spool_inventory.spool_for_tray(s, pid, 0).id == rfid_id  # moved here
+        assert spool_inventory.spool_for_tray(s, pid, 2) is None  # cleared
+        assert spool_inventory.spool_for_tray(s, pid, 3).id == manual_id  # untouched
+
+
+def test_manual_assignment_survives_loaded_non_rfid_tray(worker):
+    """Final-review fix wave item 1: a loaded tray (tray_type/material set)
+    with no tray_uuid is a manually-assigned non-RFID spool -- it must NOT
+    be cleared just because the report carries no UUID for it."""
+    w, _adapter, pid, _client = worker
+    with base.sync_session() as s:
+        manual_id = _spool(s, tray_uuid=None)
+        spool_inventory.assign_slot(s, pid, 0, 3, manual_id)
+
+    w.handle_report({"trays": [_tray(3, 0, 3, tray_uuid=None, tray_type="PLA")]})
+
+    with base.sync_session() as s:
+        assert spool_inventory.spool_for_tray(s, pid, 3).id == manual_id
+
+
+def test_mismatched_rfid_spool_clears_stale_assignment(worker):
+    """A slot currently assigned to an RFID spool must clear when the
+    report's tray_uuid changes to something no registered spool owns yet
+    (swap/removal) rather than leaving the stale assignment in place."""
+    w, _adapter, pid, _client = worker
+    with base.sync_session() as s:
+        rfid_id = _spool(s, tray_uuid="OLD")
+        spool_inventory.assign_slot(s, pid, 0, 1, rfid_id)
+
+    w.handle_report({"trays": [_tray(1, 0, 1, tray_uuid="UNKNOWN", tray_type="PLA")]})
+
+    with base.sync_session() as s:
+        assert spool_inventory.spool_for_tray(s, pid, 1) is None
+
+
+def test_auto_assign_only_on_signature_change(worker, monkeypatch):
+    w, _adapter, pid, _client = worker
+    calls = []
+    orig = spool_inventory.auto_assign_from_trays
+
+    def _counting(session, printer_id, trays):
+        calls.append(1)
+        return orig(session, printer_id, trays)
+
+    monkeypatch.setattr(spool_inventory, "auto_assign_from_trays", _counting)
+    report = {"trays": [_tray(0, 0, 0, tray_uuid="U")]}
+    w.handle_report(report)
+    w.handle_report(dict(report))  # identical signature -> no second DB call
+    assert len(calls) == 1
+
+
+def test_tray_snapshot_start_end(worker):
+    w, _adapter, pid, _client = worker
+    job_id = _seed_active_job(pid)
+    start_report = {**cass.SNAPSHOT_PRINTING, "trays": [_tray(0, 0, 0, remain_pct=80)]}
+    w.handle_report(start_report)
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.tray_snapshot == {"start": [80]}
+
+    end_report = {**cass.SNAPSHOT_FINISH, "trays": [_tray(0, 0, 0, remain_pct=55)]}
+    w.handle_report(end_report)
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.tray_snapshot == {"start": [80], "end": [55]}
 
 
 def test_run_logs_start_failure_type_only(caplog, monkeypatch, redis_url):

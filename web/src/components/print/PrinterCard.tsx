@@ -11,6 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
 import type { PrinterOverviewItem } from "@/api/types";
+import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { ActiveJobStrip } from "@/components/print/ActiveJobStrip";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
@@ -69,9 +70,23 @@ export function PrinterCard({
 
         {status.trays.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {status.trays.map((tray) => (
-              <FilamentChip key={tray.slot} color={tray.color ?? undefined} material={tray.material ?? undefined} />
-            ))}
+            {status.trays.map((tray) => {
+              const chip = (
+                <FilamentChip
+                  color={tray.color ?? undefined}
+                  material={tray.material ?? undefined}
+                  lowStock={tray.spool?.low_stock ?? false}
+                  remainPct={tray.remain_pct}
+                />
+              );
+              return canControl ? (
+                <SlotAssignPopover key={tray.slot} printerId={printer.id} tray={tray}>
+                  <button type="button">{chip}</button>
+                </SlotAssignPopover>
+              ) : (
+                <span key={tray.slot}>{chip}</span>
+              );
+            })}
           </div>
         ) : null}
       </div>

@@ -10,8 +10,10 @@
 import { useAuth } from "@/api/auth";
 import { usePrinterCommand, usePrinterStatus } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
+import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
 import { StateBadge } from "@/components/ui/state-badge";
 import { toneForGcode } from "@/lib/printerState";
@@ -55,6 +57,22 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
               ]}
             />
             {s.subtask_name ? <p className="text-sm">{s.subtask_name}</p> : null}
+            {s.trays.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {s.trays.map((tray) => {
+                  const chip = (
+                    <FilamentChip color={tray.color ?? undefined} material={tray.material ?? undefined} remainPct={tray.remain_pct} />
+                  );
+                  return canPrinter(printer.id, "control") ? (
+                    <SlotAssignPopover key={tray.slot} printerId={printer.id} tray={tray}>
+                      <button type="button">{chip}</button>
+                    </SlotAssignPopover>
+                  ) : (
+                    <span key={tray.slot}>{chip}</span>
+                  );
+                })}
+              </div>
+            ) : null}
             {s.print_error ? (
               <p role="alert" className="text-sm text-destructive">
                 Printer error {s.print_error}

@@ -138,7 +138,12 @@ async def test_missing_media_404(authenticated_client: httpx.AsyncClient, db_ses
     assert (await authenticated_client.get("/api/archives/99999")).status_code == 404
 
 
-async def test_reprint_stub(authenticated_client: httpx.AsyncClient, db_session: AsyncSession):
+async def test_reprint_409_without_library_file(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    """P5 Task 7: the legacy 501 stub is gone -- reprint now builds a real
+    plan, 409ing only when neither the job's own file nor a library file
+    sharing the archived 3MF's blob hash exists anymore."""
     a = await _archive(db_session, await _printer(db_session, "p1"))
     r = await authenticated_client.post(f"/api/archives/{a.id}/reprint")
-    assert r.status_code == 501 and "P5" in r.json()["detail"]
+    assert r.status_code == 409

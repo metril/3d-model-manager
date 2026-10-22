@@ -19,6 +19,14 @@ vi.mock("@/api/archives", () => ({
   archiveTimelapseUrl: (id: number) => `/v/${id}`,
 }));
 vi.mock("@/api/auth", () => ({ useAuth: () => authMock() }));
+// `PrintDialog` is unit-tested on its own (`PrintDialog.test.tsx`) -- here
+// it's stubbed to just a visible marker when open, so this file only
+// asserts RunDetailSheet's OWN logic: whether Reprint shows, and that
+// clicking it opens the dialog with the archive source.
+vi.mock("@/components/print/PrintDialog", () => ({
+  PrintDialog: ({ open, source }: { open: boolean; source: { kind: string; archiveId?: number } }) =>
+    open ? <div data-testid="print-dialog">{`${source.kind}:${source.archiveId}`}</div> : null,
+}));
 
 const run = {
   id: 7,
@@ -46,10 +54,15 @@ const archive = {
   run,
 } as unknown as ArchiveOut;
 
-function auth(over: { id?: number; role?: string; writer?: boolean }) {
+function auth(over: { id?: number; role?: string; writer?: boolean; canPrint?: boolean }) {
   authMock.mockReturnValue({
     data: { id: over.id ?? 1, role: over.role ?? "member" },
-    can: (p: string) => (p === "library:write" ? (over.writer ?? true) : p === "admin" && over.role === "admin"),
+    can: (p: string) =>
+      p === "library:write"
+        ? (over.writer ?? true)
+        : p === "printers:print"
+          ? (over.canPrint ?? false)
+          : p === "admin" && over.role === "admin",
   });
 }
 function renderSheet() {
@@ -137,5 +150,17 @@ describe("RunDetailSheet", () => {
     archiveMock.mockReturnValue({ ...archive, media_note: "Timelapse unavailable: ffmpeg missing" });
     renderSheet();
     expect(screen.getByText("Timelapse unavailable: ffmpeg missing")).toBeInTheDocument();
+  });
+
+  it("hides Reprint without printers:print", () => {
+    renderSheet();
+    expect(screen.queryByRole("button", { name: "Reprint" })).not.toBeInTheDocument();
+  });
+
+  it("shows Reprint and opens the PrintDialog with the archive source when allowed", () => {
+    auth({ canPrint: true });
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Reprint" }));
+    expect(screen.getByTestId("print-dialog")).toHaveTextContent("archive:3");
   });
 });

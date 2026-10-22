@@ -585,6 +585,28 @@ export interface StatsOut {
   material_usage: { material_id: number | null; name: string; grams: number; prints: number }[];
 }
 
+// -- filament usage stats (backend/app/schemas/stats.py, P5 Task 8) --------
+
+export interface FilamentPointOut {
+  t: string;
+  grams: number;
+  cost: number;
+}
+
+export interface FilamentSeriesOut {
+  key: string;
+  name: string;
+  color_hex: string | null;
+  total_g: number;
+  total_cost: number;
+  points: FilamentPointOut[];
+}
+
+export interface FilamentStatsOut {
+  by_material: FilamentSeriesOut[];
+  by_spool: FilamentSeriesOut[];
+}
+
 export type PrinterKind = "bambu_lan";
 
 export interface PrinterOut {
@@ -642,12 +664,121 @@ export interface DetectSerialOut {
   detail: string;
 }
 
-// One loaded AMS filament slot (M8 G3): `color` is `#RRGGBB` (alpha stripped)
-// or null for an empty/unknown slot.
+// One AMS filament slot, loaded or empty (M8 G3 + P5 spool tray plan):
+// `color` is `#RRGGBB` (alpha stripped) or null for an empty/unknown slot.
+// `slot` is the global tray id (unchanged); `ams_unit`/`tray` are the
+// per-unit id/tray-within-unit; `tray_uuid` is the RFID tag read off a
+// spool (null if empty/untagged). `spool` is filled in once Task 6 ships.
 export interface AmsTray {
   slot: number;
+  ams_unit: number | null;
+  tray: number | null;
   color: string | null;
   material: string | null;
+  tray_type: string | null;
+  tray_uuid: string | null;
+  remain_pct: number | null;
+  spool: SpoolBrief | null;
+}
+
+export interface SpoolBrief {
+  id: number;
+  material_type: string;
+  brand: string | null;
+  color_hex: string | null;
+  color_name: string | null;
+  low_stock: boolean;
+}
+
+// `/api/spools` (P5 spool tray plan, Task 9): physical spool inventory,
+// their current AMS slot (if any) and usage ledger. Mirrors
+// `backend/app/schemas/inventory.py` 1:1.
+export interface SpoolSlot {
+  printer_id: number;
+  ams_unit: number;
+  slot: number;
+}
+
+export interface SpoolOut {
+  id: number;
+  material_id: number | null;
+  material_type: string;
+  brand: string | null;
+  color_hex: string | null;
+  color_name: string | null;
+  label_weight_g: number;
+  empty_weight_g: number | null;
+  weight_used_g: number;
+  cost_per_kg: number | null;
+  location: string | null;
+  low_stock_g: number;
+  tray_uuid: string | null;
+  archived_at: string | null;
+  last_used_at: string | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  remaining_g: number;
+  low_stock: boolean;
+  slot: SpoolSlot | null;
+}
+
+export interface SpoolCreate {
+  material_id?: number | null;
+  material_type: string;
+  brand?: string | null;
+  color_hex?: string | null;
+  color_name?: string | null;
+  label_weight_g?: number;
+  empty_weight_g?: number | null;
+  weight_used_g?: number;
+  cost_per_kg?: number | null;
+  location?: string | null;
+  low_stock_g?: number;
+  tray_uuid?: string | null;
+}
+
+export interface SpoolUpdate {
+  material_id?: number | null;
+  material_type?: string;
+  brand?: string | null;
+  color_hex?: string | null;
+  color_name?: string | null;
+  label_weight_g?: number;
+  empty_weight_g?: number | null;
+  weight_used_g?: number;
+  cost_per_kg?: number | null;
+  location?: string | null;
+  low_stock_g?: number;
+  tray_uuid?: string | null;
+  archived?: boolean;
+}
+
+export interface SpoolUsageRow {
+  id: number;
+  print_job_id: number | null;
+  archive_id: number | null;
+  model_name: string | null;
+  grams: number;
+  source: string;
+  created_at: string;
+}
+
+export interface SpoolSeriesPoint {
+  t: string;
+  remaining_g: number;
+}
+
+export interface SpoolDetailOut extends SpoolOut {
+  usage: SpoolUsageRow[];
+  series: SpoolSeriesPoint[];
+}
+
+export interface ManualUsageIn {
+  grams: number;
+}
+
+export interface SlotAssignIn {
+  spool_id: number | null;
 }
 
 export interface PrinterStatusOut {
@@ -702,6 +833,60 @@ export interface PrintJobOut {
   finished_at: string | null;
 }
 
+// -- print plan / send (backend/app/schemas/print_flow.py, P5 Task 7) ------
+
+export type PlanFilamentStatus = "ok" | "color" | "type" | "none";
+
+export interface PlanIn {
+  file_id: number;
+  plate?: number | null;
+  printer_id?: number | null;
+  overrides?: Record<number, number>;
+}
+
+export interface PlanFilament {
+  filament_id: number;
+  type: string | null;
+  color: string | null;
+  grams: number | null;
+  tray: number | null;
+  status: PlanFilamentStatus;
+  delta_e: number | null;
+  spool: SpoolBrief | null;
+}
+
+export interface PlanPrinter {
+  id: number;
+  name: string;
+  model: string | null;
+  idle: boolean;
+  compatible: boolean;
+  reason: string | null;
+}
+
+export interface PlanOptions {
+  bed_levelling: boolean;
+  flow_cali: boolean;
+  timelapse: boolean;
+}
+
+export interface PlanOut {
+  file_id: number;
+  model_id: number | null;
+  plate: number | null;
+  plates: PlateOut[];
+  printer_id: number | null;
+  printers: PlanPrinter[];
+  filaments: PlanFilament[];
+  ams_mapping: number[];
+  use_ams: boolean;
+  est_duration_s: number | null;
+  est_grams: number | null;
+  est_cost: number | null;
+  warnings: string[];
+  options: PlanOptions;
+}
+
 export interface PrintRequest {
   file_id: number;
   plate?: number;
@@ -711,6 +896,10 @@ export interface PrintRequest {
   bed_levelling?: boolean;
   flow_cali?: boolean;
   timelapse?: boolean;
+}
+
+export interface SendIn extends PrintRequest {
+  printer_id: number;
 }
 
 export interface PrintJobUpdatedEvent {

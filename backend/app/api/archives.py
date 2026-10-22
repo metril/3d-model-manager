@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import anyio
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
@@ -18,13 +19,15 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import AuthContext, require_perm, require_session, visible_printer_ids
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Model, Printer, PrintJob
+from app.models import File, Model, Printer, PrintJob
 from app.models.enums import ArchiveResult, BlobFormat
 from app.models.library import Blob, Print
 from app.models.printing import PrintArchive
 from app.schemas.archives import ArchiveOut
+from app.schemas.print_flow import PlanIn, PlanOut
 from app.schemas.prints import PrintOut
 from app.services.archive import archive_path
+from app.services.print_plan import build_plan
 
 router = APIRouter(prefix="/archives", tags=["archives"])
 
@@ -197,12 +200,46 @@ async def get_file(
     )
 
 
-@router.post("/{archive_id}/reprint", dependencies=[Depends(require_perm("printers:print"))])
+@router.post(
+    "/{archive_id}/reprint",
+    response_model=PlanOut,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def reprint_archive(
     archive_id: int,
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
-) -> None:
-    row = await _get_visible(db, ctx, archive_id)
-    ctx.require_printer(row[2].id, "print")
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "reprint arrives with the P5 print flow")
+) -> PlanOut:
+    """Rebuild a print plan for a finished archive's run (P5 Task 7):
+    re-uses the job's own sent file when it's still in the library, else
+    falls back to any library ``File`` sharing the archived 3MF's blob hash
+    (the job's file may since have been deleted/replaced) -- 409 when
+    neither exists. Filament overrides come from the archive's own
+    ``est_filament[].tray`` so the same AMS mapping is proposed again.
+    """
+    arc, job, printer, _model, _run = await _get_visible(db, ctx, archive_id)
+    ctx.require_printer(printer.id, "print")
+
+    file_id: int | None = job.file_id
+    if file_id is None and arc.archive_blob is not None:
+        file = (
+            (await db.execute(select(File).where(File.blob_hash == arc.archive_blob)))
+            .scalars()
+            .first()
+        )
+        file_id = file.id if file is not None else None
+    if file_id is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "archived file is not in the library")
+
+    overrides = {
+        row["filament_id"]: row["tray"]
+        for row in (arc.est_filament or [])
+        if row.get("filament_id") is not None and row.get("tray") is not None
+    }
+    body = PlanIn(file_id=file_id, plate=arc.plate, printer_id=job.printer_id, overrides=overrides)
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await build_plan(db, settings, client, ctx, body)
+    finally:
+        await client.aclose()

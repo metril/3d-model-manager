@@ -2,6 +2,7 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 
 /** Normalize a hex color to `#RRGGBB`. Accepts `#RRGGBB`, bare `RRGGBB`, and
  * 8-digit `RRGGBBAA` / `#RRGGBBAA` (the printer's AMS `tray_color` carries a
@@ -33,6 +34,8 @@ function FilamentChip({
   color,
   label,
   material,
+  lowStock = false,
+  remainPct,
   size = "sm",
   className,
   ...props
@@ -41,9 +44,18 @@ function FilamentChip({
     color?: string | null
     label?: string
     material?: string
+    /** Muted "Low" badge (never red/amber -- that vocabulary is reserved
+     * for primary/in-progress state, P5 Task 10). */
+    lowStock?: boolean
+    /** The printer's own remaining-material estimate, rendered as a small
+     * muted tabular-nums tick next to the swatch. `null`/`undefined` (AMS
+     * doesn't report it, or the slot is empty) renders nothing. */
+    remainPct?: number | null
   }) {
   const hex = normalizeHex(color)
-  const description = [label, material, hex ?? "no color"].filter(Boolean).join(" · ")
+  const description = [label, material, hex ?? "no color", lowStock ? "low stock" : null]
+    .filter(Boolean)
+    .join(" · ")
   const swatchClass = SWATCH_SIZE[size ?? "sm"]
 
   return (
@@ -76,6 +88,16 @@ function FilamentChip({
           {material ? <span className="font-mono text-muted-foreground">{material}</span> : null}
         </span>
       )}
+      {remainPct != null ? (
+        <span data-slot="filament-chip-remain-tick" className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {remainPct}%
+        </span>
+      ) : null}
+      {lowStock ? (
+        <Badge data-slot="filament-chip-low-badge" variant="secondary" className="h-4 px-1 text-[10px]">
+          Low
+        </Badge>
+      ) : null}
       <span className="sr-only">{description}</span>
     </span>
   )

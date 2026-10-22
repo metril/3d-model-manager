@@ -462,3 +462,50 @@ describe("ModelHeader -- re-download (feat/import-fidelity T4)", () => {
     );
   });
 });
+
+describe("ModelHeader -- Print… (P5 Task 11)", () => {
+  const SLICED_FILE = {
+    id: 99,
+    revision_id: 1,
+    rel_path: "print.gcode.3mf",
+    storage_path: "/data/print.gcode.3mf",
+    blob_hash: "slicedhash",
+    size: 4096,
+    format: "gcode_3mf" as const,
+    kind: "sliced" as const,
+    mtime: null,
+    verified_at: null,
+    meta: null,
+    thumb_ready: false,
+    glb_status: null,
+    glb_preview_ready: false,
+  };
+  const MODEL_WITH_SLICED_FILE: ModelDetail = {
+    ...MODEL,
+    current_revision: {
+      id: 1,
+      model_id: 1,
+      number: 1,
+      name: null,
+      note: null,
+      dir_name: "rev-1",
+      created_at: "2026-06-01T12:00:00Z",
+      files: [SLICED_FILE],
+      notes: [],
+    },
+  };
+
+  it("hides Print… when the model has no sliced file", async () => {
+    renderHeader(false, vi.fn(), MODEL);
+    await screen.findByText("Articulated Dragon");
+    expect(screen.queryByRole("button", { name: "Print…" })).not.toBeInTheDocument();
+  });
+
+  it("shows Print… and opens the shared PrintDialog for a sliced model", async () => {
+    renderHeader(false, vi.fn(), MODEL_WITH_SLICED_FILE);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Print…" }));
+
+    expect(await screen.findByText("Print")).toBeInTheDocument();
+  });
+});

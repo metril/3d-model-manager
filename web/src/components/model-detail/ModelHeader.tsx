@@ -22,6 +22,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
+import { PrintDialog } from "@/components/print/PrintDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -142,8 +143,15 @@ export function ModelHeader({
   const [redownloadOpen, setRedownloadOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const canRedownload = Boolean(model.source_site && model.source_url);
   const needsReview = model.review_state === "adopted";
+  // P5 Task 11: the header's "Print…" opens the shared `PrintDialog` --
+  // only when there's a sliced file to plan against AND the viewer holds
+  // the blanket `printers:print` permission (the dialog's own Send step
+  // re-checks per-printer ACLs once a printer is picked).
+  const hasSlicedFile = (model.current_revision?.files ?? []).some((f) => f.format === "gcode_3mf");
+  const canPrint = hasSlicedFile && can("printers:print");
 
   // R9-C item 5: same mutation as the star button below.
   useHotkeys({ f: () => patchModel.mutate({ favorite: !model.favorite }) });
@@ -231,6 +239,14 @@ export function ModelHeader({
             <StarIcon className={model.favorite ? "fill-amber-400 text-amber-500" : ""} />
           </Button>
           {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
+          {canPrint ? (
+            <>
+              <Button type="button" variant="outline" onClick={() => setPrintOpen(true)}>
+                Print…
+              </Button>
+              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} />
+            </>
+          ) : null}
           {/* Queueing a model to print is a normal action too, not an edit. */}
           <Button
             type="button"

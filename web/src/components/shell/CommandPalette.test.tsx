@@ -32,6 +32,10 @@ vi.mock("@/api/printers", () => ({
       { id: 2, name: "Bambu P1S" },
     ],
   }),
+  // `PrintDialog` (rendered unconditionally, closed, so it can be opened
+  // from the "Print…" action) calls this on the Send step's tray options --
+  // disabled here since no printer is ever picked in these tests.
+  usePrinterStatus: () => ({ data: undefined }),
 }));
 
 vi.mock("@/api/collections", () => ({
@@ -116,5 +120,13 @@ describe("CommandPalette", () => {
     expect(await screen.findByText("Actions")).toBeInTheDocument();
     expect(screen.getByText("Open print queue")).toBeInTheDocument();
     expect(screen.getByText("Run history stats")).toBeInTheDocument();
+  });
+
+  it("opens the PrintDialog at its Source step from the Print… action", async () => {
+    renderPalette(true);
+
+    fireEvent.click(await screen.findByText("Print…"));
+
+    expect(await screen.findByText("Find a model")).toBeInTheDocument();
   });
 });
