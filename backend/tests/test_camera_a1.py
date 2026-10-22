@@ -24,6 +24,7 @@ from cryptography.x509.oid import NameOID
 from app.printers.camera_a1 import (
     HEADER_LEN,
     MAX_FRAME_BYTES,
+    SOCKET_TIMEOUT_S,
     CameraA1Client,
     CameraAuthError,
     CameraError,
@@ -149,6 +150,12 @@ def tls_server_silent(_tls_ctx):
         return host, port
 
     return _start
+
+
+def test_constants_match_final_review_plan():
+    # Final review item 9: 4 MiB frame cap, 5s socket timeout.
+    assert MAX_FRAME_BYTES == 4 * 1024 * 1024
+    assert SOCKET_TIMEOUT_S == 5.0
 
 
 def test_auth_packet_layout():

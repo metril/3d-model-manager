@@ -22,12 +22,12 @@ from collections.abc import Iterator
 from types import TracebackType
 
 HEADER_LEN = 16
-MAX_FRAME_BYTES = 10 * 1024 * 1024  # generous cap; real frames are <1 MB
+MAX_FRAME_BYTES = 4 * 1024 * 1024  # generous cap; real frames are <1 MB
 JPEG_SOI = b"\xff\xd8"
 JPEG_EOI = b"\xff\xd9"
 
 CONNECT_TIMEOUT_S = 5.0
-SOCKET_TIMEOUT_S = 10.0
+SOCKET_TIMEOUT_S = 5.0
 
 
 class CameraError(OSError):

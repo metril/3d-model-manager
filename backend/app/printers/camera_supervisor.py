@@ -40,6 +40,7 @@ class CameraWorker:
         on_status: Callable[[str], None],
         *,
         clock: Callable[[], float] = time.monotonic,
+        initial_backoff: float = BACKOFF_START_S,
     ) -> None:
         self.printer_id = printer_id
         self.adapter = adapter
@@ -48,6 +49,12 @@ class CameraWorker:
         self.clock = clock
         self.last_frame_at: float | None = None
         self.started_at: float | None = None
+        # Reconnect backoff -- an instance attribute (not a local in
+        # ``_run``) so the supervisor can read its current value when it
+        # replaces this worker (a stalled-worker watchdog restart) and
+        # carry it into the replacement's ``initial_backoff``, rather than
+        # resetting to ``BACKOFF_START_S`` on every restart.
+        self.backoff = initial_backoff
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._source_lock = threading.Lock()
@@ -93,7 +100,6 @@ class CameraWorker:
             return False
 
     def _run(self) -> None:
-        backoff = BACKOFF_START_S
         last_sent = 0.0
         while not self._stop.is_set():
             try:
@@ -104,9 +110,9 @@ class CameraWorker:
             except Exception:
                 log.warning("camera worker %s: open_camera failed", self.printer_id)
                 self.on_status("error")
-                if self._stop.wait(backoff):
+                if self._stop.wait(self.backoff):
                     return
-                backoff = min(backoff * 2, BACKOFF_MAX_S)
+                self.backoff = min(self.backoff * 2, BACKOFF_MAX_S)
                 continue
 
             with self._source_lock:
@@ -136,11 +142,11 @@ class CameraWorker:
             if self._stop.is_set():
                 return
             if ok:
-                backoff = BACKOFF_START_S
+                self.backoff = BACKOFF_START_S
                 wait_s = BACKOFF_START_S
             else:
-                wait_s = backoff
-                backoff = min(backoff * 2, BACKOFF_MAX_S)
+                wait_s = self.backoff
+                self.backoff = min(self.backoff * 2, BACKOFF_MAX_S)
             if self._stop.wait(wait_s):
                 return
 
@@ -169,6 +175,14 @@ class CameraSupervisor:
         self._adapters: dict[int, PrinterAdapter] = {}
         self._workers: dict[int, CameraWorker] = {}
         self._last_viewer_at: dict[int, float] = {}
+        # Printers whose camera reported "unsupported" -- a worker that
+        # hit this exits its thread immediately (``alive`` goes False), so
+        # without tracking it separately `_tick_one` would otherwise read
+        # that as "needs restarting" and spin up a new worker every tick
+        # forever. Reconnect backoff carried across a stall-restart (not
+        # reset to ``BACKOFF_START_S``), keyed the same way.
+        self._unsupported: set[int] = set()
+        self._backoff: dict[int, float] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -180,6 +194,8 @@ class CameraSupervisor:
         ``tick()`` actually joins it and drops the reference."""
         self._adapters.pop(printer_id, None)
         self._last_viewer_at.pop(printer_id, None)
+        self._unsupported.discard(printer_id)
+        self._backoff.pop(printer_id, None)
         worker = self._workers.get(printer_id)
         if worker is not None:
             worker._signal_stop()
@@ -189,9 +205,20 @@ class CameraSupervisor:
             camera_state.put_frame(self.redis, printer_id, jpeg)
 
         def on_status(status: str) -> None:
+            if status == "unsupported":
+                self._unsupported.add(printer_id)
+            else:
+                self._unsupported.discard(printer_id)
             camera_state.set_status(self.redis, printer_id, status)
 
-        worker = CameraWorker(printer_id, adapter, on_frame, on_status, clock=self.clock)
+        worker = CameraWorker(
+            printer_id,
+            adapter,
+            on_frame,
+            on_status,
+            clock=self.clock,
+            initial_backoff=self._backoff.get(printer_id, BACKOFF_START_S),
+        )
         worker.start()
         self._workers[printer_id] = worker
         return worker
@@ -206,12 +233,18 @@ class CameraSupervisor:
                 worker.stop()
                 self._workers.pop(printer_id, None)
             self._last_viewer_at.pop(printer_id, None)
+            self._unsupported.discard(printer_id)
+            self._backoff.pop(printer_id, None)
             return
 
         count = camera_state.viewer_count(self.redis, printer_id, now=now_wall)
         if count > 0:
             self._last_viewer_at[printer_id] = now_clock
-            if worker is None or not worker.alive:
+            # A worker whose camera is unsupported exits immediately
+            # (``alive`` is False) -- without this check, every tick would
+            # read that as "needs restarting" and spin up a worker that
+            # just re-reports unsupported and exits again, forever.
+            if printer_id not in self._unsupported and (worker is None or not worker.alive):
                 worker = self._start_worker(printer_id, adapter)
         else:
             last = self._last_viewer_at.get(printer_id)
@@ -219,12 +252,14 @@ class CameraSupervisor:
                 worker.stop()
                 self._workers.pop(printer_id, None)
                 self._last_viewer_at.pop(printer_id, None)
+                self._backoff.pop(printer_id, None)
                 return
 
         if worker is not None and worker.alive:
             ref = worker.last_frame_at if worker.last_frame_at is not None else worker.started_at
             if ref is not None and now_clock - ref >= self.stall_s:
                 log.warning("camera supervisor: printer %s stalled, restarting", printer_id)
+                self._backoff[printer_id] = worker.backoff
                 worker.stop()
                 self._start_worker(printer_id, adapter)
 

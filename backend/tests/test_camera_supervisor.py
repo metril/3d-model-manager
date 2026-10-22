@@ -47,6 +47,11 @@ def test_worker_stop_with_hung_source_bounded():
     assert time.monotonic() - t0 <= JOIN_TIMEOUT_S + 0.5
 
 
+def test_worker_initial_backoff_seed():
+    w = CameraWorker(1, _adapter(), lambda f: None, lambda s: None, initial_backoff=16.0)
+    assert w.backoff == 16.0
+
+
 def test_frames_rate_capped():
     received: list[bytes] = []
     w = CameraWorker(
@@ -132,12 +137,33 @@ def test_watchdog_restarts_stalled_worker(redis_url):
     assert worker2 is not None and worker2 is not worker1
 
 
+def test_watchdog_restart_carries_backoff(redis_url):
+    """Final review item 6: a stall-triggered restart seeds the
+    replacement worker's backoff from the old worker's current value
+    instead of resetting to ``BACKOFF_START_S``."""
+    r = redis_lib.Redis.from_url(redis_url)
+    clock = _FakeClock()
+    sup = CameraSupervisor(r, clock=clock)
+    pid = 16
+    sup.add(pid, _adapter(FakeCamera([], hang=True)))
+    cs.add_viewer(r, pid, "v1", now=time.time())
+    sup.tick()
+    worker1 = sup._workers[pid]
+    worker1.backoff = 16.0  # simulate several prior failed reconnects
+    clock.advance(16)
+    sup.tick()
+    worker2 = sup._workers[pid]
+    assert worker2 is not worker1
+    assert worker2.backoff == 16.0
+
+
 def test_unsupported_sets_status_and_no_retry(redis_url):
     r = redis_lib.Redis.from_url(redis_url)
-    sup = CameraSupervisor(r)
+    clock = _FakeClock()
+    sup = CameraSupervisor(r, clock=clock)
     pid = 15
     sup.add(pid, _adapter(None))  # camera=None -> open_camera raises NotImplementedError
-    cs.add_viewer(r, pid, "v1")
+    cs.add_viewer(r, pid, "v1", now=time.time())
     sup.tick()
     deadline = time.monotonic() + 3.0
     status = None
@@ -147,3 +173,15 @@ def test_unsupported_sets_status_and_no_retry(redis_url):
             break
         time.sleep(0.1)
     assert status == "unsupported"
+
+    worker_after_unsupported = sup._workers[pid]
+    assert worker_after_unsupported.alive is False
+
+    # Several more ticks (viewer still present, as if the page stayed
+    # open) must NOT spin up a fresh worker -- a camera that's unsupported
+    # stays unsupported; retrying it is pure churn.
+    for _ in range(5):
+        clock.advance(1.0)
+        sup.tick()
+    assert sup._workers[pid] is worker_after_unsupported
+    assert cs.get_status(r, pid) == "unsupported"
