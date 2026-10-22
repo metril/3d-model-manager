@@ -37,7 +37,7 @@ def billing_cfg_off() -> FakeConfig:
 
 
 @pytest.fixture
-def make_user() -> Callable[..., User]:
+def make_sync_user() -> Callable[..., User]:
     def _make(s: Session, username: str, *, display_name: str | None = None) -> User:
         user = User(username=username, display_name=display_name, role=UserRole.MEMBER)
         s.add(user)
@@ -48,7 +48,7 @@ def make_user() -> Callable[..., User]:
 
 
 @pytest.fixture
-def make_group() -> Callable[..., Group]:
+def make_sync_group() -> Callable[..., Group]:
     def _make(s: Session, name: str, *, member_user_ids: tuple[int, ...] = ()) -> Group:
         group = Group(name=name)
         s.add(group)

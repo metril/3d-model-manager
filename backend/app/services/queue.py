@@ -10,6 +10,7 @@ contiguous list, rather than tracking gaps.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi import HTTPException, status
@@ -19,11 +20,14 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models.enums import BlobFormat, QueueState
+from app.models import CostCenter, GroupMember
+from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.slicing import PrintRecipe
 from app.schemas.queue import QueueEnqueueIn, QueueEntryOut
-from app.services import library
+from app.services import billing, library, review
+from app.services.app_config import get_app_config
+from app.services.print_plan import estimate_item_sync
 
 # Formats the slicer sidecar can accept as input (mirrors
 # `app.services.library._GLB_FORMATS` -- the mesh/cad formats the pipeline
@@ -155,6 +159,13 @@ async def _to_out(
                 attempts=e.attempts,
                 last_error=e.last_error,
                 file_name=Path(file_row.rel_path).name if file_row is not None else None,
+                cost_center_id=e.cost_center_id,
+                review_state=e.review_state,
+                reviewed_by=e.reviewed_by,
+                reviewed_at=e.reviewed_at,
+                review_note=e.review_note,
+                reserved_cost=float(e.reserved_cost) if e.reserved_cost is not None else None,
+                hold_reason=e.hold_reason,
             )
         )
     return out
@@ -300,6 +311,56 @@ async def enqueue_file(
         created_by_user_id=ctx.user.id,
     )
     db.add(entry)
+    await db.flush()
+
+    cfg = await get_app_config(db, settings)
+
+    def _review_and_billing(sync_session) -> None:
+        current = sync_session.get(PrintQueueEntry, entry.id)
+        targets = review.item_targets(sync_session, current)
+        current.review_state = (
+            ReviewState.PENDING if review.needs_review(ctx, targets) else ReviewState.NONE
+        )
+        if not cfg.billing_enabled:
+            return
+        if payload.cost_center_id is not None:
+            cc = sync_session.get(CostCenter, payload.cost_center_id)
+            if cc is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, f"cost center {payload.cost_center_id} not found"
+                )
+            is_member = cc.owner_user_id == ctx.user.id or (
+                cc.group_id is not None
+                and sync_session.scalar(
+                    select(GroupMember).where(
+                        GroupMember.group_id == cc.group_id, GroupMember.user_id == ctx.user.id
+                    )
+                )
+                is not None
+            )
+            if not is_member:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "cost center is not usable by this user"
+                )
+            if not cc.active:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "cost center is inactive"
+                )
+        else:
+            cc = billing.ensure_private_center(sync_session, ctx.user.id)
+        current.cost_center_id = cc.id
+        if current.sliced_file_id is not None:
+            est = estimate_item_sync(sync_session, settings, current)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                Decimal(str(est)) if est is not None else None,
+                user_id=ctx.user.id,
+            )
+
+    await db.run_sync(_review_and_billing)
+
     await db.commit()
     await db.refresh(entry)
     out = await _to_out(db, settings, [entry])
@@ -322,6 +383,27 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     `ready`.
     """
     entry = await _get_entry_or_404(db, entry_id)
+    if entry.hold_reason == billing.HOLD_OVER_BUDGET:
+        # P7: an over-budget hold sits independent of `state`/`attempts` --
+        # retrying it just re-attempts the reservation against (possibly)
+        # newly-freed budget, leaving everything else untouched.
+        cfg = await get_app_config(db, settings)
+
+        def _retry_reserve(sync_session) -> None:
+            current = sync_session.get(PrintQueueEntry, entry.id)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                current.reserved_cost,
+                user_id=current.created_by_user_id,
+            )
+
+        await db.run_sync(_retry_reserve)
+        await db.commit()
+        await db.refresh(entry)
+        out = await _to_out(db, settings, [entry])
+        return out[0]
     if entry.state not in RETRYABLE_STATES:
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"cannot retry from state {entry.state.value}"
@@ -346,6 +428,13 @@ async def remove_entry(db: AsyncSession, entry_id: int) -> None:
     contiguous 1..n.
     """
     entry = await _get_entry_or_404(db, entry_id)
+
+    def _release(sync_session) -> None:
+        current = sync_session.get(PrintQueueEntry, entry.id)
+        billing.release(sync_session, current)
+
+    await db.run_sync(_release)
+
     await db.delete(entry)
     await db.flush()
 

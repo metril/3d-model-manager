@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     # before `app.api` is ever loaded -- a top-level import here would be a
     # real circular import in that process, not just an API-layer one.
     from app.api.deps import AuthContext
-from app.models import Blob, File, Model, Printer, PrintJob, Revision
+from app.models import Blob, File, Model, Printer, PrintJob, PrintQueueEntry, Revision
 from app.models.enums import BlobFormat, PrintJobState
 from app.models.processing import BlobMeta
 from app.schemas.library import PlateOut
@@ -37,7 +37,7 @@ from app.schemas.printers import PrintRequest, SpoolBriefOut
 from app.services import derivatives
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
-from app.services.app_config import get_app_config
+from app.services.app_config import get_app_config, get_app_config_sync
 from app.services.costing import CostRates, filament_cost, price_run
 from app.services.printer_state import preflight_ok, read_state_async, read_state_sync
 
@@ -86,6 +86,71 @@ def plan_mapping(
     ams_mapping = to_ams_mapping(matches)
     use_ams = any(m.tray not in (None, sinv.EXTERNAL_SLOT) for m in matches)
     return matches, ams_mapping, use_ams
+
+
+def estimate_from_plate(
+    plate: dict, usages: list[tuple[object | None, float]], rates: CostRates
+) -> float | None:
+    """A plate's estimated total cost: per-spool filament pricing
+    (``usages``) falling back to the plate's own ``weight_g`` at the
+    global rate, plus machine time off ``prediction_s``. Extracted from
+    ``build_plan`` (no behaviour change) so ``estimate_item_sync`` below
+    can share it.
+    """
+    est_duration_s = plate.get("prediction_s")
+    est_grams = plate.get("weight_g")
+    machine_cost = price_run(None, est_duration_s, rates).machine_cost
+    fc = filament_cost(usages, rates.filament_per_kg)
+    if fc is None and est_grams is not None:
+        fc = est_grams / 1000 * rates.filament_per_kg
+    if fc is None and machine_cost is None:
+        return None
+    return (fc or 0.0) + (machine_cost or 0.0)
+
+
+def estimate_item_sync(session: Session, settings: Settings, item: PrintQueueEntry) -> float | None:
+    """Worker/enqueue-side (SYNC world) cost estimate for a queue entry
+    that already has a sliced file: its ``BlobMeta`` plate's filaments,
+    priced per-spool via ``item.ams_mapping``'s trays on ``item.printer_id``
+    (``spool_inventory.spool_for_tray``) -- the global rate when the
+    printer/tray is unknown (``estimate_from_plate``'s own fallback).
+    ``None`` when there's no sliced file or metadata to estimate from yet.
+    """
+    if item.sliced_file_id is None:
+        return None
+    file = session.get(File, item.sliced_file_id)
+    if file is None:
+        return None
+    meta = session.get(BlobMeta, file.blob_hash)
+    if meta is None:
+        return None
+    plates = (meta.raw or {}).get("plates") or []
+    plate_no = item.plate if item.plate is not None else (plates[0]["index"] if plates else None)
+    plate = next((p for p in plates if p["index"] == plate_no), None)
+    if plate is None:
+        return None
+
+    cfg = get_app_config_sync(session, settings)
+    rates = CostRates.from_config(cfg)
+    mapping = item.ams_mapping or []
+    usages: list[tuple[object | None, float]] = []
+    for i, f in enumerate(plate.get("filaments") or []):
+        grams = f.get("used_g")
+        if grams is None:
+            continue
+        fid = f["filament_id"] if f.get("filament_id") is not None else i + 1
+        tray: int | None = None
+        if 0 <= fid - 1 < len(mapping):
+            tray = mapping[fid - 1]
+        elif i < len(mapping):
+            tray = mapping[i]
+        spool = (
+            sinv.spool_for_tray(session, item.printer_id, tray)
+            if item.printer_id is not None
+            else None
+        )
+        usages.append((spool, grams))
+    return estimate_from_plate(plate, usages, rates)
 
 
 def _can_print(ctx: AuthContext, printer_id: int) -> bool:
@@ -252,13 +317,7 @@ async def build_plan(
 
     est_duration_s = plate.get("prediction_s")
     est_grams = plate.get("weight_g")
-    machine_cost = price_run(None, est_duration_s, rates).machine_cost
-    fc = filament_cost(usages, rates.filament_per_kg)
-    if fc is None and est_grams is not None:
-        fc = est_grams / 1000 * rates.filament_per_kg
-    est_cost = None
-    if fc is not None or machine_cost is not None:
-        est_cost = (fc or 0.0) + (machine_cost or 0.0)
+    est_cost = estimate_from_plate(plate, usages, rates)
 
     existence = await _thumbnail_existence(settings, file.blob_hash, raw_plates)
     plates_out = [
@@ -289,8 +348,23 @@ async def create_job(
     """Validate + enqueue a send-to-printer job (moved body of the legacy
     ``POST /printers/{id}/print`` handler -- see that route's docstring for
     why only fast pre-checks live here; the authoritative re-checks are in
-    ``app.tasks.printing.send_to_printer``)."""
+    ``app.tasks.printing.send_to_printer``).
+
+    P7 review/billing plan: 409 ``queue_required`` when sending straight to
+    a printer would skip the review gate -- either this printer
+    ``requires_review`` for ``ctx`` (and they can't review themselves), or
+    billing is on at all (every reservation/charge needs a queue row to
+    hang off of). The dispatcher's OWN sync send path
+    (``create_job_sync``) is deliberately NOT gated -- by the time the
+    dispatcher calls it, the item already cleared ``eligible_queue_items``'
+    review/hold filter.
+    """
+    from app.services.review import needs_review
     from app.tasks.printing import send_to_printer
+
+    cfg = await get_app_config(db, settings)
+    if needs_review(ctx, {printer_id}) or cfg.billing_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "queue_required")
 
     printer = await db.get(Printer, printer_id)
     if printer is None:

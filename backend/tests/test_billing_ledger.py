@@ -80,9 +80,9 @@ def test_fits_matrix(
 # ---------------------------------------------------------------------------
 
 
-def test_append_idempotent(make_user, make_cost_center, make_queue_item):
+def test_append_idempotent(make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as s:
-        user = make_user(s, "alice")
+        user = make_sync_user(s, "alice")
         cc = make_cost_center(s, "alice's budget", owner_user_id=user.id)
         item = make_queue_item(s, position=1, cost_center_id=cc.id)
         s.commit()
@@ -112,9 +112,9 @@ def test_append_idempotent(make_user, make_cost_center, make_queue_item):
         assert len(rows) == 1
 
 
-def test_release_negates_reservation(make_user, make_cost_center, make_queue_item):
+def test_release_negates_reservation(make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as s:
-        user = make_user(s, "bob")
+        user = make_sync_user(s, "bob")
         cc = make_cost_center(s, "bob's budget", owner_user_id=user.id)
         item = make_queue_item(s, position=1, cost_center_id=cc.id)
         s.commit()
@@ -136,9 +136,9 @@ def test_release_negates_reservation(make_user, make_cost_center, make_queue_ite
         assert billing.release(s, item) is None
 
 
-def test_charge_updates_balance_cache(make_user, make_cost_center, make_queue_item):
+def test_charge_updates_balance_cache(make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as s:
-        user = make_user(s, "carol")
+        user = make_sync_user(s, "carol")
         cc = make_cost_center(s, "carol's budget", owner_user_id=user.id)
         item = make_queue_item(s, position=1, cost_center_id=cc.id, created_by_user_id=user.id)
         run = Print(total_cost=12.5)
@@ -157,9 +157,9 @@ def test_charge_updates_balance_cache(make_user, make_cost_center, make_queue_it
         assert billing.charge(s, item, run) is None
 
 
-def test_monthly_rollover(make_user, make_cost_center, make_queue_item):
+def test_monthly_rollover(make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as s:
-        user = make_user(s, "dana")
+        user = make_sync_user(s, "dana")
         cc = make_cost_center(
             s, "dana's budget", owner_user_id=user.id, budget_monthly=Decimal("100")
         )
@@ -199,9 +199,9 @@ def test_monthly_rollover(make_user, make_cost_center, make_queue_item):
 # ---------------------------------------------------------------------------
 
 
-def test_over_budget_sets_hold(billing_cfg, make_user, make_cost_center, make_queue_item):
+def test_over_budget_sets_hold(billing_cfg, make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as s:
-        user = make_user(s, "erin")
+        user = make_sync_user(s, "erin")
         cc = make_cost_center(s, "erin's budget", owner_user_id=user.id, budget_total=Decimal("5"))
         item = make_queue_item(s, position=1, cost_center_id=cc.id)
         s.commit()
@@ -219,9 +219,11 @@ def test_over_budget_sets_hold(billing_cfg, make_user, make_cost_center, make_qu
         assert rows == []
 
 
-def test_retry_over_budget_after_deposit(billing_cfg, make_user, make_cost_center, make_queue_item):
+def test_retry_over_budget_after_deposit(
+    billing_cfg, make_sync_user, make_cost_center, make_queue_item
+):
     with base.sync_session() as s:
-        user = make_user(s, "frank")
+        user = make_sync_user(s, "frank")
         cc = make_cost_center(s, "frank's budget", owner_user_id=user.id, budget_total=Decimal("5"))
         item = make_queue_item(s, position=1, cost_center_id=cc.id)
         s.commit()
@@ -252,9 +254,9 @@ def test_retry_over_budget_after_deposit(billing_cfg, make_user, make_cost_cente
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_private_center_race(make_user):
+def test_ensure_private_center_race(make_sync_user):
     with base.sync_session() as setup:
-        user = make_user(setup, "grace", display_name="Grace")
+        user = make_sync_user(setup, "grace", display_name="Grace")
         setup.commit()
         user_id = user.id
 
@@ -290,9 +292,9 @@ def test_ensure_private_center_race(make_user):
 # ---------------------------------------------------------------------------
 
 
-def test_concurrent_reserve_row_lock(make_user, make_cost_center, make_queue_item):
+def test_concurrent_reserve_row_lock(make_sync_user, make_cost_center, make_queue_item):
     with base.sync_session() as setup:
-        user = make_user(setup, "henry")
+        user = make_sync_user(setup, "henry")
         cc = make_cost_center(
             setup, "henry's budget", owner_user_id=user.id, budget_total=Decimal("10")
         )

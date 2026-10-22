@@ -267,6 +267,10 @@ def test_copies_split_single_pins_printer(redis_url: str, fake_adapter):
         assert sent.state == QueueState.DISPATCHED
         assert sent.copies == 1
         assert sent.assigned_printer_id == pid
+        # P7: no cost center on this item -- the clone copies the (NULL)
+        # review/billing columns through untouched, no transfer posted.
+        assert sent.cost_center_id is None
+        assert sent.reserved_cost is None
 
         clones = list(
             s.scalars(
@@ -279,6 +283,9 @@ def test_copies_split_single_pins_printer(redis_url: str, fake_adapter):
         assert clones[0].copies == 2
         assert clones[0].state == QueueState.READY
         assert clones[0].printer_id == pid  # single fanout pins the clone
+        assert clones[0].cost_center_id is None
+        assert clones[0].reserved_cost is None
+        assert clones[0].review_state == sent.review_state
 
 
 def test_one_item_per_printer_per_tick(redis_url: str, fake_adapter):

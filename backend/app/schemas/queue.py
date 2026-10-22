@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import QueueState
+from app.models.enums import QueueState, ReviewState
 from app.schemas.library import FileOut, ModelSummary
 
 
@@ -42,6 +42,10 @@ class QueueEnqueueIn(BaseModel):
     # ``PrintDialog``'s "Slice and send": inserts at position 1 instead of
     # appending at the end.
     front: bool = False
+    # P7 review/billing plan: which cost center to reserve against when
+    # billing is on. ``None`` lazily resolves to the enqueuer's own private
+    # center (``app.services.billing.ensure_private_center``).
+    cost_center_id: int | None = None
 
 
 class QueueReorderIn(BaseModel):
@@ -84,3 +88,12 @@ class QueueEntryOut(BaseModel):
     # Display name of the requested ``file_id`` (its `rel_path`'s basename),
     # `None` for a bare entry.
     file_name: str | None = None
+    # P7 review/billing plan columns -- see `PrintQueueEntry`'s docstring
+    # (`app.models.library`) for the full state machine.
+    cost_center_id: int | None = None
+    review_state: ReviewState = ReviewState.NONE
+    reviewed_by: int | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+    reserved_cost: float | None = None
+    hold_reason: str | None = None
