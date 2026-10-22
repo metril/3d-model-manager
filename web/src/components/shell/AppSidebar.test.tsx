@@ -14,14 +14,19 @@ vi.mock("@/api/auth", () => ({
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-const { featuresBox, printersBox, financeConfigBox } = vi.hoisted(() => ({
+const { featuresBox, printersBox, financeConfigBox, reviewCountBox } = vi.hoisted(() => ({
   featuresBox: { current: { printer_enabled: false } },
   printersBox: { current: [] as Array<{ id: number; name: string }> },
   financeConfigBox: { current: { billing_enabled: false } as { billing_enabled: boolean } | undefined },
+  reviewCountBox: { current: undefined as { count: number } | undefined },
 }));
 
 vi.mock("@/api/finance", () => ({
   useFinanceConfig: () => ({ data: financeConfigBox.current }),
+}));
+
+vi.mock("@/api/queue", () => ({
+  useReviewCount: () => ({ data: reviewCountBox.current }),
 }));
 
 vi.mock("@/api/features", () => ({
@@ -185,10 +190,34 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
   });
 });
 
+describe("AppSidebar -- Queue review badge (P7 Task 9)", () => {
+  beforeEach(() => {
+    featuresBox.current = { printer_enabled: true };
+    printersBox.current = [];
+    reviewCountBox.current = undefined;
+  });
+
+  it("shows the review count on the Queue nav item with its own aria-label", async () => {
+    reviewCountBox.current = { count: 3 };
+    renderSidebar();
+
+    const badge = await screen.findByLabelText("3 awaiting review");
+    expect(badge).toHaveTextContent("3");
+  });
+
+  it("shows no badge when the count is zero", async () => {
+    reviewCountBox.current = { count: 0 };
+    renderSidebar();
+    await screen.findByRole("link", { name: "Queue" });
+    expect(screen.queryByLabelText(/awaiting review/)).not.toBeInTheDocument();
+  });
+});
+
 describe("AppSidebar -- Finance nav entry (P7 Task 8)", () => {
   beforeEach(() => {
     authCanBox.current = () => true;
     financeConfigBox.current = { billing_enabled: false };
+    reviewCountBox.current = undefined;
   });
 
   it("shows Finance for a billing manager even when billing is off", async () => {

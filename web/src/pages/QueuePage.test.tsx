@@ -10,14 +10,17 @@ import { QueuePage } from "@/pages/QueuePage";
 // used) -- QueuePage's own logic (lane grouping, the chip, retry gating,
 // the include-done toggle) is what's under test, not the underlying fetch
 // plumbing (already covered by `api/queue.ts`'s own hook conventions).
-const { queueDataBox, moveMock, removeMock, retryMock, printersDataBox, includeDoneCalls } = vi.hoisted(() => ({
-  queueDataBox: { current: [] as QueueEntry[] },
-  moveMock: vi.fn(),
-  removeMock: vi.fn(),
-  retryMock: vi.fn(),
-  printersDataBox: { current: [] as PrinterOut[] },
-  includeDoneCalls: [] as boolean[],
-}));
+const { queueDataBox, moveMock, removeMock, retryMock, reviewMock, printersDataBox, includeDoneCalls, authCanBox } =
+  vi.hoisted(() => ({
+    queueDataBox: { current: [] as QueueEntry[] },
+    moveMock: vi.fn(),
+    removeMock: vi.fn(),
+    retryMock: vi.fn(),
+    reviewMock: vi.fn(),
+    printersDataBox: { current: [] as PrinterOut[] },
+    includeDoneCalls: [] as boolean[],
+    authCanBox: { current: (_p: string) => true as boolean },
+  }));
 
 vi.mock("@/api/queue", () => ({
   useQueue: ({ includeDone }: { includeDone?: boolean } = {}) => {
@@ -27,10 +30,15 @@ vi.mock("@/api/queue", () => ({
   useMoveQueueEntry: () => ({ mutate: moveMock, isPending: false }),
   useRemoveQueueEntry: () => ({ mutate: removeMock, isPending: false }),
   useRetryQueueEntry: () => ({ mutate: retryMock, isPending: false }),
+  useReviewEntry: () => ({ mutate: reviewMock, isPending: false }),
 }));
 
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: printersDataBox.current }),
+}));
+
+vi.mock("@/api/auth", () => ({
+  useAuth: () => ({ can: (p: string) => authCanBox.current(p) }),
 }));
 
 function model(overrides: Partial<ModelSummary> = {}): ModelSummary {
@@ -114,8 +122,55 @@ beforeEach(() => {
   moveMock.mockClear();
   removeMock.mockClear();
   retryMock.mockClear();
+  reviewMock.mockClear();
   printersDataBox.current = [PRINTER];
   includeDoneCalls.length = 0;
+  authCanBox.current = () => true;
+});
+
+describe("QueuePage review/budget chips (P7 Task 9)", () => {
+  it("renders a Pending review chip and ReviewActions for a reviewer", async () => {
+    queueDataBox.current = [entry({ review_state: "pending" })];
+    renderQueuePage();
+
+    expect(await screen.findByText("Pending review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+  });
+
+  it("hides ReviewActions for a non-reviewer even on a pending entry", async () => {
+    authCanBox.current = (p: string) => p !== "queue:review";
+    queueDataBox.current = [entry({ review_state: "pending" })];
+    renderQueuePage();
+
+    expect(await screen.findByText("Pending review")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
+  it("renders a Rejected chip", async () => {
+    queueDataBox.current = [entry({ review_state: "rejected" })];
+    renderQueuePage();
+    expect(await screen.findByText("Rejected")).toBeInTheDocument();
+  });
+
+  it("renders an Over budget chip with a Retry budget button", async () => {
+    queueDataBox.current = [entry({ hold_reason: "over_budget", state: "held" })];
+    renderQueuePage();
+
+    expect(await screen.findByText("Over budget")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry budget" }));
+    await waitFor(() => expect(retryMock).toHaveBeenCalledExactlyOnceWith(1));
+  });
+
+  it("approving a pending entry calls the review mutation", async () => {
+    queueDataBox.current = [entry({ id: 3, review_state: "pending" })];
+    renderQueuePage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(reviewMock).toHaveBeenCalledExactlyOnceWith({ entryId: 3, body: { action: "approve" } }),
+    );
+  });
 });
 
 describe("QueuePage lanes", () => {

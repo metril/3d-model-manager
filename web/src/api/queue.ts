@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { QueueEnqueueBody, QueueEntry } from "@/api/types";
+import type { QueueEnqueueBody, QueueEntry, ReviewCountOut, ReviewIn } from "@/api/types";
 
 // The default (`includeDone: false`) case keeps the original bare `["queue"]`
 // key -- `PrintsTab.test.tsx` (and anything else reading the cache
@@ -89,5 +89,44 @@ export function useRetryQueueEntry() {
   return useMutation({
     mutationFn: (entryId: number) => api.post<QueueEntry>(`/queue/${entryId}/retry`),
     onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+// -- review gate (P7 review/billing plan Task 6/9) -------------------------
+
+/** `GET /queue/review-inbox` -- pending items the caller may act on as a
+ * reviewer. `queue:review`-gated server-side; callers should only mount
+ * this for a holder of that permission. */
+export function useReviewInbox() {
+  return useQuery({
+    queryKey: ["queue", "review-inbox"] as const,
+    queryFn: () => api.get<QueueEntry[]>("/queue/review-inbox"),
+  });
+}
+
+/** `GET /queue/review-inbox/count` -- polled every 30s for the sidebar
+ * badge/dashboard card, only while `enabled` (the caller holds
+ * `queue:review` -- the endpoint 403s otherwise). */
+export function useReviewCount({ enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["queue", "review-inbox", "count"] as const,
+    queryFn: () => api.get<ReviewCountOut>("/queue/review-inbox/count"),
+    enabled,
+    refetchInterval: enabled ? 30_000 : false,
+  });
+}
+
+/** `POST /queue/{entry_id}/review` -- approve/reject, invalidating both the
+ * review inbox/count and the plain queue (a rejected/approved item's
+ * `review_state` changes there too). */
+export function useReviewEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entryId, body }: { entryId: number; body: ReviewIn }) =>
+      api.post<QueueEntry>(`/queue/${entryId}/review`, body),
+    onSuccess: () => {
+      invalidateQueue(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["queue", "review-inbox"] });
+    },
   });
 }

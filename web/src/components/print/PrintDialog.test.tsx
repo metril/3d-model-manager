@@ -5,10 +5,17 @@ import type { ReactNode } from "react";
 
 import { PrintDialog } from "@/components/print/PrintDialog";
 
-const { getMock, postMock, toastSuccessMock } = vi.hoisted(() => ({
+const { getMock, postMock, toastSuccessMock, authDataBox, financeConfigBox, costCentersBox } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
   toastSuccessMock: vi.fn(),
+  authDataBox: {
+    current: { id: 1, role: "member", permissions: [] as string[], printer_access: null as Record<string, { requires_review?: boolean }> | null },
+  },
+  financeConfigBox: { current: { billing_enabled: false } },
+  costCentersBox: {
+    current: [] as { id: number; name: string; owner_user_id: number | null; group_id: number | null; available: number | null }[],
+  },
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -18,6 +25,18 @@ vi.mock("@/api/client", async (importOriginal) => {
     api: { ...actual.api, get: getMock, post: postMock },
   };
 });
+
+vi.mock("@/api/auth", () => ({
+  useAuth: () => ({
+    data: authDataBox.current,
+    can: (p: string) => authDataBox.current.role === "admin" || authDataBox.current.permissions.includes(p),
+  }),
+}));
+
+vi.mock("@/api/finance", () => ({
+  useFinanceConfig: () => ({ data: financeConfigBox.current }),
+  useCostCenters: () => ({ data: costCentersBox.current }),
+}));
 
 vi.mock("sonner", () => ({
   toast: { success: toastSuccessMock, error: vi.fn() },
@@ -181,6 +200,9 @@ beforeEach(() => {
   getMock.mockReset();
   postMock.mockReset();
   toastSuccessMock.mockReset();
+  authDataBox.current = { id: 1, role: "member", permissions: [], printer_access: null };
+  financeConfigBox.current = { billing_enabled: false };
+  costCentersBox.current = [];
   mockApi();
 });
 
@@ -262,6 +284,56 @@ describe("PrintDialog", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Sent to printer");
   });
 
+  it("shows no cost-center picker and 'Send now' when billing is off", async () => {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("button", { name: "Send now" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Cost center")).not.toBeInTheDocument();
+  });
+
+  it("shows the cost-center picker and 'Send next' when billing is on, posting cost_center_id through enqueue", async () => {
+    financeConfigBox.current = { billing_enabled: true };
+    costCentersBox.current = [
+      { id: 1, name: "Shared", owner_user_id: null, group_id: 2, available: 10 },
+      { id: 2, name: "Mine", owner_user_id: 1, group_id: null, available: 5 },
+    ];
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const picker = await screen.findByLabelText("Cost center");
+    expect(picker).toBeInTheDocument();
+    const sendNext = await screen.findByRole("button", { name: "Send next" });
+    await waitFor(() => expect(sendNext).not.toBeDisabled());
+    fireEvent.click(sendNext);
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/queue",
+        expect.objectContaining({ file_id: 10, front: true, cost_center_id: 2 }),
+      ),
+    );
+  });
+
+  it("swaps 'Send now' for 'Send next' when the printer requires review, even with billing off", async () => {
+    authDataBox.current = {
+      id: 1,
+      role: "member",
+      permissions: [],
+      printer_access: { "5": { requires_review: true } },
+    };
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("button", { name: "Send next" })).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+  });
 
   it("an archive source hits reprint for its initial plan", async () => {
     renderDialog({ kind: "archive", archiveId: 7 });

@@ -16,11 +16,14 @@
  */
 import type { ReactNode } from "react";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { usePrintersOverview } from "@/api/printers";
+import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
+import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { Button } from "@/components/ui/button";
@@ -34,12 +37,19 @@ function gridClassName(count: number): string {
 
 export function PrintDashboardPage() {
   const overview = usePrintersOverview();
+  const auth = useAuth();
+  const canReview = auth.can("queue:review");
+  const reviewCount = useReviewCount({ enabled: canReview });
   const printers = overview.data?.printers ?? [];
   const upNext = overview.data?.up_next ?? [];
   const recentRuns = overview.data?.recent_runs ?? [];
-  // P3 renders no rail extras; a later milestone (energy/cost tiles, etc.)
-  // slots in here without PrintDashboardPage itself changing shape.
+  // P7 Task 9: the review inbox card joins the rail only for a reviewer
+  // with something actually pending -- empty-but-mounted would just be
+  // dead chrome.
   const railExtras: ReactNode[] = [];
+  if (canReview && (reviewCount.data?.count ?? 0) > 0) {
+    railExtras.push(<ReviewInboxCard key="review-inbox" />);
+  }
 
   if (overview.isError && !overview.data) {
     return (
