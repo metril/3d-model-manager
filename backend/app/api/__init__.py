@@ -47,6 +47,7 @@ from app.api import (
     materials,
     models,
     notes,
+    oidc,
     print_jobs,
     printers,
     prints,
@@ -67,6 +68,7 @@ from app.api.health import router as health_router
 api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(auth.public_router)
+api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
 api_router.include_router(files.public_router)

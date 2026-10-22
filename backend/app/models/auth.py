@@ -148,7 +148,7 @@ class OidcProvider(Base):
         String, server_default="openid profile email groups", nullable=False
     )
     groups_claim: Mapped[str] = mapped_column(String, server_default="groups", nullable=False)
-    group_mapping: Mapped[dict[str, list[str]]] = mapped_column(
+    group_mapping: Mapped[dict[str, int]] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb"), nullable=False
     )
     admin_group: Mapped[str | None] = mapped_column(String, nullable=True)
