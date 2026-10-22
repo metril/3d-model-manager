@@ -5,10 +5,14 @@ carve-out). Register it over ``bambu_lan`` in a fixture; drive reports via
 
 from __future__ import annotations
 
+import threading
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from app.models.enums import PrinterKind, PrintJobState
 from app.printers.base import (
+    CameraSource,
     PrinterAdapter,
     PrinterConnection,
     PrinterPublicState,
@@ -16,6 +20,40 @@ from app.printers.base import (
     ProbeResult,
     ReportHandler,
 )
+
+
+class FakeCamera:
+    """In-memory ``CameraSource`` for camera-supervisor tests. ``hang=True``
+    makes ``frames()`` block forever, IGNORING the worker's own ``stop``
+    event -- only ``close()`` unblocks it, simulating a wedged socket."""
+
+    def __init__(self, frames: list[bytes], hang: bool = False, delay: float = 0.0) -> None:
+        self.frames_list = frames
+        self.hang = hang
+        self.delay = delay
+        self._closed = threading.Event()
+
+    def __enter__(self) -> FakeCamera:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def frames(self) -> Iterator[bytes]:
+        if self.hang:
+            while not self._closed.is_set():
+                self._closed.wait(0.05)
+            return
+        for frame in self.frames_list:
+            if self._closed.is_set():
+                return
+            if self.delay:
+                time.sleep(self.delay)
+            yield frame
+
+    def close(self) -> None:
+        self._closed.set()
+
 
 _JOB_STATE = {
     "PREPARE": PrintJobState.STARTING,
@@ -45,6 +83,7 @@ class FakePrinterAdapter(PrinterAdapter):
         self.files: dict[str, bytes] = {}
         self.download_errors = 0
         self.downloads: list[str] = []
+        self.camera: FakeCamera | None = None
 
     def list_dir(self, path: str) -> list[str]:
         parent = path.rstrip("/") or "/"
@@ -113,3 +152,8 @@ class FakePrinterAdapter(PrinterAdapter):
     def emit(self, report: dict) -> None:
         assert self._handler is not None, "set_report_handler was never called"
         self._handler(report)
+
+    def open_camera(self, stop: threading.Event) -> CameraSource:
+        if self.camera is None:
+            raise NotImplementedError
+        return self.camera

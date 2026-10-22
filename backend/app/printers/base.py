@@ -10,13 +10,26 @@ its own build function.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Protocol
 
 from app.models.enums import PrinterKind, PrintJobState
+
+
+class CameraSource(Protocol):
+    """A connected camera stream (P4 camera plan). Mirrors
+    ``CameraA1Client``'s shape -- a context manager whose ``frames()``
+    yields JPEG payloads until ``stop`` is set or ``close()`` is called."""
+
+    def __enter__(self) -> CameraSource: ...
+    def __exit__(self, *exc: object) -> None: ...
+    def frames(self) -> Iterator[bytes]: ...
+    def close(self) -> None: ...
+
 
 ReportHandler = Callable[[dict], None]
 
@@ -124,4 +137,11 @@ class PrinterAdapter(ABC):
 
     def download_file(self, remote: str, dest: Path) -> None:
         """Fetch ``remote`` to ``dest``; raises ``OSError`` on failure."""
+        raise NotImplementedError
+
+    def open_camera(self, stop: threading.Event) -> CameraSource:
+        """Open a live camera stream (P4 camera plan). ``stop`` is the
+        worker's own lifecycle event -- most clients check it inside
+        ``frames()``. Adapters without a camera (or an unsupported model)
+        raise ``NotImplementedError``."""
         raise NotImplementedError

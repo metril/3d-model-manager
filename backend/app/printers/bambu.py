@@ -12,12 +12,14 @@ the bambulabs_api client above -- see that module's docstring."""
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import ClassVar
 
 from app.models.enums import PrinterKind, PrintJobState
 from app.printers import probe
 from app.printers.base import (
+    CameraSource,
     PrinterAdapter,
     PrinterConnection,
     PrinterPublicState,
@@ -278,6 +280,18 @@ class BambuLanAdapter(PrinterAdapter):
         if buf is None:
             raise OSError(f"FTPS download {remote} failed")
         Path(dest).write_bytes(buf.getvalue())
+
+    # -- camera (P4 camera plan) ---------------------------------------
+    def open_camera(self, stop: threading.Event) -> CameraSource:
+        """A1-class printers only -- the camera protocol in
+        ``camera_a1.py`` is specific to that port/handshake. X1 models use
+        RTSP instead and are not supported here. Lazy-imported (flag-off
+        import safety: only printerd's camera supervisor ever calls this)."""
+        if (self.conn.model or "").upper().startswith("X1"):
+            raise NotImplementedError("X1 uses RTSP, not the A1 camera protocol")
+        from app.printers.camera_a1 import CameraA1Client
+
+        return CameraA1Client(self.conn.host, self.conn.access_code, stop=stop)
 
     # -- probe ---------------------------------------------------------
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:
