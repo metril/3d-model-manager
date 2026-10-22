@@ -57,6 +57,7 @@ _PATH_PARAM_VALUES = {
     "revision_a_id": "1",
     "revision_b_id": "2",
     "file_id": "1",
+    "archive_id": "1",
     "filename": "placeholder.stl",
     "note_id": "1",
     "name": "placeholder-tag",

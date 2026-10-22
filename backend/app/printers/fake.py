@@ -5,6 +5,8 @@ carve-out). Register it over ``bambu_lan`` in a fixture; drive reports via
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.models.enums import PrinterKind, PrintJobState
 from app.printers.base import (
     PrinterAdapter,
@@ -40,6 +42,22 @@ class FakePrinterAdapter(PrinterAdapter):
         self.paused = self.resumed = self.stopped = 0
         self.uploaded: list[PrintSpec] = []
         self._handler: ReportHandler | None = None
+        self.files: dict[str, bytes] = {}
+        self.download_errors = 0
+        self.downloads: list[str] = []
+
+    def list_dir(self, path: str) -> list[str]:
+        parent = path.rstrip("/") or "/"
+        return [k.rsplit("/", 1)[1] for k in self.files if (k.rsplit("/", 1)[0] or "/") == parent]
+
+    def download_file(self, remote: str, dest: Path) -> None:
+        self.downloads.append(remote)
+        if self.download_errors > 0:
+            self.download_errors -= 1
+            raise OSError("fake download error")
+        if remote not in self.files:
+            raise FileNotFoundError(remote)
+        Path(dest).write_bytes(self.files[remote])
 
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:
         return self.probe_result

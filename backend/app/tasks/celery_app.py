@@ -47,6 +47,7 @@ celery_app.conf.update(
         "app.tasks.migrate",
         "app.tasks.relocate",
         "app.tasks.printing",
+        "app.tasks.archive",
         "app.tasks.importing",
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
@@ -75,4 +76,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.scheduler.dispatch_scheduled",
         "schedule": scheduler._CADENCE_S,
     }
+}
+
+# Additive: recovers terminal jobs whose archive enqueue was lost (P2).
+celery_app.conf.beat_schedule["archive-sweep"] = {
+    "task": "app.tasks.archive.archive_sweep",
+    "schedule": 300,
 }

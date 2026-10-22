@@ -148,3 +148,45 @@ class MembershipSource(StrEnum):
 
     LOCAL = "local"
     OIDC = "oidc"
+
+
+class PrintJobOrigin(StrEnum):
+    """Where a print job came from: started by the app, or detected as a
+    print the printer began on its own (P2 ``print_jobs.origin``)."""
+
+    APP = "app"
+    EXTERNAL = "external"
+
+
+class ArchiveResult(StrEnum):
+    """How an archived run ended (P2 ``print_archives.result``)."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELED = "canceled"
+    STOPPED = "stopped"
+
+
+class ArchiveFetchState(StrEnum):
+    """Progress of pulling a run's artifacts off the printer (P2
+    ``print_archives.fetch_state``)."""
+
+    PENDING = "pending"
+    DONE = "done"
+    MISSING = "missing"
+    ERROR = "error"
+
+
+class PrintSource(StrEnum):
+    """Whether a ``prints`` row was logged by hand or created by the archiver
+    (P2 ``prints.source``)."""
+
+    MANUAL = "manual"
+    AUTO = "auto"
+
+
+class PrintQuality(StrEnum):
+    """User verdict on a finished run (P2 ``prints.quality``)."""
+
+    GOOD = "good"
+    REJECT = "reject"

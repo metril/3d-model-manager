@@ -10,7 +10,7 @@ from app import printerd as printerd_module
 from app.config import get_settings
 from app.crypto import encrypt_secret
 from app.models import Blob, File, Model, Printer, PrintJob, Revision, Setting
-from app.models.enums import BlobFormat, BlobKind, PrinterKind, PrintJobState
+from app.models.enums import ArchiveResult, BlobFormat, BlobKind, PrinterKind, PrintJobState
 from app.printerd import PrinterDaemon, PrinterWorker
 from app.printers.base import PrinterConnection, state_key
 from app.printers.fake import FakePrinterAdapter
@@ -557,3 +557,110 @@ def test_run_tears_down_and_restarts_all_workers_on_db_flag_flip(
     finally:
         daemon.stop()
         thread.join(timeout=2.0)
+
+
+def _jobs(pid):
+    with base.sync_session() as s:
+        return list(s.query(PrintJob).filter(PrintJob.printer_id == pid).order_by(PrintJob.id))
+
+
+def _state(job_id):
+    with base.sync_session() as s:
+        return s.get(PrintJob, job_id).state
+
+
+def test_terminal_transition_enqueues_archive(worker, monkeypatch):
+    calls = []
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: calls.append((j, r)))
+    w, _adapter, pid, _ = worker
+    job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FINISH"})
+    assert calls == [(job_id, ArchiveResult.COMPLETED)]
+    w.handle_report({"gcode_state": "FINISH"})
+    assert len(calls) == 1
+
+
+def test_cancel_code_failed_and_app_stop(worker, monkeypatch):
+    calls = []
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: calls.append((j, r)))
+    w, _adapter, pid, _ = worker
+    j1 = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 50348044})
+    assert calls[-1] == (j1, ArchiveResult.CANCELED) and _state(j1) == "canceled"
+    with base.sync_session() as s:
+        j2 = PrintJob(printer_id=pid, file_id=None, state=PrintJobState.PRINTING)
+        s.add(j2)
+        s.commit()
+        j2 = j2.id
+    w.handle_command("stop")
+    w.handle_report({"gcode_state": "FAILED"})
+    assert calls[-1] == (j2, ArchiveResult.STOPPED) and _state(j2) == "canceled"
+    with base.sync_session() as s:
+        j3 = PrintJob(printer_id=pid, file_id=None, state=PrintJobState.PRINTING)
+        s.add(j3)
+        s.commit()
+        j3 = j3.id
+    w.handle_report({"gcode_state": "FAILED", "print_error": 1234})
+    assert calls[-1] == (j3, ArchiveResult.FAILED) and _state(j3) == "failed"
+
+
+def test_enqueue_failure_is_swallowed(worker, monkeypatch):
+    def boom(j, r):
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", boom)
+    w, _adapter, pid, _ = worker
+    job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "FINISH"})
+    assert _state(job_id) == "finished"
+
+
+def test_external_job_detection(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "Benchy", "total_layer_num": 100})
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "Benchy", "layer_num": 2})
+    jobs = _jobs(pid)
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert (j.origin, j.file_id, j.state, j.subtask_name) == (
+        "external",
+        None,
+        "printing",
+        "Benchy",
+    )
+    assert j.created_by_user_id is None and j.started_at is not None
+
+
+def test_no_external_job_while_app_job_active(worker):
+    w, _adapter, pid, _ = worker
+    _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    jobs = _jobs(pid)
+    assert len(jobs) == 1 and jobs[0].state == "printing"
+
+
+def test_idle_creates_no_external_job(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "IDLE"})
+    w.handle_report({"gcode_state": "FINISH"})
+    assert _jobs(pid) == []
+
+
+def test_running_with_print_error_creates_no_external_job(worker):
+    w, _adapter, pid, _ = worker
+    for _ in range(3):
+        w.handle_report({"gcode_state": "RUNNING", "print_error": 1234})
+    assert _jobs(pid) == []
+
+
+def test_stale_stop_flag_cleared_when_next_job_starts(worker, monkeypatch):
+    calls = []
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: calls.append((j, r)))
+    w, _adapter, pid, _ = worker
+    w.handle_command("stop")  # no active job; flag would go stale
+    job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 1234})
+    assert calls[-1] == (job_id, ArchiveResult.FAILED)

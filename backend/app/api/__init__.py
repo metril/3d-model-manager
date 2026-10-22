@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends
 from app.api import (
     admin,
     admin_oidc,
+    archives,
     auth,
     blobs,
     categories,
@@ -93,6 +94,7 @@ protected_router.include_router(features.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_jobs.router)
 protected_router.include_router(prints.router)
+protected_router.include_router(archives.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)

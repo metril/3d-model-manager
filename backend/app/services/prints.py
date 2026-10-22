@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.models.enums import PrintResult
 from app.models.library import Material, Model, Print
 from app.schemas.prints import PrintOut
+from app.services.costing import CostRates, price_run
 
 
 async def _check_material_id(db: AsyncSession, material_id: int | None) -> None:
@@ -38,6 +39,7 @@ async def create_print(
     duration_min: int | None,
     notes: str | None,
     created_by_user_id: int | None = None,
+    rates: CostRates,
 ) -> PrintOut:
     """Inserts the print row AND bumps ``Model.print_count`` by one, in the
     SAME transaction (R13b Risk resolution 4: this -- plus ``delete_print``
@@ -45,8 +47,12 @@ async def create_print(
     is the self-healing backstop, not a second writer).
     """
     await _check_material_id(db, material_id)
+    cost = price_run(filament_g, None if duration_min is None else duration_min * 60, rates)
     row = Print(
         model_id=model_id,
+        filament_cost=cost.filament_cost,
+        machine_cost=cost.machine_cost,
+        total_cost=cost.total_cost,
         printer_name=printer_name,
         filament=filament,
         filament_g=filament_g,
@@ -89,7 +95,9 @@ async def _get_print_or_404(db: AsyncSession, print_id: int) -> Print:
     return row
 
 
-async def patch_print(db: AsyncSession, print_id: int, changes: dict[str, object]) -> PrintOut:
+async def patch_print(
+    db: AsyncSession, print_id: int, changes: dict[str, object], rates: CostRates
+) -> PrintOut:
     """Apply ``changes`` (already ``exclude_unset``-filtered by the caller) --
     only the fields present in the request body change.
     """
@@ -105,9 +113,22 @@ async def patch_print(db: AsyncSession, print_id: int, changes: dict[str, object
         "result",
         "duration_min",
         "notes",
+        "quality",
+        "failure_reason",
     ):
         if field in changes:
             setattr(row, field, changes[field])
+    if "filament_g" in changes or "duration_min" in changes:
+        cost = price_run(
+            row.filament_g, None if row.duration_min is None else row.duration_min * 60, rates
+        )
+        if "filament_g" in changes:
+            row.filament_cost = cost.filament_cost
+        if "duration_min" in changes:
+            row.machine_cost = cost.machine_cost
+    if {"filament_g", "duration_min", "quality", "failure_reason"} & changes.keys():
+        parts = [c for c in (row.filament_cost, row.machine_cost, row.energy_cost) if c is not None]
+        row.total_cost = sum(parts) if parts else None
     await db.commit()
     await db.refresh(row)
     await db.refresh(row, attribute_names=["material"])
@@ -118,6 +139,9 @@ async def delete_print(db: AsyncSession, print_id: int) -> None:
     row = await _get_print_or_404(db, print_id)
     model_id = row.model_id
     await db.delete(row)
+    if model_id is None:
+        await db.commit()
+        return
     # `GREATEST(..., 0)` is a pure defensive floor -- normal operation never
     # needs it, since every print row was counted exactly once by
     # `create_print` above; it only guards against a print_count that was

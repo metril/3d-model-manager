@@ -5,29 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlatePanel } from "@/components/model-detail/PlatePanel";
 import type { BlobMetaOut, FileOut, PlateOut } from "@/api/types";
 
-// `PlatePanel` reads `useAppSettings()` (R11-B item 14: per-plate cost
-// estimate) -- give it a QueryClient + a well-shaped `/settings/app` so
-// mounting it never throws or hangs on an unresolved fetch.
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return { ...actual, api: { ...actual.api, get: getMock } };
 });
 
-const DEFAULT_APP_SETTINGS = {
-  printer_enabled: false,
-  scan_interval_s: 0,
-  collection_sync_interval_s: 0,
-  watch_interval_s: 0,
-  watch_stable_s: 10,
-  filament_cost_per_kg: 20,
-  machine_cost_per_hour: 0,
-};
-
-function renderPlatePanel(file: FileOut, appSettings = DEFAULT_APP_SETTINGS) {
-  getMock.mockImplementation((path: string) =>
-    path === "/settings/app" ? Promise.resolve(appSettings) : Promise.resolve({}),
-  );
+function renderPlatePanel(file: FileOut) {
+  getMock.mockImplementation(() => Promise.resolve({}));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -49,6 +34,7 @@ const PLATE_1: PlateOut = {
   prediction_s: 5400,
   weight_g: 42.4,
   thumbnail_available: true,
+  est_cost: null,
   filaments: [{ type: "PLA", color: "#ff0000", used_m: 12.3, used_g: 36.8 }],
 };
 
@@ -57,6 +43,7 @@ const PLATE_2: PlateOut = {
   prediction_s: 2700,
   weight_g: 18,
   thumbnail_available: false,
+  est_cost: null,
   filaments: [
     { type: "PLA", color: "#ff0000", used_m: 5, used_g: 15 },
     { type: "PETG", color: null, used_m: 1, used_g: 3 },
@@ -150,15 +137,10 @@ describe("PlatePanel", () => {
     expect((swatch as HTMLElement).style.backgroundColor).toBe("rgb(255, 0, 0)");
   });
 
-  it("adds an estimated cost once app settings have loaded (R11-B item 14)", async () => {
-    renderPlatePanel(fakeFile({ plates: [PLATE_1] }), {
-      ...DEFAULT_APP_SETTINGS,
-      filament_cost_per_kg: 20,
-      machine_cost_per_hour: 0,
-    });
+  it("shows the server-computed estimated cost", () => {
+    renderPlatePanel(fakeFile({ plates: [{ ...PLATE_1, est_cost: 8 }] }));
 
-    // 42.4g @ 20/kg = 0.848 -> "0.85"
-    await waitFor(() => expect(screen.getByText("Plate 1 · 1h 30m · 42 g · Est. cost: 0.85")).toBeInTheDocument());
+    expect(screen.getByText("Plate 1 · 1h 30m · 42 g · Est. cost: 8.00")).toBeInTheDocument();
   });
 
   it("shows an empty state when the file has no plate data yet", () => {

@@ -12,10 +12,12 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import BaseModel, StringConstraints, field_validator
 
 from app.models.enums import BlobFormat, BlobKind
+from app.services.costing import price_run
 
 if TYPE_CHECKING:
     from app.models.library import File, Note
     from app.models.processing import BlobMeta
+    from app.services.costing import CostRates
 
 # Empty/whitespace-only strings 422 (stripped before the min_length check),
 # per Task 5's "empty-name model -> 422" interface decision.
@@ -219,15 +221,17 @@ class PlateOut(BaseModel):
     prediction_s: int | None
     weight_g: float | None
     thumbnail_available: bool
+    est_cost: float | None
     filaments: list[PlateFilamentOut]
 
     @classmethod
-    def from_raw(cls, raw: dict, *, thumbnail_available: bool) -> PlateOut:
+    def from_raw(cls, raw: dict, *, thumbnail_available: bool, rates: CostRates) -> PlateOut:
         return cls(
             index=raw["index"],
             prediction_s=raw.get("prediction_s"),
             weight_g=raw.get("weight_g"),
             thumbnail_available=thumbnail_available,
+            est_cost=price_run(raw.get("weight_g"), raw.get("prediction_s"), rates).total_cost,
             filaments=[PlateFilamentOut.from_raw(f) for f in raw.get("filaments") or []],
         )
 

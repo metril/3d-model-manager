@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.enums import PrinterKind
+from app.models.enums import PrinterKind, PrintJobOrigin
 
 if TYPE_CHECKING:
     from app.models import Printer, PrintJob
@@ -206,7 +206,8 @@ class PrintRequest(BaseModel):
 class PrintJobOut(BaseModel):
     id: int
     printer_id: int
-    file_id: int
+    file_id: int | None
+    origin: PrintJobOrigin
     subtask_name: str | None
     state: str
     progress_pct: float | None
@@ -224,6 +225,7 @@ class PrintJobOut(BaseModel):
             id=j.id,
             printer_id=j.printer_id,
             file_id=j.file_id,
+            origin=j.origin,
             subtask_name=j.subtask_name,
             state=j.state,
             progress_pct=j.progress_pct,

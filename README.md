@@ -344,6 +344,34 @@ before anything is uploaded.
 Register a printer from **Settings → Printer** (host, serial, access code)
 — the setup wizard runs **Test connection** against it before saving.
 
+### Print archive & run history
+
+Every finished print job (completed, failed, or stopped) is archived: the
+sliced 3MF and its plate thumbnail are stored as content-addressed blobs and
+a run is added to **Printer → history** with filament grams, duration and
+cost. The 3MF comes from the local library file when the job was sent from
+the app, otherwise it is fetched from the printer's SD card over FTPS.
+
+**External prints**: jobs started from Bambu Studio or the printer's
+touchscreen are detected from the MQTT state, recorded as external jobs and
+archived the same way when they finish (best effort, if the 3MF can still be
+found on the printer).
+
+**Cost** = filament (`grams / 1000 x filament cost per kg`) + machine
+(`hours x machine cost per hour`) (+ energy when available), using the rates
+in Settings. Completed runs charge the full estimated grams; failed or
+stopped runs are charged **partially**, by printed fraction (`layer /
+total_layers`, or progress % when layers are unknown).
+
+**Good / Reject**: grade a run in the history sheet; rejected runs stay in
+the history but are flagged as wasted.
+
+**Storage**: archived files live under `{data_dir}/archives/` (inside the
+`tdmm_data` volume), so they are covered by the normal data backup; include
+that directory in any manual backup.
+
+**Reprint** from an archive is a stub for now and arrives in P5.
+
 ### Manual/Live Acceptance (deferred — user present, real A1 mini, NOT automated)
 
 The physical "the A1 mini actually starts printing" drill needs a real

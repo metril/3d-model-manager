@@ -9,7 +9,6 @@ import { useId, useState, type FormEvent } from "react";
 import { PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import { useAppSettings } from "@/api/appSettings";
 import { useMaterials } from "@/api/materials";
 import { useLogPrint, usePatchPrint, useDeletePrint, usePrints } from "@/api/prints";
 import { usePrinters } from "@/api/printers";
@@ -32,8 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { formatDateTime, toDatetimeLocalValue } from "@/lib/format";
-import { estimatePrintCost, formatPrintCost } from "@/lib/printCost";
+import { formatCost, formatDateTime, toDatetimeLocalValue } from "@/lib/format";
 
 /** Sentinel `Select` value for "no printer" -- Radix `SelectItem` reserves
  * an empty-string value for "no selection", so it can't represent `null`
@@ -318,8 +316,6 @@ function PrintRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PrintDraft>(() => draftFromEntry(entry));
   const [touched, setTouched] = useState<Partial<Record<keyof PrintDraft, true>>>({});
-  // Hooks must run unconditionally, ahead of the `editing` early return below.
-  const settings = useAppSettings();
 
   function handleFieldChange<K extends keyof PrintDraft>(key: K, value: PrintDraft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -365,15 +361,6 @@ function PrintRow({
   }
 
   const badge = RESULT_BADGE[entry.result];
-  const cost = settings.data
-    ? estimatePrintCost(
-        {
-          filament_g: entry.filament_g,
-          duration_s: entry.duration_min != null ? entry.duration_min * 60 : null,
-        },
-        settings.data,
-      )
-    : null;
 
   return (
     <li className="rounded-lg border border-border p-3">
@@ -395,8 +382,8 @@ function PrintRow({
           {entry.duration_min != null ? (
             <span className="text-muted-foreground">{entry.duration_min} min</span>
           ) : null}
-          {cost != null ? (
-            <span className="text-muted-foreground">Est. cost: {formatPrintCost(cost)}</span>
+          {entry.total_cost != null ? (
+            <span className="text-muted-foreground">Est. cost: {formatCost(entry.total_cost)}</span>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-3 text-xs">

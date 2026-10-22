@@ -41,6 +41,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 pytest_plugins = (
     "tests.storage_containers",
     "tests.printer_fixtures",
+    "tests.archive_fixtures",
     "tests.importer_fixtures",
     "tests.migration_helpers",
     "tests.auth_fixtures",

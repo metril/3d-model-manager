@@ -151,6 +151,7 @@ export interface PlateOut {
   index: number;
   prediction_s: number | null;
   weight_g: number | null;
+  est_cost: number | null;
   thumbnail_available: boolean;
   filaments: PlateFilamentOut[];
 }
@@ -541,8 +542,8 @@ export interface AppSettings {
   watch_interval_s: number;
   watch_stable_s: number;
   // R11-B item 14 (print cost estimate): currency-agnostic rates the
-  // frontend multiplies against a print's filament_g/duration_s
-  // (`@/lib/printCost`'s `estimatePrintCost`). Never interpreted server-side.
+  // server prices runs and plate estimates with (PrintEntry.total_cost,
+  // PlateOut.est_cost).
   filament_cost_per_kg: number;
   machine_cost_per_hour: number;
 }
@@ -666,7 +667,8 @@ export type PrintJobState =
 export interface PrintJobOut {
   id: number;
   printer_id: number;
-  file_id: number;
+  file_id: number | null;
+  origin: PrintJobOrigin;
   subtask_name: string | null;
   state: PrintJobState;
   progress_pct: number | null;
@@ -945,9 +947,37 @@ export interface PrintMaterialOut {
   color: string | null;
 }
 
+export type PrintJobOrigin = "app" | "external";
+export type ArchiveResult = "completed" | "failed" | "canceled" | "stopped";
+export type FetchState = "pending" | "done" | "missing" | "error";
+export type PrintQuality = "good" | "reject";
+export type PrintSource = "manual" | "printer" | "external";
+
+/** One per-tray estimated filament row on an archived run. */
+export interface EstFilament {
+  /** Slicer filament index. */
+  slot?: number | null;
+  /** Mapped AMS tray, when the job carried an ams_mapping. */
+  tray?: number | null;
+  type?: string | null;
+  color?: string | null;
+  grams?: number | null;
+  [key: string]: unknown;
+}
+
 export interface PrintEntry {
   id: number;
-  model_id: number;
+  model_id: number | null;
+  print_job_id: number | null;
+  source: PrintSource;
+  quality: PrintQuality | null;
+  failure_reason: string | null;
+  filament_cost: number | null;
+  machine_cost: number | null;
+  energy_kwh: number | null;
+  energy_cost: number | null;
+  total_cost: number | null;
+  created_by_user_id: number | null;
   printed_at: string;
   printer_name: string | null;
   filament: string | null;
@@ -993,6 +1023,36 @@ export interface PrintPatchIn {
   result?: PrintResult;
   duration_min?: number | null;
   notes?: string | null;
+  quality?: PrintQuality | null;
+  failure_reason?: string | null;
+}
+
+// -- print archive (backend/app/schemas/archives.py, P2) -------------------
+
+export interface ArchiveOut {
+  id: number;
+  print_job_id: number;
+  printer_id: number;
+  printer_name: string;
+  origin: PrintJobOrigin;
+  subtask_name: string | null;
+  model_id: number | null;
+  model_slug: string | null;
+  model_name: string | null;
+  revision_id: number | null;
+  result: ArchiveResult;
+  duration_s: number | null;
+  est_filament: EstFilament[] | null;
+  plate: number | null;
+  fetch_state: FetchState;
+  fetch_error: string | null;
+  has_thumbnail: boolean;
+  has_file: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  created_by_user_id: number | null;
+  run: PrintEntry | null;
 }
 
 // -- print queue (backend/app/schemas/queue.py, Branch 4 Task 1) -----------

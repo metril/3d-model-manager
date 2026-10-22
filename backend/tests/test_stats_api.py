@@ -16,8 +16,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.collections import FollowedCollection
-from app.models.enums import BlobFormat, BlobKind, CollectionSyncMode, ImportSite, PrintResult
+from app.models.enums import (
+    ArchiveFetchState,
+    ArchiveResult,
+    BlobFormat,
+    BlobKind,
+    CollectionSyncMode,
+    ImportSite,
+    PrinterKind,
+    PrintJobOrigin,
+    PrintJobState,
+    PrintResult,
+    PrintSource,
+)
 from app.models.library import Blob, File, Material, Model, Print, Revision, Tag
+from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.storage import StorageBackendRow
 from app.models.system import Job
 from app.services import stats as stats_service
@@ -248,3 +261,51 @@ async def test_stats_material_usage_grouped_by_material_and_filament_fallback(
 
     # the material-less, filament-less print is excluded from usage rows
     assert sum(row["prints"] for row in usage) == 3
+
+
+async def test_material_usage_includes_auto_runs(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    model = await _make_model(db_session, "Auto Usage Model")
+    printer = Printer(
+        name="p", kind=PrinterKind.BAMBU_LAN, host="10.0.0.9", serial="p", access_code_enc="x"
+    )
+    db_session.add(printer)
+    await db_session.flush()
+    job = PrintJob(
+        printer_id=printer.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="j",
+        state=PrintJobState.FINISHED,
+    )
+    db_session.add(job)
+    await db_session.flush()
+    db_session.add(
+        PrintArchive(
+            print_job_id=job.id,
+            model_id=model.id,
+            result=ArchiveResult.COMPLETED,
+            fetch_state=ArchiveFetchState.DONE,
+            est_filament=[
+                {"tray": 0, "type": "PLA", "grams": 60.0},
+                {"tray": 1, "type": "PETG", "grams": 40.0},
+            ],
+        )
+    )
+    db_session.add(Print(model_id=model.id, filament="PLA", filament_g=10.0))
+    db_session.add(
+        Print(
+            model_id=model.id,
+            print_job_id=job.id,
+            source=PrintSource.AUTO,
+            filament_g=50.0,
+            total_cost=2.5,
+        )
+    )
+    await db_session.commit()
+
+    body = (await authenticated_client.get("/api/stats")).json()
+    usage = {u["name"]: u for u in body["material_usage"]}
+    assert usage["PLA"]["grams"] == pytest.approx(40.0) and usage["PLA"]["prints"] == 2
+    assert usage["PETG"]["grams"] == pytest.approx(20.0) and usage["PETG"]["prints"] == 1
+    assert body["prints"]["cost_total"] == pytest.approx(2.5)

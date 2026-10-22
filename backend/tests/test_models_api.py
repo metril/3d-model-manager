@@ -1762,3 +1762,50 @@ async def test_patch_model_print_tips_roundtrip(authenticated_client: httpx.Asyn
 
     detail = await authenticated_client.get(f"/api/models/{created['slug']}")
     assert detail.json()["print_tips"] == "Use a brim, print slow."
+
+
+async def test_plate_est_cost(
+    authenticated_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    put = await authenticated_client.put(
+        "/api/settings/app",
+        json={
+            "printer_enabled": False,
+            "scan_interval_s": 0,
+            "collection_sync_interval_s": 0,
+            "watch_interval_s": 0,
+            "watch_stable_s": 10.0,
+            "filament_cost_per_kg": 20.0,
+            "machine_cost_per_hour": 1.5,
+        },
+    )
+    assert put.status_code == 200, put.text
+    created = await _create_model(authenticated_client, "Plate Cost Model")
+    model = await db_session.get(Model, created["id"])
+    revision = await db_session.get(Revision, model.current_revision_id)
+    sliced = await seed_file(
+        model,
+        revision,
+        "print.gcode.3mf",
+        b"sliced-bytes",
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+    db_session.add(
+        BlobMeta(
+            blob_hash=sliced.blob_hash,
+            plate_count=1,
+            raw={
+                "plates": [{"index": 1, "prediction_s": 7200, "weight_g": 250.0, "filaments": []}]
+            },
+        )
+    )
+    await db_session.commit()
+
+    body = (await authenticated_client.get(f"/api/revisions/{revision.id}")).json()
+    plate = next(f for f in body["files"] if f["rel_path"] == "print.gcode.3mf")["meta"]["plates"][
+        0
+    ]
+    assert plate["est_cost"] == 8.0

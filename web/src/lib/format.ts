@@ -95,3 +95,8 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
 
   return debounced;
 }
+
+/** Run cost, 2 decimals, no currency symbol; `--` when unknown. */
+export function formatCost(value: number | null | undefined): string {
+  return value == null ? "--" : value.toFixed(2);
+}

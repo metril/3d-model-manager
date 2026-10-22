@@ -12,6 +12,7 @@ the bambulabs_api client above -- see that module's docstring."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import ClassVar
 
 from app.models.enums import PrinterKind, PrintJobState
@@ -42,6 +43,19 @@ def _build_printer(conn: PrinterConnection):
     import bambulabs_api as bl
 
     return bl.Printer(conn.host, conn.access_code, conn.serial)
+
+
+FTP_TIMEOUT_S = 30
+
+
+def _build_ftp(conn: PrinterConnection):
+    """Construct the vendored FTPS client (lazy import -- flag-off safety).
+    Tests monkeypatch this to inject a stub."""
+    from bambulabs_api.ftp_client import PrinterFTPClient
+
+    client = PrinterFTPClient(conn.host, conn.access_code)
+    client.ftps.timeout = FTP_TIMEOUT_S  # ftplib.connect() honours the attribute
+    return client
 
 
 def _state_token(state) -> str | None:
@@ -244,6 +258,26 @@ class BambuLanAdapter(PrinterAdapter):
             ams_mapping=list(spec.ams_mapping),
             flow_calibration=spec.flow_cali,
         )
+
+    # -- files (FTPS) --------------------------------------------------
+    # The vendored client's connect_and_run swallows exceptions and returns
+    # None, so None means failure. Messages never include the access code.
+    def list_dir(self, path: str) -> list[str]:
+        res = _build_ftp(self.conn).list_directory(path)
+        if res is None:
+            raise OSError(f"FTPS list {path} failed")
+        names: list[str] = []
+        for line in res[1]:
+            parts = line.split(maxsplit=8)
+            if len(parts) >= 9 and parts[8] not in (".", ".."):
+                names.append(parts[8])
+        return names
+
+    def download_file(self, remote: str, dest: Path) -> None:
+        buf = _build_ftp(self.conn).download_file(remote)
+        if buf is None:
+            raise OSError(f"FTPS download {remote} failed")
+        Path(dest).write_bytes(buf.getvalue())
 
     # -- probe ---------------------------------------------------------
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:

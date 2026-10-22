@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, str_enum
-from app.models.enums import BlobFormat, BlobKind, PrintResult
+from app.models.enums import BlobFormat, BlobKind, PrintQuality, PrintResult, PrintSource
 
 if TYPE_CHECKING:
     # Only for static analysis / the `Mapped[...]` string annotations below
@@ -273,9 +273,25 @@ class Print(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    model_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=False, index=True
+    # NULL for an auto-archived run that could not be matched to a model.
+    model_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("models.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    print_job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_jobs.id", ondelete="SET NULL"), unique=True
+    )
+    source: Mapped[PrintSource] = mapped_column(
+        str_enum(PrintSource, "print_source"),
+        nullable=False,
+        server_default=text("'manual'"),
+    )
+    quality: Mapped[PrintQuality | None] = mapped_column(str_enum(PrintQuality, "print_quality"))
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    filament_cost: Mapped[float | None] = mapped_column(Float)
+    machine_cost: Mapped[float | None] = mapped_column(Float)
+    energy_kwh: Mapped[float | None] = mapped_column(Float)
+    energy_cost: Mapped[float | None] = mapped_column(Float)
+    total_cost: Mapped[float | None] = mapped_column(Float)
     printed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     printer_name: Mapped[str | None] = mapped_column(Text)
     filament: Mapped[str | None] = mapped_column(Text)

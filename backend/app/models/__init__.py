@@ -33,7 +33,7 @@ from app.models.library import (
     Tag,
     model_tags,
 )
-from app.models.printing import Printer, PrintJob
+from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.storage import FileLocation, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
@@ -60,6 +60,7 @@ __all__ = [
     "Print",
     "Printer",
     "PrinterAccess",
+    "PrintArchive",
     "PrintJob",
     "PrintQueueEntry",
     "RemoteCollectionCache",

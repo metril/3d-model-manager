@@ -28,6 +28,7 @@ class PrintsStats(BaseModel):
     failed: int
     filament_g_total: float
     duration_s_total: int
+    cost_total: float
 
 
 class RecentStats(BaseModel):
