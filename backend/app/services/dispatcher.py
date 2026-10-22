@@ -1,0 +1,434 @@
+"""The P6 slicer/dispatch plan's dispatcher (Task 7): every ``_dispatch_tick``
+worth of work -- eligibility, compatibility, fanout, copies-split, retry and
+reconcile -- in one place, driven by the beat task ``app.tasks.dispatch
+.dispatch_queue`` every ``DISPATCH_INTERVAL_S`` seconds.
+
+Entirely worker-side (SYNC world, ``app.tasks.base``), same reasoning as
+every other task module.
+
+**State machine** (``PrintQueueEntry.state``, ``app.models.library``):
+``waiting`` (has a recipe, not sliced yet) -> ``slicing`` (``slice_file``
+running) -> ``ready`` (has a ``sliced_file_id``, as-sliced items start here
+directly) -> ``dispatched`` (a ``PrintJob`` sent) -> ``done``/``failed``/
+``held``. ``eligible_queue_items`` is the ONE filter P7 (adds
+``review_state``) and P8 (adds ``printer_hold_reason`` -- already a slot
+here, always ``None`` in P6) extend; nothing else in this module should
+duplicate its WHERE clause.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+from redis import Redis
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.config import Settings
+from app.models.enums import Fanout, PrintJobState, QueueState
+from app.models.library import File, PrintQueueEntry
+from app.models.printing import Printer, PrintJob
+from app.models.processing import BlobMeta
+from app.models.slicing import PrintRecipe
+from app.schemas.printers import PrintRequest
+from app.services import spool_inventory as sinv
+from app.services.ams_match import FilamentNeed, TrayInfo
+from app.services.permissions import can_print_sync
+from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
+from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
+
+# 3 attempts total (slicing + dispatch share the one `attempts` counter) --
+# a sidecar-down slicer failure doesn't consume one (`app.tasks.slicing`'s
+# own `SlicerUnavailable` branch), but every dispatch-side failure does.
+QUEUE_MAX_ATTEMPTS = 3
+# |sliced-for nozzle - printer's reported nozzle| beyond this (mm) is a
+# compatibility rejection; skipped entirely when either side is unknown.
+NOZZLE_TOL_MM = 0.05
+# At most this many `waiting` items get handed to `slice_file.delay` per
+# tick -- slicing is CPU-heavy (its own `cpu` queue), so a long backlog
+# fills the worker pool gradually rather than all at once.
+SLICES_PER_TICK = 3
+
+
+@dataclass(frozen=True)
+class Candidate:
+    id: int
+    idle: bool
+
+
+@dataclass(frozen=True)
+class Needs:
+    """What a queued item's sliced plate (or, pre-slice, its recipe's
+    profiles -- not used in P6, reserved for a later plan) requires of the
+    printer it lands on."""
+
+    printer_model: str | None
+    nozzle_mm: float | None
+    filaments: list[FilamentNeed]
+
+
+def select_printers(
+    fanout: Fanout, n: int | None, candidates: Sequence[Candidate], copies: int
+) -> list[int]:
+    """``candidates`` = compatible + permitted printers in stable
+    (name, id) order; one copy per returned id."""
+    pool = list(candidates)
+    if fanout == Fanout.FIRST_N:
+        pool = pool[: max(1, n or 1)]
+    idle = [c.id for c in pool if c.idle]
+    if copies < 1 or not idle:
+        return []
+    if fanout == Fanout.SINGLE:
+        return idle[:1]
+    return idle[:copies]
+
+
+def compatibility_reason(printer: Printer, state: dict | None, need: Needs) -> str | None:
+    """``None`` means compatible. Checks, in order: sliced-for printer
+    model (substring, shared with ``build_plan``), nozzle size (skipped
+    when either side is unknown), then whether every sliced filament has
+    SOME compatible tray (``plan_mapping``'s per-filament status, rejecting
+    "type"/"none" -- a mere color mismatch, "color", is fine)."""
+    if not model_matches(need.printer_model, printer.model):
+        return f"sliced for {need.printer_model}"
+
+    printer_nozzle = (state or {}).get("nozzle_mm")
+    if (
+        need.nozzle_mm is not None
+        and printer_nozzle is not None
+        and abs(need.nozzle_mm - printer_nozzle) > NOZZLE_TOL_MM
+    ):
+        return f"nozzle mismatch: needs {need.nozzle_mm}mm, printer has {printer_nozzle}mm"
+
+    if need.filaments:
+        trays = [
+            TrayInfo(tray=t["slot"], type=t.get("tray_type"), color=t.get("color"))
+            for t in (state or {}).get("trays") or []
+        ]
+        matches, _, _ = plan_mapping(need.filaments, trays, None)
+        for m in matches:
+            if m.status in ("type", "none"):
+                return f"no compatible filament slot for filament {m.filament_id}"
+    return None
+
+
+def printer_hold_reason(client: Redis, printer_id: int) -> str | None:
+    """P8 slot: a printer-level hold (e.g. an operator pause) that keeps
+    the dispatcher off it regardless of idle/compatible. Always ``None``
+    in P6 -- P8 fills this in without touching any other call site."""
+    return None
+
+
+def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:
+    """THE single filter P7/P8 extend (module docstring). P6: a per-file
+    entry (``file_id`` set -- bare legacy entries never dispatch),
+    ``waiting``/``ready``, under the shared attempt cap, oldest position
+    first. P7 adds ``review_state IN (none, approved) AND hold_reason IS
+    NULL`` here ONLY; P8 consults ``printer_hold_reason`` per-printer
+    below, not here (a hold can clear without touching the item itself).
+    """
+    stmt = (
+        select(PrintQueueEntry)
+        .where(
+            PrintQueueEntry.file_id.is_not(None),
+            PrintQueueEntry.state.in_((QueueState.WAITING, QueueState.READY)),
+            PrintQueueEntry.attempts < QUEUE_MAX_ATTEMPTS,
+        )
+        .order_by(PrintQueueEntry.position)
+    )
+    return list(session.scalars(stmt).all())
+
+
+def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
+    item.attempts += 1
+    item.last_error = error
+    item.assigned_printer_id = None
+    item.print_job_id = None
+    item.state = QueueState.FAILED if item.attempts >= QUEUE_MAX_ATTEMPTS else QueueState.READY
+
+
+def _reconcile(session: Session, counts: dict) -> None:
+    """Step 1: a `dispatched` item whose job ended FAILED before it ever
+    started (`started_at IS NULL`) never got picked up by a running print
+    -- apply the retry rule now rather than leaving it stuck."""
+    items = session.scalars(
+        select(PrintQueueEntry).where(
+            PrintQueueEntry.state == QueueState.DISPATCHED,
+            PrintQueueEntry.print_job_id.is_not(None),
+        )
+    ).all()
+    for item in items:
+        job = session.get(PrintJob, item.print_job_id)
+        if job is not None and job.state == PrintJobState.FAILED and job.started_at is None:
+            _bump_attempt(item, job.printer_error or "send failed")
+            counts["retried"] += 1
+    session.commit()
+
+
+def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
+    """Step 2: a printer with a live app-origin job in flight, a non-idle
+    (or absent) Redis state, a P8 hold, or simply disabled -- never a
+    dispatch target this tick."""
+    busy: set[int] = set(
+        session.scalars(
+            select(PrintJob.printer_id).where(
+                PrintJob.state.in_(
+                    (PrintJobState.QUEUED, PrintJobState.UPLOADING, PrintJobState.STARTING)
+                )
+            )
+        ).all()
+    )
+    for p in session.scalars(select(Printer)).all():
+        if not p.enabled or printer_hold_reason(client, p.id) is not None:
+            busy.add(p.id)
+            continue
+        state = read_state_sync(client, p.id)
+        if (state or {}).get("gcode_state") not in DISPATCH_IDLE_STATES:
+            busy.add(p.id)
+    return busy
+
+
+def _needs_for_item(session: Session, item: PrintQueueEntry) -> Needs | None:
+    """``None`` means "not ready to evaluate yet" (no sliced file, or its
+    metadata hasn't been extracted) -- the caller leaves the item `ready`
+    and tries again next tick, same as a slow pipeline extraction step."""
+    if item.sliced_file_id is None:
+        return None
+    file = session.get(File, item.sliced_file_id)
+    if file is None:
+        return None
+    meta = session.get(BlobMeta, file.blob_hash)
+    if meta is None:
+        return None
+    plates = (meta.raw or {}).get("plates") or []
+    plate_no = item.plate if item.plate is not None else (plates[0]["index"] if plates else None)
+    plate = next((p for p in plates if p["index"] == plate_no), None)
+    filaments = (plate or {}).get("filaments") or []
+    needs = [
+        FilamentNeed(
+            filament_id=f["filament_id"] if f.get("filament_id") is not None else i + 1,
+            type=f.get("type"),
+            color=f.get("color"),
+            grams=f.get("used_g"),
+        )
+        for i, f in enumerate(filaments)
+    ]
+    return Needs(printer_model=meta.printer_model, nozzle_mm=meta.nozzle, filaments=needs)
+
+
+def _candidate_printers(
+    session: Session,
+    client: Redis,
+    item: PrintQueueEntry,
+    recipe: PrintRecipe | None,
+    need: Needs,
+    busy: set[int],
+    used_this_tick: set[int],
+) -> tuple[list[Candidate], bool, str | None]:
+    """Returns ``(candidates, had_any_permitted, reason)``. An empty
+    candidate list with ``had_any_permitted=False`` means "hold" (no
+    printer this item's creator may send to at all -- revoked access, or a
+    null/inactive creator); with ``had_any_permitted=True`` it means every
+    permitted printer failed ``compatibility_reason`` (``reason`` is the
+    last one seen) -- the item stays `ready` for a future retry instead.
+    """
+    stmt = select(Printer).order_by(Printer.name, Printer.id)
+    if item.printer_id is not None:
+        stmt = stmt.where(Printer.id == item.printer_id)
+    elif recipe is not None and recipe.target_printer_id is not None:
+        stmt = stmt.where(Printer.id == recipe.target_printer_id)
+    printers = list(session.scalars(stmt).all())
+    if (
+        item.printer_id is None
+        and recipe is not None
+        and recipe.target_printer_id is None
+        and recipe.target_printer_model is not None
+    ):
+        printers = [p for p in printers if model_matches(recipe.target_printer_model, p.model)]
+
+    permitted = [p for p in printers if can_print_sync(session, item.created_by_user_id, p.id)]
+    if not permitted:
+        return [], False, None
+
+    reason: str | None = None
+    compatible: list[Printer] = []
+    for p in permitted:
+        state = read_state_sync(client, p.id)
+        r = compatibility_reason(p, state, need)
+        if r is None:
+            compatible.append(p)
+        else:
+            reason = r
+    if not compatible:
+        return [], True, reason
+
+    candidates = [
+        Candidate(id=p.id, idle=(p.id not in busy and p.id not in used_this_tick))
+        for p in compatible
+    ]
+    return candidates, True, None
+
+
+def _clone_entry(
+    session: Session, item: PrintQueueEntry, *, copies: int, state: QueueState
+) -> PrintQueueEntry:
+    max_position = session.scalar(select(func.max(PrintQueueEntry.position))) or 0
+    clone = PrintQueueEntry(
+        model_id=item.model_id,
+        file_id=item.file_id,
+        sliced_file_id=item.sliced_file_id,
+        printer_id=item.printer_id,
+        recipe_id=item.recipe_id,
+        plate=item.plate,
+        copies=copies,
+        state=state,
+        position=max_position + 1,
+        ams_mapping=item.ams_mapping,
+        print_options=item.print_options,
+        created_by_user_id=item.created_by_user_id,
+    )
+    session.add(clone)
+    session.flush()
+    return clone
+
+
+def _resolve_mapping(
+    client: Redis, item: PrintQueueEntry, printer_id: int, need: Needs
+) -> tuple[list[int], bool]:
+    """Stored ``ams_mapping`` if we're sending to the item's ORIGINALLY
+    requested printer (the one it was set up against), else a fresh
+    ``plan_mapping`` against the printer the dispatcher actually picked."""
+    if item.printer_id == printer_id and item.ams_mapping:
+        mapping = list(item.ams_mapping)
+    else:
+        state = read_state_sync(client, printer_id)
+        trays = [
+            TrayInfo(tray=t["slot"], type=t.get("tray_type"), color=t.get("color"))
+            for t in (state or {}).get("trays") or []
+        ]
+        _, mapping, _ = plan_mapping(need.filaments, trays, None)
+    use_ams = any(v not in (sinv.UNMAPPED, sinv.EXTERNAL_SLOT) for v in mapping)
+    return mapping, use_ams
+
+
+def _send_one(
+    session: Session,
+    settings: Settings,
+    client: Redis,
+    target: PrintQueueEntry,
+    printer_id: int,
+    mapping: list[int],
+    use_ams: bool,
+) -> None:
+    target.copies = 1
+    opts = target.print_options or {}
+    req = PrintRequest(
+        file_id=target.sliced_file_id,
+        plate=target.plate or 1,
+        use_ams=use_ams,
+        ams_mapping=mapping,
+        bed_levelling=opts.get("bed_levelling", True),
+        flow_cali=opts.get("flow_cali", True),
+        timelapse=opts.get("timelapse", False),
+    )
+    try:
+        job = create_job_sync(session, settings, client, printer_id, req, target.created_by_user_id)
+        target.state = QueueState.DISPATCHED
+        target.assigned_printer_id = printer_id
+        target.print_job_id = job.id
+    except (ValueError, NotSendableError) as exc:
+        _bump_attempt(target, str(exc))
+    session.commit()
+
+
+def _dispatch(
+    session: Session,
+    settings: Settings,
+    client: Redis,
+    item: PrintQueueEntry,
+    selected: list[int],
+    fanout: Fanout,
+    need: Needs,
+) -> None:
+    """Copies-split (module docstring): the "sent row" (``item`` itself,
+    mutated in place) carries exactly 1 copy on ``selected[0]``; any FURTHER
+    selected printers (spread/first_n landing on more than one idle
+    printer this tick) each get their own extra dispatched clone; whatever
+    copies are left over (not enough idle candidates this tick) become ONE
+    more `ready` clone -- pinned back to the SAME printer when ``fanout``
+    is SINGLE (it always serializes copies onto one printer), left
+    unpinned otherwise so the next tick can spread further.
+    """
+    original_copies = item.copies
+    primary = selected[0]
+    mapping, use_ams = _resolve_mapping(client, item, primary, need)
+    _send_one(session, settings, client, item, primary, mapping, use_ams)
+
+    for printer_id in selected[1:]:
+        clone = _clone_entry(session, item, copies=1, state=QueueState.READY)
+        m, ua = _resolve_mapping(client, item, printer_id, need)
+        _send_one(session, settings, client, clone, printer_id, m, ua)
+
+    remaining = original_copies - len(selected)
+    if remaining > 0:
+        rest = _clone_entry(session, item, copies=remaining, state=QueueState.READY)
+        if fanout == Fanout.SINGLE:
+            rest.printer_id = primary
+            session.commit()
+
+
+def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
+    counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0}
+    _reconcile(session, counts)
+    busy = _busy_printer_ids(session, client)
+    used_this_tick: set[int] = set()
+
+    for item in eligible_queue_items(session):
+        if item.state == QueueState.WAITING:
+            if (
+                item.recipe_id is not None
+                and item.sliced_file_id is None
+                and counts["sliced"] < SLICES_PER_TICK
+            ):
+                from app.tasks.slicing import slice_file
+
+                item.state = QueueState.SLICING
+                session.commit()
+                slice_file.delay(item.id)
+                counts["sliced"] += 1
+            continue
+
+        if item.state != QueueState.READY:
+            continue
+
+        need = _needs_for_item(session, item)
+        if need is None:
+            continue
+
+        recipe = session.get(PrintRecipe, item.recipe_id) if item.recipe_id is not None else None
+        candidates, had_permitted, reason = _candidate_printers(
+            session, client, item, recipe, need, busy, used_this_tick
+        )
+        if not had_permitted:
+            item.state = QueueState.HELD
+            item.last_error = "no printer access for this item's creator"
+            session.commit()
+            counts["held"] += 1
+            continue
+        if not candidates:
+            item.last_error = reason
+            session.commit()
+            continue
+
+        fanout = recipe.fanout if recipe is not None else Fanout.SINGLE
+        n = recipe.n if recipe is not None else None
+        selected = select_printers(fanout, n, candidates, item.copies)
+        if not selected:
+            continue
+
+        _dispatch(session, settings, client, item, selected, fanout, need)
+        used_this_tick.update(selected)
+        counts["sent"] += 1
+
+    return counts

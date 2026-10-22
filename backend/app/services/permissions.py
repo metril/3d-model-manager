@@ -10,6 +10,7 @@ from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.models.auth import Group, GroupMember, PrinterAccess, User
 from app.models.enums import UserRole
@@ -120,3 +121,39 @@ async def load_grants(
             )
         ).all()
     return groups, effective_perms(user, groups), merge_printer_acl(rows)
+
+
+def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bool:
+    """Worker-side (SYNC world) twin of ``load_grants`` + ``printer_perms``
+    collapsed to the one question the P6 dispatcher needs: may ``user_id``
+    send to ``printer_id`` right now? A ``None``/inactive/deleted user
+    (e.g. a queue entry whose creator was deactivated or hard-deleted after
+    enqueue) always answers False -- the dispatcher's own ruling is that
+    this holds the item rather than silently dropping its owner check.
+    """
+    if user_id is None:
+        return False
+    user = session.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    groups = list(
+        session.scalars(
+            select(Group)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(GroupMember.user_id == user.id)
+            .order_by(Group.id)
+        ).all()
+    )
+    perms = effective_perms(user, groups)
+    if "admin" in perms:
+        return True
+    if "printers:print" not in perms or not groups:
+        return False
+    rows = session.scalars(
+        select(PrinterAccess).where(
+            PrinterAccess.group_id.in_([g.id for g in groups]),
+            PrinterAccess.printer_id == printer_id,
+        )
+    ).all()
+    acl = merge_printer_acl(rows)
+    return printer_id in acl and acl[printer_id].can_print

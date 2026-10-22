@@ -160,6 +160,7 @@ class FakePrinterAdapter(PrinterAdapter):
             subtask_name=merged.get("subtask_name"),
             wifi_signal=merged.get("wifi_signal"),
             trays=merged.get("trays") or [],
+            nozzle_mm=merged.get("nozzle_mm"),
         )
 
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None:

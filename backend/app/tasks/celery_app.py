@@ -61,6 +61,7 @@ celery_app.conf.update(
         "app.tasks.slicer_watch",
         "app.tasks.scheduler",
         "app.tasks.slicing",
+        "app.tasks.dispatch",
     ),
 )
 
@@ -91,4 +92,15 @@ celery_app.conf.beat_schedule = {
 celery_app.conf.beat_schedule["archive-sweep"] = {
     "task": "app.tasks.archive.archive_sweep",
     "schedule": 300,
+}
+
+# Additive: P6 Task 7's slice-and-dispatch queue, ticked independently of
+# the scan/sync/watch cadence above (`dispatch.dispatch_queue` is its own
+# no-op-when-disabled + lock-guarded task, same posture as `scheduler
+# .dispatch_scheduled`).
+from app.tasks import dispatch  # noqa: E402
+
+celery_app.conf.beat_schedule["dispatch-queue"] = {
+    "task": "app.tasks.dispatch.dispatch_queue",
+    "schedule": dispatch.DISPATCH_INTERVAL_S,
 }
