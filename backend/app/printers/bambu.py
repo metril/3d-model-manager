@@ -13,7 +13,9 @@ the bambulabs_api client above -- see that module's docstring."""
 from __future__ import annotations
 
 import json
+import re
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
 
@@ -26,6 +28,7 @@ from app.printers.base import (
     PrinterPublicState,
     PrintSpec,
     ProbeResult,
+    RemoteFile,
     ReportHandler,
 )
 from app.printers.registry import register_adapter
@@ -98,6 +101,71 @@ def _build_ftp(conn: PrinterConnection):
     client = PrinterFTPClient(conn.host, conn.access_code)
     client.ftps.timeout = FTP_TIMEOUT_S  # ftplib.connect() honours the attribute
     return client
+
+
+_MONTHS = {
+    name: i + 1
+    for i, name in enumerate(
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    )
+}
+# Fallback when the LIST columns don't parse: the A1's timelapse/snapshot
+# filenames stamp their own capture time, e.g. "ipcam_2026-10-22_14-03-05.mp4".
+_NAME_STAMP = re.compile(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})")
+
+
+def parse_list_line(line: str, now: datetime) -> RemoteFile | None:
+    """Parse one Unix-style FTP ``LIST`` line (same column layout
+    ``list_dir`` already relies on: ``perms links user group size month day
+    time-or-year name``). ``month day time`` omits the year (e.g. ``Oct 22
+    14:03``) -- ``now``'s year is assumed, rolled back one year if that
+    would land in the future (an FTP LIST server quirk: once a file is >6
+    months old some servers switch to printing the year instead, e.g.
+    ``Dec 31  2025``). Falls back to a timestamp embedded in the filename
+    itself when the columns don't parse. Returns ``None`` for unparseable
+    lines (too few columns, ``.``/``..``)."""
+    parts = line.split(maxsplit=8)
+    if len(parts) < 9:
+        return None
+    name = parts[8]
+    if name in (".", ".."):
+        return None
+    try:
+        size = int(parts[4])
+    except ValueError:
+        size = None
+    mtime: datetime | None = None
+    month = _MONTHS.get(parts[5])
+    if month is not None:
+        try:
+            day = int(parts[6])
+        except ValueError:
+            day = None
+        token = parts[7]
+        if day is not None:
+            if ":" in token:
+                hh, _, mm = token.partition(":")
+                try:
+                    candidate = datetime(now.year, month, day, int(hh), int(mm), tzinfo=UTC)
+                except ValueError:
+                    candidate = None
+                if candidate is not None and candidate > now + timedelta(days=1):
+                    candidate = candidate.replace(year=candidate.year - 1)
+                mtime = candidate
+            else:
+                try:
+                    mtime = datetime(int(token), month, day, tzinfo=UTC)
+                except ValueError:
+                    mtime = None
+    if mtime is None:
+        m = _NAME_STAMP.search(name)
+        if m:
+            y, mo, d, h, mi, s = (int(g) for g in m.groups())
+            try:
+                mtime = datetime(y, mo, d, h, mi, s, tzinfo=UTC)
+            except ValueError:
+                mtime = None
+    return RemoteFile(name=name, size=size, mtime=mtime)
 
 
 def _state_token(state) -> str | None:
@@ -315,6 +383,18 @@ class BambuLanAdapter(PrinterAdapter):
         if buf is None:
             raise OSError(f"FTPS download {remote} failed")
         Path(dest).write_bytes(buf.getvalue())
+
+    def list_files(self, path: str) -> list[RemoteFile]:
+        res = _build_ftp(self.conn).list_directory(path)
+        if res is None:
+            raise OSError(f"FTPS list {path} failed")
+        now = datetime.now(UTC)
+        files: list[RemoteFile] = []
+        for line in res[1]:
+            rf = parse_list_line(line, now)
+            if rf is not None:
+                files.append(rf)
+        return files
 
     # -- camera (P4 camera plan) ---------------------------------------
     def open_camera(self, stop: threading.Event) -> CameraSource:

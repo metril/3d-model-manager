@@ -14,6 +14,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, Protocol
 
@@ -60,6 +61,17 @@ class PrintSpec:
     bed_levelling: bool = True
     flow_cali: bool = True
     timelapse: bool = False
+
+
+@dataclass(frozen=True)
+class RemoteFile:
+    """One entry from an FTPS directory listing, with size/mtime (P4 camera
+    plan Task 7: timelapse fetch needs to pick the newest candidate).
+    ``mtime`` is UTC; ``None`` when a listing line couldn't be parsed."""
+
+    name: str
+    size: int | None
+    mtime: datetime | None
 
 
 @dataclass(frozen=True)
@@ -137,6 +149,13 @@ class PrinterAdapter(ABC):
 
     def download_file(self, remote: str, dest: Path) -> None:
         """Fetch ``remote`` to ``dest``; raises ``OSError`` on failure."""
+        raise NotImplementedError
+
+    def list_files(self, path: str) -> list[RemoteFile]:
+        """Directory listing with size/mtime (P4 camera plan Task 7: picking
+        the newest timelapse candidate needs more than ``list_dir``'s bare
+        names). Adapters without this detail inherit the default and raise
+        ``NotImplementedError``."""
         raise NotImplementedError
 
     def open_camera(self, stop: threading.Event) -> CameraSource:

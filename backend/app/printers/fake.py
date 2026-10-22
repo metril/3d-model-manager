@@ -8,6 +8,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 from app.models.enums import PrinterKind, PrintJobState
@@ -18,6 +19,7 @@ from app.printers.base import (
     PrinterPublicState,
     PrintSpec,
     ProbeResult,
+    RemoteFile,
     ReportHandler,
 )
 
@@ -81,6 +83,7 @@ class FakePrinterAdapter(PrinterAdapter):
         self.uploaded: list[PrintSpec] = []
         self._handler: ReportHandler | None = None
         self.files: dict[str, bytes] = {}
+        self.file_mtimes: dict[str, datetime] = {}
         self.download_errors = 0
         self.downloads: list[str] = []
         self.camera: FakeCamera | None = None
@@ -97,6 +100,20 @@ class FakePrinterAdapter(PrinterAdapter):
         if remote not in self.files:
             raise FileNotFoundError(remote)
         Path(dest).write_bytes(self.files[remote])
+
+    def list_files(self, path: str) -> list[RemoteFile]:
+        parent = path.rstrip("/") or "/"
+        out: list[RemoteFile] = []
+        for key, data in self.files.items():
+            if (key.rsplit("/", 1)[0] or "/") == parent:
+                out.append(
+                    RemoteFile(
+                        name=key.rsplit("/", 1)[1],
+                        size=len(data),
+                        mtime=self.file_mtimes.get(key),
+                    )
+                )
+        return out
 
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:
         return self.probe_result

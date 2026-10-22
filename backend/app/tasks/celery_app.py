@@ -38,6 +38,10 @@ celery_app.conf.update(
     # always match the catch-all first and land on `io`.
     task_routes={
         "app.tasks.pipeline.*": {"queue": "cpu"},
+        # P4 camera plan Task 7: ffmpeg transcode is CPU-heavy like pipeline's
+        # extraction/render steps, same reason it needs its own entry ahead
+        # of the general catch-all below.
+        "app.tasks.media.*": {"queue": "cpu"},
         "app.tasks.*": {"queue": "io"},
     },
     imports=(
@@ -48,6 +52,7 @@ celery_app.conf.update(
         "app.tasks.relocate",
         "app.tasks.printing",
         "app.tasks.archive",
+        "app.tasks.media",
         "app.tasks.importing",
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
