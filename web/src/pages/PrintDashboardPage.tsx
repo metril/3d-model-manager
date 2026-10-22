@@ -8,11 +8,17 @@
  * Grid density: 1 printer stays single-column (a 2-up grid for one card
  * looks broken), 2 goes `md:grid-cols-2`, 3+ goes `lg:grid-cols-3` --
  * mirrors the gallery's own breakpoint conventions.
+ *
+ * P4 Task 9: each card's `camera` slot gets a live `CameraTile` for
+ * `can_control` items only -- the token mint requires that permission, so
+ * a viewer without it keeps the plain placeholder instead of a tile that
+ * would just sit offline.
  */
 import type { ReactNode } from "react";
 
 import { ApiError } from "@/api/client";
 import { usePrintersOverview } from "@/api/printers";
+import { CameraTile } from "@/components/print/CameraTile";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { UpNextList } from "@/components/print/UpNextList";
@@ -75,7 +81,15 @@ export function PrintDashboardPage() {
       <div className="flex flex-col gap-6 xl:flex-row">
         <div className={`flex-1 ${gridClassName(printers.length)}`}>
           {printers.map((item) => (
-            <PrinterCard key={item.printer.id} item={item} />
+            <PrinterCard
+              key={item.printer.id}
+              item={item}
+              camera={
+                item.can_control ? (
+                  <CameraTile printerId={item.printer.id} online={item.status.online} />
+                ) : undefined
+              }
+            />
           ))}
         </div>
 

@@ -54,3 +54,7 @@ export function usePatchRun() {
 
 export const archiveThumbnailUrl = (id: number): string => `/api/archives/${id}/thumbnail`;
 export const archiveFileUrl = (id: number): string => `/api/archives/${id}/file`;
+// P4 camera plan Task 9: the run's own captured snapshot/timelapse, as
+// distinct from `archiveThumbnailUrl` (the sliced-plate thumbnail).
+export const archiveSnapshotUrl = (id: number): string => `/api/archives/${id}/snapshot`;
+export const archiveTimelapseUrl = (id: number): string => `/api/archives/${id}/timelapse`;
