@@ -198,6 +198,45 @@ class PrintQuality(StrEnum):
     REJECT = "reject"
 
 
+class ProfileKind(StrEnum):
+    """Which role a slicer profile fills (P6 ``slicer_profiles.kind``):
+    machine ("printer"), print settings ("process"), or filament."""
+
+    PRINTER = "printer"
+    PROCESS = "process"
+    FILAMENT = "filament"
+
+
+class ProfileSource(StrEnum):
+    """How a ``slicer_profiles`` row came to exist (P6): parsed from an
+    imported bundle/sidecar (default), or hand-entered via the API."""
+
+    IMPORT = "import"
+    MANUAL = "manual"
+
+
+class Fanout(StrEnum):
+    """How a ``print_recipes`` row spreads copies across eligible printers
+    (P6 dispatcher ``select_printers``)."""
+
+    SINGLE = "single"
+    SPREAD = "spread"
+    FIRST_N = "first_n"
+
+
+class QueueState(StrEnum):
+    """Lifecycle of a ``print_queue`` entry through the P6 slice-and-dispatch
+    pipeline, from enqueue to a finished print."""
+
+    WAITING = "waiting"
+    SLICING = "slicing"
+    READY = "ready"
+    DISPATCHED = "dispatched"
+    HELD = "held"
+    FAILED = "failed"
+    DONE = "done"
+
+
 class SpoolUsageSource(StrEnum):
     """How a ``spool_usage`` row's grams were determined (P5 spool tray
     plan): parsed from a sliced 3MF, inferred from an AMS weight delta, or
