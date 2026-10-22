@@ -79,6 +79,12 @@ class AppConfig(BaseModel):
     # (`TDMM_SLICE_TIMEOUT_S`) -- same not-yet-on-the-Settings-UI posture as
     # `slicer_url` above.
     slice_timeout_s: int = 600
+    # P7 review/billing plan: master off switch for the whole cost-center/
+    # ledger/review feature. Off by default -- no reservation/charge rows
+    # get created and the review gate never applies -- same no-env-backing,
+    # literal-default posture as `filament_cost_per_kg`/`machine_cost_per_hour`
+    # above (a later P7 task adds the `PUT /settings/app` schema wiring).
+    billing_enabled: bool = False
 
 
 def _env_config(settings: Settings) -> AppConfig:
