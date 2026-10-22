@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -47,6 +47,35 @@ async def _ordered_entries(db: AsyncSession, limit: int | None = None) -> list[P
     stmt = select(PrintQueueEntry).order_by(PrintQueueEntry.position)
     if limit is not None:
         stmt = stmt.limit(limit)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _up_next_entries(
+    db: AsyncSession, printer_ids: list[int], limit_per_printer: int
+) -> list[PrintQueueEntry]:
+    """P6 Task 8: up to ``limit_per_printer`` non-terminal entries PER
+    TARGET, in one query regardless of how many printers are visible --
+    a ``row_number()`` window partitioned by each entry's target printer
+    (``printer_id``, falling back to ``assigned_printer_id`` once the
+    dispatcher has picked one; NULL when neither is set, which the window
+    function groups into a single shared "unassigned" partition). The
+    caller splits the flat result back into per-printer/unassigned buckets
+    by inspecting each ``QueueEntryOut``'s ``printer_id``/
+    ``assigned_printer_id`` -- cheap in Python, and avoids N extra queries.
+    """
+    target = func.coalesce(PrintQueueEntry.printer_id, PrintQueueEntry.assigned_printer_id)
+    rn = func.row_number().over(partition_by=target, order_by=PrintQueueEntry.position)
+    inner = (
+        select(PrintQueueEntry.id, rn.label("rn"))
+        .where(PrintQueueEntry.state != QueueState.DONE)
+        .where(or_(target.is_(None), target.in_(printer_ids)))
+    ).subquery()
+    ranked_ids = select(inner.c.id).where(inner.c.rn <= limit_per_printer)
+    stmt = (
+        select(PrintQueueEntry)
+        .where(PrintQueueEntry.id.in_(ranked_ids))
+        .order_by(PrintQueueEntry.position)
+    )
     return list((await db.execute(stmt)).scalars().all())
 
 
@@ -138,13 +167,26 @@ async def list_queue(
     *,
     include_done: bool = False,
     limit: int | None = None,
+    printer_ids: list[int] | None = None,
+    limit_per_printer: int | None = None,
 ) -> list[QueueEntryOut]:
     """Visibility: a non-admin only sees entries with no specific printer
     target (``printer_id is None`` -- still eligible for any compatible
     printer) or one in their own ACL (``visible_printer_ids``); an admin
     (or no ``ctx`` -- internal callers) sees everything. ``include_done``
     additionally hides (default) or shows terminal `done` entries.
+
+    ``printer_ids``/``limit_per_printer`` (P6 Task 8) switch to the
+    per-target "up next" shape used by the printers overview: up to
+    ``limit_per_printer`` non-terminal entries per printer in
+    ``printer_ids``, plus up to ``limit_per_printer`` unassigned ones, all
+    via ``_up_next_entries``'s single windowed query. Mutually exclusive
+    with ``limit``/``include_done``/``ctx`` filtering above.
     """
+    if printer_ids is not None and limit_per_printer is not None:
+        entries = await _up_next_entries(db, printer_ids, limit_per_printer)
+        return await _to_out(db, settings, entries)
+
     entries = await _ordered_entries(db, limit)
     if ctx is not None:
         visible = visible_printer_ids(ctx)
