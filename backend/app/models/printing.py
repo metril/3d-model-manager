@@ -5,6 +5,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    CHAR,
     BigInteger,
     Boolean,
     Float,
@@ -14,13 +15,20 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, str_enum
-from app.models.enums import PrinterKind, PrintJobState
+from app.models.enums import (
+    ArchiveFetchState,
+    ArchiveResult,
+    PrinterKind,
+    PrintJobOrigin,
+    PrintJobState,
+)
 
 
 class Printer(Base):
@@ -61,7 +69,14 @@ class PrintJob(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     printer_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("printers.id"), nullable=False)
-    file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("files.id"), nullable=False)
+    # NULL for an `external` job (a print the printer started on its own).
+    file_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("files.id"), nullable=True)
+    origin: Mapped[PrintJobOrigin] = mapped_column(
+        str_enum(PrintJobOrigin, "print_job_origin"),
+        nullable=False,
+        server_default=text("'app'"),
+    )
+    plate: Mapped[int | None] = mapped_column(Integer)
     subtask_name: Mapped[str | None] = mapped_column(String)
     state: Mapped[PrintJobState] = mapped_column(
         str_enum(PrintJobState, "print_job_state"), nullable=False, index=True
@@ -78,3 +93,51 @@ class PrintJob(Base):
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class PrintArchive(Base):
+    """The archived record of one finished print job (P2): artifact blobs
+    pulled off the printer plus run metadata. One row per job."""
+
+    __tablename__ = "print_archives"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    print_job_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("print_jobs.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    model_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("models.id", ondelete="SET NULL"), index=True
+    )
+    revision_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("revisions.id", ondelete="SET NULL")
+    )
+    archive_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    thumbnail_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    snapshot_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    timelapse_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    result: Mapped[ArchiveResult] = mapped_column(
+        str_enum(ArchiveResult, "archive_result"), nullable=False, index=True
+    )
+    duration_s: Mapped[int | None] = mapped_column(Integer)
+    # [{tray, type, color, grams, meters}]
+    est_filament: Mapped[list | None] = mapped_column(JSONB)
+    plate: Mapped[int | None] = mapped_column(Integer)
+    slicer_meta: Mapped[dict | None] = mapped_column(JSONB)
+    fetch_state: Mapped[ArchiveFetchState] = mapped_column(
+        str_enum(ArchiveFetchState, "archive_fetch_state"),
+        nullable=False,
+        server_default=text("'pending'"),
+    )
+    fetch_error: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
