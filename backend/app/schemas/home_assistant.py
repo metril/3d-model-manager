@@ -83,7 +83,7 @@ class HaSettingsOut(BaseModel):
     ha_url: str | None = None
     has_token: bool = False
     pull_status: dict | None = None
-    bridge_status: str | None = None
+    bridge_status: dict | None = None
 
 
 class HaSettingsIn(BaseModel):

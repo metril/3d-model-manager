@@ -1,19 +1,29 @@
 """Thin REST client for Home Assistant's `/api/` surface (P8 Task 4). Bearer
 token auth, 5s timeout. Every raised exception carries a fixed, static
 message -- never `str(exc)`/the request/response object, which could carry
-the `Authorization` header -- mirroring the P2 access-code logging rule
-(see `test_ha_token_never_logged`).
+the `Authorization` header or the broker URL -- mirroring the P2
+access-code logging rule (see `test_ha_token_never_logged`). Every non-2xx
+response except 404 (treated as "entity doesn't exist", not a failure) --
+and any malformed-JSON body -- is folded into the same `HaUnreachable`
+"fail open" path, so callers never need to handle HA's full status-code
+space. The response body is capped at `_MAX_BODY_BYTES` before anything
+touches it, so a misbehaving/huge response can't blow up memory.
 """
 
 from __future__ import annotations
 
+import json
+
 import httpx
+
+_MAX_BODY_BYTES = 64 * 1024
 
 
 class HaUnreachable(Exception):
-    """Home Assistant could not be reached at all (connection/timeout), or
-    responded with an auth failure or server error. Callers (`poll_once`)
-    treat this as "fail open": clear alerts, leave the queue running."""
+    """Home Assistant could not be reached at all (connection/timeout),
+    responded with any non-2xx status other than 404, or sent a body that
+    didn't parse as JSON. Callers (`poll_once`) treat this as "fail open":
+    clear alerts, leave the queue running."""
 
 
 class HaClient:
@@ -30,20 +40,17 @@ class HaClient:
     def ping(self) -> str:
         """GET /api/ -- HA's root endpoint. Returns the `message` field
         (`"API running."` on a healthy instance)."""
-        response = self._get("/api/")
-        try:
-            data = response.json()
-        except ValueError:
-            return ""
+        data = self._json(self._get("/api/"))
         return str(data.get("message", "")) if isinstance(data, dict) else ""
 
     def state(self, entity_id: str) -> dict | None:
         """GET /api/states/<entity_id>. `None` for an unknown entity (404);
-        a transport failure, a 401, or any 5xx raises `HaUnreachable`."""
+        any other non-2xx status, a transport failure, or a malformed body
+        raises `HaUnreachable`."""
         response = self._get(f"/api/states/{entity_id}")
         if response.status_code == 404:
             return None
-        return response.json()
+        return self._json(response)
 
     def _get(self, path: str) -> httpx.Response:
         try:
@@ -52,7 +59,14 @@ class HaClient:
             raise HaUnreachable("could not reach home assistant") from exc
         if response.status_code == 404:
             return response
-        if response.status_code == 401 or response.status_code >= 500:
+        if not (200 <= response.status_code < 300):
             raise HaUnreachable(f"home assistant returned {response.status_code}") from None
-        response.raise_for_status()
         return response
+
+    @staticmethod
+    def _json(response: httpx.Response) -> dict | None:
+        body = response.content[:_MAX_BODY_BYTES]
+        try:
+            return json.loads(body)
+        except ValueError as exc:
+            raise HaUnreachable("home assistant returned a malformed body") from exc

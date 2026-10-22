@@ -99,7 +99,10 @@ async def get_ha_settings(
     if pull_raw:
         with contextlib.suppress(ValueError, TypeError):
             pull_status = json.loads(pull_raw)
-    bridge_status = bridge_raw.decode() if isinstance(bridge_raw, bytes) else bridge_raw
+    bridge_status = None
+    if bridge_raw:
+        with contextlib.suppress(ValueError, TypeError):
+            bridge_status = json.loads(bridge_raw)
 
     return HaSettingsOut(
         ha_mqtt_url=config.ha_mqtt_url,

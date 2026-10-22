@@ -56,6 +56,7 @@ CAMERA_INTERVAL_S = 30.0
 COMMAND_FILTER = "tdmm/+/command"
 PUBLISHED_HASH_KEY = "ha:published"
 BRIDGE_STATUS_REDIS_KEY = "ha:bridge:status"
+BRIDGE_STATUS_TTL_S = 30
 JOIN_TIMEOUT_S = 3.0
 _QUEUE_ACTIVE_STATES = (QueueState.WAITING, QueueState.SLICING, QueueState.READY)
 
@@ -169,6 +170,7 @@ class HaBridge:
         self._rate_gate = RateGate(clock=clock)
         self._availability: dict[int, bool] = {}
         self._camera_last_pub: dict[int, float] = {}
+        self._bridge_connected = False
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -215,6 +217,17 @@ class HaBridge:
             client.loop_stop()
         with contextlib.suppress(Exception):
             client.disconnect()
+        self._set_bridge_status(False, "stopped")
+
+    def _set_bridge_status(self, connected: bool, error: str | None) -> None:
+        """Write ``ha:bridge:status`` as JSON ``{connected, error, at}``
+        with a 30s TTL -- a stale/crashed bridge's status goes stale (fails
+        open to "unknown") instead of lying "connected" forever. Refreshed
+        on every tick while connected, and on connect/disconnect."""
+        self._bridge_connected = connected
+        payload = json.dumps({"connected": connected, "error": error, "at": time.time()})
+        with contextlib.suppress(Exception):
+            self.r.set(BRIDGE_STATUS_REDIS_KEY, payload, ex=BRIDGE_STATUS_TTL_S)
 
     # -- one loop body -------------------------------------------------
 
@@ -226,6 +239,9 @@ class HaBridge:
                 self._printers = _load_printers(session)
             if self._config is not None:
                 self._diff_published()
+
+        if self._bridge_connected:
+            self._set_bridge_status(True, None)
 
         if now >= self._next_config_read:
             self._next_config_read = now + self.config_every_s
@@ -276,6 +292,7 @@ class HaBridge:
         client.will_set(BRIDGE_STATUS, "offline", qos=1, retain=True)
         client.reconnect_delay_set(min_delay=1, max_delay=30)
         client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
         if config.ha_mqtt_user:
             client.username_pw_set(config.ha_mqtt_user, config.ha_mqtt_password)
@@ -291,6 +308,7 @@ class HaBridge:
     def _on_connect(self, client, userdata, flags, rc, properties=None) -> None:
         if rc != 0:
             log.warning("ha_bridge: broker connect failed, rc=%r", rc)
+            self._set_bridge_status(False, f"connect failed: rc={rc!r}")
             return
         try:
             client.publish(BRIDGE_STATUS, "online", qos=1, retain=True)
@@ -310,9 +328,19 @@ class HaBridge:
                 self._availability[printer["id"]] = available
             client.subscribe(COMMAND_FILTER)
             self._rate_gate = RateGate(clock=self.clock)
-            self.r.set(BRIDGE_STATUS_REDIS_KEY, "connected")
+            self._set_bridge_status(True, None)
         except Exception as exc:  # noqa: BLE001 -- callback runs on paho's own thread
             log.error("ha_bridge: on_connect failed: %s", type(exc).__name__)
+            self._set_bridge_status(False, type(exc).__name__)
+
+    def _on_disconnect(self, client, userdata, *args) -> None:
+        """paho's VERSION2 callback is ``(client, userdata, flags, rc,
+        properties)`` on MQTTv5 and ``(client, userdata, rc)`` on MQTTv3.1.1
+        -- read the trailing int-like arg as the reason code regardless of
+        which shape shows up, rather than pinning to one signature."""
+        rc = next((a for a in reversed(args) if isinstance(a, int)), None)
+        log.warning("ha_bridge: broker disconnected, rc=%r", rc)
+        self._set_bridge_status(False, f"disconnected: rc={rc!r}")
 
     def _on_message(self, client, userdata, msg) -> None:
         try:
@@ -388,6 +416,28 @@ class HaBridge:
 
     # -- ha:published diff ---------------------------------------------
 
+    def _publish_discovery_for(self, printer: dict) -> None:
+        """Publish one printer's 14 discovery configs + its current
+        availability right now, instead of waiting for the next broker
+        reconnect -- used when `_diff_published` sees a printer that's new
+        or whose serial/name/model changed while already connected."""
+        if self._client is None:
+            return
+        for topic, payload in discovery_messages(
+            self._prefix(), printer["serial"], printer["name"], printer["model"]
+        ):
+            with contextlib.suppress(Exception):
+                self._client.publish(topic, json.dumps(payload), qos=1, retain=True)
+        available = printer["id"] in self.active_ids()
+        with contextlib.suppress(Exception):
+            self._client.publish(
+                topics(printer["serial"])["availability"],
+                "online" if available else "offline",
+                qos=1,
+                retain=True,
+            )
+        self._availability[printer["id"]] = available
+
     def _diff_published(self) -> None:
         current = {p["id"]: (self._prefix(), p["serial"]) for p in self._printers}
         raw = self.r.hgetall(PUBLISHED_HASH_KEY) or {}
@@ -403,16 +453,32 @@ class HaBridge:
 
         for pid, (old_prefix, old_serial) in stored.items():
             if current.get(pid) != (old_prefix, old_serial):
-                if self._client is not None:
+                # Only drop the hash entry once the removal publish actually
+                # went out (requires a live, connected client) -- otherwise
+                # (bridge disconnected / unconfigured) the OLD retained
+                # configs would be stranded in HA forever, since nothing
+                # would ever retry clearing them (M3).
+                if self._client is None:
+                    continue
+                try:
                     for topic in removal_topics(old_prefix, old_serial):
-                        with contextlib.suppress(Exception):
-                            self._client.publish(topic, b"", qos=1, retain=True)
+                        self._client.publish(topic, b"", qos=1, retain=True)
+                except Exception:
+                    log.debug("ha_bridge: removal publish failed for printer %s", pid)
+                    continue
                 self.r.hdel(PUBLISHED_HASH_KEY, str(pid))
                 self._availability.pop(pid, None)
                 self._camera_last_pub.pop(pid, None)
 
+        printers_by_id = {p["id"]: p for p in self._printers}
         for pid, sig in current.items():
             if stored.get(pid) != sig:
+                # New printer, or an existing one's serial/name/model
+                # changed -- publish its discovery right now instead of
+                # waiting for the next broker reconnect (I4).
+                printer = printers_by_id.get(pid)
+                if printer is not None:
+                    self._publish_discovery_for(printer)
                 self.r.hset(
                     PUBLISHED_HASH_KEY, str(pid), json.dumps({"prefix": sig[0], "serial": sig[1]})
                 )

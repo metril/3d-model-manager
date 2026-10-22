@@ -67,6 +67,27 @@ def test_state_5xx_raises_unreachable():
 
 
 @respx.mock
+def test_state_403_raises_unreachable():
+    """Final review M2: EVERY non-2xx status other than 404 maps to
+    `HaUnreachable`, not just 401/5xx -- a bare 403 used to escape as a raw
+    `httpx.HTTPStatusError` (which could echo the URL)."""
+    respx.get(f"{BASE_URL}/api/states/sensor.door").mock(return_value=httpx.Response(403))
+    client = HaClient(BASE_URL, TOKEN)
+    with pytest.raises(HaUnreachable):
+        client.state("sensor.door")
+
+
+@respx.mock
+def test_state_malformed_json_raises_unreachable():
+    respx.get(f"{BASE_URL}/api/states/sensor.door").mock(
+        return_value=httpx.Response(200, content=b"not json")
+    )
+    client = HaClient(BASE_URL, TOKEN)
+    with pytest.raises(HaUnreachable):
+        client.state("sensor.door")
+
+
+@respx.mock
 def test_state_transport_error_raises_unreachable():
     respx.get(f"{BASE_URL}/api/states/sensor.door").mock(side_effect=httpx.ConnectError("refused"))
     client = HaClient(BASE_URL, TOKEN)

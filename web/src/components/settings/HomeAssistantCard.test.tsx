@@ -56,7 +56,7 @@ function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
     ha_url: "http://homeassistant.local:8123",
     has_token: true,
     pull_status: { ok: true },
-    bridge_status: "online",
+    bridge_status: { connected: true, error: null, at: 1700000000 },
     ...overrides,
   };
 }
@@ -140,6 +140,27 @@ describe("HomeAssistantCard", () => {
 
     await screen.findByLabelText("Home Assistant URL");
     expect(screen.queryByText("Home Assistant unreachable, queue holds are ignored")).not.toBeInTheDocument();
+  });
+
+  it("shows pull_status.errors (not entity_errors)", async () => {
+    mockGet(fakeSettings({ pull_status: { ok: true, errors: ["binary_sensor.missing"] } }));
+    renderCard();
+
+    expect(await screen.findByText("binary_sensor.missing")).toBeInTheDocument();
+  });
+
+  it("reads bridge_status.connected for the MQTT bridge dot/label", async () => {
+    mockGet(fakeSettings({ bridge_status: { connected: false, error: "disconnected", at: 1 } }));
+    renderCard();
+
+    expect(await screen.findByLabelText("Bridge offline")).toBeInTheDocument();
+  });
+
+  it("shows the bridge as unknown when bridge_status is null", async () => {
+    mockGet(fakeSettings({ bridge_status: null }));
+    renderCard();
+
+    expect(await screen.findByLabelText("Bridge unknown")).toBeInTheDocument();
   });
 
   it("posts the default eq/on condition when adding a door link", async () => {

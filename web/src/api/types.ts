@@ -1717,6 +1717,12 @@ export interface HaCondition {
   value: string | number | (string | number)[];
 }
 
+export interface HaBridgeStatus {
+  connected: boolean;
+  error: string | null;
+  at: number;
+}
+
 export interface HaSettings {
   ha_mqtt_url: string | null;
   ha_mqtt_user: string | null;
@@ -1724,8 +1730,8 @@ export interface HaSettings {
   ha_discovery_prefix: string;
   ha_url: string | null;
   has_token: boolean;
-  pull_status: { ok: boolean; [key: string]: unknown } | null;
-  bridge_status: string | null;
+  pull_status: { ok: boolean; errors?: string[]; checked_at?: string; [key: string]: unknown } | null;
+  bridge_status: HaBridgeStatus | null;
 }
 
 // All fields optional (sentinel-merge): omitted keeps, for a secret field

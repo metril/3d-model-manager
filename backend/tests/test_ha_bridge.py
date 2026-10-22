@@ -16,10 +16,15 @@ from app.config import get_settings
 from app.models import Printer, Setting
 from app.models.enums import PrinterKind
 from app.printers.base import command_channel
-from app.printers.ha_bridge import HaBridge, RateGate
+from app.printers.ha_bridge import (
+    BRIDGE_STATUS_REDIS_KEY,
+    PUBLISHED_HASH_KEY,
+    HaBridge,
+    RateGate,
+)
 from app.services import camera_state as cs
 from app.services.ha_config import HaConfig
-from app.services.ha_discovery import BRIDGE_STATUS, node_id
+from app.services.ha_discovery import BRIDGE_STATUS, node_id, topics
 from app.tasks import base
 
 JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
@@ -170,6 +175,145 @@ def test_stop_before_connect_returns(r):
     t0 = time.monotonic()
     bridge.stop()
     assert time.monotonic() - t0 < 3.0
+
+
+# ---------------------------------------------------------------------------
+# Final review I4/M3: `_diff_published` publishes/retires discovery live,
+# without going through the DB/mosquitto fixtures (direct state pokes).
+# ---------------------------------------------------------------------------
+
+
+def _bare_bridge(r, client):
+    bridge = HaBridge(r, get_settings(), active_ids=lambda: {1}, client_factory=lambda: client)
+    bridge._client = client
+    bridge._config = HaConfig(
+        ha_mqtt_url="mqtt://broker:1883",
+        ha_mqtt_user=None,
+        ha_mqtt_password=None,
+        ha_url=None,
+        ha_token=None,
+    )
+    return bridge
+
+
+def test_new_printer_after_connect_gets_discovery_immediately(r):
+    """Final review I4: a printer added (or a serial/name/model change)
+    while the bridge is already connected publishes its 14 discovery
+    configs + availability right away, instead of waiting for the next
+    broker reconnect."""
+    client = FakeClient()
+    bridge = _bare_bridge(r, client)
+    bridge._printers = []
+    bridge._diff_published()  # baseline: nothing published yet
+    client.published.clear()
+
+    bridge._printers = [{"id": 1, "serial": "NEW1", "name": "New", "model": "A1", "enabled": True}]
+    bridge._diff_published()
+
+    config_topics = [t for t, *_ in client.published if "/config" in t]
+    assert len(config_topics) == 14
+    availability = [p for p in client.published if p[0] == topics("NEW1")["availability"]]
+    assert availability and availability[-1][1] == "online"
+
+
+def test_removal_publish_failure_keeps_hash_entry(r):
+    """Final review M3: if the removal publish raises (bridge not really
+    connected despite ``_client`` being set), the ``ha:published`` hash
+    entry for that printer must NOT be dropped -- otherwise the old
+    retained discovery configs are stranded forever, since nothing would
+    ever retry clearing them."""
+
+    class _RaisingClient(FakeClient):
+        def publish(self, topic, payload=None, qos=0, retain=False):
+            raise RuntimeError("broker write failed")
+
+    client = _RaisingClient()
+    bridge = _bare_bridge(r, client)
+    bridge._printers = [{"id": 1, "serial": "S1", "name": "N", "model": "A1", "enabled": True}]
+    # Seed the hash directly (bypassing the publish path) as if printer 1
+    # was previously published under a DIFFERENT serial.
+    r.hset(PUBLISHED_HASH_KEY, "1", json.dumps({"prefix": "homeassistant", "serial": "OLD"}))
+
+    bridge._diff_published()
+
+    assert r.hexists(PUBLISHED_HASH_KEY, "1")  # kept, not dropped
+
+
+def test_removal_publish_skipped_when_disconnected_keeps_hash_entry(r):
+    bridge = HaBridge(r, get_settings(), active_ids=lambda: set())
+    bridge._client = None
+    bridge._config = HaConfig(
+        ha_mqtt_url="mqtt://broker:1883",
+        ha_mqtt_user=None,
+        ha_mqtt_password=None,
+        ha_url=None,
+        ha_token=None,
+    )
+    bridge._printers = []
+    r.hset(PUBLISHED_HASH_KEY, "9", json.dumps({"prefix": "homeassistant", "serial": "OLD"}))
+
+    bridge._diff_published()
+
+    assert r.hexists(PUBLISHED_HASH_KEY, "9")
+
+
+# ---------------------------------------------------------------------------
+# Final review I5: ha:bridge:status is JSON {connected, error, at}, TTL 30s.
+# ---------------------------------------------------------------------------
+
+
+def test_bridge_status_json_on_connect_and_disconnect(r):
+    client = FakeClient()
+    bridge = HaBridge(r, get_settings(), active_ids=lambda: set(), client_factory=lambda: client)
+    bridge._apply_config(
+        HaConfig(
+            ha_mqtt_url="mqtt://broker:1883",
+            ha_mqtt_user=None,
+            ha_mqtt_password=None,
+            ha_url=None,
+            ha_token=None,
+        )
+    )
+    raw = r.get(BRIDGE_STATUS_REDIS_KEY)
+    status = json.loads(raw)
+    assert status == {"connected": True, "error": None, "at": status["at"]}
+    ttl = r.ttl(BRIDGE_STATUS_REDIS_KEY)
+    assert 0 < ttl <= 30
+
+    bridge._on_disconnect(client, None, 7)
+    status = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))
+    assert status["connected"] is False
+    assert status["error"] is not None
+
+
+def test_bridge_status_refreshed_every_tick(r):
+    t = [0.0]
+    client = FakeClient()
+    bridge = HaBridge(
+        r,
+        get_settings(),
+        active_ids=lambda: set(),
+        clock=lambda: t[0],
+        client_factory=lambda: client,
+        db_every_s=1000.0,
+        config_every_s=1000.0,
+    )
+    bridge._apply_config(
+        HaConfig(
+            ha_mqtt_url="mqtt://broker:1883",
+            ha_mqtt_user=None,
+            ha_mqtt_password=None,
+            ha_url=None,
+            ha_token=None,
+        )
+    )
+    first_at = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))["at"]
+
+    t[0] = 25.0  # before the 30s TTL would otherwise expire
+    bridge.tick()
+    second_at = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))["at"]
+    assert second_at >= first_at
+    assert r.ttl(BRIDGE_STATUS_REDIS_KEY) > 25
 
 
 # ---------------------------------------------------------------------------

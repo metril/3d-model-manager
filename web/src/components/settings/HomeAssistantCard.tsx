@@ -105,12 +105,10 @@ function MqttSection({
   saving: boolean;
 }) {
   const test = useTestHaMqtt();
+  const bridgeLabel =
+    data.bridge_status == null ? "unknown" : data.bridge_status.connected ? "online" : "offline";
   const dotClass =
-    data.bridge_status === "online"
-      ? "bg-state-finished"
-      : data.bridge_status === "offline"
-        ? "bg-state-offline"
-        : "bg-state-idle";
+    bridgeLabel === "online" ? "bg-state-finished" : bridgeLabel === "offline" ? "bg-state-offline" : "bg-state-idle";
 
   function setField(key: keyof MqttDraft, value: string) {
     setDraft({ ...draft, [key]: value });
@@ -124,7 +122,7 @@ function MqttSection({
           data-slot="ha-bridge-dot"
           className={cn("size-2 shrink-0 rounded-full", dotClass)}
         />
-        <h3 className="text-sm font-medium" aria-label={`Bridge ${data.bridge_status ?? "unknown"}`}>
+        <h3 className="text-sm font-medium" aria-label={`Bridge ${bridgeLabel}`}>
           Publish to HA (MQTT)
         </h3>
       </div>
