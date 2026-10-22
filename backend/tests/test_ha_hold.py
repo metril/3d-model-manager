@@ -257,7 +257,7 @@ def test_pause_on_alert_edge_only(redis_url: str):
     route.respond(200, json={"state": "off", "attributes": {}})
     with base.sync_session() as s:
         poll_once(s, r, _cfg())
-    assert r.get(fired_key(1)) is None
+    assert r.get(fired_key(1, pid)) is None
 
     route.respond(200, json={"state": "on", "attributes": {}})
     with base.sync_session() as s:
@@ -303,6 +303,83 @@ def test_pause_print_false_gives_no_pause(redis_url: str):
 
     assert pubsub.get_message(timeout=0.3) is None
     pubsub.close()
+    r.close()
+
+
+@respx.mock
+def test_global_pause_link_pauses_both_printing_printers(redis_url: str):
+    """Final review I1: a NULL-printer pause link's edge-fired bookkeeping
+    is keyed by BOTH link and printer (``fired_key(link_id, pid)``) -- with
+    two printers both printing, both get paused once each, instead of the
+    first printer's ``SET ... NX`` suppressing the second's pause."""
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.shared_door", "on")
+    with base.sync_session() as s:
+        printer_a = _seed_printer_raw(s, name="GlobalPauseA")
+        printer_b = _seed_printer_raw(s, name="GlobalPauseB")
+        s.add(
+            HaLink(
+                printer_id=None,
+                entity_id="binary_sensor.shared_door",
+                role=HaRole.DOOR,
+                alert_condition={"op": "eq", "value": "on"},
+                pause_print=True,
+            )
+        )
+        s.commit()
+        pid_a, pid_b = printer_a.id, printer_b.id
+
+    r.set(state_key(pid_a), json.dumps(RUNNING_STATE))
+    r.set(state_key(pid_b), json.dumps(RUNNING_STATE))
+    pubsub_a = r.pubsub()
+    pubsub_a.subscribe(command_channel(pid_a))
+    pubsub_a.get_message(timeout=1)
+    pubsub_b = r.pubsub()
+    pubsub_b.subscribe(command_channel(pid_b))
+    pubsub_b.get_message(timeout=1)
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg())
+
+    msg_a = pubsub_a.get_message(timeout=1)
+    msg_b = pubsub_b.get_message(timeout=1)
+    assert msg_a is not None and json.loads(msg_a["data"]) == {"command": "pause"}
+    assert msg_b is not None and json.loads(msg_b["data"]) == {"command": "pause"}
+    pubsub_a.close()
+    pubsub_b.close()
+    r.close()
+
+
+@respx.mock
+def test_pause_only_link_does_not_hold_queue(redis_url: str):
+    """Final review I3: ``pause_print`` alone must not hold the queue --
+    only ``hold_queue`` does. The badge (``entities``) still shows, but
+    ``hold`` stays false."""
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.door", "on")
+    with base.sync_session() as s:
+        printer = _seed_printer_raw(s, name="PauseOnlyBadge")
+        s.add(
+            HaLink(
+                printer_id=printer.id,
+                entity_id="binary_sensor.door",
+                role=HaRole.DOOR,
+                alert_condition={"op": "eq", "value": "on"},
+                pause_print=True,
+                hold_queue=False,
+            )
+        )
+        s.commit()
+        pid = printer.id
+
+    r.set(state_key(pid), json.dumps(IDLE_STATE))
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg())
+
+    alert = json.loads(r.get(alert_key(pid)))
+    assert alert["hold"] is False
+    assert alert["entities"] == ["binary_sensor.door"]
     r.close()
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 
 from redis import Redis
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from app.services.ha_discovery import PRINTING_STATES
 from app.services.ha_state import (
     ALERT_TTL_S,
     STATUS_KEY,
+    STATUS_TTL_S,
     _raw_key,
     alert_key,
     energy_acc_key,
@@ -35,6 +37,38 @@ logger = logging.getLogger(__name__)
 
 _ALERT_ROLES = (HaRole.DOOR, HaRole.SMOKE, HaRole.TEMP, HaRole.HUMIDITY)
 _UNAVAILABLE_STATES = {"unknown", "unavailable", None}
+
+# Atomic read-prev/compute-delta/write-raw/accumulate, so two overlapping
+# `poll_once` calls (the Celery lock normally rules this out, but nothing
+# else enforces it) can never both read the same `prev` and each apply
+# their own delta on top of it -- double-counting the same tick's energy.
+# Mirrors `counter_delta`'s own reset math (kept in sync by hand -- see
+# `test_energy_update_lua_matches_counter_delta`).
+_ENERGY_UPDATE_LUA = """
+local raw_key = KEYS[1]
+local acc_key = KEYS[2]
+local cur = tonumber(ARGV[1])
+local reset_factor = tonumber(ARGV[2])
+local prev_raw = redis.call('GET', raw_key)
+local delta = 0
+if prev_raw then
+    local prev = tonumber(prev_raw)
+    if cur >= prev then
+        delta = cur - prev
+    elseif cur < reset_factor * prev then
+        delta = cur
+    else
+        delta = 0
+    end
+end
+redis.call('SET', raw_key, tostring(cur))
+if delta > 0 then
+    redis.call('INCRBYFLOAT', acc_key, delta)
+elseif redis.call('EXISTS', acc_key) == 0 then
+    redis.call('SET', acc_key, '0')
+end
+return redis.call('GET', acc_key)
+"""
 
 
 def evaluate(cond: dict | None, state: str | None) -> bool:
@@ -52,25 +86,39 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
         return state != str(value)
     if op == "in":
         return state in (value or ())
-    if op in ("gt", "lt"):
+    if op in ("gt", "lt", "gte", "lte"):
         try:
             cur = float(state)
             target = float(value)
         except (TypeError, ValueError):
             return False
-        return cur > target if op == "gt" else cur < target
+        if op == "gt":
+            return cur > target
+        if op == "lt":
+            return cur < target
+        if op == "gte":
+            return cur >= target
+        return cur <= target
     return False
+
+
+_RESET_FACTOR = 0.9
 
 
 def counter_delta(prev: float | None, cur: float) -> float:
     """HA total_increasing semantics: a drop means the meter reset (plug
     re-paired / rolled over), so the whole new reading is consumption since
-    the reset. First sample establishes the baseline only."""
+    the reset -- but only when the drop is a REAL reset (``cur`` under 90%
+    of ``prev``). A smaller dip is just sensor jitter around a flat reading
+    and adds 0, rather than being mistaken for -- and then double counting
+    on top of -- a reset. First sample establishes the baseline only."""
     if prev is None:
         return 0.0
     if cur >= prev:
         return cur - prev
-    return cur
+    if cur < _RESET_FACTOR * prev:
+        return cur
+    return 0.0
 
 
 def _firing_entities(
@@ -85,7 +133,7 @@ def _firing_entities(
         state_val = state_obj.get("state") if state_obj else None
         if evaluate(link.alert_condition, state_val):
             entities.append(link.entity_id)
-            hold = hold or link.pause_print or link.hold_queue
+            hold = hold or link.hold_queue
     return entities, hold
 
 
@@ -93,11 +141,14 @@ def _handle_pause_edge(
     r: Redis, links: list[HaLink], states: dict[str, dict | None], pid: int
 ) -> None:
     """Edge-triggered pause (Task 5): for each ``pause_print`` link relevant
-    to ``pid``, a firing->fired transition (``ha:alert:fired:{link_id}``,
-    ``SET ... NX``) publishes one ``pause`` command iff the printer is
-    currently printing (``PRINTING_STATES``) -- fires exactly once per
-    alert episode, not once per tick. A link that stops firing clears its
-    fired key so the next episode can fire again."""
+    to ``pid``, a firing->fired transition (``ha:alert:fired:{link_id}:
+    {pid}``, ``SET ... NX``) publishes one ``pause`` command iff the printer
+    is currently printing (``PRINTING_STATES``) -- fires exactly once per
+    alert episode, not once per tick. The fired key is keyed by BOTH the
+    link and the printer, so a NULL-printer (global) pause link fires once
+    per printer independently -- one printer's edge must never suppress
+    another's. A link that stops firing clears its fired key so the next
+    episode can fire again."""
     for link in links:
         if link.printer_id is not None and link.printer_id != pid:
             continue
@@ -106,13 +157,13 @@ def _handle_pause_edge(
         state_obj = states.get(link.entity_id)
         state_val = state_obj.get("state") if state_obj else None
         if evaluate(link.alert_condition, state_val):
-            if r.set(fired_key(link.id), 1, nx=True):
+            if r.set(fired_key(link.id, pid), 1, nx=True):
                 printer_state = read_state_sync(r, pid)
                 if (printer_state or {}).get("gcode_state") in PRINTING_STATES:
                     r.publish(command_channel(pid), json.dumps({"command": "pause"}))
                     logger.info("HA alert paused printer %s (%s)", pid, link.entity_id)
         else:
-            r.delete(fired_key(link.id))
+            r.delete(fired_key(link.id, pid))
 
 
 def poll_once(
@@ -121,12 +172,14 @@ def poll_once(
     cfg: HaConfig,
     client: HaClient | None = None,
     *,
-    now=None,
+    now: datetime | None = None,
 ) -> dict:
     """One poll tick. No-op (returns `{"ok": True, "skipped": True}`) unless
     `cfg.ha_url`/`cfg.ha_token` are both set and at least one `ha_links` row
-    exists. See `app.services.ha_state`'s module docstring for the key
-    shapes written below."""
+    exists. `now` overrides the `checked_at` timestamp written to
+    `ha:status` (defaults to the current UTC time) -- for tests. See
+    `app.services.ha_state`'s module docstring for the key shapes written
+    below."""
     if not cfg.ha_url or not cfg.ha_token:
         return {"ok": True, "skipped": True}
 
@@ -147,10 +200,12 @@ def poll_once(
                     entity_errors.append(entity_id)
                 states[entity_id] = value
         except HaUnreachable:
-            r.set(STATUS_KEY, json.dumps({"ok": False, "error": "unreachable"}))
+            checked_at = now if now is not None else datetime.now(UTC)
+            status = {"ok": False, "error": "unreachable", "checked_at": checked_at.isoformat()}
+            r.set(STATUS_KEY, json.dumps(status), ex=STATUS_TTL_S)
             for key in r.scan_iter("ha:alert:*"):
                 r.delete(key)
-            return {"ok": False, "error": "unreachable"}
+            return status
 
         alert_links = [link for link in links if link.role in _ALERT_ROLES]
         energy_links = [
@@ -188,21 +243,21 @@ def poll_once(
             except (TypeError, ValueError):
                 continue  # non-numeric: keeps prev, no update this tick
 
-            prev_raw = r.get(_raw_key(pid))
-            prev = float(prev_raw) if prev_raw is not None else None
-            delta = counter_delta(prev, cur)
-            r.set(_raw_key(pid), repr(cur))
-            if delta:
-                r.incrbyfloat(energy_acc_key(pid), delta)
-            elif r.get(energy_acc_key(pid)) is None:
-                r.set(energy_acc_key(pid), 0.0)
-            total = r.get(energy_acc_key(pid))
+            total = r.eval(
+                _ENERGY_UPDATE_LUA,
+                2,
+                _raw_key(link.id),
+                energy_acc_key(pid),
+                repr(cur),
+                repr(_RESET_FACTOR),
+            )
             r.set(energy_key(pid), total)
 
-        status: dict = {"ok": True}
+        checked_at = now if now is not None else datetime.now(UTC)
+        status: dict = {"ok": True, "checked_at": checked_at.isoformat()}
         if entity_errors:
-            status["entity_errors"] = entity_errors
-        r.set(STATUS_KEY, json.dumps(status))
+            status["errors"] = entity_errors
+        r.set(STATUS_KEY, json.dumps(status), ex=STATUS_TTL_S)
         return status
     finally:
         if owns_client:

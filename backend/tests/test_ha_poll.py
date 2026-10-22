@@ -19,7 +19,14 @@ from app.models.enums import HaRole, PrinterKind
 from app.models.home_assistant import HaLink
 from app.models.printing import Printer
 from app.services.ha_config import HaConfig
-from app.services.ha_state import STATUS_KEY, alert_key, energy_acc, energy_key, read_alert
+from app.services.ha_state import (
+    STATUS_KEY,
+    alert_key,
+    energy_acc,
+    energy_acc_key,
+    energy_key,
+    read_alert,
+)
 from app.services.home_assistant import counter_delta, evaluate, poll_once
 from app.tasks import base
 
@@ -75,6 +82,10 @@ def _state_route(entity_id: str, state: str):
         ({"op": "gt", "value": 30}, "20.0", False),
         ({"op": "lt", "value": 10}, "5.0", True),
         ({"op": "lt", "value": 10}, "15.0", False),
+        ({"op": "gte", "value": 30}, "30.0", True),
+        ({"op": "gte", "value": 30}, "29.9", False),
+        ({"op": "lte", "value": 10}, "10.0", True),
+        ({"op": "lte", "value": 10}, "10.1", False),
         ({"op": "in", "value": ["on", "open"]}, "open", True),
         ({"op": "in", "value": ["on", "open"]}, "off", False),
         ({"op": "eq", "value": "on"}, "unavailable", False),
@@ -110,6 +121,17 @@ def test_counter_delta_first_sample_is_baseline_only():
 
 def test_counter_delta_reset_takes_new_reading_whole():
     assert counter_delta(10.4, 0.1) == 0.1
+
+
+def test_counter_delta_jitter_dip_adds_zero():
+    """A small dip (sensor jitter around a flat reading) is NOT a reset --
+    it must add 0, not the (negative, nonsensical) difference."""
+    assert counter_delta(10.0, 9.95) == 0.0
+
+
+def test_counter_delta_real_reset_adds_whole_reading():
+    """A drop under 90% of the previous reading IS a real reset."""
+    assert counter_delta(10.0, 8.0) == 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +282,10 @@ def test_404_entity_reported(redis_url: str):
 
     status = json.loads(r.get(STATUS_KEY))
     assert status["ok"] is True
-    assert status["entity_errors"] == ["binary_sensor.missing"]
+    assert status["errors"] == ["binary_sensor.missing"]
+    assert "checked_at" in status
+    assert r.ttl(STATUS_KEY) <= 120
+    assert r.ttl(STATUS_KEY) > 0
 
 
 @respx.mock
@@ -287,6 +312,45 @@ def test_energy_counter_reset_tracked_across_polls(redis_url: str):
 
     assert energy_acc(r, printer.id) == pytest.approx(0.5)
     assert float(r.get(energy_key(printer.id))) == pytest.approx(0.5)
+
+
+@respx.mock
+def test_energy_update_is_atomic_across_overlapping_polls(redis_url: str):
+    """Final review I7: the raw-prev read + accumulate must be one atomic
+    Redis operation (a Lua script), not a GET-then-SET race -- otherwise
+    two overlapping ticks (the Celery lock normally prevents this, but
+    `poll_once` itself must still be safe) could both read the same `prev`
+    and each add their own delta on top of it, double-counting."""
+    r = redis_lib.Redis.from_url(redis_url)
+    route = _state_route("sensor.plug_energy", "10.0")
+    with base.sync_session() as s:
+        printer = _seed_printer(s)
+        link = HaLink(
+            printer_id=printer.id,
+            entity_id="sensor.plug_energy",
+            role=HaRole.ENERGY_KWH,
+        )
+        s.add(link)
+        s.commit()
+        # redis_url is session-scoped (ids restart per test on the Postgres
+        # side) -- clear any stale energy keys an earlier test left behind
+        # under the same printer/link id before asserting an absolute total.
+        for key in (
+            energy_key(printer.id),
+            energy_acc_key(printer.id),
+            f"ha:energy:raw:{link.id}",
+        ):
+            r.delete(key)
+        poll_once(s, r, _cfg())  # baseline: 10.0
+
+        route.respond(200, json={"state": "11.0", "attributes": {}})
+        # Two "overlapping" ticks reading the same new state -- each must
+        # see the OTHER's raw-key write, not stale data, so the total
+        # delta is 1.0 once, not 1.0 counted twice.
+        poll_once(s, r, _cfg())
+        poll_once(s, r, _cfg())
+
+    assert energy_acc(r, printer.id) == pytest.approx(1.0)
 
 
 @respx.mock
@@ -339,3 +403,5 @@ def test_beat_entry_routes_io():
     route = celery_app.amqp.router.route({}, "app.tasks.home_assistant.poll_ha")
     assert route["queue"].name == "io"
     assert ha_task.poll_ha  # importable, registered
+    assert ha_task.poll_ha.soft_time_limit == 12
+    assert ha_task.poll_ha.time_limit == 14

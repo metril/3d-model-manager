@@ -22,7 +22,7 @@ from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
 
 
-@celery_app.task(name="app.tasks.home_assistant.poll_ha")
+@celery_app.task(name="app.tasks.home_assistant.poll_ha", soft_time_limit=12, time_limit=14)
 def poll_ha() -> dict | None:
     settings = get_settings()
     client = Redis.from_url(settings.redis_url)
