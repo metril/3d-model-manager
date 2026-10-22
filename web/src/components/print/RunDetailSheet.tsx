@@ -4,6 +4,7 @@ import { useState } from "react";
 import { archiveFileUrl, archiveSnapshotUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
+import { PrintDialog } from "@/components/print/PrintDialog";
 import { TimelapsePlayer } from "@/components/print/TimelapsePlayer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,7 @@ function Grading({ run }: { run: PrintEntry }) {
 
 function Body({ archive }: { archive: ArchiveOut }) {
   const { data: me, can } = useAuth();
+  const [reprintOpen, setReprintOpen] = useState(false);
   const run = archive.run;
   const canGrade =
     run != null &&
@@ -160,6 +162,18 @@ function Body({ archive }: { archive: ArchiveOut }) {
         <p className="text-muted-foreground">Rejected: {run.failure_reason}</p>
       ) : null}
       {canGrade && run ? <Grading key={run.id} run={run} /> : null}
+      {can("printers:print") ? (
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReprintOpen(true)}>
+            Reprint
+          </Button>
+          <PrintDialog
+            open={reprintOpen}
+            onOpenChange={setReprintOpen}
+            source={{ kind: "archive", archiveId: archive.id }}
+          />
+        </>
+      ) : null}
       {archive.has_file ? (
         <Button asChild variant="outline" size="sm">
           <a href={archiveFileUrl(archive.id)} download>

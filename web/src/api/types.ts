@@ -810,6 +810,60 @@ export interface PrintJobOut {
   finished_at: string | null;
 }
 
+// -- print plan / send (backend/app/schemas/print_flow.py, P5 Task 7) ------
+
+export type PlanFilamentStatus = "ok" | "color" | "type" | "none";
+
+export interface PlanIn {
+  file_id: number;
+  plate?: number | null;
+  printer_id?: number | null;
+  overrides?: Record<number, number>;
+}
+
+export interface PlanFilament {
+  filament_id: number;
+  type: string | null;
+  color: string | null;
+  grams: number | null;
+  tray: number | null;
+  status: PlanFilamentStatus;
+  delta_e: number | null;
+  spool: SpoolBrief | null;
+}
+
+export interface PlanPrinter {
+  id: number;
+  name: string;
+  model: string | null;
+  idle: boolean;
+  compatible: boolean;
+  reason: string | null;
+}
+
+export interface PlanOptions {
+  bed_levelling: boolean;
+  flow_cali: boolean;
+  timelapse: boolean;
+}
+
+export interface PlanOut {
+  file_id: number;
+  model_id: number | null;
+  plate: number | null;
+  plates: PlateOut[];
+  printer_id: number | null;
+  printers: PlanPrinter[];
+  filaments: PlanFilament[];
+  ams_mapping: number[];
+  use_ams: boolean;
+  est_duration_s: number | null;
+  est_grams: number | null;
+  est_cost: number | null;
+  warnings: string[];
+  options: PlanOptions;
+}
+
 export interface PrintRequest {
   file_id: number;
   plate?: number;
@@ -819,6 +873,10 @@ export interface PrintRequest {
   bed_levelling?: boolean;
   flow_cali?: boolean;
   timelapse?: boolean;
+}
+
+export interface SendIn extends PrintRequest {
+  printer_id: number;
 }
 
 export interface PrintJobUpdatedEvent {

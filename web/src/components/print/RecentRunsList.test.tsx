@@ -21,6 +21,13 @@ vi.mock("@/api/archives", async (importOriginal) => ({
   useArchive: () => ({ data: archiveDataBox.current }),
 }));
 
+// `RecentRunsList` renders `RunDetailSheet`, which (P5 Task 11) now also
+// renders the shared `PrintDialog` for its Reprint button -- that's a real
+// react-query consumer with no `QueryClientProvider` in this file's render
+// tree, so it's stubbed out here (unit-tested on its own in
+// `PrintDialog.test.tsx`).
+vi.mock("@/components/print/PrintDialog", () => ({ PrintDialog: () => null }));
+
 function run(overrides: Partial<ArchiveOut> = {}): ArchiveOut {
   return {
     id: 1,

@@ -17,22 +17,12 @@ vi.mock("@/api/auth", async (importOriginal) => ({
 // up/down position math, empty state) is what's under test, not the
 // underlying fetch plumbing (already covered by the api-hook conventions
 // shared with `library.ts`/`jobs.ts`).
-const {
-  queueDataBox,
-  moveMock,
-  removeMock,
-  featuresDataBox,
-  printersDataBox,
-  startPrintMock,
-  toastSuccessMock,
-} = vi.hoisted(() => ({
+const { queueDataBox, moveMock, removeMock, featuresDataBox, printersDataBox } = vi.hoisted(() => ({
   queueDataBox: { current: [] as QueueEntry[] },
   moveMock: vi.fn(),
   removeMock: vi.fn(),
   featuresDataBox: { current: { printer_enabled: true } },
   printersDataBox: { current: [] as PrinterOut[] },
-  startPrintMock: vi.fn(),
-  toastSuccessMock: vi.fn(),
 }));
 
 vi.mock("@/api/queue", () => ({
@@ -45,19 +35,44 @@ vi.mock("@/api/features", () => ({
   useFeatures: () => ({ data: featuresDataBox.current }),
 }));
 
-// `usePrinters`/`useStartPrint` (Round 8 Task 3): QueueRow's own print-button
-// gate uses `usePrinters`, and the extracted `SendToPrinterDialog` (rendered
-// by `QueuePage.tsx`, unit-tested on its own in
-// `SendToPrinterButton.test.tsx`) uses `useStartPrint` for the submit
-// mutation -- both mocked at the hook level here too, same posture as
-// `@/api/queue` above.
+// `usePrinters` (Round 8 Task 3): QueueRow's own print-button gate.
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: printersDataBox.current }),
-  useStartPrint: () => ({ mutate: startPrintMock, isPending: false, isError: false }),
 }));
 
-vi.mock("sonner", () => ({
-  toast: { success: toastSuccessMock, error: vi.fn() },
+// `PrintDialog` is unit-tested on its own (`PrintDialog.test.tsx`, P5 Task
+// 11) -- here it's stubbed to a minimal marker, so this file only asserts
+// QueuePage's OWN logic: when the Print button shows, and that a
+// successful send (`onSent`) removes the row.
+vi.mock("@/components/print/PrintDialog", () => ({
+  PrintDialog: ({
+    open,
+    onOpenChange,
+    source,
+    onSent,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    source: { kind: string; modelId?: number };
+    onSent?: () => void;
+  }) =>
+    open ? (
+      <div data-testid="print-dialog">
+        <span>{`${source.kind}:${source.modelId}`}</span>
+        <button type="button" onClick={() => onOpenChange(false)}>
+          Close dialog
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onSent?.();
+            onOpenChange(false);
+          }}
+        >
+          Send to printer
+        </button>
+      </div>
+    ) : null,
 }));
 
 const PRINTABLE_FILE: FileOut = {
@@ -145,8 +160,6 @@ beforeEach(() => {
   removeMock.mockClear();
   featuresDataBox.current = { printer_enabled: true };
   printersDataBox.current = [PRINTER];
-  startPrintMock.mockClear();
-  toastSuccessMock.mockClear();
 });
 
 describe("QueuePage", () => {
@@ -304,35 +317,29 @@ describe("QueuePage print readiness", () => {
     expect(await screen.findByRole("button", { name: "Print" })).toBeInTheDocument();
   });
 
-  it("clicking Print opens the send-to-printer dialog", async () => {
+  it("clicking Print opens the PrintDialog with this entry's model", async () => {
     queueDataBox.current = [entry({ printable_file: PRINTABLE_FILE })];
 
     renderQueuePage();
     fireEvent.click(await screen.findByRole("button", { name: "Print" }));
 
-    expect(await screen.findByText(`Send ${PRINTABLE_FILE.rel_path} to a printer`)).toBeInTheDocument();
+    expect(await screen.findByTestId("print-dialog")).toHaveTextContent("model:1");
   });
 
-  it("closing the dialog without sending does not remove the entry or toast", async () => {
+  it("closing the dialog without sending does not remove the entry", async () => {
     queueDataBox.current = [entry({ id: 9, printable_file: PRINTABLE_FILE })];
 
     renderQueuePage();
     fireEvent.click(await screen.findByRole("button", { name: "Print" }));
-    await screen.findByText(`Send ${PRINTABLE_FILE.rel_path} to a printer`);
+    await screen.findByTestId("print-dialog");
 
-    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 
-    await waitFor(() =>
-      expect(screen.queryByText(`Send ${PRINTABLE_FILE.rel_path} to a printer`)).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByTestId("print-dialog")).not.toBeInTheDocument());
     expect(removeMock).not.toHaveBeenCalled();
-    expect(toastSuccessMock).not.toHaveBeenCalled();
   });
 
-  it("a successful send removes the entry from the queue and toasts", async () => {
-    startPrintMock.mockImplementation(
-      (_body: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
-    );
+  it("a successful send (PrintDialog's onSent) removes the entry from the queue", async () => {
     queueDataBox.current = [entry({ id: 9, printable_file: PRINTABLE_FILE })];
 
     renderQueuePage();
@@ -340,6 +347,5 @@ describe("QueuePage print readiness", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Send to printer" }));
 
     await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(9));
-    expect(toastSuccessMock).toHaveBeenCalledWith("Sent to printer");
   });
 });

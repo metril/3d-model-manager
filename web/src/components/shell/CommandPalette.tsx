@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Bookmark, ListChecks, ListOrdered, Shapes } from "lucide-react";
+import { Bookmark, ListChecks, ListOrdered, PrinterIcon, Shapes } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
@@ -18,6 +18,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
+import { PrintDialog } from "@/components/print/PrintDialog";
 import { useHotkeys } from "@/hooks/useHotkeys";
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -31,6 +32,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
   const { can } = useAuth();
   const printerEnabled = !!useFeatures().data?.printer_enabled;
   const followed = useFollowedCollections();
@@ -86,6 +88,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   }
 
   return (
+    <>
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput placeholder="Search pages, collections, models…" value={query} onValueChange={setQuery} />
       <CommandList>
@@ -176,6 +179,18 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           <>
             <CommandSeparator />
             <CommandGroup heading="Actions">
+              {can("printers:print") ? (
+                <CommandItem
+                  value="Print…"
+                  onSelect={() => {
+                    onOpenChange(false);
+                    setPrintOpen(true);
+                  }}
+                >
+                  <PrinterIcon className="size-4" />
+                  Print…
+                </CommandItem>
+              ) : null}
               <CommandItem value="Open print queue" onSelect={() => goTo("/print/queue")}>
                 <ListOrdered className="size-4" />
                 Open print queue
@@ -195,5 +210,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         )}
       </CommandList>
     </CommandDialog>
+    <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "pick" }} />
+    </>
   );
 }

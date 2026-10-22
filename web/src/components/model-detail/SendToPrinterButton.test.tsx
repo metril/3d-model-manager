@@ -10,7 +10,6 @@ vi.mock("@/api/auth", async (importOriginal) => ({
   useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
 }));
 
-
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as SettingsPage.test.tsx/ScanReport.test.tsx), so the fakes
 // have to be created through `vi.hoisted`.
@@ -117,25 +116,38 @@ describe("SendToPrinterButton", () => {
     expect(await screen.findByRole("button", { name: `Print ${SLICED_FILE.rel_path}` })).toBeInTheDocument();
   });
 
-  it("submits a print request for the default printer and plate 1", async () => {
+  it("opens the PrintDialog for this file", async () => {
     mockApi({ printer_enabled: true }, [PRINTER]);
-    postMock.mockResolvedValue({ id: 1, printer_id: 1, file_id: SLICED_FILE.id, state: "queued" });
+    getMock.mockImplementation((path: string) => {
+      if (path === "/features") return Promise.resolve({ printer_enabled: true });
+      if (path === "/printers") return Promise.resolve([PRINTER]);
+      return Promise.resolve([]);
+    });
+    postMock.mockImplementation((path: string) => {
+      if (path === "/print/plan") {
+        return Promise.resolve({
+          file_id: SLICED_FILE.id,
+          model_id: null,
+          plate: 1,
+          plates: [{ index: 1, prediction_s: 100, weight_g: 10, est_cost: 1, thumbnail_available: false, filaments: [] }],
+          printer_id: 1,
+          printers: [{ id: 1, name: "Bambu A1", model: "A1 mini", idle: true, compatible: true, reason: null }],
+          filaments: [],
+          ams_mapping: [],
+          use_ams: false,
+          est_duration_s: 100,
+          est_grams: 10,
+          est_cost: 1,
+          warnings: [],
+          options: { bed_levelling: true, flow_cali: true, timelapse: false },
+        });
+      }
+      return Promise.resolve({});
+    });
 
     renderButton(SLICED_FILE);
 
     fireEvent.click(await screen.findByRole("button", { name: `Print ${SLICED_FILE.rel_path}` }));
-    fireEvent.click(await screen.findByRole("button", { name: "Send to printer" }));
-
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith("/printers/1/print", {
-        file_id: SLICED_FILE.id,
-        plate: 1,
-        use_ams: false,
-        ams_mapping: [0],
-        bed_levelling: true,
-        flow_cali: true,
-        timelapse: false,
-      }),
-    );
+    expect(await screen.findByText("Print")).toBeInTheDocument();
   });
 });

@@ -1,10 +1,9 @@
 /**
  * The dashboard's queue-head rail widget (P3 Task 8): a compact echo of
  * `QueuePage`'s row -- up/down reorder (`useMoveQueueEntry`) and a
- * "Print…" action that opens the SAME `SendToPrinterDialog` the queue page
- * and the model detail's Files tab use -- only when the entry is sliced
- * AND at least one printer is reachable for this user. A footer link
- * hands off to the full queue.
+ * "Print…" action that opens the shared `PrintDialog` (P5 Task 11) --
+ * only when the entry is sliced AND at least one printer is reachable for
+ * this user. A footer link hands off to the full queue.
  */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -14,7 +13,7 @@ import { useAuth } from "@/api/auth";
 import { usePrinters } from "@/api/printers";
 import { useMoveQueueEntry } from "@/api/queue";
 import type { QueueEntry } from "@/api/types";
-import { SendToPrinterDialog } from "@/components/model-detail/SendToPrinterButton";
+import { PrintDialog } from "@/components/print/PrintDialog";
 import { Button } from "@/components/ui/button";
 
 function UpNextRow({ entry }: { entry: QueueEntry }) {
@@ -41,11 +40,10 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
           <Button type="button" size="sm" variant="outline" onClick={() => setPrintOpen(true)}>
             Print…
           </Button>
-          <SendToPrinterDialog
-            file={entry.printable_file}
-            printers={printable}
+          <PrintDialog
             open={printOpen}
             onOpenChange={setPrintOpen}
+            source={{ kind: "model", modelId: entry.model_id }}
           />
         </>
       ) : null}
