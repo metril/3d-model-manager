@@ -495,3 +495,13 @@ async def test_push_collection_items_over_length_external_id_is_422(
         headers=_bearer(ext_token),
     )
     assert r.status_code == 422
+
+
+async def test_member_owned_token_cannot_set_makerworld_credential(
+    client: httpx.AsyncClient, db_session, member
+):
+    token, _ = await api_tokens.mint(db_session, user_id=member.id, label="member ext")
+    r = await client.post(
+        "/api/ext/credentials/makerworld", json={"token": "x"}, headers=_bearer(token)
+    )
+    assert r.status_code == 403

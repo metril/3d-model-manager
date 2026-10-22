@@ -649,3 +649,26 @@ async def test_resolve_duplicate_group_choices_422_nothing_deleted(
     assert response.status_code == 422
     assert await _file_row_exists(db_session, file_a.id)
     assert await _file_row_exists(db_session, file_b.id)
+
+
+async def test_resolve_member_cannot_delete_others_models_copies(
+    authenticated_client: httpx.AsyncClient,
+    member_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    model_a = await _create_model(authenticated_client, "Owned A")
+    model_b = await _create_model(authenticated_client, "Owned B")
+    a, a_rev = await _model_and_revision(db_session, model_a)
+    file_a = await seed_file(a, a_rev, "part.stl", b"owned-bytes")
+    b, b_rev = await _model_and_revision(db_session, model_b)
+    file_b = await seed_file(b, b_rev, "part.stl", b"owned-bytes")
+    body = {"keep": [{"blob_hash": file_a.blob_hash, "file_id": file_a.id}]}
+
+    r = await member_client.post("/api/reports/duplicates/resolve", json=body)
+    assert r.status_code == 403, r.text
+    assert await _file_row_exists(db_session, file_b.id)
+
+    r = await authenticated_client.post("/api/reports/duplicates/resolve", json=body)
+    assert r.status_code == 200 and r.json()["deleted"] == 1
+    assert not await _file_row_exists(db_session, file_b.id)

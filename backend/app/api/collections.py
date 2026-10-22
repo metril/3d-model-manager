@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_perm, require_session
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.makerworld import parse_collection_url
@@ -189,8 +189,13 @@ async def follow_collection_from_url(
     dependencies=[Depends(require_perm("library:write"))],
 )
 async def set_collection_mode(
-    collection_id: int, payload: CollectionModeIn, db: AsyncSession = Depends(get_db)
+    collection_id: int,
+    payload: CollectionModeIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
+    existing = await collections_svc.get_followed(db, collection_id)
+    require_owner_or_admin(ctx, existing.created_by_user_id)
     row = await collections_svc.set_mode(db, collection_id, payload.mode)
     return FollowedCollectionOut.from_model(row)
 
@@ -200,7 +205,13 @@ async def set_collection_mode(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_perm("library:write"))],
 )
-async def unfollow_collection(collection_id: int, db: AsyncSession = Depends(get_db)) -> None:
+async def unfollow_collection(
+    collection_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> None:
+    existing = await collections_svc.get_followed(db, collection_id)
+    require_owner_or_admin(ctx, existing.created_by_user_id)
     await collections_svc.unfollow(db, collection_id)
 
 

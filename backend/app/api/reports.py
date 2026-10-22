@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_perm
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.models import Model
 from app.schemas.reports import DuplicatesReport, DuplicatesResolveIn, DuplicatesResolveOut
 from app.services import reports as reports_service
 
@@ -28,5 +30,15 @@ async def resolve_duplicates_report(
     payload: DuplicatesResolveIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> DuplicatesResolveOut:
-    return await reports_service.resolve_duplicates(db, settings, keep=payload.keep)
+    async def authorize(model_ids: set[int]) -> None:
+        owners = (
+            await db.execute(select(Model.created_by_user_id).where(Model.id.in_(model_ids)))
+        ).scalars()
+        for owner in owners:
+            require_owner_or_admin(ctx, owner)
+
+    return await reports_service.resolve_duplicates(
+        db, settings, keep=payload.keep, authorize_models=authorize
+    )

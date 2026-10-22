@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_api_token, require_token_perm
+from app.models import ApiToken, User
+from app.services.permissions import load_grants
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.registry import get_importer
@@ -153,12 +155,26 @@ async def get_import_status(import_id: int, db: AsyncSession = Depends(get_db)) 
     return ImportStatusOut(id=imp.id, state=imp.state, error=imp.error)
 
 
+async def _owner_settings_write(
+    token: ApiToken = Depends(require_api_token), db: AsyncSession = Depends(get_db)
+) -> None:
+    """The MakerWorld credential is global: only a token whose OWNER holds
+    ``settings:write`` (uncapped grants) may overwrite it."""
+    owner = await db.get(User, token.user_id)
+    if owner is not None:
+        _, perms, _ = await load_grants(db, owner)
+        if "settings:write" in perms:
+            return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "settings:write required")
+
+
 @router.post("/credentials/makerworld", response_model=OkOut)
 async def set_makerworld_credential(
     payload: ExtCredentialIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     _: AuthContext = Depends(_LIB_WRITE),
+    __: None = Depends(_owner_settings_write),
 ) -> OkOut:
     """The extension couriers the operator's browser-side MakerWorld cookie
     here. Merge-set: read the currently stored tokens and keep

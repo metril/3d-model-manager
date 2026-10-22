@@ -16,6 +16,7 @@ pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
         ("viewer", [], "POST", "/api/queue", 403),
         ("member", [], "GET", "/api/settings/app", 200),
         ("member", [], "PUT", "/api/settings/app", 403),
+        ("member", [], "POST", "/api/scan", 403),
     ],
 )
 async def test_perm_matrix(
@@ -56,3 +57,9 @@ async def test_member_lists_only_visible_printers(
     assert (await client.get(f"/api/printers/{other.id}")).status_code == 404
     assert (await client.get(f"/api/printers/{other.id}/status")).status_code == 404
     assert (await client.get(f"/api/printers/{printer_row.id}")).status_code == 200
+
+
+@pytest.mark.usefixtures("printer_enabled")
+async def test_member_cannot_create_printer(member_client):
+    r = await member_client.post("/api/printers", json={})
+    assert r.status_code == 403

@@ -10,6 +10,7 @@ revision it belongs to.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from fastapi import HTTPException, status
@@ -100,7 +101,11 @@ async def duplicate_files_report(db: AsyncSession) -> DuplicatesReport:
 
 
 async def resolve_duplicates(
-    db: AsyncSession, settings: Settings, *, keep: list[KeepChoiceIn]
+    db: AsyncSession,
+    settings: Settings,
+    *,
+    keep: list[KeepChoiceIn],
+    authorize_models: Callable[[set[int]], Awaitable[None]] | None = None,
 ) -> DuplicatesResolveOut:
     """``POST /reports/duplicates/resolve`` (Round 11 Task 2): delete every
     copy in each named group EXCEPT the client's chosen keeper.
@@ -148,6 +153,16 @@ async def resolve_duplicates(
                 status.HTTP_404_NOT_FOUND,
                 f"file {choice.file_id} is not part of duplicate group {choice.blob_hash}",
             )
+
+    if authorize_models is not None:
+        # Whole request 403s before any deletion (like bulk delete).
+        victim_models = {
+            entry.model_id
+            for choice in keep
+            for entry in groups_by_hash[choice.blob_hash].files
+            if entry.file_id != choice.file_id
+        }
+        await authorize_models(victim_models)
 
     deleted = 0
     reclaimed_bytes = 0
