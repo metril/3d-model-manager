@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CostCenter, GroupMember, LedgerEntry, Print, PrintQueueEntry, User
 from app.models.enums import LedgerKind
+from app.models.printing import PrintJob
 
 HOLD_OVER_BUDGET = "over_budget"
 BALANCE_KINDS = (LedgerKind.DEPOSIT, LedgerKind.ADJUSTMENT, LedgerKind.CHARGE)
@@ -297,6 +298,32 @@ def retry_over_budget(s: Session, cfg: Any, cc_id: int) -> int:
         if reserve(s, cfg, item, est, user_id=item.created_by_user_id):
             unheld += 1
     return unheld
+
+
+def settle_job(s: Session, job: PrintJob, run: Print) -> None:
+    """Settlement hook (P7 Task 4): release the queue item's open
+    reservation, then post the final charge for its actual run cost.
+    Called by ``app.services.archive.archive_job`` once ``run.total_cost``
+    is final.
+
+    No-op when there's no queue item for this job at all, when the job
+    never started (``job.started_at IS NULL`` -- P6's own before-start
+    retry path, which keeps its reservation for the next attempt rather
+    than releasing it here), or when the item was never billed in the
+    first place (no open reservation AND no cost center). Both
+    ``release``/``charge`` are themselves idempotent (``append``'s
+    ``(queue_id, kind)`` unique index) -- a second ``archive_job`` call for
+    the same job (redelivery) never double-releases or double-charges.
+    """
+    item = s.scalars(select(PrintQueueEntry).where(PrintQueueEntry.print_job_id == job.id)).first()
+    if item is None:
+        return
+    if job.started_at is None:
+        return
+    if _reservation(s, item.id) is None and item.cost_center_id is None:
+        return
+    release(s, item)
+    charge(s, item, run)
 
 
 def recompute(s: Session, cc_id: int | None = None) -> dict[int, tuple[Decimal, Decimal]]:

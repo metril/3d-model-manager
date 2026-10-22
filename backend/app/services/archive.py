@@ -32,7 +32,7 @@ from app.pipeline.slicedmeta import parse_gcode_3mf
 from app.printers.connection import connection_from_printer
 from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
-from app.services import spool_inventory
+from app.services import billing, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.costing import CostRates, charged_grams, filament_cost, price_run
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
@@ -293,6 +293,8 @@ def archive_job(
         model = session.get(Model, model_id)
         if model is not None:
             model.print_count += 1
+    session.flush()  # so `run.id` exists for `settle_job`'s `charge(print_id=run.id)`
+    billing.settle_job(session, job, run)
     session.commit()
     if fetch_exc is not None:
         raise ArchiveFetchError(str(fetch_exc)) from fetch_exc
