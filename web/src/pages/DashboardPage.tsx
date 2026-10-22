@@ -295,7 +295,7 @@ function DashboardContent({ stats }: { stats: NonNullable<ReturnType<typeof useS
         <CardHeader>
           <CardTitle>Printer jobs</CardTitle>
           <CardDescription>
-            <Link to="/jobs" className="underline">
+            <Link to="/system/jobs" className="underline">
               View all jobs
             </Link>
           </CardDescription>

@@ -74,10 +74,11 @@ function renderHeader(
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
-  // Starts on a dedicated "/detail" route (rather than "/") so a test can
-  // assert the Delete action's "navigate home" behavior by observing
-  // `router.state.location.pathname` actually change to "/".
-  const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null });
+  // Starts on a dedicated "/detail" route (rather than "/library") so a test
+  // can assert the Delete action's "navigate to library" behavior by
+  // observing `router.state.location.pathname` actually change to
+  // "/library".
+  const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/library", component: () => null });
   const detailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/detail",
@@ -402,7 +403,7 @@ describe("ModelHeader -- archive & delete via the overflow menu (feat/import-fid
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledExactlyOnceWith("/models/articulated-dragon"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
   });
 });
 

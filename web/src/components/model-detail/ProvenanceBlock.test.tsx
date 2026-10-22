@@ -34,7 +34,7 @@ const BASE_MODEL: ModelDetail = {
 
 function renderBlock(model: ModelDetail) {
   const rootRoute = createRootRoute();
-  const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null });
+  const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/library", component: () => null });
   const detailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/models/$slug",
@@ -52,7 +52,7 @@ describe("ProvenanceBlock", () => {
     renderBlock({ ...BASE_MODEL, source_collection_id: 7, source_collection_title: "Dragons I like" });
 
     const link = await screen.findByRole("link", { name: "Dragons I like" });
-    expect(link).toHaveAttribute("href", "/?collection=7");
+    expect(link).toHaveAttribute("href", "/library?collection=7");
     expect(screen.getByTestId("provenance")).toHaveTextContent("from collection Dragons I like");
   });
 

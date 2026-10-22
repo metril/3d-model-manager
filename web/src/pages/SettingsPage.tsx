@@ -9,7 +9,6 @@ import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
-import { MaterialsSection } from "@/components/settings/MaterialsSection";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
@@ -33,7 +32,6 @@ export function SettingsPage() {
   const backendsQuery = useStorageBackends();
   const auth = useAuth();
   const canSettings = auth.can("settings:write");
-  const canInventory = auth.can("inventory:write");
   const isAdmin = auth.can("admin");
 
   return (
@@ -67,7 +65,6 @@ export function SettingsPage() {
             <TabsTrigger value="general">General</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">Storage</TabsTrigger>}
             {canSettings && <TabsTrigger value="printer">Printer</TabsTrigger>}
-            {canInventory && <TabsTrigger value="materials">Materials</TabsTrigger>}
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
             {isAdmin && <TabsTrigger value="access">Access</TabsTrigger>}
           </TabsList>
@@ -87,11 +84,6 @@ export function SettingsPage() {
             <TabsContent value="printer" className="space-y-6">
               <PrinterEnabledCard />
               <PrinterSetupCard />
-            </TabsContent>
-          )}
-          {canInventory && (
-            <TabsContent value="materials" className="space-y-6">
-              <MaterialsSection />
             </TabsContent>
           )}
           <TabsContent value="accounts" className="space-y-6">

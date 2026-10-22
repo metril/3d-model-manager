@@ -83,11 +83,11 @@ describe("AppSidebar -- Categories (R13b)", () => {
 
     expect(await screen.findByText("Categories")).toBeInTheDocument();
     const miniLink = screen.getByRole("link", { name: /Miniatures/ });
-    expect(miniLink).toHaveAttribute("href", "/?category=1");
+    expect(miniLink).toHaveAttribute("href", "/library?category=1");
     expect(miniLink).toHaveTextContent("5");
 
     const vasesLink = screen.getByRole("link", { name: /Vases/ });
-    expect(vasesLink).toHaveAttribute("href", "/?category=2");
+    expect(vasesLink).toHaveAttribute("href", "/library?category=2");
   });
 
   // Fix-review finding 3: the category link used to write a brand-new

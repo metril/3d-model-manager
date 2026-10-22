@@ -31,7 +31,7 @@ export function ProvenanceBlock({ model }: { model: ModelDetail }) {
           · from collection{" "}
           {model.source_collection_id != null ? (
             <Link
-              to="/"
+              to="/library"
               search={{ collection: model.source_collection_id }}
               className="font-medium text-foreground hover:underline"
             >

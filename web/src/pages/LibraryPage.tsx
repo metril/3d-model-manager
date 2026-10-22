@@ -162,7 +162,7 @@ export function LibraryPage() {
   const activeCategory = search.category;
 
   function goToCategory(next: number | undefined) {
-    void navigate({ to: "/", search: (prev: LibrarySearch) => ({ ...prev, category: next }) });
+    void navigate({ to: "/library", search: (prev: LibrarySearch) => ({ ...prev, category: next }) });
   }
   const [sort, setSort] = useState<string>("-updated_at");
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
@@ -178,7 +178,7 @@ export function LibraryPage() {
   }
 
   function goToPath(nextPath: string) {
-    void navigate({ to: "/", search: (prev: LibrarySearch) => ({ ...prev, path: nextPath || undefined }) });
+    void navigate({ to: "/library", search: (prev: LibrarySearch) => ({ ...prev, path: nextPath || undefined }) });
   }
 
   const triggerScan = useTriggerScan();
@@ -187,7 +187,7 @@ export function LibraryPage() {
     triggerScan.mutate(undefined, {
       onSuccess: () =>
         toast.success("Scan started", {
-          action: { label: "View jobs", onClick: () => void navigate({ to: "/jobs" }) },
+          action: { label: "View jobs", onClick: () => void navigate({ to: "/system/jobs" }) },
         }),
     });
   }

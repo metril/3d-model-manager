@@ -108,7 +108,7 @@ function mockGet(stats: StatsOut | null = STATS) {
 function renderDashboard() {
   const rootRoute = createRootRoute();
   const home = createRoute({ getParentRoute: () => rootRoute, path: "/", component: DashboardPage });
-  const jobs = createRoute({ getParentRoute: () => rootRoute, path: "/jobs", component: () => null });
+  const jobs = createRoute({ getParentRoute: () => rootRoute, path: "/system/jobs", component: () => null });
   const modelDetail = createRoute({
     getParentRoute: () => rootRoute,
     path: "/models/$slug",
@@ -165,7 +165,7 @@ describe("DashboardPage", () => {
     renderDashboard();
 
     const link = await screen.findByRole("link", { name: "View all jobs" });
-    expect(link).toHaveAttribute("href", "/jobs");
+    expect(link).toHaveAttribute("href", "/system/jobs");
   });
 
   it("shows an error state when the stats fetch fails", async () => {

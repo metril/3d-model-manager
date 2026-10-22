@@ -64,12 +64,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   function goToCollection(id: number) {
     onOpenChange(false);
-    void navigate({ to: "/", search: { collection: id } });
+    void navigate({ to: "/library", search: { collection: id } });
   }
 
   function goToCategory(id: number) {
     onOpenChange(false);
-    void navigate({ to: "/", search: { category: id } });
+    void navigate({ to: "/library", search: { category: id } });
   }
 
   function goToModel(slug: string) {

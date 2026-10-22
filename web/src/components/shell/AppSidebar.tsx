@@ -63,7 +63,7 @@ function ScanChip({ collapsed }: { collapsed: boolean }) {
   if (!state || collapsed) return null;
 
   function goToJobs() {
-    void navigate({ to: "/jobs" });
+    void navigate({ to: "/system/jobs" });
   }
 
   if (state.kind === "failed") {
@@ -266,7 +266,7 @@ export function AppSidebar({
                     {collections.map((c) => (
                       <Link
                         key={c.id}
-                        to="/"
+                        to="/library"
                         search={{ collection: c.id }}
                         className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                         activeProps={{ className: "bg-muted text-foreground" }}
@@ -302,7 +302,7 @@ export function AppSidebar({
             {(categories.data ?? []).map((category) => (
               <Link
                 key={category.id}
-                to="/"
+                to="/library"
                 search={(prev: LibrarySearch) => ({ ...prev, category: category.id })}
                 className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                 activeProps={{ className: "bg-muted font-medium text-foreground" }}

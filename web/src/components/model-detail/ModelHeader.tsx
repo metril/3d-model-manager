@@ -311,7 +311,7 @@ export function ModelHeader({
             destructive
             onConfirm={() =>
               deleteModel.mutate(undefined, {
-                onSuccess: () => void navigate({ to: "/" }),
+                onSuccess: () => void navigate({ to: "/library" }),
               })
             }
           />
