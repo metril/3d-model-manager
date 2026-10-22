@@ -18,8 +18,10 @@ from app.schemas.queue import QueueEntryOut
 from app.services import library
 
 
-async def _ordered_entries(db: AsyncSession) -> list[PrintQueueEntry]:
+async def _ordered_entries(db: AsyncSession, limit: int | None = None) -> list[PrintQueueEntry]:
     stmt = select(PrintQueueEntry).order_by(PrintQueueEntry.position)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list((await db.execute(stmt)).scalars().all())
 
 
@@ -65,8 +67,10 @@ async def _to_out(
     ]
 
 
-async def list_queue(db: AsyncSession, settings: Settings) -> list[QueueEntryOut]:
-    return await _to_out(db, settings, await _ordered_entries(db))
+async def list_queue(
+    db: AsyncSession, settings: Settings, limit: int | None = None
+) -> list[QueueEntryOut]:
+    return await _to_out(db, settings, await _ordered_entries(db, limit))
 
 
 async def enqueue_model(
