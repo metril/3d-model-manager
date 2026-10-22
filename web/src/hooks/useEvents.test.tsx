@@ -190,6 +190,7 @@ describe("EventsProvider print_job.updated", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["print-jobs"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["printers"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["printers", "overview"] });
     expect(jobUpdatedListener).not.toHaveBeenCalled();
   });
 });

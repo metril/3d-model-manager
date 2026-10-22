@@ -50,6 +50,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       if (parsed.type === "print_job.updated") {
         void queryClient.invalidateQueries({ queryKey: ["print-jobs"] });
         void queryClient.invalidateQueries({ queryKey: ["printers"] }); // status polled separately
+        // P3 Task 3: the overview embeds each printer's active job + recent
+        // runs -- keep it live on every print-job transition too.
+        void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
         return;
       }
 
