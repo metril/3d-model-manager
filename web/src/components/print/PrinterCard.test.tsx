@@ -1,9 +1,27 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AmsTray, PrinterOverviewItem } from "@/api/types";
 import { PrinterCard } from "@/components/print/PrinterCard";
+
+const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, api: { ...actual.api, get: getMock } };
+});
+
+// `SlotAssignPopover` has its own test suite; here we only need to tell
+// whether `PrinterCard` wrapped a chip in it or not, so a thin marker
+// stands in for the real popover/select/combobox machinery.
+vi.mock("@/components/inventory/SlotAssignPopover", () => ({
+  SlotAssignPopover: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="slot-assign-popover">{children}</div>
+  ),
+}));
 
 function tray(overrides: Partial<AmsTray> = {}): AmsTray {
   return {
@@ -64,10 +82,20 @@ function renderCard(ui: React.ReactElement) {
     routeTree: rootRoute.addChildren([indexRoute, detailRoute]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
-  return render(<RouterProvider router={router} />);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
 }
 
 describe("PrinterCard", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue([]);
+  });
+
   it("links the header to the printer's detail page", async () => {
     renderCard(<PrinterCard item={item()} />);
 
@@ -124,5 +152,33 @@ describe("PrinterCard", () => {
     renderCard(<PrinterCard item={item()} camera={<span>Live feed</span>} />);
 
     expect(await screen.findByText("Live feed")).toBeInTheDocument();
+  });
+
+  it("wraps AMS chips in SlotAssignPopover for a control-capable viewer", async () => {
+    renderCard(
+      <PrinterCard
+        item={item({
+          can_control: true,
+          status: { ...item().status, trays: [tray({ slot: 0, color: "#FF0000", material: "PLA" })] },
+        })}
+      />,
+    );
+
+    expect(await screen.findAllByTestId("slot-assign-popover")).toHaveLength(1);
+  });
+
+  it("renders plain chips (no popover) for a viewer without control", async () => {
+    renderCard(
+      <PrinterCard
+        item={item({
+          can_control: false,
+          status: { ...item().status, trays: [tray({ slot: 0, color: "#FF0000", material: "PLA" })] },
+        })}
+      />,
+    );
+
+    await screen.findByRole("link", { name: "Bambu A1" });
+    expect(screen.queryByTestId("slot-assign-popover")).toBeNull();
+    expect(document.querySelectorAll('[data-slot="filament-chip"]')).toHaveLength(1);
   });
 });

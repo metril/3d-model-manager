@@ -10,7 +10,9 @@
 import { Link } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
+import { useSpools } from "@/api/spools";
 import type { PrinterOverviewItem } from "@/api/types";
+import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { ActiveJobStrip } from "@/components/print/ActiveJobStrip";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
@@ -28,6 +30,11 @@ export function PrinterCard({
 }) {
   const { printer, status, active_job: activeJob, can_control: canControl } = item;
   const { tone, label } = toneForGcode(status.online, status.gcode_state);
+  // `AmsTray.spool` is only the minimal `SpoolBrief` (no remaining/low-stock
+  // fields) -- the low-stock badge needs the full spool list, one shared
+  // `["spools", {low_stock:true}]` query cached across every card.
+  const lowStockSpools = useSpools({ low_stock: true, archived: false });
+  const lowStockIds = new Set((lowStockSpools.data ?? []).map((s) => s.id));
 
   return (
     <div data-slot="printer-card" className="overflow-hidden rounded-[6px] border">
@@ -69,9 +76,23 @@ export function PrinterCard({
 
         {status.trays.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {status.trays.map((tray) => (
-              <FilamentChip key={tray.slot} color={tray.color ?? undefined} material={tray.material ?? undefined} />
-            ))}
+            {status.trays.map((tray) => {
+              const chip = (
+                <FilamentChip
+                  color={tray.color ?? undefined}
+                  material={tray.material ?? undefined}
+                  lowStock={tray.spool != null && lowStockIds.has(tray.spool.id)}
+                  remainPct={tray.remain_pct}
+                />
+              );
+              return canControl ? (
+                <SlotAssignPopover key={tray.slot} printerId={printer.id} tray={tray}>
+                  <button type="button">{chip}</button>
+                </SlotAssignPopover>
+              ) : (
+                <span key={tray.slot}>{chip}</span>
+              );
+            })}
           </div>
         ) : null}
       </div>
