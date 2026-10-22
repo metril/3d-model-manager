@@ -191,7 +191,12 @@ async def list_queue(
     if ctx is not None:
         visible = visible_printer_ids(ctx)
         if visible is not None:
-            entries = [e for e in entries if e.printer_id is None or e.printer_id in visible]
+            entries = [
+                e
+                for e in entries
+                if (e.printer_id is None or e.printer_id in visible)
+                and (e.assigned_printer_id is None or e.assigned_printer_id in visible)
+            ]
     if not include_done:
         entries = [e for e in entries if e.state != QueueState.DONE]
     return await _to_out(db, settings, entries)

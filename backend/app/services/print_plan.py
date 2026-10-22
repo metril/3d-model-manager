@@ -7,7 +7,6 @@ new ``/print/send`` route both call.
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING
 
 import anyio
@@ -349,12 +348,15 @@ def create_job_sync(
     retry rule handles a raise here). ``created_by_user_id`` is the queue
     entry's own creator, not an ``AuthContext`` (the dispatcher has no live
     session). The ``send_to_printer`` task is invoked with its own
-    exception swallowed: in eager-mode tests that task runs its full
-    authoritative re-check synchronously and writes the job's OWN FAILED
-    state itself on failure -- that's the single source of truth, picked up
-    by ``dispatcher.eligible_queue_items``'s reconcile step on the NEXT
-    tick, not re-raised here (which would double-count the attempt against
-    a job that's already correctly marked).
+    exception caught, not re-raised: in eager-mode tests that task runs its
+    full authoritative re-check synchronously and writes the job's OWN
+    FAILED state itself on failure -- that's the single source of truth,
+    picked up by ``dispatcher._reconcile``'s retry step on the NEXT tick.
+    If ``apply_async`` itself blows up (I4: before the task ever got a
+    chance to write anything, e.g. the broker is unreachable), the job is
+    marked FAILED here instead -- ``started_at`` stays ``None`` so that very
+    same reconcile step still picks it up, rather than leaving a QUEUED job
+    that will never move again.
     """
     from app.tasks.printing import send_to_printer
 
@@ -384,7 +386,12 @@ def create_job_sync(
     session.add(job)
     session.commit()
     session.refresh(job)
-    with contextlib.suppress(Exception):  # see docstring: job's own state is authoritative
+    try:
         send_to_printer.apply_async(args=[job.id, req.model_dump()])
+    except Exception as exc:  # noqa: BLE001 - see docstring: I4
+        job.state = PrintJobState.FAILED
+        job.printer_error = str(exc)
+        job.started_at = None
+        session.commit()
     session.refresh(job)
     return job

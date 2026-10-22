@@ -453,6 +453,293 @@ def test_send_failure_retry_job_failed_before_start(redis_url: str, fake_adapter
         assert refreshed.last_error == "upload failed"
 
 
+def test_create_job_sync_marks_job_failed_on_apply_async_error(
+    redis_url: str, fake_adapter, monkeypatch: pytest.MonkeyPatch
+):
+    """I4: if `apply_async` itself blows up (broker unreachable), the job
+    must be marked FAILED with `started_at=None` instead of left QUEUED
+    forever -- `started_at=None` is what the next reconcile tick's retry
+    step keys off."""
+    from app.schemas.printers import PrintRequest
+    from app.services import print_plan
+
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="apply-async-raises")
+        printer = _seed_printer(s, name="ApplyAsyncRaisesP")
+        pid = printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr("app.tasks.printing.send_to_printer.apply_async", _boom)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        req = PrintRequest(file_id=file.id, plate=1, use_ams=False, ams_mapping=[])
+        job = print_plan.create_job_sync(s, settings, client, pid, req, None)
+        job_id = job.id
+    client.close()
+
+    with base.sync_session() as s:
+        refreshed = s.get(PrintJob, job_id)
+        assert refreshed.state == PrintJobState.FAILED
+        assert refreshed.started_at is None
+        assert "broker unreachable" in (refreshed.printer_error or "")
+
+
+def test_reconcile_job_finished_marks_entry_done(redis_url: str, fake_adapter):
+    """I5: a FINISHED job means the print actually completed."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="reconcile-finished")
+        printer = _seed_printer(s, name="ReconcileFinishedP")
+        job = PrintJob(printer_id=printer.id, file_id=file.id, state=PrintJobState.FINISHED)
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    assert counts["done"] == 1
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.DONE
+
+
+def test_reconcile_job_canceled_marks_entry_failed_no_retry(redis_url: str, fake_adapter):
+    """I5: CANCELED is final -- no retry, straight to `failed`."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="reconcile-canceled")
+        printer = _seed_printer(s, name="ReconcileCanceledP")
+        job = PrintJob(printer_id=printer.id, file_id=file.id, state=PrintJobState.CANCELED)
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "RUNNING"})
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    assert counts["retried"] == 0
+    with base.sync_session() as s:
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.FAILED
+        assert refreshed.attempts == 0
+
+
+def test_reconcile_job_failed_after_started_no_retry(redis_url: str, fake_adapter):
+    """I5: FAILED with `started_at` set (picked up, then failed mid-print)
+    is also final -- unlike FAILED with `started_at IS NULL`."""
+    settings = get_settings()
+    import datetime as dt
+
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="reconcile-failed-started")
+        printer = _seed_printer(s, name="ReconcileFailedStartedP")
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            state=PrintJobState.FAILED,
+            started_at=dt.datetime.now(dt.UTC),
+            printer_error="nozzle clog",
+        )
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "RUNNING"})
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    assert counts["retried"] == 0
+    with base.sync_session() as s:
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.FAILED
+        assert refreshed.attempts == 0
+        assert refreshed.last_error == "nozzle clog"
+
+
+def test_reconcile_stale_slicing_goes_back_to_waiting(redis_url: str, fake_adapter):
+    """I2: a `slicing` entry stuck well past SLICING_STALE_S (worker
+    crash/kill mid-slice) is bounced back to `waiting`, attempt NOT
+    consumed."""
+    import datetime as dt
+
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="stale-slicing")
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.WAITING)
+        entry.state = QueueState.SLICING
+        entry.slicing_started_at = dt.datetime.now(dt.UTC) - dt.timedelta(
+            seconds=dispatcher.SLICING_STALE_S + 60
+        )
+        s.commit()
+        entry_id = entry.id
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    with base.sync_session() as s:
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.WAITING
+        assert refreshed.attempts == 0
+        assert refreshed.slicing_started_at is None
+
+
+def test_no_matching_printer_stays_ready_not_held(redis_url: str, fake_adapter):
+    """M1: an item whose own printer target (here, its recipe's
+    `target_printer_model`) matches no printer at all stays `ready` with a
+    plain "no matching printer" error -- never `held` (that's reserved for
+    an access problem)."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="no-match")
+        admin_id = _seed_admin(s)
+        printer_profile = SlicerProfile(name="np-pp", kind=ProfileKind.PRINTER, data={})
+        process_profile = SlicerProfile(name="np-pc", kind=ProfileKind.PROCESS, data={})
+        s.add_all([printer_profile, process_profile])
+        s.flush()
+        recipe = PrintRecipe(
+            name="no-match-recipe",
+            printer_profile_id=printer_profile.id,
+            process_profile_id=process_profile.id,
+            filament_profile_ids=[],
+            bed_type="textured_plate",
+            options={},
+            target_printer_model="No Such Printer Model",
+        )
+        s.add(recipe)
+        s.flush()
+        entry = _seed_entry(
+            s,
+            model=model,
+            file=file,
+            recipe_id=recipe.id,
+            state=QueueState.READY,
+            created_by=admin_id,
+        )
+        entry_id = entry.id
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    assert counts["held"] == 0
+    with base.sync_session() as s:
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.READY
+        assert refreshed.last_error == "no matching printer"
+
+
+def test_failed_primary_send_keeps_full_copies_no_clone(
+    redis_url: str, fake_adapter, monkeypatch: pytest.MonkeyPatch
+):
+    """M2: when the primary send itself fails, nothing is split off -- the
+    item keeps its original copy count for its own retry, with no leftover
+    clone alongside it."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="failed-primary-copies")
+        printer = _seed_printer(s, name="FailedPrimaryCopiesP")
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.READY, copies=3, created_by=admin_id
+        )
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    def _boom(*args, **kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(dispatcher, "create_job_sync", _boom)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    with base.sync_session() as s:
+        from sqlalchemy import select
+
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.copies == 3
+        assert refreshed.state == QueueState.READY
+        clones = list(
+            s.scalars(
+                select(PrintQueueEntry).where(
+                    PrintQueueEntry.id != entry_id, PrintQueueEntry.model_id == model.id
+                )
+            )
+        )
+        assert clones == []
+
+
+def test_leftover_clone_keeps_items_position_ahead_of_later_items(redis_url: str, fake_adapter):
+    """I6: 3 copies on a single idle printer with other items already
+    queued behind it -- the leftover clone (2 copies still pending) must
+    land ahead of those other items, not appended behind them."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        printer = _seed_printer(s, name="LeftoverOrderP")
+        admin_id = _seed_admin(s)
+        model_a, _, file_a = _seed_model_file(s, slug="leftover-a")
+        entry_a = _seed_entry(
+            s, model=model_a, file=file_a, state=QueueState.READY, copies=3, created_by=admin_id
+        )
+        model_b, _, file_b = _seed_model_file(s, slug="leftover-b")
+        entry_b = _seed_entry(
+            s, model=model_b, file=file_b, state=QueueState.READY, created_by=admin_id
+        )
+        pid = printer.id
+        entry_a_id, entry_b_id = entry_a.id, entry_b.id
+        entry_a_position = entry_a.position
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    with base.sync_session() as s:
+        from sqlalchemy import select
+
+        clone = s.scalar(
+            select(PrintQueueEntry).where(
+                PrintQueueEntry.model_id == model_a.id, PrintQueueEntry.id != entry_a_id
+            )
+        )
+        entry_b = s.get(PrintQueueEntry, entry_b_id)
+        assert clone is not None
+        assert clone.copies == 2
+        assert clone.position == entry_a_position
+        assert entry_b.position > clone.position
+
+
 def test_waiting_recipe_kicks_slice(redis_url: str, monkeypatch: pytest.MonkeyPatch):
     settings = get_settings()
     with base.sync_session() as s:

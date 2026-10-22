@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from redis import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -154,9 +154,15 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
 
 
 def _reconcile(session: Session, counts: dict) -> None:
-    """Step 1: a `dispatched` item whose job ended FAILED before it ever
-    started (`started_at IS NULL`) never got picked up by a running print
-    -- apply the retry rule now rather than leaving it stuck.
+    """Step 1 (I5): a `dispatched` item's job now tells the whole story --
+    FINISHED means the print actually completed (-> `done`, the item's
+    terminal state, hidden from the default queue listing); CANCELED, or
+    FAILED after it ever started (`started_at IS NOT NULL`, i.e. the
+    printer picked it up and it failed mid-print) both mean the one attempt
+    that happened is final -- no retry, straight to `failed`; FAILED before
+    it ever started (`started_at IS NULL`) never got picked up by a running
+    print at all -- apply the normal retry rule instead of giving up on the
+    first try.
 
     Step 2: a `slicing` item whose `slicing_started_at` is older than
     `SLICING_STALE_S` never got a result back (worker crash/kill mid-slice)
@@ -172,7 +178,19 @@ def _reconcile(session: Session, counts: dict) -> None:
     ).all()
     for item in items:
         job = session.get(PrintJob, item.print_job_id)
-        if job is not None and job.state == PrintJobState.FAILED and job.started_at is None:
+        if job is None:
+            continue
+        if job.state == PrintJobState.FINISHED:
+            item.state = QueueState.DONE
+            counts["done"] += 1
+        elif job.state == PrintJobState.CANCELED or (
+            job.state == PrintJobState.FAILED and job.started_at is not None
+        ):
+            item.state = QueueState.FAILED
+            item.last_error = job.printer_error or (
+                "canceled" if job.state == PrintJobState.CANCELED else "print failed"
+            )
+        elif job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
             counts["retried"] += 1
 
@@ -255,9 +273,12 @@ def _candidate_printers(
     """Returns ``(candidates, had_any_permitted, reason)``. An empty
     candidate list with ``had_any_permitted=False`` means "hold" (no
     printer this item's creator may send to at all -- revoked access, or a
-    null/inactive creator); with ``had_any_permitted=True`` it means every
-    permitted printer failed ``compatibility_reason`` (``reason`` is the
-    last one seen) -- the item stays `ready` for a future retry instead.
+    null/inactive creator); with ``had_any_permitted=True`` it means either
+    nothing matched the item/recipe's own printer target at all (M1: stays
+    `ready` with ``reason="no matching printer"`` rather than held -- not an
+    access problem), or every permitted printer failed
+    ``compatibility_reason`` (``reason`` is the last one seen) -- same
+    `ready`-for-retry outcome.
     """
     stmt = select(Printer).order_by(Printer.name, Printer.id)
     if item.printer_id is not None:
@@ -272,6 +293,11 @@ def _candidate_printers(
         and recipe.target_printer_model is not None
     ):
         printers = [p for p in printers if model_matches(recipe.target_printer_model, p.model)]
+
+    if not printers:
+        # M1: nothing matches this item's own printer target at all -- not
+        # a permission problem, so never `held`.
+        return [], True, "no matching printer"
 
     permitted = [p for p in printers if can_print_sync(session, item.created_by_user_id, p.id)]
     if not permitted:
@@ -297,9 +323,29 @@ def _candidate_printers(
 
 
 def _clone_entry(
-    session: Session, item: PrintQueueEntry, *, copies: int, state: QueueState
+    session: Session,
+    item: PrintQueueEntry,
+    *,
+    copies: int,
+    state: QueueState,
+    position: int | None = None,
 ) -> PrintQueueEntry:
-    max_position = session.scalar(select(func.max(PrintQueueEntry.position))) or 0
+    """``position=None`` (the extra-printer clones a spread/first_n fanout
+    sends to) appends at the end of the queue -- order among those doesn't
+    matter, they're dispatched this very tick. ``position`` given (I6: the
+    one leftover-copies clone) instead takes exactly ``item``'s own slot,
+    densely shifting every entry from there on back by one -- so it keeps
+    running ahead of whatever was queued after ``item``, rather than
+    getting appended behind it."""
+    if position is None:
+        max_position = session.scalar(select(func.max(PrintQueueEntry.position))) or 0
+        position = max_position + 1
+    else:
+        session.execute(
+            update(PrintQueueEntry)
+            .where(PrintQueueEntry.position >= position, PrintQueueEntry.id != item.id)
+            .values(position=PrintQueueEntry.position + 1)
+        )
     clone = PrintQueueEntry(
         model_id=item.model_id,
         file_id=item.file_id,
@@ -309,7 +355,7 @@ def _clone_entry(
         plate=item.plate,
         copies=copies,
         state=state,
-        position=max_position + 1,
+        position=position,
         ams_mapping=item.ams_mapping,
         print_options=item.print_options,
         created_by_user_id=item.created_by_user_id,
@@ -385,11 +431,22 @@ def _dispatch(
     more `ready` clone -- pinned back to the SAME printer when ``fanout``
     is SINGLE (it always serializes copies onto one printer), left
     unpinned otherwise so the next tick can spread further.
+
+    M2: nothing is split off unless the PRIMARY send actually succeeded --
+    a failed primary send means nothing was sent to any printer yet, so
+    ``item`` keeps every one of its original copies for its own retry
+    instead of a leftover clone (which would have inherited an arbitrary,
+    none-sent copy count) appearing alongside it.
     """
     original_copies = item.copies
     primary = selected[0]
     mapping, use_ams = _resolve_mapping(client, item, primary, need)
     _send_one(session, settings, client, item, primary, mapping, use_ams)
+
+    if item.state != QueueState.DISPATCHED:
+        item.copies = original_copies
+        session.commit()
+        return
 
     for printer_id in selected[1:]:
         clone = _clone_entry(session, item, copies=1, state=QueueState.READY)
@@ -398,14 +455,18 @@ def _dispatch(
 
     remaining = original_copies - len(selected)
     if remaining > 0:
-        rest = _clone_entry(session, item, copies=remaining, state=QueueState.READY)
+        # I6: takes `item`'s own slot (densely renumbered), not appended
+        # behind whatever else is already queued.
+        rest = _clone_entry(
+            session, item, copies=remaining, state=QueueState.READY, position=item.position
+        )
         if fanout == Fanout.SINGLE:
             rest.printer_id = primary
             session.commit()
 
 
 def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
-    counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0}
+    counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0}
     _reconcile(session, counts)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()

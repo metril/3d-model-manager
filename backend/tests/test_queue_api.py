@@ -553,3 +553,47 @@ async def test_visibility_hides_items_on_invisible_printers(
     listing = await client.get("/api/queue")
     ids = [e["id"] for e in listing.json()]
     assert visible_entry.json()["id"] in ids
+
+
+async def test_visibility_hides_items_on_invisible_assigned_printer(
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+    make_user,
+    make_group,
+    login_as,
+) -> None:
+    """M3: an unpinned entry (no explicit `printer_id`) the dispatcher has
+    already assigned to a printer outside the viewer's ACL must also be
+    hidden -- not just entries with an explicit, invisible `printer_id`."""
+    model, revision = await _model_and_revision(db_session, "visibility-assigned")
+    f = await seed_file(
+        model,
+        revision,
+        "job.gcode.3mf",
+        b"gc",
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+    hidden_pid = await _printer(db_session, "HiddenAssignedPrinter")
+
+    # No API path sets `assigned_printer_id` -- that's the dispatcher's own
+    # bookkeeping -- so seed the entry directly.
+    entry = PrintQueueEntry(
+        model_id=model.id,
+        file_id=f.id,
+        sliced_file_id=f.id,
+        state=QueueState.DISPATCHED,
+        position=1,
+        assigned_printer_id=hidden_pid,
+    )
+    db_session.add(entry)
+    await db_session.commit()
+    await db_session.refresh(entry)
+
+    member = await make_user("member")
+    await make_group("assigned-visibility-folks", permissions=["printers:print"], members=[member])
+    client = await login_as(member)
+
+    listing = await client.get("/api/queue")
+    ids = [e["id"] for e in listing.json()]
+    assert entry.id not in ids
