@@ -22,6 +22,7 @@ import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { SpoolsPage } from "@/pages/SpoolsPage";
 import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
 import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
@@ -234,7 +235,10 @@ const duplicatesRoute = createRoute({
 const inventorySpoolsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/spools",
-  component: () => <PlaceholderPage title="Spools" phase="P5" blurb="Track filament spools as inventory." />,
+  validateSearch: (search: Record<string, unknown>): { low?: string } => ({
+    low: search.low != null ? String(search.low) : undefined,
+  }),
+  component: SpoolsPage,
 });
 
 const inventoryMaterialsRoute = createRoute({

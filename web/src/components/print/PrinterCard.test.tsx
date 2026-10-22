@@ -2,8 +2,23 @@ import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, crea
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { PrinterOverviewItem } from "@/api/types";
+import type { AmsTray, PrinterOverviewItem } from "@/api/types";
 import { PrinterCard } from "@/components/print/PrinterCard";
+
+function tray(overrides: Partial<AmsTray> = {}): AmsTray {
+  return {
+    slot: 0,
+    ams_unit: null,
+    tray: null,
+    color: null,
+    material: null,
+    tray_type: null,
+    tray_uuid: null,
+    remain_pct: null,
+    spool: null,
+    ...overrides,
+  };
+}
 
 function item(overrides: Partial<PrinterOverviewItem> = {}): PrinterOverviewItem {
   return {
@@ -79,8 +94,8 @@ describe("PrinterCard", () => {
           status: {
             ...item().status,
             trays: [
-              { slot: 0, color: "#FF0000", material: "PLA" },
-              { slot: 1, color: "#00FF00", material: "PETG" },
+              tray({ slot: 0, color: "#FF0000", material: "PLA" }),
+              tray({ slot: 1, color: "#00FF00", material: "PETG" }),
             ],
           },
         })}

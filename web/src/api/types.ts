@@ -667,6 +667,97 @@ export interface SpoolBrief {
   color_name: string | null;
 }
 
+// `/api/spools` (P5 spool tray plan, Task 9): physical spool inventory,
+// their current AMS slot (if any) and usage ledger. Mirrors
+// `backend/app/schemas/inventory.py` 1:1.
+export interface SpoolSlot {
+  printer_id: number;
+  ams_unit: number;
+  slot: number;
+}
+
+export interface SpoolOut {
+  id: number;
+  material_id: number | null;
+  material_type: string;
+  brand: string | null;
+  color_hex: string | null;
+  color_name: string | null;
+  label_weight_g: number;
+  empty_weight_g: number | null;
+  weight_used_g: number;
+  cost_per_kg: number | null;
+  location: string | null;
+  low_stock_g: number;
+  tray_uuid: string | null;
+  archived_at: string | null;
+  last_used_at: string | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  remaining_g: number;
+  low_stock: boolean;
+  slot: SpoolSlot | null;
+}
+
+export interface SpoolCreate {
+  material_id?: number | null;
+  material_type: string;
+  brand?: string | null;
+  color_hex?: string | null;
+  color_name?: string | null;
+  label_weight_g?: number;
+  empty_weight_g?: number | null;
+  weight_used_g?: number;
+  cost_per_kg?: number | null;
+  location?: string | null;
+  low_stock_g?: number;
+  tray_uuid?: string | null;
+}
+
+export interface SpoolUpdate {
+  material_id?: number | null;
+  material_type?: string;
+  brand?: string | null;
+  color_hex?: string | null;
+  color_name?: string | null;
+  label_weight_g?: number;
+  empty_weight_g?: number | null;
+  weight_used_g?: number;
+  cost_per_kg?: number | null;
+  location?: string | null;
+  low_stock_g?: number;
+  tray_uuid?: string | null;
+  archived?: boolean;
+}
+
+export interface SpoolUsageRow {
+  id: number;
+  print_job_id: number | null;
+  archive_id: number | null;
+  model_name: string | null;
+  grams: number;
+  source: string;
+  created_at: string;
+}
+
+export interface SpoolSeriesPoint {
+  t: string;
+  remaining_g: number;
+}
+
+export interface SpoolDetailOut extends SpoolOut {
+  usage: SpoolUsageRow[];
+  series: SpoolSeriesPoint[];
+}
+
+export interface ManualUsageIn {
+  grams: number;
+}
+
+export interface SlotAssignIn {
+  spool_id: number | null;
+}
+
 export interface PrinterStatusOut {
   online: boolean;
   gcode_state: string | null;
