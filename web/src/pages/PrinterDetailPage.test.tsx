@@ -24,7 +24,15 @@ vi.mock("@/api/auth", async (importOriginal) => ({
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      get: getMock,
+      post: () =>
+        Promise.resolve({ stream_url: "/stream", snapshot_url: "/snapshot", expires_at: "2026-01-01T00:00:00Z" }),
+    },
+  };
 });
 
 const PRINTER: PrinterOut = {
@@ -132,5 +140,23 @@ describe("PrinterDetailPage", () => {
 
     await screen.findAllByText("Bambu A1", {}, { timeout: 3000 });
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+  });
+
+  it("renders the CameraTile when the viewer has control", async () => {
+    canPrinterBox.current = () => true;
+    mockGet();
+    renderDetail();
+
+    await screen.findAllByText("Bambu A1", {}, { timeout: 3000 });
+    expect(document.querySelector('[data-slot="camera-tile"]')).toBeInTheDocument();
+  });
+
+  it("keeps the placeholder icon for a viewer without control", async () => {
+    canPrinterBox.current = () => false;
+    mockGet();
+    renderDetail();
+
+    await screen.findAllByText("Bambu A1", {}, { timeout: 3000 });
+    expect(document.querySelector('[data-slot="camera-tile"]')).not.toBeInTheDocument();
   });
 });

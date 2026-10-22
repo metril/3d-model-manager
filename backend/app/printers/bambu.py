@@ -12,17 +12,23 @@ the bambulabs_api client above -- see that module's docstring."""
 
 from __future__ import annotations
 
+import json
+import re
+import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
 
 from app.models.enums import PrinterKind, PrintJobState
 from app.printers import probe
 from app.printers.base import (
+    CameraSource,
     PrinterAdapter,
     PrinterConnection,
     PrinterPublicState,
     PrintSpec,
     ProbeResult,
+    RemoteFile,
     ReportHandler,
 )
 from app.printers.registry import register_adapter
@@ -45,6 +51,45 @@ def _build_printer(conn: PrinterConnection):
     return bl.Printer(conn.host, conn.access_code, conn.serial)
 
 
+def project_file_payload(spec: PrintSpec) -> dict:
+    """Mirrors the vendored ``start_print_3mf`` payload (bambulabs_api
+    v2.6.6, ``PrinterMQTTClient.start_print_3mf``) key-for-key, except
+    ``bed_leveling``/``timelapse`` come from ``spec`` instead of the lib's
+    hardcoded ``True``/missing value."""
+    return {
+        "print": {
+            "command": "project_file",
+            "param": f"Metadata/plate_{spec.plate}.gcode",
+            "file": spec.remote_name,
+            "url": f"ftp:///{spec.remote_name}",
+            "bed_leveling": spec.bed_levelling,
+            "bed_type": "textured_plate",
+            "flow_cali": spec.flow_cali,
+            "vibration_cali": True,
+            "layer_inspect": False,
+            "timelapse": spec.timelapse,
+            "use_ams": spec.use_ams,
+            "ams_mapping": list(spec.ams_mapping),
+            "sequence_id": "10000000",
+            "skip_objects": None,
+        }
+    }
+
+
+def _publish_raw(p, payload: dict) -> None:
+    """Publish ``payload`` on the lib's own command topic, bypassing its
+    typed helpers (which hardcode ``bed_leveling=True`` and drop
+    ``timelapse``). Mirrors the lib's own ``__publish_command`` connected/
+    confirmed checks so a silent drop surfaces as an ``OSError``."""
+    client = p.mqtt_client._client
+    if not client.is_connected():
+        raise OSError("not connected to the MQTT server")
+    result = client.publish(p.mqtt_client.command_topic, json.dumps(payload))
+    result.wait_for_publish(timeout=5)
+    if not result.is_published():
+        raise OSError("project_file publish failed")
+
+
 FTP_TIMEOUT_S = 30
 
 
@@ -56,6 +101,71 @@ def _build_ftp(conn: PrinterConnection):
     client = PrinterFTPClient(conn.host, conn.access_code)
     client.ftps.timeout = FTP_TIMEOUT_S  # ftplib.connect() honours the attribute
     return client
+
+
+_MONTHS = {
+    name: i + 1
+    for i, name in enumerate(
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    )
+}
+# Fallback when the LIST columns don't parse: the A1's timelapse/snapshot
+# filenames stamp their own capture time, e.g. "ipcam_2026-10-22_14-03-05.mp4".
+_NAME_STAMP = re.compile(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})")
+
+
+def parse_list_line(line: str, now: datetime) -> RemoteFile | None:
+    """Parse one Unix-style FTP ``LIST`` line (same column layout
+    ``list_dir`` already relies on: ``perms links user group size month day
+    time-or-year name``). ``month day time`` omits the year (e.g. ``Oct 22
+    14:03``) -- ``now``'s year is assumed, rolled back one year if that
+    would land in the future (an FTP LIST server quirk: once a file is >6
+    months old some servers switch to printing the year instead, e.g.
+    ``Dec 31  2025``). Falls back to a timestamp embedded in the filename
+    itself when the columns don't parse. Returns ``None`` for unparseable
+    lines (too few columns, ``.``/``..``)."""
+    parts = line.split(maxsplit=8)
+    if len(parts) < 9:
+        return None
+    name = parts[8]
+    if name in (".", ".."):
+        return None
+    try:
+        size = int(parts[4])
+    except ValueError:
+        size = None
+    mtime: datetime | None = None
+    month = _MONTHS.get(parts[5])
+    if month is not None:
+        try:
+            day = int(parts[6])
+        except ValueError:
+            day = None
+        token = parts[7]
+        if day is not None:
+            if ":" in token:
+                hh, _, mm = token.partition(":")
+                try:
+                    candidate = datetime(now.year, month, day, int(hh), int(mm), tzinfo=UTC)
+                except ValueError:
+                    candidate = None
+                if candidate is not None and candidate > now + timedelta(days=1):
+                    candidate = candidate.replace(year=candidate.year - 1)
+                mtime = candidate
+            else:
+                try:
+                    mtime = datetime(int(token), month, day, tzinfo=UTC)
+                except ValueError:
+                    mtime = None
+    if mtime is None:
+        m = _NAME_STAMP.search(name)
+        if m:
+            y, mo, d, h, mi, s = (int(g) for g in m.groups())
+            try:
+                mtime = datetime(y, mo, d, h, mi, s, tzinfo=UTC)
+            except ValueError:
+                mtime = None
+    return RemoteFile(name=name, size=size, mtime=mtime)
 
 
 def _state_token(state) -> str | None:
@@ -249,15 +359,10 @@ class BambuLanAdapter(PrinterAdapter):
         p = self._client()
         with spec.source_path.open("rb") as fh:
             p.upload_file(fh, spec.remote_name)  # -> /cache/<remote_name> on the SD
-        # The lib builds the exact project_file payload + url internally; we
-        # forward only what its start_print accepts (no bed_levelling/timelapse).
-        p.start_print(
-            spec.remote_name,
-            spec.plate,
-            use_ams=spec.use_ams,
-            ams_mapping=list(spec.ams_mapping),
-            flow_calibration=spec.flow_cali,
-        )
+        # The lib's start_print/start_print_3mf hardcodes bed_leveling=True
+        # and drops timelapse entirely, so we publish the raw project_file
+        # command ourselves (project_file_payload) to carry both from spec.
+        _publish_raw(p, project_file_payload(spec))
 
     # -- files (FTPS) --------------------------------------------------
     # The vendored client's connect_and_run swallows exceptions and returns
@@ -278,6 +383,30 @@ class BambuLanAdapter(PrinterAdapter):
         if buf is None:
             raise OSError(f"FTPS download {remote} failed")
         Path(dest).write_bytes(buf.getvalue())
+
+    def list_files(self, path: str) -> list[RemoteFile]:
+        res = _build_ftp(self.conn).list_directory(path)
+        if res is None:
+            raise OSError(f"FTPS list {path} failed")
+        now = datetime.now(UTC)
+        files: list[RemoteFile] = []
+        for line in res[1]:
+            rf = parse_list_line(line, now)
+            if rf is not None:
+                files.append(rf)
+        return files
+
+    # -- camera (P4 camera plan) ---------------------------------------
+    def open_camera(self, stop: threading.Event) -> CameraSource:
+        """A1-class printers only -- the camera protocol in
+        ``camera_a1.py`` is specific to that port/handshake. X1 models use
+        RTSP instead and are not supported here. Lazy-imported (flag-off
+        import safety: only printerd's camera supervisor ever calls this)."""
+        if (self.conn.model or "").upper().startswith("X1"):
+            raise NotImplementedError("X1 uses RTSP, not the A1 camera protocol")
+        from app.printers.camera_a1 import CameraA1Client
+
+        return CameraA1Client(self.conn.host, self.conn.access_code, stop=stop)
 
     # -- probe ---------------------------------------------------------
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:

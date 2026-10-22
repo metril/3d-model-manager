@@ -33,8 +33,10 @@ from app.config import Settings, get_settings
 from app.models import Printer, PrintJob
 from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers.base import PrinterAdapter, PrinterPublicState, command_channel, state_key
+from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
+from app.services import camera_state
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.tasks import base
@@ -179,6 +181,8 @@ class PrinterWorker:
             state=new_state.value,
         )
         if result is not None:
+            with contextlib.suppress(Exception):
+                camera_state.keep_job_frame(self.redis, self.printer_id, job_id)
             try:
                 _enqueue_archive(job_id, result)
             except Exception as exc:
@@ -212,6 +216,7 @@ class PrinterDaemon:
         # ``_workers``).
         self._signatures: dict[int, tuple[str, str, str]] = {}
         self._stop = threading.Event()
+        self.camera = CameraSupervisor(self.redis)
 
     def enabled_printers(self) -> list[Printer]:
         """Every `enabled` Printer row -- but only when the `printer_enabled`
@@ -236,6 +241,7 @@ class PrinterDaemon:
         self._workers[printer.id] = worker
         self._signatures[printer.id] = _signature(printer)
         self._subscribe_commands(printer.id, worker)
+        self.camera.add(printer.id, adapter)
         return worker
 
     def _safe_start(self, printer: Printer) -> None:
@@ -285,6 +291,7 @@ class PrinterDaemon:
 
     def stop_printer(self, printer_id: int) -> None:
         self._signatures.pop(printer_id, None)
+        self.camera.remove(printer_id)
         stop = self._cmd_stops.pop(printer_id, None)
         if stop is not None:
             stop.set()
@@ -321,6 +328,7 @@ class PrinterDaemon:
 
     def run(self) -> None:
         self.reconcile()  # initial start (replaces the old one-shot start loop)
+        self.camera.start()
         while not self._stop.wait(_POLL_INTERVAL_S):
             try:
                 self.reconcile()
@@ -347,6 +355,7 @@ class PrinterDaemon:
         self._stop.set()
         for printer_id in list(self._workers):
             self.stop_printer(printer_id)
+        self.camera.stop()
 
 
 def main() -> None:

@@ -22,12 +22,23 @@ export const BLOB_FORMATS = [
   "md",
   "txt",
   "docx",
+  // P4 camera plan: timelapse video formats (`BlobKind.video`).
+  "mp4",
+  "avi",
   "other",
 ] as const;
 
 export type BlobFormat = (typeof BLOB_FORMATS)[number];
 
-export type BlobKind = "mesh" | "cad" | "sliced" | "gcode" | "image" | "doc" | "other";
+export type BlobKind =
+  | "mesh"
+  | "cad"
+  | "sliced"
+  | "gcode"
+  | "image"
+  | "doc"
+  | "video"
+  | "other";
 
 // -- models (backend/app/schemas/library.py) -------------------------------
 
@@ -654,6 +665,16 @@ export interface PrinterStatusOut {
   trays: AmsTray[];
 }
 
+// `POST /printers/{id}/camera/token` (P4 camera plan, Task 4/8): relative
+// stream/snapshot URLs carrying a scoped camera token in the query string.
+// Cached client-side under its own `["camera-url", id]` key, separate from
+// the `["printers"]` prefix the overview/status SSE invalidations touch.
+export interface CameraUrlsOut {
+  stream_url: string;
+  snapshot_url: string;
+  expires_at: string;
+}
+
 export type PrintJobState =
   | "queued"
   | "uploading"
@@ -1048,6 +1069,9 @@ export interface ArchiveOut {
   fetch_error: string | null;
   has_thumbnail: boolean;
   has_file: boolean;
+  has_snapshot: boolean;
+  has_timelapse: boolean;
+  media_note: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;

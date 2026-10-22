@@ -1,18 +1,23 @@
 /**
  * `/printers/$id` (P3 Task 10): the per-printer detail page, replacing the
  * old `/printer` page (gone) and the Task 5 shell. Left column is a 16:9
- * camera placeholder (the P4 `CameraTile` slot -- nothing renders there
- * yet) above the restyled `PrinterStatusPanel`; right column is the
+ * camera tile above the restyled `PrinterStatusPanel`; right column is the
  * queue's head (`UpNextList`, from the overview's `up_next`) and this
  * printer's own history (`PrintJobHistory printerId`). Mirrors the `/` and
  * `/printer` redirect policies' flag/not-found handling so a stale link or
  * bookmark lands somewhere clear either way.
+ *
+ * P4 Task 9: the camera slot is a live `CameraTile` only when the viewer
+ * has `canPrinter(id, "control")` (the token mint requires it) -- anyone
+ * else keeps the plain placeholder icon.
  */
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
+import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
+import { CameraTile } from "@/components/print/CameraTile";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterStatusPanel } from "@/components/printer/PrinterStatusPanel";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
@@ -24,6 +29,7 @@ const routeApi = getRouteApi("/authenticated/printers/$id");
 
 export function PrinterDetailPage() {
   const { id } = routeApi.useParams();
+  const { canPrinter } = useAuth();
   const features = useFeatures();
   const enabled = !!features.data?.printer_enabled;
   const printers = usePrinters({ enabled });
@@ -67,8 +73,17 @@ export function PrinterDetailPage() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="flex flex-1 flex-col gap-4">
-          <div className="flex aspect-video items-center justify-center rounded-[6px] border bg-muted">
-            <PrinterIcon className="size-8 text-muted-foreground/50" />
+          <div className="aspect-video overflow-hidden rounded-[6px] border bg-muted">
+            {canPrinter(printer.id, "control") ? (
+              <CameraTile
+                printerId={printer.id}
+                online={overview.data?.printers.find((p) => p.printer.id === printer.id)?.status.online ?? false}
+              />
+            ) : (
+              <div className="flex size-full items-center justify-center">
+                <PrinterIcon className="size-8 text-muted-foreground/50" />
+              </div>
+            )}
           </div>
           <PrinterStatusPanel printer={printer} />
         </div>

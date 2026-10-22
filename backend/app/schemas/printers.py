@@ -268,3 +268,14 @@ class PrintersOverviewOut(BaseModel):
     printers: list[PrinterOverviewItem]
     up_next: list[QueueEntryOut]
     recent_runs: list[ArchiveOut]
+
+
+class CameraUrlsOut(BaseModel):
+    """``POST /printers/{id}/camera/token`` response (P4 Task 4): relative
+    URLs (no origin) carrying a scoped camera token in the query string, so
+    the browser hits the same origin it's already on for the stream/
+    snapshot ``<img>``/``<video>`` tags."""
+
+    stream_url: str
+    snapshot_url: str
+    expires_at: datetime

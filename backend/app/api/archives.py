@@ -19,8 +19,8 @@ from app.api.deps import AuthContext, require_perm, require_session, visible_pri
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Model, Printer, PrintJob
-from app.models.enums import ArchiveResult
-from app.models.library import Print
+from app.models.enums import ArchiveResult, BlobFormat
+from app.models.library import Blob, Print
 from app.models.printing import PrintArchive
 from app.schemas.archives import ArchiveOut
 from app.schemas.prints import PrintOut
@@ -61,6 +61,9 @@ def archive_out(row: Any) -> ArchiveOut:
         fetch_error=a.fetch_error,
         has_thumbnail=a.thumbnail_blob is not None,
         has_file=a.archive_blob is not None,
+        has_snapshot=a.snapshot_blob is not None,
+        has_timelapse=a.timelapse_blob is not None,
+        media_note=a.media_note,
         started_at=job.started_at,
         finished_at=job.finished_at,
         created_at=a.created_at,
@@ -138,6 +141,41 @@ async def get_thumbnail(
 ) -> FileResponse:
     row = await _get_visible(db, ctx, archive_id)
     return await _serve(row, row[0].thumbnail_blob, "png", "image/png", settings, None)
+
+
+@router.get("/{archive_id}/snapshot")
+async def get_snapshot(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    row = await _get_visible(db, ctx, archive_id)
+    return await _serve(row, row[0].snapshot_blob, "jpg", "image/jpeg", settings, None)
+
+
+_TIMELAPSE_MEDIA_TYPES = {
+    BlobFormat.MP4: "video/mp4",
+    BlobFormat.AVI: "video/x-msvideo",
+}
+
+
+@router.get("/{archive_id}/timelapse")
+async def get_timelapse(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    row = await _get_visible(db, ctx, archive_id)
+    blob_hash = row[0].timelapse_blob
+    if blob_hash is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not available")
+    blob = await db.get(Blob, blob_hash)
+    if blob is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not available")
+    media_type = _TIMELAPSE_MEDIA_TYPES.get(blob.format, "application/octet-stream")
+    return await _serve(row, blob_hash, blob.format.value, media_type, settings, None)
 
 
 @router.get("/{archive_id}/file")

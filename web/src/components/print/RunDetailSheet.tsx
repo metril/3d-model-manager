@@ -1,9 +1,10 @@
 /** Archived run detail: artifacts, per-tray estimate, costs, and owner/admin grading. */
 import { useState } from "react";
 
-import { archiveFileUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
+import { archiveFileUrl, archiveSnapshotUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
+import { TimelapsePlayer } from "@/components/print/TimelapsePlayer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FilamentChip } from "@/components/ui/filament-chip";
@@ -115,6 +116,20 @@ function Body({ archive }: { archive: ArchiveOut }) {
       {archive.has_thumbnail ? (
         <img src={archiveThumbnailUrl(archive.id)} alt="" className="max-h-48 rounded-lg border border-border" />
       ) : null}
+      {archive.has_timelapse ? (
+        <TimelapsePlayer
+          archiveId={archive.id}
+          poster={archive.has_snapshot ? archiveSnapshotUrl(archive.id) : undefined}
+          className="aspect-video"
+        />
+      ) : archive.has_snapshot ? (
+        <img
+          src={archiveSnapshotUrl(archive.id)}
+          alt="Captured snapshot"
+          className="aspect-video w-full rounded-[6px] border border-border object-cover"
+        />
+      ) : null}
+      {archive.media_note ? <p className="text-muted-foreground">{archive.media_note}</p> : null}
       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
         <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{archive.result}</Badge>
         <span>{archive.printer_name}</span>

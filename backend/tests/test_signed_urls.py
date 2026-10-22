@@ -61,3 +61,19 @@ def test_malformed_token_rejected() -> None:
     assert signed_urls.verify(settings, "not-a-real-token") is None
     assert signed_urls.verify(settings, "") is None
     assert signed_urls.verify(settings, "onlyonepart") is None
+
+
+def test_scoped_token_roundtrip_and_isolation() -> None:
+    settings = get_settings()
+    scope = "camera:1:5"
+    scoped_token = signed_urls.sign_scoped(settings, scope)
+    file_token = signed_urls.sign_file_download(settings, 1)
+
+    assert signed_urls.verify_scoped(settings, scoped_token, "camera:1:") == scope
+    assert signed_urls.verify_scoped(settings, scoped_token, "camera:2:") is None
+    # A file token must never verify as scoped, and vice versa.
+    assert signed_urls.verify_scoped(settings, file_token, "camera:1:") is None
+    assert signed_urls.verify(settings, scoped_token) is None
+
+    expired = signed_urls.sign_scoped(settings, scope, ttl_s=-1)
+    assert signed_urls.verify_scoped(settings, expired, "camera:1:") is None

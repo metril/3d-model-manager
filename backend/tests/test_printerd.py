@@ -13,9 +13,12 @@ from app.models import Blob, File, Model, Printer, PrintJob, Revision, Setting
 from app.models.enums import ArchiveResult, BlobFormat, BlobKind, PrinterKind, PrintJobState
 from app.printerd import PrinterDaemon, PrinterWorker
 from app.printers.base import PrinterConnection, state_key
-from app.printers.fake import FakePrinterAdapter
+from app.printers.fake import FakeCamera, FakePrinterAdapter
+from app.services import camera_state as cs
 from app.tasks import base
 from tests.cassettes import bambu_snapshots as cass
+
+JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
 
 
 def _seed_active_job(printer_id: int) -> int:
@@ -664,3 +667,47 @@ def test_stale_stop_flag_cleared_when_next_job_starts(worker, monkeypatch):
     w.handle_report({"gcode_state": "RUNNING"})
     w.handle_report({"gcode_state": "FAILED", "print_error": 1234})
     assert calls[-1] == (job_id, ArchiveResult.FAILED)
+
+
+def test_terminal_transition_keeps_job_frame(worker, monkeypatch):
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: None)
+    w, _adapter, pid, client = worker
+    job_id = _seed_active_job(pid)
+    cs.put_frame(client, pid, JPEG)
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FINISH"})
+    assert client.get(cs.job_frame_key(pid, job_id)) == JPEG
+
+
+def test_daemon_never_blocks_on_hung_camera(redis_url, printer_enabled, migrated_db, monkeypatch):
+    """A hung camera socket (FakeCamera(hang=True), ignoring the worker's own
+    stop event) must never block printerd's main status-poll loop nor
+    ``stop_printer()`` -- only ``close()`` (via the non-blocking
+    ``camera.remove()`` signal) unblocks it."""
+    settings = get_settings()
+    pid = _seed_printer(settings, name="camtest", enabled=True)
+    adapter = FakePrinterAdapter(PrinterConnection(host="h", serial="S", access_code="x"))
+    adapter.camera = FakeCamera([], hang=True)
+    monkeypatch.setattr(printerd_module, "build_adapter", lambda kind, conn: adapter)
+    monkeypatch.setattr(printerd_module, "_POLL_INTERVAL_S", 0.05)
+
+    daemon = PrinterDaemon(settings)
+    thread = threading.Thread(target=daemon.run, daemon=True)
+    thread.start()
+    try:
+        assert _wait_until(lambda: pid in daemon._workers)
+        client = redis_lib.Redis.from_url(settings.redis_url)
+        cs.add_viewer(client, pid, "v1")
+        assert _wait_until(lambda: pid in daemon.camera._workers, timeout=3.0)
+
+        count_before = adapter.full_status_requests
+        assert _wait_until(lambda: adapter.full_status_requests > count_before + 2, timeout=3.0), (
+            "status polls stalled -- the hung camera worker blocked the main loop"
+        )
+
+        t0 = time.monotonic()
+        daemon.stop_printer(pid)
+        assert time.monotonic() - t0 < 3.0
+    finally:
+        daemon.stop()
+        thread.join(timeout=3.0)

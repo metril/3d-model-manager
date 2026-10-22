@@ -1,10 +1,11 @@
 /**
  * One printer's dashboard card (P3 Task 7): a 16:9 camera tile (default
- * placeholder, `camera` slot for a real feed later -- P3 renders nothing
- * there) with the state badge overlaid top-left and a `badge` slot
- * top-right (the "primary printer" pin, P3 renders nothing there either),
- * then the active job or an "Idle" line, nozzle/bed temps, and AMS tray
- * chips. Header links to the printer's detail page.
+ * placeholder, `camera` slot for a real feed -- `PrintDashboardPage` (P4
+ * Task 9) fills it with a live `CameraTile` for `can_control` printers)
+ * with the state badge overlaid top-left and a `badge` slot top-right
+ * (the "primary printer" pin, P3 renders nothing there either), then the
+ * active job or an "Idle" line, nozzle/bed temps, and AMS tray chips.
+ * Header links to the printer's detail page.
  */
 import { Link } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";

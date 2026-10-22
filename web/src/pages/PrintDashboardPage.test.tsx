@@ -47,7 +47,10 @@ vi.mock("@/api/client", async (importOriginal) => {
         return Promise.reject(new Error(`unexpected GET ${url}`));
       },
       patch: (url: string, body: unknown) => patchMock(url, body),
-      post: vi.fn(),
+      post: (url: string) =>
+        url.includes("/camera/token")
+          ? Promise.resolve({ stream_url: "/stream", snapshot_url: "/snapshot", expires_at: "2026-01-01T00:00:00Z" })
+          : Promise.resolve(undefined),
     },
   };
 });
@@ -190,6 +193,19 @@ describe("PrintDashboardPage printer counts", () => {
     expect(document.querySelectorAll('[data-slot="printer-card"]')).toHaveLength(2);
     expect(document.querySelector(".md\\:grid-cols-2")).not.toBeNull();
   });
+
+  it("renders a CameraTile only for can_control printers", async () => {
+    overviewBox.current = {
+      printers: [printerItem(1, { can_control: true }), printerItem(2, { can_control: false })],
+      up_next: [],
+      recent_runs: [],
+    };
+
+    renderPage();
+
+    await screen.findByText("Printer 1");
+    expect(document.querySelectorAll('[data-slot="camera-tile"]')).toHaveLength(1);
+  });
 });
 
 describe("PrintDashboardPage SSE refresh", () => {
@@ -292,6 +308,9 @@ describe("PrintDashboardPage recent runs grading", () => {
           fetch_error: null,
           has_thumbnail: false,
           has_file: true,
+          has_snapshot: false,
+          has_timelapse: false,
+          media_note: null,
           started_at: null,
           finished_at: null,
           created_at: "2026-10-22T10:00:00Z",

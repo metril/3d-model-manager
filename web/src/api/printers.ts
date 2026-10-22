@@ -9,6 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 
 import { api } from "@/api/client";
 import type {
+  CameraUrlsOut,
   DetectSerialIn,
   DetectSerialOut,
   PrinterCreate,
@@ -165,5 +166,43 @@ export function usePrintersOverview(options?: { enabled?: boolean }) {
     queryFn: () => api.get<PrintersOverviewOut>("/printers/overview"),
     refetchInterval: (q) => overviewRefetchInterval(q.state.data),
     enabled: options?.enabled ?? true,
+  });
+}
+
+// The minted token's TTL (backend `signed_urls.DEFAULT_TTL_S`) is 600s.
+// `staleTime` sits well under that so a long-open tab's remount/refocus
+// refreshes the token before it expires, and `cameraTokenNeedsRefresh`
+// forces a refetch right away once expiry is within this margin, even if
+// `staleTime` hasn't elapsed yet.
+const CAMERA_TOKEN_STALE_MS = 5 * 60_000;
+const CAMERA_TOKEN_EXPIRY_MARGIN_MS = 60_000;
+
+/** True once `urls.expires_at` is within `CAMERA_TOKEN_EXPIRY_MARGIN_MS`
+ * of now (or already past) -- exported so it can be unit-tested directly. */
+export function cameraTokenNeedsRefresh(urls: CameraUrlsOut | undefined): boolean {
+  if (!urls) return false;
+  return new Date(urls.expires_at).getTime() - Date.now() <= CAMERA_TOKEN_EXPIRY_MARGIN_MS;
+}
+
+/** Mints a scoped camera token (P4 Task 8): `POST /printers/{id}/camera/
+ * token` returns short-lived stream/snapshot URLs. Cached under its own
+ * `["camera-url", id]` key -- deliberately OUTSIDE the `["printers"]`
+ * prefix so the overview/status SSE-driven invalidations never re-mint a
+ * token mid-stream. `enabled` lets `CameraTile` skip the mint entirely
+ * while the printer is offline. No retry: a failed mint should surface as
+ * the offline state, not hammer the endpoint. `staleTime` is well under
+ * the token's 600s TTL so a remount/refocus well into its life re-mints
+ * it, and `refetchOnMount`/`refetchOnWindowFocus` force that refresh
+ * immediately -- rather than waiting out `staleTime` -- once it's within
+ * a minute of actually expiring. */
+export function useCameraUrls(printerId: number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["camera-url", printerId] as const,
+    queryFn: () => api.post<CameraUrlsOut>(`/printers/${printerId}/camera/token`),
+    enabled: options?.enabled ?? true,
+    staleTime: CAMERA_TOKEN_STALE_MS,
+    refetchOnMount: (query) => (cameraTokenNeedsRefresh(query.state.data) ? "always" : true),
+    refetchOnWindowFocus: (query) => (cameraTokenNeedsRefresh(query.state.data) ? "always" : true),
+    retry: false,
   });
 }

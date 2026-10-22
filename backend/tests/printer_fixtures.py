@@ -18,6 +18,7 @@ _BUILD_ADAPTER_CALL_SITES = (
     "app.tasks.printing",
     "app.printerd",
     "app.services.archive",
+    "app.services.archive_media",
 )
 
 

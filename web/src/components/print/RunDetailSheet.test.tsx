@@ -15,6 +15,8 @@ vi.mock("@/api/archives", () => ({
   usePatchRun: () => ({ mutate: patchMock, isPending: false }),
   archiveThumbnailUrl: (id: number) => `/t/${id}`,
   archiveFileUrl: (id: number) => `/f/${id}`,
+  archiveSnapshotUrl: (id: number) => `/s/${id}`,
+  archiveTimelapseUrl: (id: number) => `/v/${id}`,
 }));
 vi.mock("@/api/auth", () => ({ useAuth: () => authMock() }));
 
@@ -108,5 +110,32 @@ describe("RunDetailSheet", () => {
     auth({ id: 2, role: "admin" });
     renderSheet();
     expect(screen.getByRole("button", { name: "Good" })).toBeInTheDocument();
+  });
+  it("shows the captured snapshot when has_snapshot", () => {
+    archiveMock.mockReturnValue({ ...archive, has_snapshot: true });
+    renderSheet();
+    expect(screen.getByAltText("Captured snapshot")).toHaveAttribute("src", "/s/3");
+  });
+  it("hides the snapshot img when has_snapshot is false", () => {
+    archiveMock.mockReturnValue({ ...archive, has_snapshot: false });
+    renderSheet();
+    expect(screen.queryByAltText("Captured snapshot")).not.toBeInTheDocument();
+  });
+  it("shows the timelapse player (poster = snapshot) when has_timelapse", () => {
+    archiveMock.mockReturnValue({ ...archive, has_snapshot: true, has_timelapse: true });
+    renderSheet();
+    const video = document.querySelector("video");
+    expect(video).toHaveAttribute("src", "/v/3");
+    expect(video).toHaveAttribute("poster", "/s/3");
+  });
+  it("hides the timelapse player when has_timelapse is false", () => {
+    archiveMock.mockReturnValue({ ...archive, has_timelapse: false });
+    renderSheet();
+    expect(document.querySelector("video")).not.toBeInTheDocument();
+  });
+  it("shows media_note as a muted line", () => {
+    archiveMock.mockReturnValue({ ...archive, media_note: "Timelapse unavailable: ffmpeg missing" });
+    renderSheet();
+    expect(screen.getByText("Timelapse unavailable: ffmpeg missing")).toBeInTheDocument();
   });
 });

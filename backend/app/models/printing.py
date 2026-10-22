@@ -125,6 +125,9 @@ class PrintArchive(Base):
     timelapse_blob: Mapped[str | None] = mapped_column(
         CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
     )
+    # P4 camera plan: a free-text note about the captured media (e.g. "camera
+    # disconnected mid-print").
+    media_note: Mapped[str | None] = mapped_column(Text)
     result: Mapped[ArchiveResult] = mapped_column(
         str_enum(ArchiveResult, "archive_result"), nullable=False, index=True
     )

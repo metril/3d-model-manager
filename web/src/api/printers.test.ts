@@ -3,8 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { overviewRefetchInterval, statusRefetchInterval, usePrintersOverview } from "@/api/printers";
-import type { PrintersOverviewOut } from "@/api/types";
+import {
+  cameraTokenNeedsRefresh,
+  overviewRefetchInterval,
+  statusRefetchInterval,
+  usePrintersOverview,
+} from "@/api/printers";
+import type { CameraUrlsOut, PrintersOverviewOut } from "@/api/types";
 
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as jobs.test.tsx), so the fake has to be created through
@@ -102,5 +107,31 @@ describe("usePrintersOverview", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(getMock).toHaveBeenCalledWith("/printers/overview");
+  });
+});
+
+function fakeCameraUrls(expiresInMs: number): CameraUrlsOut {
+  return {
+    stream_url: "/api/printers/1/camera/stream?token=abc",
+    snapshot_url: "/api/printers/1/camera/snapshot?token=abc",
+    expires_at: new Date(Date.now() + expiresInMs).toISOString(),
+  };
+}
+
+describe("cameraTokenNeedsRefresh (camera token TTL margin, final review item 4)", () => {
+  it("is false for undefined data", () => {
+    expect(cameraTokenNeedsRefresh(undefined)).toBe(false);
+  });
+
+  it("is false well before expiry", () => {
+    expect(cameraTokenNeedsRefresh(fakeCameraUrls(5 * 60_000))).toBe(false);
+  });
+
+  it("is true once within the 60s expiry margin", () => {
+    expect(cameraTokenNeedsRefresh(fakeCameraUrls(30_000))).toBe(true);
+  });
+
+  it("is true once already expired", () => {
+    expect(cameraTokenNeedsRefresh(fakeCameraUrls(-1_000))).toBe(true);
   });
 });
