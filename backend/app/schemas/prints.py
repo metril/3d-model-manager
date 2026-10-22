@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.models.enums import PrintResult
+from app.models.enums import PrintQuality, PrintResult, PrintSource
 
 if TYPE_CHECKING:
     from app.models.library import Print
@@ -60,6 +60,8 @@ class PrintPatchIn(BaseModel):
     result: PrintResult | None = None
     duration_min: int | None = Field(default=None, ge=0)
     notes: str | None = None
+    quality: PrintQuality | None = None
+    failure_reason: str | None = Field(default=None, max_length=500)
 
     @field_validator("printed_at", "result")
     @classmethod
@@ -77,7 +79,17 @@ class PrintPatchIn(BaseModel):
 
 class PrintOut(BaseModel):
     id: int
-    model_id: int
+    model_id: int | None
+    print_job_id: int | None = None
+    source: PrintSource = PrintSource.MANUAL
+    quality: PrintQuality | None = None
+    failure_reason: str | None = None
+    filament_cost: float | None = None
+    machine_cost: float | None = None
+    energy_kwh: float | None = None
+    energy_cost: float | None = None
+    total_cost: float | None = None
+    created_by_user_id: int | None = None
     printed_at: datetime
     printer_name: str | None
     filament: str | None
@@ -115,6 +127,16 @@ class PrintOut(BaseModel):
         return cls(
             id=row.id,
             model_id=row.model_id,
+            print_job_id=row.print_job_id,
+            source=row.source,
+            quality=row.quality,
+            failure_reason=row.failure_reason,
+            filament_cost=row.filament_cost,
+            machine_cost=row.machine_cost,
+            energy_kwh=row.energy_kwh,
+            energy_cost=row.energy_cost,
+            total_cost=row.total_cost,
+            created_by_user_id=row.created_by_user_id,
             printed_at=row.printed_at,
             printer_name=row.printer_name,
             filament=row.filament,

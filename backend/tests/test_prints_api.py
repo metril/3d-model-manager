@@ -494,3 +494,72 @@ async def test_model_detail_print_aggregates_do_not_leak_across_models(
 
     assert detail_b.json()["print_count"] == 0
     assert detail_b.json()["last_printed_at"] is None
+
+
+# ---------------------------------------------------------------------------
+# P2 archive: server-side cost, ownership, model-less runs
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def make_auto_run(db_session: AsyncSession):
+    async def _make(owner: int | None, **kw: object) -> int:
+        row = Print(source="auto", model_id=None, created_by_user_id=owner, **kw)
+        db_session.add(row)
+        await db_session.commit()
+        return row.id
+
+    return _make
+
+
+async def test_manual_print_gets_server_cost(authenticated_client: httpx.AsyncClient) -> None:
+    model = await _create_model(authenticated_client, "Costed")
+    r = await authenticated_client.post(
+        f"/api/models/{model['id']}/prints", json={"filament_g": 250, "duration_min": 120}
+    )
+    body = r.json()
+    assert body["filament_cost"] == 5.0 and body["total_cost"] == 5.0
+    assert body["source"] == "manual"
+
+
+async def test_patch_run_ownership_and_cost(
+    member_client: httpx.AsyncClient, member, admin_user, make_auto_run
+) -> None:
+    other = await make_auto_run(admin_user.id)
+    unowned = await make_auto_run(None)
+    assert (
+        await member_client.patch(f"/api/prints/{other}", json={"quality": "good"})
+    ).status_code == 403
+    assert (
+        await member_client.patch(f"/api/prints/{unowned}", json={"quality": "good"})
+    ).status_code == 403
+    assert (
+        await member_client.patch("/api/prints/999999", json={"quality": "good"})
+    ).status_code == 404
+    own = await make_auto_run(member.id, filament_g=100, machine_cost=3.0)
+    r = await member_client.patch(
+        f"/api/prints/{own}",
+        json={"quality": "reject", "failure_reason": "spaghetti", "filament_g": 50},
+    )
+    body = r.json()
+    assert body["quality"] == "reject" and body["failure_reason"] == "spaghetti"
+    assert body["filament_cost"] == 1.0 and body["machine_cost"] == 3.0
+    assert body["total_cost"] == 4.0
+
+
+async def test_delete_model_less_run(
+    authenticated_client: httpx.AsyncClient, make_auto_run
+) -> None:
+    rid = await make_auto_run(None)
+    assert (await authenticated_client.delete(f"/api/prints/{rid}")).status_code == 204
+
+
+async def test_recent_prints_include_model_less_runs(
+    authenticated_client: httpx.AsyncClient, make_auto_run
+) -> None:
+    from app.services import stats
+
+    stats._cache = None
+    rid = await make_auto_run(None)
+    r = await authenticated_client.get("/api/stats")
+    assert rid in [p["id"] for p in r.json()["recent_prints"]]

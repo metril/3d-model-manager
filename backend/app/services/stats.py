@@ -180,7 +180,7 @@ async def _recent_prints(db: AsyncSession) -> list[PrintOut]:
     model)."""
     stmt = (
         select(Print, Model.slug, Model.name)
-        .join(Model, Model.id == Print.model_id)
+        .outerjoin(Model, Model.id == Print.model_id)
         .options(selectinload(Print.material))
         .order_by(Print.printed_at.desc(), Print.id.desc())
         .limit(10)
