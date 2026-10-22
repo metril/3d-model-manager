@@ -31,7 +31,7 @@ from sqlalchemy import select
 
 from app.config import Settings, get_settings
 from app.models import Printer, PrintJob
-from app.models.enums import PrintJobState
+from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers.base import PrinterAdapter, PrinterPublicState, command_channel, state_key
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
@@ -44,6 +44,28 @@ _TERMINAL = {PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELE
 # The lib keeps its own state fresh from the MQTT stream; request_full_status()
 # is a cheap LOCAL read of the lib's accessors, so poll it every few seconds.
 _POLL_INTERVAL_S = 2.5
+# Bambu print_error code the printer reports when a print is cancelled
+# (0x0300400C). Pending live verification (P2 Task 12).
+CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
+
+
+def terminal_result(
+    state: PrintJobState, print_error: int | None, stop_requested: bool
+) -> ArchiveResult:
+    """Classify a terminal transition for the archive."""
+    if state == PrintJobState.FINISHED:
+        return ArchiveResult.COMPLETED
+    if stop_requested:
+        return ArchiveResult.STOPPED
+    if print_error in CANCEL_ERROR_CODES:
+        return ArchiveResult.CANCELED
+    return ArchiveResult.FAILED
+
+
+def _enqueue_archive(print_job_id: int, result: ArchiveResult) -> None:
+    from app.tasks.archive import archive_print
+
+    archive_print.apply_async(args=[print_job_id, result.value])
 
 
 def _signature(printer: Printer) -> tuple[str, str, str]:
@@ -71,6 +93,7 @@ class PrinterWorker:
         self.adapter = adapter
         self.redis = redis_client
         self._merged: dict | None = None
+        self._stop_requested = False
 
     def handle_report(self, report: dict) -> None:
         self._merged = self.adapter.merge_report(self._merged, report)
@@ -98,8 +121,41 @@ class PrinterWorker:
             return
         with base.sync_session() as session:
             job = self._active_job(session)
-            if job is None or job.state == new_state.value:
+            if job is None:
+                if public.gcode_state != "RUNNING":
+                    return
+                self._stop_requested = False
+                job = PrintJob(
+                    printer_id=self.printer_id,
+                    file_id=None,
+                    origin=PrintJobOrigin.EXTERNAL,
+                    created_by_user_id=None,
+                    state=PrintJobState.PRINTING,
+                    started_at=datetime.now(UTC),
+                    subtask_name=public.subtask_name,
+                    layer=public.layer_num,
+                    total_layers=public.total_layer_num,
+                    progress_pct=public.mc_percent,
+                    remaining_min=public.mc_remaining_time,
+                    raw_status=self._merged,
+                )
+                session.add(job)
+                session.commit()
+                publish_print_job_event_sync(
+                    self.settings.redis_url,
+                    print_job_id=job.id,
+                    printer_id=self.printer_id,
+                    state=PrintJobState.PRINTING.value,
+                )
                 return
+            if job.state == new_state.value:
+                return
+            result: ArchiveResult | None = None
+            if new_state in _TERMINAL:
+                result = terminal_result(new_state, public.print_error, self._stop_requested)
+                if result in (ArchiveResult.CANCELED, ArchiveResult.STOPPED):
+                    new_state = PrintJobState.CANCELED
+                self._stop_requested = False
             job.state = new_state.value
             job.progress_pct = public.mc_percent
             job.remaining_min = public.mc_remaining_time
@@ -120,6 +176,11 @@ class PrinterWorker:
             printer_id=self.printer_id,
             state=new_state.value,
         )
+        if result is not None:
+            try:
+                _enqueue_archive(job_id, result)
+            except Exception as exc:
+                log.error("printerd: archive enqueue failed: %s", type(exc).__name__)
 
     def handle_command(self, command: str) -> None:
         if command == "pause":
@@ -127,6 +188,7 @@ class PrinterWorker:
         elif command == "resume":
             self.adapter.resume()
         elif command == "stop":
+            self._stop_requested = True
             self.adapter.stop()
         else:
             log.warning("printerd: unknown command %r for printer %s", command, self.printer_id)

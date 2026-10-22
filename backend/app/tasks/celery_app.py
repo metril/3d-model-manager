@@ -47,6 +47,7 @@ celery_app.conf.update(
         "app.tasks.migrate",
         "app.tasks.relocate",
         "app.tasks.printing",
+        "app.tasks.archive",
         "app.tasks.importing",
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
