@@ -98,6 +98,18 @@ async def test_viewer_cannot_write_spool(
     ).status_code == 403
 
 
+async def test_delete_spool_with_usage_409(authenticated_client: httpx.AsyncClient):
+    """Item 11: a spool with usage history can't be hard-deleted -- archive
+    it instead."""
+    created = await _create_spool(authenticated_client)
+    sid = created["id"]
+    await authenticated_client.post(f"/api/spools/{sid}/usage", json={"grams": 10})
+
+    r = await authenticated_client.delete(f"/api/spools/{sid}")
+    assert r.status_code == 409
+    assert (await authenticated_client.get(f"/api/spools/{sid}")).status_code == 200
+
+
 async def test_manual_usage(authenticated_client: httpx.AsyncClient):
     created = await _create_spool(authenticated_client)
     sid = created["id"]
@@ -155,6 +167,29 @@ async def test_slot_validation(authenticated_client: httpx.AsyncClient, db_sessi
     assert ok.status_code == 200
 
 
+async def test_slot_assign_conflict_maps_to_409(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    """Item 5: `set_slot` must delegate to `spool_inventory.assign_slot`
+    and turn a concurrent/duplicate-assignment `IntegrityError` into a 409
+    rather than a 500."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.api import printers as printers_api
+
+    p = await _printer(db_session)
+    spool = await _create_spool(authenticated_client)
+
+    def _boom(session, printer_id, unit, slot, spool_id):
+        raise IntegrityError("conflict", {}, Exception("dup"))
+
+    monkeypatch.setattr(printers_api.spool_inventory, "assign_slot", _boom)
+    r = await authenticated_client.put(
+        f"/api/printers/{p.id}/slots/0/0", json={"spool_id": spool["id"]}
+    )
+    assert r.status_code == 409
+
+
 async def test_slot_clear(authenticated_client: httpx.AsyncClient, db_session: AsyncSession):
     p = await _printer(db_session)
     spool = await _create_spool(authenticated_client)
@@ -190,6 +225,7 @@ async def test_status_trays_carry_spool(
 
         status = (await authenticated_client.get(f"/api/printers/{p.id}/status")).json()
         assert status["trays"][0]["spool"]["id"] == spool["id"]
+        assert status["trays"][0]["spool"]["low_stock"] is False  # item 8: computed server-side
 
         overview = (await authenticated_client.get("/api/printers/overview")).json()
         item = next(i for i in overview["printers"] if i["printer"]["id"] == p.id)
@@ -200,6 +236,20 @@ async def test_status_trays_carry_spool(
         # (ids reset per test via RESTART IDENTITY) doesn't see stale state.
         c.delete(state_key(p.id))
         c.close()
+
+
+async def test_spool_detail_series_baseline_accounts_for_direct_weight_edit(
+    authenticated_client: httpx.AsyncClient,
+):
+    """Item 10: a direct `weight_used_g` edit (no `spool_usage` row backing
+    it) must shift the series' FIRST point, not leave it stuck at the raw
+    `label_weight_g`."""
+    created = await _create_spool(authenticated_client)
+    sid = created["id"]
+    await authenticated_client.patch(f"/api/spools/{sid}", json={"weight_used_g": 200})
+
+    detail = (await authenticated_client.get(f"/api/spools/{sid}")).json()
+    assert detail["series"] == [{"t": detail["series"][0]["t"], "remaining_g": 800.0}]
 
 
 async def test_spool_detail_usage_and_series(

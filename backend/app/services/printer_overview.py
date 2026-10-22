@@ -88,13 +88,7 @@ async def _statuses(
             for t in status_out.trays:
                 spool = smap.get((pid, t.slot))
                 if spool is not None:
-                    t.spool = SpoolBriefOut(
-                        id=spool.id,
-                        material_type=spool.material_type,
-                        brand=spool.brand,
-                        color_hex=spool.color_hex,
-                        color_name=spool.color_name,
-                    )
+                    t.spool = SpoolBriefOut.from_model(spool)
             out[pid] = status_out
     return out
 

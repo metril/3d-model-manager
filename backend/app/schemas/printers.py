@@ -173,13 +173,30 @@ class DetectSerialOut(BaseModel):
 
 class SpoolBriefOut(BaseModel):
     """Minimal spool identity for an AMS tray chip (P5 Task 6 fills this
-    in; declared now so ``AmsTrayOut`` has somewhere to put it)."""
+    in; declared now so ``AmsTrayOut`` has somewhere to put it). ``low_stock``
+    (final-review fix wave item 8) is computed server-side -- a card/dialog
+    rendering a tray chip no longer needs its own separate low-stock spool
+    lookup to badge it."""
 
     id: int
     material_type: str
     brand: str | None = None
     color_hex: str | None = None
     color_name: str | None = None
+    low_stock: bool = False
+
+    @classmethod
+    def from_model(cls, s) -> SpoolBriefOut:
+        from app.services.spool_inventory import is_low_stock
+
+        return cls(
+            id=s.id,
+            material_type=s.material_type,
+            brand=s.brand,
+            color_hex=s.color_hex,
+            color_name=s.color_name,
+            low_stock=is_low_stock(s),
+        )
 
 
 class AmsTrayOut(BaseModel):

@@ -130,8 +130,16 @@ async def get_spool(
         )
         for u, arc, model in rows
     ]
-    series: list[SeriesPoint] = [SeriesPoint(t=spool.created_at, remaining_g=spool.label_weight_g)]
-    remaining = spool.label_weight_g
+    # `weight_used_g` can include usage never backed by a `spool_usage` row
+    # (e.g. a direct PATCH) -- start the series at `label - (weight_used_g -
+    # Σ(usage rows))` instead of flatly at `label_weight_g`, so the series'
+    # first point lines up with the spool's actual current `remaining_g`
+    # once every usage row below has been replayed.
+    usage_sum = sum(u.grams for u, _arc, _model in rows)
+    baseline_used = spool.weight_used_g - usage_sum
+    start_remaining = spool.label_weight_g - baseline_used
+    series: list[SeriesPoint] = [SeriesPoint(t=spool.created_at, remaining_g=start_remaining)]
+    remaining = start_remaining
     for u, _arc, _model in rows:
         remaining = max(remaining - u.grams, 0.0)
         series.append(SeriesPoint(t=u.created_at, remaining_g=remaining))
@@ -179,6 +187,11 @@ async def delete_spool(
 ) -> None:
     spool = await _get_or_404(db, spool_id)
     require_owner_or_admin(ctx, spool.created_by_user_id)
+    has_usage = (
+        await db.execute(select(SpoolUsage.id).where(SpoolUsage.spool_id == spool_id).limit(1))
+    ).first()
+    if has_usage is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "spool has usage history; archive it instead")
     await db.delete(spool)
     await db.commit()
 
