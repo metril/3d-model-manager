@@ -196,3 +196,13 @@ class PrintQuality(StrEnum):
 
     GOOD = "good"
     REJECT = "reject"
+
+
+class SpoolUsageSource(StrEnum):
+    """How a ``spool_usage`` row's grams were determined (P5 spool tray
+    plan): parsed from a sliced 3MF, inferred from an AMS weight delta, or
+    entered by hand."""
+
+    THREE_MF = "3mf"
+    AMS_DELTA = "ams_delta"
+    MANUAL = "manual"

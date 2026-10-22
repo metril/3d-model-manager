@@ -95,6 +95,9 @@ class PrintJob(Base):
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
     # Slicer filament index -> AMS tray, as sent (app-origin jobs only).
     ams_mapping: Mapped[list | None] = mapped_column(JSONB)
+    # P5 spool tray plan: `{"start": [tray...], "end": [tray...]}` AMS tray
+    # state captured at job start/end, for reconciling spool usage.
+    tray_snapshot: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class PrintArchive(Base):
