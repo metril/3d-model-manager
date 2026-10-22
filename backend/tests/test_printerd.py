@@ -810,3 +810,28 @@ def test_daemon_never_blocks_on_hung_camera(redis_url, printer_enabled, migrated
     finally:
         daemon.stop()
         thread.join(timeout=3.0)
+
+
+def test_run_starts_and_stop_joins_ha_bridge(redis_url, printer_enabled, migrated_db, monkeypatch):
+    """``run()`` starts the HA bridge thread (P8 plan Task 3) right after the
+    camera supervisor; ``stop()`` joins it back down -- same lifecycle as
+    ``daemon.camera``. Read ``daemon.ha._thread`` directly (rather than
+    hunting ``threading.enumerate()`` by the shared "ha-bridge" thread name)
+    -- several OTHER tests in this module call ``daemon.run()`` with
+    ``_stop`` pre-set just to exercise its early reconcile/log path, which
+    still starts (and never stops) a same-named camera/HA thread of their
+    own, so a name-based lookup could grab one of those instead of this
+    daemon's."""
+    settings = get_settings()
+    monkeypatch.setattr(printerd_module, "_POLL_INTERVAL_S", 0.05)
+    daemon = PrinterDaemon(settings)
+    thread = threading.Thread(target=daemon.run, daemon=True)
+    thread.start()
+    try:
+        assert _wait_until(lambda: daemon.ha._thread is not None, timeout=3.0)
+        ha_thread = daemon.ha._thread
+        assert ha_thread.is_alive()
+    finally:
+        daemon.stop()
+        thread.join(timeout=3.0)
+    assert _wait_until(lambda: not ha_thread.is_alive(), timeout=3.0)

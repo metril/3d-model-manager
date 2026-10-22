@@ -35,6 +35,7 @@ from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers.base import PrinterAdapter, PrinterPublicState, command_channel, state_key
 from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
+from app.printers.ha_bridge import HaBridge
 from app.printers.registry import build_adapter
 from app.services import camera_state, spool_inventory
 from app.services.app_config import get_app_config_sync
@@ -259,6 +260,7 @@ class PrinterDaemon:
         self._signatures: dict[int, tuple[str, str, str]] = {}
         self._stop = threading.Event()
         self.camera = CameraSupervisor(self.redis)
+        self.ha = HaBridge(self.redis, self.settings, active_ids=lambda: set(self._workers))
 
     def enabled_printers(self) -> list[Printer]:
         """Every `enabled` Printer row -- but only when the `printer_enabled`
@@ -371,6 +373,7 @@ class PrinterDaemon:
     def run(self) -> None:
         self.reconcile()  # initial start (replaces the old one-shot start loop)
         self.camera.start()
+        self.ha.start()
         while not self._stop.wait(_POLL_INTERVAL_S):
             try:
                 self.reconcile()
@@ -398,6 +401,7 @@ class PrinterDaemon:
         for printer_id in list(self._workers):
             self.stop_printer(printer_id)
         self.camera.stop()
+        self.ha.stop()
 
 
 def main() -> None:
