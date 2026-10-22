@@ -45,7 +45,7 @@ class FollowedCollection(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     site: Mapped[ImportSite] = mapped_column(str_enum(ImportSite, "import_site"), nullable=False)
     # The remote list's own identifier (a collection id, or a sentinel like

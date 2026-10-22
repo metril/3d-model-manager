@@ -186,10 +186,12 @@ def upgrade() -> None:
             ondelete="SET NULL",
         )
         op.execute(f"UPDATE {table} SET created_by_user_id = (SELECT min(id) FROM users)")  # noqa: S608
+        op.create_index(f"ix_{table}_created_by_user_id", table, ["created_by_user_id"])
 
 
 def downgrade() -> None:
     for table in reversed(_OWNED):
+        op.drop_index(f"ix_{table}_created_by_user_id", table_name=table)
         op.drop_constraint(f"fk_{table}_created_by_user_id_users", table, type_="foreignkey")
         op.drop_column(table, "created_by_user_id")
 

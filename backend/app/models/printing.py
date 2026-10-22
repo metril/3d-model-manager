@@ -58,7 +58,7 @@ class PrintJob(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     printer_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("printers.id"), nullable=False)
     file_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("files.id"), nullable=False)
