@@ -1,84 +1,134 @@
 /**
- * Print-job history table (M4 Task 8): lists `GET /print-jobs` (most-recent-
- * first, per the backend's `PrintJob.id.desc()` ordering -- no client-side
- * re-sort needed), polling while any listed job is still active
- * (`usePrintJobs`'s `refetchInterval`).
+ * Print history: archived runs (`GET /archives`) with printer/result filters.
+ * A row opens `RunDetailSheet`; the list polls while any run is still
+ * pulling artifacts off the printer (`archivesRefetchInterval`).
  */
-import { usePrintJobs } from "@/api/printers";
-import type { PrintJobOut, PrintJobState } from "@/api/types";
+import { useState } from "react";
+
+import { archiveThumbnailUrl, useArchives } from "@/api/archives";
 import { ApiError } from "@/api/client";
+import { usePrinters } from "@/api/printers";
+import type { ArchiveOut, ArchiveResult } from "@/api/types";
+import { RunDetailSheet } from "@/components/print/RunDetailSheet";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDateTime } from "@/lib/format";
+import { formatCost, formatDateTime, humanizeDuration } from "@/lib/format";
 
-const STATE_VARIANT: Record<PrintJobState, "default" | "secondary" | "outline" | "destructive"> = {
-  queued: "outline",
-  uploading: "secondary",
-  starting: "secondary",
-  printing: "default",
-  paused: "secondary",
-  finished: "default",
-  failed: "destructive",
-  canceled: "outline",
-};
+const RESULTS: ArchiveResult[] = ["completed", "failed", "canceled", "stopped"];
+const ALL = "all";
 
-function PrintJobRow({ job }: { job: PrintJobOut }) {
+function RunRow({ run, onOpen }: { run: ArchiveOut; onOpen: () => void }) {
+  const name = run.model_name ?? run.subtask_name ?? `Run #${run.id}`;
   return (
-    <TableRow>
-      <TableCell className="max-w-64 truncate text-sm" title={job.subtask_name ?? undefined}>
-        {job.subtask_name ?? `File #${job.file_id}`}
+    <TableRow className="cursor-pointer" onClick={onOpen}>
+      <TableCell className="w-12">
+        {run.has_thumbnail ? (
+          <img src={archiveThumbnailUrl(run.id)} alt="" className="size-10 rounded object-cover" />
+        ) : null}
       </TableCell>
+      <TableCell className="max-w-64 truncate text-sm">{name}</TableCell>
+      <TableCell>{run.printer_name}</TableCell>
       <TableCell>
-        <Badge variant={STATE_VARIANT[job.state]}>{job.state}</Badge>
+        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{run.result}</Badge>
       </TableCell>
-      <TableCell>{job.progress_pct != null ? `${Math.round(job.progress_pct)}%` : "--"}</TableCell>
-      <TableCell>{formatDateTime(job.created_at)}</TableCell>
-      <TableCell className="max-w-48 truncate text-destructive" title={job.printer_error ?? undefined}>
-        {job.printer_error ?? ""}
+      <TableCell className="font-mono tabular-nums">
+        {run.duration_s != null ? humanizeDuration(run.duration_s) : "--"}
       </TableCell>
+      <TableCell className="font-mono tabular-nums">
+        {run.run?.filament_g != null ? `${run.run.filament_g} g` : "--"}
+      </TableCell>
+      <TableCell className="font-mono tabular-nums">{run.run ? formatCost(run.run.total_cost) : "--"}</TableCell>
+      <TableCell>{run.run?.quality ?? ""}</TableCell>
+      <TableCell>{formatDateTime(run.finished_at ?? run.created_at)}</TableCell>
     </TableRow>
   );
 }
 
 export function PrintJobHistory() {
-  const printJobs = usePrintJobs();
+  const [printerId, setPrinterId] = useState<number | undefined>();
+  const [result, setResult] = useState<ArchiveResult | undefined>();
+  const [openId, setOpenId] = useState<number | null>(null);
+  const printers = usePrinters();
+  const archives = useArchives({ printerId, result });
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Print job history</CardTitle>
-        <CardDescription>Every print sent from this app, most recent first.</CardDescription>
+        <CardTitle>Print history</CardTitle>
+        <CardDescription>Finished runs, most recent first.</CardDescription>
+        <div className="flex gap-2 pt-2">
+          <Select
+            aria-label="Printer filter"
+            value={printerId != null ? String(printerId) : ALL}
+            onValueChange={(v) => setPrinterId(v === ALL ? undefined : Number(v))}
+          >
+            <SelectTrigger aria-label="Printer filter" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All printers</SelectItem>
+              {(printers.data ?? []).map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            aria-label="Result filter"
+            value={result ?? ALL}
+            onValueChange={(v) => setResult(v === ALL ? undefined : (v as ArchiveResult))}
+          >
+            <SelectTrigger aria-label="Result filter" className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All results</SelectItem>
+              {RESULTS.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
-        {printJobs.isLoading ? (
+        {archives.isLoading ? (
           <Skeleton className="h-32 w-full rounded-lg" />
-        ) : printJobs.isError ? (
+        ) : archives.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {printJobs.error instanceof ApiError ? printJobs.error.detail : "Couldn't load print jobs."}
+            {archives.error instanceof ApiError ? archives.error.detail : "Couldn't load print history."}
           </p>
-        ) : !printJobs.data || printJobs.data.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">No print jobs yet.</p>
+        ) : !archives.data || archives.data.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">No finished prints yet.</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>File</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Progress</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Error</TableHead>
+                <TableHead />
+                <TableHead>Name</TableHead>
+                <TableHead>Printer</TableHead>
+                <TableHead>Result</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>Grams</TableHead>
+                <TableHead>Cost</TableHead>
+                <TableHead>Quality</TableHead>
+                <TableHead>Finished</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {printJobs.data.map((job) => (
-                <PrintJobRow key={job.id} job={job} />
+              {archives.data.map((run) => (
+                <RunRow key={run.id} run={run} onOpen={() => setOpenId(run.id)} />
               ))}
             </TableBody>
           </Table>
         )}
       </CardContent>
+      <RunDetailSheet archiveId={openId} onOpenChange={(open) => !open && setOpenId(null)} />
     </Card>
   );
 }

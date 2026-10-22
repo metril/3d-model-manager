@@ -49,6 +49,7 @@ const PLATE_1: PlateOut = {
   prediction_s: 5400,
   weight_g: 42.4,
   thumbnail_available: true,
+  est_cost: null,
   filaments: [{ type: "PLA", color: "#ff0000", used_m: 12.3, used_g: 36.8 }],
 };
 
@@ -57,6 +58,7 @@ const PLATE_2: PlateOut = {
   prediction_s: 2700,
   weight_g: 18,
   thumbnail_available: false,
+  est_cost: null,
   filaments: [
     { type: "PLA", color: "#ff0000", used_m: 5, used_g: 15 },
     { type: "PETG", color: null, used_m: 1, used_g: 3 },
