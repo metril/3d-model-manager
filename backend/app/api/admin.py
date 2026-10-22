@@ -7,9 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm, require_session
 from app.db import get_db
-from app.models import Group, GroupMember, User
+from app.models import Group, GroupMember, Printer, PrinterAccess, User
 from app.models import Session as SessionModel
-from app.schemas.admin import GroupRef, PasswordResetIn, UserAdminOut, UserCreateIn, UserPatchIn
+from app.models.enums import MembershipSource
+from app.schemas.admin import (
+    GroupCreateIn,
+    GroupMemberOut,
+    GroupMembersIn,
+    GroupOut,
+    GroupPatchIn,
+    GroupRef,
+    PasswordResetIn,
+    PrinterAccessIO,
+    UserAdminOut,
+    UserCreateIn,
+    UserPatchIn,
+)
 from app.security import hash_password
 from app.services.permissions import load_grants
 
@@ -143,3 +156,155 @@ async def delete_user(
     await db.flush()
     await _guard_last_admin(db)
     await db.commit()
+
+
+# --- groups -----------------------------------------------------------------
+
+
+async def _group_out(db: AsyncSession, group: Group) -> GroupOut:
+    members = (
+        await db.execute(
+            select(GroupMember, User.username)
+            .join(User, User.id == GroupMember.user_id)
+            .where(GroupMember.group_id == group.id)
+            .order_by(GroupMember.user_id)
+        )
+    ).all()
+    access = (
+        await db.scalars(
+            select(PrinterAccess)
+            .where(PrinterAccess.group_id == group.id)
+            .order_by(PrinterAccess.printer_id)
+        )
+    ).all()
+    return GroupOut(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        permissions=list(group.permissions),
+        members=[
+            GroupMemberOut(user_id=m.user_id, username=name, source=m.source) for m, name in members
+        ],
+        printer_access=[
+            PrinterAccessIO(
+                printer_id=a.printer_id,
+                can_print=a.can_print,
+                can_control=a.can_control,
+                requires_review=a.requires_review,
+            )
+            for a in access
+        ],
+    )
+
+
+async def _get_group(db: AsyncSession, group_id: int) -> Group:
+    group = await db.get(Group, group_id)
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "group not found")
+    return group
+
+
+def _dup_group() -> HTTPException:
+    return HTTPException(status.HTTP_409_CONFLICT, "group name already in use")
+
+
+@router.get("/groups", response_model=list[GroupOut])
+async def list_groups(db: AsyncSession = Depends(get_db)) -> list[GroupOut]:
+    groups = (await db.scalars(select(Group).order_by(Group.name))).all()
+    return [await _group_out(db, g) for g in groups]
+
+
+@router.post("/groups", response_model=GroupOut, status_code=status.HTTP_201_CREATED)
+async def create_group(payload: GroupCreateIn, db: AsyncSession = Depends(get_db)) -> GroupOut:
+    group = Group(
+        name=payload.name, description=payload.description, permissions=payload.permissions
+    )
+    db.add(group)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _dup_group() from None
+    await db.refresh(group)
+    return await _group_out(db, group)
+
+
+@router.patch("/groups/{group_id}", response_model=GroupOut)
+async def patch_group(
+    group_id: int, payload: GroupPatchIn, db: AsyncSession = Depends(get_db)
+) -> GroupOut:
+    group = await _get_group(db, group_id)
+    fields = payload.model_dump(exclude_unset=True)
+    if fields.get("name") is None:
+        fields.pop("name", None)
+    if fields.get("permissions") is None:
+        fields.pop("permissions", None)
+    for k, v in fields.items():
+        setattr(group, k, v)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise _dup_group() from None
+    if "permissions" in fields:
+        await _guard_last_admin(db)
+    await db.commit()
+    await db.refresh(group)
+    return await _group_out(db, group)
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(group_id: int, db: AsyncSession = Depends(get_db)) -> None:
+    group = await _get_group(db, group_id)
+    await db.delete(group)
+    await db.flush()
+    await _guard_last_admin(db)
+    await db.commit()
+
+
+@router.put("/groups/{group_id}/members", response_model=GroupOut)
+async def put_members(
+    group_id: int, payload: GroupMembersIn, db: AsyncSession = Depends(get_db)
+) -> GroupOut:
+    group = await _get_group(db, group_id)
+    ids = set(payload.user_ids)
+    found = set((await db.scalars(select(User.id).where(User.id.in_(ids)))).all()) if ids else set()
+    if found != ids:
+        raise HTTPException(422, "unknown user id")
+    await db.execute(
+        delete(GroupMember).where(
+            GroupMember.group_id == group.id, GroupMember.source == MembershipSource.LOCAL
+        )
+    )
+    existing = set(
+        (
+            await db.scalars(select(GroupMember.user_id).where(GroupMember.group_id == group.id))
+        ).all()
+    )
+    for uid in sorted(ids - existing):
+        db.add(GroupMember(group_id=group.id, user_id=uid, source=MembershipSource.LOCAL))
+    await db.flush()
+    await _guard_last_admin(db)
+    await db.commit()
+    return await _group_out(db, group)
+
+
+@router.put("/groups/{group_id}/printer-access", response_model=GroupOut)
+async def put_printer_access(
+    group_id: int, payload: list[PrinterAccessIO], db: AsyncSession = Depends(get_db)
+) -> GroupOut:
+    group = await _get_group(db, group_id)
+    rows = {r.printer_id: r for r in payload if r.can_print or r.can_control or r.requires_review}
+    pids = {r.printer_id for r in payload}
+    found = (
+        set((await db.scalars(select(Printer.id).where(Printer.id.in_(pids)))).all())
+        if pids
+        else set()
+    )
+    if found != pids:
+        raise HTTPException(422, "unknown printer id")
+    await db.execute(delete(PrinterAccess).where(PrinterAccess.group_id == group.id))
+    for r in rows.values():
+        db.add(PrinterAccess(group_id=group.id, **r.model_dump()))
+    await db.commit()
+    return await _group_out(db, group)
