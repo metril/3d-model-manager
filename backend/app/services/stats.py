@@ -12,21 +12,26 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import Settings
 from app.models.collections import FollowedCollection
 from app.models.enums import PrintSource
+from app.models.inventory import Spool, SpoolUsage
 from app.models.library import Blob, File, Material, Model, Print, Tag
-from app.models.printing import PrintArchive
+from app.models.printing import PrintJob
 from app.models.storage import StorageBackendRow
 from app.models.system import Job
 from app.schemas.library import ModelSummary
 from app.schemas.prints import PrintOut
 from app.schemas.stats import (
+    FilamentPointOut,
+    FilamentSeriesOut,
+    FilamentStatsOut,
     FilesStats,
     JobsStats,
     MaterialUsageOut,
@@ -36,7 +41,10 @@ from app.schemas.stats import (
     StatsOut,
 )
 from app.services import layout
+from app.services.app_config import get_app_config
 from app.services.library import build_model_summaries
+
+VALID_BUCKETS = ("day", "week", "month")
 
 CACHE_TTL_S = 30.0
 
@@ -197,10 +205,44 @@ async def _recent_prints(db: AsyncSession) -> list[PrintOut]:
 
 
 async def _material_usage(db: AsyncSession) -> list[MaterialUsageOut]:
-    """Total filament grams + print count per material (R13c dashboard),
-    grouped by ``Material`` where a print resolved to one, falling back to
-    the free-text ``Print.filament`` snapshot for prints that didn't
-    (``material_id: null`` there) -- two group-bys, not a per-print loop."""
+    """Total filament grams + print count per material (R13c dashboard,
+    rewired in P5 Task 8): ``spool_usage`` (joined through ``Spool`` to a
+    catalog ``Material`` when linked, else the spool's free-text
+    ``material_type``) now covers every auto run exactly once -- the old
+    proportional split of the slicer's ``est_filament`` estimate is gone,
+    since each tray's actual charged grams already landed in
+    ``spool_usage`` when the archive was recorded (``record_job_usage``).
+    ``prints`` rows add only ``source=manual`` entries on top, so a manual
+    log entry (never backed by ``spool_usage``) is still counted and an
+    auto run is never double-counted. Same material name -> same row,
+    whichever side contributed it."""
+    usage_with_material = (
+        await db.execute(
+            select(
+                Material.id,
+                Material.name,
+                func.coalesce(func.sum(SpoolUsage.grams), 0.0),
+                func.count(SpoolUsage.id),
+            )
+            .select_from(SpoolUsage)
+            .join(Spool, Spool.id == SpoolUsage.spool_id)
+            .join(Material, Material.id == Spool.material_id)
+            .group_by(Material.id, Material.name)
+        )
+    ).all()
+    usage_without_material = (
+        await db.execute(
+            select(
+                Spool.material_type,
+                func.coalesce(func.sum(SpoolUsage.grams), 0.0),
+                func.count(SpoolUsage.id),
+            )
+            .select_from(SpoolUsage)
+            .join(Spool, Spool.id == SpoolUsage.spool_id)
+            .where(Spool.material_id.is_(None))
+            .group_by(Spool.material_type)
+        )
+    ).all()
     with_material = (
         await db.execute(
             select(
@@ -210,6 +252,7 @@ async def _material_usage(db: AsyncSession) -> list[MaterialUsageOut]:
                 func.count(Print.id),
             )
             .join(Print, Print.material_id == Material.id)
+            .where(Print.source == PrintSource.MANUAL)
             .group_by(Material.id, Material.name)
         )
     ).all()
@@ -222,54 +265,127 @@ async def _material_usage(db: AsyncSession) -> list[MaterialUsageOut]:
             )
             .where(
                 Print.material_id.is_(None),
-                Print.source != PrintSource.AUTO,
+                Print.source == PrintSource.MANUAL,
                 Print.filament.is_not(None),
                 Print.filament != "",
             )
             .group_by(Print.filament)
         )
     ).all()
-    # Auto runs: split the measured grams across the archive's filament types
-    # in proportion to the slicer estimate.
-    auto_rows = (
-        await db.execute(
-            select(Print.filament_g, PrintArchive.est_filament)
-            .join(PrintArchive, PrintArchive.print_job_id == Print.print_job_id)
-            .where(Print.source == PrintSource.AUTO, Print.filament_g.is_not(None))
-        )
-    ).all()
-    auto: dict[str, tuple[str, float, int]] = {}
-    for run_g, est in auto_rows:
-        per_type: dict[str, float] = {}
-        for entry in est or []:
-            name = str(entry.get("type") or "").strip()
-            if name:
-                per_type[name] = per_type.get(name, 0.0) + float(entry.get("grams") or 0.0)
-        total_est = sum(per_type.values())
-        if total_est <= 0:
-            continue
-        for name, g in per_type.items():
-            key = name.casefold()
-            _, grams, count = auto.get(key, (name, 0.0, 0))
-            auto[key] = (name, grams + g * run_g / total_est, count + 1)
+
+    by_material: dict[int, tuple[str, float, int]] = {}
+    for material_id, name, grams, count in usage_with_material:
+        by_material[material_id] = (name, float(grams), count)
+    for material_id, name, grams, count in with_material:
+        base_name, base_g, base_n = by_material.get(material_id, (name, 0.0, 0))
+        by_material[material_id] = (base_name, base_g + float(grams), base_n + count)
+
+    free: dict[str, tuple[str, float, int]] = {}
+    for name, grams, count in usage_without_material:
+        free[name.casefold()] = (name, float(grams), count)
+    for name, grams, count in without_material:
+        key = name.casefold()
+        base_name, base_g, base_n = free.get(key, (name, 0.0, 0))
+        free[key] = (base_name, base_g + float(grams), base_n + count)
 
     usage = [
-        MaterialUsageOut(material_id=material_id, name=name, grams=float(grams), prints=count)
-        for material_id, name, grams, count in with_material
+        MaterialUsageOut(material_id=material_id, name=name, grams=grams, prints=count)
+        for material_id, (name, grams, count) in by_material.items()
     ]
-    free: dict[str, tuple[str, float, int]] = {
-        filament.casefold(): (filament, float(grams), count)
-        for filament, grams, count in without_material
-    }
-    for key, (name, grams, count) in auto.items():
-        base_name, base_g, base_n = free.get(key, (name, 0.0, 0))
-        free[key] = (base_name, base_g + grams, base_n + count)
     usage += [
         MaterialUsageOut(material_id=None, name=name, grams=grams, prints=count)
         for name, grams, count in free.values()
     ]
     usage.sort(key=lambda row: row.grams, reverse=True)
     return usage
+
+
+async def filament_stats(
+    db: AsyncSession, settings: Settings, *, days: int, bucket: str, visible: set[int] | None
+) -> FilamentStatsOut:
+    """``GET /stats/filament`` (P5 Task 8): per-material and per-spool
+    filament usage over time, bucketed by ``date_trunc(bucket,
+    spool_usage.created_at)``. Not cached (unlike ``get_stats``) -- callers
+    vary ``days``/``bucket`` per request, so a shared TTL cache would either
+    thrash or serve the wrong window.
+
+    ``visible`` (``visible_printer_ids(ctx)``, ``None`` = admin/all) scopes
+    out usage tied to a print job on a printer the caller can't see, same
+    as the archive routes; manual usage (no ``print_job_id``) is always
+    visible, since it isn't tied to any printer.
+    """
+    if bucket not in VALID_BUCKETS:
+        raise ValueError(f"invalid bucket: {bucket!r}")
+    cfg = await get_app_config(db, settings)
+    global_rate = cfg.filament_cost_per_kg
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    stmt = (
+        select(
+            SpoolUsage.spool_id,
+            Spool.material_id,
+            func.coalesce(Material.name, Spool.material_type).label("material_name"),
+            Spool.color_hex,
+            Spool.cost_per_kg,
+            func.date_trunc(bucket, SpoolUsage.created_at).label("bucket"),
+            func.sum(SpoolUsage.grams).label("grams"),
+        )
+        .select_from(SpoolUsage)
+        .join(Spool, Spool.id == SpoolUsage.spool_id)
+        .outerjoin(Material, Material.id == Spool.material_id)
+        .outerjoin(PrintJob, PrintJob.id == SpoolUsage.print_job_id)
+        .where(SpoolUsage.created_at >= cutoff)
+        .group_by(
+            SpoolUsage.spool_id,
+            Spool.material_id,
+            "material_name",
+            Spool.color_hex,
+            Spool.cost_per_kg,
+            "bucket",
+        )
+        .order_by("bucket")
+    )
+    if visible is not None:
+        stmt = stmt.where(or_(SpoolUsage.print_job_id.is_(None), PrintJob.printer_id.in_(visible)))
+    rows = (await db.execute(stmt)).all()
+
+    by_material: dict[str, dict[str, Any]] = {}
+    by_spool: dict[str, dict[str, Any]] = {}
+    for spool_id, material_id, material_name, color_hex, cost_per_kg, t, grams in rows:
+        grams = float(grams)
+        rate = cost_per_kg if cost_per_kg is not None else global_rate
+        cost = grams / 1000 * rate
+        point = FilamentPointOut(t=t, grams=grams, cost=cost)
+
+        mkey = str(material_id) if material_id is not None else f"name:{material_name}"
+        mseries = by_material.setdefault(
+            mkey,
+            {"key": mkey, "name": material_name, "color_hex": None, "points": []},
+        )
+        mseries["points"].append(point)
+
+        skey = str(spool_id)
+        sseries = by_spool.setdefault(
+            skey,
+            {"key": skey, "name": material_name, "color_hex": color_hex, "points": []},
+        )
+        sseries["points"].append(point)
+
+    def _finish(series: dict[str, Any]) -> FilamentSeriesOut:
+        points: list[FilamentPointOut] = series["points"]
+        return FilamentSeriesOut(
+            key=series["key"],
+            name=series["name"],
+            color_hex=series["color_hex"],
+            total_g=sum(p.grams for p in points),
+            total_cost=sum(p.cost for p in points),
+            points=points,
+        )
+
+    return FilamentStatsOut(
+        by_material=[_finish(s) for s in by_material.values()],
+        by_spool=[_finish(s) for s in by_spool.values()],
+    )
 
 
 async def _compute_stats(db: AsyncSession, settings: Settings) -> StatsOut:

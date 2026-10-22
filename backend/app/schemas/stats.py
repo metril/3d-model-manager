@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from app.schemas.library import ModelSummary
@@ -52,6 +54,34 @@ class MaterialUsageOut(BaseModel):
     name: str
     grams: float
     prints: int
+
+
+class FilamentPointOut(BaseModel):
+    """One bucket of a ``FilamentSeriesOut`` (P5 Task 8: ``GET
+    /stats/filament``)."""
+
+    t: datetime
+    grams: float
+    cost: float
+
+
+class FilamentSeriesOut(BaseModel):
+    """Grams + cost over time for one material or one spool (P5 Task 8).
+    ``key`` is the material id/name or the spool id, stringified -- stable
+    across buckets, used by the frontend as the series identity/legend
+    key."""
+
+    key: str
+    name: str
+    color_hex: str | None
+    total_g: float
+    total_cost: float
+    points: list[FilamentPointOut]
+
+
+class FilamentStatsOut(BaseModel):
+    by_material: list[FilamentSeriesOut]
+    by_spool: list[FilamentSeriesOut]
 
 
 class StatsOut(BaseModel):

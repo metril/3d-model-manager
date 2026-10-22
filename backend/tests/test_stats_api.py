@@ -28,7 +28,9 @@ from app.models.enums import (
     PrintJobState,
     PrintResult,
     PrintSource,
+    SpoolUsageSource,
 )
+from app.models.inventory import Spool, SpoolUsage
 from app.models.library import Blob, File, Material, Model, Print, Revision, Tag
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.storage import StorageBackendRow
@@ -263,10 +265,15 @@ async def test_stats_material_usage_grouped_by_material_and_filament_fallback(
     assert sum(row["prints"] for row in usage) == 3
 
 
-async def test_material_usage_includes_auto_runs(
+async def test_material_usage_from_spool_usage(
     authenticated_client: httpx.AsyncClient, db_session: AsyncSession
 ) -> None:
-    model = await _make_model(db_session, "Auto Usage Model")
+    """P5 Task 8: an auto run is charged once via its `spool_usage` ledger
+    row -- no more proportional split of the slicer's `est_filament`
+    estimate. A manual print is still counted via the free-text
+    `Print.filament` path. Same material name from either side merges into
+    one row."""
+    model = await _make_model(db_session, "Spool Usage Model")
     printer = Printer(
         name="p", kind=PrinterKind.BAMBU_LAN, host="10.0.0.9", serial="p", access_code_enc="x"
     )
@@ -286,26 +293,105 @@ async def test_material_usage_includes_auto_runs(
             model_id=model.id,
             result=ArchiveResult.COMPLETED,
             fetch_state=ArchiveFetchState.DONE,
-            est_filament=[
-                {"tray": 0, "type": "PLA", "grams": 60.0},
-                {"tray": 1, "type": "PETG", "grams": 40.0},
-            ],
+            est_filament=[{"tray": 0, "type": "PLA", "grams": 40.0}],
         )
     )
-    db_session.add(Print(model_id=model.id, filament="PLA", filament_g=10.0))
+    spool = Spool(material_type="PLA")
+    db_session.add(spool)
+    await db_session.flush()
+    db_session.add(
+        SpoolUsage(
+            spool_id=spool.id,
+            print_job_id=job.id,
+            grams=40.0,
+            source=SpoolUsageSource.THREE_MF,
+        )
+    )
     db_session.add(
         Print(
             model_id=model.id,
             print_job_id=job.id,
             source=PrintSource.AUTO,
-            filament_g=50.0,
+            filament_g=40.0,
             total_cost=2.5,
         )
     )
+    # Manual print, free-text filament matching the spool's material name.
+    db_session.add(Print(model_id=model.id, filament="PLA", filament_g=10.0))
     await db_session.commit()
 
     body = (await authenticated_client.get("/api/stats")).json()
     usage = {u["name"]: u for u in body["material_usage"]}
-    assert usage["PLA"]["grams"] == pytest.approx(40.0) and usage["PLA"]["prints"] == 2
-    assert usage["PETG"]["grams"] == pytest.approx(20.0) and usage["PETG"]["prints"] == 1
+    assert usage["PLA"]["material_id"] is None
+    assert usage["PLA"]["grams"] == pytest.approx(50.0)
+    assert usage["PLA"]["prints"] == 2
     assert body["prints"]["cost_total"] == pytest.approx(2.5)
+
+
+# ---------------------------------------------------------------------------
+# P5 Task 8: GET /stats/filament
+# ---------------------------------------------------------------------------
+
+
+async def test_filament_stats_per_material_and_spool(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    spool_a = Spool(material_type="PLA", cost_per_kg=40.0)
+    spool_b = Spool(material_type="PETG")  # no price -- falls back to the global rate
+    db_session.add_all([spool_a, spool_b])
+    await db_session.flush()
+
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            SpoolUsage(
+                spool_id=spool_a.id, grams=100.0, source=SpoolUsageSource.MANUAL, created_at=now
+            ),
+            SpoolUsage(
+                spool_id=spool_a.id, grams=50.0, source=SpoolUsageSource.MANUAL, created_at=now
+            ),
+            SpoolUsage(
+                spool_id=spool_b.id, grams=80.0, source=SpoolUsageSource.MANUAL, created_at=now
+            ),
+        ]
+    )
+    await db_session.commit()
+    # Move the first row into last week's bucket so there are 2 buckets for spool_a.
+    row = (
+        await db_session.execute(
+            select(SpoolUsage).where(SpoolUsage.spool_id == spool_a.id, SpoolUsage.grams == 100.0)
+        )
+    ).scalar_one()
+    row.created_at = now - timedelta(days=10)
+    await db_session.commit()
+
+    response = await authenticated_client.get("/api/stats/filament?days=90&bucket=week")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    by_material = {s["name"]: s for s in body["by_material"]}
+    assert by_material["PLA"]["total_g"] == pytest.approx(150.0)
+    assert by_material["PLA"]["total_cost"] == pytest.approx(150.0 / 1000 * 40.0)
+    assert by_material["PETG"]["total_g"] == pytest.approx(80.0)
+    assert by_material["PETG"]["total_cost"] == pytest.approx(80.0 / 1000 * 20.0)  # global rate
+
+    by_spool = {s["key"]: s for s in body["by_spool"]}
+    spool_a_series = by_spool[str(spool_a.id)]
+    assert spool_a_series["total_g"] == pytest.approx(150.0)
+    assert len(spool_a_series["points"]) == 2
+    spool_b_series = by_spool[str(spool_b.id)]
+    assert spool_b_series["total_g"] == pytest.approx(80.0)
+    assert spool_b_series["total_cost"] == pytest.approx(80.0 / 1000 * 20.0)
+
+
+async def test_filament_stats_bucket_validation(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    response = await authenticated_client.get("/api/stats/filament?bucket=year")
+    assert response.status_code == 422
+
+    response = await authenticated_client.get("/api/stats/filament?days=0")
+    assert response.status_code == 422
+
+    response = await authenticated_client.get("/api/stats/filament?days=731")
+    assert response.status_code == 422
