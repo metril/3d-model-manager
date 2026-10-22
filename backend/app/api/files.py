@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import iterate_in_threadpool
 
-from app.api.deps import SESSION_COOKIE_NAME, require_session
+from app.api.deps import SESSION_COOKIE_NAME, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Blob, File
@@ -43,7 +43,11 @@ router = APIRouter(prefix="/files", tags=["files"])
 public_router = APIRouter(prefix="/files", tags=["files"])
 
 
-@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def delete_file(
     file_id: int,
     db: AsyncSession = Depends(get_db),

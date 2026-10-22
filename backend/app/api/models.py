@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_storage_backend
+from app.api.deps import get_storage_backend, require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind
@@ -48,7 +48,12 @@ def _read_magic(path: Path) -> bytes:
         return fh.read(len(_PNG_MAGIC))
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=ModelDetail)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ModelDetail,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def create_model(
     payload: ModelCreate,
     db: AsyncSession = Depends(get_db),
@@ -95,7 +100,9 @@ async def list_models(
     return GalleryPage(items=items, next_cursor=next_cursor)
 
 
-@router.post("/bulk", response_model=ModelBulkOut)
+@router.post(
+    "/bulk", response_model=ModelBulkOut, dependencies=[Depends(require_perm("library:write"))]
+)
 async def bulk_update_models(
     payload: ModelBulkIn, db: AsyncSession = Depends(get_db)
 ) -> ModelBulkOut:
@@ -113,7 +120,11 @@ async def bulk_update_models(
     return ModelBulkOut(updated=updated)
 
 
-@router.post("/bulk-delete", response_model=ModelBulkDeleteOut)
+@router.post(
+    "/bulk-delete",
+    response_model=ModelBulkDeleteOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def bulk_delete_models(
     payload: ModelBulkDeleteIn,
     db: AsyncSession = Depends(get_db),
@@ -137,7 +148,11 @@ async def get_model(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.post("/{slug}/cover", response_model=ModelDetail)
+@router.post(
+    "/{slug}/cover",
+    response_model=ModelDetail,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def set_model_cover(
     slug: str,
     request: Request,
@@ -206,7 +221,9 @@ async def set_model_cover(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.patch("/{slug}", response_model=ModelDetail)
+@router.patch(
+    "/{slug}", response_model=ModelDetail, dependencies=[Depends(require_perm("library:write"))]
+)
 async def patch_model(
     slug: str,
     payload: ModelPatch,
@@ -219,7 +236,11 @@ async def patch_model(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def delete_model(
     slug: str,
     db: AsyncSession = Depends(get_db),
@@ -237,7 +258,11 @@ async def delete_model(
     await library.hard_delete_model(db, backend, settings, model)
 
 
-@router.post("/{slug}/redownload", response_model=JobOut)
+@router.post(
+    "/{slug}/redownload",
+    response_model=JobOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def redownload_model(
     slug: str,
     payload: ModelRedownloadIn,
@@ -305,7 +330,9 @@ async def download_model_zip(
     )
 
 
-@router.post("/{slug}/relocate", response_model=JobOut)
+@router.post(
+    "/{slug}/relocate", response_model=JobOut, dependencies=[Depends(require_perm("library:write"))]
+)
 async def relocate_model(
     slug: str,
     payload: ModelRelocateIn,

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_storage_backend
+from app.api.deps import get_storage_backend, require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AssemblyThumb, Revision
@@ -38,6 +38,7 @@ async def list_revisions(
     "/models/{model_id}/revisions",
     status_code=status.HTTP_201_CREATED,
     response_model=RevisionDetail,
+    dependencies=[Depends(require_perm("library:write"))],
 )
 async def create_revision(
     model_id: int,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.reports import DuplicatesReport, DuplicatesResolveIn, DuplicatesResolveOut
@@ -18,7 +19,11 @@ async def get_duplicates_report(db: AsyncSession = Depends(get_db)) -> Duplicate
     return await reports_service.duplicate_files_report(db)
 
 
-@router.post("/duplicates/resolve", response_model=DuplicatesResolveOut)
+@router.post(
+    "/duplicates/resolve",
+    response_model=DuplicatesResolveOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def resolve_duplicates_report(
     payload: DuplicatesResolveIn,
     db: AsyncSession = Depends(get_db),

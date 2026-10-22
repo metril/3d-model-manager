@@ -20,7 +20,7 @@ import pydantic
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_session
+from app.api.deps import AuthContext, require_perm_on_write, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.printables import fetch_identity
@@ -64,7 +64,13 @@ from app.tasks.relocate import relocate_all_models
 if TYPE_CHECKING:
     from app.models import StorageBackendRow
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(
+    prefix="/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_perm_on_write("settings:write"))],
+)
+# Personal extension tokens: any logged-in user, so no settings:write gate.
+api_tokens_router = APIRouter(prefix="/settings", tags=["settings"])
 
 # Redaction sentinel GET emits for a set secret (app.storage.config.redacted)
 # -- an incoming request carrying this literal value is read back verbatim
@@ -611,7 +617,9 @@ async def delete_printables_auth(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api-tokens", status_code=status.HTTP_201_CREATED, response_model=ApiTokenMintOut)
+@api_tokens_router.post(
+    "/api-tokens", status_code=status.HTTP_201_CREATED, response_model=ApiTokenMintOut
+)
 async def create_api_token(
     payload: ApiTokenCreateIn,
     db: AsyncSession = Depends(get_db),
@@ -621,13 +629,13 @@ async def create_api_token(
     return ApiTokenMintOut(id=row.id, label=row.label, token=token, created_at=row.created_at)
 
 
-@router.get("/api-tokens", response_model=list[ApiTokenOut])
+@api_tokens_router.get("/api-tokens", response_model=list[ApiTokenOut])
 async def list_api_tokens(db: AsyncSession = Depends(get_db)) -> list[ApiTokenOut]:
     rows = await api_tokens.list_tokens(db)
     return [ApiTokenOut.from_model(row) for row in rows]
 
 
-@router.delete("/api-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+@api_tokens_router.delete("/api-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_token(token_id: int, db: AsyncSession = Depends(get_db)) -> None:
     deleted = await api_tokens.revoke(db, token_id)
     if not deleted:

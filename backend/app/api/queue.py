@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.queue import QueueEnqueueIn, QueueEntryOut, QueueReorderIn
@@ -20,7 +21,12 @@ async def list_queue(
     return await queue_service.list_queue(db, settings)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=QueueEntryOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=QueueEntryOut,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def enqueue_model(
     payload: QueueEnqueueIn,
     response: Response,
@@ -37,12 +43,20 @@ async def enqueue_model(
     return entry
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def remove_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> None:
     await queue_service.remove_entry(db, entry_id)
 
 
-@router.patch("/{entry_id}", response_model=list[QueueEntryOut])
+@router.patch(
+    "/{entry_id}",
+    response_model=list[QueueEntryOut],
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def move_entry(
     entry_id: int,
     payload: QueueReorderIn,

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.db import get_db
 from app.importers.base import SEARCH_PAGE_SIZE, RemoteList, SearchResult
 from app.importers.registry import (
@@ -159,7 +160,12 @@ async def list_remote_list_items(
     return [SearchResultOut.from_dataclass(item) for item in items]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=ImportOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def create_import(
     payload: ImportCreate, response: Response, db: AsyncSession = Depends(get_db)
 ) -> ImportOut:
@@ -192,7 +198,11 @@ async def get_import(import_id: int, db: AsyncSession = Depends(get_db)) -> Impo
     return ImportOut.from_model(imp)
 
 
-@router.post("/{import_id}/retry", response_model=ImportOut)
+@router.post(
+    "/{import_id}/retry",
+    response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def retry_import(import_id: int, db: AsyncSession = Depends(get_db)) -> ImportOut:
     """Re-enqueue a ``failed`` import (import-health branch T2) -- the
     recovery path once whatever failed it (e.g. a dead Bambu session, T1) has

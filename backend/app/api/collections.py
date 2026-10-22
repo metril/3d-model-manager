@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.makerworld import parse_collection_url
@@ -40,7 +41,7 @@ from app.tasks.sync_collections import sync_all
 router = APIRouter(prefix="/collections", tags=["collections"])
 
 
-@router.post("/sync", response_model=JobOut)
+@router.post("/sync", response_model=JobOut, dependencies=[Depends(require_perm("library:write"))])
 async def sync_collections_now(db: AsyncSession = Depends(get_db)) -> JobOut:
     """Run the periodic sync immediately (the beat schedule is opt-in via
     ``COLLECTION_SYNC_INTERVAL``; this button always works). Tracked as a
@@ -67,6 +68,7 @@ async def list_pending_imports(
     "/pending/{pending_id}/approve",
     status_code=status.HTTP_201_CREATED,
     response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
 )
 async def approve_pending_import(
     pending_id: int, response: Response, db: AsyncSession = Depends(get_db)
@@ -93,7 +95,11 @@ async def approve_pending_import(
     return ImportOut.from_model(imp)
 
 
-@router.delete("/pending/{pending_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/pending/{pending_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def dismiss_pending_import(pending_id: int, db: AsyncSession = Depends(get_db)) -> None:
     await collections_svc.delete_pending(db, pending_id)
 
@@ -107,7 +113,12 @@ async def list_followed_collections(
     return [FollowedCollectionOut.from_model(row, previews.get(row.id)) for row in rows]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=FollowedCollectionOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def follow_collection(
     payload: FollowCollectionIn, db: AsyncSession = Depends(get_db)
 ) -> FollowedCollectionOut:
@@ -122,7 +133,12 @@ async def follow_collection(
     return FollowedCollectionOut.from_model(row)
 
 
-@router.post("/from-url", status_code=status.HTTP_201_CREATED, response_model=FollowedCollectionOut)
+@router.post(
+    "/from-url",
+    status_code=status.HTTP_201_CREATED,
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def follow_collection_from_url(
     payload: FollowFromUrlIn, db: AsyncSession = Depends(get_db)
 ) -> FollowedCollectionOut:
@@ -158,7 +174,11 @@ async def follow_collection_from_url(
     return FollowedCollectionOut.from_model(row)
 
 
-@router.patch("/{collection_id}", response_model=FollowedCollectionOut)
+@router.patch(
+    "/{collection_id}",
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def set_collection_mode(
     collection_id: int, payload: CollectionModeIn, db: AsyncSession = Depends(get_db)
 ) -> FollowedCollectionOut:
@@ -166,7 +186,11 @@ async def set_collection_mode(
     return FollowedCollectionOut.from_model(row)
 
 
-@router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{collection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def unfollow_collection(collection_id: int, db: AsyncSession = Depends(get_db)) -> None:
     await collections_svc.unfollow(db, collection_id)
 

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.uploads import DuplicateUploadOut, ExistingUploadModel, UploadResult
@@ -35,7 +36,12 @@ class _DuplicateBlob(Exception):
         self.body = body
 
 
-@router.put("/uploads", status_code=status.HTTP_201_CREATED, response_model=UploadResult)
+@router.put(
+    "/uploads",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UploadResult,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def upload_file(
     request: Request,
     model_id: int,
