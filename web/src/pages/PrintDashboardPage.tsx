@@ -35,7 +35,7 @@ export function PrintDashboardPage() {
   // slots in here without PrintDashboardPage itself changing shape.
   const railExtras: ReactNode[] = [];
 
-  if (overview.isError) {
+  if (overview.isError && !overview.data) {
     return (
       <PageContainer width="default">
         <div>
