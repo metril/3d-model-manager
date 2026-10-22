@@ -80,6 +80,7 @@ describe("PrinterStatusPanel", () => {
 
     expect(await screen.findByText("42%")).toBeInTheDocument();
     expect(screen.getByText("layer 10/100")).toBeInTheDocument();
+    expect(screen.getByText("Printing")).toBeInTheDocument(); // StateBadge label
     expect(screen.getByRole("button", { name: "Pause" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
@@ -91,7 +92,7 @@ describe("PrinterStatusPanel", () => {
     renderPanel();
 
     expect(await screen.findByText(/Printer offline or printerd not running/)).toBeInTheDocument();
-    expect(screen.getByText("offline")).toBeInTheDocument();
+    expect(screen.getByText("Offline")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();

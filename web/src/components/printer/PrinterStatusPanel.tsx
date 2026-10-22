@@ -1,15 +1,20 @@
 /**
- * Live status card for one printer (M4 Task 8): polls `GET
- * /printers/{id}/status` (`usePrinterStatus`) and renders the coarse
- * gcode_state as a badge, a progress bar, layer/temp/remaining-time
- * telemetry, and pause/resume/stop controls gated on that state.
+ * Live status card for one printer (M4 Task 8; restyled P3 Task 10): polls
+ * `GET /printers/{id}/status` (`usePrinterStatus`) and renders the coarse
+ * gcode_state as a `StateBadge` (the overview's shared state-tone
+ * vocabulary, replacing the earlier raw `Badge`), a progress bar, a
+ * `SpecRow` of layer/temp/remaining-time telemetry, and pause/resume/stop
+ * controls gated on that state and on `canPrinter(id, "control")` (same
+ * gate the overview's `ActiveJobStrip` uses).
  */
 import { useAuth } from "@/api/auth";
 import { usePrinterCommand, usePrinterStatus } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SpecRow } from "@/components/ui/spec-row";
+import { StateBadge } from "@/components/ui/state-badge";
+import { toneForGcode } from "@/lib/printerState";
 
 export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
   const status = usePrinterStatus(printer.id);
@@ -19,6 +24,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
   const gs = s?.gcode_state ?? null;
   const printing = gs === "RUNNING";
   const paused = gs === "PAUSE";
+  const { tone, label } = toneForGcode(!!s?.online, gs);
 
   return (
     <Card>
@@ -28,7 +34,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
           {printer.host} · {printer.serial}
         </CardDescription>
         <CardAction>
-          <Badge variant={s?.online ? "default" : "outline"}>{s?.online ? (gs ?? "online") : "offline"}</Badge>
+          <StateBadge tone={tone} label={label} pulse={tone === "printing"} />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -39,15 +45,15 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
             <div className="h-2 w-full overflow-hidden rounded bg-muted">
               <div className="h-2 rounded bg-primary transition-all" style={{ width: `${s.mc_percent ?? 0}%` }} />
             </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-              <span>{s.mc_percent ?? 0}%</span>
-              <span>
-                layer {s.layer_num ?? 0}/{s.total_layer_num ?? 0}
-              </span>
-              <span>{s.mc_remaining_time != null ? `${s.mc_remaining_time} min left` : "--"}</span>
-              <span>nozzle {s.nozzle_temper ?? "--"}°</span>
-              <span>bed {s.bed_temper ?? "--"}°</span>
-            </div>
+            <SpecRow
+              items={[
+                { label: `${s.mc_percent ?? 0}%` },
+                { label: `layer ${s.layer_num ?? 0}/${s.total_layer_num ?? 0}` },
+                { label: s.mc_remaining_time != null ? `${s.mc_remaining_time} min left` : "--" },
+                { label: `nozzle ${s.nozzle_temper ?? "--"}°` },
+                { label: `bed ${s.bed_temper ?? "--"}°` },
+              ]}
+            />
             {s.subtask_name ? <p className="text-sm">{s.subtask_name}</p> : null}
             {s.print_error ? (
               <p role="alert" className="text-sm text-destructive">
