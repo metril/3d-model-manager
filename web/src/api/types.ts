@@ -542,8 +542,8 @@ export interface AppSettings {
   watch_interval_s: number;
   watch_stable_s: number;
   // R11-B item 14 (print cost estimate): currency-agnostic rates the
-  // frontend multiplies against a print's filament_g/duration_s
-  // (`@/lib/printCost`'s `estimatePrintCost`). Never interpreted server-side.
+  // server prices runs and plate estimates with (PrintEntry.total_cost,
+  // PlateOut.est_cost).
   filament_cost_per_kg: number;
   machine_cost_per_hour: number;
 }

@@ -1,9 +1,9 @@
 /**
  * Print cost estimate rates card (R11-B item 14): the General tab's editor
  * for `filament_cost_per_kg`/`machine_cost_per_hour` in the DB-backed
- * `AppSettings` (`GET`/`PUT /settings/app`) -- the two rates
- * `@/lib/printCost`'s `estimatePrintCost` multiplies against a print's
- * filament_g/duration_s. Currency-agnostic (no `currency_symbol` setting
+ * `AppSettings` (`GET`/`PUT /settings/app`) -- the two rates the server
+ * (`app.services.costing`) prices every run and plate estimate with.
+ * Currency-agnostic (no `currency_symbol` setting
  * yet -- out of scope), so labels just say "per kg"/"per hour". Mirrors
  * `AutomationCard`'s draft/save/alert/"Saved." card conventions, spreading
  * the OTHER four `AppSettings` fields through unchanged on every `PUT`

@@ -147,16 +147,6 @@ function printEntry(overrides: Partial<PrintEntry> = {}): PrintEntry {
   };
 }
 
-const DEFAULT_APP_SETTINGS = {
-  printer_enabled: false,
-  scan_interval_s: 0,
-  collection_sync_interval_s: 0,
-  watch_interval_s: 0,
-  watch_stable_s: 10,
-  filament_cost_per_kg: 20,
-  machine_cost_per_hour: 0,
-};
-
 const MATERIALS: MaterialOut[] = [
   { id: 1, name: "Galaxy Black", kind: "PLA", color: "#111111", vendor: "Bambu", notes: null, print_count: 2 },
   { id: 2, name: "Clear PETG", kind: "PETG", color: null, vendor: null, notes: null, print_count: 0 },
@@ -168,7 +158,6 @@ function setupGet(
     printers?: unknown[];
     materials?: MaterialOut[];
     queue?: QueueEntry[];
-    appSettings?: typeof DEFAULT_APP_SETTINGS;
   } = {},
 ) {
   getMock.mockImplementation((path: string) => {
@@ -176,7 +165,6 @@ function setupGet(
     if (path === "/printers") return Promise.resolve(overrides.printers ?? []);
     if (path === "/materials") return Promise.resolve(overrides.materials ?? MATERIALS);
     if (path === "/queue") return Promise.resolve(overrides.queue ?? []);
-    if (path === "/settings/app") return Promise.resolve(overrides.appSettings ?? DEFAULT_APP_SETTINGS);
     return Promise.resolve([]);
   });
 }
@@ -237,19 +225,15 @@ describe("PrintsTab -- list", () => {
     expect(within(row).getByText("nozzle clog")).toBeInTheDocument();
   });
 
-  it("shows an estimated cost when filament_g/duration_min and app settings are present", async () => {
-    setupGet({
-      prints: [printEntry({ filament_g: 100, duration_min: 60 })],
-      appSettings: { ...DEFAULT_APP_SETTINGS, filament_cost_per_kg: 20, machine_cost_per_hour: 2 },
-    });
+  it("shows the server-computed total cost", async () => {
+    setupGet({ prints: [printEntry({ total_cost: 8 })] });
     renderPrintsTab();
 
-    // 100g @ 20/kg = 2.00; 60min (1h) @ 2/hr = 2.00 -> 4.00
-    await waitFor(() => expect(screen.getByText("Est. cost: 4.00")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Est. cost: 8.00")).toBeInTheDocument());
   });
 
-  it("shows no estimated cost when neither filament_g nor duration_min is known", async () => {
-    setupGet({ prints: [printEntry({ filament_g: null, duration_min: null })] });
+  it("shows no estimated cost when the server has no total cost", async () => {
+    setupGet({ prints: [printEntry({ total_cost: null })] });
     renderPrintsTab();
 
     const row = await screen.findByRole("listitem");
