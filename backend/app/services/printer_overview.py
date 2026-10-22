@@ -30,8 +30,10 @@ from app.schemas.printers import (
     PrintersOverviewOut,
     PrinterStatusOut,
     PrintJobOut,
+    SpoolBriefOut,
 )
 from app.services import queue as queue_service
+from app.services import spool_inventory as sinv
 
 _ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
 
@@ -60,10 +62,13 @@ def _can(ctx: AuthContext, printer_id: int, kind: str) -> bool:
     return f"printers:{kind}" in ctx.perms and flag
 
 
-async def _statuses(redis: Redis, printer_ids: list[int]) -> dict[int, PrinterStatusOut]:
+async def _statuses(
+    db: AsyncSession, redis: Redis, printer_ids: list[int]
+) -> dict[int, PrinterStatusOut]:
     if not printer_ids:
         return {}
     raws = await redis.mget([state_key(pid) for pid in printer_ids])
+    smap = await sinv.slot_map(db, printer_ids)
     out: dict[int, PrinterStatusOut] = {}
     for pid, raw in zip(printer_ids, raws, strict=True):
         state = None
@@ -75,11 +80,22 @@ async def _statuses(redis: Redis, printer_ids: list[int]) -> dict[int, PrinterSt
         if not state:
             out[pid] = PrinterStatusOut(online=False)
         else:
-            out[pid] = PrinterStatusOut(
+            status_out = PrinterStatusOut(
                 online=True,
                 trays=state.get("trays") or [],
                 **{k: state.get(k) for k in _STATE_FIELDS},
             )
+            for t in status_out.trays:
+                spool = smap.get((pid, t.slot))
+                if spool is not None:
+                    t.spool = SpoolBriefOut(
+                        id=spool.id,
+                        material_type=spool.material_type,
+                        brand=spool.brand,
+                        color_hex=spool.color_hex,
+                        color_name=spool.color_name,
+                    )
+            out[pid] = status_out
     return out
 
 
@@ -171,7 +187,7 @@ async def build_overview(
     printers = list((await db.execute(stmt)).scalars().all())
     printer_ids = [p.id for p in printers]
 
-    statuses = await _statuses(redis, printer_ids)
+    statuses = await _statuses(db, redis, printer_ids)
     active_jobs = await _active_jobs(db, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
 

@@ -64,6 +64,7 @@ from app.api import (
     scan,
     settings,
     slicer,
+    spools,
     stats,
     storage_tree,
     tags,
@@ -110,5 +111,6 @@ protected_router.include_router(stats.router)
 protected_router.include_router(categories.router)
 protected_router.include_router(materials.router)
 protected_router.include_router(storage_tree.router)
+protected_router.include_router(spools.router)
 
 api_router.include_router(protected_router)

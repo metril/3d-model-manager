@@ -42,11 +42,14 @@ from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
 from app.models import Blob, File, Printer, PrintJob, User
 from app.models.enums import BlobFormat, PrintJobState
+from app.models.inventory import Spool, SpoolSlot
 from app.printers import discovery
 from app.printers.base import command_channel
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
+from app.schemas.inventory import SlotAssignIn
 from app.schemas.printers import (
+    AmsTrayOut,
     CameraUrlsOut,
     DetectSerialIn,
     DetectSerialOut,
@@ -58,15 +61,21 @@ from app.schemas.printers import (
     PrintJobOut,
     PrintRequest,
     ProbeOut,
+    SpoolBriefOut,
     seed_build_volume_mm,
 )
 from app.services import camera_state as cs
-from app.services import signed_urls
+from app.services import signed_urls, spool_inventory
 from app.services.app_config import get_app_config
 from app.services.permissions import load_grants
 from app.services.printer_overview import build_overview
 from app.services.printer_state import preflight_ok, read_state_async
 from app.tasks.printing import send_to_printer
+
+# AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
+# "external spool" sentinel pair (app.services.spool_inventory).
+_VALID_UNITS = frozenset({0, 1, 2, 3, spool_inventory.EXTERNAL_UNIT})
+_VALID_SLOTS = frozenset({0, 1, 2, 3})
 
 router = APIRouter(
     prefix="/printers", tags=["printers"], dependencies=[Depends(require_printer_enabled)]
@@ -328,6 +337,79 @@ async def start_print(
     return PrintJobOut.from_model(job)
 
 
+@router.put(
+    "/{printer_id}/slots/{unit}/{slot}",
+    response_model=list[AmsTrayOut],
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def set_slot(
+    printer_id: int,
+    unit: int,
+    slot: int,
+    payload: SlotAssignIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[AmsTrayOut]:
+    """Point an AMS slot at a registered spool, or clear it (P5 Task 6).
+    ``unit``/``slot`` are the PER-UNIT coordinates the printer itself
+    reports (not the global tray id) -- ``unit`` 255 + ``slot`` 254 is the
+    "external spool" sentinel pair (``app.services.spool_inventory``).
+    """
+    valid = unit in _VALID_UNITS and (
+        (unit == spool_inventory.EXTERNAL_UNIT and slot == spool_inventory.EXTERNAL_SLOT)
+        or (unit != spool_inventory.EXTERNAL_UNIT and slot in _VALID_SLOTS)
+    )
+    if not valid:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid unit/slot")
+    await _get_or_404(db, printer_id)
+    if payload.spool_id is not None and await db.get(Spool, payload.spool_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "spool not found")
+
+    existing = (
+        (
+            await db.execute(
+                select(SpoolSlot).where(
+                    SpoolSlot.printer_id == printer_id,
+                    SpoolSlot.ams_unit == unit,
+                    SpoolSlot.slot == slot,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if payload.spool_id is None:
+        if existing is not None:
+            await db.delete(existing)
+    else:
+        old = (
+            (await db.execute(select(SpoolSlot).where(SpoolSlot.spool_id == payload.spool_id)))
+            .scalars()
+            .first()
+        )
+        if old is not None and old is not existing:
+            await db.delete(old)
+            await db.flush()
+        if existing is not None:
+            existing.spool_id = payload.spool_id
+        else:
+            db.add(
+                SpoolSlot(
+                    printer_id=printer_id, ams_unit=unit, slot=slot, spool_id=payload.spool_id
+                )
+            )
+    await db.commit()
+
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        state = await read_state_async(client, printer_id)
+    finally:
+        await client.aclose()
+    trays = [AmsTrayOut(**t) for t in ((state or {}).get("trays") or [])]
+    await _fill_tray_spools(db, printer_id, trays)
+    return trays
+
+
 _STATE_FIELDS = (
     "gcode_state",
     "mc_percent",
@@ -340,6 +422,25 @@ _STATE_FIELDS = (
     "subtask_name",
     "wifi_signal",
 )
+
+
+async def _fill_tray_spools(db: AsyncSession, printer_id: int, trays: list[AmsTrayOut]) -> None:
+    """Enrich each tray's ``spool`` from the printer's current slot
+    assignments (P5 Task 6) -- the printer's own report only knows the
+    RFID ``tray_uuid``, never which registered ``Spool`` that maps to."""
+    if not trays:
+        return
+    smap = await spool_inventory.slot_map(db, [printer_id])
+    for t in trays:
+        spool = smap.get((printer_id, t.slot))
+        if spool is not None:
+            t.spool = SpoolBriefOut(
+                id=spool.id,
+                material_type=spool.material_type,
+                brand=spool.brand,
+                color_hex=spool.color_hex,
+                color_name=spool.color_name,
+            )
 
 
 @router.get("/{printer_id}/status", response_model=PrinterStatusOut)
@@ -367,11 +468,13 @@ async def printer_status(
         return PrinterStatusOut(online=False)
     # `trays` (M8 G3) is a list, not a scalar -- pass it explicitly and coerce a
     # missing/None value (older state written before this field existed) to [].
-    return PrinterStatusOut(
+    out = PrinterStatusOut(
         online=True,
         trays=state.get("trays") or [],
         **{k: state.get(k) for k in _STATE_FIELDS},
     )
+    await _fill_tray_spools(db, printer_id, out.trays)
+    return out
 
 
 async def _publish_command(settings: Settings, printer_id: int, command: str) -> None:
