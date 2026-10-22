@@ -169,7 +169,10 @@ describe("EventsProvider print_job.updated", () => {
     vi.unstubAllGlobals();
   });
 
-  it("invalidates print-jobs and printers queries, without notifying job.updated listeners", () => {
+  // Fix-review finding 8: `["printers", "overview"]` was invalidated
+  // explicitly alongside plain `["printers"]`, which already prefix-matches
+  // it under react-query's default partial matching -- a redundant call.
+  it("invalidates print-jobs and printers queries (no separate overview call), without notifying job.updated listeners", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     const jobUpdatedListener = vi.fn();
@@ -190,7 +193,7 @@ describe("EventsProvider print_job.updated", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["print-jobs"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["printers"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["printers", "overview"] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ["printers", "overview"] });
     expect(jobUpdatedListener).not.toHaveBeenCalled();
   });
 });

@@ -102,6 +102,25 @@ describe("ActiveJobStrip", () => {
     await waitFor(() => expect(commandMock).toHaveBeenCalledExactlyOnceWith("pause"));
   });
 
+  // Fix-review finding 5: canControl alone used to be enough to show
+  // Pause/Stop -- a printer that just went offline (stale RUNNING status)
+  // or finished (FINISH) must hide them too.
+  it("hides Pause/Stop when canControl is true but the printer is offline", () => {
+    render(<ActiveJobStrip job={job()} status={status({ online: false })} printerId={1} canControl={true} />);
+
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("hides Pause/Stop once gcode_state is a non-printing, non-paused tone (e.g. FINISH)", () => {
+    render(
+      <ActiveJobStrip job={job()} status={status({ gcode_state: "FINISH" })} printerId={1} canControl={true} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
   it("shows Resume instead of Pause while paused", () => {
     render(
       <ActiveJobStrip job={job()} status={status({ gcode_state: "PAUSE" })} printerId={1} canControl={true} />,

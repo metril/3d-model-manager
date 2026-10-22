@@ -120,6 +120,18 @@ describe("RecentRunsList", () => {
     expect(screen.queryByRole("button", { name: "Good" })).not.toBeInTheDocument();
   });
 
+  // Fix-review finding 6: a graded-good run's Good button used to render
+  // `variant="default"`, the brand amber -- the same color `printing`
+  // uses, so a finished/graded run visually read as "in progress". It
+  // must be `secondary` with a state-finished outline instead.
+  it("gives a graded-good run's Good button a secondary variant with a state-finished outline, not amber default", () => {
+    render(<RecentRunsList runs={[run({ run: { ...run().run!, quality: "good" } })]} />);
+
+    const goodButton = screen.getByRole("button", { name: "Good" });
+    expect(goodButton).toHaveAttribute("data-variant", "secondary");
+    expect(goodButton.className).toContain("state-finished");
+  });
+
   it("clicking Good PATCHes /prints/{id} with quality good", async () => {
     render(<RecentRunsList runs={[run()]} />);
 

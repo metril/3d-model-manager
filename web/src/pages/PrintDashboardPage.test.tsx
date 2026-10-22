@@ -136,6 +136,22 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", StubEventSource);
 });
 
+describe("PrintDashboardPage overview error", () => {
+  // Fix-review finding 4: an errored overview poll used to fall through to
+  // the "0 printers" branch and render the setup card, hiding the real
+  // failure. It must show a retry-able error state instead.
+  it("shows an error state with a retry button, never the setup card", async () => {
+    featuresBox.current = { printer_enabled: true };
+    getMock.mockImplementation(() => Promise.reject(new Error("boom")));
+
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load the print overview.");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("Printer setup")).not.toBeInTheDocument();
+  });
+});
+
 describe("PrintDashboardPage printer counts", () => {
   it("shows the PrinterSetupCard with 0 printers", async () => {
     overviewBox.current = { printers: [], up_next: [], recent_runs: [] };

@@ -49,10 +49,11 @@ export function EventsProvider({ children }: { children: ReactNode }) {
       // no listener fan-out.
       if (parsed.type === "print_job.updated") {
         void queryClient.invalidateQueries({ queryKey: ["print-jobs"] });
+        // `["printers"]` prefix-matches `["printers", "overview"]` under
+        // react-query's default partial matching -- the overview (which
+        // embeds each printer's active job + recent runs, P3 Task 3) is
+        // already covered by this one invalidation.
         void queryClient.invalidateQueries({ queryKey: ["printers"] }); // status polled separately
-        // P3 Task 3: the overview embeds each printer's active job + recent
-        // runs -- keep it live on every print-job transition too.
-        void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
         return;
       }
 

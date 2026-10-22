@@ -50,7 +50,8 @@ function RunRow({ run, onOpen }: { run: ArchiveOut; onOpen: (id: number) => void
         <div className="flex shrink-0 gap-1">
           <Button
             size="sm"
-            variant={run.run.quality === "good" ? "default" : "outline"}
+            variant={run.run.quality === "good" ? "secondary" : "outline"}
+            className={run.run.quality === "good" ? "border-state-finished text-state-finished" : undefined}
             onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "good" } })}
           >
             Good

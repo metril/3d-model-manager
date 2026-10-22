@@ -18,6 +18,7 @@ import { usePrinterCommand } from "@/api/printers";
 import type { ActiveJobOut, PrinterStatusOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { toneForGcode } from "@/lib/printerState";
 
 /** `mc_remaining_time` (minutes) -> `"1h 05m"` / `"5m"`. Zero-pads minutes
  * only once there's an hour component, so the detail-sheet style doesn't
@@ -47,6 +48,13 @@ export function ActiveJobStrip({
   const percent = status.mc_percent ?? 0;
   const eta = formatEta(status.mc_remaining_time);
   const name = job.model_name ?? job.subtask_name ?? `Job #${job.id}`;
+  // Fix-review finding 5: Pause/Stop sent a printer command even once it
+  // went offline or finished -- gate on the same printing/paused tone
+  // `PrinterCard`'s badge uses, plus `status.online` directly (belt and
+  // suspenders: `toneForGcode` already folds `online` in, but the finding
+  // calls for checking it explicitly).
+  const { tone } = toneForGcode(status.online, status.gcode_state);
+  const showControls = canControl && status.online && (tone === "printing" || tone === "paused");
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -75,7 +83,7 @@ export function ActiveJobStrip({
         {eta ? <span>ETA {eta}</span> : null}
       </div>
 
-      {canControl ? (
+      {showControls ? (
         <div className="flex gap-2">
           {paused ? (
             <Button size="sm" variant="outline" disabled={command.isPending} onClick={() => command.mutate("resume")}>

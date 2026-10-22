@@ -11,11 +11,13 @@
  */
 import type { ReactNode } from "react";
 
+import { ApiError } from "@/api/client";
 import { usePrintersOverview } from "@/api/printers";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
+import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/ui/page-container";
 
 function gridClassName(count: number): string {
@@ -32,6 +34,24 @@ export function PrintDashboardPage() {
   // P3 renders no rail extras; a later milestone (energy/cost tiles, etc.)
   // slots in here without PrintDashboardPage itself changing shape.
   const railExtras: ReactNode[] = [];
+
+  if (overview.isError) {
+    return (
+      <PageContainer width="default">
+        <div>
+          <h1 className="text-lg font-semibold text-foreground">Print</h1>
+        </div>
+        <div className="space-y-2 py-8 text-center">
+          <p role="alert" className="text-sm text-destructive">
+            {overview.error instanceof ApiError ? overview.error.detail : "Couldn't load the print overview."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void overview.refetch()}>
+            Retry
+          </Button>
+        </div>
+      </PageContainer>
+    );
+  }
 
   if (!overview.isLoading && printers.length === 0) {
     return (

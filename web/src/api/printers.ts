@@ -67,13 +67,11 @@ export function useCreatePrinter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: PrinterCreate) => api.post<PrinterOut>("/printers", b),
-    // `["printers"]` already prefix-matches `["printers","overview"]` under
-    // react-query's default partial matching, but the P3 overview
-    // invalidation is listed explicitly (Task 3) so it reads as intentional
-    // rather than an accident of key shape.
+    // `["printers"]` prefix-matches `["printers", "overview"]` under
+    // react-query's default partial matching, so this one invalidation
+    // already covers the overview too.
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["printers"] });
-      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
     },
   });
 }
@@ -84,7 +82,6 @@ export function useUpdatePrinter(id: number) {
     mutationFn: (b: PrinterUpdate) => api.patch<PrinterOut>(`/printers/${id}`, b),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["printers"] });
-      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
     },
   });
 }
@@ -95,7 +92,6 @@ export function useDeletePrinter() {
     mutationFn: (id: number) => api.delete<void>(`/printers/${id}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["printers"] });
-      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
     },
   });
 }
