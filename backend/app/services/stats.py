@@ -355,23 +355,41 @@ async def filament_stats(
         grams = float(grams)
         rate = cost_per_kg if cost_per_kg is not None else global_rate
         cost = grams / 1000 * rate
-        point = FilamentPointOut(t=t, grams=grams, cost=cost)
 
+        # Two spools of the same material each contribute their own SQL row
+        # per bucket -- merge by `t` here so a material's series has one
+        # point per bucket, not a duplicate per contributing spool.
         mkey = str(material_id) if material_id is not None else f"name:{material_name}"
         mseries = by_material.setdefault(
             mkey,
-            {"key": mkey, "name": material_name, "color_hex": None, "points": []},
+            {"key": mkey, "name": material_name, "color_hex": None, "points_by_t": {}},
         )
-        mseries["points"].append(point)
+        bucket_point = mseries["points_by_t"].setdefault(t, {"grams": 0.0, "cost": 0.0})
+        bucket_point["grams"] += grams
+        bucket_point["cost"] += cost
 
         skey = str(spool_id)
         sseries = by_spool.setdefault(
             skey,
             {"key": skey, "name": material_name, "color_hex": color_hex, "points": []},
         )
-        sseries["points"].append(point)
+        sseries["points"].append(FilamentPointOut(t=t, grams=grams, cost=cost))
 
-    def _finish(series: dict[str, Any]) -> FilamentSeriesOut:
+    def _finish_material(series: dict[str, Any]) -> FilamentSeriesOut:
+        points = [
+            FilamentPointOut(t=t, grams=v["grams"], cost=v["cost"])
+            for t, v in sorted(series["points_by_t"].items())
+        ]
+        return FilamentSeriesOut(
+            key=series["key"],
+            name=series["name"],
+            color_hex=series["color_hex"],
+            total_g=sum(p.grams for p in points),
+            total_cost=sum(p.cost for p in points),
+            points=points,
+        )
+
+    def _finish_spool(series: dict[str, Any]) -> FilamentSeriesOut:
         points: list[FilamentPointOut] = series["points"]
         return FilamentSeriesOut(
             key=series["key"],
@@ -383,8 +401,8 @@ async def filament_stats(
         )
 
     return FilamentStatsOut(
-        by_material=[_finish(s) for s in by_material.values()],
-        by_spool=[_finish(s) for s in by_spool.values()],
+        by_material=[_finish_material(s) for s in by_material.values()],
+        by_spool=[_finish_spool(s) for s in by_spool.values()],
     )
 
 

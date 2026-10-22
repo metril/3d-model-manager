@@ -171,6 +171,36 @@ def test_rfid_auto_assign_moves_spool(worker):
         assert spool_inventory.spool_for_tray(s, pid, 3).id == manual_id  # untouched
 
 
+def test_manual_assignment_survives_loaded_non_rfid_tray(worker):
+    """Final-review fix wave item 1: a loaded tray (tray_type/material set)
+    with no tray_uuid is a manually-assigned non-RFID spool -- it must NOT
+    be cleared just because the report carries no UUID for it."""
+    w, _adapter, pid, _client = worker
+    with base.sync_session() as s:
+        manual_id = _spool(s, tray_uuid=None)
+        spool_inventory.assign_slot(s, pid, 0, 3, manual_id)
+
+    w.handle_report({"trays": [_tray(3, 0, 3, tray_uuid=None, tray_type="PLA")]})
+
+    with base.sync_session() as s:
+        assert spool_inventory.spool_for_tray(s, pid, 3).id == manual_id
+
+
+def test_mismatched_rfid_spool_clears_stale_assignment(worker):
+    """A slot currently assigned to an RFID spool must clear when the
+    report's tray_uuid changes to something no registered spool owns yet
+    (swap/removal) rather than leaving the stale assignment in place."""
+    w, _adapter, pid, _client = worker
+    with base.sync_session() as s:
+        rfid_id = _spool(s, tray_uuid="OLD")
+        spool_inventory.assign_slot(s, pid, 0, 1, rfid_id)
+
+    w.handle_report({"trays": [_tray(1, 0, 1, tray_uuid="UNKNOWN", tray_type="PLA")]})
+
+    with base.sync_session() as s:
+        assert spool_inventory.spool_for_tray(s, pid, 1) is None
+
+
 def test_auto_assign_only_on_signature_change(worker, monkeypatch):
     w, _adapter, pid, _client = worker
     calls = []

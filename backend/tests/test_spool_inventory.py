@@ -4,11 +4,15 @@ from sqlalchemy import select
 from app.models import PrintJob, Spool, SpoolSlot, SpoolUsage
 from app.models.enums import ArchiveResult, SpoolUsageSource
 from app.services.spool_inventory import (
+    EXTERNAL_SLOT,
+    EXTERNAL_UNIT,
     assign_slot,
+    auto_assign_from_trays,
     is_low_stock,
     rate_per_kg,
     record_job_usage,
     remaining_g,
+    split_tray,
     spool_for_tray,
 )
 
@@ -37,12 +41,84 @@ def test_remaining_and_low_stock(seed):
     assert is_low_stock(low) is True
 
 
+def test_remaining_g_unclamped_and_low_stock_boundary(seed):
+    overdrawn = _spool(seed.s, label=1000.0, used=1100.0, low_stock=50.0)
+    assert remaining_g(overdrawn) == pytest.approx(-100.0)
+    assert is_low_stock(overdrawn) is True
+
+    at_threshold = _spool(seed.s, label=1000.0, used=900.0, low_stock=100.0)
+    assert remaining_g(at_threshold) == pytest.approx(100.0)
+    assert is_low_stock(at_threshold) is False  # exactly at threshold: not low (strict <)
+
+
 def test_rate_fallback(seed):
     priced = _spool(seed.s, cost_per_kg=25.0)
     unpriced = _spool(seed.s, cost_per_kg=None)
     assert rate_per_kg(priced, 20.0) == 25.0
     assert rate_per_kg(unpriced, 20.0) == 20.0
     assert rate_per_kg(None, 20.0) == 20.0
+
+
+def test_split_tray_external_round_trip():
+    assert split_tray(EXTERNAL_SLOT) == (EXTERNAL_UNIT, EXTERNAL_SLOT)
+
+
+def test_external_assignment_round_trip(seed):
+    seed.job()
+    printer_id = seed.printer_id
+    sp = _spool(seed.s)
+    unit, slot = split_tray(EXTERNAL_SLOT)
+    assign_slot(seed.s, printer_id, unit, slot, sp.id)
+    assert spool_for_tray(seed.s, printer_id, EXTERNAL_SLOT).id == sp.id
+
+    job_id = seed.job()
+    job = seed.s.get(PrintJob, job_id)
+    est = [{"tray": EXTERNAL_SLOT, "grams": 20.0}]
+    out = record_job_usage(seed.s, job, est, ArchiveResult.COMPLETED)
+    assert out == [(sp, pytest.approx(20.0))]
+    rows = seed.s.scalars(select(SpoolUsage).where(SpoolUsage.print_job_id == job_id)).all()
+    assert len(rows) == 1
+
+
+def test_auto_assign_keeps_manual_non_rfid_tray(seed):
+    seed.job()
+    printer_id = seed.printer_id
+    manual = _spool(seed.s, material="PETG")
+    assign_slot(seed.s, printer_id, 0, 1, manual.id)
+    changed = auto_assign_from_trays(
+        seed.s, printer_id, [{"slot": 1, "tray_uuid": None, "tray_type": "PETG"}]
+    )
+    assert changed is False
+    assert spool_for_tray(seed.s, printer_id, 1).id == manual.id
+
+
+def test_auto_assign_clears_truly_empty_tray(seed):
+    seed.job()
+    printer_id = seed.printer_id
+    manual = _spool(seed.s, material="PETG")
+    assign_slot(seed.s, printer_id, 0, 1, manual.id)
+    changed = auto_assign_from_trays(
+        seed.s, printer_id, [{"slot": 1, "tray_uuid": None, "tray_type": None}]
+    )
+    assert changed is True
+    assert spool_for_tray(seed.s, printer_id, 1) is None
+
+
+def test_auto_assign_no_duplicate_external_row(seed):
+    """Item 2 regression: an RFID tray reported on the external slot must
+    land on the SAME (255, 254) row the API/UI use -- not a stray (255, 0)
+    row left behind by the old `split_tray(254) == (255, 0)` bug."""
+    seed.job()
+    printer_id = seed.printer_id
+    sp = Spool(material_type="PLA", label_weight_g=1000.0, tray_uuid="EXT")
+    seed.s.add(sp)
+    seed.s.commit()
+    auto_assign_from_trays(
+        seed.s, printer_id, [{"slot": EXTERNAL_SLOT, "tray_uuid": "EXT", "tray_type": "PLA"}]
+    )
+    rows = seed.s.scalars(select(SpoolSlot).where(SpoolSlot.spool_id == sp.id)).all()
+    assert len(rows) == 1
+    assert (rows[0].ams_unit, rows[0].slot) == (EXTERNAL_UNIT, EXTERNAL_SLOT)
 
 
 def test_assign_slot_moves_spool(seed):

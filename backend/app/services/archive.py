@@ -203,9 +203,13 @@ def archive_job(
             if plate is not None:
                 mapping = job.ams_mapping
                 for i, f in enumerate(plate["filaments"]):
+                    # Pre-P5 meta parsed before `filament_id` existed carries
+                    # none -- fall back to the 1-based plate position, same
+                    # convention `print_plan`'s `needs`/`by_filament_id` use.
+                    fid = f["filament_id"] if f.get("filament_id") is not None else i + 1
                     row = {
                         "slot": i,
-                        "filament_id": f.get("filament_id"),
+                        "filament_id": fid,
                         "type": f["type"],
                         "color": f["color"],
                         "grams": f["used_g"],
@@ -213,8 +217,7 @@ def archive_job(
                     }
                     tray_val: int | None = None
                     if isinstance(mapping, list):
-                        fid = f.get("filament_id")
-                        if fid is not None and 0 <= fid - 1 < len(mapping):
+                        if 0 <= fid - 1 < len(mapping):
                             tray_val = mapping[fid - 1]
                         elif i < len(mapping):
                             tray_val = mapping[i]

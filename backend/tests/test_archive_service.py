@@ -209,6 +209,21 @@ def test_archive_tray_from_filament_id(fake_adapter, two_filament_3mf_bytes, see
     assert trays == [3, 0]
 
 
+def test_archive_legacy_meta_without_filament_id_maps_tray(
+    fake_adapter, legacy_meta_3mf_bytes, seed
+):
+    """Item 3: a plate whose single filament has no `id` attribute at all
+    (pre-P5 meta) must still fall back to its 1-based plate position (1)
+    so `est_filament`/the tray mapping aren't silently dropped."""
+    job_id = seed.job(subtask="X_plate_1")
+    seed.s.get(PrintJob, job_id).ams_mapping = [3]
+    seed.s.commit()
+    fake_adapter.files["/cache/X_plate_1.3mf"] = legacy_meta_3mf_bytes
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.est_filament[0]["filament_id"] == 1
+    assert arc.est_filament[0]["slot"] == 0 and arc.est_filament[0]["tray"] == 3
+
+
 def test_archive_writes_usage_per_tray(fake_adapter, sliced_3mf_bytes, seed):
     job_id = seed.job(subtask="X_plate_1")
     printer_id = seed.printer_id

@@ -169,6 +169,26 @@ async def test_plan_override_regrades(
         _clear_state(redis_url, p.id)
 
 
+async def test_plan_warns_on_type_mismatch(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, seed_file, redis_url: str
+):
+    """Item 13: an override forcing a filament onto a type-mismatched tray
+    must also surface as a warning (not just an unmatched "none")."""
+    f, _model = await _sliced_file(db_session, seed_file)
+    p = await _printer(db_session)
+    _seed_state(redis_url, p.id, {"gcode_state": "IDLE", "trays": TRAYS})
+    try:
+        r = await authenticated_client.post(
+            "/api/print/plan",
+            json={"file_id": f.id, "plate": 1, "printer_id": p.id, "overrides": {"1": 1}},
+        )
+        assert r.status_code == 200, r.text
+        warnings = r.json()["warnings"]
+        assert any("wrong material type" in w for w in warnings)
+    finally:
+        _clear_state(redis_url, p.id)
+
+
 async def test_plan_warns_busy_and_low_spool(
     authenticated_client: httpx.AsyncClient, db_session: AsyncSession, seed_file, redis_url: str
 ):
@@ -197,6 +217,128 @@ async def test_plan_warns_busy_and_low_spool(
         warnings = r.json()["warnings"]
         assert "printer busy" in warnings
         assert any("low" in w for w in warnings)
+    finally:
+        _clear_state(redis_url, p.id)
+
+
+async def test_plan_legacy_meta_without_filament_id(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, seed_file, redis_url: str
+):
+    """Item 3: meta parsed before P5 (no `filament_id` key at all) must
+    still map onto trays, falling back to the filament's 1-based plate
+    position."""
+    content = corpus.sliced_gcode_3mf()
+    model = Model(slug="legacym", name="Legacy M")
+    db_session.add(model)
+    await db_session.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001_init")
+    db_session.add(rev)
+    await db_session.commit()
+    await db_session.refresh(rev)
+    f = await seed_file(
+        model,
+        rev,
+        "legacy.gcode.3mf",
+        content,
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+    legacy_plates = [
+        {
+            "index": 1,
+            "prediction_s": 3600,
+            "weight_g": 12.5,
+            "filaments": [{"type": "PLA", "color": "#FF0000", "used_g": 12.5}],
+        }
+    ]
+    db_session.add(
+        BlobMeta(
+            blob_hash=f.blob_hash,
+            printer_model="Bambu Lab A1 mini",
+            plate_count=1,
+            raw={"plates": legacy_plates},
+        )
+    )
+    await db_session.commit()
+    p = await _printer(db_session)
+    _seed_state(redis_url, p.id, {"gcode_state": "IDLE", "trays": TRAYS})
+    try:
+        r = await authenticated_client.post(
+            "/api/print/plan", json={"file_id": f.id, "plate": 1, "printer_id": p.id}
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["filaments"][0]["filament_id"] == 1
+        assert body["filaments"][0]["tray"] == 0
+        assert body["filaments"][0]["status"] == "ok"
+    finally:
+        _clear_state(redis_url, p.id)
+
+
+async def test_plan_prices_unassigned_tray_at_global_rate(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, seed_file, redis_url: str
+):
+    """Item 6: a mixed plate -- one filament lands on a priced spool, the
+    other has no matching tray at all -- must still price the unmatched
+    filament's grams at the global rate instead of dropping it from the
+    cost entirely."""
+    content = corpus.sliced_gcode_3mf()
+    model = Model(slug="mixedm", name="Mixed M")
+    db_session.add(model)
+    await db_session.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001_init")
+    db_session.add(rev)
+    await db_session.commit()
+    await db_session.refresh(rev)
+    f = await seed_file(
+        model,
+        rev,
+        "mixed.gcode.3mf",
+        content,
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+    mixed_plates = [
+        {
+            "index": 1,
+            "prediction_s": 3600,
+            "weight_g": 15.0,
+            "filaments": [
+                {"filament_id": 1, "type": "PLA", "color": "#FF0000", "used_g": 10.0},
+                {"filament_id": 2, "type": "ABS", "color": "#00FF00", "used_g": 5.0},
+            ],
+        }
+    ]
+    db_session.add(
+        BlobMeta(
+            blob_hash=f.blob_hash,
+            printer_model="Bambu Lab A1 mini",
+            plate_count=1,
+            raw={"plates": mixed_plates},
+        )
+    )
+    await db_session.commit()
+    p = await _printer(db_session)
+    spool = (
+        await authenticated_client.post(
+            "/api/spools",
+            json={"material_type": "PLA", "color_hex": "#FF0000", "cost_per_kg": 40.0},
+        )
+    ).json()
+    await authenticated_client.put(
+        f"/api/printers/{p.id}/slots/0/0", json={"spool_id": spool["id"]}
+    )
+    _seed_state(redis_url, p.id, {"gcode_state": "IDLE", "trays": TRAYS})
+    try:
+        r = await authenticated_client.post(
+            "/api/print/plan", json={"file_id": f.id, "plate": 1, "printer_id": p.id}
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        unmatched = next(fl for fl in body["filaments"] if fl["type"] == "ABS")
+        assert unmatched["tray"] is None and unmatched["status"] == "none"
+        # 10g @ 40/kg (the spool's own rate) + 5g @ 20/kg (global default) = 0.5
+        assert body["est_cost"] == pytest.approx(0.5)
     finally:
         _clear_state(redis_url, p.id)
 

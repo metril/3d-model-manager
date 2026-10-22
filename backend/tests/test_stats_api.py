@@ -384,6 +384,40 @@ async def test_filament_stats_per_material_and_spool(
     assert spool_b_series["total_cost"] == pytest.approx(80.0 / 1000 * 20.0)
 
 
+async def test_filament_stats_merges_same_material_points_by_bucket(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    """Item 4: two spools of the SAME material in the SAME bucket must
+    merge into one `by_material` point, not two duplicate-`t` points."""
+    spool_a = Spool(material_type="PLA")
+    spool_b = Spool(material_type="PLA")
+    db_session.add_all([spool_a, spool_b])
+    await db_session.flush()
+
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            SpoolUsage(
+                spool_id=spool_a.id, grams=100.0, source=SpoolUsageSource.MANUAL, created_at=now
+            ),
+            SpoolUsage(
+                spool_id=spool_b.id, grams=50.0, source=SpoolUsageSource.MANUAL, created_at=now
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await authenticated_client.get("/api/stats/filament?days=90&bucket=week")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    by_material = {s["name"]: s for s in body["by_material"]}
+    pla = by_material["PLA"]
+    assert len(pla["points"]) == 1
+    assert pla["points"][0]["grams"] == pytest.approx(150.0)
+    assert pla["total_g"] == pytest.approx(150.0)
+
+
 async def test_filament_stats_bucket_validation(
     authenticated_client: httpx.AsyncClient,
 ) -> None:

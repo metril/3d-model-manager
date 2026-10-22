@@ -130,16 +130,11 @@ class PrinterWorker:
         if sig == self._tray_sig:
             return
         self._tray_sig = sig
-        # spool_inventory.auto_assign_from_trays's "tray" key is the GLOBAL
-        # tray id (it `split_tray()`s it itself) -- our adapter's own "tray"
-        # field means something different (the per-unit tray number); remap
-        # from "slot" (the global id) here rather than touching the service.
-        rfid_trays = [
-            {"tray": t.get("slot"), "tray_uuid": t.get("tray_uuid")} for t in public.trays
-        ]
+        # spool_inventory.auto_assign_from_trays takes the adapter's tray
+        # dicts as-is -- its "slot" key is already the GLOBAL tray id.
         try:
             with base.sync_session() as session:
-                spool_inventory.auto_assign_from_trays(session, self.printer_id, rfid_trays)
+                spool_inventory.auto_assign_from_trays(session, self.printer_id, public.trays)
         except Exception:
             log.exception("printerd: RFID auto-assign failed for printer %s", self.printer_id)
 

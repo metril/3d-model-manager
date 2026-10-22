@@ -66,6 +66,22 @@ def two_filament_3mf_bytes(sliced_3mf_bytes: bytes) -> bytes:
 
 
 @pytest.fixture
+def legacy_meta_3mf_bytes(sliced_3mf_bytes: bytes) -> bytes:
+    """``sliced_3mf_bytes`` with its single filament's ``id`` attribute
+    stripped -- simulates meta parsed pre-P5 (``filament_id`` didn't exist
+    yet, so ``parse_gcode_3mf`` reads it back as ``None``)."""
+    with zipfile.ZipFile(BytesIO(sliced_3mf_bytes)) as zin:
+        items = {name: zin.read(name) for name in zin.namelist()}
+    text = items["Metadata/slice_info.config"].decode()
+    items["Metadata/slice_info.config"] = text.replace('<filament id="1" ', "<filament ").encode()
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, content in items.items():
+            zout.writestr(name, content)
+    return out.getvalue()
+
+
+@pytest.fixture
 def fifty_gram_3mf_bytes(sliced_3mf_bytes: bytes) -> bytes:
     """``sliced_3mf_bytes`` with its single filament's ``used_g`` swapped to
     exactly 50g -- a round number for the per-spool pricing tests."""

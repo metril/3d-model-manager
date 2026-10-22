@@ -111,13 +111,15 @@ async def build_plan(
 
     needs = [
         FilamentNeed(
-            filament_id=f["filament_id"],
+            # Pre-P5 meta parsed before `filament_id` existed carries none --
+            # fall back to the filament's 1-based position on the plate (the
+            # same convention `ams_mapping`/the archive's tray mapping use).
+            filament_id=f["filament_id"] if f.get("filament_id") is not None else i + 1,
             type=f.get("type"),
             color=f.get("color"),
             grams=f.get("used_g"),
         )
-        for f in plate["filaments"]
-        if f.get("filament_id") is not None
+        for i, f in enumerate(plate["filaments"])
     ]
 
     tray_infos: list[TrayInfo] = []
@@ -142,9 +144,11 @@ async def build_plan(
     filaments: list[PlanFilament] = []
     usages: list[tuple[object | None, float]] = []
     warnings: list[str] = []
-    unmatched = 0
+    needs_slot = 0
+    type_mismatch = 0
     by_filament_id = {
-        f["filament_id"]: f for f in plate["filaments"] if f.get("filament_id") is not None
+        (f["filament_id"] if f.get("filament_id") is not None else i + 1): f
+        for i, f in enumerate(plate["filaments"])
     }
     for m in matches:
         src = by_filament_id.get(m.filament_id, {})
@@ -154,11 +158,20 @@ async def build_plan(
             else None
         )
         grams = src.get("used_g")
+        # Both an unmatched filament ("none" -- no tray at all) and a type
+        # mismatch ("type" -- forced onto the wrong material, e.g. via an
+        # override) are send-blocking (`hasRed` in the dialog); both must
+        # surface as a warning, not just "none".
         if m.status == "none":
-            unmatched += 1
-        if spool is not None and grams is not None:
+            needs_slot += 1
+        elif m.status == "type":
+            type_mismatch += 1
+        if grams is not None:
+            # Price EVERY charged tray, not just ones with a registered
+            # spool -- an unassigned tray with grams still gets priced at
+            # the global rate (`filament_cost`'s `(None, grams)` fallback).
             usages.append((spool, grams))
-            if sinv.remaining_g(spool) < grams:
+            if spool is not None and sinv.remaining_g(spool) < grams:
                 warnings.append(
                     f"spool {_spool_label(spool)} low: {sinv.remaining_g(spool):.0f} g left"
                 )
@@ -171,19 +184,13 @@ async def build_plan(
                 tray=m.tray,
                 status=m.status,
                 delta_e=m.delta_e,
-                spool=SpoolBriefOut(
-                    id=spool.id,
-                    material_type=spool.material_type,
-                    brand=spool.brand,
-                    color_hex=spool.color_hex,
-                    color_name=spool.color_name,
-                )
-                if spool is not None
-                else None,
+                spool=SpoolBriefOut.from_model(spool) if spool is not None else None,
             )
         )
-    if unmatched:
-        warnings.append(f"{unmatched} filament(s) need a slot")
+    if needs_slot:
+        warnings.append(f"{needs_slot} filament(s) need a slot")
+    if type_mismatch:
+        warnings.append(f"{type_mismatch} filament(s) assigned to the wrong material type")
 
     if printer_id is not None:
         state = states.get(printer_id)

@@ -28,16 +28,18 @@ def global_tray(unit: int, slot: int) -> int:
 
 def split_tray(g: int) -> tuple[int, int]:
     if g == EXTERNAL_SLOT:
-        return (EXTERNAL_UNIT, 0)
+        return (EXTERNAL_UNIT, EXTERNAL_SLOT)
     return divmod(g, 4)
 
 
 def remaining_g(s: Spool) -> float:
-    return max(s.label_weight_g - s.weight_used_g, 0.0)
+    """Unclamped (can go negative on an over-drawn spool) -- callers that
+    display this to a person clamp at 0 themselves."""
+    return s.label_weight_g - s.weight_used_g
 
 
 def is_low_stock(s: Spool) -> bool:
-    return remaining_g(s) <= s.low_stock_g
+    return remaining_g(s) < s.low_stock_g
 
 
 def rate_per_kg(s: Spool | None, global_per_kg: float) -> float:
@@ -91,24 +93,45 @@ def spool_for_tray(session: Session, printer_id: int, tray: int | None) -> Spool
 
 def auto_assign_from_trays(session: Session, printer_id: int, trays: list[dict]) -> bool:
     """RFID auto-assign: a tray reporting a ``tray_uuid`` is matched to the
-    spool registered with that UUID (never creates one); an empty tray
-    (no UUID) clears its slot. Returns True if anything changed."""
+    spool registered with that UUID (never creates one). ``trays[*]["slot"]``
+    is the GLOBAL tray id (as the printer adapter reports it -- callers pass
+    the raw tray dicts through, no remap).
+
+    A slot is cleared only when the tray is genuinely EMPTY (no
+    ``tray_type``/``material`` and no ``tray_uuid``) or when the spool
+    currently assigned to it carries a ``tray_uuid`` that no longer matches
+    this report (the RFID spool was swapped or removed) -- a LOADED
+    non-RFID tray (``tray_type``/``material`` set, no UUID) never clears a
+    manual assignment, since printerd reports every tray on every poll and
+    a naive clear would wipe manual spools on every restart. Returns True
+    if anything changed."""
     changed = False
     for t in trays:
-        g = t.get("tray")
+        g = t.get("slot")
         if g is None:
             continue
         unit, slot = split_tray(g)
         uuid = t.get("tray_uuid")
         current = _slot_row(session, printer_id, unit, slot)
+        current_spool = session.get(Spool, current.spool_id) if current is not None else None
+        mismatched = (
+            current_spool is not None
+            and current_spool.tray_uuid is not None
+            and current_spool.tray_uuid != uuid
+        )
         if not uuid:
-            if current is not None:
+            is_empty = not t.get("tray_type") and not t.get("material")
+            if current is not None and (is_empty or mismatched):
                 session.delete(current)
                 session.flush()
                 changed = True
             continue
         spool = session.scalars(select(Spool).where(Spool.tray_uuid == uuid)).first()
         if spool is None:
+            if current is not None and mismatched:
+                session.delete(current)
+                session.flush()
+                changed = True
             continue
         if current is not None and current.spool_id == spool.id:
             continue
