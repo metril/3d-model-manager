@@ -9,6 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 
 import { api } from "@/api/client";
 import type {
+  CameraUrlsOut,
   DetectSerialIn,
   DetectSerialOut,
   PrinterCreate,
@@ -165,5 +166,22 @@ export function usePrintersOverview(options?: { enabled?: boolean }) {
     queryFn: () => api.get<PrintersOverviewOut>("/printers/overview"),
     refetchInterval: (q) => overviewRefetchInterval(q.state.data),
     enabled: options?.enabled ?? true,
+  });
+}
+
+/** Mints a scoped camera token (P4 Task 8): `POST /printers/{id}/camera/
+ * token` returns short-lived stream/snapshot URLs. Cached under its own
+ * `["camera-url", id]` key -- deliberately OUTSIDE the `["printers"]`
+ * prefix so the overview/status SSE-driven invalidations never re-mint a
+ * token mid-stream. `enabled` lets `CameraTile` skip the mint entirely
+ * while the printer is offline. No retry: a failed mint should surface as
+ * the offline state, not hammer the endpoint. */
+export function useCameraUrls(printerId: number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["camera-url", printerId] as const,
+    queryFn: () => api.post<CameraUrlsOut>(`/printers/${printerId}/camera/token`),
+    enabled: options?.enabled ?? true,
+    staleTime: Infinity,
+    retry: false,
   });
 }

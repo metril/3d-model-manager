@@ -665,6 +665,16 @@ export interface PrinterStatusOut {
   trays: AmsTray[];
 }
 
+// `POST /printers/{id}/camera/token` (P4 camera plan, Task 4/8): relative
+// stream/snapshot URLs carrying a scoped camera token in the query string.
+// Cached client-side under its own `["camera-url", id]` key, separate from
+// the `["printers"]` prefix the overview/status SSE invalidations touch.
+export interface CameraUrlsOut {
+  stream_url: string;
+  snapshot_url: string;
+  expires_at: string;
+}
+
 export type PrintJobState =
   | "queued"
   | "uploading"
