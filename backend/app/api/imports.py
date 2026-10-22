@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthContext, require_perm, require_session
 from app.db import get_db
 from app.importers.base import SEARCH_PAGE_SIZE, RemoteList, SearchResult
 from app.importers.registry import (
@@ -159,16 +160,24 @@ async def list_remote_list_items(
     return [SearchResultOut.from_dataclass(item) for item in items]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=ImportOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def create_import(
-    payload: ImportCreate, response: Response, db: AsyncSession = Depends(get_db)
+    payload: ImportCreate,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> ImportOut:
     # Already in the library? `start_import` hands back the EXISTING import
     # rather than minting a duplicate Model (M8 H) -- answer 200, because
     # nothing was created. This is what makes a repeated collection sync (and a
     # double-click on "Add to library") idempotent across imports, not just
     # across Celery redeliveries.
-    imp, created = await start_import(db, payload.url)
+    imp, created = await start_import(db, payload.url, created_by_user_id=ctx.user.id)
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)
@@ -192,7 +201,11 @@ async def get_import(import_id: int, db: AsyncSession = Depends(get_db)) -> Impo
     return ImportOut.from_model(imp)
 
 
-@router.post("/{import_id}/retry", response_model=ImportOut)
+@router.post(
+    "/{import_id}/retry",
+    response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def retry_import(import_id: int, db: AsyncSession = Depends(get_db)) -> ImportOut:
     """Re-enqueue a ``failed`` import (import-health branch T2) -- the
     recovery path once whatever failed it (e.g. a dead Bambu session, T1) has

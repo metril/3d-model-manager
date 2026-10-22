@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileOut, Features, PrinterOut } from "@/api/types";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
 
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+}));
+
+
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as SettingsPage.test.tsx/ScanReport.test.tsx), so the fakes
 // have to be created through `vi.hoisted`.

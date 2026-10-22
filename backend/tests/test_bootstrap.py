@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import User
+from app.models.enums import UserRole
 from app.security import verify_password
 from app.services.bootstrap import ensure_admin_user
 
@@ -129,3 +130,28 @@ async def test_ensure_admin_user_does_not_relog_on_restart(
         await ensure_admin_user(db_session)
 
     assert caplog.records == []
+
+
+async def test_ensure_admin_user_creates_admin_role(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "s3cret-startup-pw")
+    get_settings.cache_clear()
+    await ensure_admin_user(db_session)
+    assert (await db_session.scalar(select(User))).role == UserRole.ADMIN
+
+
+async def test_ensure_admin_user_repromotes_existing_admin_username(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    get_settings.cache_clear()
+    db_session.add(User(username="admin", password_hash="x", role=UserRole.VIEWER, is_active=False))
+    await db_session.commit()
+    await ensure_admin_user(db_session)
+    await db_session.commit()
+    u = await db_session.scalar(select(User).where(User.username == "admin"))
+    await db_session.refresh(u)
+    assert (u.role, u.is_active, u.password_hash) == (UserRole.ADMIN, True, "x")
+    assert await db_session.scalar(select(func.count()).select_from(User)) == 1

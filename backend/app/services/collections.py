@@ -100,6 +100,7 @@ async def follow(
     kind: str,
     title: str,
     mode: CollectionSyncMode = CollectionSyncMode.REVIEW,
+    created_by_user_id: int | None = None,
 ) -> FollowedCollection:
     """Follow a remote list. Following the same ``(site, list_id)`` twice is a
     409 rather than a silent duplicate -- the UI should offer "unfollow"."""
@@ -118,7 +119,14 @@ async def follow(
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"already following {site.value} list {list_id!r}"
         )
-    row = FollowedCollection(site=site, list_id=list_id, kind=kind, title=title, mode=mode)
+    row = FollowedCollection(
+        site=site,
+        list_id=list_id,
+        kind=kind,
+        title=title,
+        mode=mode,
+        created_by_user_id=created_by_user_id,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)

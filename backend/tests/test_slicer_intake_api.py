@@ -33,8 +33,10 @@ pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
 
 @pytest.fixture
-async def slicer_token(db_session) -> str:
-    token, _ = await api_tokens.mint(db_session, label="Bambu post-processing")
+async def slicer_token(db_session, admin_user) -> str:
+    token, _ = await api_tokens.mint(
+        db_session, user_id=admin_user.id, label="Bambu post-processing"
+    )
     return token
 
 

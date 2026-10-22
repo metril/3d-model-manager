@@ -12,6 +12,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelHeader } from "@/components/model-detail/ModelHeader";
 import type { ModelDetail } from "@/api/types";
 
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+}));
+
+
 const { getMock, patchMock, deleteMock, postMock } = vi.hoisted(() => ({
   getMock: vi.fn().mockResolvedValue([]),
   patchMock: vi.fn().mockResolvedValue({}),

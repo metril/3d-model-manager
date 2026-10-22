@@ -573,7 +573,8 @@ async def test_download_rejects_tampered_token(
     file = await seed_file(model, revision, "tampered.stl", b"bytes")
 
     token = signed_urls.sign_file_download(get_settings(), file.id)
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    mid = len(token) - len(token.rpartition(".")[2]) // 2  # a middle sig char, not padding bits
+    tampered = token[:mid] + ("A" if token[mid] != "A" else "B") + token[mid + 1 :]
 
     async with _anon_client() as anon:
         response = await anon.get(f"/api/files/{file.id}/download", params={"token": tampered})

@@ -249,6 +249,8 @@ export interface RevisionDetail {
 
 export interface ModelDetail {
   id: number;
+  created_by_user_id?: number | null;
+  created_by_username?: string | null;
   slug: string;
   name: string;
   description: string | null;
@@ -1100,3 +1102,109 @@ export interface StorageTreeOut {
   files: StorageTreeFile[];
   model: ModelSummary | null;
 }
+
+// --- P1 admin (users, groups, OIDC providers) ---
+
+export type UserRole = "admin" | "member" | "viewer";
+
+export interface GroupRef {
+  id: number;
+  name: string;
+}
+
+export interface UserAdminOut {
+  id: number;
+  username: string;
+  display_name: string | null;
+  email: string | null;
+  role: UserRole;
+  is_active: boolean;
+  has_password: boolean;
+  oidc_linked: boolean;
+  last_login_at: string | null;
+  groups: GroupRef[];
+}
+
+export interface UserCreateIn {
+  username: string;
+  password?: string | null;
+  display_name?: string | null;
+  email?: string | null;
+  role?: UserRole;
+}
+
+export interface UserPatchIn {
+  display_name?: string | null;
+  email?: string | null;
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export interface PrinterAccessIO {
+  printer_id: number;
+  can_print: boolean;
+  can_control: boolean;
+  requires_review: boolean;
+}
+
+export interface GroupMemberOut {
+  user_id: number;
+  username: string;
+  source: string;
+}
+
+export interface GroupOut {
+  id: number;
+  name: string;
+  description: string | null;
+  permissions: string[];
+  members: GroupMemberOut[];
+  printer_access: PrinterAccessIO[];
+}
+
+export interface GroupCreateIn {
+  name: string;
+  description?: string | null;
+  permissions?: string[];
+}
+
+export interface GroupPatchIn {
+  name?: string;
+  description?: string | null;
+  permissions?: string[];
+}
+
+export interface OidcProviderOut {
+  id: number;
+  name: string;
+  slug: string;
+  discovery_url: string;
+  client_id: string;
+  has_client_secret: boolean;
+  scopes: string;
+  groups_claim: string;
+  group_mapping: Record<string, number>;
+  admin_group: string | null;
+  auto_create_users: boolean;
+  link_by_email: boolean;
+  enabled: boolean;
+  /** Server-computed; display as-is, never rebuild from window.location. */
+  callback_url: string;
+}
+
+export interface OidcProviderCreateIn {
+  name: string;
+  slug: string;
+  discovery_url: string;
+  client_id: string;
+  client_secret: string;
+  scopes?: string;
+  groups_claim?: string;
+  group_mapping?: Record<string, number>;
+  admin_group?: string | null;
+  auto_create_users?: boolean;
+  link_by_email?: boolean;
+  enabled?: boolean;
+}
+
+export type OidcProviderPatchIn = Partial<OidcProviderCreateIn>;

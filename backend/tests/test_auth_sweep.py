@@ -34,7 +34,14 @@ pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
 # The SPEC's two explicit carve-outs (see app/api/__init__.py) -- everything
 # else must be behind `require_session`.
-PUBLIC_ROUTES = {("get", "/api/health"), ("post", "/api/auth/login")}
+PUBLIC_ROUTES = {
+    ("get", "/api/health"),
+    ("post", "/api/auth/login"),
+    # OIDC login flow: pre-session by definition (browser redirects to/from the IdP).
+    ("get", "/api/auth/oidc/providers"),
+    ("get", "/api/auth/oidc/{slug}/start"),
+    ("get", "/api/auth/oidc/{slug}/callback"),
+}
 
 # Dummy values for every path parameter used anywhere in the API, so a
 # syntactically concrete URL can be built for each route. The values
@@ -43,6 +50,9 @@ PUBLIC_ROUTES = {("get", "/api/health"), ("post", "/api/auth/login")}
 _PATH_PARAM_VALUES = {
     "slug": "placeholder-slug",
     "model_id": "1",
+    "user_id": "1",
+    "provider_id": "1",
+    "group_id": "1",
     "revision_id": "1",
     "revision_a_id": "1",
     "revision_b_id": "2",

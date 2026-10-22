@@ -18,11 +18,14 @@ from typing import TYPE_CHECKING
 import anyio
 import pydantic
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthContext, require_perm_on_write, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.printables import fetch_identity
+from app.models import User
 from app.schemas.imports import ImportTokensIn, ImportTokensOut
 from app.schemas.jobs import JobOut
 from app.schemas.settings import (
@@ -63,7 +66,13 @@ from app.tasks.relocate import relocate_all_models
 if TYPE_CHECKING:
     from app.models import StorageBackendRow
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(
+    prefix="/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_perm_on_write("settings:write"))],
+)
+# Personal extension tokens: any logged-in user, so no settings:write gate.
+api_tokens_router = APIRouter(prefix="/settings", tags=["settings"])
 
 # Redaction sentinel GET emits for a set secret (app.storage.config.redacted)
 # -- an incoming request carrying this literal value is read back verbatim
@@ -610,22 +619,41 @@ async def delete_printables_auth(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api-tokens", status_code=status.HTTP_201_CREATED, response_model=ApiTokenMintOut)
+@api_tokens_router.post(
+    "/api-tokens", status_code=status.HTTP_201_CREATED, response_model=ApiTokenMintOut
+)
 async def create_api_token(
-    payload: ApiTokenCreateIn, db: AsyncSession = Depends(get_db)
+    payload: ApiTokenCreateIn,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(require_session),
 ) -> ApiTokenMintOut:
-    token, row = await api_tokens.mint(db, label=payload.label)
+    token, row = await api_tokens.mint(db, user_id=auth.user.id, label=payload.label)
     return ApiTokenMintOut(id=row.id, label=row.label, token=token, created_at=row.created_at)
 
 
-@router.get("/api-tokens", response_model=list[ApiTokenOut])
-async def list_api_tokens(db: AsyncSession = Depends(get_db)) -> list[ApiTokenOut]:
-    rows = await api_tokens.list_tokens(db)
-    return [ApiTokenOut.from_model(row) for row in rows]
+@api_tokens_router.get("/api-tokens", response_model=list[ApiTokenOut])
+async def list_api_tokens(
+    db: AsyncSession = Depends(get_db), auth: AuthContext = Depends(require_session)
+) -> list[ApiTokenOut]:
+    rows = await api_tokens.list_tokens(db, user_id=None if auth.is_admin else auth.user.id)
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.username).where(User.id.in_({r.user_id for r in rows}))
+            )
+        )
+        .tuples()
+        .all()
+    )
+    return [ApiTokenOut.from_model(row, names.get(row.user_id, "")) for row in rows]
 
 
-@router.delete("/api-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_api_token(token_id: int, db: AsyncSession = Depends(get_db)) -> None:
-    deleted = await api_tokens.revoke(db, token_id)
+@api_tokens_router.delete("/api-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_api_token(
+    token_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(require_session),
+) -> None:
+    deleted = await api_tokens.revoke(db, token_id, user_id=None if auth.is_admin else auth.user.id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"api token {token_id} not found")

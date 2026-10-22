@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import get_settings
 from app.db import get_db
 from app.models import ScanRun
@@ -19,7 +20,12 @@ router = APIRouter(tags=["scan"])
 _IN_FLIGHT_STATES = ("queued", "running")
 
 
-@router.post("/scan", status_code=status.HTTP_201_CREATED, response_model=ScanRunOut)
+@router.post(
+    "/scan",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ScanRunOut,
+    dependencies=[Depends(require_perm("settings:write"))],
+)
 async def trigger_scan(db: AsyncSession = Depends(get_db)) -> ScanRunOut:
     settings = get_settings()
     in_flight = (

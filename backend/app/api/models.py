@@ -8,13 +8,20 @@ from pathlib import Path
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_storage_backend
+from app.api.deps import (
+    AuthContext,
+    get_storage_backend,
+    require_owner_or_admin,
+    require_perm,
+    require_session,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind
-from app.models.library import Revision
+from app.models.library import Model, Revision
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
     GalleryPage,
@@ -48,15 +55,25 @@ def _read_magic(path: Path) -> bytes:
         return fh.read(len(_PNG_MAGIC))
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=ModelDetail)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ModelDetail,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def create_model(
     payload: ModelCreate,
     db: AsyncSession = Depends(get_db),
     backend: StorageBackend = Depends(get_storage_backend),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> ModelDetail:
     model = await library.create_model(
-        db, backend, name=payload.name, description=payload.description
+        db,
+        backend,
+        name=payload.name,
+        description=payload.description,
+        created_by_user_id=ctx.user.id,
     )
     return await library.build_model_detail(db, model, settings)
 
@@ -95,7 +112,9 @@ async def list_models(
     return GalleryPage(items=items, next_cursor=next_cursor)
 
 
-@router.post("/bulk", response_model=ModelBulkOut)
+@router.post(
+    "/bulk", response_model=ModelBulkOut, dependencies=[Depends(require_perm("library:write"))]
+)
 async def bulk_update_models(
     payload: ModelBulkIn, db: AsyncSession = Depends(get_db)
 ) -> ModelBulkOut:
@@ -113,18 +132,28 @@ async def bulk_update_models(
     return ModelBulkOut(updated=updated)
 
 
-@router.post("/bulk-delete", response_model=ModelBulkDeleteOut)
+@router.post(
+    "/bulk-delete",
+    response_model=ModelBulkDeleteOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def bulk_delete_models(
     payload: ModelBulkDeleteIn,
     db: AsyncSession = Depends(get_db),
     backend: StorageBackend = Depends(get_storage_backend),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> ModelBulkDeleteOut:
     """Declared BEFORE ``/{slug}`` (same reasoning as ``/bulk`` above) --
     FastAPI matches routes in declaration order, so a literal ``/bulk-delete``
     segment must come before the ``{slug}`` path-param routes or it would be
     parsed as a slug.
     """
+    owners = (
+        await db.execute(select(Model.created_by_user_id).where(Model.id.in_(set(payload.ids))))
+    ).scalars()
+    for owner in owners:  # whole request 403s if any model isn't deletable
+        require_owner_or_admin(ctx, owner)
     deleted = await library.bulk_hard_delete_models(db, backend, settings, ids=payload.ids)
     return ModelBulkDeleteOut(deleted=deleted)
 
@@ -137,12 +166,17 @@ async def get_model(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.post("/{slug}/cover", response_model=ModelDetail)
+@router.post(
+    "/{slug}/cover",
+    response_model=ModelDetail,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def set_model_cover(
     slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> ModelDetail:
     """Raw-body PNG upload (R13a): reuses the same tee-to-spool ingest path
     as ``PUT /api/uploads`` (``app.services.spool.stream_to_spool`` ->
@@ -192,6 +226,7 @@ async def set_model_cover(
             format_=BlobFormat.PNG,
             replace=True,
             after_blob_flush=_set_cover_hash,
+            created_by_user_id=ctx.user.id,
         )
 
         job = await jobs_service.create_job(
@@ -206,7 +241,9 @@ async def set_model_cover(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.patch("/{slug}", response_model=ModelDetail)
+@router.patch(
+    "/{slug}", response_model=ModelDetail, dependencies=[Depends(require_perm("library:write"))]
+)
 async def patch_model(
     slug: str,
     payload: ModelPatch,
@@ -219,12 +256,17 @@ async def patch_model(
     return await library.build_model_detail(db, model, settings)
 
 
-@router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def delete_model(
     slug: str,
     db: AsyncSession = Depends(get_db),
     backend: StorageBackend = Depends(get_storage_backend),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> None:
     """A REAL delete (feat/import-fidelity T3) -- physically destroys every
     revision's files (its primary backend AND every replica) plus the
@@ -234,10 +276,15 @@ async def delete_model(
     this endpoint no longer offers a reversible option.
     """
     model = await library.get_model_by_slug(db, slug)
+    require_owner_or_admin(ctx, model.created_by_user_id)
     await library.hard_delete_model(db, backend, settings, model)
 
 
-@router.post("/{slug}/redownload", response_model=JobOut)
+@router.post(
+    "/{slug}/redownload",
+    response_model=JobOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def redownload_model(
     slug: str,
     payload: ModelRedownloadIn,
@@ -305,7 +352,9 @@ async def download_model_zip(
     )
 
 
-@router.post("/{slug}/relocate", response_model=JobOut)
+@router.post(
+    "/{slug}/relocate", response_model=JobOut, dependencies=[Depends(require_perm("library:write"))]
+)
 async def relocate_model(
     slug: str,
     payload: ModelRelocateIn,

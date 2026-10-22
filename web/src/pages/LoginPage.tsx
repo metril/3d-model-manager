@@ -1,13 +1,23 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 
-import { useLogin } from "@/api/auth";
+import { useLogin, useOidcProviders } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
+const ERROR_COPY: Record<string, string> = {
+  not_provisioned: "Your account isn't set up here yet. Ask an admin to add you.",
+  inactive: "This account has been deactivated.",
+  invalid_state: "That sign-in link expired. Please try again.",
+  oidc_failed: "Single sign-on failed. Try again or use your password.",
+};
+
 export function LoginPage() {
+  const { error: errorCode } = useSearch({ strict: false }) as { error?: string };
+  const providers = useOidcProviders().data ?? [];
+  const bannerMessage = errorCode ? (ERROR_COPY[errorCode] ?? ERROR_COPY.oidc_failed) : null;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
@@ -31,7 +41,24 @@ export function LoginPage() {
           <CardTitle>3D Model Manager</CardTitle>
           <CardDescription>Sign in to continue</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
+          {bannerMessage ? (
+            <p role="alert" className="text-sm text-destructive">
+              {bannerMessage}
+            </p>
+          ) : null}
+          {providers.map((provider) => (
+            <Button key={provider.slug} asChild variant="outline">
+              <a href={`/api/auth/oidc/${provider.slug}/start`}>Sign in with {provider.name}</a>
+            </Button>
+          ))}
+          {providers.length > 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              or
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          ) : null}
           <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="username" className="text-sm font-medium">

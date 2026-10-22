@@ -19,12 +19,16 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 
+import type { Perm } from "@/lib/permissions";
+
 export interface NavItem {
   to: LinkProps["to"];
   label: string;
   icon: ComponentType<{ className?: string }>;
   /** Gates the item behind `useFeatures().data?.printer_enabled`. */
   featureGated?: boolean;
+  /** Hidden unless the user holds this permission. */
+  perm?: Perm;
 }
 
 export interface NavGroup {
@@ -47,7 +51,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/printer", label: "Printer", icon: Printer, featureGated: true },
       { to: "/jobs", label: "Jobs", icon: ListChecks },
       { to: "/queue", label: "Queue", icon: ListOrdered },
-      { to: "/duplicates", label: "Duplicates", icon: CopyCheck },
+      { to: "/duplicates", label: "Duplicates", icon: CopyCheck, perm: "library:write" },
     ],
   },
 ];
@@ -64,3 +68,13 @@ export const ALL_NAV_ITEMS: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), 
 export const NAV_LABELS: Record<string, string> = Object.fromEntries(
   ALL_NAV_ITEMS.map((item) => [item.to as string, item.label]),
 );
+
+/** Drops items the printer feature flag or the user's permissions rule out. */
+export function filterNavItems(
+  items: NavItem[],
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean },
+): NavItem[] {
+  return items.filter(
+    (item) => (!item.featureGated || opts.printerEnabled) && (!item.perm || opts.can(item.perm)),
+  );
+}

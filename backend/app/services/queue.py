@@ -70,7 +70,7 @@ async def list_queue(db: AsyncSession, settings: Settings) -> list[QueueEntryOut
 
 
 async def enqueue_model(
-    db: AsyncSession, settings: Settings, model_id: int
+    db: AsyncSession, settings: Settings, model_id: int, created_by_user_id: int | None = None
 ) -> tuple[QueueEntryOut, bool]:
     """Append ``model_id`` at the end of the queue. Idempotent: re-adding an
     already-queued model returns its EXISTING entry (``created=False``)
@@ -84,7 +84,9 @@ async def enqueue_model(
         return out[0], False
 
     max_position = await db.scalar(select(func.max(PrintQueueEntry.position)))
-    entry = PrintQueueEntry(model_id=model_id, position=(max_position or 0) + 1)
+    entry = PrintQueueEntry(
+        model_id=model_id, position=(max_position or 0) + 1, created_by_user_id=created_by_user_id
+    )
     db.add(entry)
     await db.commit()
     await db.refresh(entry)

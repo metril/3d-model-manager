@@ -30,7 +30,9 @@ def test_tampered_signature_rejected() -> None:
     settings = get_settings()
     token = signed_urls.sign_file_download(settings, 42)
     payload_b64, _, sig_b64 = token.partition(".")
-    tampered = f"{payload_b64}.{sig_b64[:-1]}{'A' if sig_b64[-1] != 'A' else 'B'}"
+    mid = len(sig_b64) // 2  # last char only carries padding bits; tamper a middle one
+    flipped = "A" if sig_b64[mid] != "A" else "B"
+    tampered = f"{payload_b64}.{sig_b64[:mid]}{flipped}{sig_b64[mid + 1 :]}"
 
     assert signed_urls.verify(settings, tampered) is None
 

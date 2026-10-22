@@ -604,3 +604,22 @@ async def test_approve_stamps_the_resolved_collection_not_the_stamp(
     assert len(items) == 1
     assert items[0]["source_collection_id"] == specific.id
     assert items[0]["source_collection_title"] == "Specific"
+
+
+@pytest.mark.asyncio
+async def test_member_cannot_patch_or_delete_others_collection(
+    authenticated_client, member_client, library_root, data_dir
+):
+    body = await _follow(authenticated_client, "review")
+    patched = await member_client.patch(f"/api/collections/{body['id']}", json={"mode": "auto"})
+    assert patched.status_code == 403
+    assert (await member_client.delete(f"/api/collections/{body['id']}")).status_code == 403
+    assert len((await authenticated_client.get("/api/collections")).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_member_can_patch_and_delete_own_collection(member_client, library_root, data_dir):
+    body = await _follow(member_client, "review")
+    patched = await member_client.patch(f"/api/collections/{body['id']}", json={"mode": "auto"})
+    assert patched.status_code == 200
+    assert (await member_client.delete(f"/api/collections/{body['id']}")).status_code == 204

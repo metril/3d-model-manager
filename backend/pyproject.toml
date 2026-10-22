@@ -41,12 +41,15 @@ dependencies = [
     "cryptography",
     "httpx",
     "zipstream-ng>=1.9.3",
+    "authlib>=1.9.1",
+    "joserfc>=1.7.7",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "respx>=0.23.1",
     "ruff",
     "testcontainers[postgres,redis,minio]",
 ]

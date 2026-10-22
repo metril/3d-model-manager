@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.makerworld import parse_collection_url
@@ -40,7 +41,7 @@ from app.tasks.sync_collections import sync_all
 router = APIRouter(prefix="/collections", tags=["collections"])
 
 
-@router.post("/sync", response_model=JobOut)
+@router.post("/sync", response_model=JobOut, dependencies=[Depends(require_perm("library:write"))])
 async def sync_collections_now(db: AsyncSession = Depends(get_db)) -> JobOut:
     """Run the periodic sync immediately (the beat schedule is opt-in via
     ``COLLECTION_SYNC_INTERVAL``; this button always works). Tracked as a
@@ -67,9 +68,13 @@ async def list_pending_imports(
     "/pending/{pending_id}/approve",
     status_code=status.HTTP_201_CREATED,
     response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
 )
 async def approve_pending_import(
-    pending_id: int, response: Response, db: AsyncSession = Depends(get_db)
+    pending_id: int,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> ImportOut:
     """Import a queued item, then un-queue it. Goes through the same
     dedup-guarded ``start_import`` as ``POST /imports``, so approving something
@@ -86,14 +91,18 @@ async def approve_pending_import(
     groups = await collections_svc.resolve_display_collections(db, [pending])
     group_collection_id, _group_title = groups[pending.id]
     collection = await collections_svc.get_followed(db, group_collection_id)
-    imp, created = await start_import(db, pending.url, collection)
+    imp, created = await start_import(db, pending.url, collection, created_by_user_id=ctx.user.id)
     await collections_svc.delete_pending(db, pending_id)
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)
 
 
-@router.delete("/pending/{pending_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/pending/{pending_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def dismiss_pending_import(pending_id: int, db: AsyncSession = Depends(get_db)) -> None:
     await collections_svc.delete_pending(db, pending_id)
 
@@ -107,9 +116,16 @@ async def list_followed_collections(
     return [FollowedCollectionOut.from_model(row, previews.get(row.id)) for row in rows]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=FollowedCollectionOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def follow_collection(
-    payload: FollowCollectionIn, db: AsyncSession = Depends(get_db)
+    payload: FollowCollectionIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
     row = await collections_svc.follow(
         db,
@@ -118,13 +134,21 @@ async def follow_collection(
         kind=payload.kind,
         title=payload.title,
         mode=payload.mode,
+        created_by_user_id=ctx.user.id,
     )
     return FollowedCollectionOut.from_model(row)
 
 
-@router.post("/from-url", status_code=status.HTTP_201_CREATED, response_model=FollowedCollectionOut)
+@router.post(
+    "/from-url",
+    status_code=status.HTTP_201_CREATED,
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def follow_collection_from_url(
-    payload: FollowFromUrlIn, db: AsyncSession = Depends(get_db)
+    payload: FollowFromUrlIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
     """Add-by-URL escape hatch (M10 Workstream A): follow a MakerWorld
     collection by pasting its URL, for when the SSR route that would
@@ -154,20 +178,40 @@ async def follow_collection_from_url(
         kind="collection",
         title=title,
         mode=payload.mode,
+        created_by_user_id=ctx.user.id,
     )
     return FollowedCollectionOut.from_model(row)
 
 
-@router.patch("/{collection_id}", response_model=FollowedCollectionOut)
+@router.patch(
+    "/{collection_id}",
+    response_model=FollowedCollectionOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def set_collection_mode(
-    collection_id: int, payload: CollectionModeIn, db: AsyncSession = Depends(get_db)
+    collection_id: int,
+    payload: CollectionModeIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
+    existing = await collections_svc.get_followed(db, collection_id)
+    require_owner_or_admin(ctx, existing.created_by_user_id)
     row = await collections_svc.set_mode(db, collection_id, payload.mode)
     return FollowedCollectionOut.from_model(row)
 
 
-@router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unfollow_collection(collection_id: int, db: AsyncSession = Depends(get_db)) -> None:
+@router.delete(
+    "/{collection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def unfollow_collection(
+    collection_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> None:
+    existing = await collections_svc.get_followed(db, collection_id)
+    require_owner_or_admin(ctx, existing.created_by_user_id)
     await collections_svc.unfollow(db, collection_id)
 
 

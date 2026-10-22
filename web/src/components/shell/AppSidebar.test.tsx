@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 
 vi.mock("@/api/auth", () => ({
-  useAuth: () => ({ data: { username: "tester" } }),
+  useAuth: () => ({ data: { username: "tester" }, can: () => true, canPrinter: () => true }),
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 

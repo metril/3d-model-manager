@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.jobs import JobOut
@@ -25,7 +26,9 @@ async def list_jobs(
     return [JobOut.from_model(job) for job in rows]
 
 
-@router.post("/{job_id}/retry", response_model=JobOut)
+@router.post(
+    "/{job_id}/retry", response_model=JobOut, dependencies=[Depends(require_perm("library:write"))]
+)
 async def retry_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

@@ -37,6 +37,7 @@ async def create_print(
     result: PrintResult,
     duration_min: int | None,
     notes: str | None,
+    created_by_user_id: int | None = None,
 ) -> PrintOut:
     """Inserts the print row AND bumps ``Model.print_count`` by one, in the
     SAME transaction (R13b Risk resolution 4: this -- plus ``delete_print``
@@ -53,6 +54,7 @@ async def create_print(
         result=result,
         duration_min=duration_min,
         notes=notes,
+        created_by_user_id=created_by_user_id,
     )
     if printed_at is not None:
         row.printed_at = printed_at

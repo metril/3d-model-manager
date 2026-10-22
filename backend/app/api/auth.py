@@ -57,9 +57,9 @@ async def login(
         await db.execute(select(User).where(User.username == payload.username))
     ).scalar_one_or_none()
 
-    if user is None:
-        # Still pay the cost of a real argon2 verification so this branch
-        # takes roughly as long as the wrong-password branch below (see
+    if user is None or user.password_hash is None or not user.is_active:
+        # Still pay the cost of a real argon2 verification so these branches
+        # take roughly as long as the wrong-password branch below (see
         # app.security.DUMMY_HASH).
         verify_password(payload.password, DUMMY_HASH)
         raise _invalid_credentials()
@@ -67,8 +67,16 @@ async def login(
     if not verify_password(payload.password, user.password_hash):
         raise _invalid_credentials()
 
+    await start_session(db, response, user)
+
+
+async def start_session(db: AsyncSession, response: Response, user: User) -> SessionModel:
+    """Create a session row, stamp ``last_login_at``, set the cookie on the
+    given ``response`` (any Response, e.g. a RedirectResponse) and commit.
+    """
     session = SessionModel(user_id=user.id, expires_at=datetime.now(UTC) + SESSION_MAX_AGE)
     db.add(session)
+    user.last_login_at = datetime.now(UTC)
     await db.commit()
 
     settings = get_settings()
@@ -81,12 +89,52 @@ async def login(
         samesite="lax",
         secure=settings.cookie_secure,
     )
+    return session
 
 
-@protected_router.get("/me")
-async def me(ctx: AuthContext = Depends(require_session)) -> dict[str, str]:
-    """Return the authenticated user's username."""
-    return {"username": ctx.user.username}
+class MeGroup(BaseModel):
+    id: int
+    name: str
+
+
+class PrinterFlags(BaseModel):
+    print: bool
+    control: bool
+
+
+class MeOut(BaseModel):
+    id: int
+    username: str
+    display_name: str | None
+    email: str | None
+    role: str
+    permissions: list[str]
+    groups: list[MeGroup]
+    has_password: bool
+    printer_access: dict[str, PrinterFlags] | None
+
+
+@protected_router.get("/me", response_model=MeOut)
+async def me(ctx: AuthContext = Depends(require_session)) -> MeOut:
+    """The authenticated user with resolved grants. ``printer_access`` is
+    ``None`` for admins (all printers)."""
+    user = ctx.user
+    return MeOut(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        role=user.role.value,
+        permissions=sorted(ctx.perms),
+        groups=[MeGroup(id=g.id, name=g.name) for g in ctx.groups],
+        has_password=user.password_hash is not None,
+        printer_access=None
+        if ctx.is_admin
+        else {
+            str(pid): PrinterFlags(print=a.can_print, control=a.can_control)
+            for pid, a in ctx.printer_acl.items()
+        },
+    )
 
 
 class ChangePasswordRequest(BaseModel):
@@ -113,7 +161,9 @@ async def change_password(
     deliberately kept so the caller isn't logged out by their own password
     change.
     """
-    if not verify_password(payload.current_password, ctx.user.password_hash):
+    if ctx.user.password_hash is None or not verify_password(
+        payload.current_password, ctx.user.password_hash
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Current password is incorrect",

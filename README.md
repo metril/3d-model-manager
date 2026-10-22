@@ -143,6 +143,19 @@ docker run --rm -e PUID=1000 -e PGID=1000 -e ROLE=api tdmm:local id -u
 # -> 1000
 ```
 
+## Users, groups and single sign-on
+
+Accounts have a role (`admin`, `member`, `viewer`) and can be placed in groups that grant extra permissions and per-printer access (Admin pages). Local password login always works; OIDC providers are added under Admin, with the client secret stored encrypted and never returned.
+
+Authentik example:
+
+1. Create an OAuth2/OpenID provider, client type confidential, with redirect URI `https://<host>/api/auth/oidc/authentik/callback` and scopes `openid profile email groups`.
+2. In TDMM add a provider with slug `authentik`, discovery URL `https://auth.example/application/o/<slug>/.well-known/openid-configuration`, the client ID and secret, and `groups_claim = groups`.
+3. Map IdP group names to TDMM groups (`group_mapping`), and optionally set `admin_group` to promote its members to admin on each login. The last active admin is never demoted by a sync.
+4. Accounts are matched by issuer and subject. Enable `link_by_email` to attach an existing account by e-mail (only when the IdP reports `email_verified: true`; require it in Authentik), and `auto_create_users` to create `member` accounts on first login.
+
+Keycloak: use `groups_claim = realm_access.roles`. Set `TDMM_PUBLIC_URL` when running behind a reverse proxy so the callback origin is correct.
+
 ## Upgrading
 
 **Routine upgrade** (published image). Point `IMAGE_TAG` at the new release,

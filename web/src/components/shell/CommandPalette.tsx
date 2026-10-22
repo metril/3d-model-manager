@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Bookmark, Shapes } from "lucide-react";
 
+import { useAuth } from "@/api/auth";
+import { useFeatures } from "@/api/features";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useModelSearchQuery } from "@/api/library";
@@ -14,7 +16,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { ALL_NAV_ITEMS } from "@/components/shell/navItems";
+import { ALL_NAV_ITEMS, filterNavItems } from "@/components/shell/navItems";
 import { useHotkeys } from "@/hooks/useHotkeys";
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -28,6 +30,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  const { can } = useAuth();
+  const printerEnabled = !!useFeatures().data?.printer_enabled;
   const followed = useFollowedCollections();
   const categoriesQuery = useCategories();
 
@@ -79,7 +83,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <CommandList>
         <CommandEmpty>No results.</CommandEmpty>
         <CommandGroup heading="Pages">
-          {ALL_NAV_ITEMS.map((item) => (
+          {filterNavItems(ALL_NAV_ITEMS, { printerEnabled, can }).map((item) => (
             <CommandItem key={item.to as string} value={item.label} onSelect={() => goTo(item.to as string)}>
               <item.icon className="size-4" />
               {item.label}

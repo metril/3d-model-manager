@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.models.library import PrintQueueEntry
 from app.schemas.queue import QueueEnqueueIn, QueueEntryOut, QueueReorderIn
 from app.services import queue as queue_service
 
@@ -20,29 +22,52 @@ async def list_queue(
     return await queue_service.list_queue(db, settings)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=QueueEntryOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=QueueEntryOut,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def enqueue_model(
     payload: QueueEnqueueIn,
     response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> QueueEntryOut:
     """Append a model to the end of the queue. Idempotent: re-adding an
     already-queued model answers 200 with the existing entry instead of
     erroring or duplicating it (mirrors ``POST /collections/pending/{id}/approve``).
     """
-    entry, created = await queue_service.enqueue_model(db, settings, payload.model_id)
+    entry, created = await queue_service.enqueue_model(
+        db, settings, payload.model_id, created_by_user_id=ctx.user.id
+    )
     if not created:
         response.status_code = status.HTTP_200_OK
     return entry
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> None:
+@router.delete(
+    "/{entry_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
+async def remove_entry(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> None:
+    entry = await db.get(PrintQueueEntry, entry_id)
+    if entry is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, entry.created_by_user_id)
     await queue_service.remove_entry(db, entry_id)
 
 
-@router.patch("/{entry_id}", response_model=list[QueueEntryOut])
+@router.patch(
+    "/{entry_id}",
+    response_model=list[QueueEntryOut],
+    dependencies=[Depends(require_perm("printers:print"))],
+)
 async def move_entry(
     entry_id: int,
     payload: QueueReorderIn,

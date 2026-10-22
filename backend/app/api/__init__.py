@@ -32,6 +32,8 @@ endpoints) rather than a whole separate module.
 from fastapi import APIRouter, Depends
 
 from app.api import (
+    admin,
+    admin_oidc,
     auth,
     blobs,
     categories,
@@ -45,6 +47,7 @@ from app.api import (
     materials,
     models,
     notes,
+    oidc,
     print_jobs,
     printers,
     prints,
@@ -65,12 +68,15 @@ from app.api.health import router as health_router
 api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(auth.public_router)
+api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
 api_router.include_router(files.public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
+protected_router.include_router(admin.router)
+protected_router.include_router(admin_oidc.router)
 protected_router.include_router(models.router)
 protected_router.include_router(blobs.router)
 protected_router.include_router(revisions.router)
@@ -82,6 +88,7 @@ protected_router.include_router(jobs.router)
 protected_router.include_router(events.router)
 protected_router.include_router(scan.router)
 protected_router.include_router(settings.router)
+protected_router.include_router(settings.api_tokens_router)
 protected_router.include_router(features.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_jobs.router)

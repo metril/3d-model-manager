@@ -6,6 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueuePage } from "@/pages/QueuePage";
 import type { FileOut, PrinterOut, QueueEntry } from "@/api/types";
 
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+}));
+
+
 // Mock the queue hooks directly (same pattern as AppShell.test.tsx mocking
 // `@/api/auth`/`@/api/features`) -- QueuePage's own logic (ordering, the
 // up/down position math, empty state) is what's under test, not the

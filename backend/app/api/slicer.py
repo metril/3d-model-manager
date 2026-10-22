@@ -21,12 +21,14 @@ from blake3 import blake3
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_storage_backend, require_api_token
+from app.api.deps import AuthContext, get_storage_backend, require_api_token, require_token_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.slicer import IntakeOut
 from app.services import slicer_intake, spool
 from app.storage.base import StorageBackend
+
+_LIB_WRITE = require_token_perm("library:write")
 
 router = APIRouter(prefix="/slicer", tags=["slicer"], dependencies=[Depends(require_api_token)])
 
@@ -38,6 +40,7 @@ async def intake(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     backend: StorageBackend = Depends(get_storage_backend),
+    ctx: AuthContext = Depends(_LIB_WRITE),
 ) -> IntakeOut:
     if not filename or not filename.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "filename is required")
@@ -78,6 +81,7 @@ async def intake(
             spool_path=path,
             blob_hash=hasher.hexdigest(),
             size=size,
+            created_by_user_id=ctx.user.id,
         )
     except slicer_intake.UnsupportedIntake as exc:
         await anyio.to_thread.run_sync(lambda: path.unlink(missing_ok=True))

@@ -1,9 +1,30 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { can, canPrinter, type Perm } from "@/lib/permissions";
+
+export interface PrinterFlags {
+  print: boolean;
+  control: boolean;
+  requires_review?: boolean;
+}
 
 export interface Me {
+  id: number;
   username: string;
+  display_name: string | null;
+  email: string | null;
+  role: string;
+  permissions: string[];
+  groups: { id: number; name: string }[];
+  has_password: boolean;
+  /** null for admins (all printers), else printer id -> flags. */
+  printer_access: Record<string, PrinterFlags> | null;
+}
+
+export interface OidcProvider {
+  slug: string;
+  name: string;
 }
 
 export interface LoginPayload {
@@ -21,7 +42,21 @@ export const authQueryOptions = queryOptions({
 
 /** Bootstraps auth state from `GET /auth/me`. */
 export function useAuth() {
-  return useQuery(authQueryOptions);
+  const query = useQuery(authQueryOptions);
+  return {
+    ...query,
+    can: (perm: Perm) => can(query.data, perm),
+    canPrinter: (id: number, kind: "print" | "control") => canPrinter(query.data, id, kind),
+  };
+}
+
+/** Public list of configured SSO providers for the login page. */
+export function useOidcProviders() {
+  return useQuery({
+    queryKey: ["auth", "oidc-providers"] as const,
+    queryFn: () => api.get<OidcProvider[]>("/auth/oidc/providers"),
+    retry: false,
+  });
 }
 
 /** `POST /auth/login`, then invalidates the `me` query so consumers refetch. */
