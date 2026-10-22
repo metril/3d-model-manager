@@ -1,6 +1,7 @@
 """OIDC login: authlib PKCE/code exchange, joserfc ID-token validation,
 Redis one-shot state, account resolution and IdP group sync."""
 
+import hashlib
 import json
 import re
 import secrets
@@ -42,6 +43,20 @@ class OidcError(Exception):
     ) -> None:
         super().__init__(code)
         self.code = code
+
+
+def state_binding(state: str) -> str:
+    """Value of the browser-bound ``tdmm_oidc`` cookie for a given state."""
+    return hashlib.sha256(state.encode()).hexdigest()
+
+
+_ASYMMETRIC_ALGS = ("RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512")
+
+
+def _allowed_algs(meta: dict[str, Any]) -> list[str]:
+    advertised = meta.get("id_token_signing_alg_values_supported")
+    algs = [a for a in advertised if a in _ASYMMETRIC_ALGS] if isinstance(advertised, list) else []
+    return algs or ["RS256"]
 
 
 def safe_return_to(value: str | None) -> str:
@@ -125,7 +140,9 @@ async def _fetch_claims(
             )
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as http:
                 jwks = (await http.get(meta["jwks_uri"])).json()
-            decoded = jwt.decode(token["id_token"], KeySet.import_key_set(jwks))
+            decoded = jwt.decode(
+                token["id_token"], KeySet.import_key_set(jwks), algorithms=_allowed_algs(meta)
+            )
             claims: dict[str, Any] = dict(decoded.claims)
             aud = claims.get("aud")
             auds = [aud] if isinstance(aud, str) else list(aud or [])
@@ -141,7 +158,10 @@ async def _fetch_claims(
                 try:
                     resp = await oauth.get(meta["userinfo_endpoint"])
                     if resp.status_code == 200:
-                        info = resp.json()
+                        body = resp.json()
+                        # OIDC Core 5.3.2: userinfo is only trusted for the same subject.
+                        if isinstance(body, dict) and body.get("sub") == claims.get("sub"):
+                            info = body
                 except Exception:  # userinfo is best-effort enrichment
                     info = {}
             return {**info, **claims}
@@ -241,6 +261,14 @@ async def sync_groups(
     wanted = {mapping[v] for v in claim_values if v in mapping}
     if wanted:
         wanted = set(await db.scalars(select(Group.id).where(Group.id.in_(wanted))))
+    old_oidc = set(
+        await db.scalars(
+            select(GroupMember.group_id).where(
+                GroupMember.user_id == user.id, GroupMember.source == MembershipSource.OIDC
+            )
+        )
+    )
+    _, before, _ = await load_grants(db, user)
     await db.execute(
         delete(GroupMember).where(
             GroupMember.user_id == user.id, GroupMember.source == MembershipSource.OIDC
@@ -257,3 +285,15 @@ async def sync_groups(
         elif user.role == UserRole.ADMIN and await _other_active_admins(db, user) > 0:
             user.role = UserRole.MEMBER
     await db.flush()
+    _, after, _ = await load_grants(db, user)
+    if "admin" in before and "admin" not in after and await _other_active_admins(db, user) == 0:
+        # Last-admin guard also covers admin granted via an OIDC-mapped group.
+        await db.execute(
+            delete(GroupMember).where(
+                GroupMember.user_id == user.id, GroupMember.source == MembershipSource.OIDC
+            )
+        )
+        await db.flush()
+        for gid in old_oidc - local:
+            db.add(GroupMember(group_id=gid, user_id=user.id, source=MembershipSource.OIDC))
+        await db.flush()

@@ -173,3 +173,113 @@ async def test_providers_list_public_enabled_only(client, make_provider):
     await make_provider(slug="off", name="Off", enabled=False)
     r = await client.get("/api/auth/oidc/providers")
     assert r.json() == [{"slug": "authentik", "name": "Authentik"}]
+
+
+async def test_callback_without_binding_cookie_rejected(
+    client, fake_idp, make_provider, make_user
+):
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await fake_idp.start(client, "authentik")
+    client.cookies.delete("tdmm_oidc", path="/api/auth/oidc")
+    r = await fake_idp.callback(client, "authentik")
+    assert _loc(r) == "/login?error=invalid_state"
+    assert (await client.get("/api/auth/me")).status_code == 401
+
+
+async def test_callback_with_cookie_for_other_state_rejected(
+    client, fake_idp, make_provider, make_user
+):
+    from app.services.oidc import state_binding
+
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await fake_idp.start(client, "authentik")
+    client.cookies.set("tdmm_oidc", state_binding("other"), path="/api/auth/oidc")
+    r = await fake_idp.callback(client, "authentik")
+    assert _loc(r) == "/login?error=invalid_state"
+    assert (await client.get("/api/auth/me")).status_code == 401
+
+
+async def _rejected(client, fake_idp, claims=None):
+    r = await fake_idp.login(client, "authentik", claims or {})
+    assert _loc(r) == "/login?error=oidc_failed"
+    assert (await client.get("/api/auth/me")).status_code == 401
+
+
+async def test_wrong_aud_rejected(client, fake_idp, make_provider, make_user):
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await _rejected(client, fake_idp, {"aud": "someone-else"})
+
+
+async def test_wrong_iss_rejected(client, fake_idp, make_provider, make_user):
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await _rejected(client, fake_idp, {"iss": "https://evil.test/"})
+
+
+async def test_expired_id_token_rejected(client, fake_idp, make_provider, make_user):
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await _rejected(client, fake_idp, {"exp": 1})
+
+
+async def test_bad_signature_rejected(client, fake_idp, make_provider, make_user):
+    from joserfc.jwk import RSAKey
+
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    fake_idp.sign_key = RSAKey.generate_key(2048, parameters={"kid": "k1"})
+    await _rejected(client, fake_idp)
+
+
+async def test_hs256_token_rejected(client, fake_idp, make_provider, make_user):
+    from joserfc.jwk import OctKey
+
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    fake_idp.alg = "HS256"
+    fake_idp.sign_key = OctKey.import_key("x" * 64)
+    await _rejected(client, fake_idp)
+
+
+async def test_userinfo_claims_only_merged_for_same_subject(
+    client, db_session, fake_idp, make_provider, make_user, make_group
+):
+    g = await make_group("ops")
+    u = await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    await make_provider(group_mapping={"ops": g.id})
+    fake_idp.userinfo_extra = {"groups": ["ops"]}
+    fake_idp.userinfo_sub = "someone-else"
+    await fake_idp.login(client, "authentik")
+    q = select(GroupMember).where(GroupMember.user_id == u.id)
+    assert (await db_session.scalars(q)).all() == []
+    fake_idp.userinfo_sub = None
+    await fake_idp.login(client, "authentik")
+    assert len((await db_session.scalars(q)).all()) == 1
+
+
+async def test_return_to_protocol_relative_rejected_end_to_end(
+    client, fake_idp, make_provider, make_user
+):
+    await make_provider()
+    await make_user(oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    r = await fake_idp.login(client, "authentik", return_to="//evil.com")
+    assert _loc(r) == "/"
+
+
+async def test_last_admin_via_oidc_group_not_removed(
+    client, fake_idp, make_provider, make_user, make_group, db_session
+):
+    u = await make_user("member", oidc_issuer=ISS, oidc_subject="sub-1", password=None)
+    g = await make_group("ops", permissions=["admin"])
+    await make_provider(group_mapping={"ops": g.id})
+    await fake_idp.login(client, "authentik", {"groups": ["ops"]})
+    await fake_idp.login(client, "authentik", {"groups": []})
+    rows = (await db_session.scalars(select(GroupMember).where(GroupMember.user_id == u.id))).all()
+    assert [(r.group_id, r.source) for r in rows] == [(g.id, MembershipSource.OIDC)]
+    await make_user("admin")
+    await fake_idp.login(client, "authentik", {"groups": []})
+    rows = (await db_session.scalars(select(GroupMember).where(GroupMember.user_id == u.id))).all()
+    assert rows == []

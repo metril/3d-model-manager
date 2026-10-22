@@ -1,6 +1,9 @@
 """Public OIDC login endpoints (pre-session: browser redirects to/from the IdP)."""
 
-from fastapi import APIRouter, Depends, Request
+import secrets
+from urllib.parse import parse_qs, urlparse
+
+from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -12,6 +15,8 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import OidcProvider
 from app.services import oidc as svc
+
+BIND_COOKIE = "tdmm_oidc"
 
 public_router = APIRouter(prefix="/auth/oidc", tags=["auth"])
 
@@ -64,7 +69,18 @@ async def start(
         return _fail(e.code)
     finally:
         await redis.aclose()
-    return RedirectResponse(url, status_code=302)
+    response = RedirectResponse(url, status_code=302)
+    # Bind the flow to this browser (login-CSRF defence): cookie holds sha256(state).
+    response.set_cookie(
+        key=BIND_COOKIE,
+        value=svc.state_binding(parse_qs(urlparse(url).query)["state"][0]),
+        max_age=svc.STATE_TTL_S,
+        path="/api/auth/oidc",
+        httponly=True,
+        samesite="lax",
+        secure=get_settings().cookie_secure,
+    )
+    return response
 
 
 @public_router.get("/{slug}/callback")
@@ -74,11 +90,16 @@ async def callback(
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
+    tdmm_oidc: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     provider = await _provider(db, slug)
     if provider is None or error or not code or not state:
         return _fail("oidc_failed")
+    if tdmm_oidc is None or not secrets.compare_digest(tdmm_oidc, svc.state_binding(state)):
+        failure = _fail("invalid_state")
+        failure.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
+        return failure
     redis = Redis.from_url(get_settings().redis_url)
     try:
         user, return_to = await svc.complete_login(
@@ -90,9 +111,12 @@ async def callback(
             redirect_uri=_redirect_uri(request, slug),
         )
     except svc.OidcError as e:
-        return _fail(e.code)
+        failure = _fail(e.code)
+        failure.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
+        return failure
     finally:
         await redis.aclose()
     response = RedirectResponse(return_to, status_code=302)
+    response.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
     await start_session(db, response, user)
     return response

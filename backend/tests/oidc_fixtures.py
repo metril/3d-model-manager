@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 from joserfc import jwt
-from joserfc.jwk import RSAKey
+from joserfc.jwk import OctKey, RSAKey
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -34,6 +34,10 @@ class FakeIdp:
         self.nonce_override: str | None = None
         self.nonce: str | None = None
         self.state: str | None = None
+        self.sign_key: Any = None
+        self.alg = "RS256"
+        self.userinfo_sub: str | None = None
+        self.userinfo_extra: dict[str, Any] = {}
         base = ISSUER.rstrip("/")
         router.get(f"{base}/.well-known/openid-configuration").respond(
             json={
@@ -60,13 +64,18 @@ class FakeIdp:
             "nonce": self.nonce_override or self.nonce,
             **self.claims,
         }
-        id_token = jwt.encode({"alg": "RS256", "kid": "k1"}, claims, self.key)
+        id_token = jwt.encode(
+            {"alg": self.alg, "kid": "k1"}, claims, self.sign_key or self.key
+        )
         return httpx.Response(
             200, json={"access_token": "at", "token_type": "Bearer", "id_token": id_token}
         )
 
     def _userinfo(self, request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"sub": "sub-1", **self.claims})
+        body = {"sub": "sub-1", **self.claims, **self.userinfo_extra}
+        if self.userinfo_sub:
+            body["sub"] = self.userinfo_sub
+        return httpx.Response(200, json=body)
 
     async def start(
         self, client: httpx.AsyncClient, slug: str, return_to: str | None = None
