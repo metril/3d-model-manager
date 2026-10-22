@@ -5,14 +5,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
 
+const { authCanBox } = vi.hoisted(() => ({
+  authCanBox: { current: (_p: string) => true as boolean },
+}));
+
 vi.mock("@/api/auth", () => ({
-  useAuth: () => ({ data: { username: "tester" }, can: () => true, canPrinter: () => true }),
+  useAuth: () => ({ data: { username: "tester" }, can: (p: string) => authCanBox.current(p), canPrinter: () => true }),
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-const { featuresBox, printersBox } = vi.hoisted(() => ({
+const { featuresBox, printersBox, financeConfigBox } = vi.hoisted(() => ({
   featuresBox: { current: { printer_enabled: false } },
   printersBox: { current: [] as Array<{ id: number; name: string }> },
+  financeConfigBox: { current: { billing_enabled: false } as { billing_enabled: boolean } | undefined },
+}));
+
+vi.mock("@/api/finance", () => ({
+  useFinanceConfig: () => ({ data: financeConfigBox.current }),
 }));
 
 vi.mock("@/api/features", () => ({
@@ -165,7 +174,7 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     expect(screen.queryByText("Print")).not.toBeInTheDocument();
   });
 
-  it("pins Background jobs and Settings at the bottom, with no Finance link", async () => {
+  it("pins Background jobs and Settings at the bottom", async () => {
     renderSidebar();
 
     expect(await screen.findByRole("link", { name: "Background jobs" })).toHaveAttribute(
@@ -173,6 +182,31 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
       "/system/jobs",
     );
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+  });
+});
+
+describe("AppSidebar -- Finance nav entry (P7 Task 8)", () => {
+  beforeEach(() => {
+    authCanBox.current = () => true;
+    financeConfigBox.current = { billing_enabled: false };
+  });
+
+  it("shows Finance for a billing manager even when billing is off", async () => {
+    renderSidebar();
+    expect(await screen.findByRole("link", { name: "Finance" })).toHaveAttribute("href", "/system/finance");
+  });
+
+  it("hides Finance for a non-manager when billing is off", async () => {
+    authCanBox.current = (p: string) => p !== "billing:manage";
+    renderSidebar();
+    await screen.findByRole("link", { name: "Settings" });
     expect(screen.queryByRole("link", { name: "Finance" })).not.toBeInTheDocument();
+  });
+
+  it("shows Finance for a non-manager once billing is on", async () => {
+    authCanBox.current = (p: string) => p !== "billing:manage";
+    financeConfigBox.current = { billing_enabled: true };
+    renderSidebar();
+    expect(await screen.findByRole("link", { name: "Finance" })).toHaveAttribute("href", "/system/finance");
   });
 });

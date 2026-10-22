@@ -13,6 +13,7 @@ import { useAuth, useLogout } from "@/api/auth";
 import { useCategories } from "@/api/categories";
 import { useFeatures } from "@/api/features";
 import { useFollowedCollections } from "@/api/collections";
+import { useFinanceConfig } from "@/api/finance";
 import { useFailedImportsCount } from "@/api/imports";
 import { usePrinters } from "@/api/printers";
 import { useScanRuns } from "@/api/scan";
@@ -181,7 +182,13 @@ export function AppSidebar({
   const failedImports = useFailedImportsCount();
   const followed = useFollowedCollections();
   const categories = useCategories();
+  const financeConfig = useFinanceConfig();
   const [collapsed, setCollapsed] = useSidebarCollapsed();
+  // Finance (P7): visible to a manager always, to everyone else only once
+  // billing is on -- not a plain permission check, so it's resolved here
+  // rather than through `filterNavItems`/`filterNavGroups`.
+  const canSeeFinance = can("billing:manage") || !!financeConfig.data?.billing_enabled;
+  const visibleSystemItems = SYSTEM_ITEMS.filter((item) => !item.billingGated || canSeeFinance);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -342,7 +349,7 @@ export function AppSidebar({
         )}
       </nav>
       <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
-        {SYSTEM_ITEMS.map((item) => (
+        {visibleSystemItems.map((item) => (
           <NavLink key={item.to as string} item={item} collapsed={collapsed} />
         ))}
       </div>

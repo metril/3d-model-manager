@@ -5,8 +5,10 @@
  * SYSTEM_ITEMS pinned at the bottom outside any group. `NAV_GROUPS`'
  * `featureGated: true` on the Print group is copied onto each of its
  * items when flattened into `ALL_NAV_ITEMS`, so a flat consumer (the
- * command palette) doesn't need to know groups exist at all. Finance
- * joins `SYSTEM_ITEMS` in P7; it isn't here yet.
+ * command palette) doesn't need to know groups exist at all. Finance (P7)
+ * joins `SYSTEM_ITEMS` with `billingGated: true` -- `AppSidebar` resolves
+ * that flag itself (via `useFinanceConfig()`), since it isn't a plain
+ * permission check `filterNavItems`/`filterNavGroups` can express.
  */
 import type { LinkProps } from "@tanstack/react-router";
 import {
@@ -21,6 +23,7 @@ import {
   Printer,
   Settings,
   SquareLibrary,
+  Wallet,
   Wrench,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -46,6 +49,10 @@ export interface NavItem {
    * for `/`, so the nav never offers a link that would just redirect away
    * to `/library`. */
   requiresPrinterAccess?: boolean;
+  /** Finance (P7): visible to a `billing:manage` holder always, and to
+   * everyone else only once billing is on -- `AppSidebar` resolves this
+   * with `useFinanceConfig()`, since it isn't a plain permission check. */
+  billingGated?: boolean;
 }
 
 export interface NavGroup {
@@ -89,6 +96,7 @@ export const NAV_GROUPS: NavGroup[] = [
  * P7. */
 export const SYSTEM_ITEMS: NavItem[] = [
   { to: "/system/jobs", label: "Background jobs", icon: ListChecks },
+  { to: "/system/finance", label: "Finance", icon: Wallet, billingGated: true },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
