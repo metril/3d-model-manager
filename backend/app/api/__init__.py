@@ -27,6 +27,12 @@ sit under ``protected_router``'s blanket ``require_session`` -- see
 ``app.api.files``'s module docstring. It stays a 3-line stub next to
 ``files.router`` (which keeps the session-gated delete + slicer-link
 endpoints) rather than a whole separate module.
+
+``printers.camera_public_router`` (P4 Task 4: camera API) is the same
+pattern as ``files.public_router`` -- its stream/snapshot routes accept a
+session cookie OR a scoped camera token, so each does its own auth
+(``app.api.printers._authorize_camera``) instead of sitting under
+``protected_router``.
 """
 
 from fastapi import APIRouter, Depends
@@ -73,6 +79,7 @@ api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
 api_router.include_router(files.public_router)
+api_router.include_router(printers.camera_public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)

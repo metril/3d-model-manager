@@ -77,3 +77,50 @@ def verify(settings: Settings, token: str) -> int | None:
         return None
 
     return file_id
+
+
+def sign_scoped(settings: Settings, scope: str, ttl_s: int = DEFAULT_TTL_S) -> str:
+    """Mint a short-lived token authorizing an arbitrary ``scope`` string
+    (P4 Task 4: ``f"camera:{printer_id}:{user_id}"``) rather than a single
+    file id. Payload shape ``s|{scope}|{exp}`` -- the ``|`` delimiter (vs.
+    the file token's ``:``) keeps the two token families from ever
+    cross-verifying: a file token's payload has no ``|``, and a scoped
+    token's payload has no bare ``int:int`` shape ``verify()`` expects.
+    """
+    exp = int(time.time()) + ttl_s
+    payload = f"s|{scope}|{exp}".encode("ascii")
+    sig = _hmac(settings, payload)
+    return f"{_b64encode(payload)}.{_b64encode(sig)}"
+
+
+def verify_scoped(settings: Settings, token: str, scope_prefix: str) -> str | None:
+    """Validate ``token``, returning the scope it authorizes iff that scope
+    starts with ``scope_prefix`` -- or ``None`` if malformed, tampered,
+    expired, or scoped to something else entirely."""
+    payload_b64, sep, sig_b64 = token.partition(".")
+    if not sep or not payload_b64 or not sig_b64:
+        return None
+    try:
+        payload = _b64decode(payload_b64)
+        sig = _b64decode(sig_b64)
+    except ValueError:
+        return None
+
+    expected_sig = _hmac(settings, payload)
+    if not hmac.compare_digest(sig, expected_sig):
+        return None
+
+    try:
+        kind, scope, exp_str = payload.decode("ascii").split("|")
+        exp = int(exp_str)
+    except ValueError:
+        return None
+
+    if kind != "s":
+        return None
+    if time.time() >= exp:
+        return None
+    if not scope.startswith(scope_prefix):
+        return None
+
+    return scope
