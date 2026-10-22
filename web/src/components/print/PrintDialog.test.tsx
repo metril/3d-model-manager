@@ -232,4 +232,46 @@ describe("PrintDialog", () => {
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/archives/7/reprint"));
   });
+
+  it("disables Send when the reprint's pre-selected printer isn't idle/compatible", async () => {
+    const notReadyPlan = basePlan({
+      printers: [{ id: 5, name: "Printer A", model: "A1", idle: false, compatible: true, reason: "busy" }],
+    });
+    postMock.mockImplementation((path: string) => {
+      if (path === "/archives/7/reprint" || path === "/print/plan") {
+        return Promise.resolve(notReadyPlan);
+      }
+      return Promise.resolve({});
+    });
+    renderDialog({ kind: "archive", archiveId: 7 });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/archives/7/reprint"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Printer A");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send now" })).toBeDisabled());
+  });
+
+  it("labels AMS trays by unit/tray and the external slot as External", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/printers/5/status") {
+        return Promise.resolve({
+          online: true,
+          gcode_state: "IDLE",
+          trays: [
+            { slot: 1, ams_unit: 0, tray: 1, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: 80, spool: null },
+            { slot: 254, ams_unit: 255, tray: 0, color: "#ff0000", material: "PLA", tray_type: "PLA", tray_uuid: null, remain_pct: null, spool: null },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+
+    const select = await screen.findByRole("combobox", { name: "Tray for PLA" });
+    const options = Array.from(select.querySelectorAll("option")).map((o) => o.textContent);
+    expect(options).toContain("AMS 0·1");
+    expect(options).toContain("External");
+  });
 });

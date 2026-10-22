@@ -115,6 +115,36 @@ describe("PrinterCard", () => {
     expect(await screen.findByText(/215 \/ 220/)).toBeInTheDocument();
   });
 
+  it("badges a low-stock tray straight off tray.spool.low_stock (no extra spool lookup)", async () => {
+    renderCard(
+      <PrinterCard
+        item={item({
+          status: {
+            ...item().status,
+            trays: [
+              tray({
+                slot: 0,
+                color: "#FF0000",
+                material: "PLA",
+                spool: {
+                  id: 9,
+                  material_type: "PLA",
+                  brand: null,
+                  color_hex: "#FF0000",
+                  color_name: null,
+                  low_stock: true,
+                },
+              }),
+            ],
+          },
+        })}
+      />,
+    );
+
+    expect(await screen.findByText("Low")).toBeInTheDocument();
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
   it("renders a filament chip per AMS tray", async () => {
     renderCard(
       <PrinterCard

@@ -10,7 +10,6 @@
 import { Link } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
-import { useSpools } from "@/api/spools";
 import type { PrinterOverviewItem } from "@/api/types";
 import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { ActiveJobStrip } from "@/components/print/ActiveJobStrip";
@@ -30,11 +29,6 @@ export function PrinterCard({
 }) {
   const { printer, status, active_job: activeJob, can_control: canControl } = item;
   const { tone, label } = toneForGcode(status.online, status.gcode_state);
-  // `AmsTray.spool` is only the minimal `SpoolBrief` (no remaining/low-stock
-  // fields) -- the low-stock badge needs the full spool list, one shared
-  // `["spools", {low_stock:true}]` query cached across every card.
-  const lowStockSpools = useSpools({ low_stock: true, archived: false });
-  const lowStockIds = new Set((lowStockSpools.data ?? []).map((s) => s.id));
 
   return (
     <div data-slot="printer-card" className="overflow-hidden rounded-[6px] border">
@@ -81,7 +75,7 @@ export function PrinterCard({
                 <FilamentChip
                   color={tray.color ?? undefined}
                   material={tray.material ?? undefined}
-                  lowStock={tray.spool != null && lowStockIds.has(tray.spool.id)}
+                  lowStock={tray.spool?.low_stock ?? false}
                   remainPct={tray.remain_pct}
                 />
               );

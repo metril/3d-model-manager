@@ -687,6 +687,7 @@ export interface SpoolBrief {
   brand: string | null;
   color_hex: string | null;
   color_name: string | null;
+  low_stock: boolean;
 }
 
 // `/api/spools` (P5 spool tray plan, Task 9): physical spool inventory,

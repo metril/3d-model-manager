@@ -60,6 +60,11 @@ const PROFILE = 2;
 const FILAMENT = 3;
 const SEND = 4;
 
+// Mirrors `app.services.spool_inventory.EXTERNAL_UNIT` -- the "external
+// spool" sentinel AMS unit, used to label a tray chip "External" instead
+// of "AMS 255·254".
+const EXTERNAL_UNIT = 255;
+
 const STATUS_STYLE: Record<PlanFilamentStatus, string> = {
   ok: "border-border",
   color: "border-amber-500/50 bg-amber-500/10",
@@ -136,7 +141,7 @@ function FilamentRow({
         </span>
       ) : null}
       {filament.status !== "ok" ? (
-        <span className="text-xs text-destructive data-[status=color]:text-amber-600">
+        <span className="text-xs text-destructive">
           {filament.status === "none" ? "No tray assigned" : filament.status === "type" ? "Type mismatch" : null}
         </span>
       ) : null}
@@ -269,13 +274,20 @@ export function PrintDialog({
   const printerStatus = usePrinterStatus(effectivePrinterId ?? -1, { enabled: effectivePrinterId != null });
   const trays = (printerStatus.data?.trays ?? []).map((t) => ({
     slot: t.slot,
-    label: `Tray ${t.slot}${t.material ? ` · ${t.material}` : ""}`,
+    label: t.ams_unit === EXTERNAL_UNIT ? "External" : `AMS ${t.ams_unit}·${t.tray}`,
   }));
 
   const modelSearch = useModelSearchQuery(modelQuery);
   const searchResults = modelQuery.trim().length > 0 ? modelSearch.data?.items ?? [] : [];
 
   const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
+  // A reprint seeds `printerId` from the archived run before the person
+  // ever visits the Send step -- that pre-selected printer can be busy or
+  // incompatible by now, and the radio group only disables an OPTION, it
+  // never clears a stale selection. Send must stay disabled until the
+  // selected printer is actually idle + compatible.
+  const selectedPrinter = plan?.printers.find((pp) => pp.id === effectivePrinterId) ?? null;
+  const printerNotReady = selectedPrinter != null && !(selectedPrinter.idle && selectedPrinter.compatible);
   const modelId = plan?.model_id ?? (source.kind === "model" ? source.modelId : null);
 
   function close() {
@@ -489,7 +501,7 @@ export function PrintDialog({
                   <Button
                     type="button"
                     onClick={handleSend}
-                    disabled={effectivePrinterId == null || hasRed || sendPrint.isPending}
+                    disabled={effectivePrinterId == null || hasRed || printerNotReady || sendPrint.isPending}
                   >
                     {sendPrint.isPending ? "Sending..." : "Send now"}
                   </Button>
