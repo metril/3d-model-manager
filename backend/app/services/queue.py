@@ -21,11 +21,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models import CostCenter, GroupMember
+from app.models import CostCenter, GroupMember, User
 from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.slicing import PrintRecipe
-from app.schemas.queue import QueueEnqueueIn, QueueEntryOut, ReviewIn
+from app.schemas.queue import CreatedByOut, QueueEnqueueIn, QueueEntryOut, ReviewIn
 from app.services import billing, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
@@ -133,10 +133,25 @@ async def _to_out(
             .all()
         }
 
+    # M6: batch the creators the same way -- one query across every
+    # distinct `created_by_user_id` in `entries`, never one query per row.
+    creator_ids = [e.created_by_user_id for e in entries if e.created_by_user_id is not None]
+    creators_by_id: dict[int, User] = {}
+    if creator_ids:
+        creators_by_id = {
+            u.id: u
+            for u in (await db.execute(select(User).where(User.id.in_(creator_ids))))
+            .scalars()
+            .all()
+        }
+
     out = []
     for e in entries:
         file_row = files_by_id.get(e.file_id) if e.file_id is not None else None
         recipe_row = recipes_by_id.get(e.recipe_id) if e.recipe_id is not None else None
+        creator = (
+            creators_by_id.get(e.created_by_user_id) if e.created_by_user_id is not None else None
+        )
         out.append(
             QueueEntryOut(
                 id=e.id,
@@ -167,6 +182,9 @@ async def _to_out(
                 review_note=e.review_note,
                 reserved_cost=float(e.reserved_cost) if e.reserved_cost is not None else None,
                 hold_reason=e.hold_reason,
+                created_by=CreatedByOut(id=creator.id, username=creator.username)
+                if creator is not None
+                else None,
             )
         )
     return out

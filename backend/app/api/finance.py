@@ -17,8 +17,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -197,8 +198,17 @@ async def create_cost_center(
         s.flush()
         return _cc_out(s, cc, now=datetime.now(UTC))
 
-    out = await db.run_sync(_create)
-    await db.commit()
+    try:
+        out = await db.run_sync(_create)
+        await db.commit()
+    except IntegrityError:
+        # M3: `uq_cost_centers_owner_user_id` -- a second private center
+        # for the same owner. 409 (a real conflict with an existing
+        # resource) rather than a raw 500.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "a private cost center for this owner already exists"
+        ) from None
     return out
 
 
@@ -277,7 +287,7 @@ async def delete_cost_center(
 @router.get("/ledger", response_model=list[LedgerEntryOut])
 async def list_ledger(
     cost_center: int,
-    limit: int = 50,
+    limit: int = Query(50, le=500),  # M3: cap the page size -- never an unbounded SELECT.
     before_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),

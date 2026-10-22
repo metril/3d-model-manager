@@ -15,6 +15,14 @@ from app.models.enums import QueueState, ReviewState
 from app.schemas.library import FileOut, ModelSummary
 
 
+class CreatedByOut(BaseModel):
+    """M6: who queued an item -- just enough for the review inbox to show
+    a name without a separate `/users/{id}` round trip."""
+
+    id: int
+    username: str
+
+
 class PlanOptions(BaseModel):
     """Pre-print toggles shared by the print-plan preview (``app.schemas
     .print_flow.PlanOut``, which re-exports this) and a per-file queue
@@ -110,3 +118,6 @@ class QueueEntryOut(BaseModel):
     review_note: str | None = None
     reserved_cost: float | None = None
     hold_reason: str | None = None
+    # M6: who queued it, so the review inbox can show a name rather than
+    # just a cost/plate. `None` for a legacy entry with no creator on file.
+    created_by: CreatedByOut | None = None

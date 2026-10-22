@@ -105,6 +105,12 @@ class PrinterFlags(BaseModel):
     # AND their own per-printer `can_print` ACL (mirrors
     # `app.services.review.can_review`'s own check for a non-admin).
     review: bool
+    # I2: whether a print THIS user sends to this printer needs review
+    # before it dispatches (the printer_access row's own `requires_review`
+    # flag) -- mirrors `app.services.review.needs_review`'s per-printer
+    # check. Always `false` for an admin (never surfaced here -- admins get
+    # `printer_access=None`, see below).
+    requires_review: bool
 
 
 class MeOut(BaseModel):
@@ -140,6 +146,7 @@ async def me(ctx: AuthContext = Depends(require_session)) -> MeOut:
                 print=a.can_print,
                 control=a.can_control,
                 review=("queue:review" in ctx.perms) and a.can_print,
+                requires_review=a.requires_review,
             )
             for pid, a in ctx.printer_acl.items()
         },

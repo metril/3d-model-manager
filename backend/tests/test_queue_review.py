@@ -143,6 +143,8 @@ async def test_enqueue_on_review_printer_is_pending(
     r = await client.post("/api/queue", json={"file_id": f.id, "printer_id": pid})
     assert r.status_code == 201, r.text
     assert r.json()["review_state"] == "pending"
+    # M6: the review inbox shows who queued it.
+    assert r.json()["created_by"] == {"id": member.id, "username": member.username}
 
 
 async def test_enqueue_on_plain_printer_is_none(

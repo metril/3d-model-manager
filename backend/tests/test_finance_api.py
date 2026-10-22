@@ -169,6 +169,32 @@ async def test_create_exactly_one_of_owner_or_group_422(
     assert r.status_code == 422
 
 
+async def test_create_duplicate_private_center_409(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    """M3: a second private center for the same owner hits
+    `uq_cost_centers_owner_user_id` -- 409, not a raw 500."""
+    admin_id = (await authenticated_client.get("/api/auth/me")).json()["id"]
+    first = await authenticated_client.post(
+        "/api/finance/cost-centers", json={"name": "first", "owner_user_id": admin_id}
+    )
+    assert first.status_code == 201, first.text
+
+    dup = await authenticated_client.post(
+        "/api/finance/cost-centers", json={"name": "second", "owner_user_id": admin_id}
+    )
+    assert dup.status_code == 409, dup.text
+
+
+async def test_ledger_limit_is_capped(authenticated_client: httpx.AsyncClient) -> None:
+    """M3: `GET /finance/ledger`'s `limit` is capped at 500."""
+    admin_id = (await authenticated_client.get("/api/auth/me")).json()["id"]
+    r = await authenticated_client.get(
+        "/api/finance/ledger", params={"cost_center": admin_id, "limit": 5000}
+    )
+    assert r.status_code == 422
+
+
 async def test_delete_referenced_cost_center_409(
     authenticated_client: httpx.AsyncClient,
     make_cost_center,
