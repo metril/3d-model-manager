@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     # `--proxy-headers`/`--forwarded-allow-ips`, not by this app trusting
     # forwarded headers itself. Env: `TDMM_PUBLIC_URL`.
     public_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_PUBLIC_URL"))
+    # Base URL of the slicer sidecar (P6; `compose.slicer.yaml`, profile
+    # `slicer`), e.g. `http://slicer:3001`. Unset (the default) means no
+    # slicer integration -- `app.services.slicer_client.client_from_config`
+    # returns `None` and slicer-dependent features stay off, mirroring
+    # `printer_enabled`'s off-by-default posture. Env: `TDMM_SLICER_URL`.
+    slicer_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_SLICER_URL"))
 
 
 @lru_cache
