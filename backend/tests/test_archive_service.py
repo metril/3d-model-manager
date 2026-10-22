@@ -1,0 +1,117 @@
+import hashlib
+
+import pytest
+from sqlalchemy import select
+
+from app.config import get_settings
+from app.models import Model, Print, PrintArchive
+from app.models.enums import ArchiveResult
+from app.services import archive as archive_mod
+from app.services.archive import ArchiveFetchError, archive_job, archive_path
+
+pytestmark = pytest.mark.usefixtures("printer_enabled", "data_dir")
+
+
+def _run(s, job_id):
+    return s.scalar(select(Print).where(Print.print_job_id == job_id))
+
+
+def test_archive_external_job_from_ftps(fake_adapter, sliced_3mf_bytes, seed):
+    s, settings = seed.s, get_settings()
+    model_id = seed.model("DotC parts - Part 1")
+    job_id = seed.job(subtask="DotC parts - Part 1_plate_1")
+    fake_adapter.files["/cache/DotC parts - Part 1_plate_1.3mf"] = sliced_3mf_bytes
+    arc = archive_job(s, settings, job_id, ArchiveResult.COMPLETED)
+    assert arc.fetch_state == "done" and arc.plate == 1 and arc.model_id == model_id
+    assert arc.est_filament == [
+        {"tray": 0, "type": "PLA", "color": "#000000", "grams": 61.64, "meters": 21.18}
+    ]
+    assert archive_path(settings, arc.archive_blob, "gcode.3mf").exists()
+    assert arc.archive_blob == hashlib.sha256(sliced_3mf_bytes).hexdigest()
+    assert arc.thumbnail_blob is not None and arc.duration_s == 3600
+    assert archive_path(settings, arc.thumbnail_blob, "png").exists()
+    run = _run(s, job_id)
+    assert run.source == "auto" and run.result == "success" and run.created_by_user_id is None
+    assert run.filament_g == pytest.approx(61.64)
+    assert run.filament_cost == pytest.approx(61.64 / 1000 * 20.0)
+    assert s.get(Model, model_id).print_count == 1
+
+
+def test_archive_app_job_uses_local_blob(fake_adapter, sliced_3mf_bytes, seed, monkeypatch):
+    s, settings = seed.s, get_settings()
+    sha = hashlib.sha256(sliced_3mf_bytes).hexdigest()
+    model_id, rev_id, file_id = seed.file("Widget", sha)
+    uid = seed.user()
+
+    def _fetch(session, settings, blob_hash, dest_dir, suffix):
+        p = dest_dir / f"blob{suffix}"
+        p.write_bytes(sliced_3mf_bytes)
+        return p
+
+    monkeypatch.setattr(archive_mod, "fetch_blob_to_temp", _fetch)
+    job_id = seed.job(origin="app", file_id=file_id, plate=1, user_id=uid)
+    arc = archive_job(s, settings, job_id, ArchiveResult.COMPLETED)
+    assert fake_adapter.downloads == [] and arc.revision_id == rev_id
+    assert arc.model_id == model_id and arc.plate == 1
+    run = _run(s, job_id)
+    assert run.created_by_user_id == uid == arc.created_by_user_id
+
+
+def test_archive_app_job_falls_back_to_cache(fake_adapter, sliced_3mf_bytes, seed, monkeypatch):
+    s = seed.s
+    sha = hashlib.sha256(sliced_3mf_bytes).hexdigest()
+    _, _, file_id = seed.file("Widget", sha)
+
+    def _fetch(*a, **k):
+        raise LookupError
+
+    monkeypatch.setattr(archive_mod, "fetch_blob_to_temp", _fetch)
+    job_id = seed.job(origin="app", file_id=file_id)
+    fake_adapter.files[f"/cache/tdmm-{job_id}.gcode.3mf"] = sliced_3mf_bytes
+    arc = archive_job(s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.fetch_state == "done" and arc.plate == 1
+
+
+def test_archive_partial_cost_on_cancel(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1", layer=237, total_layers=474)
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.CANCELED)
+    run = _run(seed.s, job_id)
+    assert run.filament_g == pytest.approx(30.82) and run.result == "partial"
+
+
+def test_archive_missing_file(fake_adapter, seed):
+    job_id = seed.job(subtask="Nope")
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.fetch_state == "missing" and arc.est_filament == []
+    run = _run(seed.s, job_id)
+    assert run.filament_cost is None and run.machine_cost is not None
+
+
+def test_archive_fetch_error_raises_after_commit(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    fake_adapter.download_errors = 1
+    with pytest.raises(ArchiveFetchError):
+        archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    seed.s.expire_all()
+    arc = seed.s.scalar(select(PrintArchive).where(PrintArchive.print_job_id == job_id))
+    assert arc.fetch_state == "error" and "s3cretcode" not in (arc.fetch_error or "")
+
+
+def test_archive_is_idempotent(fake_adapter, sliced_3mf_bytes, seed):
+    model_id = seed.model("X")
+    job_id = seed.job(subtask="X_plate_1")
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    for _ in range(2):
+        archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert len(seed.s.scalars(select(PrintArchive)).all()) == 1
+    assert len(seed.s.scalars(select(Print)).all()) == 1
+    assert seed.s.get(Model, model_id).print_count == 1
+
+
+def test_archive_subtask_traversal_is_sanitized(fake_adapter, seed):
+    job_id = seed.job(subtask="../../etc/x")
+    fake_adapter.files["/etc/x.3mf"] = b"nope"
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.fetch_state == "missing" and fake_adapter.downloads == []

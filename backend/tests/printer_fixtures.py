@@ -17,6 +17,7 @@ _BUILD_ADAPTER_CALL_SITES = (
     "app.api.printers",
     "app.tasks.printing",
     "app.printerd",
+    "app.services.archive",
 )
 
 
