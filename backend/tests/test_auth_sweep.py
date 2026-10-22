@@ -91,6 +91,8 @@ _PATH_PARAM_VALUES = {
     # P6: slicer profiles + print recipes.
     "profile_id": "1",
     "recipe_id": "1",
+    # P7 review/billing plan: finance cost centers.
+    "cost_center_id": "1",
 }
 
 
