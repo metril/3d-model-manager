@@ -171,6 +171,7 @@ class HaBridge:
         self._availability: dict[int, bool] = {}
         self._camera_last_pub: dict[int, float] = {}
         self._bridge_connected = False
+        self._bridge_error: str | None = None
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -223,8 +224,11 @@ class HaBridge:
         """Write ``ha:bridge:status`` as JSON ``{connected, error, at}``
         with a 30s TTL -- a stale/crashed bridge's status goes stale (fails
         open to "unknown") instead of lying "connected" forever. Refreshed
-        on every tick while connected, and on connect/disconnect."""
+        on every tick for as long as there's a live client -- connected OR
+        disconnected-and-retrying -- so the web card shows "offline" during
+        a broker drop instead of going stale to "unknown" after 30s."""
         self._bridge_connected = connected
+        self._bridge_error = error
         payload = json.dumps({"connected": connected, "error": error, "at": time.time()})
         with contextlib.suppress(Exception):
             self.r.set(BRIDGE_STATUS_REDIS_KEY, payload, ex=BRIDGE_STATUS_TTL_S)
@@ -240,8 +244,8 @@ class HaBridge:
             if self._config is not None:
                 self._diff_published()
 
-        if self._bridge_connected:
-            self._set_bridge_status(True, None)
+        if self._client is not None:
+            self._set_bridge_status(self._bridge_connected, self._bridge_error)
 
         if now >= self._next_config_read:
             self._next_config_read = now + self.config_every_s

@@ -286,6 +286,49 @@ def test_bridge_status_json_on_connect_and_disconnect(r):
     assert status["error"] is not None
 
 
+def test_bridge_status_keeps_refreshing_while_disconnected(r):
+    """Coordinator follow-up: after `_on_disconnect`, `tick()` must keep
+    refreshing `ha:bridge:status` as `{connected: False, error, at}` with
+    the same 30s TTL -- the client is still alive and retrying, so the
+    status must say "offline", not go stale to "unknown" after 30s."""
+    t = [0.0]
+    client = FakeClient()
+    bridge = HaBridge(
+        r,
+        get_settings(),
+        active_ids=lambda: set(),
+        clock=lambda: t[0],
+        client_factory=lambda: client,
+        db_every_s=1000.0,
+        config_every_s=1000.0,
+    )
+    bridge._apply_config(
+        HaConfig(
+            ha_mqtt_url="mqtt://broker:1883",
+            ha_mqtt_user=None,
+            ha_mqtt_password=None,
+            ha_url=None,
+            ha_token=None,
+        )
+    )
+    bridge._on_disconnect(client, None, 7)
+    first = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))
+    assert first["connected"] is False
+    # Isolate this tick from the db/config resync branches (both due
+    # immediately otherwise, since `_next_db_read`/`_next_config_read`
+    # start at -inf) -- this test is only about the bottom status refresh.
+    bridge._next_db_read = float("inf")
+    bridge._next_config_read = float("inf")
+
+    t[0] = 25.0  # before the 30s TTL would otherwise expire
+    bridge.tick()
+    second = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))
+    assert second["connected"] is False
+    assert second["error"] == first["error"]
+    assert second["at"] >= first["at"]
+    assert r.ttl(BRIDGE_STATUS_REDIS_KEY) > 25
+
+
 def test_bridge_status_refreshed_every_tick(r):
     t = [0.0]
     client = FakeClient()

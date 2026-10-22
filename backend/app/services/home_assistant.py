@@ -203,7 +203,14 @@ def poll_once(
             checked_at = now if now is not None else datetime.now(UTC)
             status = {"ok": False, "error": "unreachable", "checked_at": checked_at.isoformat()}
             r.set(STATUS_KEY, json.dumps(status), ex=STATUS_TTL_S)
-            for key in r.scan_iter("ha:alert:*"):
+            # Only the per-printer alert keys (`ha:alert:{pid}`, digits
+            # right after the prefix) -- NOT `ha:alert:fired:{link_id}:
+            # {pid}` (edge bookkeeping), which a plain "ha:alert:*" glob
+            # also matches. Clearing a fired key here would let a
+            # still-firing pause condition fire a SECOND pause the moment
+            # HA comes back, since the edge-triggered NX guard would have
+            # been wiped out from under it.
+            for key in r.scan_iter("ha:alert:[0-9]*"):
                 r.delete(key)
             return status
 

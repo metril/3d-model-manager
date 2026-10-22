@@ -276,6 +276,58 @@ def test_pause_on_alert_edge_only(redis_url: str):
 
 
 @respx.mock
+def test_unreachable_does_not_clear_fired_key(redis_url: str):
+    """Coordinator follow-up: the HA-unreachable path's `ha:alert:*` sweep
+    must not delete `ha:alert:fired:{link_id}:{pid}` -- otherwise a still-
+    firing pause condition fires a SECOND pause the moment HA comes back,
+    since the edge-triggered NX guard was wiped out from under it."""
+    r = redis_lib.Redis.from_url(redis_url)
+    route = _state_route("binary_sensor.door", "on")
+    with base.sync_session() as s:
+        printer = _seed_printer_raw(s, name="UnreachableFired")
+        link = HaLink(
+            printer_id=printer.id,
+            entity_id="binary_sensor.door",
+            role=HaRole.DOOR,
+            alert_condition={"op": "eq", "value": "on"},
+            pause_print=True,
+        )
+        s.add(link)
+        s.commit()
+        pid, link_id = printer.id, link.id
+
+    r.set(state_key(pid), json.dumps(RUNNING_STATE))
+    pubsub = r.pubsub()
+    pubsub.subscribe(command_channel(pid))
+    pubsub.get_message(timeout=1)
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg())  # fires once, sets the fired key
+
+    msgs = [json.loads(m["data"]) for m in iter(lambda: pubsub.get_message(timeout=0.2), None) if m]
+    assert msgs == [{"command": "pause"}]
+    assert r.get(fired_key(link_id, pid)) is not None
+
+    # HA goes unreachable -- the condition is STILL firing on HA's side,
+    # it just can't be observed right now.
+    respx.get(f"{BASE_URL}/api/states/binary_sensor.door").mock(return_value=httpx.Response(503))
+    with base.sync_session() as s:
+        result = poll_once(s, r, _cfg())
+    assert result["ok"] is False
+    assert r.get(fired_key(link_id, pid)) is not None  # survived
+
+    # HA comes back, condition still firing -- must NOT pause again.
+    route.respond(200, json={"state": "on", "attributes": {}})
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg())
+
+    msgs = [json.loads(m["data"]) for m in iter(lambda: pubsub.get_message(timeout=0.2), None) if m]
+    assert msgs == []
+    pubsub.close()
+    r.close()
+
+
+@respx.mock
 def test_pause_print_false_gives_no_pause(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
     _state_route("binary_sensor.door", "on")
