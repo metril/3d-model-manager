@@ -409,6 +409,61 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"cannot retry from state {entry.state.value}"
         )
+
+    # C1: a prior attempt that already posted a `charge` (settled via the
+    # normal archive path, e.g. a partial failure) can never be billed
+    # again on THIS id -- `billing.append`'s own (queue_id, kind)
+    # idempotency index would silently drop the retried print's charge.
+    # Clone into a fresh queue row (new id -> fresh reservation keys) and
+    # retire the old one instead of resetting it in place.
+    already_charged = await db.run_sync(lambda s: billing.charged(s, entry.id))
+    if already_charged:
+        new_state = (
+            QueueState.WAITING
+            if entry.recipe_id is not None and entry.sliced_file_id is None
+            else QueueState.READY
+        )
+        position = await _append_position(db, front=False)
+        clone = PrintQueueEntry(
+            model_id=entry.model_id,
+            file_id=entry.file_id,
+            sliced_file_id=entry.sliced_file_id,
+            printer_id=entry.printer_id,
+            recipe_id=entry.recipe_id,
+            plate=entry.plate,
+            copies=entry.copies,
+            state=new_state,
+            position=position,
+            ams_mapping=entry.ams_mapping,
+            print_options=entry.print_options,
+            created_by_user_id=entry.created_by_user_id,
+            cost_center_id=entry.cost_center_id,
+        )
+        db.add(clone)
+        entry.state = QueueState.DONE
+        await db.flush()
+
+        cfg = await get_app_config(db, settings)
+
+        def _reserve_clone(sync_session) -> None:
+            current = sync_session.get(PrintQueueEntry, clone.id)
+            if current.cost_center_id is None or current.sliced_file_id is None:
+                return
+            est = estimate_item_sync(sync_session, settings, current)
+            billing.reserve(
+                sync_session,
+                cfg,
+                current,
+                Decimal(str(est)) if est is not None else None,
+                user_id=current.created_by_user_id,
+            )
+
+        await db.run_sync(_reserve_clone)
+        await db.commit()
+        await db.refresh(clone)
+        out = await _to_out(db, settings, [clone])
+        return out[0]
+
     entry.state = (
         QueueState.WAITING
         if entry.recipe_id is not None and entry.sliced_file_id is None
@@ -427,8 +482,17 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
 async def remove_entry(db: AsyncSession, entry_id: int) -> None:
     """Delete the entry, then compact the remaining positions back to a
     contiguous 1..n.
+
+    C2: a DISPATCHED or SLICING entry is already live against a printer or
+    the slicer sidecar -- deleting it here would silently abandon that
+    in-flight work without ever settling its reservation (the dispatcher/
+    archive path is the only thing that calls `billing.release`/`charge`
+    for it). 409 instead; the reservation stays open and settles normally
+    once the print finishes (or fails) through the usual archive path.
     """
     entry = await _get_entry_or_404(db, entry_id)
+    if entry.state in (QueueState.DISPATCHED, QueueState.SLICING):
+        raise HTTPException(status.HTTP_409_CONFLICT, "cancel the print first")
 
     def _release(sync_session) -> None:
         current = sync_session.get(PrintQueueEntry, entry.id)

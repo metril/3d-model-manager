@@ -150,7 +150,15 @@ def estimate_item_sync(session: Session, settings: Settings, item: PrintQueueEnt
             else None
         )
         usages.append((spool, grams))
-    return estimate_from_plate(plate, usages, rates)
+    per_copy = estimate_from_plate(plate, usages, rates)
+    # I1: the reservation must cover every copy up front (the dispatcher's
+    # copies-split fanout only ever TRANSFERS a slice of this total onto
+    # each clone -- see `billing.transfer` -- it never tops up a short
+    # reservation), so the per-clone unit (`reserved_cost / copies`) stays
+    # consistent with what was actually priced per copy.
+    if per_copy is None:
+        return None
+    return per_copy * item.copies
 
 
 def _can_print(ctx: AuthContext, printer_id: int) -> bool:

@@ -170,7 +170,14 @@ def ensure_private_center(s: Session, user_id: int) -> CostCenter:
             index_where=text("owner_user_id IS NOT NULL"),
         )
     )
-    return s.execute(select(CostCenter).where(CostCenter.owner_user_id == user_id)).scalar_one()
+    cc = s.execute(select(CostCenter).where(CostCenter.owner_user_id == user_id)).scalar_one()
+    if not cc.active:
+        # M5: mirror the group path's own active check -- a deactivated
+        # private center reactivates on next use rather than silently
+        # staying inactive (or 409ing someone who never chose to deactivate
+        # it themselves; a private center has no separate "reactivate" UI).
+        cc.active = True
+    return cc
 
 
 def usable_centers(s: Session, user_id: int) -> list[CostCenter]:
@@ -239,6 +246,25 @@ def release(s: Session, item: PrintQueueEntry, *, user_id: int | None = None) ->
     if entry is not None:
         item.reserved_cost = None
     return entry
+
+
+def charged(s: Session, queue_id: int) -> bool:
+    """Whether a ``charge`` ledger row already exists for ``queue_id`` --
+    i.e. the item was already settled once. A manual retry (C1) must clone
+    into a fresh queue row rather than reusing this id: a second charge
+    for the SAME id would be silently dropped by ``append``'s
+    ``(queue_id, kind)`` idempotency index, so the retried print's own
+    cost would never actually post.
+    """
+    return (
+        s.execute(
+            select(LedgerEntry.id).where(
+                LedgerEntry.print_queue_id == queue_id,
+                LedgerEntry.kind == LedgerKind.CHARGE,
+            )
+        ).first()
+        is not None
+    )
 
 
 def charge(s: Session, item: PrintQueueEntry, run: Print) -> LedgerEntry | None:
@@ -341,6 +367,7 @@ def recompute(s: Session, cc_id: int | None = None) -> dict[int, tuple[Decimal, 
     centers = s.execute(stmt).scalars().all()
     result: dict[int, tuple[Decimal, Decimal]] = {}
     for cc in centers:
+        cc = lock_center(s, cc.id)  # M1: hold the row for the SUM below too
         old = cc.balance
         total = s.execute(
             select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(

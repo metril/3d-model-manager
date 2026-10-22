@@ -287,6 +287,66 @@ def test_ensure_private_center_race(make_sync_user):
         assert rows[0].name == "Grace"
 
 
+def test_ensure_private_center_reactivates(make_sync_user) -> None:
+    """M5: a deactivated private center reactivates on next use (mirrors
+    the group path's own `active` check) rather than silently staying
+    inactive -- a private center has no separate "reactivate" UI."""
+    with base.sync_session() as s:
+        user = make_sync_user(s, "iris", display_name="Iris")
+        s.commit()
+        cc = billing.ensure_private_center(s, user.id)
+        s.commit()
+        cc_id, user_id = cc.id, user.id
+
+    with base.sync_session() as s:
+        cc = s.get(CostCenter, cc_id)
+        cc.active = False
+        s.commit()
+
+    with base.sync_session() as s:
+        cc = billing.ensure_private_center(s, user_id)
+        s.commit()
+        assert cc.id == cc_id
+        assert cc.active is True
+
+
+# ---------------------------------------------------------------------------
+# recompute() locks the row before summing
+# ---------------------------------------------------------------------------
+
+
+def test_recompute_locks_row_before_sum(monkeypatch: pytest.MonkeyPatch, make_cost_center) -> None:
+    """M1: `recompute` must hold the center's row lock across the SUM, not
+    just read the already-fetched row -- otherwise a concurrent
+    reserve/append between the listing query and the SUM could be missed,
+    reading a stale total under an unlocked row."""
+    with base.sync_session() as s:
+        from app.models import User
+        from app.models.enums import UserRole
+
+        owner = User(username="lock-order-owner", role=UserRole.MEMBER)
+        s.add(owner)
+        s.flush()
+        cc = make_cost_center(s, "lock-order-cc", owner_user_id=owner.id)
+        billing.append(s, cc.id, LedgerKind.DEPOSIT, Decimal("5"))
+        s.commit()
+        cc_id = cc.id
+
+    calls: list[int] = []
+    real_lock_center = billing.lock_center
+
+    def _spy(s, cc_id_arg):
+        calls.append(cc_id_arg)
+        return real_lock_center(s, cc_id_arg)
+
+    monkeypatch.setattr(billing, "lock_center", _spy)
+
+    with base.sync_session() as s:
+        billing.recompute(s, cc_id)
+
+    assert calls == [cc_id]
+
+
 # ---------------------------------------------------------------------------
 # concurrent reserve() under the row lock
 # ---------------------------------------------------------------------------

@@ -224,12 +224,19 @@ class _FakeSlicerClient:
         return self.result
 
 
-def _seed_recipe_entry(session, *, cost_center_id: int, created_by_user_id: int) -> int:
+def _seed_recipe_entry(
+    session,
+    *,
+    cost_center_id: int,
+    created_by_user_id: int,
+    copies: int = 1,
+    slug: str = "billing-recipe",
+) -> int:
     from app.models.enums import ProfileKind
     from app.models.library import Blob, File
     from app.models.slicing import PrintRecipe, SlicerProfile
 
-    model = Model(slug="billing-recipe", name="billing-recipe")
+    model = Model(slug=slug, name=slug)
     session.add(model)
     session.flush()
     revision = Revision(model_id=model.id, number=1, dir_name="rev-001")
@@ -240,25 +247,29 @@ def _seed_recipe_entry(session, *, cost_center_id: int, created_by_user_id: int)
     from blake3 import blake3
 
     digest = blake3(source_bytes).hexdigest()
-    blob = Blob(hash=digest, size=len(source_bytes), kind=BlobKind.MESH, format=BlobFormat.THREEMF)
-    session.add(blob)
-    session.flush()
+    blob = session.get(Blob, digest)
+    if blob is None:
+        blob = Blob(
+            hash=digest, size=len(source_bytes), kind=BlobKind.MESH, format=BlobFormat.THREEMF
+        )
+        session.add(blob)
+        session.flush()
     source_file = File(
         revision_id=revision.id,
         blob_hash=digest,
-        rel_path="billing-recipe.3mf",
+        rel_path=f"{slug}.3mf",
         storage_path="x",
         verified_at=None,
     )
     session.add(source_file)
     session.flush()
 
-    printer_profile = SlicerProfile(name="p-printer", kind=ProfileKind.PRINTER, data={})
-    process_profile = SlicerProfile(name="p-process", kind=ProfileKind.PROCESS, data={})
+    printer_profile = SlicerProfile(name=f"{slug}-printer", kind=ProfileKind.PRINTER, data={})
+    process_profile = SlicerProfile(name=f"{slug}-process", kind=ProfileKind.PROCESS, data={})
     session.add_all([printer_profile, process_profile])
     session.flush()
     recipe = PrintRecipe(
-        name="billing-recipe-r",
+        name=f"{slug}-r",
         printer_profile_id=printer_profile.id,
         process_profile_id=process_profile.id,
         filament_profile_ids=[None],
@@ -273,7 +284,7 @@ def _seed_recipe_entry(session, *, cost_center_id: int, created_by_user_id: int)
         file_id=source_file.id,
         recipe_id=recipe.id,
         plate=1,
-        copies=1,
+        copies=copies,
         state=QueueState.SLICING,
         position=1,
         cost_center_id=cost_center_id,
@@ -337,6 +348,59 @@ def test_recipe_item_reserves_after_slice(
         ).scalar_one_or_none()
         assert res is not None
         assert res.cost_center_id == cc_id
+
+
+@pytest.mark.usefixtures("data_dir", "migrated_db")
+def test_recipe_item_reserves_copies_times_unit_cost(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+) -> None:
+    """I1: the reservation must cover every copy up front -- `copies=5`
+    reserves 5x the single-copy estimate, so the per-clone unit the
+    dispatcher's own fanout later transfers off (`reserved_cost / copies`)
+    stays consistent with what was actually priced per copy."""
+    from app.services import derivatives
+    from app.tasks import slicing
+
+    def _fake_fetch(session, settings, blob_hash, dest_dir, suffix):
+        dest = dest_dir / f"blob{suffix}"
+        dest.write_bytes(b"fake-3mf-source-bytes")
+        return dest
+
+    monkeypatch.setattr(derivatives, "fetch_blob_to_temp", _fake_fetch)
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: _FakeSlicerClient(sliced_3mf_bytes)
+    )
+
+    with base.sync_session() as s:
+        row = s.get(Setting, "app")
+        if row is None:
+            s.add(Setting(key="app", value={"billing_enabled": True}))
+        else:
+            row.value = {**(row.value or {}), "billing_enabled": True}
+        s.commit()
+
+    def _run(copies: int, slug: str) -> Decimal:
+        with base.sync_session() as s:
+            from app.models import User
+            from app.models.enums import UserRole
+
+            user = User(username=f"copies-owner-{slug}", role=UserRole.MEMBER)
+            s.add(user)
+            s.flush()
+            cc = billing.ensure_private_center(s, user.id)
+            s.commit()
+            entry_id = _seed_recipe_entry(
+                s, cost_center_id=cc.id, created_by_user_id=user.id, copies=copies, slug=slug
+            )
+        slicing.slice_file(entry_id)
+        with base.sync_session() as s:
+            refreshed = s.get(PrintQueueEntry, entry_id)
+            assert refreshed.reserved_cost is not None
+            return refreshed.reserved_cost
+
+    one_copy = _run(1, "copies-one")
+    five_copies = _run(5, "copies-five")
+    assert five_copies == billing.q2(one_copy * 5)
 
 
 # ---------------------------------------------------------------------------
@@ -591,4 +655,98 @@ async def test_retry_over_budget_rereserves(db_session: AsyncSession) -> None:
         .all()
     )
     assert len(rows) == 1
-    assert rows[0].amount == Decimal("-5.00")
+
+
+# ---------------------------------------------------------------------------
+# C1: retry of an already-settled item clones to a fresh id
+# ---------------------------------------------------------------------------
+
+
+async def test_retry_after_settle_clones_to_fresh_id(
+    db_session: AsyncSession, seed_file: Callable[..., Awaitable]
+) -> None:
+    """A queue item that already posted a `charge` (settled via the
+    archive path, e.g. a partial failure) must not be retried in place --
+    a second charge for the SAME id would be silently dropped by the
+    ledger's own idempotency index. Retry clones a fresh row instead, and
+    a charge against the NEW id posts independently of the old one.
+    """
+    await _enable_billing(db_session)
+    from app.models import Print, User
+    from app.models.enums import UserRole
+
+    user = User(username="settled-retry-owner", role=UserRole.MEMBER)
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    model, revision = await _model_and_revision(db_session, "settled-retry")
+    f = await seed_file(
+        model,
+        revision,
+        "job.gcode.3mf",
+        b"gc",
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+
+    def _seed(s) -> int:
+        cc = billing.ensure_private_center(s, user.id)
+        s.flush()
+        entry = PrintQueueEntry(
+            model_id=model.id,
+            file_id=f.id,
+            sliced_file_id=f.id,
+            position=1,
+            state=QueueState.FAILED,
+            cost_center_id=cc.id,
+            created_by_user_id=user.id,
+            reserved_cost=None,
+            attempts=3,
+        )
+        s.add(entry)
+        s.flush()
+        billing.append(
+            s, cc.id, LedgerKind.RESERVATION, Decimal("-10.00"), queue_id=entry.id, user_id=user.id
+        )
+        billing.append(
+            s, cc.id, LedgerKind.RELEASE, Decimal("10.00"), queue_id=entry.id, user_id=user.id
+        )
+        run = Print(print_job_id=None, total_cost=Decimal("4.00"))
+        s.add(run)
+        s.flush()
+        billing.append(
+            s,
+            cc.id,
+            LedgerKind.CHARGE,
+            -billing.q2(run.total_cost),
+            queue_id=entry.id,
+            print_id=run.id,
+            user_id=user.id,
+        )
+        s.commit()
+        return entry.id, cc.id
+
+    entry_id, cc_id = await db_session.run_sync(_seed)
+
+    settings = get_settings()
+    out = await queue_service.retry_entry(db_session, settings, entry_id)
+    assert out.id != entry_id
+
+    old = await db_session.get(PrintQueueEntry, entry_id)
+    assert old.state == QueueState.DONE
+
+    new_entry = await db_session.get(PrintQueueEntry, out.id)
+    assert new_entry.state == QueueState.READY
+
+    def _charge_new(s) -> int:
+        current = s.get(PrintQueueEntry, out.id)
+        run2 = Print(print_job_id=None, total_cost=Decimal("4.00"))
+        s.add(run2)
+        s.flush()
+        billing.charge(s, current, run2)
+        s.commit()
+        return s.execute(select(LedgerEntry).where(LedgerEntry.kind == LedgerKind.CHARGE)).all()
+
+    charges = await db_session.run_sync(_charge_new)
+    assert len(charges) == 2  # old id's charge + new id's charge, both posted

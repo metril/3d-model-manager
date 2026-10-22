@@ -552,6 +552,54 @@ async def test_retry_unknown_entry_is_404(authenticated_client: httpx.AsyncClien
     assert r.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# C2: a dispatched/slicing entry can't be deleted out from under the print
+# ---------------------------------------------------------------------------
+
+
+async def test_delete_dispatched_entry_is_409_for_owner(
+    make_user, make_group, login_as, db_session: AsyncSession
+) -> None:
+    """A member who owns the entry still can't delete it once it's
+    DISPATCHED -- the reservation stays open and settles normally via the
+    archive path instead of being silently abandoned."""
+    member = await make_user("member")
+    await make_group("dispatch-owner-folks", permissions=["printers:print"], members=[member])
+    client = await login_as(member)
+
+    model = await _create_model(client, "Dispatched Delete")
+    enqueue = await client.post("/api/queue", json={"model_id": model["id"]})
+    entry_id = enqueue.json()["id"]
+
+    entry = await db_session.get(PrintQueueEntry, entry_id)
+    entry.state = QueueState.DISPATCHED
+    entry.created_by_user_id = member.id
+    await db_session.commit()
+
+    r = await client.delete(f"/api/queue/{entry_id}")
+    assert r.status_code == 409
+    assert "cancel the print" in r.json()["detail"]
+
+    still_there = await db_session.get(PrintQueueEntry, entry_id)
+    assert still_there is not None
+    assert still_there.state == QueueState.DISPATCHED
+
+
+async def test_delete_slicing_entry_is_409(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    model = await _create_model(authenticated_client, "Slicing Delete")
+    enqueue = await authenticated_client.post("/api/queue", json={"model_id": model["id"]})
+    entry_id = enqueue.json()["id"]
+
+    entry = await db_session.get(PrintQueueEntry, entry_id)
+    entry.state = QueueState.SLICING
+    await db_session.commit()
+
+    r = await authenticated_client.delete(f"/api/queue/{entry_id}")
+    assert r.status_code == 409
+
+
 async def test_visibility_hides_items_on_invisible_printers(
     db_session: AsyncSession,
     seed_file: Callable[..., Awaitable[File]],
