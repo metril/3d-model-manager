@@ -20,7 +20,13 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import iterate_in_threadpool
 
-from app.api.deps import SESSION_COOKIE_NAME, require_perm, require_session
+from app.api.deps import (
+    SESSION_COOKIE_NAME,
+    AuthContext,
+    require_owner_or_admin,
+    require_perm,
+    require_session,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Blob, File
@@ -52,7 +58,11 @@ async def delete_file(
     file_id: int,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> None:
+    file = await db.get(File, file_id)
+    if file is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, file.created_by_user_id)
     await library.delete_file(db, settings, file_id)
 
 

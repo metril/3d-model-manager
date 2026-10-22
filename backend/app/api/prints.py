@@ -12,8 +12,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_perm
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.db import get_db
+from app.models.library import Print
 from app.schemas.prints import PrintCreateIn, PrintOut, PrintPatchIn
 from app.services import library
 from app.services import prints as prints_service
@@ -28,7 +29,10 @@ router = APIRouter(tags=["prints"])
     dependencies=[Depends(require_perm("library:write"))],
 )
 async def create_print(
-    model_id: int, payload: PrintCreateIn, db: AsyncSession = Depends(get_db)
+    model_id: int,
+    payload: PrintCreateIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> PrintOut:
     await library.get_model_by_id(db, model_id)  # raises 404 if unknown
     return await prints_service.create_print(
@@ -42,6 +46,7 @@ async def create_print(
         result=payload.result,
         duration_min=payload.duration_min,
         notes=payload.notes,
+        created_by_user_id=ctx.user.id,
     )
 
 
@@ -67,5 +72,12 @@ async def patch_print(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_perm("library:write"))],
 )
-async def delete_print(print_id: int, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_print(
+    print_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> None:
+    row = await db.get(Print, print_id)
+    if row is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, row.created_by_user_id)
     await prints_service.delete_print(db, print_id)

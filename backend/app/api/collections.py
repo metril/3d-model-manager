@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_perm
+from app.api.deps import AuthContext, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.makerworld import parse_collection_url
@@ -71,7 +71,10 @@ async def list_pending_imports(
     dependencies=[Depends(require_perm("library:write"))],
 )
 async def approve_pending_import(
-    pending_id: int, response: Response, db: AsyncSession = Depends(get_db)
+    pending_id: int,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> ImportOut:
     """Import a queued item, then un-queue it. Goes through the same
     dedup-guarded ``start_import`` as ``POST /imports``, so approving something
@@ -88,7 +91,7 @@ async def approve_pending_import(
     groups = await collections_svc.resolve_display_collections(db, [pending])
     group_collection_id, _group_title = groups[pending.id]
     collection = await collections_svc.get_followed(db, group_collection_id)
-    imp, created = await start_import(db, pending.url, collection)
+    imp, created = await start_import(db, pending.url, collection, created_by_user_id=ctx.user.id)
     await collections_svc.delete_pending(db, pending_id)
     if not created:
         response.status_code = status.HTTP_200_OK
@@ -120,7 +123,9 @@ async def list_followed_collections(
     dependencies=[Depends(require_perm("library:write"))],
 )
 async def follow_collection(
-    payload: FollowCollectionIn, db: AsyncSession = Depends(get_db)
+    payload: FollowCollectionIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
     row = await collections_svc.follow(
         db,
@@ -129,6 +134,7 @@ async def follow_collection(
         kind=payload.kind,
         title=payload.title,
         mode=payload.mode,
+        created_by_user_id=ctx.user.id,
     )
     return FollowedCollectionOut.from_model(row)
 
@@ -140,7 +146,9 @@ async def follow_collection(
     dependencies=[Depends(require_perm("library:write"))],
 )
 async def follow_collection_from_url(
-    payload: FollowFromUrlIn, db: AsyncSession = Depends(get_db)
+    payload: FollowFromUrlIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> FollowedCollectionOut:
     """Add-by-URL escape hatch (M10 Workstream A): follow a MakerWorld
     collection by pasting its URL, for when the SSR route that would
@@ -170,6 +178,7 @@ async def follow_collection_from_url(
         kind="collection",
         title=title,
         mode=payload.mode,
+        created_by_user_id=ctx.user.id,
     )
     return FollowedCollectionOut.from_model(row)
 

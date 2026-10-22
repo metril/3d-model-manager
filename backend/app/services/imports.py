@@ -35,7 +35,10 @@ def _enqueue(imp: Import) -> None:
 
 
 async def start_import(
-    db: AsyncSession, url: str, collection: FollowedCollection | None = None
+    db: AsyncSession,
+    url: str,
+    collection: FollowedCollection | None = None,
+    created_by_user_id: int | None = None,
 ) -> tuple[Import, bool]:
     """Returns ``(import_row, created)``. ``created`` is False when the model was
     already in the library -- the caller then hands back the EXISTING import
@@ -70,6 +73,7 @@ async def start_import(
         external_id=external_id,
         state=ImportState.PENDING,
         collection_id=collection.id if collection else None,
+        created_by_user_id=created_by_user_id,
     )
     db.add(imp)
     await db.commit()

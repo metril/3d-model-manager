@@ -435,6 +435,8 @@ class ModelDetail(BaseModel):
     # R13c: free-form key/value metadata + a plain-text print-tips note.
     metadata: dict[str, str] | None = None
     print_tips: str | None = None
+    created_by_user_id: int | None = None
+    created_by_username: str | None = None
 
 
 # -- diff -------------------------------------------------------------

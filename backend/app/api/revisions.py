@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_storage_backend, require_perm
+from app.api.deps import AuthContext, get_storage_backend, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AssemblyThumb, Revision
@@ -46,10 +46,17 @@ async def create_revision(
     db: AsyncSession = Depends(get_db),
     backend: StorageBackend = Depends(get_storage_backend),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> RevisionDetail:
     model = await library.get_model_by_id(db, model_id)
     revision = await library.create_revision(
-        db, backend, model, settings, name=payload.name, note=payload.note
+        db,
+        backend,
+        model,
+        settings,
+        name=payload.name,
+        note=payload.note,
+        created_by_user_id=ctx.user.id,
     )
     return await library.build_revision_detail(db, revision, settings)
 

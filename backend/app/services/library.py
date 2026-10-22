@@ -36,6 +36,7 @@ from sqlalchemy.orm import selectinload
 from app.config import Settings
 from app.importers.base import SiteImporter
 from app.importers.registry import get_importer
+from app.models import User
 from app.models.enums import BlobFormat, BlobKind, DerivativeKind, DerivativeStatus, ImportSite
 from app.models.library import Blob, Category, File, Model, Note, Print, Revision, Tag, model_tags
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
@@ -219,6 +220,7 @@ async def create_model(
     imported_at: datetime | None = None,
     initial_revision_name: str = "initial",
     commit: bool = True,
+    created_by_user_id: int | None = None,
 ) -> Model:
     """``commit=False`` (Round 8 fix-review M2, mirroring
     ``create_imported_model_sync``'s existing ``commit`` param) lets a
@@ -247,12 +249,19 @@ async def create_model(
         source_author=source_author,
         source_license=source_license,
         imported_at=imported_at,
+        created_by_user_id=created_by_user_id,
     )
     db.add(model)
     await db.flush()  # assigns model.id, needed for the sidecar body
 
     dir_name = layout.revision_dir_name(1, initial_revision_name)
-    revision = Revision(model_id=model.id, number=1, name=initial_revision_name, dir_name=dir_name)
+    revision = Revision(
+        model_id=model.id,
+        number=1,
+        name=initial_revision_name,
+        dir_name=dir_name,
+        created_by_user_id=created_by_user_id,
+    )
     db.add(revision)
     await db.flush()
 
@@ -1411,6 +1420,12 @@ async def build_model_detail(db: AsyncSession, model: Model, settings: Settings)
         )
     ).one()
 
+    created_by_username = (
+        await db.scalar(select(User.username).where(User.id == model.created_by_user_id))
+        if model.created_by_user_id is not None
+        else None
+    )
+
     return ModelDetail(
         id=model.id,
         slug=model.slug,
@@ -1445,6 +1460,8 @@ async def build_model_detail(db: AsyncSession, model: Model, settings: Settings)
         ),
         metadata=model.metadata_json,
         print_tips=model.print_tips,
+        created_by_user_id=model.created_by_user_id,
+        created_by_username=created_by_username,
     )
 
 
@@ -1480,6 +1497,7 @@ async def create_revision(
     *,
     name: str | None,
     note: str | None,
+    created_by_user_id: int | None = None,
 ) -> Revision:
     """Full-snapshot-copy the current revision's files into a new revision
     (SPEC "Storage layer" -> "New revision"): mkdirs -> ``backend.copy()``
@@ -1541,7 +1559,12 @@ async def create_revision(
         old_file_backend_id[old_file.id] = bid
 
     new_revision = Revision(
-        model_id=model.id, number=next_number, name=name, note=note, dir_name=dir_name
+        model_id=model.id,
+        number=next_number,
+        name=name,
+        note=note,
+        dir_name=dir_name,
+        created_by_user_id=created_by_user_id,
     )
     db.add(new_revision)
     await db.flush()
@@ -1574,6 +1597,7 @@ async def create_revision(
             # the resulting file yet.
             verified_at=None,
             backend_id=old_file_backend_id[old_file.id],
+            created_by_user_id=created_by_user_id,
         )
         db.add(new_file)
         new_files.append(new_file)
@@ -1749,6 +1773,7 @@ async def finalize_upload(
     format_: BlobFormat,
     replace: bool,
     after_blob_flush: Callable[[], None] | None = None,
+    created_by_user_id: int | None = None,
 ) -> File:
     """Upsert the ``Blob`` by hash (dedupe) and create/replace the ``File``
     row once the upload's bytes are fully spooled and hashed (Task 6
@@ -1820,6 +1845,7 @@ async def finalize_upload(
         rel_path=rel_path,
         storage_path=layout.file_key(model.slug, revision.dir_name, rel_path),
         verified_at=None,
+        created_by_user_id=created_by_user_id,
     )
     db.add(file)
     # Backlog fold: touch the model's `updated_at` so it sorts correctly in
@@ -2006,7 +2032,12 @@ async def remove_tag_from_model(db: AsyncSession, model_id: int, name: str) -> N
 
 
 async def create_note(
-    db: AsyncSession, *, model_id: int, revision_id: int | None, body: str
+    db: AsyncSession,
+    *,
+    model_id: int,
+    revision_id: int | None,
+    body: str,
+    created_by_user_id: int | None = None,
 ) -> NoteOut:
     model = await get_model_by_id(db, model_id)
     if revision_id is not None:
@@ -2016,7 +2047,12 @@ async def create_note(
                 status.HTTP_404_NOT_FOUND,
                 f"revision {revision_id} not found on model {model_id}",
             )
-    note = Note(model_id=model_id, revision_id=revision_id, body=body)
+    note = Note(
+        model_id=model_id,
+        revision_id=revision_id,
+        body=body,
+        created_by_user_id=created_by_user_id,
+    )
     db.add(note)
     await db.commit()
     return NoteOut.from_model(note)

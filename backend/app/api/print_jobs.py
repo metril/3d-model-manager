@@ -38,8 +38,13 @@ async def list_print_jobs(
 
 
 @router.get("/{job_id}", response_model=PrintJobOut)
-async def get_print_job(job_id: int, db: AsyncSession = Depends(get_db)) -> PrintJobOut:
+async def get_print_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> PrintJobOut:
     job = await db.get(PrintJob, job_id)
-    if job is None:
+    visible = visible_printer_ids(ctx)
+    if job is None or (visible is not None and job.printer_id not in visible):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "print job not found")
     return PrintJobOut.from_model(job)

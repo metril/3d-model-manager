@@ -248,6 +248,7 @@ async def start_print(
     payload: PrintRequest,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> PrintJobOut:
     """Fast pre-checks only (SPEC "Printer integration"; Task 6): a cheap
     format check (no archive read) and a Redis preflight read. Both are
@@ -284,6 +285,7 @@ async def start_print(
         file_id=file.id,
         state=PrintJobState.QUEUED,
         subtask_name=payload.subtask_name,
+        created_by_user_id=ctx.user.id,
     )
     db.add(job)
     await db.commit()
