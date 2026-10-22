@@ -5,6 +5,7 @@ import {
   Image as ImageIcon,
   type LucideIcon,
   File as FileIcon,
+  Video as VideoIcon,
 } from "lucide-react";
 
 import type { BlobFormat } from "@/api/types";
@@ -26,6 +27,9 @@ export const FORMAT_LABELS: Record<BlobFormat, string> = {
   md: "Markdown",
   txt: "Text",
   docx: "Word",
+  // P4 camera plan: timelapse video formats (`BlobKind.video`).
+  mp4: "MP4",
+  avi: "AVI",
   other: "File",
 };
 
@@ -50,6 +54,9 @@ export function formatIcon(format: BlobFormat | undefined): LucideIcon {
     case "txt":
     case "docx":
       return FileText;
+    case "mp4":
+    case "avi":
+      return VideoIcon;
     default:
       return FileIcon;
   }

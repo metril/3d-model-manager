@@ -22,6 +22,9 @@ class BlobKind(StrEnum):
     # notes) -- distinct from every other kind, which are all 3D-printing
     # artifacts. Never enters the GLB/thumb pipeline (see `PIPELINE_STEPS`).
     DOC = "doc"
+    # P4 camera plan: printer-captured snapshot/timelapse media
+    # (`PrintArchive.snapshot_blob`/`timelapse_blob`).
+    VIDEO = "video"
     OTHER = "other"
 
 
@@ -43,6 +46,9 @@ class BlobFormat(StrEnum):
     MD = "md"
     TXT = "txt"
     DOCX = "docx"
+    # P4 camera plan: timelapse video formats (`BlobKind.VIDEO`).
+    MP4 = "mp4"
+    AVI = "avi"
     OTHER = "other"
 
 

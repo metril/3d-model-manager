@@ -29,6 +29,9 @@ class ArchiveOut(BaseModel):
     fetch_error: str | None
     has_thumbnail: bool
     has_file: bool
+    has_snapshot: bool
+    has_timelapse: bool
+    media_note: str | None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime
