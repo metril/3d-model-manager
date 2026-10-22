@@ -100,6 +100,11 @@ class MeGroup(BaseModel):
 class PrinterFlags(BaseModel):
     print: bool
     control: bool
+    # P7 review/billing plan Task 6: whether this user may review/approve
+    # queue items targeting this printer -- the global `queue:review` perm
+    # AND their own per-printer `can_print` ACL (mirrors
+    # `app.services.review.can_review`'s own check for a non-admin).
+    review: bool
 
 
 class MeOut(BaseModel):
@@ -131,7 +136,11 @@ async def me(ctx: AuthContext = Depends(require_session)) -> MeOut:
         printer_access=None
         if ctx.is_admin
         else {
-            str(pid): PrinterFlags(print=a.can_print, control=a.can_control)
+            str(pid): PrinterFlags(
+                print=a.can_print,
+                control=a.can_control,
+                review=("queue:review" in ctx.perms) and a.can_print,
+            )
             for pid, a in ctx.printer_acl.items()
         },
     )

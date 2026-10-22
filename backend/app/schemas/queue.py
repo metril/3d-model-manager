@@ -7,6 +7,7 @@ lifecycle.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -46,6 +47,18 @@ class QueueEnqueueIn(BaseModel):
     # billing is on. ``None`` lazily resolves to the enqueuer's own private
     # center (``app.services.billing.ensure_private_center``).
     cost_center_id: int | None = None
+
+
+class ReviewIn(BaseModel):
+    """``POST /queue/{entry_id}/review`` payload (P7 review/billing plan
+    Task 6)."""
+
+    action: Literal["approve", "reject"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ReviewCountOut(BaseModel):
+    count: int
 
 
 class QueueReorderIn(BaseModel):

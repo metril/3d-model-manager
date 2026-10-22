@@ -10,13 +10,14 @@ contiguous list, rather than tracking gaps.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
@@ -24,7 +25,7 @@ from app.models import CostCenter, GroupMember
 from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.slicing import PrintRecipe
-from app.schemas.queue import QueueEnqueueIn, QueueEntryOut
+from app.schemas.queue import QueueEnqueueIn, QueueEntryOut, ReviewIn
 from app.services import billing, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
@@ -470,3 +471,87 @@ async def move_entry(
     await db.commit()
 
     return await list_queue(db, settings, ctx)
+
+
+# ---------------------------------------------------------------------------
+# P7 review/billing plan Task 6: review inbox + approve/reject.
+# ---------------------------------------------------------------------------
+
+
+def _reviewable_ids_sync(s: Session, ctx: AuthContext) -> list[int]:
+    """Every ``pending`` entry ``ctx`` is allowed to act on
+    (``app.services.review.can_review``), oldest position first."""
+    items = (
+        s.execute(
+            select(PrintQueueEntry)
+            .where(PrintQueueEntry.review_state == ReviewState.PENDING)
+            .order_by(PrintQueueEntry.position)
+        )
+        .scalars()
+        .all()
+    )
+    return [item.id for item in items if review.can_review(ctx, s, item)]
+
+
+async def review_inbox(
+    db: AsyncSession, settings: Settings, ctx: AuthContext
+) -> list[QueueEntryOut]:
+    ids = await db.run_sync(_reviewable_ids_sync, ctx)
+    if not ids:
+        return []
+    entries = list(
+        (
+            await db.execute(
+                select(PrintQueueEntry)
+                .where(PrintQueueEntry.id.in_(ids))
+                .order_by(PrintQueueEntry.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return await _to_out(db, settings, entries)
+
+
+async def review_inbox_count(db: AsyncSession, ctx: AuthContext) -> int:
+    ids = await db.run_sync(_reviewable_ids_sync, ctx)
+    return len(ids)
+
+
+async def review_entry(
+    db: AsyncSession,
+    settings: Settings,
+    entry_id: int,
+    payload: ReviewIn,
+    ctx: AuthContext,
+) -> QueueEntryOut:
+    """Approve/reject a pending review. 404 unknown; 403 unless
+    ``can_review``; 409 unless ``review_state == pending``. A reject also
+    releases the item's open reservation (``billing.release``) -- one
+    commit covers the state transition and the release together.
+    """
+    entry = await _get_entry_or_404(db, entry_id)
+
+    def _apply(s: Session) -> None:
+        current = s.get(PrintQueueEntry, entry.id)
+        if not review.can_review(ctx, s, current):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "not a reviewer for this item")
+        if current.review_state != ReviewState.PENDING:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"cannot review from state {current.review_state.value}",
+            )
+        current.review_state = (
+            ReviewState.APPROVED if payload.action == "approve" else ReviewState.REJECTED
+        )
+        current.reviewed_by = ctx.user.id
+        current.reviewed_at = datetime.now(UTC)
+        current.review_note = payload.note
+        if payload.action == "reject":
+            billing.release(s, current, user_id=ctx.user.id)
+
+    await db.run_sync(_apply)
+    await db.commit()
+    await db.refresh(entry)
+    out = await _to_out(db, settings, [entry])
+    return out[0]
