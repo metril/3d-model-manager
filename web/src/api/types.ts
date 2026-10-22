@@ -1072,6 +1072,35 @@ export interface QueueEntry {
   printable_file: FileOut | null;
 }
 
+// -- printers overview (backend/app/schemas/printers.py, P3 Task 1) --------
+// One-call dashboard payload: every visible printer's live status + active
+// job + recent history, plus the queue's head and cross-printer recent runs.
+
+/** A `PrintJobOut` resolved onto its file's model. All three fields are
+ * `null` when the job has no `file_id` (an `external` job) or the file's
+ * revision/model was since deleted. */
+export interface ActiveJobOut extends PrintJobOut {
+  plate: number | null;
+  model_id: number | null;
+  model_slug: string | null;
+  model_name: string | null;
+}
+
+export interface PrinterOverviewItem {
+  printer: PrinterOut;
+  status: PrinterStatusOut;
+  active_job: ActiveJobOut | null;
+  last_runs: ArchiveOut[];
+  can_print: boolean;
+  can_control: boolean;
+}
+
+export interface PrintersOverviewOut {
+  printers: PrinterOverviewItem[];
+  up_next: QueueEntry[];
+  recent_runs: ArchiveOut[];
+}
+
 // -- duplicate-files report (backend/app/schemas/reports.py, Branch 4 Task 1)
 // Files sharing a blob hash across more than one model -- reclaimable
 // storage from the same content having been imported/uploaded more than once.

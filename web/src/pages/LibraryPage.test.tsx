@@ -126,9 +126,9 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
-function renderLibraryPage(initialEntries: string[] = ["/"]) {
+function renderLibraryPage(initialEntries: string[] = ["/library"]) {
   const rootRoute = createRootRoute();
-  const libraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: LibraryPage });
+  const libraryRoute = createRoute({ getParentRoute: () => rootRoute, path: "/library", component: LibraryPage });
   const uploadRoute = createRoute({ getParentRoute: () => rootRoute, path: "/upload", component: () => null });
   // A modified click on a card must NOT navigate here -- so a matching
   // detail route exists to prove it (same shape as ModelCard.test.tsx).
@@ -380,7 +380,7 @@ describe("LibraryPage", () => {
 
   it("seeds the collection filter from a ?collection= URL search param on mount", async () => {
     mockGalleryOkWithCollections([FOLLOWED_COLLECTION]);
-    renderLibraryPage(["/?collection=5"]);
+    renderLibraryPage(["/library?collection=5"]);
 
     await waitFor(() => expect(lastModelsCall()).toContain("collection=5"));
     expect(await screen.findByRole("button", { name: "Collection: Cool Prints" })).toBeInTheDocument();
@@ -560,7 +560,7 @@ describe("LibraryPage", () => {
 
     expect(await screen.findByText("4 selected")).toBeInTheDocument();
     // No navigation happened on either modified click.
-    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.location.pathname).toBe("/library");
   });
 
   it("ctrl-clicking a card toggles just that card's selection", async () => {
@@ -573,7 +573,7 @@ describe("LibraryPage", () => {
 
     fireEvent.click(cardLink("Test Model"), { ctrlKey: true });
     await waitFor(() => expect(screen.queryByText(/selected/)).not.toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/");
+    expect(router.state.location.pathname).toBe("/library");
   });
 });
 
@@ -829,7 +829,7 @@ describe("LibraryPage -- category facet (R13b)", () => {
 
   it("seeds the category filter from a ?category= URL search param on mount", async () => {
     mockGalleryOkWithCategories([CATEGORY]);
-    renderLibraryPage(["/?category=3"]);
+    renderLibraryPage(["/library?category=3"]);
 
     await waitFor(() => expect(lastModelsCall()).toContain("category=3"));
   });
@@ -842,11 +842,14 @@ describe("LibraryPage -- category facet (R13b)", () => {
   // filter live, and preserve whatever else was already in the URL.
   it("updates the category filter live when ?category= changes without remounting, preserving other search params", async () => {
     mockGalleryOkWithCategories([CATEGORY]);
-    const { router } = renderLibraryPage(["/?collection=5"]);
+    const { router } = renderLibraryPage(["/library?collection=5"]);
     await screen.findByText("No models yet");
 
     await act(async () => {
-      await router.navigate({ to: "/", search: (prev: Record<string, unknown>) => ({ ...prev, category: 3 }) });
+      await router.navigate({
+        to: "/library",
+        search: (prev: Record<string, unknown>) => ({ ...prev, category: 3 }),
+      });
     });
 
     await waitFor(() => expect(lastModelsCall()).toContain("category=3"));

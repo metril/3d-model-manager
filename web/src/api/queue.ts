@@ -32,7 +32,12 @@ export function useEnqueueModel({ silentError = false }: { silentError?: boolean
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (modelId: number) => api.post<QueueEntry>("/queue", { model_id: modelId }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queueQueryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
+      // P3 Task 3: the overview's `up_next` is the queue's head -- keep it
+      // in sync with every queue mutation, not just a manual overview poll.
+      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
+    },
     meta: { silentError },
   });
 }
@@ -41,7 +46,10 @@ export function useRemoveQueueEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (entryId: number) => api.delete<void>(`/queue/${entryId}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queueQueryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
+      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
+    },
   });
 }
 
@@ -52,6 +60,9 @@ export function useMoveQueueEntry() {
   return useMutation({
     mutationFn: ({ entryId, position }: { entryId: number; position: number }) =>
       api.patch<QueueEntry[]>(`/queue/${entryId}`, { position }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queueQueryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queueQueryKey });
+      void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
+    },
   });
 }

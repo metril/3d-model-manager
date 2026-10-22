@@ -29,7 +29,7 @@ from app.services.archive import archive_path
 router = APIRouter(prefix="/archives", tags=["archives"])
 
 
-def _select() -> Any:
+def archive_select() -> Any:
     return (
         select(PrintArchive, PrintJob, Printer, Model, Print)
         .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
@@ -40,7 +40,7 @@ def _select() -> Any:
     )
 
 
-def _out(row: Any) -> ArchiveOut:
+def archive_out(row: Any) -> ArchiveOut:
     a, job, printer, model, run = row
     return ArchiveOut(
         id=a.id,
@@ -74,7 +74,7 @@ def _out(row: Any) -> ArchiveOut:
 
 
 async def _get_visible(db: AsyncSession, ctx: AuthContext, archive_id: int) -> Any:
-    stmt = _select().where(PrintArchive.id == archive_id)
+    stmt = archive_select().where(PrintArchive.id == archive_id)
     visible = visible_printer_ids(ctx)
     if visible is not None:
         stmt = stmt.where(PrintJob.printer_id.in_(visible))
@@ -94,7 +94,7 @@ async def list_archives(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[ArchiveOut]:
-    stmt = _select()
+    stmt = archive_select()
     visible = visible_printer_ids(ctx)
     if visible is not None:
         stmt = stmt.where(PrintJob.printer_id.in_(visible))
@@ -106,7 +106,7 @@ async def list_archives(
         stmt = stmt.where(PrintArchive.model_id == model)
     stmt = stmt.order_by(PrintArchive.created_at.desc(), PrintArchive.id.desc())
     rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
-    return [_out(r) for r in rows]
+    return [archive_out(r) for r in rows]
 
 
 @router.get("/{archive_id}", response_model=ArchiveOut)
@@ -115,7 +115,7 @@ async def get_archive(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> ArchiveOut:
-    return _out(await _get_visible(db, ctx, archive_id))
+    return archive_out(await _get_visible(db, ctx, archive_id))
 
 
 async def _serve(

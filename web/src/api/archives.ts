@@ -45,6 +45,9 @@ export function usePatchRun() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["archives"] });
       void qc.invalidateQueries({ queryKey: ["prints"] });
+      // P3 Task 3: the overview's `last_runs`/`recent_runs` embed ArchiveOut
+      // rows -- a quality/notes patch should show up there too.
+      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
     },
   });
 }

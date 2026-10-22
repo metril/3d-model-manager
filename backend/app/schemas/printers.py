@@ -19,6 +19,9 @@ from app.models.enums import PrinterKind, PrintJobOrigin
 if TYPE_CHECKING:
     from app.models import Printer, PrintJob
 
+from app.schemas.archives import ArchiveOut
+from app.schemas.queue import QueueEntryOut
+
 
 def _clean_serial(value: str) -> str:
     """Shared body for both schemas' validators (Round 8 T1): strip, reject
@@ -237,3 +240,31 @@ class PrintJobOut(BaseModel):
             started_at=j.started_at,
             finished_at=j.finished_at,
         )
+
+
+class ActiveJobOut(PrintJobOut):
+    """A ``PrintJobOut`` resolved onto its file's model (P3 Task 1), for the
+    printers-overview dashboard. All three fields are ``None`` when the job
+    has no ``file_id`` (an ``external`` job) or the file's revision/model
+    was since deleted.
+    """
+
+    plate: int | None = None
+    model_id: int | None = None
+    model_slug: str | None = None
+    model_name: str | None = None
+
+
+class PrinterOverviewItem(BaseModel):
+    printer: PrinterOut
+    status: PrinterStatusOut
+    active_job: ActiveJobOut | None = None
+    last_runs: list[ArchiveOut] = Field(default_factory=list)
+    can_print: bool
+    can_control: bool
+
+
+class PrintersOverviewOut(BaseModel):
+    printers: list[PrinterOverviewItem]
+    up_next: list[QueueEntryOut]
+    recent_runs: list[ArchiveOut]

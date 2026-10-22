@@ -121,7 +121,7 @@ function fakeJob(overrides: Partial<JobOut> = {}): JobOut {
 function mockGet(backends: StorageBackendOut[], jobs: JobOut[] = []) {
   getMock.mockImplementation((path: string) => {
     if (path === "/settings/storage/backends") return Promise.resolve(backends);
-    if (path.startsWith("/jobs")) return Promise.resolve(jobs);
+    if (path.startsWith("/jobs")) return Promise.resolve(jobs); // backend API path, unrelated to the /system/jobs frontend route
     return Promise.resolve([]);
   });
 }
@@ -144,7 +144,7 @@ function renderBar(model: ModelDetail, { initialOpen = true }: { initialOpen?: b
     path: "/models/$slug",
     component: () => <ControlledBar model={model} initialOpen={initialOpen} />,
   });
-  const jobsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/jobs", component: () => null });
+  const jobsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/system/jobs", component: () => null });
   const router = createRouter({
     routeTree: rootRoute.addChildren([modelRoute, jobsRoute]),
     history: createMemoryHistory({ initialEntries: [`/models/${model.slug}`] }),
@@ -232,7 +232,7 @@ describe("StorageLocationBar", () => {
     );
 
     expect(await screen.findByText(/Relocation running/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View jobs" })).toHaveAttribute("href", "/jobs");
+    expect(screen.getByRole("link", { name: "View jobs" })).toHaveAttribute("href", "/system/jobs");
   });
 
   it("surfaces a relocate error instead of silently failing", async () => {

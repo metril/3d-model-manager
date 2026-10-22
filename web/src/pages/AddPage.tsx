@@ -373,7 +373,7 @@ function ImportProgress({ importId }: { importId: number }) {
         )}
         {state === "done" && model_id !== null && (
           <Button asChild variant="outline">
-            <Link to="/">View library</Link>
+            <Link to="/library">View library</Link>
           </Button>
         )}
       </CardContent>

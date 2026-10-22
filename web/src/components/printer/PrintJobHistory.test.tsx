@@ -63,4 +63,9 @@ describe("PrintJobHistory", () => {
     fireEvent.change(screen.getByLabelText("Result filter"), { target: { value: "failed" } });
     expect(useArchivesMock).toHaveBeenLastCalledWith(expect.objectContaining({ result: "failed" }));
   });
+
+  it("forwards a printerId prop to useArchives", () => {
+    render(<PrintJobHistory printerId={2} />);
+    expect(useArchivesMock).toHaveBeenLastCalledWith(expect.objectContaining({ printerId: 2 }));
+  });
 });

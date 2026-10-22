@@ -12,7 +12,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
+from app.api.deps import (
+    AuthContext,
+    require_owner_or_admin,
+    require_perm,
+    require_session,
+    visible_printer_ids,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.library import Print
@@ -57,9 +63,13 @@ async def create_print(
 
 
 @router.get("/models/{model_id}/prints", response_model=list[PrintOut])
-async def list_prints(model_id: int, db: AsyncSession = Depends(get_db)) -> list[PrintOut]:
+async def list_prints(
+    model_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> list[PrintOut]:
     await library.get_model_by_id(db, model_id)  # raises 404 if unknown
-    return await prints_service.list_prints(db, model_id)
+    return await prints_service.list_prints(db, model_id, visible_printer_ids(ctx))
 
 
 @router.patch(

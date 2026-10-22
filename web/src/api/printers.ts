@@ -15,6 +15,7 @@ import type {
   PrinterOut,
   PrinterStatusOut,
   PrinterUpdate,
+  PrintersOverviewOut,
   PrintJobOut,
   PrintRequest,
   ProbeOut,
@@ -44,6 +45,15 @@ export function statusRefetchInterval(gcodeState: string | null | undefined): nu
   return 8000;
 }
 
+/** The `usePrintersOverview` poll cadence (P3 Task 3): fast while any
+ * printer in the payload is actively printing/preparing/paused, backing
+ * off to a slow heartbeat otherwise -- mirrors `statusRefetchInterval`'s
+ * policy but evaluated across every printer in the dashboard at once. */
+export function overviewRefetchInterval(data?: PrintersOverviewOut): number {
+  const active = data?.printers.some((p) => ACTIVE_GCODE.includes(p.status.gcode_state ?? ""));
+  return active ? 2500 : 8000;
+}
+
 export const printersQueryOptions = queryOptions({
   queryKey: ["printers"] as const,
   queryFn: () => api.get<PrinterOut[]>("/printers"),
@@ -57,7 +67,12 @@ export function useCreatePrinter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: PrinterCreate) => api.post<PrinterOut>("/printers", b),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers"] }),
+    // `["printers"]` prefix-matches `["printers", "overview"]` under
+    // react-query's default partial matching, so this one invalidation
+    // already covers the overview too.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["printers"] });
+    },
   });
 }
 
@@ -65,7 +80,9 @@ export function useUpdatePrinter(id: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: PrinterUpdate) => api.patch<PrinterOut>(`/printers/${id}`, b),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["printers"] });
+    },
   });
 }
 
@@ -73,7 +90,9 @@ export function useDeletePrinter() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/printers/${id}`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["printers"] });
+    },
   });
 }
 
@@ -108,7 +127,10 @@ export function usePrinterCommand(id: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (cmd: "pause" | "resume" | "stop") => api.post<void>(`/printers/${id}/${cmd}`),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["printers", id, "status"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["printers", id, "status"] });
+      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
+    },
   });
 }
 
@@ -126,6 +148,22 @@ export function useStartPrint(printerId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: PrintRequest) => api.post<PrintJobOut>(`/printers/${printerId}/print`, b),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["print-jobs"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["print-jobs"] });
+      void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
+    },
+  });
+}
+
+/** Polls `GET /printers/overview` (P3 Task 3): one-call dashboard payload
+ * for every visible printer's live status + active job + recent history,
+ * plus the queue's head and cross-printer recent runs. Cadence mirrors
+ * `usePrinterStatus`'s active/idle split, evaluated across all printers. */
+export function usePrintersOverview(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["printers", "overview"] as const,
+    queryFn: () => api.get<PrintersOverviewOut>("/printers/overview"),
+    refetchInterval: (q) => overviewRefetchInterval(q.state.data),
+    enabled: options?.enabled ?? true,
   });
 }

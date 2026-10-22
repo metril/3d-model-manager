@@ -207,6 +207,55 @@ async def test_list_prints_empty_for_model_with_no_prints(
     assert listing.json() == []
 
 
+async def test_model_prints_hides_auto_runs_from_invisible_printers(
+    authenticated_client: httpx.AsyncClient,
+    make_user,
+    make_group,
+    login_as,
+    db_session: AsyncSession,
+) -> None:
+    """A member whose printer ACL only covers p1 sees the manual print plus
+    the auto-archived run on p1, never the one on hidden p2 -- an admin
+    sees all three (P3 Task 2).
+    """
+    from app.models import Printer, PrintJob
+    from app.models.enums import PrinterKind, PrintJobOrigin, PrintJobState, PrintSource
+
+    model = await _create_model(authenticated_client, "Prints Visibility")
+    await authenticated_client.post(f"/api/models/{model['id']}/prints", json={})
+
+    p1 = Printer(
+        name="p1", kind=PrinterKind.BAMBU_LAN, host="10.0.0.9", serial="p1", access_code_enc="x"
+    )
+    p2 = Printer(
+        name="p2", kind=PrinterKind.BAMBU_LAN, host="10.0.0.9", serial="p2", access_code_enc="x"
+    )
+    db_session.add_all([p1, p2])
+    await db_session.flush()
+    job1 = PrintJob(printer_id=p1.id, origin=PrintJobOrigin.EXTERNAL, state=PrintJobState.FINISHED)
+    job2 = PrintJob(printer_id=p2.id, origin=PrintJobOrigin.EXTERNAL, state=PrintJobState.FINISHED)
+    db_session.add_all([job1, job2])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Print(model_id=model["id"], print_job_id=job1.id, source=PrintSource.AUTO),
+            Print(model_id=model["id"], print_job_id=job2.id, source=PrintSource.AUTO),
+        ]
+    )
+    await db_session.commit()
+
+    user = await make_user("member")
+    await make_group("printer-folks", members=[user], printer_access={p1.id: (True, False, False)})
+    member_client = await login_as(user)
+
+    member_listing = await member_client.get(f"/api/models/{model['id']}/prints")
+    assert member_listing.status_code == 200
+    assert len(member_listing.json()) == 2
+
+    admin_listing = await authenticated_client.get(f"/api/models/{model['id']}/prints")
+    assert len(admin_listing.json()) == 3
+
+
 # ---------------------------------------------------------------------------
 # patch
 # ---------------------------------------------------------------------------

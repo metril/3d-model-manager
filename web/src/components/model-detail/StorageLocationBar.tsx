@@ -173,7 +173,7 @@ export function StorageLocationBar({
       {jobId ? (
         <span className="text-xs text-muted-foreground">
           {relocateJob.data ? `Relocation ${relocateJob.data.state}` : "Relocation started"} —{" "}
-          <Link to="/jobs" className="underline">
+          <Link to="/system/jobs" className="underline">
             View jobs
           </Link>
         </span>

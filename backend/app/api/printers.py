@@ -45,6 +45,7 @@ from app.schemas.printers import (
     DetectSerialOut,
     PrinterCreate,
     PrinterOut,
+    PrintersOverviewOut,
     PrinterStatusOut,
     PrinterUpdate,
     PrintJobOut,
@@ -52,6 +53,7 @@ from app.schemas.printers import (
     ProbeOut,
     seed_build_volume_mm,
 )
+from app.services.printer_overview import build_overview
 from app.services.printer_state import preflight_ok, read_state_async
 from app.tasks.printing import send_to_printer
 
@@ -157,6 +159,24 @@ async def list_printers(
         stmt = stmt.where(Printer.id.in_(visible))
     rows = (await db.execute(stmt)).scalars()
     return [PrinterOut.from_model(p) for p in rows]
+
+
+@router.get("/overview", response_model=PrintersOverviewOut)
+async def printers_overview(
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> PrintersOverviewOut:
+    """One-call dashboard payload (P3 Task 1): every visible printer's
+    live status + active job + recent history, plus the queue's head and
+    cross-printer recent runs. Declared before ``/{printer_id}`` so
+    ``overview`` isn't swallowed as a path param.
+    """
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await build_overview(db, client, settings, ctx)
+    finally:
+        await client.aclose()
 
 
 @router.get("/{printer_id}", response_model=PrinterOut)

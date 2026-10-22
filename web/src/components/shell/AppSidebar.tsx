@@ -14,6 +14,7 @@ import { useCategories } from "@/api/categories";
 import { useFeatures } from "@/api/features";
 import { useFollowedCollections } from "@/api/collections";
 import { useFailedImportsCount } from "@/api/imports";
+import { usePrinters } from "@/api/printers";
 import { useScanRuns } from "@/api/scan";
 import type { ScanRunOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
-import { NAV_GROUPS, SETTINGS_ITEM, filterNavItems, type NavItem } from "@/components/shell/navItems";
+import {
+  NAV_GROUPS,
+  SYSTEM_ITEMS,
+  filterNavGroups,
+  printerNavItems,
+  type NavItem,
+} from "@/components/shell/navItems";
 import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 import type { LibrarySearch } from "@/pages/librarySearch";
@@ -63,7 +70,7 @@ function ScanChip({ collapsed }: { collapsed: boolean }) {
   if (!state || collapsed) return null;
 
   function goToJobs() {
-    void navigate({ to: "/jobs" });
+    void navigate({ to: "/system/jobs" });
   }
 
   if (state.kind === "failed") {
@@ -110,7 +117,12 @@ function NavLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolean
   const link = (
     <Link
       to={item.to}
-      activeOptions={{ exact: item.to === "/" }}
+      // `item.params` is a plain `Record<string, string>` (see `navItems.ts`);
+      // `Link`'s own `params` prop type expects something shaped by the
+      // specific route `to` resolves to, which a generically-typed `NavItem`
+      // can't express statically.
+      params={item.params as never}
+      activeOptions={{ exact: !!item.exact }}
       className={cn(
         "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
         collapsed && "justify-center px-0",
@@ -140,10 +152,11 @@ function NavLink({ item, collapsed, badge }: { item: NavItem; collapsed: boolean
   );
 }
 
-/** Grouped sidebar nav (R12 studio shell): LIBRARY/OPERATIONS groups from
- * `navItems.ts`, a dynamic Collections sublist, and a collapsible icon-rail
- * mode. Owns its own data (auth, features, scan chip, followed collections)
- * so `AppShell` stays a thin composition root.
+/** Grouped sidebar nav (P3 Task 6): Print/Library/Inventory groups from
+ * `navItems.ts` plus System pinned at the bottom, a dynamic Collections
+ * sublist, per-printer links under Print, and a collapsible icon-rail
+ * mode. Owns its own data (auth, features, printers, scan chip, followed
+ * collections) so `AppShell` stays a thin composition root.
  *
  * Below `lg` the collapsible rail becomes an off-canvas drawer instead: at
  * 400px width a permanently-visible `w-14`/`w-56` column leaves too little
@@ -180,10 +193,20 @@ export function AppSidebar({
   }, [mobileOpen, onCloseMobile]);
 
   const printerEnabled = !!features.data?.printer_enabled;
-  const visibleGroups = NAV_GROUPS.map((group) => ({
-    ...group,
-    items: filterNavItems(group.items, { printerEnabled, can }),
-  }));
+  const printers = usePrinters({ enabled: printerEnabled });
+  // Per-printer links sit right after History in the Print group (Task 6).
+  const groupsWithPrinters = NAV_GROUPS.map((group) => {
+    if (group.label !== "Print") return group;
+    const historyIndex = group.items.findIndex((item) => item.label === "History");
+    const items = [...group.items];
+    items.splice(historyIndex + 1, 0, ...printerNavItems(printers.data));
+    return { ...group, items };
+  });
+  const visibleGroups = filterNavGroups(groupsWithPrinters, {
+    printerEnabled,
+    can,
+    hasPrinter: (printers.data?.length ?? 0) > 0,
+  });
   const collections = (followed.data ?? []).slice(0, MAX_COLLECTION_LINKS);
   const hasMoreCollections = (followed.data?.length ?? 0) > MAX_COLLECTION_LINKS;
 
@@ -250,12 +273,12 @@ export function AppSidebar({
         {visibleGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
             {!collapsed && (
-              <div className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              <div className="label-caps px-2.5 pb-1">
                 {group.label}
               </div>
             )}
             {group.items.map((item) => (
-              <div key={item.to as string}>
+              <div key={`${item.to as string}:${item.params?.id ?? ""}`}>
                 <NavLink
                   item={item}
                   collapsed={collapsed}
@@ -266,7 +289,7 @@ export function AppSidebar({
                     {collections.map((c) => (
                       <Link
                         key={c.id}
-                        to="/"
+                        to="/library"
                         search={{ collection: c.id }}
                         className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                         activeProps={{ className: "bg-muted text-foreground" }}
@@ -296,13 +319,13 @@ export function AppSidebar({
             for `?collection=<id>`. */}
         {!collapsed && (categories.data?.length ?? 0) > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+            <div className="label-caps px-2.5 pb-1">
               Categories
             </div>
             {(categories.data ?? []).map((category) => (
               <Link
                 key={category.id}
-                to="/"
+                to="/library"
                 search={(prev: LibrarySearch) => ({ ...prev, category: category.id })}
                 className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                 activeProps={{ className: "bg-muted font-medium text-foreground" }}
@@ -319,7 +342,9 @@ export function AppSidebar({
         )}
       </nav>
       <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
-        <NavLink item={SETTINGS_ITEM} collapsed={collapsed} />
+        {SYSTEM_ITEMS.map((item) => (
+          <NavLink key={item.to as string} item={item} collapsed={collapsed} />
+        ))}
       </div>
       <SidebarPrinterWidget collapsed={collapsed} />
       <div
