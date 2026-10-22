@@ -10,10 +10,12 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from fastapi import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import Session, User
+from app.models.enums import UserRole
 from app.security import hash_password
 
 USERNAME = "admin"
@@ -365,3 +367,56 @@ async def test_last_seen_at_updates_after_throttle_window(
     await db_session.refresh(session)
     assert session.last_seen_at > stale
     assert (datetime.now(UTC) - session.last_seen_at).total_seconds() < 5
+
+
+async def test_login_refused_when_password_hash_null(
+    client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    db_session.add(User(username="sso", password_hash=None, role=UserRole.MEMBER))
+    await db_session.commit()
+    r = await client.post("/api/auth/login", json={"username": "sso", "password": "anything"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid username or password"
+
+
+async def test_login_refused_for_inactive_user(
+    client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    db_session.add(User(username="off", password_hash=hash_password(PASSWORD), is_active=False))
+    await db_session.commit()
+    r = await client.post("/api/auth/login", json={"username": "off", "password": PASSWORD})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid username or password"
+
+
+async def test_login_sets_last_login_at(
+    authenticated_client: httpx.AsyncClient, admin_user: User, db_session: AsyncSession
+) -> None:
+    await db_session.refresh(admin_user)
+    assert admin_user.last_login_at is not None
+
+
+async def test_existing_session_401_after_deactivation(
+    authenticated_client: httpx.AsyncClient, admin_user: User, db_session: AsyncSession
+) -> None:
+    admin_user.is_active = False
+    await db_session.commit()
+    assert (await authenticated_client.get("/api/auth/me")).status_code == 401
+
+
+async def test_change_password_forbidden_without_local_password(
+    client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    from app.api.auth import start_session
+
+    user = User(username="sso2", password_hash=None, role=UserRole.MEMBER)
+    db_session.add(user)
+    await db_session.commit()
+    resp = Response()
+    await start_session(db_session, resp, user)
+    client.cookies.set("tdmm_session", resp.headers["set-cookie"].split("=")[1].split(";")[0])
+    r = await client.post(
+        "/api/auth/password", json={"current_password": "x", "new_password": "longenough1"}
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Current password is incorrect"

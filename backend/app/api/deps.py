@@ -75,6 +75,8 @@ async def require_session(
     if row is None:
         raise _unauthenticated()
     session, user = row
+    if not user.is_active:
+        raise _unauthenticated()
 
     now = datetime.now(UTC)
     if session.expires_at <= now:
