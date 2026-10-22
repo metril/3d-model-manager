@@ -32,6 +32,7 @@ endpoints) rather than a whole separate module.
 from fastapi import APIRouter, Depends
 
 from app.api import (
+    admin,
     auth,
     blobs,
     categories,
@@ -71,6 +72,7 @@ api_router.include_router(files.public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
+protected_router.include_router(admin.router)
 protected_router.include_router(models.router)
 protected_router.include_router(blobs.router)
 protected_router.include_router(revisions.router)

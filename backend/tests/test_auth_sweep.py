@@ -43,6 +43,7 @@ PUBLIC_ROUTES = {("get", "/api/health"), ("post", "/api/auth/login")}
 _PATH_PARAM_VALUES = {
     "slug": "placeholder-slug",
     "model_id": "1",
+    "user_id": "1",
     "revision_id": "1",
     "revision_a_id": "1",
     "revision_b_id": "2",
