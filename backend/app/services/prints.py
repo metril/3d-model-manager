@@ -10,13 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import PrintResult
+from app.models.enums import PrintResult, PrintSource
 from app.models.library import Material, Model, Print
+from app.models.printing import PrintJob
 from app.schemas.prints import PrintOut
 from app.services.costing import CostRates, price_run
 
@@ -74,16 +75,35 @@ async def create_print(
     return PrintOut.from_model(row)
 
 
-async def list_prints(db: AsyncSession, model_id: int) -> list[PrintOut]:
+async def list_prints(
+    db: AsyncSession, model_id: int, visible_printer_ids: set[int] | None = None
+) -> list[PrintOut]:
     """Reverse-chronological by ``printed_at``, ``id`` desc as a tiebreak for
     rows sharing the same (possibly explicitly-set) ``printed_at``.
+
+    ``visible_printer_ids`` (P3 Task 2) scopes out auto-archived runs on a
+    printer the caller has no ACL row for -- never a manually-logged row
+    (``source == manual``) and never a legacy auto row with no resolvable
+    ``print_job_id``/printer (``visible is None`` here means "no printer
+    behind this row to check", not "admin sees everything" -- that's
+    ``visible_printer_ids=None`` at the call site, which skips the whole
+    filter instead).
     """
     stmt = (
         select(Print)
+        .outerjoin(PrintJob, PrintJob.id == Print.print_job_id)
         .where(Print.model_id == model_id)
         .options(selectinload(Print.material))
         .order_by(Print.printed_at.desc(), Print.id.desc())
     )
+    if visible_printer_ids is not None:
+        stmt = stmt.where(
+            or_(
+                Print.source == PrintSource.MANUAL,
+                PrintJob.printer_id.is_(None),
+                PrintJob.printer_id.in_(visible_printer_ids),
+            )
+        )
     rows = (await db.execute(stmt)).scalars().all()
     return [PrintOut.from_model(row) for row in rows]
 
