@@ -350,7 +350,7 @@ describe("PrintDialog", () => {
     );
   });
 
-  it("disables recipe actions with a tooltip when the slicer sidecar is down", async () => {
+  it("disables only Slice and send (not Add to queue) when the slicer sidecar is down", async () => {
     mockApi({ slicerOk: false });
     renderDialog({ kind: "file", fileId: 10 });
     await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
@@ -362,6 +362,9 @@ describe("PrintDialog", () => {
     const sliceAndSend = await screen.findByRole("button", { name: "Slice and send" });
     expect(sliceAndSend).toBeDisabled();
     expect(sliceAndSend).toHaveAttribute("title", "Slicer sidecar unavailable");
-    expect(screen.getByRole("button", { name: "Add to queue" })).toBeDisabled();
+    // M6: "Add to queue" with a recipe only enqueues it for the dispatcher
+    // to slice later -- it never calls the sidecar itself, so it must stay
+    // enabled even while the sidecar is down.
+    expect(screen.getByRole("button", { name: "Add to queue" })).toBeEnabled();
   });
 });

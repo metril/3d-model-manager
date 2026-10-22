@@ -644,12 +644,14 @@ export function PrintDialog({
                       >
                         Slice and send
                       </Button>
+                      {/* M6: "Add to queue" only queues the recipe for the
+                          dispatcher to slice later -- it doesn't call the
+                          sidecar itself, so a down sidecar shouldn't block it. */}
                       <Button
                         type="button"
                         variant="outline"
                         onClick={handleQueueRecipe}
-                        disabled={recipeActionsDisabled || enqueue.isPending}
-                        title={recipeActionsDisabled ? "Slicer sidecar unavailable" : undefined}
+                        disabled={enqueue.isPending}
                       >
                         Add to queue
                       </Button>
