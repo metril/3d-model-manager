@@ -298,6 +298,43 @@ async def test_links_crud_round_trip(
     assert all(link["id"] != link_id for link in r.json())
 
 
+@pytest.mark.parametrize("field", ["entity_id", "role", "hold_queue", "pause_print"])
+async def test_patch_explicit_null_on_non_nullable_field_is_422(
+    authenticated_client: httpx.AsyncClient, field: str
+) -> None:
+    """Final review M1: an explicit `null` for a non-nullable HaLink field
+    must 422, not fall through to a raw DB error on commit."""
+    r = await authenticated_client.post(
+        "/api/settings/home-assistant/links",
+        json={"entity_id": "binary_sensor.door", "role": "door"},
+    )
+    assert r.status_code == 201, r.text
+    link_id = r.json()["id"]
+
+    r = await authenticated_client.patch(
+        f"/api/settings/home-assistant/links/{link_id}", json={field: None}
+    )
+    assert r.status_code == 422, r.text
+
+
+async def test_patch_explicit_null_printer_id_is_allowed(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    pid = await _printer(db_session, "NullablePrinter")
+    r = await authenticated_client.post(
+        "/api/settings/home-assistant/links",
+        json={"printer_id": pid, "entity_id": "binary_sensor.door", "role": "door"},
+    )
+    assert r.status_code == 201, r.text
+    link_id = r.json()["id"]
+
+    r = await authenticated_client.patch(
+        f"/api/settings/home-assistant/links/{link_id}", json={"printer_id": None}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["printer_id"] is None
+
+
 async def test_patch_to_energy_kwh_without_printer_is_422(
     authenticated_client: httpx.AsyncClient,
 ) -> None:

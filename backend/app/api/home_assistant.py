@@ -296,6 +296,19 @@ async def patch_link(
     link = await _get_link_or_404(db, link_id)
     patch = payload.model_dump(exclude_unset=True)
 
+    # printer_id/alert_condition are genuinely nullable (no printer / no
+    # condition); entity_id/role/hold_queue/pause_print are not -- an
+    # explicit `null` for one of those is a client error (422), not a
+    # silent attempt to null out a non-nullable DB column (which would
+    # otherwise surface as a raw 500 on commit).
+    _non_nullable = ("entity_id", "role", "hold_queue", "pause_print")
+    null_fields = [field for field in _non_nullable if field in patch and patch[field] is None]
+    if null_fields:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"{', '.join(null_fields)} cannot be null",
+        )
+
     if "alert_condition" in patch:
         validate_alert_condition(patch["alert_condition"])
     if "printer_id" in patch:
