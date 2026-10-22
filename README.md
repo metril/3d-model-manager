@@ -372,6 +372,17 @@ that directory in any manual backup.
 
 **Reprint** from an archive is a stub for now and arrives in P5.
 
+### Live camera & timelapse
+
+A printer tile and run view can show a **live camera feed** (MJPEG, ~5 fps,
+multiplexed so multiple tabs share one upstream connection to the printer)
+and, once a run finishes, its **snapshot** and **timelapse** video attached
+to the archive row. **A1-only**: this talks to the Bambu A1-class local
+camera protocol (port 6000) directly — it does not work with other Bambu
+printer families. Timelapse video on the printer is stored as AVI and
+**transcoded to MP4 with ffmpeg** in the worker image before it's attached;
+without ffmpeg in the image the timelapse is fetched but not converted.
+
 ### Manual/Live Acceptance (deferred — user present, real A1 mini, NOT automated)
 
 The physical "the A1 mini actually starts printing" drill needs a real
