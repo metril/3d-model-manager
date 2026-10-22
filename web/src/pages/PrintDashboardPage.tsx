@@ -21,6 +21,7 @@ import { ApiError } from "@/api/client";
 import { usePrintersOverview } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
+import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
@@ -99,6 +100,7 @@ export function PrintDashboardPage() {
                   <CameraTile printerId={item.printer.id} online={item.status.online} />
                 ) : undefined
               }
+              badge={item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : undefined}
             />
           ))}
         </div>

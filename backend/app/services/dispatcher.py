@@ -33,7 +33,7 @@ from app.models.printing import Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
-from app.services import billing
+from app.services import billing, ha_state
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.permissions import can_print_sync
@@ -120,10 +120,12 @@ def compatibility_reason(printer: Printer, state: dict | None, need: Needs) -> s
 
 
 def printer_hold_reason(client: Redis, printer_id: int) -> str | None:
-    """P8 slot: a printer-level hold (e.g. an operator pause) that keeps
-    the dispatcher off it regardless of idle/compatible. Always ``None``
-    in P6 -- P8 fills this in without touching any other call site."""
-    return None
+    """A printer-level hold (an HA alert link with ``hold_queue=true``
+    currently firing) that keeps the dispatcher off it regardless of
+    idle/compatible. Delegates to ``app.services.ha_state.hold_reason`` --
+    the alert key's own 60s TTL (``ha_state.ALERT_TTL_S``) means a dead
+    poller fails open within one cycle rather than holding forever."""
+    return ha_state.hold_reason(client, printer_id)
 
 
 def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:

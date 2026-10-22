@@ -9,6 +9,7 @@ import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
+import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
@@ -84,6 +85,7 @@ export function SettingsPage() {
             <TabsContent value="printer" className="space-y-6">
               <PrinterEnabledCard />
               <PrinterSetupCard />
+              <HomeAssistantCard />
             </TabsContent>
           )}
           <TabsContent value="accounts" className="space-y-6">

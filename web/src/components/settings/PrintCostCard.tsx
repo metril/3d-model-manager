@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 interface Draft {
   filament_cost_per_kg: string;
   machine_cost_per_hour: string;
+  energy_cost_per_kwh: string;
 }
 
 type DraftErrors = Partial<Record<keyof Draft, string>>;
@@ -31,6 +32,7 @@ function seedDraft(settings: AppSettings): Draft {
   return {
     filament_cost_per_kg: String(settings.filament_cost_per_kg),
     machine_cost_per_hour: String(settings.machine_cost_per_hour),
+    energy_cost_per_kwh: String(settings.energy_cost_per_kwh),
   };
 }
 
@@ -90,6 +92,7 @@ export function PrintCostCard() {
       ...settings.data,
       filament_cost_per_kg: Number(draft.filament_cost_per_kg),
       machine_cost_per_hour: Number(draft.machine_cost_per_hour),
+      energy_cost_per_kwh: Number(draft.energy_cost_per_kwh),
     });
   }
 
@@ -103,7 +106,7 @@ export function PrintCostCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="filament-cost">Filament cost (per kg)</Label>
             <Input
@@ -138,6 +141,25 @@ export function PrintCostCard() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">0 = don&apos;t factor in machine time.</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="energy-cost">Energy cost (per kWh)</Label>
+            <Input
+              id="energy-cost"
+              type="number"
+              min={0}
+              step="any"
+              value={draft.energy_cost_per_kwh}
+              onChange={(e) => setField("energy_cost_per_kwh", e.target.value)}
+              aria-invalid={Boolean(errors.energy_cost_per_kwh)}
+            />
+            {errors.energy_cost_per_kwh ? (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.energy_cost_per_kwh}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">0 = don&apos;t price Home Assistant energy readings.</p>
             )}
           </div>
         </div>

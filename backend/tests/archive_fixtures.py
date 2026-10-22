@@ -157,6 +157,8 @@ class Seed:
         total_layers: int | None = 474,
         plate: int | None = None,
         user_id: int | None = None,
+        energy_start_kwh: float | None = None,
+        energy_end_kwh: float | None = None,
     ) -> int:
         if self.printer_id is None:
             p = Printer(
@@ -181,6 +183,8 @@ class Seed:
             total_layers=total_layers,
             started_at=T0 if duration_s is not None else None,
             finished_at=T0 + timedelta(seconds=duration_s) if duration_s is not None else None,
+            energy_start_kwh=energy_start_kwh,
+            energy_end_kwh=energy_end_kwh,
         )
         self.s.add(j)
         self.s.commit()

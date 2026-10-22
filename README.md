@@ -563,6 +563,66 @@ against a real A1 mini:
 Record the outcome in the milestone ledger; file any firmware-drift
 findings against the pinned-firmware note above.
 
+## Home Assistant integration
+
+**Off by default** — nothing publishes or polls until you save settings at
+**Settings → Home Assistant**. There is no env-var backing; the row lives
+in the database (secrets Fernet-encrypted) and is write-only (the API
+returns `has_mqtt_password`/`has_token`, never the secrets themselves).
+
+**Push (MQTT discovery)**: install the **Mosquitto broker add-on** in HA
+(or point at any broker reachable from `printerd`) and make sure **MQTT
+discovery** is enabled in HA's MQTT integration — this app never calls the
+HA REST API to create entities, it only publishes retained discovery
+payloads. `printerd` runs one `HaBridge` thread that publishes a device per
+printer under node `tdmm_<serial>`: 9 sensors (state, progress, remaining,
+layer, nozzle/bed temp, current job, last result, queue length), a
+`Printing` binary_sensor, a `Camera` entity (retained JPEG, refreshed every
+~30 s while printing), and three buttons (**Pause/Resume/Stop**). Unique
+ids and device identifiers are derived from the printer's **serial**, so
+they're stable across a `printerd` restart or a DB id change — no
+duplicate entities. A deleted printer's discovery is retracted (empty
+retained payloads) and its entities disappear from HA.
+
+**Button trust model**: pressing Pause/Resume/Stop in HA publishes straight
+to `tdmm/tdmm_<serial>/command`, and the bridge forwards whatever lands on
+that topic to the printer. **Buttons are trusted** — anyone who can publish
+to the broker's `tdmm/#` topics can pause or stop a print, with no
+per-user ACL check on this app's side. Secure the broker (auth, and TLS if
+it's reachable beyond your LAN) accordingly; don't expose it unauthenticated.
+
+**Pull (REST)**: create a **long-lived access token** in HA (your HA user
+profile → Security → Long-lived access tokens) and paste it into the
+**Read from HA** section along with the HA base URL. A `ha-poll` beat task
+polls every 15 s and evaluates the entities named in your **links**.
+
+**Links**: each link names an `entity_id`, a **role**
+(`door`/`smoke`/`temp`/`humidity`/`power`/`energy_kwh`), an optional
+numeric/string `alert_condition` (`eq`/`ne`/`gt`/`gte`/`lt`/`lte`/`in`), and
+toggles **Hold queue** and **Pause print**. A link can target one printer
+or (`printer_id` left empty) **all printers**; an `energy_kwh` link must
+name a printer. When a link's condition fires, the matching printer(s) show
+`Held "Waiting on <entity_id>"` and the dispatcher skips them; `Hold queue`
+is what makes it hold (a firing alert without it just shows a badge).
+`Pause print` additionally pauses an already-running print, once per
+rising edge (not repeatedly while the condition stays true).
+
+**Fail-open**: if HA is unreachable (bad token, HA down, network drop) or
+the poller itself dies, the alert keys expire (60 s TTL) and **the queue
+dispatches normally** — a broken HA integration never blocks printing.
+The settings card shows a warning when the last poll failed.
+
+**Energy accounting**: for an `energy_kwh` link (typically a smart plug's
+`sensor.*_energy` total), the poller accumulates deltas into a Redis
+counter using HA's `total_increasing` semantics — if a sample drops below
+the previous one, the meter reset (plug re-paired, counter rolled over),
+so the new reading is treated as consumption since the reset rather than
+a negative delta. `printerd` snapshots the accumulator at a job's start and
+finish; the difference becomes `prints.energy_kwh`, priced by
+`energy_cost_per_kwh` (**Settings → Print cost**) into `energy_cost`, which
+is folded into `total_cost` and, when billing is on, the P7 cost-center
+charge.
+
 ## Bambu Studio integration
 
 **No plugin hook exists.** Bambu Studio has no plugin SDK, and its

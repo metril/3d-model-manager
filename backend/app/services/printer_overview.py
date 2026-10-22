@@ -32,6 +32,7 @@ from app.schemas.printers import (
     PrintJobOut,
     SpoolBriefOut,
 )
+from app.services import ha_state
 from app.services import queue as queue_service
 from app.services import spool_inventory as sinv
 
@@ -90,6 +91,28 @@ async def _statuses(
                 if spool is not None:
                     t.spool = SpoolBriefOut.from_model(spool)
             out[pid] = status_out
+    return out
+
+
+async def _ha_alerts(redis: Redis, printer_ids: list[int]) -> dict[int, tuple[str, bool]]:
+    """``{pid: (reason, held)}`` for every printer with a currently-firing
+    HA alert (``ha:alert:{pid}``, P8), via one batched ``MGET`` -- never one
+    read per printer. A missing/corrupt key is simply absent (fail open,
+    matching ``ha_state.read_alert``'s own TTL-expiry story)."""
+    if not printer_ids:
+        return {}
+    raws = await redis.mget([ha_state.alert_key(pid) for pid in printer_ids])
+    out: dict[int, tuple[str, bool]] = {}
+    for pid, raw in zip(printer_ids, raws, strict=True):
+        if not raw:
+            continue
+        try:
+            alert = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        reason = alert.get("reason")
+        if reason:
+            out[pid] = (reason, bool(alert.get("hold")))
     return out
 
 
@@ -184,6 +207,7 @@ async def build_overview(
     statuses = await _statuses(db, redis, printer_ids)
     active_jobs = await _active_jobs(db, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
+    ha_alerts = await _ha_alerts(redis, printer_ids)
 
     # P6 Task 8: one batched windowed query (per-target ``row_number()``,
     # not one query per printer) returns up to 3 non-terminal entries per
@@ -191,7 +215,7 @@ async def build_overview(
     # each printer's card shows only ITS up-next items and the top-level
     # list keeps only the unassigned ones.
     up_next_entries = await queue_service.list_queue(
-        db, settings, printer_ids=printer_ids, limit_per_printer=3
+        db, settings, printer_ids=printer_ids, limit_per_printer=3, redis=redis
     )
     up_next_by_printer: dict[int, list] = {}
     unassigned: list = []
@@ -211,6 +235,8 @@ async def build_overview(
             can_print=_can(ctx, p.id, "print"),
             can_control=_can(ctx, p.id, "control"),
             up_next=up_next_by_printer.get(p.id, [])[:3],
+            ha_alert=ha_alerts.get(p.id, (None, False))[0],
+            ha_held=ha_alerts.get(p.id, (None, False))[1],
         )
         for p in printers
     ]

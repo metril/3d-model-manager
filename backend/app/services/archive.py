@@ -34,7 +34,7 @@ from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
 from app.services import billing, spool_inventory
 from app.services.app_config import get_app_config_sync
-from app.services.costing import CostRates, charged_grams, filament_cost, price_run
+from app.services.costing import CostRates, charged_grams, filament_cost, job_energy_kwh, price_run
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
 from app.services.slicer_intake import _find_model_by_name_ci_sync
 from app.services.slicer_naming import _safe_basename, model_name_from_filename
@@ -261,12 +261,6 @@ def archive_job(
         total_layers=job.total_layers,
         progress_pct=job.progress_pct,
     )
-    cost = price_run(
-        filament_g,
-        duration_s,
-        CostRates.from_config(cfg),
-        filament_cost=filament_cost(usages, cfg.filament_cost_per_kg),
-    )
     types = list(dict.fromkeys(e["type"] for e in est if e["type"]))
     run = session.scalars(select(Print).where(Print.print_job_id == job.id)).first()
     inserting = run is None
@@ -279,6 +273,18 @@ def archive_job(
         run.result = RESULT_TO_PRINT_RESULT[result]
     if inserting or run.filament_g is None:
         run.filament_g = filament_g
+    if inserting or run.energy_kwh is None:
+        run.energy_kwh = job_energy_kwh(job.energy_start_kwh, job.energy_end_kwh)
+    energy_cost = (
+        None if run.energy_kwh is None else round(run.energy_kwh * cfg.energy_cost_per_kwh, 4)
+    )
+    cost = price_run(
+        filament_g,
+        duration_s,
+        CostRates.from_config(cfg),
+        energy_cost=energy_cost,
+        filament_cost=filament_cost(usages, cfg.filament_cost_per_kg),
+    )
     run.model_id = model_id
     run.created_by_user_id = job.created_by_user_id
     run.printer_name = printer.name

@@ -1,0 +1,420 @@
+[
+  [
+    "homeassistant/sensor/tdmm_0309da123456/state/config",
+    {
+      "unique_id": "tdmm_0309da123456_state",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "State",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.state }}"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/progress/config",
+    {
+      "unique_id": "tdmm_0309da123456_progress",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Progress",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.progress }}",
+      "unit_of_measurement": "%",
+      "state_class": "measurement"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/remaining/config",
+    {
+      "unique_id": "tdmm_0309da123456_remaining",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Remaining",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.remaining }}",
+      "unit_of_measurement": "min",
+      "device_class": "duration",
+      "state_class": "measurement"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/layer/config",
+    {
+      "unique_id": "tdmm_0309da123456_layer",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Layer",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.layer }}"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/nozzle_temp/config",
+    {
+      "unique_id": "tdmm_0309da123456_nozzle_temp",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Nozzle temperature",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.nozzle_temp }}",
+      "unit_of_measurement": "\u00b0C",
+      "device_class": "temperature",
+      "state_class": "measurement"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/bed_temp/config",
+    {
+      "unique_id": "tdmm_0309da123456_bed_temp",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Bed temperature",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.bed_temp }}",
+      "unit_of_measurement": "\u00b0C",
+      "device_class": "temperature",
+      "state_class": "measurement"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/current_job/config",
+    {
+      "unique_id": "tdmm_0309da123456_current_job",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Current job",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.current_job }}"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/last_result/config",
+    {
+      "unique_id": "tdmm_0309da123456_last_result",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Last result",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.last_result }}"
+    }
+  ],
+  [
+    "homeassistant/sensor/tdmm_0309da123456/queue_length/config",
+    {
+      "unique_id": "tdmm_0309da123456_queue_length",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Queue length",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ value_json.queue_length }}",
+      "state_class": "measurement"
+    }
+  ],
+  [
+    "homeassistant/binary_sensor/tdmm_0309da123456/printing/config",
+    {
+      "unique_id": "tdmm_0309da123456_printing",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Printing",
+      "device_class": "running",
+      "state_topic": "tdmm/tdmm_0309da123456/state",
+      "value_template": "{{ 'ON' if value_json.printing else 'OFF' }}"
+    }
+  ],
+  [
+    "homeassistant/camera/tdmm_0309da123456/camera/config",
+    {
+      "unique_id": "tdmm_0309da123456_camera",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Camera",
+      "topic": "tdmm/tdmm_0309da123456/camera"
+    }
+  ],
+  [
+    "homeassistant/button/tdmm_0309da123456/pause/config",
+    {
+      "unique_id": "tdmm_0309da123456_pause",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Pause",
+      "command_topic": "tdmm/tdmm_0309da123456/command",
+      "payload_press": "pause"
+    }
+  ],
+  [
+    "homeassistant/button/tdmm_0309da123456/resume/config",
+    {
+      "unique_id": "tdmm_0309da123456_resume",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Resume",
+      "command_topic": "tdmm/tdmm_0309da123456/command",
+      "payload_press": "resume"
+    }
+  ],
+  [
+    "homeassistant/button/tdmm_0309da123456/stop/config",
+    {
+      "unique_id": "tdmm_0309da123456_stop",
+      "device": {
+        "identifiers": [
+          "tdmm_0309da123456"
+        ],
+        "name": "A1 Mini",
+        "manufacturer": "Bambu Lab",
+        "model": "A1 Mini"
+      },
+      "origin": {
+        "name": "3D Model Manager"
+      },
+      "availability": [
+        {
+          "topic": "tdmm/bridge/status"
+        },
+        {
+          "topic": "tdmm/tdmm_0309da123456/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "name": "Stop",
+      "command_topic": "tdmm/tdmm_0309da123456/command",
+      "payload_press": "stop"
+    }
+  ]
+]

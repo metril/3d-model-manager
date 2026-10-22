@@ -64,6 +64,7 @@ celery_app.conf.update(
         "app.tasks.slicing",
         "app.tasks.dispatch",
         "app.tasks.billing",
+        "app.tasks.home_assistant",
     ),
 )
 
@@ -113,4 +114,13 @@ celery_app.conf.beat_schedule["dispatch-queue"] = {
 celery_app.conf.beat_schedule["billing-recompute"] = {
     "task": "app.tasks.billing.recompute_balances",
     "schedule": crontab(hour=0, minute=5),
+}
+
+# Additive: P8 Task 4's HA REST poller -- writes `ha:alert:*`/`ha:energy:*`
+# Redis keys every tick (no-op when HA isn't configured/no links exist).
+from app.tasks import home_assistant as _home_assistant  # noqa: E402
+
+celery_app.conf.beat_schedule["ha-poll"] = {
+    "task": "app.tasks.home_assistant.poll_ha",
+    "schedule": _home_assistant.POLL_INTERVAL_S,
 }

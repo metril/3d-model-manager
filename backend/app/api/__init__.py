@@ -50,6 +50,7 @@ from app.api import (
     features,
     files,
     finance,
+    home_assistant,
     imports,
     jobs,
     materials,
@@ -101,6 +102,7 @@ protected_router.include_router(events.router)
 protected_router.include_router(scan.router)
 protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
+protected_router.include_router(home_assistant.router)
 protected_router.include_router(features.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)

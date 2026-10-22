@@ -35,8 +35,9 @@ from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers.base import PrinterAdapter, PrinterPublicState, command_channel, state_key
 from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
+from app.printers.ha_bridge import HaBridge
 from app.printers.registry import build_adapter
-from app.services import camera_state, spool_inventory
+from app.services import camera_state, ha_state, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.tasks import base
@@ -162,6 +163,9 @@ class PrinterWorker:
                 if new_state != PrintJobState.PRINTING:
                     return
                 self._stop_requested = False
+                energy_start_kwh = None
+                with contextlib.suppress(Exception):
+                    energy_start_kwh = ha_state.energy_acc(self.redis, self.printer_id)
                 job = PrintJob(
                     printer_id=self.printer_id,
                     file_id=None,
@@ -176,6 +180,7 @@ class PrinterWorker:
                     remaining_min=public.mc_remaining_time,
                     raw_status=self._merged,
                     tray_snapshot={"start": _tray_pcts(public.trays)},
+                    energy_start_kwh=energy_start_kwh,
                 )
                 session.add(job)
                 session.commit()
@@ -206,10 +211,14 @@ class PrinterWorker:
             now = datetime.now(UTC)
             if new_state == PrintJobState.PRINTING and job.started_at is None:
                 job.started_at = now
+                with contextlib.suppress(Exception):
+                    job.energy_start_kwh = ha_state.energy_acc(self.redis, self.printer_id)
             if new_state == PrintJobState.PRINTING and job.tray_snapshot is None:
                 job.tray_snapshot = {"start": _tray_pcts(public.trays)}
             if new_state in _TERMINAL:
                 job.finished_at = now
+                with contextlib.suppress(Exception):
+                    job.energy_end_kwh = ha_state.energy_acc(self.redis, self.printer_id)
                 job.tray_snapshot = {
                     **(job.tray_snapshot or {}),
                     "end": _tray_pcts(public.trays),
@@ -259,6 +268,7 @@ class PrinterDaemon:
         self._signatures: dict[int, tuple[str, str, str]] = {}
         self._stop = threading.Event()
         self.camera = CameraSupervisor(self.redis)
+        self.ha = HaBridge(self.redis, self.settings, active_ids=lambda: set(self._workers))
 
     def enabled_printers(self) -> list[Printer]:
         """Every `enabled` Printer row -- but only when the `printer_enabled`
@@ -371,6 +381,7 @@ class PrinterDaemon:
     def run(self) -> None:
         self.reconcile()  # initial start (replaces the old one-shot start loop)
         self.camera.start()
+        self.ha.start()
         while not self._stop.wait(_POLL_INTERVAL_S):
             try:
                 self.reconcile()
@@ -398,6 +409,7 @@ class PrinterDaemon:
         for printer_id in list(self._workers):
             self.stop_printer(printer_id)
         self.camera.stop()
+        self.ha.stop()
 
 
 def main() -> None:

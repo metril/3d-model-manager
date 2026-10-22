@@ -64,11 +64,20 @@ def test_frames_rate_capped():
 
 
 def test_no_worker_without_viewers(redis_url):
+    """Final review F1: ``redis_url`` is session-scoped, and OTHER tests in
+    this module (and ``test_printerd.py``'s hung-camera daemon test) seed a
+    viewer for printer id 1 -- clear that printer's viewer ZSET before AND
+    after so a leftover registration from one of those can never bleed
+    into this test and make it spuriously start a worker."""
     r = redis_lib.Redis.from_url(redis_url)
-    sup = CameraSupervisor(r)
-    sup.add(1, _adapter(FakeCamera([JPEG])))
-    sup.tick()
-    assert 1 not in sup._workers
+    r.delete(cs.viewers_key(1))
+    try:
+        sup = CameraSupervisor(r)
+        sup.add(1, _adapter(FakeCamera([JPEG])))
+        sup.tick()
+        assert 1 not in sup._workers
+    finally:
+        r.delete(cs.viewers_key(1))
 
 
 def test_viewer_starts_worker_and_frame_reaches_redis(redis_url):

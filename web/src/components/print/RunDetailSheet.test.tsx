@@ -88,6 +88,15 @@ describe("RunDetailSheet", () => {
     expect(screen.getByText("Total").nextSibling).toHaveTextContent("8.00");
     expect(screen.queryByText(/reprint/i)).not.toBeInTheDocument();
   });
+  it("shows the Energy used row only when energy_kwh is set", () => {
+    archiveMock.mockReturnValue({ ...archive, run: { ...run, energy_kwh: 1.25 } });
+    renderSheet();
+    expect(screen.getByText("Energy used").nextSibling).toHaveTextContent("1.25 kWh");
+  });
+  it("hides the Energy used row when energy_kwh is null", () => {
+    renderSheet();
+    expect(screen.queryByText("Energy used")).not.toBeInTheDocument();
+  });
   it("Good patches quality", () => {
     renderSheet();
     fireEvent.click(screen.getByRole("button", { name: "Good" }));

@@ -27,6 +27,7 @@ function fakeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     watch_stable_s: 5,
     filament_cost_per_kg: 20,
     machine_cost_per_hour: 0,
+    energy_cost_per_kwh: 0.3,
     ...overrides,
   };
 }
@@ -60,6 +61,32 @@ describe("PrintCostCard", () => {
 
     expect(await screen.findByLabelText("Filament cost (per kg)")).toHaveValue(20);
     expect(screen.getByLabelText("Machine cost (per hour)")).toHaveValue(0);
+    expect(screen.getByLabelText("Energy cost (per kWh)")).toHaveValue(0.3);
+  });
+
+  it("PUTs the edited energy rate -- carrying the other fields through unchanged", async () => {
+    mockGet(fakeSettings());
+    putMock.mockResolvedValue(fakeSettings({ energy_cost_per_kwh: 0.5 }));
+
+    renderCard();
+    await screen.findByLabelText("Energy cost (per kWh)");
+
+    fireEvent.change(screen.getByLabelText("Energy cost (per kWh)"), { target: { value: "0.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/app", {
+        printer_enabled: true,
+        scan_interval_s: 3600,
+        collection_sync_interval_s: 1800,
+        watch_interval_s: 30,
+        watch_stable_s: 5,
+        filament_cost_per_kg: 20,
+        machine_cost_per_hour: 0,
+        energy_cost_per_kwh: 0.5,
+      }),
+    );
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
   });
 
   it("PUTs the edited body -- carrying the other fields through unchanged -- and shows Saved.", async () => {
@@ -81,6 +108,7 @@ describe("PrintCostCard", () => {
         watch_stable_s: 5,
         filament_cost_per_kg: 30,
         machine_cost_per_hour: 0,
+        energy_cost_per_kwh: 0.3,
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();

@@ -47,6 +47,7 @@ pytest_plugins = (
     "tests.auth_fixtures",
     "tests.oidc_fixtures",
     "tests.billing_fixtures",
+    "tests.ha_fixtures",
 )
 
 ADMIN_USERNAME = "admin"

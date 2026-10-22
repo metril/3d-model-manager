@@ -84,6 +84,26 @@ export function QueueStateChip({
   );
 }
 
+// P8 Task 9: a firing HA alert link (`hold_queue=true`) is holding the
+// dispatcher off this entry's printer target -- separate from `hold_reason`
+// (the review/billing hold `ReviewChips` renders below), so both can show
+// on the same row. Same `held` tone as `QueueStateChip`'s own `held` state
+// (slate outline) -- the label stays plain "Held"; the reason only shows
+// as the hover/focus tooltip and aria-label.
+function HeldChip({ reason }: { reason?: string | null }) {
+  if (!reason) return null;
+  return (
+    <Badge
+      variant="outline"
+      className={STATE_CLASSES.held}
+      title={reason}
+      aria-label={`Held: ${reason}`}
+    >
+      Held
+    </Badge>
+  );
+}
+
 // P7 review/billing plan Task 9: Pending review (slate outline), Rejected
 // (destructive outline), Over budget (amber outline) -- next to the
 // dispatch `QueueStateChip`, not replacing it (an entry can be e.g. both
@@ -255,6 +275,7 @@ function QueueRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
+          <HeldChip reason={entry.printer_hold_reason} />
           <ReviewChips entry={entry} />
         </div>
         {entry.review_state === "pending" && can("queue:review") ? (

@@ -162,6 +162,30 @@ describe("QueuePage review/budget chips (P7 Task 9)", () => {
     await waitFor(() => expect(retryMock).toHaveBeenCalledExactlyOnceWith(1));
   });
 
+  it("renders a Held chip with the reason when printer_hold_reason is set", async () => {
+    queueDataBox.current = [entry({ printer_hold_reason: "Smoke detected" })];
+    renderQueuePage();
+
+    const chip = await screen.findByText("Held");
+    expect(chip.closest("[title]")).toHaveAttribute("title", "Smoke detected");
+  });
+
+  it("renders no Held chip when printer_hold_reason is null", async () => {
+    queueDataBox.current = [entry({ printer_hold_reason: null })];
+    renderQueuePage();
+
+    await screen.findByText("Articulated Dragon");
+    expect(screen.queryByText("Held")).not.toBeInTheDocument();
+  });
+
+  it("shows both the Held chip and ReviewChips when both apply", async () => {
+    queueDataBox.current = [entry({ printer_hold_reason: "All printers held", review_state: "pending" })];
+    renderQueuePage();
+
+    expect(await screen.findByText("Held")).toBeInTheDocument();
+    expect(screen.getByText("Pending review")).toBeInTheDocument();
+  });
+
   it("approving a pending entry calls the review mutation", async () => {
     queueDataBox.current = [entry({ id: 3, review_state: "pending" })];
     renderQueuePage();

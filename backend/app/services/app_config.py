@@ -85,6 +85,12 @@ class AppConfig(BaseModel):
     # literal-default posture as `filament_cost_per_kg`/`machine_cost_per_hour`
     # above (a later P7 task adds the `PUT /settings/app` schema wiring).
     billing_enabled: bool = False
+    # P8 Home Assistant plan: currency-agnostic per-kWh rate `archive_job`
+    # multiplies against `prints.energy_kwh` (from a linked `energy_kwh`
+    # HA entity) to get `energy_cost`, folded into `total_cost` the same
+    # way `filament_cost_per_kg`/`machine_cost_per_hour` are -- no env
+    # backing, a fresh row always seeds this literal default.
+    energy_cost_per_kwh: float = 0.0
 
 
 def _env_config(settings: Settings) -> AppConfig:

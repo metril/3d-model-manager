@@ -10,11 +10,13 @@ contiguous list, rather than tracking gaps.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from fastapi import HTTPException, status
+from redis.asyncio import Redis
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
@@ -24,9 +26,10 @@ from app.config import Settings
 from app.models import CostCenter, GroupMember, User
 from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
+from app.models.printing import Printer
 from app.models.slicing import PrintRecipe
 from app.schemas.queue import CreatedByOut, QueueEnqueueIn, QueueEntryOut, ReviewIn
-from app.services import billing, library, review
+from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
 
@@ -84,8 +87,45 @@ async def _up_next_entries(
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def _held_printer_ids(redis: Redis, printer_ids: list[int]) -> dict[int, str]:
+    """``{pid: reason}`` for every ``pid`` with a currently-firing,
+    HOLDING HA alert (``ha:alert:{pid}``, P8) -- one batched ``MGET``, not
+    one read per printer."""
+    if not printer_ids:
+        return {}
+    raws = await redis.mget([ha_state.alert_key(pid) for pid in printer_ids])
+    out: dict[int, str] = {}
+    for pid, raw in zip(printer_ids, raws, strict=True):
+        if not raw:
+            continue
+        try:
+            alert = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if alert.get("hold") and alert.get("reason"):
+            out[pid] = alert["reason"]
+    return out
+
+
+async def _all_printers_held_reason(db: AsyncSession, redis: Redis) -> str | None:
+    """ "All printers held" iff every ENABLED printer currently has a
+    holding HA alert; ``None`` with no enabled printers at all (never
+    claim "all held" of an empty set)."""
+    stmt = select(Printer.id).where(Printer.enabled.is_(True))
+    enabled_ids = list((await db.execute(stmt)).scalars().all())
+    if not enabled_ids:
+        return None
+    held = await _held_printer_ids(redis, enabled_ids)
+    if len(held) == len(enabled_ids):
+        return "All printers held"
+    return None
+
+
 async def _to_out(
-    db: AsyncSession, settings: Settings, entries: list[PrintQueueEntry]
+    db: AsyncSession,
+    settings: Settings,
+    entries: list[PrintQueueEntry],
+    redis: Redis | None = None,
 ) -> list[QueueEntryOut]:
     """Attach each entry's ``ModelSummary``, reusing
     ``library.build_model_summaries`` rather than duplicating the
@@ -145,6 +185,17 @@ async def _to_out(
             .all()
         }
 
+    # P8 Task 7: printer_hold_reason -- batched once across every entry's
+    # target (never one Redis read per row), computed only when a redis
+    # client was given.
+    held_by_target: dict[int, str] = {}
+    all_held_reason: str | None = None
+    if redis is not None:
+        target_ids = sorted({e.printer_id or e.assigned_printer_id for e in entries} - {None})
+        held_by_target = await _held_printer_ids(redis, target_ids)
+        if any(e.printer_id is None and e.assigned_printer_id is None for e in entries):
+            all_held_reason = await _all_printers_held_reason(db, redis)
+
     out = []
     for e in entries:
         file_row = files_by_id.get(e.file_id) if e.file_id is not None else None
@@ -152,6 +203,8 @@ async def _to_out(
         creator = (
             creators_by_id.get(e.created_by_user_id) if e.created_by_user_id is not None else None
         )
+        target = e.printer_id or e.assigned_printer_id
+        printer_hold_reason = held_by_target.get(target) if target is not None else all_held_reason
         out.append(
             QueueEntryOut(
                 id=e.id,
@@ -182,6 +235,7 @@ async def _to_out(
                 review_note=e.review_note,
                 reserved_cost=float(e.reserved_cost) if e.reserved_cost is not None else None,
                 hold_reason=e.hold_reason,
+                printer_hold_reason=printer_hold_reason,
                 created_by=CreatedByOut(id=creator.id, username=creator.username)
                 if creator is not None
                 else None,
@@ -199,6 +253,7 @@ async def list_queue(
     limit: int | None = None,
     printer_ids: list[int] | None = None,
     limit_per_printer: int | None = None,
+    redis: Redis | None = None,
 ) -> list[QueueEntryOut]:
     """Visibility: a non-admin only sees entries with no specific printer
     target (``printer_id is None`` -- still eligible for any compatible
@@ -215,7 +270,7 @@ async def list_queue(
     """
     if printer_ids is not None and limit_per_printer is not None:
         entries = await _up_next_entries(db, printer_ids, limit_per_printer)
-        return await _to_out(db, settings, entries)
+        return await _to_out(db, settings, entries, redis)
 
     entries = await _ordered_entries(db, limit)
     if ctx is not None:
@@ -229,7 +284,7 @@ async def list_queue(
             ]
     if not include_done:
         entries = [e for e in entries if e.state != QueueState.DONE]
-    return await _to_out(db, settings, entries)
+    return await _to_out(db, settings, entries, redis)
 
 
 async def _append_position(db: AsyncSession, *, front: bool) -> int:

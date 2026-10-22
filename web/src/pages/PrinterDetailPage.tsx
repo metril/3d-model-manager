@@ -19,6 +19,7 @@ import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
+import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterStatusPanel } from "@/components/printer/PrinterStatusPanel";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
@@ -65,11 +66,18 @@ export function PrinterDetailPage() {
       </Card>
     );
 
+  const overviewItem = overview.data?.printers.find((p) => p.printer.id === printer.id);
+
   return (
     <PageContainer width="default">
-      <div>
-        <h1 className="text-lg font-semibold text-foreground">{printer.name}</h1>
-        <p className="text-sm text-muted-foreground">{printer.model ?? printer.kind}</p>
+      <div className="flex items-center gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-foreground">{printer.name}</h1>
+          <p className="text-sm text-muted-foreground">{printer.model ?? printer.kind}</p>
+        </div>
+        {overviewItem?.ha_alert ? (
+          <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -78,7 +86,7 @@ export function PrinterDetailPage() {
             {canPrinter(printer.id, "control") ? (
               <CameraTile
                 printerId={printer.id}
-                online={overview.data?.printers.find((p) => p.printer.id === printer.id)?.status.online ?? false}
+                online={overviewItem?.status.online ?? false}
               />
             ) : (
               <div className="flex size-full items-center justify-center">
@@ -91,7 +99,7 @@ export function PrinterDetailPage() {
 
         <div className="flex flex-col gap-6 lg:w-80 lg:shrink-0">
           <UpNextList
-            entries={overview.data?.printers.find((p) => p.printer.id === printer.id)?.up_next ?? []}
+            entries={overviewItem?.up_next ?? []}
             printerId={printer.id}
           />
           <PrintJobHistory printerId={printer.id} />
