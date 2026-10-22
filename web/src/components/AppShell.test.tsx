@@ -48,6 +48,7 @@ vi.mock("@/api/categories", () => ({
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: [] }),
   usePrinterStatus: () => ({ data: undefined }),
+  usePrintersOverview: () => ({ data: undefined }),
 }));
 
 vi.mock("@/api/library", () => ({

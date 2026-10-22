@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Bookmark, Shapes } from "lucide-react";
+import { Bookmark, ListChecks, ListOrdered, Shapes } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useModelSearchQuery } from "@/api/library";
+import { usePrintersOverview } from "@/api/printers";
 import {
   CommandDialog,
   CommandEmpty,
@@ -16,7 +17,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { ALL_NAV_ITEMS, filterNavItems } from "@/components/shell/navItems";
+import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
 import { useHotkeys } from "@/hooks/useHotkeys";
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -34,6 +35,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const printerEnabled = !!useFeatures().data?.printer_enabled;
   const followed = useFollowedCollections();
   const categoriesQuery = useCategories();
+  const overview = usePrintersOverview({ enabled: printerEnabled });
 
   useHotkeys({ "mod+k": () => onOpenChange(!open) });
 
@@ -56,10 +58,16 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const models = trimmed.length > 0 ? (search.data?.items ?? []) : [];
   const collections = followed.data ?? [];
   const categories = categoriesQuery.data ?? [];
+  const printers = printerEnabled ? printerNavItems(overview.data?.printers.map((p) => p.printer)) : [];
 
   function goTo(to: string) {
     onOpenChange(false);
     void navigate({ to });
+  }
+
+  function goToPrinter(id: string) {
+    onOpenChange(false);
+    void navigate({ to: "/printers/$id", params: { id } });
   }
 
   function goToCollection(id: number) {
@@ -90,6 +98,23 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             </CommandItem>
           ))}
         </CommandGroup>
+        {printers.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Printers">
+              {printers.map((item) => (
+                <CommandItem
+                  key={`printer-${item.params?.id}`}
+                  value={`printer-${item.label}`}
+                  onSelect={() => goToPrinter(item.params?.id as string)}
+                >
+                  <item.icon className="size-4" />
+                  {item.label}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
         {collections.length > 0 && (
           <>
             <CommandSeparator />
@@ -140,6 +165,27 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   <span className="truncate">{m.name}</span>
                 </CommandItem>
               ))}
+            </CommandGroup>
+          </>
+        )}
+        {printerEnabled && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Actions">
+              <CommandItem value="Open print queue" onSelect={() => goTo("/print/queue")}>
+                <ListOrdered className="size-4" />
+                Open print queue
+              </CommandItem>
+              <CommandItem
+                value="Run history stats"
+                onSelect={() => {
+                  onOpenChange(false);
+                  void navigate({ to: "/print/history", search: { tab: "stats" } });
+                }}
+              >
+                <ListChecks className="size-4" />
+                Run history stats
+              </CommandItem>
             </CommandGroup>
           </>
         )}

@@ -390,7 +390,7 @@ against a real A1 mini:
    open **Files → Print**, pick the plate/AMS/calibration options, and
    **Send** — **the A1 mini starts the print** (the load-bearing
    acceptance for this milestone).
-4. On `/printer`: confirm live **%/layer/remaining/temps** update; that
+4. On `/printers/{id}`: confirm live **%/layer/remaining/temps** update; that
    **Pause/Resume/Stop** work; that **sending while RUNNING is blocked**;
    and that pulling the **microSD card** surfaces an actionable SD-missing
    error.
@@ -455,7 +455,7 @@ same token list, so a token from one works for the other).
 ## Gallery importers
 
 **What it does.** Paste a **Thingiverse** or **Printables** model URL on
-`/import`; the app detects the site, downloads every file into a new
+`/add`; the app detects the site, downloads every file into a new
 library model with full attribution (source link, author, license, tags),
 and runs it through the normal ingest pipeline (lands as
 `rev-001_imported`). Imports are **atomic** — a failed or paid/Club model
@@ -475,7 +475,7 @@ shows a friendly "not available yet" message rather than failing.
 
 **ToS / personal use.** These importers are for **personal use, one model
 per action**; by importing you confirm the model's license permits it. The
-`/import` page header carries this note. Respect each site's Terms of
+`/add` page header carries this note. Respect each site's Terms of
 Service and the model's license (imported CC attribution is preserved on
 the model page).
 
