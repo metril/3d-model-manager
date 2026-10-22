@@ -557,6 +557,9 @@ export interface AppSettings {
   // PlateOut.est_cost).
   filament_cost_per_kg: number;
   machine_cost_per_hour: number;
+  // P8 Task 7: prices a run's logged `energy_kwh` into `energy_cost` --
+  // same currency-agnostic convention as the two rates above.
+  energy_cost_per_kwh: number;
 }
 
 // `GET /api/stats` (backend/app/schemas/stats.py, R11-B item 13): cheap
@@ -1311,6 +1314,10 @@ export interface QueueEntry {
   review_note?: string | null;
   reserved_cost?: number | null;
   hold_reason?: string | null;
+  // P8 Task 7: this entry's printer target is being held off by a firing
+  // HA alert link (`hold_queue=true`) -- distinct from `hold_reason` above
+  // (the review/billing hold), both can be set independently.
+  printer_hold_reason?: string | null;
   // M6: who queued it, for the review inbox.
   created_by?: { id: number; username: string } | null;
 }
@@ -1424,6 +1431,12 @@ export interface PrinterOverviewItem {
   // P6 Task 8: up to 3 non-terminal queue entries targeting THIS printer
   // (`printer_id == id` or, once dispatched, `assigned_printer_id == id`).
   up_next: QueueEntry[];
+  // P8 Task 7: this printer's currently-firing HA alert, if any, and
+  // whether that alert is ALSO holding the dispatcher off this printer
+  // (`hold_queue=true` on the firing link) -- distinct from merely being
+  // reported.
+  ha_alert?: string | null;
+  ha_held?: boolean;
 }
 
 export interface PrintersOverviewOut {
@@ -1690,3 +1703,69 @@ export interface SlicerHealth {
   version?: string | null;
   error?: string | null;
 }
+
+// -- Home Assistant settings (backend/app/schemas/home_assistant.py, P8
+// Task 7) -- connection config (secrets write-only, "***" sentinel
+// convention), the two connection tests, and `ha_links` CRUD. -----------
+
+export type HaRole = "energy_kwh" | "power_w" | "door" | "smoke" | "temp" | "humidity";
+
+export type HaConditionOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "in";
+
+export interface HaCondition {
+  op: HaConditionOp;
+  value: string | number | (string | number)[];
+}
+
+export interface HaSettings {
+  ha_mqtt_url: string | null;
+  ha_mqtt_user: string | null;
+  has_mqtt_password: boolean;
+  ha_discovery_prefix: string;
+  ha_url: string | null;
+  has_token: boolean;
+  pull_status: { ok: boolean; [key: string]: unknown } | null;
+  bridge_status: string | null;
+}
+
+// All fields optional (sentinel-merge): omitted keeps, for a secret field
+// "" clears and anything else (re)sets it. Also reused, unsaved, as the
+// override body for the two connection-test endpoints.
+export interface HaSettingsIn {
+  ha_mqtt_url?: string | null;
+  ha_mqtt_user?: string | null;
+  ha_mqtt_password?: string | null;
+  ha_discovery_prefix?: string | null;
+  ha_url?: string | null;
+  ha_token?: string | null;
+}
+
+export interface HaTestOut {
+  ok: boolean;
+  detail: string;
+}
+
+export interface HaLink {
+  id: number;
+  printer_id: number | null;
+  printer_name: string | null;
+  entity_id: string;
+  role: HaRole;
+  alert_condition: HaCondition | null;
+  hold_queue: boolean;
+  pause_print: boolean;
+  created_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HaLinkIn {
+  printer_id?: number | null;
+  entity_id: string;
+  role: HaRole;
+  alert_condition?: HaCondition | null;
+  hold_queue?: boolean;
+  pause_print?: boolean;
+}
+
+export type HaLinkPatchIn = Partial<HaLinkIn>;

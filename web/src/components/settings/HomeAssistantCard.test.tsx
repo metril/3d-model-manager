@@ -1,0 +1,185 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+
+import type { HaLink, HaSettings } from "@/api/types";
+import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
+
+const { getMock, postMock, putMock, patchMock, deleteMock } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  postMock: vi.fn(),
+  putMock: vi.fn(),
+  patchMock: vi.fn(),
+  deleteMock: vi.fn(),
+}));
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return {
+    ...actual,
+    api: { ...actual.api, get: getMock, post: postMock, put: putMock, patch: patchMock, delete: deleteMock },
+  };
+});
+
+// Radix's Select never reaches an interactive open state under jsdom --
+// same native-<select> workaround as MaterialsSection.test.tsx.
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    value,
+    onValueChange,
+    children,
+    ...rest
+  }: {
+    value?: string;
+    onValueChange: (value: string) => void;
+    children?: ReactNode;
+  } & Record<string, unknown>) => (
+    <select value={value} onChange={(event) => onValueChange(event.target.value)} {...rest}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children?: ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
+function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
+  return {
+    ha_mqtt_url: "mqtt://broker:1883",
+    ha_mqtt_user: "ha",
+    has_mqtt_password: true,
+    ha_discovery_prefix: "homeassistant",
+    ha_url: "http://homeassistant.local:8123",
+    has_token: true,
+    pull_status: { ok: true },
+    bridge_status: "online",
+    ...overrides,
+  };
+}
+
+function mockGet(settings: HaSettings, links: HaLink[] = []) {
+  getMock.mockImplementation((path: string) => {
+    if (path === "/settings/home-assistant") return Promise.resolve(settings);
+    if (path === "/settings/home-assistant/links") return Promise.resolve(links);
+    if (path === "/printers") return Promise.resolve([{ id: 1, name: "Bambu A" }]);
+    return Promise.resolve({});
+  });
+}
+
+function renderCard() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <HomeAssistantCard />
+    </QueryClientProvider>,
+  );
+}
+
+describe("HomeAssistantCard", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    postMock.mockReset();
+    putMock.mockReset();
+    patchMock.mockReset();
+    deleteMock.mockReset();
+  });
+
+  it("renders secrets as 'set' and never prefills the password/token inputs", async () => {
+    mockGet(fakeSettings());
+    renderCard();
+
+    expect((await screen.findAllByText("(set)")).length).toBe(2);
+    expect(screen.getByLabelText(/^Password/)).toHaveValue("");
+    expect(screen.getByLabelText(/^Token/)).toHaveValue("");
+  });
+
+  it("calls the MQTT test endpoint and shows the result", async () => {
+    mockGet(fakeSettings());
+    postMock.mockImplementation((path: string) => {
+      if (path === "/settings/home-assistant/test-mqtt") return Promise.resolve({ ok: true, detail: "connected" });
+      return Promise.resolve({});
+    });
+
+    renderCard();
+    await screen.findByLabelText("Broker URL");
+    fireEvent.click(screen.getAllByRole("button", { name: "Test connection" })[0]);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/settings/home-assistant/test-mqtt", expect.anything()));
+    expect(await screen.findByText("connected")).toBeInTheDocument();
+  });
+
+  it("calls the REST test endpoint and shows the result", async () => {
+    mockGet(fakeSettings());
+    postMock.mockImplementation((path: string) => {
+      if (path === "/settings/home-assistant/test-rest") return Promise.resolve({ ok: false, detail: "token rejected" });
+      return Promise.resolve({});
+    });
+
+    renderCard();
+    await screen.findByLabelText("Home Assistant URL");
+    fireEvent.click(screen.getAllByRole("button", { name: "Test connection" })[1]);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/settings/home-assistant/test-rest", {}));
+    expect(await screen.findByText("token rejected")).toBeInTheDocument();
+  });
+
+  it("shows the unreachable warning when pull_status.ok is false", async () => {
+    mockGet(fakeSettings({ pull_status: { ok: false } }));
+    renderCard();
+
+    expect(await screen.findByText("Home Assistant unreachable, queue holds are ignored")).toBeInTheDocument();
+  });
+
+  it("does not show the unreachable warning when pull_status.ok is true", async () => {
+    mockGet(fakeSettings({ pull_status: { ok: true } }));
+    renderCard();
+
+    await screen.findByLabelText("Home Assistant URL");
+    expect(screen.queryByText("Home Assistant unreachable, queue holds are ignored")).not.toBeInTheDocument();
+  });
+
+  it("posts the default eq/on condition when adding a door link", async () => {
+    mockGet(fakeSettings());
+    postMock.mockImplementation((path: string) => {
+      if (path === "/settings/home-assistant/links") return Promise.resolve({ id: 9 });
+      return Promise.resolve({});
+    });
+
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+
+    fireEvent.change(await screen.findByLabelText("Entity ID"), {
+      target: { value: "binary_sensor.front_door" },
+    });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "door" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add link" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/settings/home-assistant/links", {
+        printer_id: null,
+        entity_id: "binary_sensor.front_door",
+        role: "door",
+        alert_condition: { op: "eq", value: "on" },
+        hold_queue: false,
+        pause_print: false,
+      }),
+    );
+  });
+
+  it("blocks saving an energy_kwh link with no printer selected", async () => {
+    mockGet(fakeSettings());
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+    fireEvent.change(await screen.findByLabelText("Entity ID"), { target: { value: "sensor.printer_energy" } });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "energy_kwh" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add link" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("requires a specific printer");
+    expect(postMock).not.toHaveBeenCalledWith("/settings/home-assistant/links", expect.anything());
+  });
+});
