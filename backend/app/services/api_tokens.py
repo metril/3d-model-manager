@@ -64,14 +64,21 @@ async def verify(db: AsyncSession, token: str) -> ApiToken | None:
     return row
 
 
-async def list_tokens(db: AsyncSession) -> list[ApiToken]:
-    rows = (await db.execute(select(ApiToken).order_by(ApiToken.created_at.desc()))).scalars().all()
-    return list(rows)
+async def list_tokens(db: AsyncSession, *, user_id: int | None = None) -> list[ApiToken]:
+    """``user_id=None`` lists every user's tokens (admin view)."""
+    stmt = select(ApiToken).order_by(ApiToken.created_at.desc())
+    if user_id is not None:
+        stmt = stmt.where(ApiToken.user_id == user_id)
+    return list((await db.execute(stmt)).scalars().all())
 
 
-async def revoke(db: AsyncSession, token_id: int) -> bool:
-    """Delete the token row by id. Returns whether a row was actually
-    deleted (``False`` for an unknown id, so the caller can 404)."""
-    result = await db.execute(delete(ApiToken).where(ApiToken.id == token_id))
+async def revoke(db: AsyncSession, token_id: int, *, user_id: int | None = None) -> bool:
+    """Delete the token row by id (scoped to ``user_id`` unless ``None``).
+    Returns whether a row was actually deleted (``False`` for an unknown or
+    not-owned id, so the caller can 404)."""
+    stmt = delete(ApiToken).where(ApiToken.id == token_id)
+    if user_id is not None:
+        stmt = stmt.where(ApiToken.user_id == user_id)
+    result = await db.execute(stmt)
     await db.commit()
     return result.rowcount > 0

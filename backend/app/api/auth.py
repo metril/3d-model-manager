@@ -92,10 +92,49 @@ async def start_session(db: AsyncSession, response: Response, user: User) -> Ses
     return session
 
 
-@protected_router.get("/me")
-async def me(ctx: AuthContext = Depends(require_session)) -> dict[str, str]:
-    """Return the authenticated user's username."""
-    return {"username": ctx.user.username}
+class MeGroup(BaseModel):
+    id: int
+    name: str
+
+
+class PrinterFlags(BaseModel):
+    print: bool
+    control: bool
+
+
+class MeOut(BaseModel):
+    id: int
+    username: str
+    display_name: str | None
+    email: str | None
+    role: str
+    permissions: list[str]
+    groups: list[MeGroup]
+    has_password: bool
+    printer_access: dict[str, PrinterFlags] | None
+
+
+@protected_router.get("/me", response_model=MeOut)
+async def me(ctx: AuthContext = Depends(require_session)) -> MeOut:
+    """The authenticated user with resolved grants. ``printer_access`` is
+    ``None`` for admins (all printers)."""
+    user = ctx.user
+    return MeOut(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        role=user.role.value,
+        permissions=sorted(ctx.perms),
+        groups=[MeGroup(id=g.id, name=g.name) for g in ctx.groups],
+        has_password=user.password_hash is not None,
+        printer_access=None
+        if ctx.is_admin
+        else {
+            str(pid): PrinterFlags(print=a.can_print, control=a.can_control)
+            for pid, a in ctx.printer_acl.items()
+        },
+    )
 
 
 class ChangePasswordRequest(BaseModel):

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_api_token
+from app.api.deps import AuthContext, require_api_token, require_token_perm
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.registry import get_importer
@@ -29,6 +29,8 @@ from app.models.system import Import
 from app.schemas.imports import ImportCreate, ImportOut, NonEmptyStr
 from app.services import import_tokens, remote_collections
 from app.services.imports import start_import
+
+_LIB_WRITE = require_token_perm("library:write")
 
 router = APIRouter(prefix="/ext", tags=["ext"], dependencies=[Depends(require_api_token)])
 
@@ -123,13 +125,16 @@ async def ping() -> OkOut:
 
 @router.post("/imports", status_code=status.HTTP_201_CREATED, response_model=ImportOut)
 async def create_import(
-    payload: ImportCreate, response: Response, db: AsyncSession = Depends(get_db)
+    payload: ImportCreate,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(_LIB_WRITE),
 ) -> ImportOut:
     """Mirrors ``POST /imports`` (``app.api.imports.create_import``) exactly
     -- same ``start_import`` call, same 200-vs-201 dedup signal -- reused
     verbatim rather than reimplemented so the two entry points can't drift.
     """
-    imp, created = await start_import(db, payload.url)
+    imp, created = await start_import(db, payload.url, created_by_user_id=ctx.user.id)
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)
@@ -153,6 +158,7 @@ async def set_makerworld_credential(
     payload: ExtCredentialIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    _: AuthContext = Depends(_LIB_WRITE),
 ) -> OkOut:
     """The extension couriers the operator's browser-side MakerWorld cookie
     here. Merge-set: read the currently stored tokens and keep
@@ -169,7 +175,9 @@ async def set_makerworld_credential(
 
 @router.post("/collections", response_model=ExtCollectionsPushOut)
 async def push_collections(
-    payload: ExtCollectionsPushIn, db: AsyncSession = Depends(get_db)
+    payload: ExtCollectionsPushIn,
+    db: AsyncSession = Depends(get_db),
+    _: AuthContext = Depends(_LIB_WRITE),
 ) -> ExtCollectionsPushOut:
     """The extension pushes the real collection list for ``site`` here --
     it runs in the user's authenticated browser, where MakerWorld's
@@ -196,7 +204,10 @@ async def push_collections(
 
 @router.post("/collections/{list_id}/items", response_model=ExtCollectionItemsPushOut)
 async def push_collection_items(
-    list_id: str, payload: ExtCollectionItemsPushIn, db: AsyncSession = Depends(get_db)
+    list_id: str,
+    payload: ExtCollectionItemsPushIn,
+    db: AsyncSession = Depends(get_db),
+    _: AuthContext = Depends(_LIB_WRITE),
 ) -> ExtCollectionItemsPushOut:
     """The extension pushes one collection's ITEMS here -- fetched from the
     page origin in the user's own authenticated browser (same Cloudflare-

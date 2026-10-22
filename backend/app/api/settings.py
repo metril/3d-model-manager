@@ -18,12 +18,14 @@ from typing import TYPE_CHECKING
 import anyio
 import pydantic
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm_on_write, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.printables import fetch_identity
+from app.models import User
 from app.schemas.imports import ImportTokensIn, ImportTokensOut
 from app.schemas.jobs import JobOut
 from app.schemas.settings import (
@@ -630,13 +632,28 @@ async def create_api_token(
 
 
 @api_tokens_router.get("/api-tokens", response_model=list[ApiTokenOut])
-async def list_api_tokens(db: AsyncSession = Depends(get_db)) -> list[ApiTokenOut]:
-    rows = await api_tokens.list_tokens(db)
-    return [ApiTokenOut.from_model(row) for row in rows]
+async def list_api_tokens(
+    db: AsyncSession = Depends(get_db), auth: AuthContext = Depends(require_session)
+) -> list[ApiTokenOut]:
+    rows = await api_tokens.list_tokens(db, user_id=None if auth.is_admin else auth.user.id)
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.username).where(User.id.in_({r.user_id for r in rows}))
+            )
+        )
+        .tuples()
+        .all()
+    )
+    return [ApiTokenOut.from_model(row, names.get(row.user_id, "")) for row in rows]
 
 
 @api_tokens_router.delete("/api-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_api_token(token_id: int, db: AsyncSession = Depends(get_db)) -> None:
-    deleted = await api_tokens.revoke(db, token_id)
+async def delete_api_token(
+    token_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: AuthContext = Depends(require_session),
+) -> None:
+    deleted = await api_tokens.revoke(db, token_id, user_id=None if auth.is_admin else auth.user.id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"api token {token_id} not found")

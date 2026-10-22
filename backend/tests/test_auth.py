@@ -165,7 +165,7 @@ async def test_me_with_valid_session_returns_username(
     response = await client.get("/api/auth/me")
 
     assert response.status_code == 200
-    assert response.json() == {"username": USERNAME}
+    assert response.json()["username"] == USERNAME
 
 
 async def test_expired_session_is_rejected(

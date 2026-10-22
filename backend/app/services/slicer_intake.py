@@ -115,6 +115,7 @@ async def resolve_and_attach(
     spool_path: Path,
     blob_hash: str,
     size: int,
+    created_by_user_id: int | None = None,
 ) -> IntakeResult:
     """Resolve ``filename`` to a model (matched by stripped name, or newly
     created) and finalize the ALREADY-SPOOLED upload onto its current
@@ -140,6 +141,7 @@ async def resolve_and_attach(
             description=None,
             initial_revision_name="slicer",
             commit=False,
+            created_by_user_id=created_by_user_id,
         )
 
     revision = await db.get(Revision, model.current_revision_id)

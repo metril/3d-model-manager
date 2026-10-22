@@ -218,9 +218,16 @@ class ApiTokenOut(BaseModel):
     label: str
     created_at: datetime
     last_used_at: datetime | None = None
+    user_id: int
+    username: str
 
     @classmethod
-    def from_model(cls, row: ApiToken) -> ApiTokenOut:
+    def from_model(cls, row: ApiToken, username: str) -> ApiTokenOut:
         return cls(
-            id=row.id, label=row.label, created_at=row.created_at, last_used_at=row.last_used_at
+            id=row.id,
+            label=row.label,
+            created_at=row.created_at,
+            last_used_at=row.last_used_at,
+            user_id=row.user_id,
+            username=username,
         )

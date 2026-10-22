@@ -207,7 +207,39 @@ async def require_api_token(
     row = await api_tokens.verify(db, token)
     if row is None:
         raise _unauthenticated_bearer()
+    owner = await db.get(User, row.user_id)
+    if owner is None or not owner.is_active:
+        raise _unauthenticated_bearer()
     return row
+
+
+# The most a token can ever do, whatever its owner's grants.
+TOKEN_PERM_CAP = frozenset({"library:write", "printers:print"})
+
+
+async def require_token_context(
+    token: ApiToken = Depends(require_api_token), db: AsyncSession = Depends(get_db)
+) -> AuthContext:
+    """Token plane acts as its owner, with permissions capped to
+    ``TOKEN_PERM_CAP``. No session."""
+    owner = await db.get(User, token.user_id)
+    if owner is None or not owner.is_active:
+        raise _unauthenticated_bearer()
+    groups, perms, acl = await load_grants(db, owner)
+    return AuthContext(
+        user=owner, session=None, perms=perms & TOKEN_PERM_CAP, printer_acl=acl, groups=groups
+    )
+
+
+def require_token_perm(*perms: Perm) -> Callable[..., Awaitable[AuthContext]]:
+    """Like ``require_perm`` for the bearer-token plane (capped perms)."""
+    _validate_names(perms)
+
+    async def dep(ctx: AuthContext = Depends(require_token_context)) -> AuthContext:
+        _check_perms(ctx, perms)
+        return ctx
+
+    return dep
 
 
 async def require_printer_enabled(
