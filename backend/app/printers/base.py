@@ -115,3 +115,13 @@ class PrinterAdapter(ABC):
     def public_state(self, merged: dict) -> PrinterPublicState: ...
     @abstractmethod
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None: ...
+
+    # Optional capabilities (P2 print archive): adapters without file access
+    # simply inherit these.
+    def list_dir(self, path: str) -> list[str]:
+        """Bare file names under ``path`` on the printer."""
+        raise NotImplementedError
+
+    def download_file(self, remote: str, dest: Path) -> None:
+        """Fetch ``remote`` to ``dest``; raises ``OSError`` on failure."""
+        raise NotImplementedError
