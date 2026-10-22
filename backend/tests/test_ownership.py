@@ -114,7 +114,7 @@ async def test_bulk_delete_with_one_foreign_slug_is_403_and_deletes_nothing(
     assert (await member_client.get(f"/api/models/{theirs['slug']}")).status_code == 200
 
 
-async def test_null_creator_model_deletable_with_write_perm(
+async def test_null_creator_model_only_admin_deletes(
     member_client, authenticated_client, db_session: AsyncSession
 ) -> None:
     model = await _mk(authenticated_client, "Legacy")
@@ -122,7 +122,10 @@ async def test_null_creator_model_deletable_with_write_perm(
         text("update models set created_by_user_id = NULL where id = :i"), {"i": model["id"]}
     )
     await db_session.commit()
-    assert (await member_client.delete(f"/api/models/{model['slug']}")).status_code == 204
+    r = await member_client.delete(f"/api/models/{model['slug']}")
+    assert r.status_code == 403
+    assert r.json()["detail"] == MSG
+    assert (await authenticated_client.delete(f"/api/models/{model['slug']}")).status_code == 204
 
 
 async def test_note_delete_creator_or_admin(
