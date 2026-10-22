@@ -301,6 +301,11 @@ class PrintQueueEntry(Base):
         server_default=text("'waiting'"),
         index=True,
     )
+    # Set when `state` becomes `slicing` (the dispatcher's own tick, or
+    # `slice_file`'s claim step); the dispatcher's `_reconcile` uses it to
+    # detect a `slicing` entry stuck well past a plausible slice duration
+    # (worker crash/kill mid-slice) and bounce it back to `waiting`.
+    slicing_started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     assigned_printer_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True
     )

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import tempfile
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from blake3 import blake3
@@ -33,6 +34,7 @@ from app.models.library import File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
 from app.services import derivatives, library, spool
 from app.services.app_config import get_app_config_sync
+from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
 from app.services.slicer_client import (
     SliceOptions,
     SlicerClient,
@@ -43,11 +45,20 @@ from app.services.slicer_client import (
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
-MAX_ATTEMPTS = 3
+# Shared with the dispatcher's own attempt cap -- see module docstring
+# ("slicing + dispatch share the one `attempts` counter").
+MAX_ATTEMPTS = QUEUE_MAX_ATTEMPTS
 
 
 @celery_app.task(name="app.tasks.slicing.slice_file")
 def slice_file(queue_entry_id: int) -> None:
+    """Claims the row in a short transaction (CAS: still `slicing`, stamp
+    `slicing_started_at`), commits to release the row lock, then runs the
+    HTTP slice with NO lock held -- a long-running slice must never block
+    `app.services.queue.move_entry`/other writers touching the same row.
+    The result is written back in a final, separately-fetched (unlocked)
+    transaction.
+    """
     settings = get_settings()
     with base.sync_session() as session:
         entry = session.execute(
@@ -55,12 +66,20 @@ def slice_file(queue_entry_id: int) -> None:
         ).scalar_one_or_none()
         if entry is None or entry.state != QueueState.SLICING:
             return
+        entry.slicing_started_at = datetime.now(UTC)
+        session.commit()
 
+    with base.sync_session() as session:
         cfg = get_app_config_sync(session, settings)
         client = client_from_config(cfg)
+        entry = session.get(PrintQueueEntry, queue_entry_id)
+        if entry is None or entry.state != QueueState.SLICING:
+            return
+
         if client is None:
             entry.last_error = "slicer sidecar not configured"
             entry.state = QueueState.WAITING
+            entry.slicing_started_at = None
             session.commit()
             return
 
@@ -70,6 +89,7 @@ def slice_file(queue_entry_id: int) -> None:
             # Doesn't consume an attempt -- see module docstring.
             entry.last_error = str(exc)
             entry.state = QueueState.WAITING
+            entry.slicing_started_at = None
             session.commit()
             return
         except (SlicerError, ValueError) as exc:
@@ -78,15 +98,21 @@ def slice_file(queue_entry_id: int) -> None:
             entry.state = (
                 QueueState.FAILED if entry.attempts >= MAX_ATTEMPTS else QueueState.WAITING
             )
+            entry.slicing_started_at = None
             session.commit()
             return
 
         entry.sliced_file_id = new_file_id
         entry.state = QueueState.READY
+        entry.slicing_started_at = None
         session.commit()
 
 
-def _sliced_rel_path(source_rel_path: str, recipe_name: str) -> str:
+def _sliced_rel_path(source_rel_path: str, recipe_name: str, entry_id: int, plate: int) -> str:
+    """Unique per queue entry + plate -- never collides across two queue
+    entries slicing the same source file with the same recipe (C1), so a
+    re-slice never needs to delete a prior sliced ``File`` someone else
+    (e.g. a ``PrintJob``) may already reference."""
     stem = source_rel_path
     for suffix in (".gcode.3mf", ".3mf"):
         if source_rel_path.endswith(suffix):
@@ -94,7 +120,7 @@ def _sliced_rel_path(source_rel_path: str, recipe_name: str) -> str:
             break
     else:
         stem = Path(source_rel_path).stem
-    return f"{stem} - {recipe_name}.gcode.3mf"
+    return f"{stem} - {recipe_name} (q{entry_id} p{plate}).gcode.3mf"
 
 
 def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEntry) -> int:
@@ -172,20 +198,20 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
                 f"{printer_profile.printer_model!r}"
             )
 
-        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name)
+        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, entry.id, expected_plate)
+        digest = blake3(out_bytes).hexdigest()
 
+        # C1: never delete an existing sliced File -- a PrintJob (or
+        # another queue entry) may already reference it. A re-slice that
+        # happens to produce byte-identical output (same digest) on the
+        # same revision reuses that row instead of duplicating it; anything
+        # else is stored as a brand-new File at the entry-unique path above.
         existing = session.execute(
-            select(File).where(File.revision_id == revision.id, File.rel_path == new_rel_path)
+            select(File).where(File.revision_id == revision.id, File.blob_hash == digest)
         ).scalar_one_or_none()
         if existing is not None:
-            # Same pending-store guard `slicer_intake`'s sync twin uses
-            # before replacing a same-rel_path File row.
-            if library.file_store_pending_sync(session, existing):
-                raise ValueError(f"{new_rel_path!r} is still processing; retry once stored")
-            session.delete(existing)
-            session.flush()
+            return existing.id
 
-        digest = blake3(out_bytes).hexdigest()
         spool.ensure_spool_dir(settings)
         token = uuid.uuid4()
         spool_file_path = spool.spool_path(settings, token)

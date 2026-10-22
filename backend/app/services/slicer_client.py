@@ -35,6 +35,7 @@ _ENDPOINTS = {
 }
 
 _DEFAULT_TIMEOUT = 120.0
+_DEFAULT_SLICE_TIMEOUT_S = 600.0
 
 
 class SlicerError(Exception):
@@ -114,15 +115,29 @@ class SlicerClient:
     """Thin HTTP client for the slicer sidecar. See module docstring for
     which parts are image-specific vs. the stable public contract."""
 
-    def __init__(self, base_url: str, *, http: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        http: httpx.Client | None = None,
+        slice_timeout_s: float = _DEFAULT_SLICE_TIMEOUT_S,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http or httpx.Client(base_url=self._base_url, timeout=_DEFAULT_TIMEOUT)
+        self._slice_timeout_s = slice_timeout_s
 
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
             response = self._http.request(method, path, **kwargs)
-        except httpx.TransportError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # Could not reach the sidecar at all -- doesn't consume a
+            # retry attempt (`app.tasks.slicing`'s module docstring).
             raise SlicerUnavailable(f"could not reach slicer at {path!r}: {exc}") from exc
+        except httpx.TransportError as exc:
+            # Reached it, but the exchange itself failed (read timeout,
+            # protocol error, etc.) -- a real slicer-side failure that DOES
+            # consume an attempt, unlike a plain connection failure.
+            raise SlicerError(f"slicer request to {path!r} failed: {exc}") from exc
         if response.status_code >= 400:
             raise SlicerError(
                 f"slicer returned {response.status_code} for {path!r}: {response.text[:200]}"
@@ -173,7 +188,9 @@ class SlicerClient:
             bed_type=bed_type,
             options=options,
         )
-        response = self._request("POST", _ENDPOINTS["slice"], **request_kwargs)
+        response = self._request(
+            "POST", _ENDPOINTS["slice"], timeout=self._slice_timeout_s, **request_kwargs
+        )
         content = response.content
         if not zipfile.is_zipfile(BytesIO(content)):
             raise SlicerError("slicer response body is not a valid .gcode.3mf archive")
@@ -186,4 +203,4 @@ def client_from_config(cfg: AppConfig) -> SlicerClient | None:
     `printer_enabled`'s off-by-default posture."""
     if not cfg.slicer_url:
         return None
-    return SlicerClient(cfg.slicer_url)
+    return SlicerClient(cfg.slicer_url, slice_timeout_s=cfg.slice_timeout_s)

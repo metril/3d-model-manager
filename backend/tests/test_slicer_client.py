@@ -126,6 +126,50 @@ def test_slice_connect_error_raises_slicer_unavailable():
         client.health()
 
 
+def test_connect_timeout_raises_slicer_unavailable():
+    client = SlicerClient(
+        BASE_URL,
+        http=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: (_ for _ in ()).throw(httpx.ConnectTimeout("timed out"))
+            )
+        ),
+    )
+    with pytest.raises(SlicerUnavailable):
+        client.health()
+
+
+def test_read_timeout_raises_slicer_error_not_unavailable():
+    """I1: a ReadTimeout means the sidecar WAS reached but took too long
+    responding -- a real slicer-side failure that consumes a retry attempt,
+    unlike `SlicerUnavailable` (couldn't reach it at all)."""
+    client = SlicerClient(
+        BASE_URL,
+        http=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("read timed out"))
+            )
+        ),
+    )
+    with pytest.raises(SlicerError) as exc_info:
+        client.health()
+    assert not isinstance(exc_info.value, SlicerUnavailable)
+
+
+def test_client_from_config_builds_client_with_slice_timeout():
+    cfg = AppConfig(
+        printer_enabled=False,
+        scan_interval_s=0,
+        collection_sync_interval_s=0,
+        watch_interval_s=0,
+        watch_stable_s=10.0,
+        slicer_url=BASE_URL,
+        slice_timeout_s=42,
+    )
+    client = client_from_config(cfg)
+    assert client._slice_timeout_s == 42
+
+
 def test_client_from_config_none():
     cfg = AppConfig(
         printer_enabled=False,

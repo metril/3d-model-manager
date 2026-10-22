@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     # returns `None` and slicer-dependent features stay off, mirroring
     # `printer_enabled`'s off-by-default posture. Env: `TDMM_SLICER_URL`.
     slicer_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_SLICER_URL"))
+    # How long `SlicerClient.slice` waits for the sidecar's own slice call
+    # (seconds) before giving up -- separate from `_DEFAULT_TIMEOUT`
+    # (health/profiles, fast calls) since a real slice can run long. Env:
+    # `TDMM_SLICE_TIMEOUT_S`.
+    slice_timeout_s: int = Field(
+        default=600, validation_alias=AliasChoices("TDMM_SLICE_TIMEOUT_S")
+    )
 
 
 @lru_cache

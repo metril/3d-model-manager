@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from redis import Redis
 from sqlalchemy import func, select
@@ -49,6 +50,10 @@ NOZZLE_TOL_MM = 0.05
 # tick -- slicing is CPU-heavy (its own `cpu` queue), so a long backlog
 # fills the worker pool gradually rather than all at once.
 SLICES_PER_TICK = 3
+# A `slicing` entry whose `slicing_started_at` is older than this (seconds)
+# never got a result back (worker crash/kill mid-slice) -- `_reconcile`
+# bounces it back to `waiting` rather than leaving it stuck forever.
+SLICING_STALE_S = 900
 
 
 @dataclass(frozen=True)
@@ -151,7 +156,14 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
 def _reconcile(session: Session, counts: dict) -> None:
     """Step 1: a `dispatched` item whose job ended FAILED before it ever
     started (`started_at IS NULL`) never got picked up by a running print
-    -- apply the retry rule now rather than leaving it stuck."""
+    -- apply the retry rule now rather than leaving it stuck.
+
+    Step 2: a `slicing` item whose `slicing_started_at` is older than
+    `SLICING_STALE_S` never got a result back (worker crash/kill mid-slice)
+    -- bounced back to `waiting` so the next tick re-slices it. This does
+    NOT consume an attempt, same as `SlicerUnavailable` -- the slice itself
+    never ran to completion either way.
+    """
     items = session.scalars(
         select(PrintQueueEntry).where(
             PrintQueueEntry.state == QueueState.DISPATCHED,
@@ -163,6 +175,20 @@ def _reconcile(session: Session, counts: dict) -> None:
         if job is not None and job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
             counts["retried"] += 1
+
+    stale_cutoff = datetime.now(UTC) - timedelta(seconds=SLICING_STALE_S)
+    stale_items = session.scalars(
+        select(PrintQueueEntry).where(
+            PrintQueueEntry.state == QueueState.SLICING,
+            PrintQueueEntry.slicing_started_at.is_not(None),
+            PrintQueueEntry.slicing_started_at < stale_cutoff,
+        )
+    ).all()
+    for item in stale_items:
+        item.state = QueueState.WAITING
+        item.last_error = "slicing timed out"
+        item.slicing_started_at = None
+
     session.commit()
 
 
@@ -394,6 +420,7 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
                 from app.tasks.slicing import slice_file
 
                 item.state = QueueState.SLICING
+                item.slicing_started_at = datetime.now(UTC)
                 session.commit()
                 slice_file.delay(item.id)
                 counts["sliced"] += 1

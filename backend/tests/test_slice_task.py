@@ -130,7 +130,7 @@ def test_slice_success_ready(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: 
         assert refreshed.state == QueueState.READY
         assert refreshed.sliced_file_id is not None
         new_file = session.get(File, refreshed.sliced_file_id)
-        assert new_file.rel_path == "DotC Part 1 - My Recipe.gcode.3mf"
+        assert new_file.rel_path == f"DotC Part 1 - My Recipe (q{entry_id} p1).gcode.3mf"
         source_file = session.get(File, refreshed.file_id)
         assert new_file.revision_id == source_file.revision_id
 
@@ -196,6 +196,112 @@ def test_plate_missing_fails(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: 
         assert refreshed.attempts == 1
         assert refreshed.sliced_file_id is None
         assert "plate" in refreshed.last_error
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_reslice_never_deletes_existing_file_referenced_by_a_job(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    """C1: two separate queue entries slicing the same source+recipe must
+    never delete each other's sliced File -- the first one may already be
+    referenced by a PrintJob."""
+    from app.models.enums import PrinterKind, PrintJobState
+    from app.models.printing import Printer, PrintJob
+
+    with base.sync_session() as session:
+        entry_a = _seed(session)
+        entry_a_id = entry_a.id
+        model_id, file_id, recipe_id, plate = (
+            entry_a.model_id,
+            entry_a.file_id,
+            entry_a.recipe_id,
+            entry_a.plate,
+        )
+        entry_b = PrintQueueEntry(
+            model_id=model_id,
+            position=2,
+            file_id=file_id,
+            recipe_id=recipe_id,
+            plate=plate,
+            state=QueueState.SLICING,
+        )
+        session.add(entry_b)
+        session.commit()
+        entry_b_id = entry_b.id
+
+    fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+    slicing.slice_file(entry_a_id)
+
+    with base.sync_session() as session:
+        file_a_id = session.get(PrintQueueEntry, entry_a_id).sliced_file_id
+        assert file_a_id is not None
+        printer = Printer(
+            name="P",
+            kind=PrinterKind.BAMBU_LAN,
+            host="h",
+            serial="s",
+            access_code_enc="x",
+        )
+        session.add(printer)
+        session.flush()
+        job = PrintJob(printer_id=printer.id, file_id=file_a_id, state=PrintJobState.FINISHED)
+        session.add(job)
+        session.commit()
+
+    # A different sliced byte payload for the second entry -> a different
+    # blob hash, so it's stored as its own new File, not deduped.
+    fake_client_b = FakeSlicerClient(result=sliced_3mf_bytes + b"\x00")
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client_b)
+    slicing.slice_file(entry_b_id)
+
+    with base.sync_session() as session:
+        file_b_id = session.get(PrintQueueEntry, entry_b_id).sliced_file_id
+        assert file_b_id is not None
+        assert file_b_id != file_a_id
+        # Neither file was deleted -- the job's own file row still resolves.
+        assert session.get(File, file_a_id) is not None
+        assert session.get(File, file_b_id) is not None
+        assert session.get(PrintJob, job.id).file_id == file_a_id
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_http_slice_call_holds_no_row_lock(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    """I3: the row is claimed (CAS + timestamp) and the claim transaction
+    committed BEFORE the HTTP slice call -- a concurrent writer touching the
+    same row (e.g. `queue.move_entry`) must never block on it."""
+    from sqlalchemy import text
+
+    with base.sync_session() as session:
+        entry = _seed(session)
+        entry_id = entry.id
+
+    probe: dict[str, bool] = {}
+
+    class ProbingClient(FakeSlicerClient):
+        def slice(self, **kwargs) -> bytes:
+            engine = base.get_sync_engine()
+            with engine.connect() as conn:
+                conn.execute(text("SET lock_timeout = '500ms'"))
+                try:
+                    conn.execute(
+                        text("UPDATE print_queue SET last_error = 'probe' WHERE id = :id"),
+                        {"id": entry_id},
+                    )
+                    conn.commit()
+                    probe["blocked"] = False
+                except Exception:
+                    probe["blocked"] = True
+            return super().slice(**kwargs)
+
+    fake_client = ProbingClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+
+    slicing.slice_file(entry_id)
+
+    assert probe["blocked"] is False
 
 
 @pytest.mark.usefixtures("migrated_db")
