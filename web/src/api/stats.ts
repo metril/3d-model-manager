@@ -5,7 +5,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { StatsOut } from "@/api/types";
+import type { FilamentStatsOut, StatsOut } from "@/api/types";
 
 export const statsQueryOptions = queryOptions({
   queryKey: ["stats"] as const,
@@ -14,4 +14,18 @@ export const statsQueryOptions = queryOptions({
 
 export function useStats() {
   return useQuery(statsQueryOptions);
+}
+
+export interface FilamentStatsFilters {
+  days: number;
+  bucket: "day" | "week" | "month";
+}
+
+/** `GET /stats/filament` (P5 Task 8/12): per-material and per-spool
+ * filament usage over time -- the History page's filament stats section. */
+export function useFilamentStats({ days, bucket }: FilamentStatsFilters) {
+  return useQuery({
+    queryKey: ["stats", "filament", days, bucket] as const,
+    queryFn: () => api.get<FilamentStatsOut>(`/stats/filament?days=${days}&bucket=${bucket}`),
+  });
 }

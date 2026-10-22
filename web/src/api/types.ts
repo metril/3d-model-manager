@@ -585,6 +585,28 @@ export interface StatsOut {
   material_usage: { material_id: number | null; name: string; grams: number; prints: number }[];
 }
 
+// -- filament usage stats (backend/app/schemas/stats.py, P5 Task 8) --------
+
+export interface FilamentPointOut {
+  t: string;
+  grams: number;
+  cost: number;
+}
+
+export interface FilamentSeriesOut {
+  key: string;
+  name: string;
+  color_hex: string | null;
+  total_g: number;
+  total_cost: number;
+  points: FilamentPointOut[];
+}
+
+export interface FilamentStatsOut {
+  by_material: FilamentSeriesOut[];
+  by_spool: FilamentSeriesOut[];
+}
+
 export type PrinterKind = "bambu_lan";
 
 export interface PrinterOut {
