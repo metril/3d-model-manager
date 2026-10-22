@@ -118,6 +118,13 @@ class QueueEntryOut(BaseModel):
     review_note: str | None = None
     reserved_cost: float | None = None
     hold_reason: str | None = None
+    # P8 Task 7: the HA-alert hold currently keeping this entry's TARGET
+    # printer off the dispatcher (``app.services.dispatcher.
+    # printer_hold_reason``) -- distinct from ``hold_reason`` above, which
+    # is the entry's OWN hold (budget, etc). A targeted entry reports its
+    # one target's hold; an untargeted entry reports "All printers held"
+    # only when every ENABLED printer is currently held, else None.
+    printer_hold_reason: str | None = None
     # M6: who queued it, so the review inbox can show a name rather than
     # just a cost/plate. `None` for a legacy entry with no creator on file.
     created_by: CreatedByOut | None = None

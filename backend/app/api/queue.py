@@ -7,6 +7,7 @@ extended by the P6 slicer/dispatch plan (Task 6) with per-file queue items.
 
 from __future__ import annotations
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +34,13 @@ async def list_queue(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> list[QueueEntryOut]:
-    return await queue_service.list_queue(db, settings, ctx, include_done=include_done)
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await queue_service.list_queue(
+            db, settings, ctx, include_done=include_done, redis=client
+        )
+    finally:
+        await client.aclose()
 
 
 @router.post(

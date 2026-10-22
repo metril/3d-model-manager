@@ -306,6 +306,13 @@ class PrinterOverviewItem(BaseModel):
     # id``) -- the top-level ``PrintersOverviewOut.up_next`` now only holds
     # unassigned entries.
     up_next: list[QueueEntryOut] = Field(default_factory=list)
+    # P8 Task 7: this printer's currently-firing HA alert, if any
+    # (``app.services.ha_state.read_alert``) -- ``ha_held`` is true iff that
+    # alert is ALSO currently holding the dispatcher off this printer
+    # (``hold_queue=true`` on the firing link), distinct from merely being
+    # reported.
+    ha_alert: str | None = None
+    ha_held: bool = False
 
 
 class PrintersOverviewOut(BaseModel):
