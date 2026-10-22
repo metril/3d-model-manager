@@ -14,6 +14,12 @@ import { ApiError } from "@/api/client";
 import { LibraryPage } from "@/pages/LibraryPage";
 import type { CategoryOut, FollowedCollection, ModelSummary } from "@/api/types";
 
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+}));
+
+
 // `vi.mock` factories are hoisted above the module's own top-level
 // bindings, so the mock function has to be created through `vi.hoisted`.
 const { getMock, postMock, toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({

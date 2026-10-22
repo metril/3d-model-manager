@@ -4,6 +4,7 @@
  * gcode_state as a badge, a progress bar, layer/temp/remaining-time
  * telemetry, and pause/resume/stop controls gated on that state.
  */
+import { useAuth } from "@/api/auth";
 import { usePrinterCommand, usePrinterStatus } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
   const status = usePrinterStatus(printer.id);
   const command = usePrinterCommand(printer.id);
+  const { canPrinter } = useAuth();
   const s = status.data;
   const gs = s?.gcode_state ?? null;
   const printing = gs === "RUNNING";
@@ -52,6 +54,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 Printer error {s.print_error}
               </p>
             ) : null}
+            {canPrinter(printer.id, "control") ? (
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -78,6 +81,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 Stop
               </Button>
             </div>
+            ) : null}
           </>
         )}
       </CardContent>

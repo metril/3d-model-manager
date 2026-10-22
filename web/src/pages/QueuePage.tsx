@@ -20,6 +20,7 @@ import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
+import { useAuth } from "@/api/auth";
 import { usePrinters } from "@/api/printers";
 import { useMoveQueueEntry, useQueue, useRemoveQueueEntry } from "@/api/queue";
 import type { QueueEntry } from "@/api/types";
@@ -82,6 +83,8 @@ function QueueRow({ entry, count }: { entry: QueueEntry; count: number }) {
   const features = useFeatures();
   const printerFeatureEnabled = !!features.data?.printer_enabled;
   const printers = usePrinters({ enabled: printerFeatureEnabled });
+  const { canPrinter } = useAuth();
+  const printable = (printers.data ?? []).filter((p) => canPrinter(p.id, "print"));
   const [printOpen, setPrintOpen] = useState(false);
 
   const isFirst = entry.position <= 1;
@@ -118,7 +121,7 @@ function QueueRow({ entry, count }: { entry: QueueEntry; count: number }) {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        {entry.printable_file && printerFeatureEnabled && printers.data && printers.data.length > 0 ? (
+        {entry.printable_file && printerFeatureEnabled && printable.length > 0 ? (
           <>
             <Button type="button" size="sm" onClick={() => setPrintOpen(true)}>
               <PrinterIcon className="size-4" />
@@ -126,7 +129,7 @@ function QueueRow({ entry, count }: { entry: QueueEntry; count: number }) {
             </Button>
             <SendToPrinterDialog
               file={entry.printable_file}
-              printers={printers.data}
+              printers={printable}
               open={printOpen}
               onOpenChange={setPrintOpen}
               onSuccess={() => {

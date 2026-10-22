@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useAuth } from "@/api/auth";
 import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
@@ -131,6 +132,8 @@ export function ModelHeader({
   onOpenRelocate: () => void;
 }) {
   const navigate = useNavigate();
+  const { data: me, can } = useAuth();
+  const canDelete = can("admin") || (!!me && model.created_by_user_id === me.id);
   const patchModel = usePatchModel(model.slug);
   const archiveModel = useArchiveModel(model.slug);
   const deleteModel = useDeleteModel(model.slug);
@@ -281,10 +284,12 @@ export function ModelHeader({
                 <ArchiveIcon />
                 Archive…
               </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
-                <Trash2Icon />
-                Delete…
-              </DropdownMenuItem>
+              {canDelete ? (
+                <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+                  <Trash2Icon />
+                  Delete…
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
           <RedownloadDialog model={model} open={redownloadOpen} onOpenChange={setRedownloadOpen} />

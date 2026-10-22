@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useAuth } from "@/api/auth";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useBulkDeleteModels, useBulkUpdateModels, useModelsQuery, useTags } from "@/api/library";
@@ -181,6 +182,7 @@ export function LibraryPage() {
   }
 
   const triggerScan = useTriggerScan();
+  const { can } = useAuth();
   function startScan() {
     triggerScan.mutate(undefined, {
       onSuccess: () =>
@@ -435,13 +437,15 @@ export function LibraryPage() {
             <RefreshCwIcon className={triggerScan.isPending ? "animate-spin" : undefined} />
             Scan library
           </Button>
-          <NewModelDialog
-            trigger={
-              <Button type="button">
-                <PlusIcon /> New model
-              </Button>
-            }
-          />
+          {can("library:write") ? (
+            <NewModelDialog
+              trigger={
+                <Button type="button">
+                  <PlusIcon /> New model
+                </Button>
+              }
+            />
+          ) : null}
         </div>
 
         {categories.length > 0 && viewMode !== "folders" && (
@@ -597,9 +601,11 @@ export function LibraryPage() {
             <CardDescription>Upload your first 3D model to get started.</CardDescription>
           </CardHeader>
           <div className="flex justify-center pb-4">
-            <Button asChild>
-              <Link to="/add">Add a model</Link>
-            </Button>
+            {can("library:write") ? (
+              <Button asChild>
+                <Link to="/add">Add a model</Link>
+              </Button>
+            ) : null}
           </div>
         </Card>
       ) : (

@@ -6,6 +6,12 @@ import { modelQueryOptions } from "@/api/library";
 import { FilesTab } from "@/components/model-detail/FilesTab";
 import type { FileOut, Features, ModelDetail, PrinterOut } from "@/api/types";
 
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+}));
+
+
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as SettingsPage.test.tsx), so the fake has to be created
 // through `vi.hoisted`. The Files-tab `SendToPrinterButton` calls

@@ -33,7 +33,7 @@ vi.mock("@/api/scan", () => ({
 }));
 
 vi.mock("@/api/auth", () => ({
-  useAuth: () => ({ data: { username: "tester" } }),
+  useAuth: () => ({ data: { username: "tester" }, can: () => true, canPrinter: () => true }),
   useLogout: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 

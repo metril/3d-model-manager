@@ -249,6 +249,8 @@ export interface RevisionDetail {
 
 export interface ModelDetail {
   id: number;
+  created_by_user_id?: number | null;
+  created_by_username?: string | null;
   slug: string;
   name: string;
   description: string | null;

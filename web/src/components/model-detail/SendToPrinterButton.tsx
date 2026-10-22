@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { PrinterIcon } from "lucide-react";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import { usePrinters, useStartPrint } from "@/api/printers";
@@ -28,9 +29,11 @@ export function SendToPrinterButton({ file }: { file: FileOut }) {
   const features = useFeatures();
   const enabled = !!features.data?.printer_enabled;
   const printers = usePrinters({ enabled });
+  const { canPrinter } = useAuth();
   const [open, setOpen] = useState(false);
+  const allowed = (printers.data ?? []).filter((p) => canPrinter(p.id, "print"));
 
-  if (!enabled || file.format !== "gcode_3mf" || !printers.data || printers.data.length === 0) return null;
+  if (!enabled || file.format !== "gcode_3mf" || allowed.length === 0) return null;
   return (
     <>
       <Button
@@ -42,7 +45,7 @@ export function SendToPrinterButton({ file }: { file: FileOut }) {
       >
         <PrinterIcon className="size-4" />
       </Button>
-      <SendToPrinterDialog file={file} printers={printers.data} open={open} onOpenChange={setOpen} />
+      <SendToPrinterDialog file={file} printers={allowed} open={open} onOpenChange={setOpen} />
     </>
   );
 }

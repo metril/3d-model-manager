@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
-import { NAV_GROUPS, SETTINGS_ITEM, type NavItem } from "@/components/shell/navItems";
+import { NAV_GROUPS, SETTINGS_ITEM, filterNavItems, type NavItem } from "@/components/shell/navItems";
 import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 import type { LibrarySearch } from "@/pages/librarySearch";
@@ -161,7 +161,7 @@ export function AppSidebar({
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }) {
-  const { data: me } = useAuth();
+  const { data: me, can } = useAuth();
   const logout = useLogout();
   const navigate = useNavigate();
   const features = useFeatures();
@@ -182,7 +182,7 @@ export function AppSidebar({
   const printerEnabled = !!features.data?.printer_enabled;
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.featureGated || printerEnabled),
+    items: filterNavItems(group.items, { printerEnabled, can }),
   }));
   const collections = (followed.data ?? []).slice(0, MAX_COLLECTION_LINKS);
   const hasMoreCollections = (followed.data?.length ?? 0) > MAX_COLLECTION_LINKS;
@@ -235,6 +235,7 @@ export function AppSidebar({
           <ChevronsLeftIcon className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
         </Button>
       </div>
+      {can("library:write") ? (
       <div className={cn("px-2 pb-2", collapsed && "px-1.5")}>
         <Button asChild className={cn("w-full gap-2", collapsed ? "justify-center px-0" : "justify-start")}>
           <Link to="/add" title={collapsed ? "Add to library" : undefined}>
@@ -243,6 +244,7 @@ export function AppSidebar({
           </Link>
         </Button>
       </div>
+      ) : null}
       <ScanChip collapsed={collapsed} />
       <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2">
         {visibleGroups.map((group) => (
