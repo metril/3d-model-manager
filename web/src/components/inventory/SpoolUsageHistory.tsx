@@ -43,7 +43,7 @@ export function SpoolUsageHistory({
       <div className="flex items-center gap-3">
         <Sparkline values={values} aria-label="Remaining filament over time" />
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {Math.round(spool.remaining_g)} g remaining
+          {Math.max(0, Math.round(spool.remaining_g))} g remaining
         </span>
       </div>
 
