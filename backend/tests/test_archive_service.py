@@ -7,10 +7,11 @@ import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models import Model, Print, PrintArchive
-from app.models.enums import ArchiveResult
+from app.models import Model, Print, PrintArchive, PrintJob, Spool, SpoolUsage
+from app.models.enums import ArchiveResult, SpoolUsageSource
 from app.services import archive as archive_mod
 from app.services.archive import ArchiveFetchError, archive_job, archive_path
+from tests.archive_fixtures import spool_on_tray
 
 pytestmark = pytest.mark.usefixtures("printer_enabled", "data_dir")
 
@@ -27,7 +28,14 @@ def test_archive_external_job_from_ftps(fake_adapter, sliced_3mf_bytes, seed):
     arc = archive_job(s, settings, job_id, ArchiveResult.COMPLETED)
     assert arc.fetch_state == "done" and arc.plate == 1 and arc.model_id == model_id
     assert arc.est_filament == [
-        {"slot": 0, "type": "PLA", "color": "#000000", "grams": 61.64, "meters": 21.18}
+        {
+            "slot": 0,
+            "filament_id": 1,
+            "type": "PLA",
+            "color": "#000000",
+            "grams": 61.64,
+            "meters": 21.18,
+        }
     ]
     assert archive_path(settings, arc.archive_blob, "gcode.3mf").exists()
     assert arc.archive_blob == hashlib.sha256(sliced_3mf_bytes).hexdigest()
@@ -182,10 +190,83 @@ def test_archive_redelivery_keeps_user_edits(fake_adapter, sliced_3mf_bytes, see
 
 def test_archive_est_filament_maps_ams_tray(fake_adapter, sliced_3mf_bytes, seed):
     job_id = seed.job(subtask="X_plate_1")
-    from app.models import PrintJob
-
     seed.s.get(PrintJob, job_id).ams_mapping = [3]
     seed.s.commit()
     fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
     arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
     assert arc.est_filament[0]["slot"] == 0 and arc.est_filament[0]["tray"] == 3
+
+
+def test_archive_tray_from_filament_id(fake_adapter, two_filament_3mf_bytes, seed):
+    """Filament index 0 has id 1 -> mapping[0]=3; filament index 1 has id
+    3 -> mapping[2]=0 (``-1`` at index 1 is skipped entirely)."""
+    job_id = seed.job(subtask="X_plate_1")
+    seed.s.get(PrintJob, job_id).ams_mapping = [3, -1, 0]
+    seed.s.commit()
+    fake_adapter.files["/cache/X_plate_1.3mf"] = two_filament_3mf_bytes
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    trays = [row.get("tray") for row in arc.est_filament]
+    assert trays == [3, 0]
+
+
+def test_archive_writes_usage_per_tray(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    printer_id = seed.printer_id
+    seed.s.get(PrintJob, job_id).ams_mapping = [0]
+    seed.s.commit()
+    spool_id = spool_on_tray(seed.s, printer_id, 0)
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    seed.s.expire_all()
+    rows = seed.s.scalars(select(SpoolUsage).where(SpoolUsage.print_job_id == job_id)).all()
+    assert len(rows) == 1
+    assert rows[0].spool_id == spool_id and rows[0].source == SpoolUsageSource.THREE_MF
+    assert rows[0].grams == pytest.approx(61.64)
+    spool = seed.s.get(Spool, spool_id)
+    assert spool.weight_used_g == pytest.approx(61.64)
+
+
+def test_archive_twice_decrements_once(fake_adapter, sliced_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    printer_id = seed.printer_id
+    seed.s.get(PrintJob, job_id).ams_mapping = [0]
+    seed.s.commit()
+    spool_id = spool_on_tray(seed.s, printer_id, 0)
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    for _ in range(2):
+        archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    seed.s.expire_all()
+    rows = seed.s.scalars(select(SpoolUsage).where(SpoolUsage.print_job_id == job_id)).all()
+    assert len(rows) == 1
+    spool = seed.s.get(Spool, spool_id)
+    assert spool.weight_used_g == pytest.approx(61.64)
+
+
+def test_archive_cost_uses_spool_rate(fake_adapter, fifty_gram_3mf_bytes, seed):
+    job_id = seed.job(subtask="X_plate_1")
+    printer_id = seed.printer_id
+    seed.s.get(PrintJob, job_id).ams_mapping = [0]
+    seed.s.commit()
+    spool_on_tray(seed.s, printer_id, 0, cost_per_kg=40.0)
+    fake_adapter.files["/cache/X_plate_1.3mf"] = fifty_gram_3mf_bytes
+    archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    run = _run(seed.s, job_id)
+    assert run.filament_cost == pytest.approx(2.0)
+
+
+def test_archive_missing_3mf_uses_ams_delta(fake_adapter, seed):
+    job_id = seed.job(subtask="Nope")
+    printer_id = seed.printer_id
+    spool_id = spool_on_tray(seed.s, printer_id, 0, cost_per_kg=40.0)
+    job = seed.s.get(PrintJob, job_id)
+    job.tray_snapshot = {"start": [100], "end": [50]}
+    seed.s.commit()
+    arc = archive_job(seed.s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    assert arc.fetch_state == "missing" and arc.est_filament == []
+    rows = seed.s.scalars(select(SpoolUsage).where(SpoolUsage.print_job_id == job_id)).all()
+    assert len(rows) == 1 and rows[0].source == SpoolUsageSource.AMS_DELTA
+    assert rows[0].grams == pytest.approx(500.0)  # 1000g label * 50% delta
+    run = _run(seed.s, job_id)
+    assert run.filament_cost == pytest.approx(500.0 / 1000 * 40.0)
+    spool = seed.s.get(Spool, spool_id)
+    assert spool.weight_used_g == pytest.approx(500.0)

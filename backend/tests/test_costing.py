@@ -1,7 +1,14 @@
+from dataclasses import dataclass
+
 from app.models.enums import ArchiveResult
-from app.services.costing import CostRates, RunCost, charged_grams, price_run
+from app.services.costing import CostRates, RunCost, charged_grams, filament_cost, price_run
 
 R = CostRates(filament_per_kg=20.0, machine_per_hour=1.5)
+
+
+@dataclass
+class _Spool:
+    cost_per_kg: float | None
 
 
 def test_price_run_sums_components():
@@ -12,6 +19,19 @@ def test_price_run_sums_components():
 def test_price_run_unknowns():
     assert price_run(None, None, R).total_cost is None
     assert price_run(100.0, None, R) == RunCost(2.0, None, None, 2.0)
+
+
+def test_price_run_filament_cost_override():
+    # filament_g is ignored entirely once filament_cost is given.
+    c = price_run(999.0, 7200, R, filament_cost=2.0)
+    assert (c.filament_cost, c.machine_cost, c.total_cost) == (2.0, 3.0, 5.0)
+
+
+def test_filament_cost_uses_spool_rate_with_global_fallback():
+    assert filament_cost([], 20.0) is None
+    usages = [(_Spool(cost_per_kg=40.0), 50.0), (None, 100.0)]
+    # spool: 50g / 1000 * 40 = 2.0; spool-less: 100g / 1000 * 20 (global) = 2.0
+    assert filament_cost(usages, 20.0) == 4.0
 
 
 def test_charged_grams_completed_is_full_estimate():

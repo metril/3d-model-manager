@@ -32,8 +32,9 @@ from app.pipeline.slicedmeta import parse_gcode_3mf
 from app.printers.connection import connection_from_printer
 from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
+from app.services import spool_inventory
 from app.services.app_config import get_app_config_sync
-from app.services.costing import CostRates, charged_grams, price_run
+from app.services.costing import CostRates, charged_grams, filament_cost, price_run
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
 from app.services.slicer_intake import _find_model_by_name_ci_sync
 from app.services.slicer_naming import _safe_basename, model_name_from_filename
@@ -204,13 +205,21 @@ def archive_job(
                 for i, f in enumerate(plate["filaments"]):
                     row = {
                         "slot": i,
+                        "filament_id": f.get("filament_id"),
                         "type": f["type"],
                         "color": f["color"],
                         "grams": f["used_g"],
                         "meters": f["used_m"],
                     }
-                    if isinstance(mapping, list) and i < len(mapping):
-                        row["tray"] = mapping[i]
+                    tray_val: int | None = None
+                    if isinstance(mapping, list):
+                        fid = f.get("filament_id")
+                        if fid is not None and 0 <= fid - 1 < len(mapping):
+                            tray_val = mapping[fid - 1]
+                        elif i < len(mapping):
+                            tray_val = mapping[i]
+                    if tray_val is not None and tray_val != -1:
+                        row["tray"] = tray_val
                     est.append(row)
                 thumb = plate.get("thumbnail_file")
                 if thumb:
@@ -237,6 +246,9 @@ def archive_job(
         duration_s = int((job.finished_at - job.started_at).total_seconds())
     arc.duration_s = duration_s
 
+    cfg = get_app_config_sync(session, settings)
+    usages = spool_inventory.record_job_usage(session, job, est, result)
+
     grams = [e["grams"] for e in est if e["grams"] is not None]
     est_g = sum(grams) if grams else None
     filament_g = charged_grams(
@@ -247,7 +259,10 @@ def archive_job(
         progress_pct=job.progress_pct,
     )
     cost = price_run(
-        filament_g, duration_s, CostRates.from_config(get_app_config_sync(session, settings))
+        filament_g,
+        duration_s,
+        CostRates.from_config(cfg),
+        filament_cost=filament_cost(usages, cfg.filament_cost_per_kg),
     )
     types = list(dict.fromkeys(e["type"] for e in est if e["type"]))
     run = session.scalars(select(Print).where(Print.print_job_id == job.id)).first()
