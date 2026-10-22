@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
 
 import httpx
@@ -32,7 +33,11 @@ def _pending_item(
     *, printer_id: int | None = None, created_by_user_id: int | None = None
 ) -> PrintQueueEntry:
     with base.sync_session() as s:
-        slug = f"review-model-{id(object())}"
+        # A per-call unique slug -- `id(object())` is NOT reliable here:
+        # CPython can (and in a full-suite run, reliably does) reuse the
+        # id of a just-freed temporary object across two back-to-back
+        # calls in the same test, colliding on `uq_models_slug`.
+        slug = f"review-model-{uuid.uuid4().hex}"
         model = Model(slug=slug, name=slug)
         s.add(model)
         s.flush()
