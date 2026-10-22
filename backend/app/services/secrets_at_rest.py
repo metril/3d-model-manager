@@ -43,5 +43,22 @@ async def reencrypt_secrets_at_rest(db: AsyncSession, settings: Settings) -> Non
             # untouched -- never collapse the row down to just what changed.
             token_row.value = {**token_row.value, **updates}
             changed = True
+    # P8 Home Assistant plan: ha_mqtt_password_enc/ha_token_enc under the
+    # "home_assistant" row -- same InvalidToken-fallback re-encrypt as the
+    # import tokens above.
+    ha_row = await db.get(Setting, "home_assistant")
+    if ha_row is not None:
+        updates = {}
+        for field in ("ha_mqtt_password_enc", "ha_token_enc"):
+            secret = (ha_row.value or {}).get(field)
+            if not secret:
+                continue
+            try:
+                decrypt_secret(settings, secret)  # already ciphertext -> no-op
+            except InvalidToken:
+                updates[field] = encrypt_secret(settings, secret)
+        if updates:
+            ha_row.value = {**ha_row.value, **updates}
+            changed = True
     if changed:
         await db.commit()

@@ -264,6 +264,20 @@ class ReviewState(StrEnum):
     REJECTED = "rejected"
 
 
+class HaRole(StrEnum):
+    """What a linked Home Assistant entity feeds (P8 ``ha_links.role``):
+    an energy accumulator for cost tracking, a power sensor, or an alert
+    source (door/smoke/temp/humidity) that can hold the dispatcher and/or
+    pause a running print."""
+
+    ENERGY_KWH = "energy_kwh"
+    POWER_W = "power_w"
+    DOOR = "door"
+    SMOKE = "smoke"
+    TEMP = "temp"
+    HUMIDITY = "humidity"
+
+
 class SpoolUsageSource(StrEnum):
     """How a ``spool_usage`` row's grams were determined (P5 spool tray
     plan): parsed from a sliced 3MF, inferred from an AMS weight delta, or

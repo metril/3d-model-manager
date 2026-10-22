@@ -65,6 +65,7 @@ class AppSettingsIn(BaseModel):
     watch_stable_s: float = Field(ge=0)
     filament_cost_per_kg: float = Field(default=20.0, ge=0)
     machine_cost_per_hour: float = Field(default=0.0, ge=0)
+    energy_cost_per_kwh: float = Field(default=0.0, ge=0)
 
 
 class AppSettingsOut(BaseModel):
@@ -75,6 +76,7 @@ class AppSettingsOut(BaseModel):
     watch_stable_s: float
     filament_cost_per_kg: float
     machine_cost_per_hour: float
+    energy_cost_per_kwh: float
 
     @classmethod
     def from_config(cls, config: AppConfig) -> AppSettingsOut:

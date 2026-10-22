@@ -24,6 +24,7 @@ _DEFAULTS = {
     "watch_stable_s": 10.0,
     "filament_cost_per_kg": 20.0,
     "machine_cost_per_hour": 0.0,
+    "energy_cost_per_kwh": 0.0,
 }
 
 
@@ -62,6 +63,7 @@ async def test_put_persists_all_five_fields_and_get_reflects_them(authenticated_
         "watch_stable_s": 5.5,
         "filament_cost_per_kg": 25.0,
         "machine_cost_per_hour": 2.5,
+        "energy_cost_per_kwh": 0.35,
     }
     put = await authenticated_client.put("/api/settings/app", json=payload)
     assert put.status_code == 200
@@ -120,6 +122,33 @@ async def test_put_negative_filament_cost_is_422(authenticated_client):
 @pytest.mark.asyncio
 async def test_put_negative_machine_cost_is_422(authenticated_client):
     payload = {**_DEFAULTS, "machine_cost_per_hour": -1}
+    r = await authenticated_client.put("/api/settings/app", json=payload)
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# P8 Home Assistant plan: energy_cost_per_kwh -- same literal-default,
+# no-env-backing posture as filament_cost_per_kg/machine_cost_per_hour.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_rate_defaults_zero(db_session):
+    config = await app_config.get_app_config(db_session, get_settings())
+    assert config.energy_cost_per_kwh == 0.0
+
+
+@pytest.mark.asyncio
+async def test_put_omitting_energy_rate_uses_schema_default(authenticated_client):
+    payload = {k: v for k, v in _DEFAULTS.items() if k != "energy_cost_per_kwh"}
+    r = await authenticated_client.put("/api/settings/app", json=payload)
+    assert r.status_code == 200
+    assert r.json()["energy_cost_per_kwh"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_put_negative_energy_rate_is_422(authenticated_client):
+    payload = {**_DEFAULTS, "energy_cost_per_kwh": -1}
     r = await authenticated_client.put("/api/settings/app", json=payload)
     assert r.status_code == 422
 

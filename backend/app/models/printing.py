@@ -98,6 +98,12 @@ class PrintJob(Base):
     # P5 spool tray plan: `{"start": [tray...], "end": [tray...]}` AMS tray
     # state captured at job start/end, for reconciling spool usage.
     tray_snapshot: Mapped[dict | None] = mapped_column(JSONB)
+    # P8 Home Assistant plan: the `ha:energy:acc:{pid}` running-total
+    # accumulator (kWh), snapshotted by printerd at job start/finish so
+    # `app.services.costing.job_energy_kwh` can price the delta even
+    # through an intervening counter reset.
+    energy_start_kwh: Mapped[float | None] = mapped_column(Float)
+    energy_end_kwh: Mapped[float | None] = mapped_column(Float)
 
 
 class PrintArchive(Base):

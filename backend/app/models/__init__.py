@@ -22,6 +22,7 @@ from app.models.collections import (
     RemoteCollectionCache,
     RemoteCollectionItem,
 )
+from app.models.home_assistant import HaLink
 from app.models.inventory import Spool, SpoolSlot, SpoolUsage
 from app.models.library import (
     Blob,
@@ -55,6 +56,7 @@ __all__ = [
     "FollowedCollection",
     "Group",
     "GroupMember",
+    "HaLink",
     "Import",
     "Job",
     "LedgerEntry",
