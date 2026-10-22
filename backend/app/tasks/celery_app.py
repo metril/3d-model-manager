@@ -42,6 +42,9 @@ celery_app.conf.update(
         # extraction/render steps, same reason it needs its own entry ahead
         # of the general catch-all below.
         "app.tasks.media.*": {"queue": "cpu"},
+        # P6 Task 5: slicing is CPU-heavy like the two entries above, same
+        # reason it needs its own entry ahead of the general catch-all.
+        "app.tasks.slicing.*": {"queue": "cpu"},
         "app.tasks.*": {"queue": "io"},
     },
     imports=(
@@ -57,6 +60,7 @@ celery_app.conf.update(
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
         "app.tasks.scheduler",
+        "app.tasks.slicing",
     ),
 )
 
