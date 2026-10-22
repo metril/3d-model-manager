@@ -25,6 +25,7 @@ function ReviewRow({ entry, printerName }: { entry: QueueEntry; printerName: str
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {entry.plate != null ? <span>Plate {entry.plate}</span> : null}
         <span>{printerName}</span>
+        {entry.created_by != null ? <span>{entry.created_by.username}</span> : null}
       </div>
       <ReviewActions entryId={entry.id} />
     </li>

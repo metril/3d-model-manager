@@ -420,9 +420,14 @@ export function PrintDialog({
         onError: (e) => {
           // The client's `sendNext` guess can be wrong (e.g. a group's
           // `requires_review` flag this user's own `Me` doesn't expose) --
-          // the server's 409 is authoritative, so fall back to the same
-          // enqueue path rather than leaving the person stuck.
-          if (e instanceof ApiError && e.status === 409) handleSendNext();
+          // the server's 409 `queue_required` is authoritative for THAT
+          // specific case, so fall back to the same enqueue path rather
+          // than leaving the person stuck. Any OTHER 409 (printer busy,
+          // disabled, etc.) is a real failure -- surface its own detail
+          // below instead of silently enqueueing.
+          if (e instanceof ApiError && e.status === 409 && e.detail === "queue_required") {
+            handleSendNext();
+          }
         },
       },
     );
@@ -700,9 +705,19 @@ export function PrintDialog({
                     ))}
                   </ul>
                 ) : null}
-                {sendPrint.isError ? (
+                {sendPrint.isError &&
+                !(
+                  sendPrint.error instanceof ApiError &&
+                  sendPrint.error.status === 409 &&
+                  sendPrint.error.detail === "queue_required"
+                ) ? (
                   <p role="alert" className="text-sm text-destructive">
-                    Could not send to printer
+                    {/* I3: a non-queue_required failure (printer busy,
+                        disabled, etc.) surfaces the server's own detail
+                        instead of a generic message. */}
+                    {sendPrint.error instanceof ApiError
+                      ? sendPrint.error.detail
+                      : "Could not send to printer"}
                   </p>
                 ) : null}
                 {profileMode === "recipe" ? (
@@ -750,7 +765,17 @@ export function PrintDialog({
                         <Button
                           type="button"
                           onClick={handleSend}
-                          disabled={effectivePrinterId == null || hasRed || printerNotReady || sendPrint.isPending || enqueue.isPending}
+                          disabled={
+                            effectivePrinterId == null ||
+                            hasRed ||
+                            // M4: in "Send next" mode this enqueues rather than
+                            // sending straight to the printer -- queueing is
+                            // the whole point when the printer isn't ready
+                            // yet, so `printerNotReady` only blocks "Send now".
+                            (!sendNext && printerNotReady) ||
+                            sendPrint.isPending ||
+                            enqueue.isPending
+                          }
                         >
                           {sendPrint.isPending || enqueue.isPending
                             ? "Sending..."

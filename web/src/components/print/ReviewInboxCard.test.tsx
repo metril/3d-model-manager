@@ -93,6 +93,12 @@ describe("ReviewInboxCard", () => {
     expect(screen.getByText("Garage X1")).toBeInTheDocument();
   });
 
+  it("shows who queued the item", () => {
+    inboxDataBox.current = [entry({ created_by: { id: 9, username: "jamie" } })];
+    render(<ReviewInboxCard />);
+    expect(screen.getByText("jamie")).toBeInTheDocument();
+  });
+
   it("approve calls the review endpoint and reject posts a note", async () => {
     inboxDataBox.current = [entry({ id: 3 })];
     render(<ReviewInboxCard />);

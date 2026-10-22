@@ -29,7 +29,7 @@ const viewer: Me = { ...base, role: "viewer" };
 const member: Me = {
   ...base,
   permissions: ["printers:print", "printers:control"],
-  printer_access: { "1": { print: true, control: false } },
+  printer_access: { "1": { print: true, control: false, requires_review: false } },
 };
 const admin: Me = { ...base, role: "admin", permissions: ["admin"], printer_access: null };
 

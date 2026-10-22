@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
+import { ApiError } from "@/api/client";
 import { PrintDialog } from "@/components/print/PrintDialog";
 
 const { getMock, postMock, toastSuccessMock, authDataBox, financeConfigBox, costCentersBox } = vi.hoisted(() => ({
@@ -333,6 +334,72 @@ describe("PrintDialog", () => {
 
     expect(await screen.findByRole("button", { name: "Send next" })).toBeInTheDocument();
     expect(screen.getByText("Needs review")).toBeInTheDocument();
+  });
+
+  it("I3: falls back to enqueue only on a queue_required 409, not other 409s", async () => {
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) => {
+      if (path === "/print/send") {
+        return Promise.reject(new ApiError(409, "printer is disabled"));
+      }
+      return original(path, body);
+    });
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendNow = await screen.findByRole("button", { name: "Send now" });
+    await waitFor(() => expect(sendNow).not.toBeDisabled());
+    fireEvent.click(sendNow);
+
+    expect(await screen.findByText("printer is disabled")).toBeInTheDocument();
+    // never silently switched to the enqueue fallback for a non-queue_required 409
+    expect(postMock).not.toHaveBeenCalledWith("/queue", expect.anything());
+  });
+
+  it("I3: falls back to enqueue on a queue_required 409", async () => {
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) => {
+      if (path === "/print/send") {
+        return Promise.reject(new ApiError(409, "queue_required"));
+      }
+      return original(path, body);
+    });
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendNow = await screen.findByRole("button", { name: "Send now" });
+    await waitFor(() => expect(sendNow).not.toBeDisabled());
+    fireEvent.click(sendNow);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ file_id: 10, front: true })));
+  });
+
+  it("M4: Send next stays enabled even when the printer isn't ready", async () => {
+    authDataBox.current = {
+      id: 1,
+      role: "member",
+      permissions: [],
+      printer_access: { "5": { requires_review: true } },
+    };
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) => {
+      if (path === "/print/plan") {
+        return (original(path, body) as Promise<Record<string, unknown>>).then((plan) => ({
+          ...plan,
+          printers: [{ id: 5, name: "Printer A", model: "A1", idle: false, compatible: true, reason: "busy" }],
+        }));
+      }
+      return original(path, body);
+    });
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const sendNext = await screen.findByRole("button", { name: "Send next" });
+    await waitFor(() => expect(sendNext).not.toBeDisabled());
   });
 
   it("an archive source hits reprint for its initial plan", async () => {

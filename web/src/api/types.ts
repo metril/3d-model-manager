@@ -1311,6 +1311,8 @@ export interface QueueEntry {
   review_note?: string | null;
   reserved_cost?: number | null;
   hold_reason?: string | null;
+  // M6: who queued it, for the review inbox.
+  created_by?: { id: number; username: string } | null;
 }
 
 export interface QueueEnqueueBody {
