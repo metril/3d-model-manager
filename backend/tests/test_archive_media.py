@@ -78,6 +78,13 @@ def test_pick_newest_after_start():
     assert pick_timelapse(e[:1], t0) is None
 
 
+def test_pick_timelapse_rejects_unsafe_names():
+    t0 = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
+    for bad_name in ("/abs.mp4", "../x.avi", ".hidden.mp4"):
+        e = [("/timelapse", RemoteFile(bad_name, 1, t0 + timedelta(minutes=1)))]
+        assert pick_timelapse(e, t0) is None
+
+
 # -- fetch_timelapse_for ----------------------------------------------------
 
 
@@ -154,7 +161,7 @@ def test_transcode_without_ffmpeg_keeps_avi_and_notes(fake_adapter, seed, monkey
     seed.s.expire_all()
     arc2 = seed.s.get(PrintArchive, archive_id)
     assert arc2.timelapse_blob == old_sha
-    assert arc2.media_note == "ffmpeg not available; kept .avi"
+    assert arc2.media_note == "ffmpeg unavailable; original .avi kept"
     assert arc2.fetch_state == ArchiveFetchState.DONE
 
 
@@ -165,8 +172,10 @@ def test_transcode_swaps_to_mp4(fake_adapter, seed, monkeypatch):
     old_sha = arc.timelapse_blob
 
     monkeypatch.setattr(media_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    seen_cmds = []
 
     def fake_run(cmd, **kwargs):
+        seen_cmds.append(cmd)
         dest = cmd[-1]
         with open(dest, "wb") as fh:
             fh.write(b"mp4-bytes")
@@ -176,6 +185,20 @@ def test_transcode_swaps_to_mp4(fake_adapter, seed, monkeypatch):
 
     result = media_mod.transcode_timelapse.apply(args=[archive_id]).get()
     assert result == "transcoded"
+    assert seen_cmds[0] == [
+        "ffmpeg",
+        "-nostdin",
+        "-y",
+        "-i",
+        seen_cmds[0][4],
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        seen_cmds[0][-1],
+    ]
     seed.s.expire_all()
     arc2 = seed.s.get(PrintArchive, archive_id)
     assert arc2.timelapse_blob == hashlib.sha256(b"mp4-bytes").hexdigest()
@@ -238,10 +261,15 @@ def test_attach_snapshot_no_frame_notes(seed, redis_url):
 # -- task wiring --------------------------------------------------------
 
 
-def test_archive_print_enqueues_timelapse_fetch(fake_adapter, sliced_3mf_bytes, seed, monkeypatch):
+def test_archive_print_enqueues_timelapse_fetch(
+    fake_adapter, sliced_3mf_bytes, seed, monkeypatch, redis_url
+):
     from app.tasks import archive as task_mod
 
     job_id = seed.job(subtask="X_plate_1")
+    # Job ids restart at 1 each test but Redis is session-shared -- clear
+    # any stale media-schedule lock a previous test left for the same id.
+    redis_lib.Redis.from_url(redis_url).delete(task_mod.media_schedule_lock_key(job_id))
     fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
     monkeypatch.setattr(task_mod, "attach_snapshot", lambda *a, **k: None)
     calls: list[dict] = []

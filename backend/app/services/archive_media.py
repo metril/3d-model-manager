@@ -44,17 +44,33 @@ _TIMELAPSE_EXTS = (".mp4", ".avi")
 _START_GRACE_S = 120
 
 
+def _is_safe_name(name: str) -> bool:
+    """True iff ``name`` is a safe bare filename to join under a temp dir:
+    no null bytes, no path separators, doesn't climb above itself (an
+    absolute path or ``..`` segment), and isn't a dotfile (hidden entries
+    from an FTP listing are never a real timelapse). A listing's filenames
+    come straight off the wire, so this is the gate against path
+    traversal/injection before anything is joined onto a filesystem path."""
+    if not name or "\0" in name or "/" in name or "\\" in name:
+        return False
+    if name.startswith("."):
+        return False
+    return Path(name).name == name
+
+
 def pick_timelapse(
     entries: list[tuple[str, RemoteFile]], started_at: datetime
 ) -> tuple[str, RemoteFile] | None:
     """The newest ``(dir, file)`` among ``entries`` that looks like a video
     and wasn't finalized before this print started (within the grace
-    window). ``None`` if nothing qualifies."""
+    window). ``None`` if nothing qualifies. Entries with an unsafe name
+    (see ``_is_safe_name``) are skipped outright."""
     cutoff = started_at - timedelta(seconds=_START_GRACE_S)
     candidates = [
         (d, f)
         for d, f in entries
-        if Path(f.name).suffix.lower() in _TIMELAPSE_EXTS
+        if _is_safe_name(f.name)
+        and Path(f.name).suffix.lower() in _TIMELAPSE_EXTS
         and f.mtime is not None
         and f.mtime >= cutoff
     ]
@@ -131,6 +147,8 @@ def fetch_timelapse_for(
         if picked is None:
             return "retry"
         d, rf = picked
+        if not _is_safe_name(rf.name):  # pick_timelapse already filters; defense in depth
+            return "retry"
         remote = f"{d.rstrip('/')}/{rf.name}"
         with tempfile.TemporaryDirectory(prefix="tdmm-tl-") as td:
             dest = Path(td) / rf.name

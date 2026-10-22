@@ -456,7 +456,7 @@ camera_public_router = APIRouter(prefix="/printers", tags=["printers"])
 # giving up and ending the stream -- module-level so tests can monkeypatch
 # ``STREAM_IDLE_S`` down for a fast "ends when idle" test.
 HEARTBEAT_S = cs.HEARTBEAT_S
-STREAM_IDLE_S = 30.0
+STREAM_IDLE_S = 20.0
 
 
 @router.post(
@@ -570,9 +570,15 @@ async def mjpeg_parts(redis, printer_id: int, viewer_id: str) -> AsyncIterator[b
             if now - last_frame_at >= STREAM_IDLE_S:
                 return
     finally:
-        await cs.aremove_viewer(redis, printer_id, viewer_id)
-        await pubsub.unsubscribe(cs.frame_channel(printer_id))
-        await pubsub.aclose()
+        # Shielded: when the caller `aclose()`s this generator early (a
+        # disconnecting client cancels the task driving it), the ambient
+        # cancellation would otherwise also cancel this cleanup partway
+        # through -- leaking the viewer registration and the pubsub
+        # subscription instead of releasing them.
+        with anyio.CancelScope(shield=True):
+            await cs.aremove_viewer(redis, printer_id, viewer_id)
+            await pubsub.unsubscribe(cs.frame_channel(printer_id))
+            await pubsub.aclose()
 
 
 @camera_public_router.get("/{printer_id}/camera/stream")
@@ -584,6 +590,12 @@ async def camera_stream(
 ) -> StreamingResponse:
     await _authorize_camera(printer_id, token, tdmm_session, settings)
     redis = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        if await cs.aget_status(redis, printer_id) == "unsupported":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "camera not supported")
+    except Exception:
+        await redis.aclose()
+        raise
     viewer_id = f"stream:{uuid.uuid4()}"
 
     async def _gen() -> AsyncIterator[bytes]:

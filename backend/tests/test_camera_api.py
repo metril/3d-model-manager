@@ -8,11 +8,12 @@ import asyncio
 import uuid
 from urllib.parse import parse_qs, urlparse
 
+import anyio
 import httpx
 import pytest
 import redis.asyncio as aioredis
 
-from app.api.printers import mjpeg_parts
+from app.api.printers import STREAM_IDLE_S, mjpeg_parts
 from app.models import Printer
 from app.services import camera_state as cs
 
@@ -63,6 +64,23 @@ async def test_snapshot_unsupported_404(
     await redis_client.set(cs.status_key(printer_row.id), "unsupported")
 
     r = await authenticated_client.get(f"/api/printers/{printer_row.id}/camera/snapshot")
+
+    assert r.status_code == 404
+
+
+def test_stream_idle_s_matches_final_review_plan() -> None:
+    assert STREAM_IDLE_S == 20.0
+
+
+async def test_stream_unsupported_404(
+    authenticated_client: httpx.AsyncClient, printer_row: Printer, redis_client: aioredis.Redis
+) -> None:
+    """Final-review item 8: an `unsupported` camera 404s the stream route
+    immediately, instead of opening the multipart response and spinning
+    for `STREAM_IDLE_S` with no frame."""
+    await redis_client.set(cs.status_key(printer_row.id), "unsupported")
+
+    r = await authenticated_client.get(f"/api/printers/{printer_row.id}/camera/stream")
 
     assert r.status_code == 404
 
@@ -177,6 +195,32 @@ async def test_stream_yields_parts_and_unregisters(
 
     assert await redis_client.zcard(cs.viewers_key(printer_row.id)) == 1
     await gen.aclose()
+    assert await redis_client.zcard(cs.viewers_key(printer_row.id)) == 0
+
+
+async def test_mjpeg_parts_cleans_up_when_cancelled_mid_stream(
+    redis_client: aioredis.Redis, printer_row: Printer
+) -> None:
+    """Final-review item 5: cancelling the generator mid-stream (an anyio
+    cancel scope, as Starlette uses when a streaming client disconnects --
+    not merely `.aclose()`'s GeneratorExit) must still run the viewer
+    removal/pubsub teardown. Without `CancelScope(shield=True)` around
+    that teardown, the ambient cancellation re-fires on the very first
+    awaited cleanup call, leaking the viewer registration."""
+    gen = mjpeg_parts(redis_client, printer_row.id, "v-cancel")
+    scope = anyio.CancelScope()
+
+    async def _consume() -> None:
+        with scope:
+            async for _ in gen:
+                pass
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_consume)
+        await asyncio.sleep(0.1)  # let it register the viewer and park on get_message
+        assert await redis_client.zcard(cs.viewers_key(printer_row.id)) == 1
+        scope.cancel()
+
     assert await redis_client.zcard(cs.viewers_key(printer_row.id)) == 0
 
 

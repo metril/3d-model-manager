@@ -39,7 +39,7 @@ def transcode_timelapse(archive_id: int) -> str:
         with base.sync_session() as session:
             arc = session.get(PrintArchive, archive_id)
             if arc is not None:
-                arc.media_note = "ffmpeg not available; kept .avi"
+                arc.media_note = "ffmpeg unavailable; original .avi kept"
                 session.commit()
         return "skipped"
 
@@ -57,7 +57,20 @@ def transcode_timelapse(archive_id: int) -> str:
         with tempfile.TemporaryDirectory(prefix="tdmm-transcode-") as td:
             dest = Path(td) / "timelapse.mp4"
             subprocess.run(
-                ["ffmpeg", "-y", "-i", str(src), str(dest)],
+                [
+                    "ffmpeg",
+                    "-nostdin",
+                    "-y",
+                    "-i",
+                    str(src),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    str(dest),
+                ],
                 check=True,
                 capture_output=True,
                 timeout=_FFMPEG_TIMEOUT_S,
