@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useStorageBackends } from "@/api/settings";
 import { AutomationCard } from "@/components/settings/AutomationCard";
@@ -7,7 +8,9 @@ import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
+import { GroupsCard } from "@/components/settings/GroupsCard";
 import { MaterialsSection } from "@/components/settings/MaterialsSection";
+import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { PrintablesAccountCard } from "@/components/settings/PrintablesAccountCard";
@@ -16,6 +19,7 @@ import { ScanReport } from "@/components/settings/ScanReport";
 import { SiteTokensCard } from "@/components/settings/SiteTokensCard";
 import { SlicerIntegrationCard } from "@/components/settings/SlicerIntegrationCard";
 import { StorageBackendsCard } from "@/components/settings/StorageBackendsCard";
+import { UsersCard } from "@/components/settings/UsersCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
@@ -27,6 +31,9 @@ export function SettingsPage() {
   // (the legacy single-backend config card was removed in M8 F); the page
   // shell gates on that same list.
   const backendsQuery = useStorageBackends();
+  const auth = useAuth();
+  const canSettings = auth.can("settings:write");
+  const isAdmin = auth.can("admin");
 
   return (
     <PageContainer width="default">
@@ -57,25 +64,30 @@ export function SettingsPage() {
         <Tabs defaultValue="general">
           <TabsList>
             <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="storage">Storage</TabsTrigger>
-            <TabsTrigger value="printer">Printer</TabsTrigger>
+            {canSettings && <TabsTrigger value="storage">Storage</TabsTrigger>}
+            {canSettings && <TabsTrigger value="printer">Printer</TabsTrigger>}
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
+            {isAdmin && <TabsTrigger value="access">Access</TabsTrigger>}
           </TabsList>
           <TabsContent value="general" className="space-y-6">
             <AutomationCard />
             <CategoriesSection />
             <PrintCostCard />
-            <ChangePasswordCard />
+            {auth.data?.has_password && <ChangePasswordCard />}
           </TabsContent>
-          <TabsContent value="storage" className="space-y-6">
-            <StorageBackendsCard />
-            <ScanReport />
-          </TabsContent>
-          <TabsContent value="printer" className="space-y-6">
-            <PrinterEnabledCard />
-            <PrinterSetupCard />
-            <MaterialsSection />
-          </TabsContent>
+          {canSettings && (
+            <TabsContent value="storage" className="space-y-6">
+              <StorageBackendsCard />
+              <ScanReport />
+            </TabsContent>
+          )}
+          {canSettings && (
+            <TabsContent value="printer" className="space-y-6">
+              <PrinterEnabledCard />
+              <PrinterSetupCard />
+              <MaterialsSection />
+            </TabsContent>
+          )}
           <TabsContent value="accounts" className="space-y-6">
             {/* Signpost, kept OUTSIDE the cards grid below: users connect an
                 account here and then look for its collections nearby. They
@@ -109,6 +121,13 @@ export function SettingsPage() {
               <SlicerIntegrationCard />
             </div>
           </TabsContent>
+          {isAdmin && (
+            <TabsContent value="access" className="space-y-6">
+              <UsersCard />
+              <GroupsCard />
+              <OidcProvidersCard />
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </PageContainer>

@@ -32,6 +32,18 @@ vi.mock("@/api/client", async (importOriginal) => {
   };
 });
 
+// Auth is mutable per test; default is an admin with a local password.
+const { authState } = vi.hoisted(() => ({
+  authState: { perms: ["admin"] as string[], has_password: true },
+}));
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({
+    data: { id: 1, username: "u", role: "member", permissions: authState.perms, has_password: authState.has_password },
+    can: (p: string) => authState.perms.includes(p),
+  }),
+}));
+
 // Radix's Select never reaches an interactive open state under jsdom (same
 // floating-ui/dismissable-layer limitation noted elsewhere) -- swap it for a
 // plain native <select> so the Add/Edit backend dialog's backend-type picker
@@ -162,16 +174,46 @@ beforeEach(() => {
   postMock.mockReset();
   putMock.mockReset();
   deleteMock.mockReset();
+  authState.perms = ["admin", "settings:write"];
+  authState.has_password = true;
+});
+
+describe("SettingsPage access gating", () => {
+  it("hides the Access tab for a member without admin", async () => {
+    mockGet();
+    authState.perms = ["settings:write"];
+    renderSettingsPage();
+    await screen.findAllByRole("tab");
+    expect(screen.queryByRole("tab", { name: "Access" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Access tab when can(admin)", async () => {
+    mockGet();
+    renderSettingsPage();
+    fireEvent.click(await screen.findByRole("tab", { name: "Access" }));
+    expect(await screen.findByText("SSO providers")).toBeInTheDocument();
+  });
+
+  it("hides Storage and Printer without settings:write, and Password without a local password", async () => {
+    mockGet();
+    authState.perms = [];
+    authState.has_password = false;
+    renderSettingsPage();
+    await screen.findByText("Automation & scheduling");
+    expect(screen.queryByRole("tab", { name: "Storage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Printer" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Password")).not.toBeInTheDocument();
+  });
 });
 
 describe("SettingsPage tabs", () => {
-  it("shows exactly General, Storage, Printer, and Accounts tabs -- no Scan tab", async () => {
+  it("shows exactly General, Storage, Printer, Accounts, and Access tabs (admin) -- no Scan tab", async () => {
     mockGet();
 
     renderSettingsPage();
 
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Accounts"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Accounts", "Access"]);
     expect(screen.queryByRole("tab", { name: "Scan" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Imports" })).not.toBeInTheDocument();
   });
