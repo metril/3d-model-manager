@@ -85,6 +85,7 @@ describe("BackupsCard", () => {
     adminBox.current = false;
     wrap(<BackupsCard />);
     await screen.findByText("Backups");
+    expect(getMock).not.toHaveBeenCalledWith("/admin/backups");
     expect(screen.queryByRole("button", { name: "Run backup now" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Restore settings" })).toBeNull();
   });

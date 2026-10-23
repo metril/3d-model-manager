@@ -75,6 +75,8 @@ describe("MaintenanceSection", () => {
     expect(await screen.findByText("No maintenance tasks yet.")).toBeInTheDocument();
     expect(screen.getByText(/dispatcher skips this printer/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch"));
+    expect(putMock).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Enable" }));
     await waitFor(() => expect(putMock).toHaveBeenCalledWith("/printers/1/maintenance/mode", { enabled: true }));
     fireEvent.click(screen.getByRole("button", { name: "Add task" }));
     fireEvent.change(screen.getByLabelText("Task name"), { target: { value: "Belt check" } });

@@ -79,3 +79,24 @@ describe("PlugConfig", () => {
     expect(await screen.findByText("entity not found")).toBeInTheDocument();
   });
 });
+
+describe("PlugConfig refetch", () => {
+  it("does not clobber in-progress edits when the plug query refetches", async () => {
+    const stored = {
+      printer_id: 1, kind: "tasmota", config: { host: "10.0.0.5" }, auto_off_after_min: 10,
+      auto_on_before_print: false, last_state: null, last_power_w: null, last_polled_at: null, last_error: null,
+    };
+    getMock.mockResolvedValue(stored);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PlugConfig printerId={1} />
+      </QueryClientProvider>,
+    );
+    const input = await screen.findByDisplayValue("10.0.0.5");
+    fireEvent.change(input, { target: { value: "edited" } });
+    getMock.mockResolvedValue({ ...stored, config: { host: "other" } });
+    await qc.refetchQueries({ queryKey: ["printers", 1, "plug"] });
+    expect(screen.getByDisplayValue("edited")).toBeInTheDocument();
+  });
+});

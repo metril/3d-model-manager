@@ -59,7 +59,7 @@ export function BackupsCard() {
   const auth = useAuth();
   const isAdmin = auth.can("admin");
   const ops = useOpsSettings();
-  const runs = useBackups();
+  const runs = useBackups(isAdmin);
   const save = useSaveOpsSettings();
   const run = useRunBackup();
   const [enabled, setEnabled] = useState(false);

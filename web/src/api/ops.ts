@@ -83,7 +83,7 @@ export function dueCount(tasks: MaintenanceTask[] | undefined): number {
 }
 
 /** 404 = no plug configured (a normal state), mapped to `null`. */
-export function usePlug(pid: number) {
+export function usePlug(pid: number, poll = true) {
   return useQuery({
     queryKey: plugKey(pid),
     queryFn: async () => {
@@ -94,7 +94,7 @@ export function usePlug(pid: number) {
         throw e;
       }
     },
-    refetchInterval: 15_000,
+    refetchInterval: poll ? 15_000 : false,
   });
 }
 
@@ -134,10 +134,11 @@ export function useSaveOpsSettings() {
   });
 }
 
-export function useBackups() {
+export function useBackups(enabled = true) {
   return useQuery({
     queryKey: BACKUPS,
     queryFn: () => api.get<BackupRun[]>("/admin/backups"),
+    enabled,
     refetchInterval: (q) => (q.state.data?.some((r) => r.status === "running") ? 3000 : false),
   });
 }

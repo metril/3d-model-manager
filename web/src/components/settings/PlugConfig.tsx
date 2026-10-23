@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -41,7 +41,7 @@ const FIELDS: Record<PlugKind, { key: string; label: string; secret?: boolean }[
 export function PlugConfig({ printerId }: { printerId: number }) {
   const auth = useAuth();
   const allowed = auth.can("settings:write");
-  const plug = usePlug(printerId);
+  const plug = usePlug(printerId, false);
   const save = useSavePlug(printerId);
   const del = useDeletePlug(printerId);
   const [kind, setKind] = useState<string>(NONE);
@@ -50,8 +50,10 @@ export function PlugConfig({ printerId }: { printerId: number }) {
   const [autoOn, setAutoOn] = useState(false);
 
   const p = plug.data;
+  const filled = useRef<number | null>(null);
   useEffect(() => {
-    if (!p) return;
+    if (!p || filled.current === printerId) return;
+    filled.current = printerId;
     setKind(p.kind);
     setCfg(
       Object.fromEntries(
@@ -60,7 +62,7 @@ export function PlugConfig({ printerId }: { printerId: number }) {
     );
     setAutoOff(p.auto_off_after_min != null ? String(p.auto_off_after_min) : "");
     setAutoOn(p.auto_on_before_print);
-  }, [p]);
+  }, [p, printerId]);
 
   if (!allowed) return null;
   const fields = kind === NONE ? [] : FIELDS[kind as PlugKind];

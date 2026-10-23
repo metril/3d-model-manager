@@ -217,6 +217,11 @@ export function MaintenanceSection({
   const mode = useSetMaintenanceMode(printerId);
   const [adding, setAdding] = useState(false);
   const [modeOn, setModeOn] = useState(maintenanceMode);
+  const [confirmOn, setConfirmOn] = useState(false);
+  function applyMode(v: boolean) {
+    setModeOn(v);
+    mode.mutate(v, { onError: () => setModeOn(!v) });
+  }
 
   return (
     <Card>
@@ -230,10 +235,15 @@ export function MaintenanceSection({
             id="maint-mode"
             checked={modeOn}
             disabled={!canControl || mode.isPending}
-            onCheckedChange={(v) => {
-              setModeOn(v);
-              mode.mutate(v, { onError: () => setModeOn(!v) });
-            }}
+            onCheckedChange={(v) => (v ? setConfirmOn(true) : applyMode(false))}
+          />
+          <ConfirmDialog
+            open={confirmOn}
+            onOpenChange={setConfirmOn}
+            title="Enable maintenance mode?"
+            description="The dispatcher will skip this printer and won't start queued prints on it."
+            confirmLabel="Enable"
+            onConfirm={() => applyMode(true)}
           />
           <div>
             <Label htmlFor="maint-mode">Maintenance mode</Label>
