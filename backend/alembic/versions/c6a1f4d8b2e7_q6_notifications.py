@@ -35,7 +35,9 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("config_enc", sa.Text(), nullable=False),
         sa.Column("enabled", sa.Boolean(), server_default=sa.true(), nullable=False),
-        sa.Column("events", postgresql.ARRAY(sa.Text()), server_default=sa.text("'{}'"), nullable=False),
+        sa.Column(
+            "events", postgresql.ARRAY(sa.Text()), server_default=sa.text("'{}'"), nullable=False
+        ),
         sa.Column("quiet_hours", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("digest_cron", sa.String(), nullable=True),
         sa.Column("attach_photo", sa.Boolean(), server_default=sa.text("false"), nullable=False),
@@ -111,7 +113,9 @@ def upgrade() -> None:
     )
     op.create_index("ix_notification_log_channel_id", "notification_log", ["channel_id"])
     op.create_index("ix_notification_log_printer_id", "notification_log", ["printer_id"])
-    op.create_index("ix_notification_log_created_by_user_id", "notification_log", ["created_by_user_id"])
+    op.create_index(
+        "ix_notification_log_created_by_user_id", "notification_log", ["created_by_user_id"]
+    )
 
 
 def downgrade() -> None:
