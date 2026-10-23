@@ -135,14 +135,6 @@ function PrinterDetailBody({
                 </div>
               )
             }
-            footerExtra={
-              canPrinter(printer.id, "print") ? (
-                <HistoryButtons
-                  printerId={printer.id}
-                  amsUnits={overviewItem.status.ams_units?.map((u) => u.id) ?? []}
-                />
-              ) : undefined
-            }
             badge={
               overviewItem.ha_alert ? (
                 <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
@@ -155,6 +147,12 @@ function PrinterDetailBody({
                 <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
                   Firmware
                 </Button>
+                {canPrinter(printer.id, "print") ? (
+                  <HistoryButtons
+                    printerId={printer.id}
+                    amsUnits={overviewItem.status.ams_units?.map((u) => u.id) ?? []}
+                  />
+                ) : null}
               </>
             )}
           />
