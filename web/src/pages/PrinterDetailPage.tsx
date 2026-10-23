@@ -83,7 +83,7 @@ export function PrinterDetailPage() {
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="flex flex-1 flex-col gap-4">
           <div className="aspect-video overflow-hidden rounded-[6px] border bg-muted">
-            {canPrinter(printer.id, "control") ? (
+            {canPrinter(printer.id, "print") ? (
               <CameraTile
                 printerId={printer.id}
                 online={overviewItem?.status.online ?? false}

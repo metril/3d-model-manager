@@ -10,7 +10,7 @@
  * mirrors the gallery's own breakpoint conventions.
  *
  * P4 Task 9: each card's `camera` slot gets a live `CameraTile` for
- * `can_control` items only -- the token mint requires that permission, so
+ * `can_print` items only -- the token mint requires that permission, so
  * a viewer without it keeps the plain placeholder instead of a tile that
  * would just sit offline.
  */
@@ -96,7 +96,7 @@ export function PrintDashboardPage() {
               key={item.printer.id}
               item={item}
               camera={
-                item.can_control ? (
+                item.can_print ? (
                   <CameraTile printerId={item.printer.id} online={item.status.online} />
                 ) : undefined
               }

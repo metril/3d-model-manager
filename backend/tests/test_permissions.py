@@ -8,6 +8,7 @@ from app.services.permissions import (
     FULL_ACL,
     PERMS,
     PrinterAcl,
+    can_print_async,
     effective_perms,
     load_grants,
     merge_printer_acl,
@@ -79,3 +80,29 @@ async def test_load_grants_reads_memberships(db_session: AsyncSession):
     assert [g.name for g in groups] == ["g"]
     assert perms == {"library:write"}
     assert acl == {printer.id: PrinterAcl(True, False, False)}
+
+
+async def test_can_print_async(db_session: AsyncSession):
+    printer = Printer(
+        name="p", kind=PrinterKind.BAMBU_LAN, host="h", serial="S", access_code_enc="x"
+    )
+    allowed = User(username="a", role=UserRole.MEMBER)
+    no_acl = User(username="b", role=UserRole.MEMBER)
+    no_perm = User(username="c", role=UserRole.VIEWER)
+    admin = User(username="d", role=UserRole.ADMIN)
+    group = Group(name="g", permissions=[])
+    db_session.add_all([printer, allowed, no_acl, no_perm, admin, group])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            GroupMember(group_id=group.id, user_id=allowed.id),
+            GroupMember(group_id=group.id, user_id=no_perm.id),
+            PrinterAccess(group_id=group.id, printer_id=printer.id, can_print=True),
+        ]
+    )
+    await db_session.commit()
+
+    assert await can_print_async(db_session, allowed, printer.id)
+    assert not await can_print_async(db_session, no_acl, printer.id)
+    assert not await can_print_async(db_session, no_perm, printer.id)  # ACL but no global perm
+    assert await can_print_async(db_session, admin, printer.id)

@@ -67,7 +67,7 @@ from app.schemas.printers import (
 from app.services import camera_state as cs
 from app.services import signed_urls, spool_inventory
 from app.services.app_config import get_app_config
-from app.services.permissions import load_grants
+from app.services.permissions import can_print_async
 from app.services.print_plan import create_job
 from app.services.printer_overview import build_overview
 from app.services.printer_state import read_state_async
@@ -514,7 +514,7 @@ STREAM_IDLE_S = 20.0
 @router.post(
     "/{printer_id}/camera/token",
     response_model=CameraUrlsOut,
-    dependencies=[Depends(require_printer_access("control"))],
+    dependencies=[Depends(require_printer_access("print"))],
 )
 async def mint_camera_token(
     printer_id: int,
@@ -543,13 +543,15 @@ async def _authorize_camera(
     token: str | None,
     tdmm_session: str | None,
     settings: Settings,
-) -> AuthContext:
+) -> None:
     """Session cookie OR a scoped camera token authorizes the public
-    stream/snapshot routes. Uses its own short-lived async DB session --
-    closed before this returns, well before a stream route's response ever
-    starts yielding -- rather than FastAPI's per-request ``get_db``
-    dependency, since that connection could otherwise be held open for as
-    long as the MJPEG stream runs.
+    stream/snapshot routes -- both need only ``print`` access to the printer
+    (viewing is not control). The token path is a minimal active-user +
+    ``can_print_async`` check, not a rebuilt ``AuthContext``. Uses its own
+    short-lived async DB session -- closed before this returns, well before
+    a stream route's response ever starts yielding -- rather than FastAPI's
+    per-request ``get_db`` dependency, since that connection could otherwise
+    be held open for as long as the MJPEG stream runs.
     """
     async with get_sessionmaker()() as db:
         if token is not None:
@@ -563,10 +565,11 @@ async def _authorize_camera(
             user = await db.get(User, uid)
             if user is None or not user.is_active:
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token")
-            groups, perms, acl = await load_grants(db, user)
-            ctx = AuthContext(user=user, session=None, perms=perms, printer_acl=acl, groups=groups)
+            allowed = await can_print_async(db, user, printer_id)
         else:
             ctx = await require_session(tdmm_session=tdmm_session, db=db)
+            ctx.require_printer(printer_id, "print")
+            allowed = True
 
         config = await get_app_config(db, settings)
         if not config.printer_enabled:
@@ -574,8 +577,8 @@ async def _authorize_camera(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "printer integration is disabled"
             )
 
-    ctx.require_printer(printer_id, "control")
-    return ctx
+    if not allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "printer access denied")
 
 
 def _mjpeg_part(jpeg: bytes) -> bytes:
