@@ -1,7 +1,7 @@
 """q6 notifications
 
 Revision ID: c6a1f4d8b2e7
-Revises: b2f7c1a9d4e3
+Revises: b7e1c4a9d3f2
 Create Date: 2026-10-23 15:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "c6a1f4d8b2e7"
-down_revision: str | Sequence[str] | None = "b2f7c1a9d4e3"
+down_revision: str | Sequence[str] | None = "b7e1c4a9d3f2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
