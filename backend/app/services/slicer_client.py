@@ -211,7 +211,7 @@ class SlicerClient:
         """The sidecar's bundled Bambu presets (`flatten=True` includes each
         full `data` body). `None` only when the sidecar has no such endpoint
         (404) or answers 2xx with something that isn't a list; an unreachable
-        / busy / erroring sidecar raises `SlicerError` subclasses.""" 
+        / busy / erroring sidecar raises `SlicerError` subclasses."""
         params = {"flatten": "1"} if flatten else None
         try:
             response = self._request("GET", _ENDPOINTS["profiles"], params=params)

@@ -37,7 +37,7 @@ vi.mock("@/api/upload", () => ({ uploadFile: uploadFileMock }));
 // The Add-files action mounts `UploadDropzone`, which subscribes to the
 // app-wide SSE connection via `useEvents` -- unavailable in jsdom without an
 // `EventsProvider` (same stub as UploadPage.test.tsx/UploadDropzone.test.tsx).
-vi.mock("@/hooks/useEvents", () => ({
+vi.mock("@/hooks/eventsContext", () => ({
   useEvents: () => ({ subscribe: () => () => {} }),
 }));
 

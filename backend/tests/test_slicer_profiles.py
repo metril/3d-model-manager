@@ -220,5 +220,6 @@ def test_filter_for_models_loose_aliases():
         {"kind": "process", "name": "p", "compatible_printers": ["X1C 0.4"]},
     ]
     assert {e["name"] for e in filter_for_models(entries, ["X1C"])} == {"X1C 0.4", "p"}
-    assert {e["name"] for e in filter_for_models(entries, ["Bambu Lab X1 Carbon"])} == {"X1C 0.4", "p"}
+    names = {e["name"] for e in filter_for_models(entries, ["Bambu Lab X1 Carbon"])}
+    assert names == {"X1C 0.4", "p"}
     assert {e["name"] for e in filter_for_models(entries, ["A1M"])} == {"A1M 0.4"}

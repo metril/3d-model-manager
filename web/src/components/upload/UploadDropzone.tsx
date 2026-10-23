@@ -4,7 +4,7 @@ import { UploadCloudIcon } from "lucide-react";
 import { DuplicateUploadError, uploadFile } from "@/api/upload";
 import { Button } from "@/components/ui/button";
 import { UploadQueueItem, type QueueItem } from "@/components/upload/UploadQueueItem";
-import { useEvents } from "@/hooks/useEvents";
+import { useEvents } from "@/hooks/eventsContext";
 import { resolveDroppedFiles, type DroppedFile } from "@/lib/droppedFiles";
 import { randomId } from "@/lib/randomId";
 

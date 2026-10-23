@@ -6,20 +6,12 @@
  * completes so Files/Revisions tabs pick up newly-stored files without a
  * manual refresh.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { AppEvent, JobUpdatedEvent } from "@/api/types";
-
-type Listener = (event: JobUpdatedEvent) => void;
-
-interface EventsContextValue {
-  /** Register a listener for every `job.updated` event; returns an unsubscribe function. */
-  subscribe: (listener: Listener) => () => void;
-}
-
-const EventsContext = createContext<EventsContextValue | null>(null);
+import type { AppEvent } from "@/api/types";
+import { EventsContext, type EventsContextValue, type Listener } from "@/hooks/eventsContext";
 
 // Minimum time between session probes triggered by `onerror` (below) --
 // a real network blip can fire `onerror` repeatedly as the browser retries
@@ -119,12 +111,4 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   );
 
   return <EventsContext.Provider value={value}>{children}</EventsContext.Provider>;
-}
-
-export function useEvents(): EventsContextValue {
-  const ctx = useContext(EventsContext);
-  if (!ctx) {
-    throw new Error("useEvents must be used within an EventsProvider");
-  }
-  return ctx;
 }

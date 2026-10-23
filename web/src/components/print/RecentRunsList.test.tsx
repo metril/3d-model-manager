@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ArchiveOut } from "@/api/types";
-import { RecentRunsList, totalGrams } from "@/components/print/RecentRunsList";
+import { RecentRunsList } from "@/components/print/RecentRunsList";
+import { totalGrams } from "@/lib/totalGrams";
 
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),

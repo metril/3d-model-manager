@@ -200,7 +200,7 @@ jobs:
         # in the same PR (and in release.yml, which carries a copy). Leaving it
         # high is how a baseline quietly becomes a budget.
         env:
-          OXLINT_BASELINE: "14"
+          OXLINT_BASELINE: "13"
         run: npx oxlint --max-warnings="$OXLINT_BASELINE" --format=github
       - name: Build (tsc -b + vite build)
         working-directory: web
