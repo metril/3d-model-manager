@@ -47,7 +47,7 @@ from app.printers.connection import connection_from_printer
 from app.printers.devmode import DevModeTracker, is_verify_failed_reply
 from app.printers.ha_bridge import HaBridge
 from app.printers.registry import build_adapter
-from app.services import camera_state, ha_state, spool_inventory
+from app.services import camera_state, ha_state, hms, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
@@ -82,21 +82,14 @@ def terminal_result(
 
 
 def hms_payload(code: str) -> dict:
-    """Notification payload for a 16-hex HMS code; uses the HMS catalog when
-    the module is present, else just the raw code."""
+    """Notification payload for a 16-hex HMS code, decoded via the HMS catalog."""
     pretty = "_".join(code[i : i + 4] for i in range(0, 16, 4))
     out: dict = {"code": pretty, "raw_code": code}
-    try:
-        from app.services import hms
-
-        text = hms.lookup_fault(code)
-        if text:
-            out["message"] = text
-        sev = hms.decode_hms(int(code[:8], 16), int(code[8:], 16)).get("severity")
-        if sev:
-            out["severity"] = sev
-    except Exception:
-        pass
+    entry = hms.decode_hms(int(code[:8], 16), int(code[8:], 16))
+    if entry.get("description"):
+        out["message"] = entry["description"]
+    out["severity"] = entry["severity"]
+    out["module"] = entry["module"]
     return out
 
 

@@ -152,6 +152,8 @@ from app.tasks import firmware as _firmware  # noqa: E402
 celery_app.conf.beat_schedule["firmware-check"] = {
     "task": "app.tasks.firmware.check_firmware",
     "schedule": _firmware.CHECK_INTERVAL_S,
+}
+
 # Additive: Q6 notifications -- drain the event queue and flush digests.
 from app.tasks import notify as _notify  # noqa: E402
 
