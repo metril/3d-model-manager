@@ -229,7 +229,7 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
         ).all()
     )
     for p in session.scalars(select(Printer)).all():
-        if not p.enabled or printer_hold_reason(client, p.id) is not None:
+        if not p.enabled or p.maintenance_mode or printer_hold_reason(client, p.id) is not None:
             busy.add(p.id)
             continue
         state = read_state_sync(client, p.id)
@@ -285,7 +285,11 @@ def _candidate_printers(
     ``compatibility_reason`` (``reason`` is the last one seen) -- same
     `ready`-for-retry outcome.
     """
-    stmt = select(Printer).order_by(Printer.name, Printer.id)
+    stmt = (
+        select(Printer)
+        .where(Printer.maintenance_mode.is_(False))
+        .order_by(Printer.name, Printer.id)
+    )
     if item.printer_id is not None:
         stmt = stmt.where(Printer.id == item.printer_id)
     elif recipe is not None and recipe.target_printer_id is not None:
@@ -484,13 +488,31 @@ def _dispatch(
             session.commit()
 
 
+def _wake_plugs(session: Session, settings: Settings, items: Sequence[PrintQueueEntry]) -> None:
+    """Q7: power on ``auto_on_before_print`` plugs for printers a READY item
+    may land on (a powered-off printer never reports idle otherwise)."""
+    ready = [i for i in items if i.state == QueueState.READY]
+    if not ready:
+        return
+    from app.services.smart_plugs.manager import wake_for_queue
+
+    pinned = None if any(i.printer_id is None for i in ready) else {i.printer_id for i in ready}
+    try:
+        wake_for_queue(session, settings, pinned)
+    except Exception:  # noqa: BLE001 -- a plug failure must never stall dispatch
+        session.rollback()
+
+
 def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
     counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0}
     _reconcile(session, counts)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
-    for item in eligible_queue_items(session):
+    items = eligible_queue_items(session)
+    _wake_plugs(session, settings, items)
+
+    for item in items:
         if item.state == QueueState.WAITING:
             if (
                 item.recipe_id is not None

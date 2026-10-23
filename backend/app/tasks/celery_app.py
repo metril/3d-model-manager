@@ -68,6 +68,7 @@ celery_app.conf.update(
         "app.tasks.spoolman",
         "app.tasks.sensors",
         "app.tasks.firmware",
+        "app.tasks.ops",
     ),
 )
 
@@ -150,4 +151,19 @@ from app.tasks import firmware as _firmware  # noqa: E402
 celery_app.conf.beat_schedule["firmware-check"] = {
     "task": "app.tasks.firmware.check_firmware",
     "schedule": _firmware.CHECK_INTERVAL_S,
+# Additive: Q7 ops -- plug poll/auto-off, scheduled-backup gate (the task
+# re-reads settings each tick), daily update check.
+from app.tasks import ops as _ops  # noqa: E402
+
+celery_app.conf.beat_schedule["plugs-tick"] = {
+    "task": "app.tasks.plugs.tick",
+    "schedule": _ops.PLUG_INTERVAL_S,
+}
+celery_app.conf.beat_schedule["backup-scheduled"] = {
+    "task": "app.tasks.backup.scheduled",
+    "schedule": _ops.BACKUP_GATE_INTERVAL_S,
+}
+celery_app.conf.beat_schedule["updates-check"] = {
+    "task": "app.tasks.updates.check",
+    "schedule": crontab(hour=4, minute=17),
 }

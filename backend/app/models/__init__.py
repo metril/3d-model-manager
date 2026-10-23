@@ -39,6 +39,7 @@ from app.models.library import (
     model_tags,
 )
 from app.models.overlay_token import OverlayToken
+from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.sensors import PrinterSensorSample
@@ -48,6 +49,10 @@ from app.models.system import Import, Job, ScanRun, Setting
 from app.models.virtual_printer import VirtualPrinter
 
 __all__ = [
+    "BackupRun",
+    "MaintenanceLog",
+    "MaintenanceTask",
+    "SmartPlug",
     "ApiToken",
     "AuditLog",
     "AssemblyThumb",

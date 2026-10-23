@@ -56,7 +56,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
 #   ffmpeg degrades gracefully (keeps the .avi) rather than failing, but
 #   it's cheap enough to just ship in the shared image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libosmesa6 libgl1-mesa-dri libgl1 gosu ffmpeg \
+    && apt-get install -y --no-install-recommends libosmesa6 libgl1-mesa-dri libgl1 gosu ffmpeg postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s "/usr/lib/$(uname -m)-linux-gnu/libOSMesa.so.8" \
         "/usr/lib/$(uname -m)-linux-gnu/libOSMesa.so" \

@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends
 from app.api import (
     admin,
     admin_oidc,
+    admin_ops,
     archives,
     auth,
     blobs,
@@ -54,7 +55,9 @@ from app.api import (
     home_assistant,
     imports,
     jobs,
+    maintenance,
     materials,
+    metrics,
     models,
     notes,
     oidc,
@@ -71,6 +74,7 @@ from app.api import (
     sensors,
     settings,
     slicer,
+    smart_plugs,
     spoolman,
     spools,
     stats,
@@ -88,6 +92,7 @@ api_router.include_router(auth.public_router)
 api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
+api_router.include_router(metrics.router)
 api_router.include_router(files.public_router)
 api_router.include_router(printers.camera_public_router)
 api_router.include_router(printers.overlay_router)
@@ -96,6 +101,11 @@ protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
 protected_router.include_router(admin.router)
 protected_router.include_router(admin_oidc.router)
+protected_router.include_router(admin_ops.router)
+protected_router.include_router(admin_ops.settings_router)
+protected_router.include_router(admin_ops.system_router)
+protected_router.include_router(maintenance.router)
+protected_router.include_router(smart_plugs.router)
 protected_router.include_router(models.router)
 protected_router.include_router(blobs.router)
 protected_router.include_router(revisions.router)

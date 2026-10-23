@@ -828,3 +828,32 @@ def test_dispatch_queue_noop_when_printer_disabled(redis_url: str, monkeypatch: 
     assert result is None
     assert calls == []
     get_settings.cache_clear()
+
+
+def test_maintenance_mode_printer_is_not_dispatched(redis_url: str, fake_adapter):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="maint-mode")
+        printer = _seed_printer(s, name="MaintP")
+        printer.maintenance_mode = True
+        s.commit()
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.READY, copies=1, created_by=admin_id
+        )
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    assert counts["sent"] == 0
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.READY
+        p = s.get(Printer, pid)
+        p.maintenance_mode = False
+        s.commit()
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["sent"] == 1
