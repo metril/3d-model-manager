@@ -155,6 +155,7 @@ class PrinterOut(BaseModel):
     # Sum of archived run durations (hours); filled by the overview builder,
     # ``None`` where not computed.
     total_print_hours: float | None = None
+    maintenance_mode: bool = False
 
     @classmethod
     def from_model(cls, p: Printer) -> PrinterOut:
@@ -168,6 +169,7 @@ class PrinterOut(BaseModel):
             serial=p.serial,
             model=p.model,
             enabled=p.enabled,
+            maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
             options=redact_options(p.options),
             access_code_set=bool(p.access_code_enc),
             build_volume_mm=p.build_volume_mm,

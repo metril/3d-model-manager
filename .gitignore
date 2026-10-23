@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -9,6 +10,7 @@ __pycache__/
 
 # Node
 node_modules/
+node_modules
 web/dist/
 extension/dist/
 backend/.tools/

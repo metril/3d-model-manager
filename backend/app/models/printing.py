@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
     text,
     true,
@@ -55,6 +56,8 @@ class Printer(Base):
     # Seeded from a small model-name -> volume map on create (see
     # `app.schemas.printers.seed_build_volume_mm`); editable afterward.
     build_volume_mm: Mapped[dict | None] = mapped_column(JSONB)
+    # Q7: the dispatcher skips a printer in maintenance mode.
+    maintenance_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
 
 
 class PrintJob(Base):

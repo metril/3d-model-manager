@@ -341,6 +341,8 @@ def _reconcile_against_backend(
 
     # --- Pass 1: resolve every KNOWN path; defer every UNKNOWN one. --------
     for entry in backend.walk(""):
+        if entry.key.startswith("backups/"):  # Q7: backup artifacts are not library files
+            continue
         parts = entry.key.split("/")
         if len(parts) == 2 and parts[1] == layout.SIDECAR_NAME:
             _maybe_refresh_sidecar(session, backend, entry.key, parts[0])

@@ -828,3 +828,156 @@ def test_dispatch_queue_noop_when_printer_disabled(redis_url: str, monkeypatch: 
     assert result is None
     assert calls == []
     get_settings.cache_clear()
+
+
+def test_maintenance_mode_printer_is_not_dispatched(redis_url: str, fake_adapter):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="maint-mode")
+        printer = _seed_printer(s, name="MaintP")
+        printer.maintenance_mode = True
+        s.commit()
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.READY, copies=1, created_by=admin_id
+        )
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    assert counts["sent"] == 0
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.READY
+        p = s.get(Printer, pid)
+        p.maintenance_mode = False
+        s.commit()
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["sent"] == 1
+
+
+def _rest_plug(session, pid, **kw):
+    import json as _json
+
+    from app.crypto import encrypt_secret
+    from app.models import SmartPlug
+
+    cfg = {
+        "on_url": "http://plug/on",
+        "off_url": "http://plug/off",
+        "status_url": "http://plug/st",
+        "state_path": "relay",
+    }
+    plug = SmartPlug(
+        printer_id=pid,
+        kind="rest",
+        config_enc=encrypt_secret(get_settings(), _json.dumps(cfg)),
+        **kw,
+    )
+    session.add(plug)
+    session.commit()
+    return plug.id
+
+
+def test_wake_only_placeable_printers_and_waits_for_fresh_report(redis_url: str, fake_adapter):
+    import respx
+
+    from app.models import SmartPlug
+    from app.services.smart_plugs import manager
+
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="wake-1")
+        target = _seed_printer(s, name="Target")
+        other = _seed_printer(s, name="Other")
+        admin_id = _seed_admin(s)
+        _seed_entry(
+            s,
+            model=model,
+            file=file,
+            state=QueueState.READY,
+            printer_id=target.id,
+            created_by=admin_id,
+        )
+        tplug = _rest_plug(s, target.id, auto_on_before_print=True, last_state="off")
+        oplug = _rest_plug(s, other.id, auto_on_before_print=True, last_state="off")
+        tid, oid = target.id, other.id
+    client = redis_lib.Redis.from_url(redis_url)
+    # stale IDLE state from before the printer was powered off
+    _seed_state(redis_url, tid, {**IDLE_STATE, "last_report_at": "2020-01-01T00:00:00+00:00"})
+
+    with respx.mock:
+        on = respx.post("http://plug/on").respond(200)
+        with base.sync_session() as s:
+            counts = dispatcher.dispatch_once(s, client, settings)
+        assert on.call_count == 1  # only the pinned target's plug
+    assert counts["sent"] == 0  # stale state: printer treated as booting
+    with base.sync_session() as s:
+        assert s.get(SmartPlug, tplug).last_state == "on"
+        assert s.get(SmartPlug, oplug).last_state == "off"
+    assert client.get(manager.woken_key(tid)) is not None
+    assert client.get(manager.woken_key(oid)) is None
+
+    # a fresh report arrives -> dispatch proceeds and the marker clears
+    from datetime import UTC, datetime
+
+    _seed_state(redis_url, tid, {**IDLE_STATE, "last_report_at": datetime.now(UTC).isoformat()})
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    assert counts["sent"] == 1
+    assert client.get(manager.woken_key(tid)) is None
+    client.close()
+
+
+def test_boot_wait_is_capped(redis_url: str):
+    import time
+
+    from app.services.smart_plugs import manager
+
+    client = redis_lib.Redis.from_url(redis_url)
+    client.set(manager.woken_key(77), repr(time.time() - manager.BOOT_WAIT_S - 5))
+    assert dispatcher._still_booting(client, 77, {"last_report_at": None}) is False
+    assert client.get(manager.woken_key(77)) is None
+    client.close()
+
+
+def test_no_off_on_cycle_when_queue_wants_printer(redis_url: str, fake_adapter):
+    from datetime import UTC, datetime, timedelta
+
+    import respx
+
+    from app.services.smart_plugs import manager
+
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="nocycle")
+        printer = _seed_printer(s, name="Cycle")
+        admin_id = _seed_admin(s)
+        # a READY item pinned to a different (busy-forever) printer must not matter;
+        # this one targets our printer but it is held by an HA hold, so stays queued
+        _seed_entry(
+            s,
+            model=model,
+            file=file,
+            state=QueueState.READY,
+            printer_id=printer.id,
+            created_by=admin_id,
+        )
+        _rest_plug(s, printer.id, auto_off_after_min=1, last_state="on")
+        pid = printer.id
+    client = redis_lib.Redis.from_url(redis_url)
+    client.set(
+        state_key(pid), json.dumps({**IDLE_STATE, "gcode_state": "FINISH", "nozzle_temper": 25.0})
+    )
+    t0 = datetime.now(UTC)
+    with respx.mock:
+        respx.get("http://plug/st").respond(json={"relay": True})
+        off = respx.post("http://plug/off").respond(200)
+        with base.sync_session() as s:
+            manager.tick(s, client, settings, now=t0)
+            manager.tick(s, client, settings, now=t0 + timedelta(minutes=5))
+        assert not off.called  # queue needs it
+    client.close()

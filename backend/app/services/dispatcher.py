@@ -18,6 +18,7 @@ duplicate its WHERE clause.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -229,13 +230,37 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
         ).all()
     )
     for p in session.scalars(select(Printer)).all():
-        if not p.enabled or printer_hold_reason(client, p.id) is not None:
+        if not p.enabled or p.maintenance_mode or printer_hold_reason(client, p.id) is not None:
             busy.add(p.id)
             continue
         state = read_state_sync(client, p.id)
+        if _still_booting(client, p.id, state):
+            busy.add(p.id)
+            continue
         if (state or {}).get("gcode_state") not in DISPATCH_IDLE_STATES:
             busy.add(p.id)
     return busy
+
+
+def _still_booting(client: Redis, printer_id: int, state: dict | None) -> bool:
+    """Q7: after a plug wake-up the Redis state is stale until the printer
+    reports again. Busy until ``last_report_at`` is newer than the wake time
+    (capped at ``BOOT_WAIT_S``), then the marker is cleared."""
+    from app.services.smart_plugs.manager import BOOT_WAIT_S, woken_key
+
+    raw = client.get(woken_key(printer_id))
+    if raw is None:
+        return False
+    woken = float(raw)
+    reported = None
+    with contextlib.suppress(ValueError):
+        reported = datetime.fromisoformat(str((state or {}).get("last_report_at"))).timestamp()
+    if (reported is not None and reported > woken) or datetime.now(
+        UTC
+    ).timestamp() - woken > BOOT_WAIT_S:
+        client.delete(woken_key(printer_id))
+        return False
+    return True
 
 
 def _needs_for_item(session: Session, item: PrintQueueEntry) -> Needs | None:
@@ -285,7 +310,11 @@ def _candidate_printers(
     ``compatibility_reason`` (``reason`` is the last one seen) -- same
     `ready`-for-retry outcome.
     """
-    stmt = select(Printer).order_by(Printer.name, Printer.id)
+    stmt = (
+        select(Printer)
+        .where(Printer.maintenance_mode.is_(False))
+        .order_by(Printer.name, Printer.id)
+    )
     if item.printer_id is not None:
         stmt = stmt.where(Printer.id == item.printer_id)
     elif recipe is not None and recipe.target_printer_id is not None:
@@ -484,13 +513,60 @@ def _dispatch(
             session.commit()
 
 
+def queue_target_ids(
+    session: Session, client: Redis, items: Sequence[PrintQueueEntry]
+) -> tuple[set[int], set[int]]:
+    """``(ready_ids, any_ids)``: printers a READY item could be placed on
+    (ignoring busy/idle, via ``_candidate_printers``) and, additionally, the
+    printers any WAITING item (not yet sliced -- compatibility unknown) may
+    land on. Drives plug wake-up and the auto-off guard."""
+    ready: set[int] = set()
+    waiting: set[int] = set()
+    for item in items:
+        if item.state == QueueState.READY:
+            need = _needs_for_item(session, item)
+            if need is None:
+                continue
+            recipe = (
+                session.get(PrintRecipe, item.recipe_id) if item.recipe_id is not None else None
+            )
+            cands, _, _ = _candidate_printers(session, client, item, recipe, need, set(), set())
+            ready.update(c.id for c in cands)
+        elif item.state == QueueState.WAITING:
+            stmt = select(Printer.id).where(Printer.maintenance_mode.is_(False))
+            if item.printer_id is not None:
+                stmt = stmt.where(Printer.id == item.printer_id)
+            waiting.update(session.scalars(stmt).all())
+    return ready, ready | waiting
+
+
+def _wake_plugs(
+    session: Session, settings: Settings, client: Redis, items: Sequence[PrintQueueEntry]
+) -> None:
+    """Q7: power on ``auto_on_before_print`` plugs, only for printers a READY
+    item may actually be placed on (a powered-off printer never reports idle
+    otherwise)."""
+    if not any(i.state == QueueState.READY for i in items):
+        return
+    from app.services.smart_plugs.manager import wake_for_queue
+
+    try:
+        ready, _ = queue_target_ids(session, client, items)
+        if ready:
+            wake_for_queue(session, settings, client, ready)
+    except Exception:  # noqa: BLE001 -- a plug failure must never stall dispatch
+        session.rollback()
+
+
 def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
     counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0}
     _reconcile(session, counts)
+    items = eligible_queue_items(session)
+    _wake_plugs(session, settings, client, items)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
-    for item in eligible_queue_items(session):
+    for item in items:
         if item.state == QueueState.WAITING:
             if (
                 item.recipe_id is not None

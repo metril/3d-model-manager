@@ -92,7 +92,7 @@ from app.schemas.printers import (
 from app.services import camera_state as cs
 from app.services import firmware as fw
 from app.services import hms as hms_svc
-from app.services import signed_urls, spool_inventory, spoolman
+from app.services import maintenance, signed_urls, spool_inventory, spoolman
 from app.services.app_config import get_app_config
 from app.services.permissions import can_print_async
 from app.services.print_plan import create_job
@@ -168,6 +168,7 @@ async def create_printer(
     db.add(printer)
     await db.commit()
     await db.refresh(printer)
+    await maintenance.seed_defaults(db, printer)
     return PrinterOut.from_model(printer)
 
 

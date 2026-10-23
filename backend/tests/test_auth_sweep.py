@@ -99,6 +99,9 @@ _PATH_PARAM_VALUES = {
     "recipe_id": "1",
     # P7 review/billing plan: finance cost centers.
     "cost_center_id": "1",
+    # Q7: maintenance tasks, backup runs.
+    "task_id": "1",
+    "run_id": "1",
 }
 
 

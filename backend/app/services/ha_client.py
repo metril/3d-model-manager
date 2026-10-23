@@ -52,6 +52,15 @@ class HaClient:
             return None
         return self._json(response)
 
+    def call_service(self, domain: str, service: str, data: dict) -> None:
+        """POST /api/services/<domain>/<service> (Q7 smart plugs)."""
+        try:
+            response = self._http.post(f"/api/services/{domain}/{service}", json=data)
+        except httpx.TransportError as exc:
+            raise HaUnreachable("could not reach home assistant") from exc
+        if not (200 <= response.status_code < 300):
+            raise HaUnreachable(f"home assistant returned {response.status_code}") from None
+
     def _get(self, path: str) -> httpx.Response:
         try:
             response = self._http.get(path)
