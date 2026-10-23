@@ -46,7 +46,7 @@ def _cfg(**kw) -> ObicoConfig:
     return ObicoConfig(**{**base_kw, **kw})
 
 
-def _watcher(rds, transport, action="pause", events=None, **kw):
+def _watcher(rds, transport, action="pause", events=None, now=None, **kw):
     def rec(redis_client, pid, job, score, smoothed, act, jpeg):
         if events is not None:
             events.append(act)
@@ -61,6 +61,7 @@ def _watcher(rds, transport, action="pause", events=None, **kw):
         transport=transport,
         warmup=0,
         recorder=rec,
+        **({"clock": now} if now else {}),
         **kw,
     )
 
@@ -228,3 +229,84 @@ def test_supervisor_autodisable_holds_until_job_ends(rds, migrated_db):
     sup.tick()
     assert PID not in sup._disabled and rds.get(obico.status_key(PID)) is None
     sup.stop()
+
+
+def test_stop_during_slow_ml_call_drops_result(rds):
+    events: list[str] = []
+    holder = {}
+
+    def handler(req):
+        holder["w"].stop()  # stop() lands while the ML call is in flight
+        return httpx.Response(200, json={"detections": [["failure", 1.0, [0, 0, 1, 1]]]})
+
+    w = _watcher(rds, httpx.MockTransport(handler), events=events)
+    holder["w"] = w
+    pub = rds.pubsub(ignore_subscribe_messages=True)
+    pub.subscribe(command_channel(PID))
+    pub.get_message(timeout=1)
+    for _ in range(30):
+        w.process(JPEG)
+    assert events == [] and not w.fired
+    assert pub.get_message(timeout=0.3) is None
+
+
+def test_job_no_longer_running_blocks_pause(rds):
+    events: list[str] = []
+    w = _watcher(rds, _transport([1.0] * 40), events=events, is_running=lambda: False)
+    for _ in range(30):
+        w.process(JPEG)
+    assert events == [] and not w.fired
+
+
+def test_warn_hysteresis_and_cooldown(rds):
+    events: list[str] = []
+    clock = {"t": 0.0}
+    # EWMA drives the state; feed warn-level (0.5) then near-zero repeatedly.
+    seq = ([0.5] * 10 + [0.0] * 12) * 3
+    w = _watcher(rds, _transport(seq), events=events, now=lambda: clock["t"])
+    for _ in seq:
+        w.process(JPEG)
+        clock["t"] += 1.0  # 1 s per frame: well under the 5 min cooldown
+    assert events == ["warn"]  # one warn despite three dips below `safe`
+    clock["t"] += 400
+    for _ in range(20):  # dip well below warn-0.15 and past the cooldown -> re-arm
+        w.process(JPEG)
+    assert w.warn_recorded is False
+
+
+def test_record_event_task_caps_frames_and_prunes(rds, migrated_db):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select, update
+
+    from app.models import FailureDetection, Printer
+    from app.models.enums import PrinterKind
+    from app.tasks.obico import KEEP_FRAMES, prune, record_event
+
+    with base.sync_session() as s:
+        p = Printer(name="o", kind=PrinterKind.BAMBU_LAN, host="h", serial="O", access_code_enc="x")
+        s.add(p)
+        s.commit()
+        pid = p.id
+    keys = []
+    for i in range(KEEP_FRAMES + 3):
+        k = f"obico:evt:{pid}:{i}"
+        rds.set(k, JPEG, ex=60)
+        keys.append(k)
+        assert record_event(pid, None, 1.0, 0.9, "warn", k) is not None
+    with base.sync_session() as s:
+        rows = (
+            s.execute(select(FailureDetection).where(FailureDetection.printer_id == pid))
+            .scalars()
+            .all()
+        )
+        assert len(rows) == KEEP_FRAMES + 3
+        assert sum(1 for r in rows if r.frame_blob_key) == KEEP_FRAMES
+        s.execute(
+            update(FailureDetection)
+            .where(FailureDetection.printer_id == pid)
+            .values(created_at=datetime.now(UTC) - timedelta(days=31))
+        )
+        s.commit()
+    assert rds.get(keys[0]) is None and rds.get(keys[-1]) is not None
+    assert prune() == KEEP_FRAMES + 3

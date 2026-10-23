@@ -3,10 +3,10 @@ import pytest
 import redis as redis_lib
 
 from app.models import FailureDetection, Printer
-from app.printers.obico_watcher import record_event
 from app.services import camera_state as cs
 from app.services import obico
 from app.services.obico_ml import MlError
+from app.tasks.obico import record_event
 
 pytestmark = pytest.mark.usefixtures("printer_enabled")
 JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
@@ -72,7 +72,8 @@ async def test_detections_list_and_frame(
 ) -> None:
     r = redis_lib.Redis.from_url(redis_url)
     try:
-        det_id = record_event(r, printer_row.id, None, 1.2, 0.8, "pause", JPEG)
+        r.set("obico:evt:t:1", JPEG, ex=60)
+        det_id = record_event(printer_row.id, None, 1.2, 0.8, "pause", "obico:evt:t:1")
     finally:
         r.close()
     assert det_id is not None

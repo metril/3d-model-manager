@@ -24,7 +24,7 @@ import httpx
 from sqlalchemy import select
 
 from app.config import Settings
-from app.models import FailureDetection, PrintJob
+from app.models import PrintJob
 from app.models.enums import PrintJobState
 from app.printers.base import command_channel
 from app.services import camera_state, obico
@@ -39,6 +39,8 @@ ROLLING_SHORT = 310
 ROLLING_LONG = 7200
 WARMUP_FRAMES = 30
 MAX_ERRORS = 3
+WARN_HYSTERESIS = 0.15
+WARN_COOLDOWN_S = 300.0
 TICK_INTERVAL_S = 1.0
 CONFIG_TTL_S = 5.0
 JOIN_TIMEOUT_S = 2.0
@@ -98,7 +100,7 @@ def _emit(event: str, printer_id: int, payload: dict) -> None:
         log.warning("obico: emit failed for printer %s", printer_id)
 
 
-def record_event(
+def enqueue_event(
     redis_client,
     printer_id: int,
     job_id: int | None,
@@ -106,28 +108,21 @@ def record_event(
     smoothed: float,
     action: str,
     jpeg: bytes | None,
-) -> int | None:
-    """Insert a ``failure_detections`` row (+ keep the frame in Redis)."""
+) -> None:
+    """Stash the frame in Redis (here, in the scorer thread) and hand the DB
+    write to Celery (``sensors.record`` pattern). Never raises."""
     try:
-        with base.sync_session() as session:
-            row = FailureDetection(
-                printer_id=printer_id,
-                print_job_id=job_id,
-                score=score,
-                smoothed=smoothed,
-                action=action,
-            )
-            session.add(row)
-            session.flush()
-            if jpeg:
-                key = obico.event_frame_key(row.id)
-                redis_client.set(key, jpeg, ex=obico.EVENT_FRAME_TTL_S)
-                row.frame_blob_key = key
-            session.commit()
-            return row.id
-    except Exception:
-        log.exception("obico: recording event failed for printer %s", printer_id)
-        return None
+        key = None
+        if jpeg:
+            key = f"obico:evt:{printer_id}:{uuid.uuid4().hex}"
+            redis_client.set(key, jpeg, ex=obico.EVENT_FRAME_TTL_S)
+        from app.tasks.obico import record_event
+
+        record_event.apply_async(
+            args=[printer_id, job_id, score, smoothed, action, key], retry=False
+        )
+    except Exception as exc:
+        log.error("obico: enqueue failed for printer %s: %s", printer_id, type(exc).__name__)
 
 
 class ObicoWatcher:
@@ -141,7 +136,8 @@ class ObicoWatcher:
         *,
         transport: httpx.BaseTransport | None = None,
         warmup: int = WARMUP_FRAMES,
-        recorder: Callable[..., int | None] = record_event,
+        recorder: Callable[..., object] = enqueue_event,
+        is_running: Callable[[], bool] = lambda: True,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.printer_id = printer_id
@@ -151,6 +147,8 @@ class ObicoWatcher:
         self.job_id = job_id
         self.transport = transport
         self.recorder = recorder
+        self.is_running = is_running
+        self._warn_at = 0.0
         self.clock = clock
         self.smoother = Smoother(warmup=warmup)
         self.viewer_id = f"obico-{printer_id}"
@@ -232,23 +230,36 @@ class ObicoWatcher:
         try:
             current = score_frame(self.redis, self.cfg, jpeg, transport=self.transport)
         except MlError as exc:
+            if self._stop.is_set():
+                return
             self.errors += 1
             log.warning("obico: printer %s ML error (%s) #%d", self.printer_id, exc, self.errors)
             if self.errors >= MAX_ERRORS:
                 self.paused = True
                 self._publish(None, None)
             return
+        if self._stop.is_set():
+            return  # a slow ML call returned after stop(): drop it
         self.errors = 0
         smoothed = self.smoother.update(current)
         new_state = classify(smoothed, self.cfg.warn, self.cfg.pause)
         self.state = new_state
         self._publish(current, smoothed)
-        if new_state == "safe":
-            self.warn_recorded = False
-        elif new_state == "warn" and not self.warn_recorded and not self.fired:
+        if (
+            self.warn_recorded
+            and smoothed < self.cfg.warn - WARN_HYSTERESIS
+            and self.clock() - self._warn_at >= WARN_COOLDOWN_S
+        ):
+            self.warn_recorded = False  # re-arm: dipped well below warn for 5+ min
+        if new_state == "warn" and not self.warn_recorded and not self.fired:
+            if self._stop.is_set() or not self.is_running():
+                return
             self.warn_recorded = True
+            self._warn_at = self.clock()
             self.recorder(self.redis, self.printer_id, self.job_id, current, smoothed, "warn", jpeg)
         elif new_state == "pause" and not self.fired:
+            if self._stop.is_set() or not self.is_running():
+                return
             self.fired = True
             action = obico.effective_action(self.cfg, self.pcfg)
             self.recorder(self.redis, self.printer_id, self.job_id, current, smoothed, action, jpeg)
@@ -362,6 +373,7 @@ class ObicoSupervisor:
                 transport=self.transport,
                 warmup=self.warmup,
                 clock=self.clock,
+                is_running=lambda: bool(probe and probe()),
             )
             w.start()
             self._watchers[printer_id] = w

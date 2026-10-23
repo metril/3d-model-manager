@@ -70,6 +70,7 @@ celery_app.conf.update(
         "app.tasks.firmware",
         "app.tasks.ops",
         "app.tasks.notify",
+        "app.tasks.obico",
     ),
 )
 
@@ -181,4 +182,12 @@ celery_app.conf.beat_schedule["backup-scheduled"] = {
 celery_app.conf.beat_schedule["updates-check"] = {
     "task": "app.tasks.updates.check",
     "schedule": crontab(hour=4, minute=17),
+}
+
+# Additive: Q10 Obico -- daily prune of failure_detections (30 days).
+from app.tasks import obico as _obico  # noqa: E402,F401
+
+celery_app.conf.beat_schedule["obico-prune"] = {
+    "task": "app.tasks.obico.prune",
+    "schedule": crontab(hour=3, minute=30),
 }
