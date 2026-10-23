@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { ApiError, api } from "@/api/client";
-import type { ActiveObjectsOut, DevModeWarning } from "@/api/types";
+import type { ActiveObjectsOut, DevModeWarning, PrintersOverviewOut } from "@/api/types";
 
 export type ControlPath =
   | "temperature"
@@ -99,5 +99,20 @@ export function useDevModeWarnings(options?: { enabled?: boolean }) {
     queryFn: () => api.get<DevModeWarning[]>("/printers/developer-mode-warnings"),
     refetchInterval: 60_000,
     enabled: options?.enabled ?? true,
+  });
+}
+
+/** Names of online printers whose Developer Mode state is still unknown (`dev_mode === null`). Shares the
+ * overview cache entry; polls at 60 s only when nothing else (the dashboard) polls it faster. */
+export function useDevModeUnknown(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["printers", "overview"] as const,
+    queryFn: () => api.get<PrintersOverviewOut>("/printers/overview"),
+    refetchInterval: 60_000,
+    enabled: options?.enabled ?? true,
+    select: (data) =>
+      data.printers
+        .filter((p) => p.status.online && p.status.dev_mode === null)
+        .map((p) => ({ printer_id: p.printer.id, name: p.printer.name })),
   });
 }

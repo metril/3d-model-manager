@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Outlet, useNavigate } from "@tanstack/react-router";
 
+import { DevModeBanner } from "@/components/shell/DevModeBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
@@ -63,6 +64,7 @@ export function AppShell() {
             which a flex-1 + min-w-0 column already prevents. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar onOpenPalette={() => setPaletteOpen(true)} onOpenMobileNav={() => setMobileNavOpen(true)} />
+          <DevModeBanner />
           <main className="flex-1 overflow-y-auto p-6">
             <Outlet />
           </main>
