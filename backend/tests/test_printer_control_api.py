@@ -250,9 +250,24 @@ async def test_extrude_cold_409_hot_ok_with_audit(
     assert [a.action for a in rows] == ["extrude"]
 
 
-async def test_skip_objects_requires_print_and_audits(
-    authenticated_client, db_session, printer_enabled, set_state, printerd_stub
+async def test_skip_objects_unknown_when_no_stored_3mf(
+    authenticated_client, printer_enabled, set_state
 ):
+    pid = await _printer(authenticated_client)
+    set_state(pid, **{**IDLE, "gcode_state": "RUNNING"})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/skip-objects", json={"object_ids": [4]}
+    )
+    assert r.status_code == 409 and r.json()["code"] == "objects_unknown"
+
+
+async def test_skip_objects_requires_print_and_audits(
+    authenticated_client, db_session, printer_enabled, set_state, printerd_stub, monkeypatch
+):
+    async def _objs(*_a):
+        return {"job_id": 1, "plate": 1, "objects": [{"id": 4, "name": "x", "plate": 1}]}
+
+    monkeypatch.setattr(printer_control, "_active_objects", _objs)
     pid = await _printer(authenticated_client)
     got = printerd_stub(pid, {"ok": True})
     set_state(pid, **IDLE)

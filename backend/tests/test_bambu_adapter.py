@@ -584,3 +584,28 @@ def test_snapshot_carries_fun_and_ext_tray_raw(monkeypatch):
     monkeypatch.setattr(bambu, "_build_printer", lambda conn: stub)
     snap_ = BambuLanAdapter(CONN)._snapshot()
     assert snap_["fun"] == "0x1" and snap_["ext_tray_raw"] == {"tray_type": "PLA"}
+
+
+def test_load_filament_temp_from_tray_then_type_then_default(ctl):
+    a, p = ctl
+    dump = {
+        "print": {
+            "ams": {
+                "ams": [
+                    {
+                        "id": 0,
+                        "tray": [
+                            {"id": 0, "tray_type": "PLA", "nozzle_temp_max": 230},
+                            {"id": 1, "tray_type": "PETG"},
+                            {"id": 2},
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+    p.mqtt_dump = lambda: dump
+    for tray in (0, 1, 2, 3):
+        a.load_filament(tray)
+    temps = [pl["print"]["tar_temp"] for _, pl in p.mqtt_client._client.sent]
+    assert temps == [230, 250, 220, 220]

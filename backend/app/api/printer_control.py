@@ -86,7 +86,7 @@ def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONRespo
     if command == "jog" and printer.build_volume_mm:
         limit = printer.build_volume_mm.get(clean["axis"].lower())
         if isinstance(limit, int | float) and abs(clean["mm"]) > limit:
-            return _err(422, "invalid", "move exceeds the build volume")
+            return _err(422, "invalid", "step exceeds the axis length")
     return None
 
 
@@ -292,6 +292,8 @@ async def skip_objects(
     printer = await _get_enabled_or_404(db, printer_id)
     known = {o["id"] for o in (await _active_objects(db, settings, printer_id))["objects"]}
     ids = body.get("object_ids")
-    if known and isinstance(ids, list) and not set(ids) <= known:
+    if not known:
+        return _err(409, "objects_unknown", "the active print has no stored 3MF object list")
+    if isinstance(ids, list) and not set(ids) <= known:
         return _err(422, "invalid", "object_ids contains an unknown object")
     return await run_command(db, settings, ctx, printer, "skip_objects", body)

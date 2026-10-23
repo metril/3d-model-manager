@@ -409,6 +409,40 @@ def _ams_trays(dump: dict) -> list[dict]:
     return trays
 
 
+_HOT_MATERIALS = ("PETG", "ABS", "ASA", "PC", "PA", "PET")
+
+
+def _load_temp(dump: dict, tray: int) -> int:
+    """Nozzle temp for a filament load: the tray's reported
+    ``nozzle_temp_max`` if known, else 250 for PETG/ABS-class, else 220."""
+    section = dump.get("print") if isinstance(dump.get("print"), dict) else dump
+    raw: dict | None = None
+    vt = section.get("vt_tray")
+    if tray == global_tray(EXTERNAL_UNIT, EXTERNAL_SLOT) and isinstance(vt, dict):
+        raw = vt
+    else:
+        units = (section.get("ams") or {}).get("ams")
+        for u_pos, unit in enumerate(units if isinstance(units, list) else []):
+            if not isinstance(unit, dict):
+                continue
+            uid = _as_int(unit.get("id"))
+            uid = u_pos if uid is None else uid
+            trays = unit.get("tray")
+            for t_pos, t in enumerate(trays if isinstance(trays, list) else []):
+                tid = _as_int(t.get("id")) if isinstance(t, dict) else None
+                tid = t_pos if tid is None else tid
+                if isinstance(t, dict) and global_tray(uid, tid) == tray:
+                    raw = t
+    if raw:
+        tmax = _as_int(raw.get("nozzle_temp_max"))
+        if tmax and 150 <= tmax <= 300:
+            return tmax
+        kind = str(raw.get("tray_type") or "").upper()
+        if kind.startswith(_HOT_MATERIALS):
+            return 250
+    return 220
+
+
 @register_adapter
 class BambuLanAdapter(PrinterAdapter):
     kind: ClassVar[PrinterKind] = PrinterKind.BAMBU_LAN
@@ -624,14 +658,19 @@ class BambuLanAdapter(PrinterAdapter):
         self._sent(self._client().skip_objects(object_ids))
 
     def load_filament(self, tray: int) -> None:
+        try:
+            dump = self._client().mqtt_dump() or {}
+        except Exception:  # noqa: BLE001
+            dump = {}
+        temp = _load_temp(dump, tray)
         _publish_raw(
             self._client(),
             {
                 "print": {
                     "command": "ams_change_filament",
                     "target": tray,
-                    "curr_temp": 215,
-                    "tar_temp": 215,
+                    "curr_temp": temp,
+                    "tar_temp": temp,
                     "sequence_id": "0",
                 }
             },
