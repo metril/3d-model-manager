@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.models.auth import User
 from app.models.home_assistant import HaLink
 from app.models.printing import Printer
 from app.schemas.home_assistant import (
+    HaActorOut,
     HaLinkIn,
     HaLinkOut,
     HaLinkPatchIn,
@@ -65,6 +67,7 @@ def _apply_overrides(config: HaConfig, patch: dict) -> HaConfig:
         "ha_url": config.ha_url,
         "ha_token": config.ha_token,
         "ha_discovery_prefix": config.ha_discovery_prefix,
+        "ha_actor_user_id": config.ha_actor_user_id,
     }
     for field in ("ha_mqtt_url", "ha_mqtt_user", "ha_discovery_prefix", "ha_url"):
         if field in patch and patch[field] is not None:
@@ -104,6 +107,8 @@ async def get_ha_settings(
         with contextlib.suppress(ValueError, TypeError):
             bridge_status = json.loads(bridge_raw)
 
+    actor = await db.get(User, config.ha_actor_user_id) if config.ha_actor_user_id else None
+
     return HaSettingsOut(
         ha_mqtt_url=config.ha_mqtt_url,
         ha_mqtt_user=config.ha_mqtt_user,
@@ -111,6 +116,8 @@ async def get_ha_settings(
         ha_discovery_prefix=config.ha_discovery_prefix,
         ha_url=config.ha_url,
         has_token=bool(config.ha_token),
+        ha_actor_user_id=config.ha_actor_user_id,
+        ha_actor_username=actor.username if actor else None,
         pull_status=pull_status,
         bridge_status=bridge_status,
     )
@@ -123,8 +130,23 @@ async def put_ha_settings(
     settings: Settings = Depends(get_settings),
 ) -> HaSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
+    actor_id = patch.get("ha_actor_user_id")
+    if actor_id is not None:
+        actor = await db.get(User, actor_id)
+        if actor is None or not actor.is_active:
+            raise HTTPException(422, "ha_actor_user_id must be an active user")
     await set_ha_config(db, settings, patch)
     return await get_ha_settings(db=db, settings=settings)
+
+
+@router.get("/actors", response_model=list[HaActorOut])
+async def list_ha_actors(db: AsyncSession = Depends(get_db)) -> list[HaActorOut]:
+    """Active users selectable as the HA service account (``/admin/users``
+    is admin-only; this surface is ``settings:write``)."""
+    rows = await db.execute(
+        select(User.id, User.username).where(User.is_active).order_by(User.username)
+    )
+    return [HaActorOut(id=i, username=u) for i, u in rows.all()]
 
 
 def _run_mqtt_test(config: HaConfig) -> tuple[bool, str]:

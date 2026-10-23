@@ -41,7 +41,13 @@ _SECRET_FIELDS = (
     ("ha_mqtt_password", "ha_mqtt_password_enc"),
     ("ha_token", "ha_token_enc"),
 )
-_PLAIN_FIELDS = ("ha_mqtt_url", "ha_mqtt_user", "ha_discovery_prefix", "ha_url")
+_PLAIN_FIELDS = (
+    "ha_mqtt_url",
+    "ha_mqtt_user",
+    "ha_discovery_prefix",
+    "ha_url",
+    "ha_actor_user_id",
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +60,7 @@ class HaConfig:
     ha_url: str | None
     ha_token: str | None
     ha_discovery_prefix: str = "homeassistant"
+    ha_actor_user_id: int | None = None
 
     def __repr__(self) -> str:
         def mask(value: str | None) -> str | None:
@@ -63,7 +70,8 @@ class HaConfig:
             f"HaConfig(ha_mqtt_url={self.ha_mqtt_url!r}, ha_mqtt_user={self.ha_mqtt_user!r}, "
             f"ha_mqtt_password={mask(self.ha_mqtt_password)!r}, "
             f"ha_url={self.ha_url!r}, ha_token={mask(self.ha_token)!r}, "
-            f"ha_discovery_prefix={self.ha_discovery_prefix!r})"
+            f"ha_discovery_prefix={self.ha_discovery_prefix!r}, "
+            f"ha_actor_user_id={self.ha_actor_user_id!r})"
         )
 
     def mqtt_signature(self) -> tuple[str | None, str | None, str | None, str]:
@@ -116,6 +124,7 @@ def _to_config(settings: Settings, value: dict | None) -> HaConfig:
         ha_url=value.get("ha_url"),
         ha_token=_decrypt_field(settings, value, "ha_token_enc"),
         ha_discovery_prefix=value.get("ha_discovery_prefix") or "homeassistant",
+        ha_actor_user_id=value.get("ha_actor_user_id"),
     )
 
 

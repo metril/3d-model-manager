@@ -175,3 +175,35 @@ def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bo
     send to ``printer_id`` right now?"""
     acl = printer_acl_sync(session, user_id)
     return printer_id in acl and acl[printer_id].can_print
+
+
+def can_control_sync(session: Session, user_id: int | None, printer_id: int) -> bool:
+    """Worker-side (SYNC world) twin of ``AuthContext.require_printer(.., "control")``
+    without the 403: the global ``printers:control`` perm AND a per-printer
+    ``can_control`` ACL flag (admins pass). A ``None``/inactive/deleted user
+    is always denied. Unlike ``can_print_sync`` this can't ride on
+    ``printer_acl_sync`` (which is gated on ``printers:print``), so it
+    resolves the user's grants itself."""
+    if user_id is None:
+        return False
+    user = session.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    groups = list(
+        session.scalars(
+            select(Group)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(GroupMember.user_id == user.id)
+            .order_by(Group.id)
+        ).all()
+    )
+    perms = effective_perms(user, groups)
+    if "admin" in perms:
+        return True
+    if "printers:control" not in perms or not groups:
+        return False
+    rows = session.scalars(
+        select(PrinterAccess).where(PrinterAccess.group_id.in_([g.id for g in groups]))
+    ).all()
+    granted = printer_perms(perms, merge_printer_acl(rows), printer_id)
+    return granted is not None and granted.can_control

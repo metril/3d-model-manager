@@ -8,6 +8,7 @@ from app.services.permissions import (
     FULL_ACL,
     PERMS,
     PrinterAcl,
+    can_control_sync,
     can_print_async,
     effective_perms,
     load_grants,
@@ -106,3 +107,55 @@ async def test_can_print_async(db_session: AsyncSession):
     assert not await can_print_async(db_session, no_acl, printer.id)
     assert not await can_print_async(db_session, no_perm, printer.id)  # ACL but no global perm
     assert await can_print_async(db_session, admin, printer.id)
+
+
+def test_can_control_sync():
+    from app.tasks import base
+
+    with base.sync_session() as s:
+        printer = Printer(
+            name="p", kind=PrinterKind.BAMBU_LAN, host="h", serial="S", access_code_enc="x"
+        )
+        allowed = User(username="a", role=UserRole.VIEWER)
+        no_perm = User(username="c", role=UserRole.MEMBER)
+        print_only = User(username="e", role=UserRole.VIEWER)
+        admin = User(username="d", role=UserRole.ADMIN)
+        inactive = User(username="f", role=UserRole.ADMIN, is_active=False)
+        g_ok = Group(name="ok", permissions=["printers:control"])
+        g_noperm = Group(name="noperm", permissions=[])
+        g_print = Group(name="print", permissions=["printers:control"])
+        s.add_all([printer, allowed, no_perm, print_only, admin, inactive])
+        s.add_all([g_ok, g_noperm, g_print])
+        s.flush()
+        s.add_all(
+            [
+                GroupMember(group_id=g_ok.id, user_id=allowed.id),
+                GroupMember(group_id=g_noperm.id, user_id=no_perm.id),
+                GroupMember(group_id=g_print.id, user_id=print_only.id),
+                PrinterAccess(group_id=g_ok.id, printer_id=printer.id, can_control=True),
+                PrinterAccess(group_id=g_noperm.id, printer_id=printer.id, can_control=True),
+                PrinterAccess(group_id=g_print.id, printer_id=printer.id, can_print=True),
+            ]
+        )
+        s.commit()
+        ids = {
+            k: u.id
+            for k, u in dict(
+                allowed=allowed,
+                no_perm=no_perm,
+                print_only=print_only,
+                admin=admin,
+                inactive=inactive,
+            ).items()
+        }
+        pid = printer.id
+
+    with base.sync_session() as s:
+        assert can_control_sync(s, ids["allowed"], pid)
+        assert not can_control_sync(s, ids["allowed"], pid + 1)
+        assert not can_control_sync(s, ids["no_perm"], pid)  # ACL flag, no global perm
+        assert not can_control_sync(s, ids["print_only"], pid)  # can_print != can_control
+        assert can_control_sync(s, ids["admin"], pid)
+        assert not can_control_sync(s, ids["inactive"], pid)
+        assert not can_control_sync(s, None, pid)
+        assert not can_control_sync(s, 99999, pid)

@@ -472,3 +472,60 @@ async def test_queue_entry_hold_reason_untargeted_not_all_held(
     assert r.status_code == 200, r.text
     entry = next(e for e in r.json() if e["id"] == entry_id)
     assert entry["printer_hold_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# HA service account (ha_actor_user_id)
+# ---------------------------------------------------------------------------
+
+
+async def test_actor_round_trip_and_clear(
+    authenticated_client: httpx.AsyncClient, admin_user
+) -> None:
+    r = await authenticated_client.get("/api/settings/home-assistant")
+    assert r.json()["ha_actor_user_id"] is None
+    assert r.json()["ha_actor_username"] is None
+
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": admin_user.id}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["ha_actor_user_id"] == admin_user.id
+    assert r.json()["ha_actor_username"] == admin_user.username
+
+    # an unrelated PUT keeps it; explicit null clears it
+    r = await authenticated_client.put("/api/settings/home-assistant", json={"ha_url": HA_URL})
+    assert r.json()["ha_actor_user_id"] == admin_user.id
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": None}
+    )
+    assert r.json()["ha_actor_user_id"] is None
+
+
+async def test_actor_must_be_active_user(
+    authenticated_client: httpx.AsyncClient, make_user
+) -> None:
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": 99999}
+    )
+    assert r.status_code == 422
+    user = await make_user(username="gone", is_active=False)
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": user.id}
+    )
+    assert r.status_code == 422
+
+
+async def test_actors_list_active_only(authenticated_client: httpx.AsyncClient, make_user) -> None:
+    await make_user(username="inactive-one", is_active=False)
+    r = await authenticated_client.get("/api/settings/home-assistant/actors")
+    assert r.status_code == 200, r.text
+    names = [a["username"] for a in r.json()]
+    assert "inactive-one" not in names and names
+
+
+async def test_actor_endpoints_forbidden_for_non_admin(member_client: httpx.AsyncClient) -> None:
+    r = await member_client.put("/api/settings/home-assistant", json={"ha_actor_user_id": 1})
+    assert r.status_code == 403
+    r = await member_client.get("/api/settings/home-assistant/actors")
+    assert r.status_code == 403

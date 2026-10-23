@@ -13,8 +13,9 @@ import pytest
 import redis as redis_lib
 
 from app.config import get_settings
-from app.models import Printer, Setting
-from app.models.enums import PrinterKind
+from app.models import Printer, Setting, User
+from app.models.auth import Group, GroupMember, PrinterAccess
+from app.models.enums import PrinterKind, UserRole
 from app.printers.base import command_channel
 from app.printers.ha_bridge import (
     BRIDGE_STATUS_REDIS_KEY,
@@ -276,7 +277,13 @@ def test_bridge_status_json_on_connect_and_disconnect(r):
     )
     raw = r.get(BRIDGE_STATUS_REDIS_KEY)
     status = json.loads(raw)
-    assert status == {"connected": True, "error": None, "at": status["at"]}
+    assert status == {
+        "connected": True,
+        "error": None,
+        "actor_ok": False,
+        "actor_error": "no HA service account",
+        "at": status["at"],
+    }
     ttl = r.ttl(BRIDGE_STATUS_REDIS_KEY)
     assert 0 < ttl <= 30
 
@@ -380,6 +387,28 @@ def _seed_printer(*, serial: str, name: str = "p") -> int:
         return printer.id
 
 
+def _seed_user(
+    role: UserRole, *, active: bool = True, grant: str | None = None, pid: int = 0
+) -> int:
+    """A user; ``grant`` = ``"acl"`` (ACL can_control, no global perm),
+    ``"perm"`` (global printers:control, no ACL row) or ``"both"``."""
+    with base.sync_session() as s:
+        user = User(username=f"u-{role.value}-{grant}-{active}", role=role, is_active=active)
+        s.add(user)
+        s.flush()
+        if grant:
+            group = Group(
+                name=f"g-{user.id}", permissions=["printers:control"] if grant != "acl" else []
+            )
+            s.add(group)
+            s.flush()
+            s.add(GroupMember(group_id=group.id, user_id=user.id))
+            if grant != "perm":
+                s.add(PrinterAccess(group_id=group.id, printer_id=pid, can_control=True))
+        s.commit()
+        return user.id
+
+
 def _delete_printer(pid: int) -> None:
     with base.sync_session() as s:
         printer = s.get(Printer, pid)
@@ -393,8 +422,11 @@ def _seed_ha_config(
     prefix: str = "homeassistant",
     user: str | None = None,
     password: str | None = None,
+    actor: int | None = None,
 ) -> None:
     value = {"ha_mqtt_url": mqtt_url, "ha_discovery_prefix": prefix}
+    if actor is not None:
+        value["ha_actor_user_id"] = actor
     if user is not None:
         value["ha_mqtt_user"] = user
     if password is not None:
@@ -454,7 +486,7 @@ def test_button_routes_to_redis(mqtt_url, r, migrated_db, printer_enabled):
     import paho.mqtt.client as mqtt
 
     pid = _seed_printer(serial="S2")
-    _seed_ha_config(mqtt_url)
+    _seed_ha_config(mqtt_url, actor=_seed_user(UserRole.ADMIN))
     bridge = _make_bridge(r, lambda: {pid})
     bridge.start()
     pubsub = r.pubsub()
@@ -553,3 +585,94 @@ def test_bridge_secret_never_logged(mqtt_url, r, migrated_db, printer_enabled, c
         time.sleep(1.5)
         bridge.stop()
     assert "SUPERSECRETPW" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# HA service account gating (unit, fake paho client)
+# ---------------------------------------------------------------------------
+
+
+class _Msg:
+    def __init__(self, topic: str, payload: str) -> None:
+        self.topic = topic
+        self.payload = payload.encode()
+
+
+def _gated_bridge(r, actor: int | None, serial: str):
+    pid = _seed_printer(serial=serial)
+    client = FakeClient()
+    bridge = HaBridge(r, get_settings(), active_ids=lambda: set(), client_factory=lambda: client)
+    bridge._apply_config(
+        HaConfig(
+            ha_mqtt_url="mqtt://broker:1883",
+            ha_mqtt_user=None,
+            ha_mqtt_password=None,
+            ha_url=None,
+            ha_token=None,
+            ha_actor_user_id=actor,
+        )
+    )
+    bridge._printers = [{"id": pid, "serial": serial, "name": "p", "model": None}]
+    return bridge, client, pid
+
+
+def _send(bridge, client, serial: str, payload: str = "pause") -> None:
+    bridge._on_message(client, None, _Msg(f"tdmm/{node_id(serial)}/command", payload))
+
+
+def _published(r, pid: int, fn) -> list[dict]:
+    pubsub = r.pubsub()
+    pubsub.subscribe(command_channel(pid))
+    pubsub.get_message(timeout=1)
+    fn()
+    out = []
+    while (m := pubsub.get_message(timeout=0.3)) is not None:
+        if m["type"] == "message":
+            out.append(json.loads(m["data"]))
+    pubsub.close()
+    return out
+
+
+def test_command_dropped_without_actor(r, migrated_db):
+    bridge, client, pid = _gated_bridge(r, None, "G0")
+    assert _published(r, pid, lambda: _send(bridge, client, "G0")) == []
+    with base.sync_session() as s:
+        bridge._refresh_actor(s)
+    bridge._set_bridge_status(True, None)
+    status = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))
+    assert status["actor_ok"] is False
+    assert status["actor_error"] == "no HA service account"
+
+
+def test_command_dropped_for_inactive_actor(r, migrated_db):
+    uid = _seed_user(UserRole.ADMIN, active=False)
+    bridge, client, pid = _gated_bridge(r, uid, "G1")
+    assert _published(r, pid, lambda: _send(bridge, client, "G1")) == []
+    with base.sync_session() as s:
+        bridge._refresh_actor(s)
+    assert bridge._actor_ok is False
+    assert bridge._actor_error == "HA service account is missing or inactive"
+
+
+@pytest.mark.parametrize("grant", ["acl", "perm", None])
+def test_command_dropped_when_actor_lacks_control(r, migrated_db, grant):
+    pid_probe = _seed_printer(serial="Gprobe")  # first printer -> id reused below
+    uid = _seed_user(UserRole.VIEWER, grant=grant, pid=pid_probe)
+    bridge, client, _ = _gated_bridge(r, uid, "G2")
+    bridge._printers[0]["id"] = pid_probe
+    assert _published(r, pid_probe, lambda: _send(bridge, client, "G2")) == []
+
+
+@pytest.mark.parametrize("kind", ["both", "admin"])
+def test_command_published_for_allowed_actor(r, migrated_db, kind):
+    pid_probe = _seed_printer(serial="Gok0")
+    if kind == "admin":
+        uid = _seed_user(UserRole.ADMIN)
+    else:
+        uid = _seed_user(UserRole.VIEWER, grant="both", pid=pid_probe)
+    bridge, client, _ = _gated_bridge(r, uid, "Gok")
+    bridge._printers[0]["id"] = pid_probe
+    with base.sync_session() as s:
+        bridge._refresh_actor(s)
+    assert bridge._actor_ok is True and bridge._actor_error is None
+    assert _published(r, pid_probe, lambda: _send(bridge, client, "Gok")) == [{"command": "pause"}]
