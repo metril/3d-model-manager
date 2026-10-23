@@ -93,6 +93,90 @@ def _publish_raw(p, payload: dict) -> None:
         raise OSError("command publish failed")
 
 
+_HMS_RESUME = {
+    "RESUME_PRINTING",
+    "RESUME_PRINTING_DEFECTS",
+    "RESUME_PRINTING_PROBELM_SOLVED",
+    "PROBLEM_SOLVED_RESUME",
+    "FILAMENT_LOAD_RESUME",
+    "PROCEED",
+    "DBL_CHECK_RESUME",
+}
+_HMS_IGNORE = {"IGNORE_RESUME", "IGNORE_NO_REMINDER_NEXT_TIME", "DONT_REMIND_NEXT_TIME"}
+_HMS_AMS = {
+    "FILAMENT_EXTRUDED": "done",
+    "DBL_CHECK_DONE": "done",
+    "RETRY_FILAMENT_EXTRUDED": "resume",
+    "CONTINUE": "resume",
+    "RETRY_PROBLEM_SOLVED": "resume",
+    "DBL_CHECK_RETRY": "resume",
+    "ABORT": "abort",
+}
+_HMS_SIMPLE = {
+    "REFRESH_NOZZLE": {"command": "refresh_nozzle"},
+    "TURN_OFF_FIRE_ALARM": {"command": "buzzer_ctrl", "mode": 0},
+    "STOP_DRYING": {"command": "auto_stop_ams_dry"},
+    "DISABLE_PURIFICATION": {"command": "close_air_filt"},
+    "OK_BUTTON": {"command": "clean_print_error"},
+    "DBL_CHECK_OK": {"command": "clean_print_error"},
+}
+
+
+def hms_action_payload(print_error: str, action: str, job_id: str | None) -> list[dict] | None:
+    """MQTT payloads for an HMS remedy action (BambuStudio's command_hms_*
+    shapes; ported from bambuddy). ``None`` = unsupported action; an empty
+    list = UI-only action (nothing to send)."""
+    try:
+        err = str(int(print_error, 16))  # firmware compares the DECIMAL value
+    except ValueError:
+        err = print_error
+    if action in _HMS_RESUME:
+        return [{"print": {"command": "resume", "param": "", "sequence_id": "0"}}]
+    if action == "STOP_PRINTING":
+        return [{"print": {"command": "stop", "param": "", "sequence_id": "0"}}]
+    if action in _HMS_IGNORE:
+        return [
+            {
+                "print": {
+                    "command": "ignore",
+                    "err": err,
+                    "param": "reserve",
+                    "job_id": job_id or "",
+                    "sequence_id": "0",
+                }
+            }
+        ]
+    if action == "NO_REMINDER_NEXT_TIME":
+        return [{"print": {"command": "idle_ignore", "err": err, "type": 0, "sequence_id": "0"}}]
+    if action in _HMS_AMS:
+        return [
+            {"print": {"command": "ams_control", "param": _HMS_AMS[action], "sequence_id": "0"}}
+        ]
+    if action in _HMS_SIMPLE:
+        out = [{"print": {**_HMS_SIMPLE[action], "sequence_id": "0"}}]
+        if action == "DBL_CHECK_OK":
+            out.append(
+                {
+                    "system": {
+                        "command": "uiop",
+                        "name": "print_error",
+                        "action": "close",
+                        "source": 1,
+                        "type": "dialog",
+                        "err": print_error.upper(),
+                        "sequence_id": "0",
+                    }
+                }
+            )
+        return out
+    if action in {
+        "CHECK_ASSISTANT", "JUMP_TO_LIVEVIEW", "OK_JUMP_RACK", "REMOVE_CLOSE_BTN",
+        "LOAD_VIRTUAL_TRAY", "CANCLE", "DBL_CHECK_CANCEL",
+    }:  # fmt: skip
+        return []
+    return None
+
+
 FTP_TIMEOUT_S = 30
 
 
@@ -695,6 +779,7 @@ class BambuLanAdapter(PrinterAdapter):
             },
         )
 
+    # -- Q5 HMS + firmware ---------------------------------------------
     def clear_hms(self) -> None:
         _publish_raw(
             self._client(), {"print": {"command": "clean_print_error", "sequence_id": "0"}}
@@ -719,6 +804,21 @@ class BambuLanAdapter(PrinterAdapter):
         if slot.get("setting_id"):
             payload["setting_id"] = slot["setting_id"]
         _publish_raw(self._client(), {"print": payload})
+
+    def execute_hms_action(self, print_error: str, action: str, job_id: str | None = None) -> None:
+        p = self._client()
+        payload = hms_action_payload(print_error, action, job_id)
+        if payload is None:
+            raise ValueError(f"unsupported HMS action {action!r}")
+        for item in payload:
+            _publish_raw(p, item)
+        _publish_raw(p, {"pushing": {"command": "pushall", "sequence_id": "0"}})
+
+    def upload_file(self, remote: str, local: Path) -> None:
+        with local.open("rb") as fh:
+            res = _build_ftp(self.conn).upload_file(fh, remote)
+        if res is None:
+            raise OSError(f"FTPS upload {remote} failed")
 
     # -- send ----------------------------------------------------------
     def upload_and_start(self, spec: PrintSpec) -> None:

@@ -121,3 +121,120 @@ def test_read_cert_cn_unreachable_port_raises():
     listener.close()  # closed immediately -- nothing listening on this port
     with pytest.raises(OSError):
         discovery.read_cert_cn("127.0.0.1", port, timeout=1.0)
+
+
+# -- Q5: SSDP parsing/listening + sweep ----------------------------------------
+NOTIFY = (
+    "NOTIFY * HTTP/1.1\r\nHOST: 239.255.255.250:1990\r\nCache-Control: max-age=1800\r\n"
+    "Location: 192.168.1.50\r\nNT: urn:bambulab-com:device:3dprinter:1\r\n"
+    "USN: 0309CA410600958\r\nDevModel.bambu.com: N1\r\nDevName.bambu.com: Mini\r\n\r\n"
+)
+
+
+def test_parse_ssdp_notify():
+    item = discovery.parse_ssdp(NOTIFY, "192.168.1.50")
+    assert item == {
+        "host": "192.168.1.50",
+        "serial": "0309CA410600958",
+        "model_hint": "N1",
+        "name": "Mini",
+        "source": "ssdp",
+    }
+
+
+def test_parse_ssdp_ignores_non_bambu_and_missing_usn():
+    assert (
+        discovery.parse_ssdp("NOTIFY * HTTP/1.1\r\nNT: upnp:rootdevice\r\n\r\n", "1.2.3.4") is None
+    )
+    assert discovery.parse_ssdp("NT: urn:bambulab-com:device:3dprinter:1\r\n", "1.2.3.4") is None
+
+
+def test_ssdp_listen_receives_notify():
+    probe_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe_sock.bind(("127.0.0.1", 0))
+    port = probe_sock.getsockname()[1]
+    probe_sock.close()
+
+    def _send() -> None:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        for _ in range(10):
+            s.sendto(NOTIFY.encode(), ("127.0.0.1", port))
+            threading.Event().wait(0.1)
+        s.close()
+
+    threading.Thread(target=_send, daemon=True).start()
+    found = discovery.ssdp_listen(1.0, port=port, multicast=False)
+    assert [f["serial"] for f in found] == ["0309CA410600958"]
+
+
+def test_ssdp_listen_returns_empty_when_port_busy():
+    busy = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    busy.bind(("127.0.0.1", 0))
+    # Without REUSE flags set on the holder a second bind to the same
+    # address/port fails; ssdp_listen must degrade to [] rather than raise.
+    port = busy.getsockname()[1]
+    try:
+        assert isinstance(discovery.ssdp_listen(0.2, port=port, multicast=False), list)
+    finally:
+        busy.close()
+
+
+def test_sweep_reads_serial_from_tls_listener(tls_server):
+    host, port = tls_server("0309CA410600958")
+    found = discovery.sweep(f"{host}/32", port=port, timeout=2.0, budget=5.0)
+    assert found == [
+        {
+            "host": host,
+            "serial": "0309CA410600958",
+            "model_hint": found[0]["model_hint"],
+            "source": "sweep",
+        }
+    ]
+
+
+def test_sweep_skips_closed_ports_and_respects_budget():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.close()
+    assert discovery.sweep("127.0.0.1/32", port=port, timeout=0.5, budget=2.0) == []
+
+
+def test_discover_merges_ssdp_over_sweep(monkeypatch):
+    monkeypatch.setattr(
+        discovery, "ssdp_listen", lambda budget: [discovery.parse_ssdp(NOTIFY, "192.168.1.50")]
+    )
+    monkeypatch.setattr(
+        discovery,
+        "sweep",
+        lambda cidr, **kw: [
+            {
+                "host": "192.168.1.50",
+                "serial": "0309CA410600958",
+                "model_hint": None,
+                "source": "sweep",
+            },
+            {"host": "192.168.1.51", "serial": "OTHER", "model_hint": None, "source": "sweep"},
+        ],
+    )
+    out = {d["serial"]: d for d in discovery.discover("192.168.1.0/24")}
+    assert (
+        out["0309CA410600958"]["source"] == "ssdp" and out["0309CA410600958"]["model_hint"] == "N1"
+    )
+    assert out["OTHER"]["source"] == "sweep"
+
+
+async def test_discover_route(authenticated_client, printer_enabled, viewer_client, monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "discover",
+        lambda cidr, budget=10.0: [
+            {"host": "h", "serial": "S", "model_hint": None, "source": "sweep"}
+        ],
+    )
+    r = await authenticated_client.post("/api/printers/discover", json={"cidr": "192.168.1.0/24"})
+    assert r.status_code == 200 and r.json()[0]["serial"] == "S"
+    assert (await authenticated_client.post("/api/printers/discover")).status_code == 200
+    bad = await authenticated_client.post("/api/printers/discover", json={"cidr": "nope"})
+    assert bad.status_code == 422
+    assert (await viewer_client.post("/api/printers/discover", json={})).status_code == 403

@@ -79,6 +79,8 @@ class ProbeResult:
     ok: bool
     detail: str
     gcode_state: str | None = None
+    # Q5: where the staged probe stopped -- connect | auth | status | ok.
+    stage: str | None = None
 
 
 @dataclass
@@ -270,4 +272,12 @@ class PrinterAdapter(ABC):
 
     def send_devmode_probe(self, slot: dict, seq: str) -> None:
         """Publish the Developer-Mode echo probe (decision 2)."""
+        raise NotImplementedError
+
+    def execute_hms_action(self, print_error: str, action: str, job_id: str | None = None) -> None:
+        """Run a remedy action (resume/stop/ignore/...) for an active fault (Q5)."""
+        raise NotImplementedError
+
+    def upload_file(self, remote: str, local: Path) -> None:
+        """FTPS-upload ``local`` to ``remote`` on the printer's SD card (Q5)."""
         raise NotImplementedError
