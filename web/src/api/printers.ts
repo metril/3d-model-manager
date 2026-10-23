@@ -9,9 +9,12 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 
 import { api } from "@/api/client";
 import type {
+  CameraStatusOut,
   CameraUrlsOut,
   DetectSerialIn,
   DetectSerialOut,
+  OverlayTokenCreatedOut,
+  OverlayTokenOut,
   PrinterCreate,
   PrinterOut,
   PrinterStatusOut,
@@ -204,5 +207,48 @@ export function useCameraUrls(printerId: number, options?: { enabled?: boolean }
     refetchOnMount: (query) => (cameraTokenNeedsRefresh(query.state.data) ? "always" : true),
     refetchOnWindowFocus: (query) => (cameraTokenNeedsRefresh(query.state.data) ? "always" : true),
     retry: false,
+  });
+}
+
+/** `GET /printers/{id}/camera/status`: source kind, rotation, beta flag and
+ * default fps. Failure is non-fatal (the tile falls back to defaults). */
+export function useCameraStatus(printerId: number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["camera-status", printerId] as const,
+    queryFn: () => api.get<CameraStatusOut>(`/printers/${printerId}/camera/status`),
+    enabled: options?.enabled ?? true,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+export function useOverlayTokens(printerId: number) {
+  return useQuery({
+    queryKey: ["overlay-tokens", printerId] as const,
+    queryFn: () => api.get<OverlayTokenOut[]>(`/printers/${printerId}/overlay-tokens`),
+  });
+}
+
+export function useCreateOverlayToken(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (label?: string) =>
+      api.post<OverlayTokenCreatedOut>(`/printers/${printerId}/overlay-tokens`, label ? { label } : {}),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["overlay-tokens", printerId] }),
+  });
+}
+
+export function useRevokeOverlayToken(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tokenId: number) => api.delete<void>(`/printers/${printerId}/overlay-tokens/${tokenId}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["overlay-tokens", printerId] }),
+  });
+}
+
+/** `POST /printers/{id}/control/light` (Q2 command bus). */
+export function useCameraLight(printerId: number) {
+  return useMutation({
+    mutationFn: (on: boolean) => api.post<void>(`/printers/${printerId}/control/light`, { on }),
   });
 }

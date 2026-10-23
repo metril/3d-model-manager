@@ -11,6 +11,9 @@ import { AppShell } from "@/components/AppShell";
 import { AddPage } from "@/pages/AddPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
 import { DuplicatesPage } from "@/pages/DuplicatesPage";
+import { CameraPage } from "@/pages/CameraPage";
+import { CamWallPage } from "@/pages/CamWallPage";
+import { OverlayPage } from "@/pages/OverlayPage";
 import { ExternalLinkPage } from "@/pages/ExternalLinkPage";
 import { FinancePage } from "@/pages/FinancePage";
 import { JobsPage } from "@/pages/JobsPage";
@@ -79,6 +82,40 @@ const viewerWindowRoute = createRoute({
   },
   validateSearch: parseViewerWindowSearch,
   component: ViewerWindowPage,
+});
+
+// Q4 camera surfaces, all OUTSIDE the AppShell layout. `/camera/$id` and
+// `/camwall` are session-guarded; `/overlay/$id?token=` is public (OBS
+// browser source) and authenticates by its read-only overlay token only.
+const sessionGuard = async ({ context }: { context: RouterContext }) => {
+  try {
+    await context.queryClient.ensureQueryData(authQueryOptions);
+  } catch {
+    throw redirect({ to: "/login" });
+  }
+};
+
+const cameraWindowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/camera/$id",
+  beforeLoad: sessionGuard,
+  component: CameraPage,
+});
+
+const camWallRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/camwall",
+  beforeLoad: sessionGuard,
+  component: CamWallPage,
+});
+
+const overlayRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/overlay/$id",
+  validateSearch: (search: Record<string, unknown>): { token?: string } => ({
+    token: typeof search.token === "string" ? search.token : undefined,
+  }),
+  component: OverlayPage,
 });
 
 /** Pure redirect policy for `/` (P3 Task 5): print-first by default, but
@@ -292,6 +329,9 @@ const externalLinkRoute = createRoute({
 export const routeTree = rootRoute.addChildren([
   loginRoute,
   viewerWindowRoute,
+  cameraWindowRoute,
+  camWallRoute,
+  overlayRoute,
   authenticatedRoute.addChildren([
     indexRoute,
     libraryRoute,
