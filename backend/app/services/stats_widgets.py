@@ -68,7 +68,7 @@ def _since(days: int) -> datetime:
 
 def _int(v: object) -> int | None:
     try:
-        return int(v) if v is not None else None
+        return int(float(v)) if v is not None else None
     except (TypeError, ValueError):
         return None
 

@@ -158,6 +158,8 @@ class PrinterWorker:
         now = time.monotonic() if now is None else now
         if now < self._sensor_next:
             return False
+        if self._sensor_thread is not None and self._sensor_thread.is_alive():
+            return False  # previous enqueue still stuck (hung broker): don't pile up
         self._sensor_next = now + SENSOR_INTERVAL_S
         public = self._public
         if public is None or not public.last_report_at:

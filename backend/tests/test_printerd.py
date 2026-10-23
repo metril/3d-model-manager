@@ -885,3 +885,21 @@ def test_sensor_tick_never_blocks_on_slow_enqueue(worker, monkeypatch):
     assert time.monotonic() - t0 < 0.5
     gate.set()
     w._sensor_thread.join(2)
+
+
+def test_sensor_tick_skips_while_previous_enqueue_alive(worker, monkeypatch):
+    w, _adapter, _pid, _client = worker
+    gate = threading.Event()
+    calls = []
+    monkeypatch.setattr(
+        printerd_module, "_enqueue_sensor_sample", lambda p, s: (calls.append(1), gate.wait(5))
+    )
+    w.handle_report({"last_report_at": "2026-10-23T10:00:00Z"})
+    assert w.sensor_tick(0.0)
+    w.handle_report({"last_report_at": "2026-10-23T10:01:00Z"})
+    assert not w.sensor_tick(100.0)  # first enqueue still hung
+    gate.set()
+    w._sensor_thread.join(2)
+    assert w.sensor_tick(200.0)
+    w._sensor_thread.join(2)
+    assert len(calls) == 2
