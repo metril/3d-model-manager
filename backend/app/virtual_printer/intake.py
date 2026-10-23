@@ -8,9 +8,10 @@ slicer intake endpoint).
 
 from __future__ import annotations
 
+import logging
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,8 @@ from app.services.slicer_naming import _safe_basename
 from app.services.storage_backends import resolve_default_backend_sync
 from app.tasks import base
 
+log = logging.getLogger("virtual_printer")
+
 
 @dataclass(frozen=True)
 class VpConfig:
@@ -35,7 +38,7 @@ class VpConfig:
     name: str
     model: str
     serial: str
-    access_code: str
+    access_code: str = field(repr=False)
     mode: VirtualPrinterMode
     target_printer_id: int | None
     created_by_user_id: int | None
@@ -90,6 +93,16 @@ def ingest(
     """Store ``path`` in the library; when ``options`` (a ``project_file``
     command) is given and the mode isn't ``archive``, also queue it."""
     path = _sliced_name(path)
+    try:
+        return _ingest(settings, cfg, path, options)
+    except Exception:
+        path.unlink(missing_ok=True)  # may be the renamed path
+        raise
+
+
+def _ingest(
+    settings: Settings, cfg: VpConfig, path: Path, options: dict[str, Any] | None
+) -> IngestResult:
     staged = stage_local_file(settings, path, rel_path=_safe_basename(path.name))
     try:
         with base.sync_session() as s:
@@ -114,7 +127,11 @@ def _enqueue(
     blob = s.get(Blob, file.blob_hash) if file else None
     if blob is None or blob.format != BlobFormat.GCODE_3MF:
         return None  # not a sliced file: library only, nothing printable to queue
-    proxy = cfg.mode is VirtualPrinterMode.PROXY
+    mode = cfg.mode
+    if mode is VirtualPrinterMode.PROXY and cfg.target_printer_id is None:
+        log.warning("virtual printer %r: proxy target is gone; falling back to review", cfg.name)
+        mode = VirtualPrinterMode.REVIEW
+    proxy = mode is VirtualPrinterMode.PROXY
     position = (s.scalar(select(func.max(PrintQueueEntry.position))) or 0) + 1
     entry = PrintQueueEntry(
         model_id=model_id,
@@ -126,7 +143,7 @@ def _enqueue(
         state=QueueState.READY,
         position=position,
         review_state=(
-            ReviewState.PENDING if cfg.mode is VirtualPrinterMode.REVIEW else ReviewState.NONE
+            ReviewState.PENDING if mode is VirtualPrinterMode.REVIEW else ReviewState.NONE
         ),
         created_by_user_id=cfg.created_by_user_id,
     )

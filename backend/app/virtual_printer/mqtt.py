@@ -69,6 +69,7 @@ class MqttBroker:
         self._server: asyncio.Server | None = None
         self._clients: dict[asyncio.StreamWriter, str] = {}
         self._push_task: asyncio.Task | None = None
+        self._print_tasks: set[asyncio.Task] = set()
 
     # -- lifecycle ---------------------------------------------------
     async def start(self) -> None:
@@ -84,6 +85,8 @@ class MqttBroker:
         if self._push_task:
             self._push_task.cancel()
             await asyncio.gather(self._push_task, return_exceptions=True)
+        for t in list(self._print_tasks):
+            t.cancel()
         for w in list(self._clients):
             w.close()
         if self._server:
@@ -348,6 +351,15 @@ class MqttBroker:
         }
         await self._publish(w, serial, ack)
         if self.on_print:
+            task = asyncio.create_task(self._run_on_print(name, pr))
+            self._print_tasks.add(task)
+            task.add_done_callback(self._print_tasks.discard)
+
+    async def _run_on_print(self, name: str, pr: dict) -> None:
+        try:
+            assert self.on_print is not None
             res = self.on_print(name, pr)
             if asyncio.iscoroutine(res):
                 await res
+        except Exception:
+            log.exception("print callback failed")

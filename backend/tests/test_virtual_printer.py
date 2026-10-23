@@ -291,6 +291,15 @@ async def test_proxy_mode_pins_target_printer(make_service, db_session):
     assert entry.printer_id == pid and entry.state == QueueState.READY
 
 
+async def test_proxy_without_target_falls_back_to_review(make_service, db_session):
+    svc = await make_service(VirtualPrinterMode.PROXY, target=None)
+    await asyncio.to_thread(_ftp_upload, svc.ftps.port, "Orph.3mf", sliced_3mf("orph"))
+    (await _studio_print(svc, "Orph")).close()
+    await _wait_results(svc)
+    (entry,) = await _entries(db_session)
+    assert entry.printer_id is None and entry.review_state == ReviewState.PENDING
+
+
 async def test_archive_mode_stores_file_without_queueing(make_service, db_session):
     svc = await make_service(VirtualPrinterMode.ARCHIVE)
     await asyncio.to_thread(_ftp_upload, svc.ftps.port, "Arc.3mf", sliced_3mf("arc"))

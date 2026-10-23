@@ -230,9 +230,7 @@ services:
     profiles: ["virtual-printer"]
     network_mode: host
     command: ["python", "-m", "app.virtual_printer"]
-    environment:
-      PUID: ${PUID:-}
-      PGID: ${PGID:-}
+    # No PUID/PGID: runs as root on purpose (privileged ports 990/8883 need it).
     env_file:
       - .env
     volumes:

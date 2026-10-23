@@ -72,8 +72,16 @@ async def run(settings: Settings) -> int:
                 svc = None
             current = wanted
             if wanted is not None:
-                svc = VirtualPrinterService(settings, wanted)
-                await svc.start()
+                try:
+                    svc = VirtualPrinterService(settings, wanted)
+                    await svc.start()
+                except Exception:
+                    log.exception("virtual printer failed to start; retrying next poll")
+                    if svc is not None:
+                        with contextlib.suppress(Exception):
+                            await svc.stop()
+                    svc = None
+                    current = None
             else:
                 log.info("no enabled virtual printer; idle")
         with contextlib.suppress(TimeoutError):
