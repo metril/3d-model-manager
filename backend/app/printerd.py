@@ -50,6 +50,7 @@ from app.printers.registry import build_adapter
 from app.services import camera_state, ha_state, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
+from app.services.notify.events import emit_bg
 from app.tasks import base
 
 log = logging.getLogger("printerd")
@@ -78,6 +79,25 @@ def terminal_result(
     if print_error in CANCEL_ERROR_CODES:
         return ArchiveResult.CANCELED
     return ArchiveResult.FAILED
+
+
+def hms_payload(code: str) -> dict:
+    """Notification payload for a 16-hex HMS code; uses the HMS catalog when
+    the module is present, else just the raw code."""
+    pretty = "_".join(code[i : i + 4] for i in range(0, 16, 4))
+    out: dict = {"code": pretty, "raw_code": code}
+    try:
+        from app.services import hms
+
+        text = hms.lookup_fault(code)
+        if text:
+            out["message"] = text
+        sev = hms.decode_hms(int(code[:8], 16), int(code[8:], 16)).get("severity")
+        if sev:
+            out["severity"] = sev
+    except Exception:
+        pass
+    return out
 
 
 def _enqueue_archive(print_job_id: int, result: ArchiveResult) -> None:
@@ -163,6 +183,9 @@ class PrinterWorker:
         self._last_reply: dict | None = None
         adapter.set_reply_handler(self.handle_reply)
 
+        self._hms_seen: set[str] | None = None
+        self._dev_mode_prev: bool | None = None
+
         self._sensor_next = 0.0
         self._sensor_last_report: str | None = None
         self._sensor_thread: threading.Thread | None = None
@@ -197,8 +220,31 @@ class PrinterWorker:
     def _write_public(self, public: PrinterPublicState) -> None:
         public.dev_mode = self.devmode.state
         public.dev_mode_reason = self.devmode.reason
+        self._notify_changes(public)
         self._public = public
         self.redis.set(state_key(self.printer_id), json.dumps(dataclasses.asdict(public)))
+
+    def _notify_changes(self, public: PrinterPublicState) -> None:
+        """Q6: dev mode flipped off, and HMS codes not in the previous report
+        (the first report only seeds the baseline). Never raises."""
+        try:
+            if self._dev_mode_prev is True and public.dev_mode is False:
+                emit_bg("dev_mode_off", self.printer_id, {"reason": public.dev_mode_reason})
+            if public.dev_mode is not None:
+                self._dev_mode_prev = public.dev_mode
+            codes = {
+                f"{int(e['attr']):08X}{int(e['code']):08X}"
+                for e in public.hms or []
+                if isinstance(e, dict) and "attr" in e and "code" in e
+            }
+            seen = self._hms_seen
+            self._hms_seen = codes
+            if seen is None:
+                return
+            for code in sorted(codes - seen):
+                emit_bg("hms_error", self.printer_id, hms_payload(code))
+        except Exception as exc:
+            log.warning("printerd: notify diff failed: %s", type(exc).__name__)
 
     def handle_reply(self, reply: dict) -> None:
         """A printer command reply (adapter's MQTT thread): feeds lazy
@@ -291,9 +337,15 @@ class PrinterWorker:
                     printer_id=self.printer_id,
                     state=PrintJobState.PRINTING.value,
                 )
+                emit_bg(
+                    "job_started",
+                    self.printer_id,
+                    {"job_id": job.id, "subtask_name": public.subtask_name},
+                )
                 return
             if job.state == new_state.value:
                 return
+            prev_state = job.state
             result: ArchiveResult | None = None
             if new_state in _TERMINAL:
                 result = terminal_result(new_state, public.print_error, self._stop_requested)
@@ -325,6 +377,7 @@ class PrinterWorker:
                     "end": _tray_pcts(public.trays),
                 }
             job_id = job.id
+            subtask = job.subtask_name or public.subtask_name
             session.commit()
         publish_print_job_event_sync(
             self.settings.redis_url,
@@ -332,9 +385,22 @@ class PrinterWorker:
             printer_id=self.printer_id,
             state=new_state.value,
         )
+        info = {"job_id": job_id, "subtask_name": subtask}
+        if new_state == PrintJobState.PRINTING and prev_state != PrintJobState.PAUSED.value:
+            emit_bg("job_started", self.printer_id, info)
+        elif new_state == PrintJobState.PAUSED:
+            emit_bg("job_paused", self.printer_id, info)
         if result is not None:
             with contextlib.suppress(Exception):
                 camera_state.keep_job_frame(self.redis, self.printer_id, job_id)
+            if result == ArchiveResult.COMPLETED:
+                emit_bg("job_finished", self.printer_id, info)
+            elif result in (ArchiveResult.FAILED, ArchiveResult.CANCELED):
+                emit_bg(
+                    "job_failed",
+                    self.printer_id,
+                    {**info, "error": str(public.print_error) if public.print_error else None},
+                )
             try:
                 _enqueue_archive(job_id, result)
             except Exception as exc:

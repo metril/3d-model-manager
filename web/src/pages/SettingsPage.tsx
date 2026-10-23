@@ -16,6 +16,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
 import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
+import { NotificationsPanel } from "@/components/settings/notifications";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { VirtualPrinterCard } from "@/components/settings/VirtualPrinterCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
@@ -76,6 +77,9 @@ export function SettingsPage() {
             <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}
             {canSettings && <TabsTrigger value="printer">{t("settings.tabs.printer")}</TabsTrigger>}
+            {canSettings && (
+              <TabsTrigger value="notifications">{t("settings.tabs.notifications")}</TabsTrigger>
+            )}
             <TabsTrigger value="accounts">{t("settings.tabs.accounts")}</TabsTrigger>
             {isAdmin && <TabsTrigger value="access">{t("settings.tabs.access")}</TabsTrigger>}
           </TabsList>
@@ -102,6 +106,11 @@ export function SettingsPage() {
               <PrinterSetupCard />
               <HomeAssistantCard />
               {features.data?.virtual_printer_enabled && <VirtualPrinterCard />}
+            </TabsContent>
+          )}
+          {canSettings && (
+            <TabsContent value="notifications" className="space-y-6">
+              <NotificationsPanel />
             </TabsContent>
           )}
           <TabsContent value="accounts" className="space-y-6">

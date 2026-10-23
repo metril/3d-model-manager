@@ -40,6 +40,7 @@ dependencies = [
     "paho-mqtt",
     "cryptography",
     "httpx",
+    "jinja2",
     "zipstream-ng>=1.9.3",
     "authlib>=1.9.1",
     "joserfc>=1.7.7",

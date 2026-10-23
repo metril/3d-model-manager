@@ -60,6 +60,7 @@ from app.api import (
     metrics,
     models,
     notes,
+    notifications,
     oidc,
     print_flow,
     print_jobs,
@@ -144,5 +145,7 @@ protected_router.include_router(spools.router)
 protected_router.include_router(profiles.router)
 protected_router.include_router(profiles.slicer_status_router)
 protected_router.include_router(virtual_printers.router)
+protected_router.include_router(notifications.public_router)
+protected_router.include_router(notifications.router)
 
 api_router.include_router(protected_router)
