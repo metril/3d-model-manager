@@ -8,8 +8,7 @@
  * The camera tile is live only when the viewer has `canPrinter(id, "print")`
  * (the token mint requires it) -- anyone else keeps the plain placeholder.
  * Q5: info/HMS/diagnose open via the card's callbacks (`usePrinterModals`);
- * Firmware is a footer button. TODO(Q7-web): `MaintenanceBadge`/`PlugRow`/
- * `MaintenanceSection`; TODO(Q4-web): `CameraSplitButton` via `footerExtra`.
+ * Firmware is a footer button; TODO(Q4-web): `CameraSplitButton` via `footerExtra`.
  */
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
@@ -22,6 +21,9 @@ import { usePrinters, usePrintersOverview } from "@/api/printers";
 import type { PrinterOut, PrintersOverviewOut } from "@/api/types";
 import { usePrinterModals } from "@/components/print/modals";
 import { Button } from "@/components/ui/button";
+import { MaintenanceBadge } from "@/components/maintenance/MaintenanceBadge";
+import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection";
+import { PlugRow } from "@/components/print/PlugRow";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
@@ -113,7 +115,7 @@ function PrinterDetailBody({
   return (
     <PageContainer width="fluid">
       <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="min-w-0 flex-1 lg:max-w-4xl">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 lg:max-w-4xl">
           <PrinterCard
             item={{
               ...overviewItem,
@@ -124,11 +126,6 @@ function PrinterDetailBody({
             onInfo={() => modals.open("info")}
             onDiagnose={can("settings:write") ? () => modals.open("diagnostic") : undefined}
             onHms={canPrinter(printer.id, "print") ? () => modals.open("hms") : undefined}
-            footerExtra={
-              <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
-                Firmware
-              </Button>
-            }
             camera={
               canPrinter(printer.id, "print") ? (
                 <CameraTile printerId={printer.id} online={overviewItem.status.online} />
@@ -151,6 +148,20 @@ function PrinterDetailBody({
                 <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
               ) : undefined
             }
+            badgeExtra={<MaintenanceBadge printerId={printer.id} />}
+            footerExtra={(ctx) => (
+              <>
+                <PlugRow printerId={printer.id} canControl={ctx.canControl} />
+                <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
+                  Firmware
+                </Button>
+              </>
+            )}
+          />
+          <MaintenanceSection
+            printerId={printer.id}
+            maintenanceMode={printer.maintenance_mode ?? false}
+            canControl={canPrinter(printer.id, "control")}
           />
         </div>
 

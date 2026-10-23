@@ -9,6 +9,7 @@ import {
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/api/client";
 import type { PrinterOut, PrinterStatusOut, PrintersOverviewOut } from "@/api/types";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 
@@ -96,6 +97,8 @@ function mockGet(options: { printers?: PrinterOut[]; features?: { printer_enable
     if (path.startsWith("/printers/1/ams-history")) return Promise.resolve({ unit: 0, step_s: 60, points: [{ ts: "2026-10-23T10:00:00Z", humidity: 30, temp: 25 }] });
     if (path === "/printers/1/status") return Promise.resolve(STATUS);
     if (path.startsWith("/archives")) return Promise.resolve([]);
+    if (path === "/printers/1/maintenance") return Promise.resolve([]);
+    if (path === "/printers/1/plug") return Promise.reject(new ApiError(404, "no smart plug configured"));
     return Promise.resolve({});
   });
 }
@@ -134,6 +137,7 @@ describe("PrinterDetailPage", () => {
     expect((await screen.findAllByText("Bambu A1", {}, { timeout: 3000 })).length).toBeGreaterThan(0);
     expect(await screen.findByText("42%")).toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith("/archives?printer=1");
+    expect(await screen.findByText("No maintenance tasks yet.")).toBeInTheDocument();
   });
 
   it("renders the XL card, the large camera slot, run history and stats", async () => {
