@@ -8,6 +8,7 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { toastControlError } from "@/api/printerControl";
 import type {
   CameraUrlsOut,
   DetectSerialIn,
@@ -128,6 +129,7 @@ export function usePrinterCommand(id: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (cmd: "pause" | "resume" | "stop") => api.post<void>(`/printers/${id}/${cmd}`),
+    onError: toastControlError,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["printers", id, "status"] });
       void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
