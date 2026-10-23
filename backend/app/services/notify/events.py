@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 
 import redis
 
@@ -19,6 +20,18 @@ QUEUE_KEY = "notify:queue"
 MAX_QUEUE = 1000
 
 
+_last_warn = 0.0
+
+
+def _warn_dropping() -> None:
+    """Rate-limited (1/min) so a stuck consumer doesn't flood the log."""
+    global _last_warn
+    now = time.monotonic()
+    if now - _last_warn >= 60:
+        _last_warn = now
+        log.warning("notify: queue over %d items, dropping oldest", MAX_QUEUE)
+
+
 def emit(event: str, printer_id: int | None = None, payload: dict | None = None) -> bool:
     try:
         r = redis.Redis.from_url(
@@ -28,7 +41,8 @@ def emit(event: str, printer_id: int | None = None, payload: dict | None = None)
             item = json.dumps(
                 {"event": event, "printer_id": printer_id, "payload": payload or {}}, default=str
             )
-            r.rpush(QUEUE_KEY, item)
+            if r.rpush(QUEUE_KEY, item) > MAX_QUEUE:
+                _warn_dropping()
             r.ltrim(QUEUE_KEY, -MAX_QUEUE, -1)
         finally:
             r.close()

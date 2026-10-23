@@ -108,6 +108,9 @@ def cron_due(expr: str, last: datetime, now: datetime) -> bool:
     return False
 
 
+MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+
 def fetch_photo(
     printer_id: int | None, payload: dict, settings: Settings | None = None
 ) -> bytes | None:
@@ -118,14 +121,16 @@ def fetch_photo(
     settings = settings or get_settings()
     r = redis.Redis.from_url(settings.redis_url)
     try:
+        frame = None
         job_id = payload.get("job_id")
         if job_id is not None:
             frame = r.get(camera_state.job_frame_key(printer_id, int(job_id)))
-            if frame:
-                return frame
-        return camera_state.get_frame(r, printer_id) or camera_state.wait_for_frame(
-            r, printer_id, timeout=4.0, viewer_id="notify"
+        frame = (
+            frame
+            or camera_state.get_frame(r, printer_id)
+            or camera_state.wait_for_frame(r, printer_id, timeout=4.0, viewer_id="notify")
         )
+        return frame if frame and len(frame) <= MAX_PHOTO_BYTES else None
     except Exception:
         return None
     finally:

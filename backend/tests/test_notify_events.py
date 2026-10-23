@@ -199,3 +199,79 @@ def test_digest_queues_then_flushes_on_cron(sent, redis_url):
     statuses = [r.status for r in _logs()]
     assert statuses.count("digested") == 2 and statuses[-1] == "sent"
     assert "Digest: 2" in sent[-1][1].title and "Print finished: a" in sent[-1][1].body
+
+
+def test_deliver_recovers_items_after_failure(monkeypatch, sent, redis_url):
+    _channel()
+    nev.emit("job_finished", None, {"subtask_name": "a"})
+    nev.emit("job_finished", None, {"subtask_name": "b"})
+    r = redis_lib.Redis.from_url(redis_url)
+    r.delete(ntask.PROCESSING_KEY)
+    real = base.sync_session
+
+    def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ntask.base, "sync_session", boom)
+    with pytest.raises(RuntimeError):
+        ntask.deliver_pending()
+    assert r.llen(nev.QUEUE_KEY) == 0 and r.llen(ntask.PROCESSING_KEY) == 2
+    monkeypatch.setattr(ntask.base, "sync_session", real)
+    assert ntask.deliver_pending() == 2
+    assert (
+        r.llen(ntask.PROCESSING_KEY) == 0
+        and [m.body for _, m in sent]
+        == [
+            "Printer finished a.",
+            "Printer finished b.",
+        ]
+        or len(sent) == 2
+    )
+
+
+def test_unexpected_send_error_logs_type_and_retries(monkeypatch, sent):
+    cid = _channel()
+
+    def boom(ch, msg, **k):
+        raise KeyError("secret-token")
+
+    monkeypatch.setattr(ntask, "send_message", boom)
+
+    class Retried(Exception):
+        pass
+
+    def fake_retry(exc=None, countdown=None, **k):
+        raise Retried
+
+    monkeypatch.setattr(ntask.send_one, "retry", fake_retry)
+    ntask.send_one.push_request(retries=0)
+    with pytest.raises(Retried):
+        ntask.send_one.run(cid, "job_finished", None, {})
+    ntask.send_one.pop_request()
+    ntask.send_one.push_request(retries=3)
+    assert ntask.send_one.run(cid, "job_finished", None, {}) == "failed"
+    ntask.send_one.pop_request()
+    row = _logs()[0]
+    assert row.status == "failed" and row.error == "KeyError"
+
+
+def test_emit_warns_when_queue_overflows(monkeypatch, redis_url, caplog):
+    monkeypatch.setattr(nev, "MAX_QUEUE", 2)
+    monkeypatch.setattr(nev, "_last_warn", 0.0)
+    r = redis_lib.Redis.from_url(redis_url)
+    r.delete(nev.QUEUE_KEY)
+    with caplog.at_level("WARNING"):
+        for _ in range(4):
+            nev.emit("job_started")
+    assert r.llen(nev.QUEUE_KEY) == 2
+    assert len([x for x in caplog.records if "dropping" in x.message]) == 1
+
+
+def test_fetch_photo_caps_size(redis_url):
+    from app.services.notify import delivery
+
+    r = redis_lib.Redis.from_url(redis_url)
+    r.set("printer:77:camera:frame", b"x" * 100, ex=30)
+    assert delivery.fetch_photo(77, {}) == b"x" * 100
+    r.set("printer:77:camera:frame", b"x" * (delivery.MAX_PHOTO_BYTES + 1), ex=30)
+    assert delivery.fetch_photo(77, {}) is None

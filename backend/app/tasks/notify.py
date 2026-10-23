@@ -57,35 +57,45 @@ def _log(session, channel_id, event, printer_id, status, error=None, payload=Non
     session.commit()
 
 
+PROCESSING_KEY = "notify:processing"
+
+
 @celery_app.task(name="app.tasks.notify.deliver_pending")
 def deliver_pending() -> int:
+    """Items move queue -> processing (LMOVE) and are only removed once their
+    fan-out was handed to Celery, so a crash/DB error never loses them: the
+    next run first moves any leftover processing items back to the queue."""
     r = redis.Redis.from_url(get_settings().redis_url)
-    items: list[dict] = []
     try:
+        while r.lmove(PROCESSING_KEY, QUEUE_KEY, "RIGHT", "LEFT") is not None:
+            pass  # recover leftovers, order preserved
+        claimed: list[tuple[bytes, dict]] = []
         for _ in range(DRAIN_BATCH):
-            raw = r.lpop(QUEUE_KEY)
+            raw = r.lmove(QUEUE_KEY, PROCESSING_KEY, "LEFT", "RIGHT")
             if raw is None:
                 break
             try:
-                items.append(json.loads(raw))
+                claimed.append((raw, json.loads(raw)))
             except ValueError:
-                continue
+                r.lrem(PROCESSING_KEY, 1, raw)  # unparseable: drop
+        if not claimed:
+            return 0
+        with base.sync_session() as s:
+            channels = list(
+                s.scalars(select(NotificationChannel).where(NotificationChannel.enabled))
+            )
+        dispatched = 0
+        for raw, it in claimed:
+            for c in channels:
+                if it.get("event") in (c.events or []):
+                    send_one.apply_async(
+                        args=[c.id, it["event"], it.get("printer_id"), it.get("payload") or {}]
+                    )
+                    dispatched += 1
+            r.lrem(PROCESSING_KEY, 1, raw)
+        return dispatched
     finally:
         r.close()
-    dispatched = 0
-    if not items:
-        return 0
-    with base.sync_session() as s:
-        channels = list(s.scalars(select(NotificationChannel).where(NotificationChannel.enabled)))
-        targets = [
-            (c.id, it) for it in items for c in channels if it.get("event") in (c.events or [])
-        ]
-    for channel_id, it in targets:
-        send_one.apply_async(
-            args=[channel_id, it["event"], it.get("printer_id"), it.get("payload") or {}]
-        )
-        dispatched += 1
-    return dispatched
 
 
 @celery_app.task(name="app.tasks.notify.send_one", bind=True, max_retries=MAX_RETRIES)
@@ -109,16 +119,21 @@ def send_one(self, channel_id: int, event: str, printer_id: int | None, payload:
                 payload={**payload, "_title": title, "_body": body},
             )
             return "queued"
-        photo = None
-        if channel.attach_photo:
-            photo = fetch_photo(printer_id, payload)
+        error: str | None = None
         try:
+            photo = fetch_photo(printer_id, payload) if channel.attach_photo else None
             send_message(channel, Message(title, body, event, photo))
         except ProviderError as exc:
+            error = str(exc)
+            failure: Exception = exc
+        except Exception as exc:  # unexpected: type only, text could echo secrets
+            error = type(exc).__name__
+            failure = exc
+        if error is not None:
             retries = self.request.retries
             if retries < MAX_RETRIES:
-                raise self.retry(exc=exc, countdown=BACKOFF_S[retries]) from exc
-            _log(s, channel.id, event, printer_id, "failed", error=str(exc), payload=payload)
+                raise self.retry(exc=failure, countdown=BACKOFF_S[retries]) from failure
+            _log(s, channel.id, event, printer_id, "failed", error=error, payload=payload)
             return "failed"
         _log(s, channel.id, event, printer_id, "sent", payload=payload)
         return "sent"
