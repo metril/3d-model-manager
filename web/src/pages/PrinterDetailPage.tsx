@@ -15,6 +15,8 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
+import { modelKey, printerImage } from "@/lib/printerState";
+
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
@@ -71,6 +73,11 @@ export function PrinterDetailPage() {
   return (
     <PageContainer width="default">
       <div className="flex items-center gap-2">
+        <img
+          src={printerImage(modelKey(printer.model, printer.serial))}
+          alt=""
+          className="size-12 shrink-0 object-contain"
+        />
         <div>
           <h1 className="text-lg font-semibold text-foreground">{printer.name}</h1>
           <p className="text-sm text-muted-foreground">{printer.model ?? printer.kind}</p>

@@ -63,6 +63,14 @@ describe("PrinterSetupCard", () => {
     deleteMock.mockReset();
   });
 
+  it("keeps an existing free-text model selectable alongside the grouped options", async () => {
+    mockApi({ printer_enabled: true }, [{ ...PRINTER, model: "Custom Foo" }]);
+    renderCard();
+    const select = (await screen.findByDisplayValue("Custom Foo")) as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(select.querySelectorAll("optgroup").length).toBe(7);
+  });
+
   it("shows the disabled note when the printer feature flag is off", async () => {
     mockApi({ printer_enabled: false });
 
