@@ -70,7 +70,7 @@ async def test_pause_publishes_command(authenticated_client, printer_enabled, re
         msg = ps.get_message(ignore_subscribe_messages=True, timeout=0.5)
         if msg and msg["type"] == "message":
             got = json.loads(msg["data"])
-    assert got == {"command": "pause"}
+    assert got["command"] == "pause" and got["args"] == {} and got["request_id"]
     ps.close()
     c.close()
 
@@ -90,7 +90,7 @@ async def test_resume_publishes_command(authenticated_client, printer_enabled, r
         msg = ps.get_message(ignore_subscribe_messages=True, timeout=0.5)
         if msg and msg["type"] == "message":
             got = json.loads(msg["data"])
-    assert got == {"command": "resume"}
+    assert got["command"] == "resume" and got["args"] == {} and got["request_id"]
     ps.close()
     c.close()
 
@@ -110,7 +110,7 @@ async def test_stop_publishes_command(authenticated_client, printer_enabled, red
         msg = ps.get_message(ignore_subscribe_messages=True, timeout=0.5)
         if msg and msg["type"] == "message":
             got = json.loads(msg["data"])
-    assert got == {"command": "stop"}
+    assert got["command"] == "stop" and got["args"] == {} and got["request_id"]
     ps.close()
     c.close()
 

@@ -147,11 +147,28 @@ def command_channel(printer_id: int) -> str:
     return f"printer:{printer_id}:commands"
 
 
+def cmd_result_key(printer_id: int, request_id: str) -> str:
+    """Redis key (30 s TTL) printerd writes a command's result JSON to."""
+    return f"printer:{printer_id}:cmd_result:{request_id}"
+
+
+CMD_RESULT_TTL_S = 30
+
+ReplyHandler = Callable[[dict], None]
+
+
 class PrinterAdapter(ABC):
     kind: ClassVar[PrinterKind]
+    # True when the adapter forwards printer command replies (``result`` /
+    # ``reason``) to the reply handler, so printerd can wait for one.
+    emits_replies: ClassVar[bool] = False
 
     def __init__(self, conn: PrinterConnection) -> None:
         self.conn = conn
+        self._reply_handler: ReplyHandler | None = None
+
+    def set_reply_handler(self, handler: ReplyHandler) -> None:
+        self._reply_handler = handler
 
     @abstractmethod
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult: ...
@@ -200,4 +217,57 @@ class PrinterAdapter(ABC):
         worker's own lifecycle event -- most clients check it inside
         ``frames()``. Adapters without a camera (or an unsupported model)
         raise ``NotImplementedError``."""
+        raise NotImplementedError
+
+    # Q2 controls: adapters without a given control inherit these and the
+    # worker reports ``unsupported``.
+    def set_temperature(self, target: str, value: int) -> None:
+        """``target`` is nozzle | bed | chamber; ``value`` in deg C (0 = off)."""
+        raise NotImplementedError
+
+    def set_fan(self, fan: str, pct: int) -> None:
+        """``fan`` is part | aux | chamber; ``pct`` 0-100."""
+        raise NotImplementedError
+
+    def set_light(self, on: bool) -> None:
+        raise NotImplementedError
+
+    def set_speed(self, level: int) -> None:
+        """1 silent, 2 standard, 3 sport, 4 ludicrous."""
+        raise NotImplementedError
+
+    def home(self) -> None:
+        raise NotImplementedError
+
+    def jog(self, axis: str, mm: float) -> None:
+        """Relative move of ``axis`` (X|Y|Z) by ``mm``."""
+        raise NotImplementedError
+
+    def extrude(self, mm: float) -> None:
+        raise NotImplementedError
+
+    def send_gcode(self, gcode: str) -> None:
+        raise NotImplementedError
+
+    def skip_objects(self, object_ids: list[int]) -> None:
+        raise NotImplementedError
+
+    def load_filament(self, tray: int) -> None:
+        raise NotImplementedError
+
+    def unload_filament(self) -> None:
+        raise NotImplementedError
+
+    def calibrate(self, bed_leveling: bool, vibration: bool, motor_noise: bool) -> None:
+        raise NotImplementedError
+
+    def set_airduct(self, mode: str) -> None:
+        """``mode`` is cooling | heating."""
+        raise NotImplementedError
+
+    def clear_hms(self) -> None:
+        raise NotImplementedError
+
+    def send_devmode_probe(self, slot: dict, seq: str) -> None:
+        """Publish the Developer-Mode echo probe (decision 2)."""
         raise NotImplementedError
