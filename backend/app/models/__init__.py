@@ -41,6 +41,7 @@ from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.slicing import PrintRecipe, SlicerProfile
 from app.models.storage import FileLocation, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
+from app.models.virtual_printer import VirtualPrinter
 
 __all__ = [
     "ApiToken",
@@ -57,6 +58,7 @@ __all__ = [
     "Group",
     "GroupMember",
     "HaLink",
+    "VirtualPrinter",
     "Import",
     "Job",
     "LedgerEntry",

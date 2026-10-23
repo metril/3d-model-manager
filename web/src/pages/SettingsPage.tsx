@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { useFeatures } from "@/api/features";
 import { useStorageBackends } from "@/api/settings";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
@@ -11,6 +12,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
 import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
+import { VirtualPrinterCard } from "@/components/settings/VirtualPrinterCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { PrintablesAccountCard } from "@/components/settings/PrintablesAccountCard";
@@ -33,6 +35,7 @@ export function SettingsPage() {
   // shell gates on that same list.
   const backendsQuery = useStorageBackends();
   const auth = useAuth();
+  const features = useFeatures();
   const canSettings = auth.can("settings:write");
   const isAdmin = auth.can("admin");
 
@@ -88,6 +91,7 @@ export function SettingsPage() {
               <PrinterEnabledCard />
               <PrinterSetupCard />
               <HomeAssistantCard />
+              {features.data?.virtual_printer_enabled && <VirtualPrinterCard />}
             </TabsContent>
           )}
           <TabsContent value="accounts" className="space-y-6">

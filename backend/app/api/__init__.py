@@ -74,6 +74,7 @@ from app.api import (
     storage_tree,
     tags,
     uploads,
+    virtual_printers,
 )
 from app.api.deps import require_session
 from app.api.health import router as health_router
@@ -123,5 +124,6 @@ protected_router.include_router(storage_tree.router)
 protected_router.include_router(spools.router)
 protected_router.include_router(profiles.router)
 protected_router.include_router(profiles.slicer_status_router)
+protected_router.include_router(virtual_printers.router)
 
 api_router.include_router(protected_router)

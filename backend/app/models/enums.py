@@ -289,3 +289,16 @@ class SpoolUsageSource(StrEnum):
     THREE_MF = "3mf"
     AMS_DELTA = "ams_delta"
     MANUAL = "manual"
+
+
+class VirtualPrinterMode(StrEnum):
+    """What a ``virtual_printers`` row does with a job a slicer "prints" to
+    it (Q11): ``archive`` stores the file only; ``queue`` adds a READY queue
+    entry; ``review`` adds it pending in the review inbox; ``proxy`` queues
+    it pinned to ``target_printer_id`` (the dispatcher plans the AMS
+    mapping against that real printer)."""
+
+    QUEUE = "queue"
+    REVIEW = "review"
+    ARCHIVE = "archive"
+    PROXY = "proxy"

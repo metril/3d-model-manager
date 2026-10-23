@@ -122,6 +122,20 @@ class Settings(BaseSettings):
     # `TDMM_SLICE_TIMEOUT_S`.
     slice_timeout_s: int = Field(default=600, validation_alias=AliasChoices("TDMM_SLICE_TIMEOUT_S"))
 
+    # Q11 virtual printer (own compose service, `virtual-printer` profile).
+    # `vp_enabled` only drives the Settings card via GET /features; the
+    # service itself is gated by its compose profile.
+    vp_enabled: bool = Field(default=False, validation_alias=AliasChoices("TDMM_VP_ENABLED"))
+    vp_bind: str = Field(default="0.0.0.0", validation_alias=AliasChoices("TDMM_VP_BIND"))  # noqa: S104
+    vp_port_ssdp: int = Field(default=2021, validation_alias=AliasChoices("TDMM_VP_PORT_SSDP"))
+    vp_port_mqtt: int = Field(default=8883, validation_alias=AliasChoices("TDMM_VP_PORT_MQTT"))
+    vp_port_ftp: int = Field(default=990, validation_alias=AliasChoices("TDMM_VP_PORT_FTP"))
+    # FTPS passive data-port window (0 = ephemeral, used by tests) and the
+    # address advertised in PASV replies ("" = the control socket's local IP).
+    vp_pasv_min: int = Field(default=50000, validation_alias=AliasChoices("TDMM_VP_PASV_MIN"))
+    vp_pasv_max: int = Field(default=50009, validation_alias=AliasChoices("TDMM_VP_PASV_MAX"))
+    vp_pasv_address: str = Field(default="", validation_alias=AliasChoices("TDMM_VP_PASV_ADDRESS"))
+
 
 @lru_cache
 def get_settings() -> Settings:

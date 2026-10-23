@@ -24,6 +24,7 @@ async def test_features_disabled_by_default(authenticated_client):
         "printer_enabled": False,
         "watch_dir": None,
         "watch_enabled": False,
+        "virtual_printer_enabled": False,
     }
 
 
@@ -33,6 +34,7 @@ async def test_features_enabled(authenticated_client, printer_enabled):
         "printer_enabled": True,
         "watch_dir": None,
         "watch_enabled": False,
+        "virtual_printer_enabled": False,
     }
 
 

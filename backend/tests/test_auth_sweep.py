@@ -90,6 +90,8 @@ _PATH_PARAM_VALUES = {
     "slot": "0",
     # P8 Task 7: Home Assistant entity links.
     "link_id": "1",
+    # Q11: virtual printers.
+    "vp_id": "1",
     # P6: slicer profiles + print recipes.
     "profile_id": "1",
     "recipe_id": "1",
