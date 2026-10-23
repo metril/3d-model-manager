@@ -4,7 +4,7 @@ import pytest
 from alembic import command
 from tests.migration_helpers import _run_alembic
 
-_PREV = "a8e2d4c6b1f3"
+_PREV = "b2f7c1a9d4e3"
 _Q4 = "b6d1e8a3c5f2"
 
 

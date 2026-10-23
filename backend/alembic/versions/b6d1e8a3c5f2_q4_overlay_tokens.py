@@ -1,7 +1,7 @@
 """q4 overlay tokens
 
 Revision ID: b6d1e8a3c5f2
-Revises: a8e2d4c6b1f3
+Revises: b2f7c1a9d4e3
 Create Date: 2026-10-23 00:00:04.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b6d1e8a3c5f2"
-down_revision: str | Sequence[str] | None = "a8e2d4c6b1f3"
+down_revision: str | Sequence[str] | None = "b2f7c1a9d4e3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
