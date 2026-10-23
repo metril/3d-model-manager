@@ -13,9 +13,10 @@ import { useControl } from "@/api/printerControl";
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-import { capsOf } from "./caps";
+import { capsOf, UNTESTED_TIP } from "./caps";
 import { useOptimistic } from "./useOptimistic";
 import { UntestedTip } from "./UntestedTip";
 
@@ -77,6 +78,20 @@ function Tile({
       </span>
     </div>
   );
+  if (disabled && hint) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div tabIndex={0} className="flex min-w-0 flex-1">
+              {body}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{untested ? `${hint} ${UNTESTED_TIP}.` : hint}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
   if (disabled) return <UntestedTip show={untested}>{body}</UntestedTip>;
   return (
     <Popover open={open} onOpenChange={setOpen}>

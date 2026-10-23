@@ -5,9 +5,10 @@ import type { DashSort, DashStatus, PrintDashSearch } from "@/pages/printerDashS
 export function dashStatus(item: PrinterOverviewItem): DashStatus {
   const s = item.status;
   if (!s.online) return "offline";
-  if (s.gcode_state === "FAILED" || (s.print_error ?? 0) !== 0) return "problem";
+  // Active states win over print_error so a paused-with-error printer stays pause/stop-able.
   if (s.gcode_state === "RUNNING" || s.gcode_state === "PREPARE") return "printing";
   if (s.gcode_state === "PAUSE") return "paused";
+  if (s.gcode_state === "FAILED" || (s.print_error ?? 0) !== 0) return "problem";
   if (s.gcode_state === "FINISH") return "finished";
   return "available";
 }

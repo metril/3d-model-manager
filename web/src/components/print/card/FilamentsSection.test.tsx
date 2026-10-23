@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hasBackup } from "./ams";
 import { FilamentsSection } from "./FilamentsSection";
-import { a1Mini, renderCard, tray, x1c } from "./testUtils";
+import { a1Mini, renderCard, tray, x1c, x1e } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -76,12 +76,19 @@ describe("FilamentsSection", () => {
     expect(hasBackup([tray({ slot: 0 }), tray({ slot: 1, color: "#00FF00" })])).toBe(false);
   });
 
-  it("drying button only with capability and handler (X1C)", async () => {
+  it("drying button only with capability and handler (X1E)", async () => {
     const onDry = vi.fn();
-    const it = x1c({}, { trays: TRAYS, ams_units: [{ id: 0, humidity: 60, temp: 25, serial: null, fw: null }] });
+    const it = x1e({}, { trays: TRAYS, ams_units: [{ id: 0, humidity: 60, temp: 25, serial: null, fw: null }] });
     renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl onDry={onDry} />);
     fireEvent.click(await screen.findByRole("button", { name: "Dry" }));
     expect(onDry).toHaveBeenCalledWith(0);
+  });
+
+  it("X1C has no ams_drying capability: no Dry button", async () => {
+    const it = x1c({}, { trays: TRAYS, ams_units: [{ id: 0, humidity: 60, temp: 25, serial: null, fw: null }] });
+    renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl onDry={() => {}} />);
+    await screen.findByText("AMS 1");
+    expect(screen.queryByRole("button", { name: "Dry" })).toBeNull();
   });
 
   it("A1 Mini never shows Dry; no section when no trays", async () => {

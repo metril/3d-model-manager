@@ -5,7 +5,7 @@
  * ConfirmDialog. Everything is hidden when the viewer cannot control.
  */
 import { LightbulbIcon, MoveIcon, WrenchIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useControl } from "@/api/printerControl";
 import { usePrinterCommand } from "@/api/printers";
@@ -99,6 +99,8 @@ export function ControlsSection({
   const command = usePrinterCommand(printer.id);
   const [speed, setSpeed] = useOptimistic(status.speed_level);
   const [light, setLight] = useState<boolean | null>(null);
+  const lightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(lightTimer.current), []);
   const untested = !caps.verified;
   if (!canControl || !status.online) return null;
 
@@ -118,10 +120,14 @@ export function ControlsSection({
             aria-pressed={lightOn}
             aria-label="Chamber light"
             onClick={async () => {
+              clearTimeout(lightTimer.current);
               setLight(!lightOn);
               const ok = await control.send("light", { on: !lightOn });
               if (!ok) setLight(null);
-              else setTimeout(() => setLight(null), 5000);
+              else {
+                clearTimeout(lightTimer.current);
+                lightTimer.current = setTimeout(() => setLight(null), 5000);
+              }
             }}
           >
             <LightbulbIcon />

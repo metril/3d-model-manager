@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ControlsSection } from "./ControlsSection";
@@ -18,6 +18,34 @@ describe("ControlsSection", () => {
     renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
     fireEvent.click(await screen.findByRole("button", { name: "Chamber light" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/control/light", { on: true }));
+  });
+
+  it("double-toggling the light keeps the latest optimistic state until the single timer fires", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const it = a1Mini({}, { light_on: false });
+      renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
+      const btn = await screen.findByRole("button", { name: "Chamber light" });
+      fireEvent.click(btn); // -> on (timer T1 at +5 s)
+      await waitFor(() => expect(btn).toHaveAttribute("aria-pressed", "true"));
+      await act(async () => {
+        vi.advanceTimersByTime(4000);
+      });
+      fireEvent.click(btn); // -> off
+      await waitFor(() => expect(btn).toHaveAttribute("aria-pressed", "false"));
+      fireEvent.click(btn); // -> on again; T1 must be cleared
+      await waitFor(() => expect(btn).toHaveAttribute("aria-pressed", "true"));
+      await act(async () => {
+        vi.advanceTimersByTime(2000); // T1 would have fired and reset to the reported (off) state
+      });
+      expect(btn).toHaveAttribute("aria-pressed", "true");
+      await act(async () => {
+        vi.advanceTimersByTime(4000); // the latest timer resets to reported
+      });
+      expect(btn).toHaveAttribute("aria-pressed", "false");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("speed segmented control marks the active level and posts a change", async () => {

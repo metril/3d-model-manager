@@ -281,6 +281,22 @@ describe("PrintDashboardPage summary, filters and sort", () => {
     expect(await screen.findByText("No printers match these filters.")).toBeInTheDocument();
   });
 
+  it("a paused printer with a print_error counts as paused and is bulk-eligible", async () => {
+    const o = fleet();
+    o.printers[1] = printerItem(2, {
+      printer: { ...printerItem(2).printer, name: "Bravo" },
+      status: status({ gcode_state: "PAUSE", print_error: 5 }),
+    });
+    overviewBox.current = o;
+    renderPage();
+    await screen.findByText("Alpha");
+    expect(screen.getByRole("button", { name: "paused 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "problem 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
+    expect(await screen.findByRole("button", { name: "Stop selected (1)" })).toBeEnabled();
+  });
+
   it("sort by ETA puts the soonest-free printer first", async () => {
     overviewBox.current = fleet();
     renderPage("/?sort=eta");

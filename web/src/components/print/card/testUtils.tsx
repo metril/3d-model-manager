@@ -8,12 +8,11 @@ import type { AmsTray, PrinterCapabilities, PrinterOverviewItem, PrinterStatusOu
 import { NO_CAPS } from "./caps";
 
 export const A1_CAPS: PrinterCapabilities = { ...NO_CAPS, model_key: "a1mini", camera: "a1", max_bed: 80, max_nozzle: 300, verified: true };
+/** Mirrors backend capabilities.py: X1C has chamber temp but NO heater and no drying. */
 export const X1C_CAPS: PrinterCapabilities = {
   ...NO_CAPS,
   model_key: "x1c",
-  chamber_heater: true,
   chamber_temp: true,
-  airduct: false,
   door: true,
   aux_fan: true,
   chamber_fan: true,
@@ -21,9 +20,10 @@ export const X1C_CAPS: PrinterCapabilities = {
   lidar: true,
   max_bed: 120,
   max_nozzle: 300,
-  ams_drying: true,
   verified: false,
 };
+/** X1E: the only X1 with a chamber heater. */
+export const X1E_CAPS: PrinterCapabilities = { ...X1C_CAPS, model_key: "x1e", chamber_heater: true, max_nozzle: 320, ams_drying: true };
 
 export function tray(overrides: Partial<AmsTray> = {}): AmsTray {
   return {
@@ -121,5 +121,13 @@ export function renderCard(ui: ReactElement, path = "/") {
         <RouterProvider router={router} />
       </QueryClientProvider>,
     ),
+  };
+}
+
+export function x1e(over: Partial<PrinterOverviewItem> = {}, st: Partial<PrinterStatusOut> = {}): PrinterOverviewItem {
+  const base = x1c(over, st);
+  return {
+    ...base,
+    printer: { ...base.printer, id: 3, name: "X1E", model: "X1E", serial: "03W09A000000003", capabilities: X1E_CAPS },
   };
 }

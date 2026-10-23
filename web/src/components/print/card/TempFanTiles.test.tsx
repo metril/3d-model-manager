@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TempFanTiles } from "./TempFanTiles";
 import { REVERT_MS } from "./useOptimistic";
-import { a1Mini, renderCard, x1c } from "./testUtils";
+import { a1Mini, renderCard, x1c, x1e } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -43,6 +43,24 @@ describe("TempFanTiles", () => {
     expect(screen.getByTestId("tile-fan-chamber")).toBeInTheDocument();
     fireEvent.focus(screen.getByRole("button", { name: "Set Bed" }));
     expect((await screen.findAllByText("Untested on this model")).length).toBeGreaterThan(0);
+  });
+
+  it("X1C: chamber tile is read-only (no heater) and its tooltip says so", async () => {
+    const it = x1c({}, { chamber_temper: 31 });
+    renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
+    const tile = await screen.findByTestId("tile-chamber");
+    expect(tile).toHaveTextContent("31");
+    expect(screen.queryByRole("button", { name: "Set Chamber" })).toBeNull();
+    fireEvent.focus(tile.parentElement!);
+    expect((await screen.findAllByText(/Chamber temperature is read-only on this model/)).length).toBeGreaterThan(0);
+  });
+
+  it("X1E: chamber heater is settable", async () => {
+    const it = x1e();
+    renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
+    fireEvent.click(await screen.findByRole("button", { name: "Set Chamber" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Off" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/3/control/temperature", { target: "chamber", value: 0 }));
   });
 
   it("shows current -> target", async () => {
