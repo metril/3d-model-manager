@@ -21,7 +21,7 @@ from app.models.printing import Printer, PrintJob
 from app.printers.base import command_channel, state_key
 from app.services import dispatcher
 from app.services.ha_config import HaConfig
-from app.services.ha_state import alert_key, fired_key
+from app.services.ha_state import alert_key, denied_key, fired_key
 from app.services.home_assistant import poll_once
 from app.tasks import base
 from tests.test_dispatcher import (
@@ -70,6 +70,34 @@ def _cfg(**overrides) -> HaConfig:
     )
     fields.update(overrides)
     return HaConfig(**fields)
+
+
+def _setup_denied(r, *, actor_kind: str) -> tuple[int, int, int | None]:
+    """A printing printer + a pause link; ``actor_kind`` picks the service
+    account: ``none`` (unset), ``nobody`` (member with no control grant)."""
+    with base.sync_session() as s:
+        printer = _seed_printer_raw(s, name=f"Denied-{actor_kind}")
+        link = HaLink(
+            printer_id=printer.id,
+            entity_id="binary_sensor.door",
+            role=HaRole.DOOR,
+            alert_condition={"op": "eq", "value": "on"},
+            pause_print=True,
+        )
+        s.add(link)
+        s.commit()
+        actor = None
+        if actor_kind == "nobody":
+            from app.models.auth import User
+            from app.models.enums import UserRole
+
+            user = User(username=f"nobody-{printer.id}", role=UserRole.MEMBER)
+            s.add(user)
+            s.commit()
+            actor = user.id
+        pid, link_id = printer.id, link.id
+    r.set(state_key(pid), json.dumps(RUNNING_STATE))
+    return pid, link_id, actor
 
 
 def _state_route(entity_id: str, state: str):
@@ -222,6 +250,7 @@ def test_pause_on_alert_edge_only(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
     route = _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
+        actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="PauseP")
         s.add(
             HaLink(
@@ -241,8 +270,10 @@ def test_pause_on_alert_edge_only(redis_url: str):
     pubsub.get_message(timeout=1)  # subscribe confirmation
 
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())
-        poll_once(s, r, _cfg())  # second tick while still firing: no 2nd pause
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
+        poll_once(
+            s, r, _cfg(ha_actor_user_id=actor)
+        )  # second tick while still firing: no 2nd pause
 
     msgs = []
     while True:
@@ -256,12 +287,12 @@ def test_pause_on_alert_edge_only(redis_url: str):
     # clear then fire again -> a second pause.
     route.respond(200, json={"state": "off", "attributes": {}})
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
     assert r.get(fired_key(1, pid)) is None
 
     route.respond(200, json={"state": "on", "attributes": {}})
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
 
     msgs = []
     while True:
@@ -284,6 +315,7 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
     route = _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
+        actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="UnreachableFired")
         link = HaLink(
             printer_id=printer.id,
@@ -302,7 +334,7 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
     pubsub.get_message(timeout=1)
 
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())  # fires once, sets the fired key
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))  # fires once, sets the fired key
 
     msgs = [json.loads(m["data"]) for m in iter(lambda: pubsub.get_message(timeout=0.2), None) if m]
     assert msgs == [{"command": "pause"}]
@@ -312,14 +344,14 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
     # it just can't be observed right now.
     respx.get(f"{BASE_URL}/api/states/binary_sensor.door").mock(return_value=httpx.Response(503))
     with base.sync_session() as s:
-        result = poll_once(s, r, _cfg())
+        result = poll_once(s, r, _cfg(ha_actor_user_id=actor))
     assert result["ok"] is False
     assert r.get(fired_key(link_id, pid)) is not None  # survived
 
     # HA comes back, condition still firing -- must NOT pause again.
     route.respond(200, json={"state": "on", "attributes": {}})
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
 
     msgs = [json.loads(m["data"]) for m in iter(lambda: pubsub.get_message(timeout=0.2), None) if m]
     assert msgs == []
@@ -367,6 +399,7 @@ def test_global_pause_link_pauses_both_printing_printers(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
     _state_route("binary_sensor.shared_door", "on")
     with base.sync_session() as s:
+        actor = _seed_admin(s)
         printer_a = _seed_printer_raw(s, name="GlobalPauseA")
         printer_b = _seed_printer_raw(s, name="GlobalPauseB")
         s.add(
@@ -391,7 +424,7 @@ def test_global_pause_link_pauses_both_printing_printers(redis_url: str):
     pubsub_b.get_message(timeout=1)
 
     with base.sync_session() as s:
-        poll_once(s, r, _cfg())
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
 
     msg_a = pubsub_a.get_message(timeout=1)
     msg_b = pubsub_b.get_message(timeout=1)
@@ -463,4 +496,97 @@ def test_pause_skipped_when_printer_idle(redis_url: str):
 
     assert pubsub.get_message(timeout=0.3) is None
     pubsub.close()
+    r.close()
+
+
+@respx.mock
+@pytest.mark.parametrize("actor_kind", ["none", "nobody"])
+def test_pause_denied_without_actor_control_retries_when_fixed(redis_url: str, actor_kind: str):
+    """No service account / one without ``printers:control`` + ACL: no pause
+    is published and the fired key stays unset, so once an admin actor is
+    configured the very next tick pauses."""
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.door", "on")
+    pid, link_id, actor = _setup_denied(r, actor_kind=actor_kind)
+    pubsub = r.pubsub()
+    pubsub.subscribe(command_channel(pid))
+    pubsub.get_message(timeout=1)
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg(ha_actor_user_id=actor))
+    assert pubsub.get_message(timeout=0.3) is None
+    assert r.get(fired_key(link_id, pid)) is None
+
+    with base.sync_session() as s:
+        admin_id = _seed_admin(s)
+        poll_once(s, r, _cfg(ha_actor_user_id=admin_id))
+    msgs = [json.loads(m["data"]) for m in iter(lambda: pubsub.get_message(timeout=0.3), None) if m]
+    assert msgs == [{"command": "pause"}]
+    assert r.get(fired_key(link_id, pid)) is not None
+    pubsub.close()
+    r.close()
+
+
+@respx.mock
+def test_acl_actor_pauses_only_printers_it_controls(redis_url: str):
+    from app.models.auth import Group, GroupMember, PrinterAccess, User
+    from app.models.enums import UserRole
+
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.shared_door", "on")
+    with base.sync_session() as s:
+        a = _seed_printer_raw(s, name="AclA")
+        b = _seed_printer_raw(s, name="AclB")
+        s.add(
+            HaLink(
+                printer_id=None,
+                entity_id="binary_sensor.shared_door",
+                role=HaRole.DOOR,
+                alert_condition={"op": "eq", "value": "on"},
+                pause_print=True,
+            )
+        )
+        user = User(username="acl-pauser", role=UserRole.VIEWER)
+        group = Group(name="g-acl-pauser", permissions=["printers:control"])
+        s.add_all([user, group])
+        s.flush()
+        s.add(GroupMember(group_id=group.id, user_id=user.id))
+        s.add(PrinterAccess(group_id=group.id, printer_id=a.id, can_control=True))
+        s.commit()
+        pid_a, pid_b, uid = a.id, b.id, user.id
+
+    for pid in (pid_a, pid_b):
+        r.set(state_key(pid), json.dumps(RUNNING_STATE))
+    ps_a, ps_b = r.pubsub(), r.pubsub()
+    ps_a.subscribe(command_channel(pid_a))
+    ps_b.subscribe(command_channel(pid_b))
+    ps_a.get_message(timeout=1)
+    ps_b.get_message(timeout=1)
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg(ha_actor_user_id=uid))
+
+    msg_a = ps_a.get_message(timeout=1)
+    assert msg_a is not None and json.loads(msg_a["data"]) == {"command": "pause"}
+    assert ps_b.get_message(timeout=0.3) is None
+    ps_a.close()
+    ps_b.close()
+    r.close()
+
+
+@respx.mock
+def test_denied_pause_warning_is_throttled(redis_url: str, caplog):
+    import logging
+
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.door", "on")
+    pid, link_id, actor = _setup_denied(r, actor_kind="none")
+    with caplog.at_level(logging.WARNING, logger="app.services.home_assistant"):
+        for _ in range(3):
+            with base.sync_session() as s:
+                poll_once(s, r, _cfg(ha_actor_user_id=actor))
+    warnings = [x for x in caplog.records if "can't pause" in x.getMessage()]
+    assert len(warnings) == 1
+    assert 0 < r.ttl(denied_key(link_id, pid)) <= 600
+    assert r.get(fired_key(link_id, pid)) is None  # still retrying
     r.close()

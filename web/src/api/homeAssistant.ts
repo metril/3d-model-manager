@@ -8,7 +8,7 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { HaLink, HaLinkIn, HaLinkPatchIn, HaSettings, HaSettingsIn, HaTestOut } from "@/api/types";
+import type { HaActor, HaLink, HaLinkIn, HaLinkPatchIn, HaSettings, HaSettingsIn, HaTestOut } from "@/api/types";
 
 export const haSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "home-assistant"] as const,
@@ -19,6 +19,15 @@ export const haLinksQueryOptions = queryOptions({
   queryKey: ["settings", "home-assistant", "links"] as const,
   queryFn: () => api.get<HaLink[]>("/settings/home-assistant/links"),
 });
+
+export const haActorsQueryOptions = queryOptions({
+  queryKey: ["settings", "home-assistant", "actors"] as const,
+  queryFn: () => api.get<HaActor[]>("/settings/home-assistant/actors"),
+});
+
+export function useHaActors() {
+  return useQuery(haActorsQueryOptions);
+}
 
 export function useHaSettings() {
   return useQuery(haSettingsQueryOptions);

@@ -55,6 +55,10 @@ function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
     ha_discovery_prefix: "homeassistant",
     ha_url: "http://homeassistant.local:8123",
     has_token: true,
+    ha_actor_user_id: null,
+    ha_actor_username: null,
+    actor_ok: true,
+    actor_error: null,
     pull_status: { ok: true },
     bridge_status: { connected: true, error: null, at: 1700000000 },
     ...overrides,
@@ -65,6 +69,11 @@ function mockGet(settings: HaSettings, links: HaLink[] = []) {
   getMock.mockImplementation((path: string) => {
     if (path === "/settings/home-assistant") return Promise.resolve(settings);
     if (path === "/settings/home-assistant/links") return Promise.resolve(links);
+    if (path === "/settings/home-assistant/actors")
+      return Promise.resolve([
+        { id: 1, username: "admin" },
+        { id: 2, username: "ha-bot" },
+      ]);
     if (path === "/printers") return Promise.resolve([{ id: 1, name: "Bambu A" }]);
     return Promise.resolve({});
   });
@@ -125,6 +134,48 @@ describe("HomeAssistantCard", () => {
 
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/settings/home-assistant/test-rest", {}));
     expect(await screen.findByText("token rejected")).toBeInTheDocument();
+  });
+
+  it("saves the chosen service account and clears it on None", async () => {
+    mockGet(fakeSettings());
+    putMock.mockResolvedValue(fakeSettings({ ha_actor_user_id: 2, ha_actor_username: "ha-bot" }));
+    renderCard();
+
+    const select = await screen.findByLabelText("HA acts as");
+    await screen.findByRole("option", { name: "ha-bot" });
+    fireEvent.change(select, { target: { value: "2" } });
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/settings/home-assistant", { ha_actor_user_id: 2 }));
+
+    fireEvent.change(select, { target: { value: "none" } });
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/settings/home-assistant", { ha_actor_user_id: null }));
+  });
+
+  it("shows the actor warning from the settings fields, with no bridge status", async () => {
+    mockGet(fakeSettings({ bridge_status: null, actor_ok: false, actor_error: "no HA service account" }));
+    renderCard();
+
+    expect(await screen.findByText("no HA service account")).toBeInTheDocument();
+  });
+
+  it("shows the lacks-control warning", async () => {
+    mockGet(
+      fakeSettings({
+        ha_actor_user_id: 2,
+        actor_ok: false,
+        actor_error: "HA service account lacks printer control",
+      }),
+    );
+    renderCard();
+
+    expect(await screen.findByText("HA service account lacks printer control")).toBeInTheDocument();
+  });
+
+  it("shows no actor warning when actor_ok is true", async () => {
+    mockGet(fakeSettings({ ha_actor_user_id: 1, ha_actor_username: "admin" }));
+    renderCard();
+
+    await screen.findByLabelText("HA acts as");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows the unreachable warning when pull_status.ok is false", async () => {

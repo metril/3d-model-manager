@@ -1720,6 +1720,8 @@ export interface HaCondition {
 export interface HaBridgeStatus {
   connected: boolean;
   error: string | null;
+  actor_ok?: boolean;
+  actor_error?: string | null;
   at: number;
 }
 
@@ -1730,6 +1732,10 @@ export interface HaSettings {
   ha_discovery_prefix: string;
   ha_url: string | null;
   has_token: boolean;
+  ha_actor_user_id: number | null;
+  ha_actor_username: string | null;
+  actor_ok: boolean;
+  actor_error: string | null;
   pull_status: { ok: boolean; errors?: string[]; checked_at?: string; [key: string]: unknown } | null;
   bridge_status: HaBridgeStatus | null;
 }
@@ -1744,6 +1750,12 @@ export interface HaSettingsIn {
   ha_discovery_prefix?: string | null;
   ha_url?: string | null;
   ha_token?: string | null;
+  ha_actor_user_id?: number | null;
+}
+
+export interface HaActor {
+  id: number;
+  username: string;
 }
 
 export interface HaTestOut {

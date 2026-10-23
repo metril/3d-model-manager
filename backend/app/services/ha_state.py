@@ -48,6 +48,12 @@ def fired_key(link_id: int, pid: int) -> str:
     return f"ha:alert:fired:{link_id}:{pid}"
 
 
+def denied_key(link_id: int, pid: int) -> str:
+    """Log-throttle marker for a pause denied by the HA service account's
+    permissions (``ha:alert:denied:{link_id}:{pid}``)."""
+    return f"ha:alert:denied:{link_id}:{pid}"
+
+
 def _raw_key(link_id: int) -> str:
     """Private: last-seen raw HA sensor reading for the energy link
     `link_id`, used to detect a counter_delta reset -- keyed by the LINK,

@@ -82,6 +82,10 @@ class HaSettingsOut(BaseModel):
     ha_discovery_prefix: str = "homeassistant"
     ha_url: str | None = None
     has_token: bool = False
+    ha_actor_user_id: int | None = None
+    ha_actor_username: str | None = None
+    actor_ok: bool = False
+    actor_error: str | None = None
     pull_status: dict | None = None
     bridge_status: dict | None = None
 
@@ -100,6 +104,9 @@ class HaSettingsIn(BaseModel):
     ha_discovery_prefix: str | None = None
     ha_url: str | None = None
     ha_token: str | None = None
+    # The service account HA-originated actions (button commands, auto-pause)
+    # run as. Explicit ``null`` clears it (``exclude_unset`` keeps the key).
+    ha_actor_user_id: int | None = None
 
     @field_validator("ha_mqtt_url")
     @classmethod
@@ -121,6 +128,11 @@ class HaSettingsIn(BaseModel):
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise ValueError("ha_url must be an absolute http(s) URL")
         return v
+
+
+class HaActorOut(BaseModel):
+    id: int
+    username: str
 
 
 class HaTestOut(BaseModel):

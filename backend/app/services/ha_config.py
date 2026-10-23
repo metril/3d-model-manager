@@ -28,9 +28,14 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.crypto import decrypt_secret, encrypt_secret
-from app.models import Setting
+from app.models import Setting, User
+from app.services.permissions import can_control_sync, load_grants
 
 SETTINGS_KEY = "home_assistant"
+
+NO_ACTOR_ERROR = "no HA service account"
+BAD_ACTOR_ERROR = "HA service account is missing or inactive"
+NO_CONTROL_ERROR = "HA service account lacks printer control"
 
 # Sentinel the API layer echoes back for an unchanged secret (same
 # convention as storage/import-token secrets) -- `set_ha_config` treats an
@@ -41,7 +46,13 @@ _SECRET_FIELDS = (
     ("ha_mqtt_password", "ha_mqtt_password_enc"),
     ("ha_token", "ha_token_enc"),
 )
-_PLAIN_FIELDS = ("ha_mqtt_url", "ha_mqtt_user", "ha_discovery_prefix", "ha_url")
+_PLAIN_FIELDS = (
+    "ha_mqtt_url",
+    "ha_mqtt_user",
+    "ha_discovery_prefix",
+    "ha_url",
+    "ha_actor_user_id",
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +65,7 @@ class HaConfig:
     ha_url: str | None
     ha_token: str | None
     ha_discovery_prefix: str = "homeassistant"
+    ha_actor_user_id: int | None = None
 
     def __repr__(self) -> str:
         def mask(value: str | None) -> str | None:
@@ -63,7 +75,8 @@ class HaConfig:
             f"HaConfig(ha_mqtt_url={self.ha_mqtt_url!r}, ha_mqtt_user={self.ha_mqtt_user!r}, "
             f"ha_mqtt_password={mask(self.ha_mqtt_password)!r}, "
             f"ha_url={self.ha_url!r}, ha_token={mask(self.ha_token)!r}, "
-            f"ha_discovery_prefix={self.ha_discovery_prefix!r})"
+            f"ha_discovery_prefix={self.ha_discovery_prefix!r}, "
+            f"ha_actor_user_id={self.ha_actor_user_id!r})"
         )
 
     def mqtt_signature(self) -> tuple[str | None, str | None, str | None, str]:
@@ -116,6 +129,7 @@ def _to_config(settings: Settings, value: dict | None) -> HaConfig:
         ha_url=value.get("ha_url"),
         ha_token=_decrypt_field(settings, value, "ha_token_enc"),
         ha_discovery_prefix=value.get("ha_discovery_prefix") or "homeassistant",
+        ha_actor_user_id=value.get("ha_actor_user_id"),
     )
 
 
@@ -159,3 +173,36 @@ async def set_ha_config(db: AsyncSession, settings: Settings, patch: dict) -> Ha
         row.value = value
     await db.commit()
     return _to_config(settings, value)
+
+
+async def actor_status(db: AsyncSession, actor_id: int | None) -> tuple[bool, str | None]:
+    """``(actor_ok, actor_error)`` for the HA service account, for installs
+    with no MQTT bridge to report it: set, exists + active, and able to
+    control at least one printer (global ``printers:control`` plus an ACL
+    ``can_control`` on some printer; admins pass)."""
+    if actor_id is None:
+        return False, NO_ACTOR_ERROR
+    user = await db.get(User, actor_id)
+    if user is None or not user.is_active:
+        return False, BAD_ACTOR_ERROR
+    _, perms, acl = await load_grants(db, user)
+    if "admin" in perms:
+        return True, None
+    if "printers:control" not in perms or not any(a.can_control for a in acl.values()):
+        return False, NO_CONTROL_ERROR
+    return True, None
+
+
+def actor_status_sync(
+    session: Session, actor_id: int | None, printer_ids: list[int]
+) -> tuple[bool, str | None]:
+    """Worker-side twin of ``actor_status`` over the printers the bridge
+    knows: lacking control on every one of them is an error."""
+    if actor_id is None:
+        return False, NO_ACTOR_ERROR
+    user = session.get(User, actor_id)
+    if user is None or not user.is_active:
+        return False, BAD_ACTOR_ERROR
+    if printer_ids and not any(can_control_sync(session, actor_id, pid) for pid in printer_ids):
+        return False, NO_CONTROL_ERROR
+    return True, None

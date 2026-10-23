@@ -27,10 +27,12 @@ from app.services.ha_state import (
     STATUS_TTL_S,
     _raw_key,
     alert_key,
+    denied_key,
     energy_acc_key,
     energy_key,
     fired_key,
 )
+from app.services.permissions import can_control_sync
 from app.services.printer_state import read_state_sync
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,7 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
 
 
 _RESET_FACTOR = 0.9
+_DENIED_LOG_TTL_S = 600
 
 
 def counter_delta(prev: float | None, cur: float) -> float:
@@ -138,7 +141,12 @@ def _firing_entities(
 
 
 def _handle_pause_edge(
-    r: Redis, links: list[HaLink], states: dict[str, dict | None], pid: int
+    s: Session,
+    r: Redis,
+    links: list[HaLink],
+    states: dict[str, dict | None],
+    pid: int,
+    actor_id: int | None,
 ) -> None:
     """Edge-triggered pause (Task 5): for each ``pause_print`` link relevant
     to ``pid``, a firing->fired transition (``ha:alert:fired:{link_id}:
@@ -148,7 +156,9 @@ def _handle_pause_edge(
     link and the printer, so a NULL-printer (global) pause link fires once
     per printer independently -- one printer's edge must never suppress
     another's. A link that stops firing clears its fired key so the next
-    episode can fire again."""
+    episode can fire again. The pause runs as the HA service account
+    (``actor_id``): if it is unset or may not control ``pid``, the fired key
+    is released so the pause retries on a later tick once that's fixed."""
     for link in links:
         if link.printer_id is not None and link.printer_id != pid:
             continue
@@ -160,6 +170,17 @@ def _handle_pause_edge(
             if r.set(fired_key(link.id, pid), 1, nx=True):
                 printer_state = read_state_sync(r, pid)
                 if (printer_state or {}).get("gcode_state") in PRINTING_STATES:
+                    if not can_control_sync(s, actor_id, pid):
+                        r.delete(fired_key(link.id, pid))
+                        # Retry every poll, but warn at most once per 10 min.
+                        if r.set(denied_key(link.id, pid), 1, nx=True, ex=_DENIED_LOG_TTL_S):
+                            logger.warning(
+                                "HA alert (%s) can't pause printer %s: HA service account "
+                                "unset or lacks control",
+                                link.entity_id,
+                                pid,
+                            )
+                        continue
                     r.publish(command_channel(pid), json.dumps({"command": "pause"}))
                     logger.info("HA alert paused printer %s (%s)", pid, link.entity_id)
         else:
@@ -239,7 +260,7 @@ def poll_once(
                 r.set(alert_key(pid), json.dumps(payload), ex=ALERT_TTL_S)
             else:
                 r.delete(alert_key(pid))
-            _handle_pause_edge(r, alert_links, states, pid)
+            _handle_pause_edge(s, r, alert_links, states, pid, cfg.ha_actor_user_id)
 
         for link in energy_links:
             pid = link.printer_id

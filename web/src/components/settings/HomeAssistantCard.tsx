@@ -12,13 +12,14 @@
 import { useEffect, useState } from "react";
 
 import { ApiError } from "@/api/client";
-import { useDeleteHaLink, useHaLinks, useHaSettings, useSaveHaSettings, useTestHaMqtt, useTestHaRest } from "@/api/homeAssistant";
+import { useDeleteHaLink, useHaActors, useHaLinks, useHaSettings, useSaveHaSettings, useTestHaMqtt, useTestHaRest } from "@/api/homeAssistant";
 import type { HaCondition, HaLink, HaRole, HaSettings, HaSettingsIn } from "@/api/types";
 import { HaLinkDialog } from "@/components/settings/HaLinkDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -78,6 +79,8 @@ interface RestDraft {
   ha_token: string;
 }
 
+const NO_ACTOR = "none";
+
 function seedMqtt(s: HaSettings): MqttDraft {
   return {
     ha_mqtt_url: s.ha_mqtt_url ?? "",
@@ -89,6 +92,58 @@ function seedMqtt(s: HaSettings): MqttDraft {
 
 function seedRest(s: HaSettings): RestDraft {
   return { ha_url: s.ha_url ?? "", ha_token: "" };
+}
+
+/** "HA acts as": the service account HA-originated actions (button
+ * commands, auto-pause) run as. Saves immediately on change; the bridge
+ * reports `actor_ok=false` when it's unset, missing or inactive. */
+function ActorField({ data }: { data: HaSettings }) {
+  const actors = useHaActors();
+  const save = useSaveHaSettings();
+  // Computed server-side, so it shows with or without an MQTT bridge.
+  const actorBad = !data.actor_ok;
+  const actorMsg = data.actor_error ?? "HA commands are blocked";
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="ha-actor">HA acts as</Label>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select
+          aria-label="HA acts as"
+          value={data.ha_actor_user_id == null ? NO_ACTOR : String(data.ha_actor_user_id)}
+          onValueChange={(v) => save.mutate({ ha_actor_user_id: v === NO_ACTOR ? null : Number(v) })}
+        >
+          <SelectTrigger id="ha-actor" aria-label="HA acts as" className="w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_ACTOR}>None</SelectItem>
+            {(actors.data ?? []).map((u) => (
+              <SelectItem key={u.id} value={String(u.id)}>
+                {u.username}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {actorBad ? (
+          <span
+            role="alert"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400"
+          >
+            {actorMsg}
+          </span>
+        ) : null}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Commands from HA and auto-pause run as this user and need printer control access.
+      </p>
+      {save.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errText(save.error, "Could not save the service account.")}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function MqttSection({
@@ -223,6 +278,7 @@ function RestSection({
           placeholder={data.has_token ? "Leave blank to keep current token" : ""}
         />
       </div>
+      <ActorField data={data} />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
           {test.isPending ? "Testing…" : "Test connection"}

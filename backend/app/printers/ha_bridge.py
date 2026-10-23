@@ -36,7 +36,13 @@ from app.models import PrintArchive, Printer, PrintJob, PrintQueueEntry
 from app.models.enums import QueueState
 from app.printers.base import command_channel
 from app.services import camera_state
-from app.services.ha_config import HaConfig, get_ha_config_sync, parse_mqtt_url
+from app.services.ha_config import (
+    NO_ACTOR_ERROR,
+    HaConfig,
+    actor_status_sync,
+    get_ha_config_sync,
+    parse_mqtt_url,
+)
 from app.services.ha_discovery import (
     BRIDGE_STATUS,
     BUTTONS,
@@ -46,6 +52,7 @@ from app.services.ha_discovery import (
     state_payload,
     topics,
 )
+from app.services.permissions import can_control_sync
 from app.services.printer_state import read_state_sync
 from app.tasks import base
 
@@ -172,6 +179,9 @@ class HaBridge:
         self._camera_last_pub: dict[int, float] = {}
         self._bridge_connected = False
         self._bridge_error: str | None = None
+        self._actor_ok = False
+        self._actor_error: str | None = NO_ACTOR_ERROR
+        self._warned_no_actor = False
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -221,7 +231,7 @@ class HaBridge:
         self._set_bridge_status(False, "stopped")
 
     def _set_bridge_status(self, connected: bool, error: str | None) -> None:
-        """Write ``ha:bridge:status`` as JSON ``{connected, error, at}``
+        """Write ``ha:bridge:status`` as JSON ``{connected, error, actor_ok, actor_error, at}``
         with a 30s TTL -- a stale/crashed bridge's status goes stale (fails
         open to "unknown") instead of lying "connected" forever. Refreshed
         on every tick for as long as there's a live client -- connected OR
@@ -229,7 +239,15 @@ class HaBridge:
         a broker drop instead of going stale to "unknown" after 30s."""
         self._bridge_connected = connected
         self._bridge_error = error
-        payload = json.dumps({"connected": connected, "error": error, "at": time.time()})
+        payload = json.dumps(
+            {
+                "connected": connected,
+                "error": error,
+                "actor_ok": self._actor_ok,
+                "actor_error": self._actor_error,
+                "at": time.time(),
+            }
+        )
         with contextlib.suppress(Exception):
             self.r.set(BRIDGE_STATUS_REDIS_KEY, payload, ex=BRIDGE_STATUS_TTL_S)
 
@@ -241,6 +259,7 @@ class HaBridge:
             self._next_db_read = now + self.db_every_s
             with base.sync_session() as session:
                 self._printers = _load_printers(session)
+                self._refresh_actor(session)
             if self._config is not None:
                 self._diff_published()
 
@@ -251,10 +270,22 @@ class HaBridge:
             self._next_config_read = now + self.config_every_s
             with base.sync_session() as session:
                 new_config = get_ha_config_sync(session, self.settings)
-            self._apply_config(new_config)
+                self._apply_config(new_config)
+                self._refresh_actor(session)
 
         if self._client is not None and self._config is not None:
             self._publish_live_state()
+
+    def _refresh_actor(self, session) -> None:
+        """Recompute ``actor_ok``/``actor_error`` from the configured HA
+        service account (set, exists, active); reported via the bridge
+        status key. Per-printer control rights are checked per command."""
+        actor_id = self._config.ha_actor_user_id if self._config else None
+        self._actor_ok, self._actor_error = actor_status_sync(
+            session, actor_id, [p["id"] for p in self._printers]
+        )
+        if self._actor_ok:
+            self._warned_no_actor = False
 
     # -- config / connect ------------------------------------------------
 
@@ -357,7 +388,22 @@ class HaBridge:
                 return
             payload = msg.payload.decode("utf-8", errors="replace")
             if payload in BUTTONS:
-                self.r.publish(command_channel(pid), json.dumps({"command": payload}))
+                actor_id = self._config.ha_actor_user_id if self._config else None
+                if actor_id is None:
+                    if not self._warned_no_actor:
+                        self._warned_no_actor = True
+                        log.warning("ha_bridge: dropping HA commands, %s", NO_ACTOR_ERROR)
+                    return
+                with base.sync_session() as session:
+                    allowed = can_control_sync(session, actor_id, pid)
+                if allowed:
+                    self.r.publish(command_channel(pid), json.dumps({"command": payload}))
+                else:
+                    log.warning(
+                        "ha_bridge: HA service account may not control printer %s, dropped %r",
+                        pid,
+                        payload,
+                    )
             else:
                 log.debug("ha_bridge: dropped command %r for printer %s", payload, pid)
         except Exception as exc:  # noqa: BLE001 -- callback runs on paho's own thread
