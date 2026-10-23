@@ -22,12 +22,12 @@ pytestmark = pytest.mark.usefixtures("printer_enabled")
 JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
 
 
-async def _grant_control(make_group, member, printer: Printer) -> None:
+async def _grant_print(make_group, member, printer: Printer) -> None:
     await make_group(
-        "controllers",
-        permissions=["printers:control"],
+        "printers",
+        permissions=["printers:print"],
         members=[member],
-        printer_access={printer.id: (False, True, False)},
+        printer_access={printer.id: (True, False, False)},
     )
 
 
@@ -85,12 +85,109 @@ async def test_stream_unsupported_404(
     assert r.status_code == 404
 
 
-async def test_token_mint_requires_control(
+async def test_token_mint_requires_printer_acl(
     member_client: httpx.AsyncClient, printer_row: Printer
 ) -> None:
+    # A member has the global printers:print perm but no ACL entry for this printer.
     r = await member_client.post(f"/api/printers/{printer_row.id}/camera/token")
 
     assert r.status_code == 403
+
+
+async def test_print_only_user_can_mint_and_view(
+    member_client: httpx.AsyncClient,
+    client: httpx.AsyncClient,
+    printer_row: Printer,
+    make_group,
+    member,
+    redis_client: aioredis.Redis,
+) -> None:
+    await _grant_print(make_group, member, printer_row)
+    await redis_client.set(cs.frame_key(printer_row.id), JPEG)
+
+    minted = await member_client.post(f"/api/printers/{printer_row.id}/camera/token")
+    assert minted.status_code == 200
+    token = _token_from_urls(minted.json())
+
+    via_token = await client.get(
+        f"/api/printers/{printer_row.id}/camera/snapshot", params={"token": token}
+    )
+    via_cookie = await member_client.get(f"/api/printers/{printer_row.id}/camera/snapshot")
+
+    assert via_token.status_code == 200
+    assert via_cookie.status_code == 200
+
+
+async def test_cookie_without_acl_denied(
+    member_client: httpx.AsyncClient, printer_row: Printer
+) -> None:
+    r = await member_client.get(f"/api/printers/{printer_row.id}/camera/snapshot")
+
+    assert r.status_code == 403
+
+
+async def test_token_of_deactivated_user_401(
+    member_client: httpx.AsyncClient,
+    client: httpx.AsyncClient,
+    printer_row: Printer,
+    make_group,
+    member,
+    db_session,
+) -> None:
+    await _grant_print(make_group, member, printer_row)
+    minted = await member_client.post(f"/api/printers/{printer_row.id}/camera/token")
+    token = _token_from_urls(minted.json())
+
+    member.is_active = False
+    await db_session.commit()
+
+    r = await client.get(f"/api/printers/{printer_row.id}/camera/snapshot", params={"token": token})
+
+    assert r.status_code == 401
+
+
+async def test_token_prefix_does_not_cross_printer_ids(
+    authenticated_client: httpx.AsyncClient, printer_row: Printer, db_session
+) -> None:
+    """``camera:1:`` is a string prefix of ``camera:1:<uid>`` but a token for
+    printer 1 must never open printer 12 (or any id starting with 1)."""
+    other = Printer(
+        id=printer_row.id * 10 + 2,
+        name="P12",
+        kind=printer_row.kind,
+        host="10.0.0.12",
+        serial="SER12",
+        access_code_enc="x",
+    )
+    db_session.add(other)
+    await db_session.commit()
+    minted = await authenticated_client.post(f"/api/printers/{printer_row.id}/camera/token")
+    token = _token_from_urls(minted.json())
+
+    r = await authenticated_client.get(
+        f"/api/printers/{other.id}/camera/snapshot", params={"token": token}
+    )
+
+    assert r.status_code == 401
+
+
+async def test_camera_token_is_useless_elsewhere(
+    authenticated_client: httpx.AsyncClient,
+    client: httpx.AsyncClient,
+    printer_row: Printer,
+) -> None:
+    minted = await authenticated_client.post(f"/api/printers/{printer_row.id}/camera/token")
+    token = _token_from_urls(minted.json())
+    client.cookies.clear()
+
+    download = await client.get("/api/files/1/download", params={"token": token})
+    ext = await client.get("/api/ext/ping", headers={"Authorization": f"Bearer {token}"})
+    client.cookies.set("tdmm_session", token)
+    cookie_route = await client.get("/api/printers")
+
+    assert download.status_code == 401
+    assert ext.status_code == 401
+    assert cookie_route.status_code == 401
 
 
 async def test_signed_snapshot_without_cookie(
@@ -146,7 +243,7 @@ async def test_token_rechecks_acl(
 
     from app.models import PrinterAccess
 
-    await _grant_control(make_group, member, printer_row)
+    await _grant_print(make_group, member, printer_row)
     await redis_client.set(cs.frame_key(printer_row.id), JPEG)
 
     minted = await member_client.post(f"/api/printers/{printer_row.id}/camera/token")

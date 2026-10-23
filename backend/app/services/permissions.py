@@ -160,6 +160,15 @@ def printer_acl_sync(session: Session, user_id: int | None) -> dict[int, Printer
     return merge_printer_acl(rows)
 
 
+async def can_print_async(db: AsyncSession, user: User, printer_id: int) -> bool:
+    """Async twin of ``can_print_sync`` for a loaded ``user``: the global
+    ``printers:print`` perm AND a per-printer ``can_print`` ACL flag (admins
+    pass), i.e. ``AuthContext.require_printer(.., "print")`` without the 403."""
+    _, perms, acl = await load_grants(db, user)
+    granted = printer_perms(perms, acl, printer_id)
+    return "printers:print" in perms and granted is not None and granted.can_print
+
+
 def can_print_sync(session: Session, user_id: int | None, printer_id: int) -> bool:
     """Worker-side (SYNC world) twin of ``load_grants`` + ``printer_perms``
     collapsed to the one question the P6 dispatcher needs: may ``user_id``

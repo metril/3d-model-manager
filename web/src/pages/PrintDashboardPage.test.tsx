@@ -199,9 +199,9 @@ describe("PrintDashboardPage printer counts", () => {
     expect(document.querySelector(".md\\:grid-cols-2")).not.toBeNull();
   });
 
-  it("renders a CameraTile only for can_control printers", async () => {
+  it("renders a CameraTile only for can_print printers", async () => {
     overviewBox.current = {
-      printers: [printerItem(1, { can_control: true }), printerItem(2, { can_control: false })],
+      printers: [printerItem(1, { can_print: true, can_control: false }), printerItem(2, { can_print: false, can_control: true })],
       up_next: [],
       recent_runs: [],
     };

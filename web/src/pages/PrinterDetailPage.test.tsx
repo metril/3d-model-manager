@@ -14,7 +14,7 @@ import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 
 const { getMock, canPrinterBox } = vi.hoisted(() => ({
   getMock: vi.fn(),
-  canPrinterBox: { current: (): boolean => true },
+  canPrinterBox: { current: (_id: number, _kind: string): boolean => true },
 }));
 
 vi.mock("@/api/auth", async (importOriginal) => ({
@@ -150,8 +150,8 @@ describe("PrinterDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
   });
 
-  it("renders the CameraTile when the viewer has control", async () => {
-    canPrinterBox.current = () => true;
+  it("renders the CameraTile for a print-only viewer (no control)", async () => {
+    canPrinterBox.current = (_id: number, kind: string) => kind === "print";
     mockGet();
     renderDetail();
 
@@ -159,7 +159,7 @@ describe("PrinterDetailPage", () => {
     expect(document.querySelector('[data-slot="camera-tile"]')).toBeInTheDocument();
   });
 
-  it("keeps the placeholder icon for a viewer without control", async () => {
+  it("keeps the placeholder icon for a viewer without print access", async () => {
     canPrinterBox.current = () => false;
     mockGet();
     renderDetail();
