@@ -36,7 +36,7 @@ def backup_run(run_id: int) -> dict:
         return {"id": run.id, "status": run.status, "error": run.error}
 
 
-@celery_app.task(name="app.tasks.backup.scheduled")
+@celery_app.task(name="app.tasks.backup.scheduled", soft_time_limit=60, time_limit=90)
 def backup_scheduled() -> int | None:
     settings = get_settings()
     with base.sync_session() as s:

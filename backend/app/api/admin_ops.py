@@ -9,12 +9,12 @@ import platform
 import re
 import sys
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib import metadata
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm
@@ -63,6 +63,16 @@ def redact(value: object) -> object:
 
 @router.post("/backups/run", response_model=BackupRunOut, status_code=status.HTTP_202_ACCEPTED)
 async def run_backup(ctx: AuthContext = _admin, db: AsyncSession = Depends(get_db)) -> BackupRun:
+    now = datetime.now(UTC)
+    await db.execute(
+        update(BackupRun)
+        .where(
+            BackupRun.status == "running",
+            BackupRun.created_at < now - timedelta(seconds=backup_svc.STALE_AFTER_S),
+        )
+        .values(status="failed", error="timed out (worker killed)", finished_at=now)
+    )
+    await db.commit()
     running = await db.scalar(select(BackupRun.id).where(BackupRun.status == "running").limit(1))
     if running is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "a backup is already running")

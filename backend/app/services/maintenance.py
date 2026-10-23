@@ -59,13 +59,15 @@ async def seed_defaults(db: AsyncSession, printer: Printer) -> int:
     if exists:
         return 0
     rows = default_tasks(printer.model, printer.serial)
-    for name, hours, days, notes in rows:
+    baseline = await printer_hours(db, printer.id)
+    for name, interval_h, days, notes in rows:
         db.add(
             MaintenanceTask(
                 printer_id=printer.id,
                 name=name,
-                interval_hours=hours,
+                interval_hours=interval_h,
                 interval_days=days,
+                last_done_hours=baseline,
                 notes=notes,
             )
         )

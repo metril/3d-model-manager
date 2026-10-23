@@ -77,3 +77,14 @@ async def test_viewer_cannot_mutate(authenticated_client, viewer_client):
     pid = (await authenticated_client.post("/api/printers", json=CREATE)).json()["id"]
     r = await viewer_client.put(f"/api/printers/{pid}/maintenance/mode", json={"enabled": True})
     assert r.status_code == 403
+
+
+async def test_seed_sets_baseline_not_overdue(authenticated_client, db_session):
+    from sqlalchemy import select
+
+    c = authenticated_client
+    pid = (await c.post("/api/printers", json=CREATE)).json()["id"]
+    rows = (
+        await db_session.scalars(select(MaintenanceTask).where(MaintenanceTask.printer_id == pid))
+    ).all()
+    assert rows and all(t.last_done_hours == 0.0 for t in rows)

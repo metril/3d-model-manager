@@ -4,6 +4,8 @@ so a scraper needs no login flow."""
 
 from __future__ import annotations
 
+import json
+
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
@@ -15,8 +17,8 @@ from app.db import get_db
 from app.models import ApiToken, Printer, PrintJob, SmartPlug, User
 from app.models.library import PrintQueueEntry
 from app.models.printing import PrintArchive
+from app.printers.base import state_key
 from app.services.permissions import load_grants
-from app.services.printer_state import read_state_async
 
 router = APIRouter(tags=["metrics"])
 _ACTIVE = ("queued", "uploading", "starting", "printing", "paused")
@@ -49,8 +51,12 @@ async def metrics(
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         by_state: dict[str, int] = {}
-        for p in printers:
-            st = await read_state_async(client, p.id)
+        raws = await client.mget([state_key(p.id) for p in printers]) if printers else []
+        for raw in raws:
+            try:
+                st = json.loads(raw) if raw else None
+            except ValueError:
+                st = None
             key = (st or {}).get("gcode_state") or "OFFLINE"
             by_state[key] = by_state.get(key, 0) + 1
     finally:

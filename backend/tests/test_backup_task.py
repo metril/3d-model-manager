@@ -178,3 +178,54 @@ def test_scheduled_gate(fake_pg_dump):
     assert backup_scheduled.delay().get() is None  # recent run -> not due
     with base.sync_session() as s:
         assert s.scalar(select(BackupRun.kind).where(BackupRun.id == first)) == "scheduled"
+
+
+async def test_stale_running_run_is_expired(authenticated_client, fake_pg_dump):
+    from datetime import UTC, datetime, timedelta
+
+    with base.sync_session() as s:
+        run = BackupRun(kind="manual", status="running")
+        s.add(run)
+        s.commit()
+        run.created_at = datetime.now(UTC) - timedelta(seconds=svc.STALE_AFTER_S + 60)
+        s.commit()
+        rid = run.id
+    r = await authenticated_client.post("/api/admin/backups/run")
+    assert r.status_code == 202  # not 409: the stuck run was failed
+    with base.sync_session() as s:
+        assert s.get(BackupRun, rid).status == "failed"
+
+
+def test_restore_skips_storage_row(fake_pg_dump):
+    with base.sync_session() as s:
+        s.add(Setting(key="storage", value={"backend": "local", "v": 1}))
+        s.add(Setting(key="app", value={"x": 1}))
+        s.commit()
+        run_id = svc.new_run(s, "manual", None).id
+    backup_run.delay(run_id).get()
+    with base.sync_session() as s:
+        s.get(Setting, "storage").value = {"backend": "local", "v": 2}
+        s.get(Setting, "app").value = {"x": 2}
+        s.commit()
+        n = svc.restore_settings(s, get_settings(), s.get(BackupRun, run_id))
+        assert n >= 1
+        assert s.get(Setting, "storage").value["v"] == 2
+        assert s.get(Setting, "app").value == {"x": 1}
+
+
+def test_scheduled_gate_skips_while_running_and_expires_stale(fake_pg_dump):
+    from datetime import UTC, datetime, timedelta
+
+    from app.tasks.ops import backup_scheduled
+
+    with base.sync_session() as s:
+        s.add(Setting(key="ops", value={"backup_enabled": True}))
+        run = BackupRun(kind="scheduled", status="running")
+        s.add(run)
+        s.commit()
+    assert backup_scheduled.delay().get() is None  # one in progress
+    with base.sync_session() as s:
+        r = s.scalar(select(BackupRun))
+        r.created_at = datetime.now(UTC) - timedelta(seconds=svc.STALE_AFTER_S + 60)
+        s.commit()
+    assert backup_scheduled.delay().get() is not None  # stale one expired -> new run

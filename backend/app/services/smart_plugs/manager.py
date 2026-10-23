@@ -35,6 +35,13 @@ def idle_key(plug_id: int) -> str:
     return f"plug:idle_since:{plug_id}"
 
 
+BOOT_WAIT_S = 300
+
+
+def woken_key(printer_id: int) -> str:
+    return f"plug:woken_at:{printer_id}"
+
+
 def polled_key(plug_id: int) -> str:
     return f"plug:polled:{plug_id}"
 
@@ -86,6 +93,7 @@ def tick(
 ) -> dict[str, int]:
     now = now or datetime.now(UTC)
     counts = {"polled": 0, "errors": 0, "turned_off": 0}
+    wanted = _queue_wanted(session, r)
     for plug in session.scalars(select(SmartPlug)).all():
         try:
             drv = driver_for(session, settings, plug)
@@ -94,7 +102,7 @@ def tick(
             counts["polled"] += 1
             if st.power_w is not None:
                 _integrate(session, r, plug, st.power_w, now.timestamp())
-            if _maybe_auto_off(r, plug, drv, now):
+            if _maybe_auto_off(r, plug, drv, now, wanted):
                 counts["turned_off"] += 1
         except PlugError as exc:
             plug.last_error = str(exc)[:200]
@@ -107,7 +115,25 @@ def tick(
     return counts
 
 
-def _maybe_auto_off(r: Redis, plug: SmartPlug, drv, now: datetime) -> bool:
+def _queue_wanted(session: Session, r: Redis) -> set[int] | None:
+    """Printers any READY/WAITING queue item could land on; ``None`` if the
+    queue can't be evaluated (then auto-off proceeds as before)."""
+    from app.services import dispatcher
+
+    try:
+        return dispatcher.queue_target_ids(session, r, dispatcher.eligible_queue_items(session))[1]
+    except Exception:  # noqa: BLE001
+        log.exception("queue evaluation failed")
+        session.rollback()
+        return None
+
+
+def _maybe_auto_off(
+    r: Redis, plug: SmartPlug, drv, now: datetime, wanted: set[int] | None = None
+) -> bool:
+    if wanted is not None and plug.printer_id in wanted:
+        r.delete(idle_key(plug.id))  # the queue needs this printer: keep it on
+        return False
     if not plug.auto_off_after_min or plug.last_state == "off":
         r.delete(idle_key(plug.id))
         return False
@@ -125,19 +151,21 @@ def _maybe_auto_off(r: Redis, plug: SmartPlug, drv, now: datetime) -> bool:
     return True
 
 
-def wake_for_queue(session: Session, settings: Settings, printer_ids: set[int] | None) -> int:
-    """Power on ``auto_on_before_print`` plugs whose printer is off, for
-    printers a waiting queue item may land on (``None`` = any printer)."""
+def wake_for_queue(session: Session, settings: Settings, r: Redis, printer_ids: set[int]) -> int:
+    """Power on ``auto_on_before_print`` plugs (currently off) for exactly
+    ``printer_ids``; records ``plug:woken_at:{pid}`` so the dispatcher waits
+    for a fresh report before trusting the printer's (stale) state."""
     stmt = select(SmartPlug).where(
-        SmartPlug.auto_on_before_print.is_(True), SmartPlug.last_state == "off"
+        SmartPlug.auto_on_before_print.is_(True),
+        SmartPlug.last_state == "off",
+        SmartPlug.printer_id.in_(printer_ids),
     )
-    if printer_ids is not None:
-        stmt = stmt.where(SmartPlug.printer_id.in_(printer_ids))
     n = 0
     for plug in session.scalars(stmt).all():
         try:
             driver_for(session, settings, plug).on()
             plug.last_state = "on"
+            r.set(woken_key(plug.printer_id), repr(datetime.now(UTC).timestamp()), ex=3600)
             n += 1
         except PlugError as exc:
             plug.last_error = str(exc)[:200]

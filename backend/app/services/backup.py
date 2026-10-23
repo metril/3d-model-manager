@@ -11,7 +11,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -31,6 +31,10 @@ PREFIX = "backups"
 DUMP_TIMEOUT_S = 1800
 # Rows never exported/restored: transient or derived caches.
 _SKIP_SETTINGS = {"update_cache"}
+# Never restored: would silently repoint/replace the live storage backend config.
+_NO_RESTORE = _SKIP_SETTINGS | {"storage"}
+# A run still "running" past the task hard limit (+ margin) was killed.
+STALE_AFTER_S = 2100
 
 
 class BackupError(Exception):
@@ -172,7 +176,7 @@ def restore_settings(session: Session, settings: Settings, run: BackupRun) -> in
         raise BackupError("settings.json is malformed")
     n = 0
     for key, value in data.items():
-        if key in _SKIP_SETTINGS or not isinstance(value, dict):
+        if key in _NO_RESTORE or not isinstance(value, dict):
             continue
         row = session.get(Setting, key)
         if row is None:
@@ -184,6 +188,19 @@ def restore_settings(session: Session, settings: Settings, run: BackupRun) -> in
     return n
 
 
+def expire_stale(session: Session, now: datetime | None = None) -> int:
+    """Fail runs stuck ``running`` past the hard time limit (worker killed)."""
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(seconds=STALE_AFTER_S)
+    rows = session.scalars(
+        select(BackupRun).where(BackupRun.status == "running", BackupRun.created_at < cutoff)
+    ).all()
+    for r in rows:
+        r.status, r.error, r.finished_at = "failed", "timed out (worker killed)", now
+    session.commit()
+    return len(rows)
+
+
 def due(session: Session, settings: Settings, now: datetime | None = None) -> bool:
     """Scheduled-backup gate: enabled and the last non-failed run is older
     than ``backup_interval_hours`` (or none exists)."""
@@ -191,6 +208,9 @@ def due(session: Session, settings: Settings, now: datetime | None = None) -> bo
     if not cfg.backup_enabled:
         return False
     now = now or datetime.now(UTC)
+    expire_stale(session, now)
+    if session.scalar(select(BackupRun.id).where(BackupRun.status == "running").limit(1)):
+        return False
     last = session.scalar(
         select(BackupRun.created_at)
         .where(BackupRun.status.in_(("running", "ok", "pruned")))
