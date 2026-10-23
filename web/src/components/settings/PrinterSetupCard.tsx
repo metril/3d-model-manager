@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { Trash2Icon } from "lucide-react";
 
+import { PlugConfig } from "@/components/settings/PlugConfig";
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import { useDiagnostic, useDiscover } from "@/api/printerOps";
@@ -575,6 +576,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           {testPrinter.error instanceof ApiError ? testPrinter.error.detail : "Could not test connection"}
         </p>
       ) : null}
+      {printer ? <PlugConfig printerId={printer.id} /> : null}
       {testPrinter.data ? (
         <p role={testPrinter.data.ok ? undefined : "alert"} className={testPrinter.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}>
           {testPrinter.data.detail}

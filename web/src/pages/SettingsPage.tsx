@@ -8,6 +8,8 @@ import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
+import { BackupsCard } from "@/components/settings/BackupsCard";
+import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
@@ -80,6 +82,7 @@ export function SettingsPage() {
           <TabsContent value="general" className="space-y-6">
             <AppearanceCard />
             {canSettings && <ExternalLinksCard />}
+            {canSettings && <UpdatesCard />}
             <AutomationCard />
             <CategoriesSection />
             <PrintCostCard />
@@ -89,6 +92,7 @@ export function SettingsPage() {
           {canSettings && (
             <TabsContent value="storage" className="space-y-6">
               <StorageBackendsCard />
+              <BackupsCard />
               <ScanReport />
             </TabsContent>
           )}

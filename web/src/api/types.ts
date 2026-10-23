@@ -628,6 +628,7 @@ export interface PrinterOut {
   // Q1: model capability table + lifetime print hours (optional: older payloads omit them).
   capabilities?: PrinterCapabilities;
   total_print_hours?: number | null;
+  maintenance_mode?: boolean;
 }
 
 export interface PrinterCapabilities {
@@ -1977,4 +1978,87 @@ export interface DiscoveredPrinter {
   serial: string;
   model_hint: string | null;
   source: "ssdp" | "sweep";
+}
+
+// --- Q7: maintenance, smart plugs, backups, updates ---
+export type MaintenanceStatus = "ok" | "soon" | "overdue";
+export interface MaintenanceTask {
+  id: number;
+  printer_id: number;
+  name: string;
+  interval_hours: number | null;
+  interval_days: number | null;
+  last_done_at: string | null;
+  notes: string | null;
+  status: MaintenanceStatus;
+  hours_since: number | null;
+  days_since: number | null;
+  hours_remaining: number | null;
+  days_remaining: number | null;
+}
+export interface MaintenanceTaskIn {
+  name: string;
+  interval_hours?: number | null;
+  interval_days?: number | null;
+  notes?: string | null;
+}
+export interface MaintenanceLog {
+  id: number;
+  task_id: number;
+  done_at: string;
+  hours_at: number | null;
+  note: string | null;
+  created_by_user_id: number | null;
+}
+export type PlugKind = "tasmota" | "ha" | "mqtt" | "rest";
+export interface PlugOut {
+  printer_id: number;
+  kind: PlugKind;
+  config: Record<string, unknown>;
+  auto_off_after_min: number | null;
+  auto_on_before_print: boolean;
+  last_state: string | null;
+  last_power_w: number | null;
+  last_polled_at: string | null;
+  last_error: string | null;
+}
+export interface PlugIn {
+  kind: PlugKind;
+  config: Record<string, unknown>;
+  auto_off_after_min: number | null;
+  auto_on_before_print: boolean;
+}
+export interface BackupRun {
+  id: number;
+  kind: string;
+  status: string;
+  size_bytes: number | null;
+  location: string | null;
+  git_pushed: boolean;
+  error: string | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  finished_at: string | null;
+}
+export type GitProvider = "github" | "gitlab" | "gitea" | "forgejo";
+export interface OpsSettings {
+  backup_enabled: boolean;
+  backup_interval_hours: number;
+  backup_retention: number;
+  git_provider: GitProvider | null;
+  git_base_url: string | null;
+  git_repo: string | null;
+  git_branch: string;
+  git_token_set: boolean;
+  update_check_enabled: boolean;
+}
+export type OpsSettingsIn = Partial<Omit<OpsSettings, "git_token_set">> & { git_token?: string };
+export interface UpdateInfo {
+  latest: string | null;
+  current: string;
+  url: string | null;
+  notes: string | null;
+  update_available: boolean;
+  checked_at: string | null;
+  error: string | null;
 }
