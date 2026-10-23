@@ -1,5 +1,6 @@
 import { ExternalLinkIcon } from "lucide-react";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useHms, useHmsAction, useHmsClear } from "@/api/printerOps";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,8 @@ export function HmsModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { canPrinter } = useAuth();
+  const canControl = canPrinter(printerId, "control");
   const hms = useHms(printerId, open);
   const clear = useHmsClear(printerId);
   const act = useHmsAction(printerId);
@@ -55,7 +58,7 @@ export function HmsModal({
                 <p className="text-sm">{f.description ?? "Unknown code"}</p>
                 <p className="text-xs text-muted-foreground">{f.module}</p>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {f.actions.map((a) => (
+                  {(canControl ? f.actions : []).map((a) => (
                     <Button
                       key={a}
                       size="xs"
@@ -69,7 +72,7 @@ export function HmsModal({
                   <a
                     href={f.wiki_url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
                   >
                     Wiki <ExternalLinkIcon className="size-3" />
@@ -84,15 +87,17 @@ export function HmsModal({
             {err instanceof ApiError ? err.detail : "Request failed"}
           </p>
         ) : null}
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            disabled={clear.isPending || items.length === 0}
-            onClick={() => clear.mutate()}
-          >
-            Clear errors
-          </Button>
-        </div>
+        {canControl ? (
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              disabled={clear.isPending || items.length === 0}
+              onClick={() => clear.mutate()}
+            >
+              Clear errors
+            </Button>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

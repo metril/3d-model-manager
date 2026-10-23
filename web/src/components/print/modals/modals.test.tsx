@@ -7,7 +7,15 @@ import { ApiError } from "@/api/client";
 import type { PrinterOut } from "@/api/types";
 import { DiagnosticModal, FirmwareModal, HmsModal, PrinterInfoModal } from "@/components/print/modals";
 
-const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
+const { getMock, postMock, perms } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  postMock: vi.fn(),
+  perms: { settings: true, control: true },
+}));
+
+vi.mock("@/api/auth", () => ({
+  useAuth: () => ({ can: () => perms.settings, canPrinter: () => perms.control }),
+}));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
@@ -34,6 +42,8 @@ const FAULT = {
 beforeEach(() => {
   getMock.mockReset();
   postMock.mockReset();
+  perms.settings = true;
+  perms.control = true;
 });
 
 describe("HmsModal", () => {
@@ -64,6 +74,30 @@ const FW = {
   update_available: true,
   upload: null,
 };
+
+describe("permission gating", () => {
+  it("hides Clear and remedy buttons without control", async () => {
+    perms.control = false;
+    getMock.mockResolvedValue([FAULT]);
+    wrap(<HmsModal printerId={3} open onOpenChange={() => {}} />);
+    expect(await screen.findByText("Y axis homing failed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear errors" })).not.toBeInTheDocument();
+  });
+
+  it("hides Stage to SD card without settings:write or control", async () => {
+    getMock.mockResolvedValue(FW);
+    for (const k of ["settings", "control"] as const) {
+      perms.settings = true;
+      perms.control = true;
+      perms[k] = false;
+      const { unmount } = wrap(<FirmwareModal printerId={3} open onOpenChange={() => {}} />);
+      expect(await screen.findByText("01.06.00")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Stage to SD card" })).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+});
 
 describe("FirmwareModal", () => {
   it("shows versions and stages to SD", async () => {

@@ -1,3 +1,4 @@
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useFirmware, useFirmwareUpload } from "@/api/printerOps";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ export function FirmwareModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { can, canPrinter } = useAuth();
+  const canStage = can("settings:write") && canPrinter(printerId, "control");
   const fw = useFirmware(printerId, open);
   const upload = useFirmwareUpload(printerId);
   const d = fw.data;
@@ -45,7 +48,7 @@ export function FirmwareModal({
             {d.upload?.status ? (
               <p className="text-xs text-muted-foreground">Last stage: {d.upload.status}</p>
             ) : null}
-            {d.update_available ? (
+            {d.update_available && canStage ? (
               <>
                 <Button
                   disabled={upload.isPending || !d.download_available}
