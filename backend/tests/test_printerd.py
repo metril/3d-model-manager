@@ -141,6 +141,46 @@ def test_hms_command_dispatch(worker):
     assert adapter.hms_actions == [("0500400E", "STOP_PRINTING", None)]
 
 
+def test_obico_pause_flows_through_command_bus(worker, redis_url, monkeypatch):
+    """Q10: the watcher's pause is a plain bus envelope (request_id obico:*)
+    that the daemon's subscriber thread dispatches to the adapter."""
+    from app.printers.obico_watcher import ObicoWatcher
+    from app.services.obico import ObicoConfig, PrinterDetection
+
+    w, adapter, pid, client = worker
+    daemon = PrinterDaemon(get_settings())
+    daemon._subscribe_commands(pid, w)
+    time.sleep(0.3)
+    watcher = ObicoWatcher(
+        pid,
+        client,
+        ObicoConfig(url="http://ml", enabled=True),
+        PrinterDetection(enabled=True, action="pause"),
+        None,
+        warmup=0,
+        recorder=lambda *a: 1,
+    )
+    monkeypatch.setattr("app.printers.obico_watcher.score_frame", lambda *a, **k: 1.0)
+    try:
+        for _ in range(30):
+            watcher.process(JPEG)
+        deadline = time.monotonic() + 3
+        while adapter.paused == 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert adapter.paused == 1
+    finally:
+        daemon.stop_printer(pid)
+
+
+def test_daemon_has_obico_supervisor_and_worker_running_probe(worker):
+    w, _adapter, pid, _client = worker
+    daemon = PrinterDaemon(get_settings())
+    assert daemon.obico is not None
+    assert w.is_running() is False
+    w._merged = {"gcode_state": "RUNNING"}
+    assert w.is_running() is True
+
+
 def _tray(slot, ams_unit, tray, tray_uuid=None, tray_type=None, remain_pct=None):
     return {
         "slot": slot,

@@ -13,6 +13,7 @@ import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
+import { FailureDetectionCard } from "@/components/settings/FailureDetectionCard";
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
 import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
@@ -104,6 +105,7 @@ export function SettingsPage() {
             <TabsContent value="printer" className="space-y-6">
               <PrinterEnabledCard />
               <PrinterSetupCard />
+              <FailureDetectionCard />
               <HomeAssistantCard />
               {features.data?.virtual_printer_enabled && <VirtualPrinterCard />}
             </TabsContent>

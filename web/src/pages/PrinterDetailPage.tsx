@@ -25,6 +25,7 @@ import { MaintenanceBadge } from "@/components/maintenance/MaintenanceBadge";
 import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection";
 import { PlugRow } from "@/components/print/PlugRow";
 import { CameraTile } from "@/components/print/CameraTile";
+import { DetectionBadge } from "@/components/printer/DetectionBadge";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
 import { AmsHistoryModal } from "@/components/print/modals/AmsHistoryModal";
@@ -134,6 +135,7 @@ function PrinterDetailBody({
                 </div>
               )
             }
+            badgeExtra={canPrinter(printer.id, "print") ? <DetectionBadge printerId={printer.id} /> : undefined}
             badge={
               overviewItem.ha_alert ? (
                 <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />

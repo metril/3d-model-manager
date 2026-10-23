@@ -37,6 +37,7 @@ import { DiagnosticChecks, DiagnosticModal } from "@/components/print/modals";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PrinterDetectionSection } from "@/components/settings/PrinterDetectionSection";
 import { PrinterCameraSection } from "@/components/settings/PrinterCameraSection";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -497,6 +498,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
       </div>
 
       {printer ? <PrinterCameraSection printer={printer} /> : null}
+      {printer ? <PrinterDetectionSection printer={printer} /> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" onClick={save} disabled={busy || preflight.isPending || failures !== null}>
