@@ -46,7 +46,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name=op.f("uq_overlay_tokens_token_hash")),
     )
     op.create_index("ix_overlay_tokens_printer_id", "overlay_tokens", ["printer_id"])
-    op.create_index("ix_overlay_tokens_created_by_user_id", "overlay_tokens", ["created_by_user_id"])
+    op.create_index(
+        "ix_overlay_tokens_created_by_user_id", "overlay_tokens", ["created_by_user_id"]
+    )
 
 
 def downgrade() -> None:
