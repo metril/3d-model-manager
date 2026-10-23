@@ -318,14 +318,14 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
             className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
           >
             <option value="">Select a model</option>
-            {draft.model !== "" && !PRINTER_MODELS.some((g) => g.models.includes(draft.model)) ? (
+            {draft.model !== "" && !PRINTER_MODELS.some((g) => g.models.some((o) => o.value === draft.model)) ? (
               <option value={draft.model}>{draft.model}</option>
             ) : null}
             {PRINTER_MODELS.map((g) => (
               <optgroup key={g.group} label={g.group}>
-                {g.models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                {g.models.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </optgroup>

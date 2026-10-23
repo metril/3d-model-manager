@@ -57,7 +57,7 @@ const MODEL_LOOKUP: Record<string, ModelKey> = {
   a1: "a1", n2s: "a1",
   a1mini: "a1mini", n1: "a1mini",
   a1f: "a1f",
-  a2l: "a2l", n9: "a2l",
+  a2l: "a2l",
   h2c: "h2c",
   h2d: "h2d",
   h2dpro: "h2dpro",
@@ -77,11 +77,12 @@ const IMAGE_FILE: Record<ModelKey, string> = {
   x1c: "x1c", x1e: "x1e", x2d: "x2d", default: "default",
 };
 
+// Best-effort image fallback only (not authoritative).
 // Bambu serial prefixes (first 3 chars) -> model key; used only when the name is unknown.
 const SERIAL_PREFIX: Record<string, ModelKey> = {
   "00M": "x1c", "00W": "x1c", "03W": "x1e",
   "01S": "p1p", "01P": "p1s", "030": "a1mini", "039": "a1",
-  "094": "h2d", "093": "h2s", "31B": "h2c", "22E": "p2s",
+  "094": "h2d",
 };
 
 /** Normalise a free-text model name (and optional serial) to a known key. */
@@ -96,11 +97,21 @@ export function printerImage(key: ModelKey): string {
   return `/img/printers/${IMAGE_FILE[key] ?? "default"}.png`;
 }
 
-export const PRINTER_MODELS: ReadonlyArray<{ group: string; models: readonly string[] }> = [
-  { group: "A1 series", models: ["A1", "A1 mini", "A1F"] },
-  { group: "A2 series", models: ["A2L"] },
-  { group: "H2 series", models: ["H2C", "H2D", "H2D Pro", "H2S"] },
-  { group: "P series", models: ["P1P", "P1S", "P2S"] },
-  { group: "X1 series", models: ["X1C", "X1E"] },
-  { group: "X2 series", models: ["X2D"] },
+/** `value` is what gets stored; it must be a substring of the slicer's printer name
+ * (e.g. "Bambu Lab X1 Carbon") because backend model matching is substring-based. */
+export const PRINTER_MODELS: ReadonlyArray<{
+  group: string;
+  models: ReadonlyArray<{ value: string; label: string }>;
+}> = [
+  { group: "A1 series", models: [m("A1"), m("A1 mini"), m("A1F")] },
+  { group: "A2 series", models: [m("A2L")] },
+  { group: "H2 series", models: [m("H2C"), m("H2D"), m("H2D Pro"), m("H2S")] },
+  { group: "O1 series", models: [m("O1C"), m("O1E"), m("O1S")] },
+  { group: "P series", models: [m("P1P"), m("P1S"), m("P2S")] },
+  { group: "X1 series", models: [{ value: "X1 Carbon", label: "X1C" }, m("X1E")] },
+  { group: "X2 series", models: [m("X2D")] },
 ];
+
+function m(v: string) {
+  return { value: v, label: v };
+}
