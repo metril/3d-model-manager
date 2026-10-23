@@ -218,15 +218,7 @@ def test_deliver_recovers_items_after_failure(monkeypatch, sent, redis_url):
     assert r.llen(nev.QUEUE_KEY) == 0 and r.llen(ntask.PROCESSING_KEY) == 2
     monkeypatch.setattr(ntask.base, "sync_session", real)
     assert ntask.deliver_pending() == 2
-    assert (
-        r.llen(ntask.PROCESSING_KEY) == 0
-        and [m.body for _, m in sent]
-        == [
-            "Printer finished a.",
-            "Printer finished b.",
-        ]
-        or len(sent) == 2
-    )
+    assert r.llen(ntask.PROCESSING_KEY) == 0 and len(sent) == 2
 
 
 def test_unexpected_send_error_logs_type_and_retries(monkeypatch, sent):
