@@ -24,6 +24,7 @@ import json
 import logging
 import signal
 import threading
+import time
 from datetime import UTC, datetime
 
 import redis
@@ -47,6 +48,8 @@ _TERMINAL = {PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELE
 # The lib keeps its own state fresh from the MQTT stream; request_full_status()
 # is a cheap LOCAL read of the lib's accessors, so poll it every few seconds.
 _POLL_INTERVAL_S = 2.5
+# Q8b: sensor-history sampling cadence (no extra printer polling).
+SENSOR_INTERVAL_S = 60.0
 # Bambu print_error code the printer reports when a print is cancelled
 # (0x0300400C). Pending live verification (P2 Task 12).
 CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
@@ -69,6 +72,34 @@ def _enqueue_archive(print_job_id: int, result: ArchiveResult) -> None:
     from app.tasks.archive import archive_print
 
     archive_print.apply_async(args=[print_job_id, result.value])
+
+
+def _sensor_snapshot(public: PrinterPublicState) -> dict:
+    return {
+        "ts": datetime.now(UTC).isoformat(),
+        "nozzle": public.nozzle_temper,
+        "nozzle_target": public.nozzle_target,
+        "bed": public.bed_temper,
+        "bed_target": public.bed_target,
+        "chamber": public.chamber_temper,
+        "fan_part": public.fan_part_pct,
+        "ams": [
+            {"id": u.get("id"), "humidity": u.get("humidity"), "temp": u.get("temp")}
+            for u in public.ams_units
+            if isinstance(u, dict)
+        ],
+    }
+
+
+def _enqueue_sensor_sample(printer_id: int, snapshot: dict) -> None:
+    """Runs on a throwaway daemon thread -- a slow/unreachable broker must
+    never stall the poll loop or an MQTT callback."""
+    try:
+        from app.tasks.sensors import record
+
+        record.apply_async(args=[printer_id, snapshot], retry=False)
+    except Exception as exc:
+        log.error("printerd: sensor enqueue failed: %s", type(exc).__name__)
 
 
 def _tray_pcts(trays: list[dict]) -> list[int | None]:
@@ -114,10 +145,42 @@ class PrinterWorker:
         self._merged: dict | None = None
         self._stop_requested = False
         self._tray_sig: tuple | None = None
+        self._public: PrinterPublicState | None = None
+        self._sensor_next = 0.0
+        self._sensor_last_report: str | None = None
+        self._sensor_thread: threading.Thread | None = None
+
+    def sensor_tick(self, now: float | None = None) -> bool:
+        """Q8b: at most once per ``SENSOR_INTERVAL_S``, hand the in-memory
+        snapshot to a Celery task (no DB here). Skips when the printer never
+        reported or ``last_report_at`` hasn't advanced (offline/stale).
+        Returns True when a sample was dispatched."""
+        now = time.monotonic() if now is None else now
+        if now < self._sensor_next:
+            return False
+        if self._sensor_thread is not None and self._sensor_thread.is_alive():
+            return False  # previous enqueue still stuck (hung broker): don't pile up
+        self._sensor_next = now + SENSOR_INTERVAL_S
+        public = self._public
+        if public is None or not public.last_report_at:
+            return False
+        if public.last_report_at == self._sensor_last_report:
+            return False
+        self._sensor_last_report = public.last_report_at
+        t = threading.Thread(
+            target=_enqueue_sensor_sample,
+            args=(self.printer_id, _sensor_snapshot(public)),
+            daemon=True,
+            name=f"sensor-{self.printer_id}",
+        )
+        t.start()
+        self._sensor_thread = t
+        return True
 
     def handle_report(self, report: dict) -> None:
         self._merged = self.adapter.merge_report(self._merged, report)
         public = self.adapter.public_state(self._merged)
+        self._public = public
         self.redis.set(state_key(self.printer_id), json.dumps(dataclasses.asdict(public)))
         self._auto_assign_on_tray_change(public)
         self._transition_active_job(public)
@@ -396,6 +459,8 @@ class PrinterDaemon:
                 # the next tick re-reconciles.
                 log.error("printerd: reconcile failed: %s", type(exc).__name__)
             for worker in list(self._workers.values()):
+                with contextlib.suppress(Exception):
+                    worker.sensor_tick()
                 try:
                     # emit a fresh lib snapshot -> Redis + transitions
                     worker.adapter.request_full_status()

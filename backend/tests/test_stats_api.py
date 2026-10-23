@@ -429,3 +429,188 @@ async def test_filament_stats_bucket_validation(
 
     response = await authenticated_client.get("/api/stats/filament?days=731")
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Q8b widgets
+# ---------------------------------------------------------------------------
+
+
+async def _printer(db: AsyncSession, serial: str) -> Printer:
+    p = Printer(
+        name=f"name-{serial}",
+        kind=PrinterKind.BAMBU_LAN,
+        host="10.0.0.9",
+        serial=serial,
+        access_code_enc="x",
+    )
+    db.add(p)
+    await db.flush()
+    return p
+
+
+async def _run(
+    db: AsyncSession,
+    printer: Printer,
+    *,
+    result: ArchiveResult = ArchiveResult.COMPLETED,
+    start: datetime,
+    duration_s: int = 3600,
+    est_s: int | None = None,
+    error: str | None = None,
+    hms: list | None = None,
+    grams: float | None = None,
+    filament: str | None = None,
+    name: str = "job",
+) -> PrintArchive:
+    job = PrintJob(
+        printer_id=printer.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name=name,
+        state=PrintJobState.FINISHED,
+        started_at=start,
+        finished_at=start + timedelta(seconds=duration_s),
+        printer_error=error,
+        raw_status={"print": {"hms": hms}} if hms else None,
+    )
+    db.add(job)
+    await db.flush()
+    arc = PrintArchive(
+        print_job_id=job.id,
+        result=result,
+        fetch_state=ArchiveFetchState.DONE,
+        duration_s=duration_s,
+        slicer_meta={"print_time_s": est_s} if est_s else None,
+    )
+    db.add(arc)
+    if grams is not None or filament:
+        db.add(
+            Print(
+                print_job_id=job.id,
+                source=PrintSource.AUTO,
+                result=PrintResult.SUCCESS,
+                filament_g=grams,
+                filament=filament,
+            )
+        )
+    await db.flush()
+    return arc
+
+
+async def test_stats_dashboard_widgets(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    a = await _printer(db_session, "A")
+    b = await _printer(db_session, "B")
+    # 2026-10-19 is a Monday; anchor inside the 365-day window relative to now.
+    mon = (datetime.now(UTC) - timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)
+    mon -= timedelta(days=mon.weekday())
+    done1 = await _run(
+        db_session,
+        a,
+        start=mon,
+        duration_s=3600,
+        est_s=3000,
+        grams=40.0,
+        filament="PLA",
+        name="big",
+    )
+    await _run(db_session, a, start=mon + timedelta(hours=2), duration_s=1800, est_s=1800)
+    await _run(
+        db_session,
+        a,
+        result=ArchiveResult.FAILED,
+        start=mon + timedelta(hours=5),
+        error="50348044",
+        hms=[{"attr": 196866, "code": 65537}],
+        grams=5.0,
+        filament="PETG, PLA",
+    )
+    await _run(db_session, b, result=ArchiveResult.CANCELED, start=mon + timedelta(days=1))
+    spool = Spool(material_type="PLA")
+    db_session.add(spool)
+    await db_session.flush()
+    db_session.add(SpoolUsage(spool_id=spool.id, grams=12.0, source=SpoolUsageSource.MANUAL))
+    await db_session.commit()
+
+    r = await authenticated_client.get("/api/stats/dashboard?days=30")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["success_rate"] == {
+        "total": 4,
+        "completed": 2,
+        "failed": 1,
+        "canceled": 1,
+        "stopped": 0,
+        "success_rate": 0.5,
+    }
+    ta = d["time_accuracy"]
+    assert ta["count"] == 2
+    assert ta["mean_delta_pct"] == pytest.approx(10.0)
+    assert sum(x["count"] for x in ta["distribution"]) == 2
+    assert {p["archive_id"] for p in ta["points"]} >= {done1.id}
+    f = d["failures"]
+    assert f["total_failed"] == 1
+    assert f["by_error_code"] == [{"key": "50348044", "count": 1}]
+    assert f["by_hms"] == [{"key": "00030102_00010001", "count": 1}]
+    assert f["by_printer"][0]["failed"] == 1 and f["by_printer"][0]["total"] == 3
+    assert {m["key"] for m in f["by_material"]} == {"PETG", "PLA"}
+    hm = d["heatmap"]
+    assert hm["counts"][0][9] == 1 and hm["max"] >= 1
+    assert sum(map(sum, hm["counts"])) == 4
+    rec = d["records"]
+    assert rec["longest_print"]["archive_id"] == done1.id and rec["longest_print"]["value"] == 3600
+    assert rec["most_filament"]["value"] == 40.0 and rec["most_filament"]["name"] == "big"
+    assert rec["busiest_day"]["prints"] == 3
+    pa = next(p for p in d["printers"] if p["printer_id"] == a.id)
+    assert pa["jobs"] == 3 and pa["completed"] == 2 and pa["hours"] == 2.5
+    assert pa["filament_g"] == 45.0
+    assert d["filament_trends"] == [
+        {"week": d["filament_trends"][0]["week"], "material": "PLA", "grams": 12.0}
+    ]
+
+    # individual endpoints agree with the dashboard payload
+    for path, key in [
+        ("success-rate", "success_rate"),
+        ("time-accuracy", "time_accuracy"),
+        ("failures", "failures"),
+        ("heatmap", "heatmap"),
+        ("records", "records"),
+        ("printers", "printers"),
+        ("filament-trends", "filament_trends"),
+    ]:
+        resp = await authenticated_client.get(f"/api/stats/{path}?days=30")
+        assert resp.status_code == 200, (path, resp.text)
+        assert resp.json() == d[key], path
+
+
+async def test_stats_dashboard_empty_and_window(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    a = await _printer(db_session, "A")
+    await _run(db_session, a, start=datetime.now(UTC) - timedelta(days=60))
+    await db_session.commit()
+    d = (await authenticated_client.get("/api/stats/dashboard?days=30")).json()
+    assert d["success_rate"]["total"] == 0 and d["success_rate"]["success_rate"] is None
+    assert d["records"] == {"longest_print": None, "most_filament": None, "busiest_day": None}
+    assert d["printers"] == [] and d["heatmap"]["max"] == 0
+    d = (await authenticated_client.get("/api/stats/dashboard?days=90")).json()
+    assert d["success_rate"]["total"] == 1
+    assert (await authenticated_client.get("/api/stats/dashboard?days=0")).status_code == 422
+
+
+async def test_stats_dashboard_visibility_filtered(
+    make_user, make_group, login_as, db_session: AsyncSession
+) -> None:
+    a = await _printer(db_session, "A")
+    b = await _printer(db_session, "B")
+    now = datetime.now(UTC) - timedelta(hours=5)
+    await _run(db_session, a, start=now)
+    await _run(db_session, b, start=now, result=ArchiveResult.FAILED)
+    await db_session.commit()
+    viewer = await make_user("viewer")
+    await make_group("g", members=[viewer], printer_access={a.id: (True, False, False)})
+    client = await login_as(viewer)
+    d = (await client.get("/api/stats/dashboard")).json()
+    assert d["success_rate"]["total"] == 1 and d["success_rate"]["failed"] == 0
+    assert [p["printer_id"] for p in d["printers"]] == [a.id]

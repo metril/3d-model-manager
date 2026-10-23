@@ -835,3 +835,71 @@ def test_run_starts_and_stop_joins_ha_bridge(redis_url, printer_enabled, migrate
         daemon.stop()
         thread.join(timeout=3.0)
     assert _wait_until(lambda: not ha_thread.is_alive(), timeout=3.0)
+
+
+def _sensor_worker(worker, monkeypatch):
+    w, _adapter, pid, _client = worker
+    calls: list[tuple[int, dict]] = []
+    monkeypatch.setattr(
+        printerd_module, "_enqueue_sensor_sample", lambda p, snap: calls.append((p, snap))
+    )
+    return w, pid, calls
+
+
+def _tick(w, now):
+    sent = w.sensor_tick(now)
+    if w._sensor_thread is not None:
+        w._sensor_thread.join(2)
+    return sent
+
+
+def test_sensor_tick_samples_once_per_interval_and_skips_stale(worker, monkeypatch):
+    w, pid, calls = _sensor_worker(worker, monkeypatch)
+    assert not _tick(w, 0.0)  # no report yet
+    w.handle_report(
+        {
+            "gcode_state": "IDLE",
+            "nozzle_temper": 201.0,
+            "last_report_at": "2026-10-23T10:00:00Z",
+            "ams_units": [{"id": 0, "humidity": 4, "temp": 25.0, "sw_ver": "x"}],
+        }
+    )
+    assert _tick(w, 100.0)
+    assert calls[0][0] == pid
+    assert calls[0][1]["nozzle"] == 201.0
+    assert calls[0][1]["ams"] == [{"id": 0, "humidity": 4, "temp": 25.0}]
+    assert not _tick(w, 120.0)  # inside the 60 s interval
+    assert not _tick(w, 200.0)  # unchanged last_report_at => offline/stale
+    w.handle_report({"last_report_at": "2026-10-23T10:03:00Z"})
+    assert _tick(w, 300.0)
+    assert len(calls) == 2
+
+
+def test_sensor_tick_never_blocks_on_slow_enqueue(worker, monkeypatch):
+    w, _adapter, _pid, _client = worker
+    gate = threading.Event()
+    monkeypatch.setattr(printerd_module, "_enqueue_sensor_sample", lambda p, s: gate.wait(5))
+    w.handle_report({"gcode_state": "IDLE", "last_report_at": "2026-10-23T10:00:00Z"})
+    t0 = time.monotonic()
+    assert w.sensor_tick(0.0)
+    assert time.monotonic() - t0 < 0.5
+    gate.set()
+    w._sensor_thread.join(2)
+
+
+def test_sensor_tick_skips_while_previous_enqueue_alive(worker, monkeypatch):
+    w, _adapter, _pid, _client = worker
+    gate = threading.Event()
+    calls = []
+    monkeypatch.setattr(
+        printerd_module, "_enqueue_sensor_sample", lambda p, s: (calls.append(1), gate.wait(5))
+    )
+    w.handle_report({"last_report_at": "2026-10-23T10:00:00Z"})
+    assert w.sensor_tick(0.0)
+    w.handle_report({"last_report_at": "2026-10-23T10:01:00Z"})
+    assert not w.sensor_tick(100.0)  # first enqueue still hung
+    gate.set()
+    w._sensor_thread.join(2)
+    assert w.sensor_tick(200.0)
+    w._sensor_thread.join(2)
+    assert len(calls) == 2
