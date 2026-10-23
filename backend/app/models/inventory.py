@@ -45,6 +45,8 @@ class Spool(Base):
     location: Mapped[str | None] = mapped_column(String)
     low_stock_g: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("100"))
     tray_uuid: Mapped[str | None] = mapped_column(String, unique=True)
+    # Linked Spoolman spool id (Q9); NULL = not linked.
+    spoolman_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     archived_at: Mapped[datetime | None]
     last_used_at: Mapped[datetime | None]
     created_by_user_id: Mapped[int | None] = mapped_column(
@@ -96,3 +98,23 @@ class SpoolUsage(Base):
         str_enum(SpoolUsageSource, "spool_usage_source"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class SpoolmanSyncState(Base):
+    """Per-spool Spoolman sync bookkeeping (Q9). Only written when the
+    Spoolman mode is not ``off``."""
+
+    __tablename__ = "spoolman_sync_state"
+
+    spool_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("spools.id", ondelete="CASCADE"), primary_key=True
+    )
+    last_pushed_at: Mapped[datetime | None]
+    last_pulled_at: Mapped[datetime | None]
+    last_pulled_weight: Mapped[float | None] = mapped_column(Float)
+    last_error: Mapped[str | None] = mapped_column(String)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

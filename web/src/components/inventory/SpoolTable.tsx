@@ -155,7 +155,14 @@ export function SpoolTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <RemainingBar spool={spool} />
+                  <div className="flex items-center gap-2">
+                    <RemainingBar spool={spool} />
+                    {spool.spoolman_id != null ? (
+                      <Badge variant="outline" className="shrink-0" title={`Spoolman #${spool.spoolman_id}`}>
+                        Spoolman
+                      </Badge>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{spool.location ?? "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{slotLabel(spool, printerName)}</TableCell>

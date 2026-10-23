@@ -91,6 +91,7 @@ class SpoolOut(BaseModel):
     location: str | None
     low_stock_g: float
     tray_uuid: str | None
+    spoolman_id: int | None = None
     archived_at: datetime | None
     last_used_at: datetime | None
     created_by_user_id: int | None
@@ -115,6 +116,7 @@ class SpoolOut(BaseModel):
             location=s.location,
             low_stock_g=s.low_stock_g,
             tray_uuid=s.tray_uuid,
+            spoolman_id=s.spoolman_id,
             archived_at=s.archived_at,
             last_used_at=s.last_used_at,
             created_by_user_id=s.created_by_user_id,

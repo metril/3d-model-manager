@@ -6,18 +6,22 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SpoolOut } from "@/api/types";
 import { SpoolsPage } from "@/pages/SpoolsPage";
 
-const { getMock, authMock } = vi.hoisted(() => ({ getMock: vi.fn(), authMock: vi.fn() }));
+const { getMock, postMock, authMock } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  postMock: vi.fn(),
+  authMock: vi.fn(),
+}));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock } };
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock } };
 });
 
 vi.mock("@/api/auth", () => ({ useAuth: () => authMock() }));
@@ -129,5 +133,51 @@ describe("SpoolsPage", () => {
     await screen.findByText("100 g");
     const call = getMock.mock.calls.find((c) => typeof c[0] === "string" && c[0].includes("low_stock=true"));
     expect(call).toBeTruthy();
+  });
+
+  it("shows a Spoolman badge on linked spools", async () => {
+    getMock.mockImplementation((path: string) =>
+      path.startsWith("/spools") ? Promise.resolve([spool({ spoolman_id: 12 })]) : Promise.resolve([]),
+    );
+    renderPage();
+    expect(await screen.findByText("Spoolman")).toBeInTheDocument();
+  });
+
+  it("links an unlinked spool to a picked Spoolman spool", async () => {
+    postMock.mockResolvedValue(undefined);
+    getMock.mockImplementation((path: string) => {
+      if (path === "/spoolman/spools")
+        return Promise.resolve([
+          { id: 5, name: "Red", material: "PLA", vendor: "Acme", color_hex: null, remaining_weight: 640, used_weight: 360, location: null },
+        ]);
+      if (path === "/spools/1")
+        return Promise.resolve({ ...spool(), usage: [], series: [] });
+      if (path.startsWith("/spools")) return Promise.resolve([spool()]);
+      return Promise.resolve([]);
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText("100 g"));
+    fireEvent.click(await screen.findByRole("button", { name: "Link to Spoolman" }));
+    const pick = await screen.findByLabelText("Spoolman spool");
+    await screen.findByText(/#5 Acme PLA Red/);
+    fireEvent.change(pick, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/spoolman/link", { spool_id: 1, spoolman_id: 5 }),
+    );
+  });
+
+  it("offers Unlink for a linked spool", async () => {
+    postMock.mockResolvedValue(undefined);
+    getMock.mockImplementation((path: string) => {
+      if (path === "/spools/1")
+        return Promise.resolve({ ...spool({ spoolman_id: 12 }), usage: [], series: [] });
+      if (path.startsWith("/spools")) return Promise.resolve([spool({ spoolman_id: 12 })]);
+      return Promise.resolve([]);
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText("100 g"));
+    fireEvent.click(await screen.findByRole("button", { name: "Unlink" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/spoolman/unlink", { spool_id: 1 }));
   });
 });

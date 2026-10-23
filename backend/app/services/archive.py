@@ -32,7 +32,7 @@ from app.pipeline.slicedmeta import parse_gcode_3mf
 from app.printers.connection import connection_from_printer
 from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
-from app.services import billing, spool_inventory
+from app.services import billing, spool_inventory, spoolman
 from app.services.app_config import get_app_config_sync
 from app.services.costing import CostRates, charged_grams, filament_cost, job_energy_kwh, price_run
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
@@ -302,6 +302,8 @@ def archive_job(
     session.flush()  # so `run.id` exists for `settle_job`'s `charge(print_id=run.id)`
     billing.settle_job(session, job, run)
     session.commit()
+    # Q9: after the commit so a rolled-back/redelivered archive can't double-push.
+    spoolman.push_usages(session, usages)
     if fetch_exc is not None:
         raise ArchiveFetchError(str(fetch_exc)) from fetch_exc
     return arc

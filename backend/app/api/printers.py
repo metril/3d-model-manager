@@ -65,7 +65,7 @@ from app.schemas.printers import (
     seed_build_volume_mm,
 )
 from app.services import camera_state as cs
-from app.services import signed_urls, spool_inventory
+from app.services import signed_urls, spool_inventory, spoolman
 from app.services.app_config import get_app_config
 from app.services.permissions import can_print_async
 from app.services.print_plan import create_job
@@ -344,11 +344,14 @@ async def set_slot(
     # (the `spool_slots` unique constraints) -- caught as a 409, not a 500.
     def _assign() -> None:
         with base.sync_session() as s:
+            old_row = spool_inventory._slot_row(s, printer_id, unit, slot)
+            old_spool_id = old_row.spool_id if old_row is not None else None
             try:
                 spool_inventory.assign_slot(s, printer_id, unit, slot, payload.spool_id)
             except IntegrityError:
                 s.rollback()
                 raise
+            spoolman.on_slot_change(s, printer_id, unit, slot, old_spool_id, payload.spool_id)
 
     try:
         await anyio.to_thread.run_sync(_assign)
