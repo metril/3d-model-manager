@@ -151,6 +151,8 @@ from app.tasks import firmware as _firmware  # noqa: E402
 celery_app.conf.beat_schedule["firmware-check"] = {
     "task": "app.tasks.firmware.check_firmware",
     "schedule": _firmware.CHECK_INTERVAL_S,
+}
+
 # Additive: Q7 ops -- plug poll/auto-off, scheduled-backup gate (the task
 # re-reads settings each tick), daily update check.
 from app.tasks import ops as _ops  # noqa: E402
