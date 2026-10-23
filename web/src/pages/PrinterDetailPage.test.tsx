@@ -17,6 +17,9 @@ const { getMock, canPrinterBox } = vi.hoisted(() => ({
   canPrinterBox: { current: (_id: number, _kind: string): boolean => true },
 }));
 
+// HistoryStats has its own suite and needs a full /stats payload.
+vi.mock("@/components/print/HistoryStats", () => ({ HistoryStats: () => <div data-testid="history-stats" /> }));
+
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
   useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: canPrinterBox.current }),
@@ -125,6 +128,17 @@ describe("PrinterDetailPage", () => {
     expect((await screen.findAllByText("Bambu A1", {}, { timeout: 3000 })).length).toBeGreaterThan(0);
     expect(await screen.findByText("42%")).toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith("/archives?printer=1");
+  });
+
+  it("renders the XL card, the large camera slot, run history and stats", async () => {
+    mockGet();
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Bambu A1" });
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "XL");
+    expect(document.querySelector('[data-slot="camera-tile"]')).toBeInTheDocument();
+    expect(screen.getByTestId("history-stats")).toBeInTheDocument();
+    expect(screen.getByTestId("tile-bed")).toBeInTheDocument();
   });
 
   it("shows a not-found card for an unknown id", async () => {
