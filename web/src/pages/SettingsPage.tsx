@@ -4,11 +4,13 @@ import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import { useStorageBackends } from "@/api/settings";
+import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
+import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
 import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
@@ -74,6 +76,8 @@ export function SettingsPage() {
             {isAdmin && <TabsTrigger value="access">Access</TabsTrigger>}
           </TabsList>
           <TabsContent value="general" className="space-y-6">
+            <AppearanceCard />
+            {canSettings && <ExternalLinksCard />}
             <AutomationCard />
             <CategoriesSection />
             <PrintCostCard />

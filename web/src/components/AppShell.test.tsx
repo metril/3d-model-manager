@@ -11,7 +11,8 @@ import { AppShell } from "@/components/AppShell";
 // to has to be created through `vi.hoisted`.
 type ScanRunStub = { id: number; state: string; files_seen: number; files_hashed: number };
 
-const { featuresBox, failedImportsBox, scanRunsBox } = vi.hoisted(() => ({
+const { featuresBox, failedImportsBox, scanRunsBox, externalLinksBox } = vi.hoisted(() => ({
+  externalLinksBox: { current: [] as Array<Record<string, unknown>> },
   featuresBox: { current: { printer_enabled: false } as { printer_enabled: boolean } | undefined },
   failedImportsBox: { current: 0 },
   // R9-D item 7: stands in for `useScanRuns` -- `undefined` means "no runs
@@ -22,6 +23,10 @@ const { featuresBox, failedImportsBox, scanRunsBox } = vi.hoisted(() => ({
 
 vi.mock("@/api/features", () => ({
   useFeatures: () => ({ data: featuresBox.current, isLoading: false }),
+}));
+
+vi.mock("@/api/externalLinks", () => ({
+  useExternalLinks: () => ({ data: externalLinksBox.current }),
 }));
 
 vi.mock("@/api/imports", () => ({
@@ -67,8 +72,9 @@ function renderShell() {
   const rootRoute = createRootRoute();
   const shellRoute = createRoute({ getParentRoute: () => rootRoute, id: "shell", component: AppShell });
   const childRoute = createRoute({ getParentRoute: () => shellRoute, path: "/", component: () => <div>home</div> });
+  const libraryRoute = createRoute({ getParentRoute: () => shellRoute, path: "/library", component: () => <div>library page</div> });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([shellRoute.addChildren([childRoute])]),
+    routeTree: rootRoute.addChildren([shellRoute.addChildren([childRoute, libraryRoute])]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -84,6 +90,43 @@ describe("AppShell nav", () => {
     featuresBox.current = { printer_enabled: false };
     failedImportsBox.current = 0;
     scanRunsBox.current = undefined;
+    externalLinksBox.current = [];
+  });
+
+  it("jumps to the first visible nav item on '1' and ignores digits typed in inputs", async () => {
+    renderShell();
+    await screen.findByRole("link", { name: "Models" });
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: "1" });
+    expect(screen.queryByText("library page")).not.toBeInTheDocument();
+    input.remove();
+
+    fireEvent.keyDown(document.body, { key: "1" });
+    expect(await screen.findByText("library page")).toBeInTheDocument();
+  });
+
+  it("opens the shortcuts dialog on '?'", async () => {
+    renderShell();
+    await screen.findByRole("link", { name: "Models" });
+    fireEvent.keyDown(document.body, { key: "?" });
+    expect(await screen.findByText("Jump to the first nine sidebar items")).toBeInTheDocument();
+  });
+
+  it("lists external links under Links; new-tab ones are plain anchors", async () => {
+    externalLinksBox.current = [
+      { id: 7, name: "Grafana", url: "https://g.example", icon: null, sort_order: 0, open_mode: "newtab" },
+      { id: 8, name: "Wiki", url: "https://w.example", icon: null, sort_order: 1, open_mode: "iframe" },
+    ];
+    renderShell();
+    const newTab = await screen.findByRole("link", { name: "Grafana" });
+    expect(newTab).toHaveAttribute("href", "https://g.example");
+    expect(newTab).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: "Wiki" })).toHaveAttribute("href", "/external/8");
+    // Links render above System (Background jobs / Settings) in the sidebar.
+    const order = screen.getAllByRole("link").map((a) => a.textContent);
+    expect(order.indexOf("Wiki")).toBeLessThan(order.indexOf("Settings"));
   });
 
   it("hides the Print group when the printer feature flag is off", async () => {

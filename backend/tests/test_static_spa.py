@@ -177,3 +177,13 @@ async def test_health_still_works_when_static_enabled(static_dir: Path) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert "version" in body
+
+
+async def test_service_worker_and_manifest_are_not_immutable(static_dir: Path) -> None:
+    (static_dir / "sw.js").write_text("// sw")
+    (static_dir / "manifest.webmanifest").write_text("{}")
+    async with await _client(create_app()) as client:
+        for name in ("sw.js", "manifest.webmanifest"):
+            response = await client.get(f"/{name}")
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-cache"

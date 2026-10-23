@@ -169,6 +169,47 @@
     --state-offline: oklch(0.4 0 0);
 }
 
+/* Q8a appearance: style x accent layered on top of the mode (.dark/:root).
+   `data-accent`/`data-style` are set on <html> by `lib/appearance.tsx`; with
+   neither attribute the defaults above (classic + brand orange) apply.
+   Accents only carry hue/chroma; `--style-chroma` lets "vibrant" boost it. */
+:root {
+    --style-chroma: 1;
+}
+:root[data-accent="orange"] { --accent-h: 41.1; --accent-c: 0.176; }
+:root[data-accent="green"] { --accent-h: 149; --accent-c: 0.16; }
+:root[data-accent="teal"] { --accent-h: 190; --accent-c: 0.12; }
+:root[data-accent="blue"] { --accent-h: 255; --accent-c: 0.19; }
+:root[data-accent="purple"] { --accent-h: 300; --accent-c: 0.2; }
+:root[data-accent="red"] { --accent-h: 25; --accent-c: 0.21; }
+:root[data-accent] {
+    --primary: oklch(0.646 calc(var(--accent-c) * var(--style-chroma)) var(--accent-h));
+    --ring: var(--primary);
+}
+/* Glow: accent-tinted hairlines and a soft accent halo on raised surfaces. */
+:root[data-style="glow"] {
+    --border: color-mix(in oklch, var(--primary) 28%, transparent);
+    --sidebar-border: color-mix(in oklch, var(--primary) 22%, transparent);
+    --elevation-1: 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent), 0 0 12px -2px color-mix(in oklch, var(--primary) 30%, transparent);
+    --elevation-2: 0 0 18px -2px color-mix(in oklch, var(--primary) 40%, transparent), 0 2px 8px -2px rgb(0 0 0 / 35%);
+    --elevation-3: 0 0 32px -4px color-mix(in oklch, var(--primary) 50%, transparent), 0 12px 32px -6px rgb(0 0 0 / 45%);
+}
+/* Vibrant: saturated accent and accent-washed surfaces. */
+:root[data-style="vibrant"] {
+    --style-chroma: 1.35;
+    --background: color-mix(in oklch, var(--primary) 7%, oklch(1 0 0));
+    --card: color-mix(in oklch, var(--primary) 4%, oklch(1 0 0));
+    --sidebar: color-mix(in oklch, var(--primary) 9%, oklch(1 0 0));
+    --muted: color-mix(in oklch, var(--primary) 10%, oklch(0.97 0 0));
+}
+:root.dark[data-style="vibrant"] {
+    --background: color-mix(in oklch, var(--primary) 12%, oklch(0.145 0 0));
+    --card: color-mix(in oklch, var(--primary) 14%, oklch(0.205 0 0));
+    --popover: var(--card);
+    --sidebar: color-mix(in oklch, var(--primary) 16%, oklch(0.205 0 0));
+    --muted: color-mix(in oklch, var(--primary) 12%, oklch(0.235 0 0));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

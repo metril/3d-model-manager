@@ -22,6 +22,7 @@ from app.models.collections import (
     RemoteCollectionCache,
     RemoteCollectionItem,
 )
+from app.models.external_link import ExternalLink
 from app.models.home_assistant import HaLink
 from app.models.inventory import Spool, SpoolmanPush, SpoolmanSyncState, SpoolSlot, SpoolUsage
 from app.models.library import (
@@ -52,6 +53,7 @@ __all__ = [
     "Category",
     "CostCenter",
     "Derivative",
+    "ExternalLink",
     "File",
     "FileLocation",
     "FollowedCollection",

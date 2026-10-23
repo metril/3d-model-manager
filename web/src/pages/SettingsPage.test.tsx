@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
 import type { StorageBackendOut } from "@/api/types";
+import { AppearanceProvider } from "@/lib/appearance";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 // `vi.mock` factories are hoisted above the module's own top-level bindings
@@ -164,7 +165,9 @@ function renderSettingsPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <AppearanceProvider>
+        <RouterProvider router={router} />
+      </AppearanceProvider>
     </QueryClientProvider>,
   );
 }

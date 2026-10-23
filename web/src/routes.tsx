@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { AddPage } from "@/pages/AddPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
 import { DuplicatesPage } from "@/pages/DuplicatesPage";
+import { ExternalLinkPage } from "@/pages/ExternalLinkPage";
 import { FinancePage } from "@/pages/FinancePage";
 import { JobsPage } from "@/pages/JobsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
@@ -282,6 +283,12 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const externalLinkRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/external/$id",
+  component: ExternalLinkPage,
+});
+
 export const routeTree = rootRoute.addChildren([
   loginRoute,
   viewerWindowRoute,
@@ -307,5 +314,6 @@ export const routeTree = rootRoute.addChildren([
     systemFinanceRoute,
     jobsRedirectRoute,
     settingsRoute,
+    externalLinkRoute,
   ]),
 ]);
