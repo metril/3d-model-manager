@@ -149,19 +149,7 @@ class FakePrinterAdapter(PrinterAdapter):
         return merged
 
     def public_state(self, merged: dict) -> PrinterPublicState:
-        defaults = {
-            "nozzle_target": 0.0,
-            "bed_target": 0.0,
-            "fan_part_pct": 0,
-            "fan_aux_pct": 0,
-            "light_on": False,
-            "speed_level": 2,
-            "sdcard": True,
-            "nozzle_type": "stainless_steel",
-            "firmware": {"ota": "01.05.00.00", "ams": []},
-            "ipcam": True,
-        }
-        return public_state_from({**defaults, **merged})
+        return public_state_from(merged)
 
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None:
         if public.print_error:
