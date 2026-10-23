@@ -135,6 +135,12 @@ def test_command_dispatch(worker):
     assert adapter.paused == 1 and adapter.resumed == 1 and adapter.stopped == 1
 
 
+def test_hms_command_dispatch(worker):
+    w, adapter, _pid, _client = worker
+    w.handle_command("hms_action", {"print_error": "0500400E", "action": "STOP_PRINTING"})
+    assert adapter.hms_actions == [("0500400E", "STOP_PRINTING", None)]
+
+
 def _tray(slot, ams_unit, tray, tray_uuid=None, tray_type=None, remain_pct=None):
     return {
         "slot": slot,

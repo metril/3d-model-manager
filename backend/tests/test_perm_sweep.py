@@ -57,3 +57,16 @@ def test_mutating_sweep_not_empty():
 
 def test_allowlist_entries_exist():
     assert set(_all_routes()) >= VIEWER_ALLOWLIST
+
+
+def test_q5_routes_are_gated():
+    """Q5 mutating printer routes must not be viewer-allowlisted."""
+    q5 = {
+        ("POST", "/api/printers/discover"),
+        ("POST", "/api/printers/diagnostic"),
+        ("POST", "/api/printers/{printer_id}/hms/clear"),
+        ("POST", "/api/printers/{printer_id}/hms/action"),
+        ("POST", "/api/printers/{printer_id}/firmware/upload"),
+    }
+    assert q5 <= set(_all_routes())
+    assert q5 <= set(_MUTATING)

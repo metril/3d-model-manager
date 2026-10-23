@@ -67,6 +67,7 @@ celery_app.conf.update(
         "app.tasks.home_assistant",
         "app.tasks.spoolman",
         "app.tasks.sensors",
+        "app.tasks.firmware",
     ),
 )
 
@@ -141,4 +142,12 @@ from app.tasks import sensors as _sensors  # noqa: E402,F401
 celery_app.conf.beat_schedule["sensors-prune"] = {
     "task": "app.tasks.sensors.prune",
     "schedule": crontab(hour=3, minute=15),
+}
+
+# Additive: Q5 daily Bambu firmware feed refresh.
+from app.tasks import firmware as _firmware  # noqa: E402
+
+celery_app.conf.beat_schedule["firmware-check"] = {
+    "task": "app.tasks.firmware.check_firmware",
+    "schedule": _firmware.CHECK_INTERVAL_S,
 }

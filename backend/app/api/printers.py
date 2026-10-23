@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import ipaddress
 import json
 import secrets
 import time
@@ -44,9 +45,9 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
-from app.models import OverlayToken, Printer, PrintJob, User
+from app.models import OverlayToken, Printer, PrintJob, Setting, User
 from app.models.inventory import Spool
-from app.printers import discovery
+from app.printers import discovery, probe
 from app.printers.base import command_channel
 from app.printers.camera_rtsp import BETA as RTSP_BETA
 from app.printers.camera_select import (
@@ -58,6 +59,14 @@ from app.printers.camera_select import (
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.schemas.inventory import SlotAssignIn
+from app.schemas.printer_ops import (
+    DiagnosticIn,
+    DiagnosticOut,
+    DiscoveredOut,
+    DiscoverIn,
+    FirmwareInfoOut,
+    HmsFaultOut,
+)
 from app.schemas.printers import (
     AmsTrayOut,
     CameraStatusOut,
@@ -81,6 +90,8 @@ from app.schemas.printers import (
     status_from_state,
 )
 from app.services import camera_state as cs
+from app.services import firmware as fw
+from app.services import hms as hms_svc
 from app.services import signed_urls, spool_inventory, spoolman
 from app.services.app_config import get_app_config
 from app.services.permissions import can_print_async
@@ -467,6 +478,153 @@ async def _get_enabled_or_404(db: AsyncSession, printer_id: int) -> Printer:
     if not printer.enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "printer is disabled")
     return printer
+
+
+# -- Q5: discovery, diagnostics, HMS, firmware ---------------------------------
+
+
+@router.post(
+    "/discover",
+    response_model=list[DiscoveredOut],
+    dependencies=[Depends(require_perm("settings:write"))],
+)
+async def discover_printers(payload: DiscoverIn | None = None) -> list[DiscoveredOut]:
+    """SSDP listen + bounded /24 TCP-8883 sweep (~10 s budget)."""
+    cidr = payload.cidr if payload else None
+    if cidr:
+        try:
+            net = ipaddress.ip_network(cidr, strict=False)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid CIDR") from e
+        if net.version != 4 or net.prefixlen < 22 or not net.is_private:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "CIDR must be a private IPv4 network of /22 or smaller",
+            )
+    items = await anyio.to_thread.run_sync(lambda: discovery.discover(cidr, budget=10.0))
+    return [DiscoveredOut(**i) for i in items]
+
+
+@router.post(
+    "/diagnostic",
+    response_model=DiagnosticOut,
+    dependencies=[Depends(require_perm("settings:write"))],
+)
+async def diagnostic_adhoc(payload: DiagnosticIn) -> DiagnosticOut:
+    """Connection diagnostic for a not-yet-saved printer."""
+    report = await anyio.to_thread.run_sync(
+        lambda: probe.diagnose(
+            payload.host, payload.serial, payload.access_code, model=payload.model
+        )
+    )
+    return DiagnosticOut(**report)
+
+
+@router.get(
+    "/{printer_id}/diagnostic",
+    response_model=DiagnosticOut,
+    dependencies=[Depends(require_perm("settings:write"))],
+)
+async def diagnostic_printer(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> DiagnosticOut:
+    printer = await _get_or_404(db, printer_id)
+    conn = connection_from_printer(settings, printer)  # decrypts here only
+    state = await _read_state(settings, printer_id)
+    report = await anyio.to_thread.run_sync(
+        lambda: probe.diagnose(
+            conn.host, conn.serial, conn.access_code, model=conn.model, state=state
+        )
+    )
+    return DiagnosticOut(**report)
+
+
+async def _read_state(settings: Settings, printer_id: int) -> dict | None:
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await read_state_async(client, printer_id)
+    finally:
+        await client.aclose()
+
+
+@router.get(
+    "/{printer_id}/hms",
+    response_model=list[HmsFaultOut],
+    dependencies=[Depends(require_printer_access("print"))],
+)
+async def printer_hms(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[HmsFaultOut]:
+    printer = await _get_or_404(db, printer_id)
+    state = await _read_state(settings, printer_id)
+    return [HmsFaultOut(**f) for f in hms_svc.decode_state(state, printer.serial)]
+
+
+@router.get(
+    "/{printer_id}/firmware",
+    response_model=FirmwareInfoOut,
+    dependencies=[Depends(require_printer_access("print"))],
+)
+async def printer_firmware(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> FirmwareInfoOut:
+    printer = await _get_or_404(db, printer_id)
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        state = await read_state_async(client, printer_id)
+        raw = await client.get(fw.upload_status_key(printer_id))
+    finally:
+        await client.aclose()
+    current = ((state or {}).get("firmware") or {}).get("ota")
+    key = fw.api_key_for(printer.model)
+    row = await db.get(Setting, fw.CACHE_KEY)
+    info = ((row.value if row else {}) or {}).get(key or "") or {}
+    try:
+        upload = json.loads(raw) if raw else None
+    except ValueError:
+        upload = None
+    return FirmwareInfoOut(
+        model_supported=key is not None,
+        current=current,
+        latest=info.get("version"),
+        release_notes=info.get("release_notes"),
+        release_time=info.get("release_time"),
+        checked_at=info.get("checked_at"),
+        download_available=bool(info.get("download_url")),
+        update_available=fw.update_available(current, info.get("version")),
+        upload=upload,
+    )
+
+
+@router.post(
+    "/{printer_id}/firmware/upload",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[
+        Depends(require_perm("settings:write")),
+        Depends(require_printer_access("control")),
+    ],
+)
+async def firmware_upload(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> dict:
+    """Stage the latest image on the printer's SD card. The flash itself is
+    always triggered on the printer."""
+    info = await printer_firmware(printer_id, db, settings)
+    if not info.update_available or not info.download_available:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no firmware update available to stage")
+    from app.tasks.firmware import upload_firmware
+
+    task = upload_firmware.delay(printer_id, f"user:{ctx.user.id}")
+    return {"status": "queued", "task_id": task.id}
 
 
 @router.post(

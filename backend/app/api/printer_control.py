@@ -174,6 +174,7 @@ _ROUTES = (
     ("airduct", "set_airduct", False),
     ("calibrate", "calibrate", False),
     ("hms/clear", "clear_hms", False),
+    ("hms/action", "hms_action", False),
 )
 for _path, _command, _admin in _ROUTES:
     router.add_api_route(
@@ -182,6 +183,13 @@ for _path, _command, _admin in _ROUTES:
         methods=["POST"],
         dependencies=[Depends(require_printer_access("control"))],
     )
+    if _path.startswith("hms/"):  # Q5: `/printers/{id}/hms/...` alias of the control route
+        router.add_api_route(
+            f"/{{printer_id}}/{_path}",
+            _make_endpoint(_command, admin_only=_admin),
+            methods=["POST"],
+            dependencies=[Depends(require_printer_access("control"))],
+        )
 
 
 @router.post(

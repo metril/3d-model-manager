@@ -3,6 +3,7 @@ adapter call. Shared by printerd (execution) and the API (early 422)."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -54,6 +55,19 @@ def _bool(args: dict, key: str, default: bool | None = None) -> bool:
     if not isinstance(v, bool):
         raise CommandError("invalid", f"{key} must be a boolean")
     return v
+
+
+def _v_hms_action(args: dict) -> dict:
+    from app.printers.bambu import hms_action_payload
+
+    err = str(args.get("print_error", ""))
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}|[0-9A-Fa-f]{16}", err):
+        raise CommandError("invalid", "print_error must be 8 or 16 hex chars")
+    action = str(args.get("action", ""))
+    if hms_action_payload(err, action, None) is None:
+        raise CommandError("unsupported", f"unsupported HMS action {action!r}")
+    job_id = args.get("job_id")
+    return {"print_error": err, "action": action, "job_id": str(job_id)[:64] if job_id else None}
 
 
 _TEMP_MAX = {"nozzle": 350, "bed": 120, "chamber": 65}
@@ -175,6 +189,10 @@ DISPATCH: dict[str, Spec] = {
         refuse_printing=True,
     ),
     "clear_hms": Spec(_v_none, lambda a, _: a.clear_hms()),
+    "hms_action": Spec(
+        _v_hms_action,
+        lambda a, x: a.execute_hms_action(x["print_error"], x["action"], x["job_id"]),
+    ),
     "skip_objects": Spec(
         _v_skip, lambda a, x: a.skip_objects(x["object_ids"]), needs_printing=True
     ),

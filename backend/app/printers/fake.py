@@ -89,6 +89,8 @@ class FakePrinterAdapter(PrinterAdapter):
         self.full_status_requests = 0
         self.paused = self.resumed = self.stopped = 0
         self.uploaded: list[PrintSpec] = []
+        self.hms_actions: list[tuple] = []
+        self.files_uploaded: list[tuple[str, int]] = []
         self._handler: ReportHandler | None = None
         self.files: dict[str, bytes] = {}
         self.file_mtimes: dict[str, datetime] = {}
@@ -137,6 +139,12 @@ class FakePrinterAdapter(PrinterAdapter):
 
     def request_full_status(self) -> None:
         self.full_status_requests += 1
+
+    def execute_hms_action(self, print_error: str, action: str, job_id: str | None = None) -> None:
+        self.hms_actions.append((print_error, action, job_id))
+
+    def upload_file(self, remote: str, local) -> None:
+        self.files_uploaded.append((remote, local.stat().st_size))
 
     def upload_and_start(self, spec: PrintSpec) -> None:
         self.uploaded.append(spec)

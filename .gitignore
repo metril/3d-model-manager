@@ -15,6 +15,7 @@ backend/.tools/
 
 # App runtime
 data/
+!backend/app/data/
 library/
 slicer-watch/
 *.env
