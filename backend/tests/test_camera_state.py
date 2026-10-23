@@ -13,7 +13,13 @@ JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
 
 
 def _client(redis_url: str) -> redis_lib.Redis:
-    return redis_lib.Redis.from_url(redis_url)
+    """The Redis container is session-shared and these tests use small fixed
+    printer ids that other camera tests (API snapshot viewers, stamped with
+    real wall time) also write -- start each test from clean camera keys."""
+    r = redis_lib.Redis.from_url(redis_url)
+    for key in r.scan_iter("printer:*:camera:*"):
+        r.delete(key)
+    return r
 
 
 def test_viewer_expires_after_ttl(redis_url):

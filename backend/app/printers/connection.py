@@ -9,6 +9,7 @@ from app.config import Settings
 from app.crypto import decrypt_secret
 from app.models import Printer
 from app.printers.base import PrinterConnection
+from app.printers.camera_select import decrypt_options
 
 
 def connection_from_printer(settings: Settings, printer: Printer) -> PrinterConnection:
@@ -17,5 +18,5 @@ def connection_from_printer(settings: Settings, printer: Printer) -> PrinterConn
         serial=printer.serial,
         access_code=decrypt_secret(settings, printer.access_code_enc),
         model=printer.model,
-        options=printer.options or {},
+        options=decrypt_options(settings, printer.options),
     )

@@ -335,3 +335,133 @@ async def test_stream_route_ends_when_idle(
 
     assert len(parts) == 1
     assert await redis_client.zcard(cs.viewers_key(printer_row.id)) == 0
+
+
+# -- Q4: overlay tokens, fps, status, rotation -------------------------------
+
+
+async def _mint_overlay(c: httpx.AsyncClient, pid: int) -> dict:
+    r = await c.post(f"/api/printers/{pid}/overlay-tokens", json={"label": "obs"})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+async def test_overlay_token_mint_list_revoke(
+    authenticated_client: httpx.AsyncClient,
+    client: httpx.AsyncClient,
+    printer_row: Printer,
+    redis_client: aioredis.Redis,
+) -> None:
+    pid = printer_row.id
+    await redis_client.set(cs.frame_key(pid), JPEG)
+    minted = await _mint_overlay(authenticated_client, pid)
+    token = minted["token"]
+    assert token.startswith("ovl_") and minted["label"] == "obs"
+
+    listed = (await authenticated_client.get(f"/api/printers/{pid}/overlay-tokens")).json()
+    assert len(listed) == 1 and "token" not in listed[0]
+
+    # public overlay route + camera routes accept it, no session
+    r = await client.get(f"/api/overlay/{pid}", params={"token": token})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["printer_name"] == "P1" and token in body["stream_url"]
+    snap = await client.get(f"/api/printers/{pid}/camera/snapshot", params={"token": token})
+    assert snap.status_code == 200
+
+    # scoped to its printer, and unknown tokens fail
+    assert (await client.get("/api/overlay/999999", params={"token": token})).status_code == 401
+    bad = await client.get(f"/api/overlay/{pid}", params={"token": "ovl_nope"})
+    assert bad.status_code == 401
+
+    d = await authenticated_client.delete(f"/api/printers/{pid}/overlay-tokens/{minted['id']}")
+    assert d.status_code == 204
+    assert (await client.get(f"/api/overlay/{pid}", params={"token": token})).status_code == 401
+    assert (
+        await client.get(f"/api/printers/{pid}/camera/snapshot", params={"token": token})
+    ).status_code == 401
+
+
+async def test_overlay_token_requires_control(
+    member_client: httpx.AsyncClient, printer_row: Printer, make_group, member
+) -> None:
+    await _grant_print(make_group, member, printer_row)  # print, not control
+    r = await member_client.post(f"/api/printers/{printer_row.id}/overlay-tokens", json={})
+    assert r.status_code == 403
+
+
+async def test_stream_fps_bounds(
+    authenticated_client: httpx.AsyncClient, printer_row: Printer
+) -> None:
+    for bad in (0, 16, -1):
+        r = await authenticated_client.get(
+            f"/api/printers/{printer_row.id}/camera/stream", params={"fps": bad}
+        )
+        assert r.status_code == 422
+
+
+async def test_mjpeg_parts_fps_throttle(redis_client: aioredis.Redis, printer_row: Printer) -> None:
+    pid = printer_row.id
+    await redis_client.set(cs.frame_key(pid), JPEG)
+    gen = mjpeg_parts(redis_client, pid, "v-fps", min_interval=60.0)
+    got = [await gen.__anext__()]  # the current frame is always sent first
+    await redis_client.publish(cs.frame_channel(pid), JPEG)  # throttled away
+    with anyio.move_on_after(1.5):
+        got.append(await gen.__anext__())
+    await gen.aclose()
+    assert len(got) == 1
+
+
+async def test_camera_status_and_options_redaction(
+    authenticated_client: httpx.AsyncClient, printer_row: Printer
+) -> None:
+    pid = printer_row.id
+    s = (await authenticated_client.get(f"/api/printers/{pid}/camera/status")).json()
+    assert s["source"] == "none" and s["beta"] is False and s["rotation"] == 0
+
+    r = await authenticated_client.patch(
+        f"/api/printers/{pid}",
+        json={
+            "model": "X1C",
+            "options": {"camera_rotation": 180},
+        },
+    )
+    assert r.status_code == 200
+    s = (await authenticated_client.get(f"/api/printers/{pid}/camera/status")).json()
+    assert (s["source"], s["beta"], s["rotation"]) == ("rtsp", True, 180)
+
+    r = await authenticated_client.patch(
+        f"/api/printers/{pid}",
+        json={"options": {"camera": {"kind": "snapshot", "url": "http://cam/secret.jpg"}}},
+    )
+    assert r.status_code == 200
+    assert "secret" not in r.text and r.json()["options"]["camera"]["has_url"] is True
+    s = (await authenticated_client.get(f"/api/printers/{pid}/camera/status")).json()
+    assert s["source"] == "external" and s["beta"] is False
+
+    bad = await authenticated_client.patch(
+        f"/api/printers/{pid}", json={"options": {"camera_rotation": 7}}
+    )
+    assert bad.status_code == 422
+
+
+async def test_snapshot_rotated_server_side(
+    authenticated_client: httpx.AsyncClient,
+    printer_row: Printer,
+    redis_client: aioredis.Redis,
+    db_session,
+) -> None:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 20), "red").save(buf, format="JPEG")
+    await redis_client.set(cs.frame_key(printer_row.id), buf.getvalue())
+    printer_row.options = {"camera_rotation": 90}
+    await db_session.commit()
+
+    r = await authenticated_client.get(f"/api/printers/{printer_row.id}/camera/snapshot")
+
+    assert r.status_code == 200
+    assert Image.open(io.BytesIO(r.content)).size == (20, 40)

@@ -125,7 +125,7 @@ class CameraWorker:
                         if self._stop.is_set():
                             break
                         now = self.clock()
-                        if now - last_sent < MIN_FRAME_INTERVAL_S:
+                        if now - last_sent < getattr(source, "min_interval", MIN_FRAME_INTERVAL_S):
                             continue
                         last_sent = now
                         self.last_frame_at = now

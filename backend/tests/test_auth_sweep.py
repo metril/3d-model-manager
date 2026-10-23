@@ -41,6 +41,8 @@ PUBLIC_ROUTES = {
     ("get", "/api/auth/oidc/providers"),
     ("get", "/api/auth/oidc/{slug}/start"),
     ("get", "/api/auth/oidc/{slug}/callback"),
+    # Q4: token-scoped overlay data for OBS browser sources (overlay token in the query).
+    ("get", "/api/overlay/{printer_id}"),
 }
 
 # Dummy values for every path parameter used anywhere in the API, so a
