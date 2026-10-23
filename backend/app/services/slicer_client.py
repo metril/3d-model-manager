@@ -1,13 +1,9 @@
-"""Client for the slicer sidecar (P6 "slicer, profiles, recipes and
-dispatch" plan, Task 2) -- pinned `ghcr.io/maziggy/bambu-studio-api` image
-(`compose.slicer.yaml`, profile `slicer`).
-
-The image's real HTTP surface is UNVERIFIED (no live instance was available
-while writing this) -- every image-specific detail (paths, response
-shapes) is confined to `_ENDPOINTS`, `_build_slice_request`, and
-`_parse_health` below. Swapping to our own FastAPI-over-CLI wrapper later
-only edits those three; the `SlicerClient` public contract
-(`health`/`profiles`/`slice`) stays put.
+"""Client for our slicer sidecar (`slicer/`, compose profile `slicer`): a
+FastAPI wrapper around the Bambu Studio CLI. Endpoints: `GET /health`
+(`{status, version, busy, max_concurrency}`), `GET /profiles[?flatten=1]`
+(bundled Bambu presets) and `POST /slice` (multipart, built by
+`_build_slice_request`; responds with the `.gcode.3mf`). Errors are JSON
+`{error, message, exit_code, log_tail}`; 429 means the sidecar is busy.
 
 Profile JSON (printer/process/filament) is sent as FILES on each `slice`
 call, never as names the sidecar would have to look up -- it never touches
@@ -30,8 +26,7 @@ from app.services.app_config import AppConfig
 
 logger = logging.getLogger(__name__)
 
-# The ONLY place that knows this image's actual paths. Unverified against a
-# live instance -- update here (and nowhere else) once confirmed.
+# The sidecar's paths.
 _ENDPOINTS = {
     "health": "/health",
     "slice": "/slice",
@@ -55,6 +50,11 @@ class SlicerUnavailable(SlicerError):
     """Could not reach the sidecar at all (connection refused/timeout)."""
 
 
+class SlicerBusy(SlicerUnavailable):
+    """The sidecar answered 429 (all slice slots taken). Like an unreachable
+    sidecar it doesn't consume a retry attempt -- the task just waits."""
+
+
 class SlicerProtocolError(SlicerError):
     """The sidecar responded 2xx, but with a body shape this client can't
     make sense of at all (M4: e.g. `/health`'s body isn't even a JSON
@@ -70,17 +70,33 @@ class SliceOptions:
 
 
 def _parse_health(data: Any) -> dict:
-    """Image-specific: pulls a version string out of whatever shape the
-    health payload turns out to have, tolerating a couple of plausible key
-    names since this is unverified. M4: a body that isn't even a JSON
-    object at all (list/string/number) can't be tolerated the same way --
-    raises `SlicerProtocolError` instead of blowing up on `.get`."""
+    """Strict: the body must be `{status: str, version: str, ...}`; anything
+    else is a `SlicerProtocolError`. `ok` is `status == "ok"`."""
     if not isinstance(data, dict):
         raise SlicerProtocolError(f"slicer health returned a non-object body: {data!r}")
-    version = data.get("version") or data.get("app_version") or ""
-    status = data.get("status") or data.get("state")
-    ok = bool(data.get("ok", True)) and (status in (None, "ok", "healthy", "up"))
-    return {"version": str(version), "ok": ok}
+    status = data.get("status")
+    version = data.get("version")
+    if not isinstance(status, str) or not isinstance(version, str):
+        raise SlicerProtocolError("slicer health is missing a string status/version")
+    return {
+        "version": version,
+        "ok": status == "ok",
+        "busy": bool(data.get("busy", False)),
+        "max_concurrency": data.get("max_concurrency"),
+    }
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """`error: message` from the sidecar's own JSON error body, truncated.
+    Non-JSON bodies (a proxy's HTML, a stack trace) are never echoed."""
+    try:
+        data = response.json()
+    except ValueError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    parts = [str(data[k]) for k in ("error", "message") if isinstance(data.get(k), str)]
+    return ": ".join(parts)[:300]
 
 
 def _build_slice_request(
@@ -165,7 +181,11 @@ class SlicerClient:
             logger.warning(
                 "slicer returned %s for %r: %s", response.status_code, path, response.text[:2000]
             )
-            raise SlicerError(f"slicer returned {response.status_code} for {path!r}")
+            if response.status_code == 429:
+                raise SlicerBusy(f"slicer is busy ({path!r})")
+            detail = _error_detail(response)
+            suffix = f": {detail}" if detail else ""
+            raise SlicerError(f"slicer returned {response.status_code} for {path!r}{suffix}")
         return response
 
     def health(self) -> dict:
@@ -176,12 +196,13 @@ class SlicerClient:
             raise SlicerError(f"slicer health returned non-JSON body: {exc}") from exc
         return _parse_health(data)
 
-    def profiles(self) -> list[dict] | None:
-        """The image's own bundled presets, if it exposes them. `None` when
-        the endpoint doesn't exist/isn't supported -- callers fall back to
-        our own imported profiles (`app.services.slicer_profiles`)."""
+    def profiles(self, *, flatten: bool = False) -> list[dict] | None:
+        """The sidecar's bundled Bambu presets (`flatten=True` includes each
+        full `data` body). `None` when it can't be read as a list -- callers
+        fall back to our own imported profiles."""
+        params = {"flatten": "1"} if flatten else None
         try:
-            response = self._request("GET", _ENDPOINTS["profiles"])
+            response = self._request("GET", _ENDPOINTS["profiles"], params=params)
         except SlicerError:
             return None
         try:

@@ -1,10 +1,7 @@
-"""Contract tests for `app.services.slicer_client` against the pinned
-`ghcr.io/maziggy/bambu-studio-api` sidecar image. The real endpoints are
-UNVERIFIED (no live image available) -- these tests pin this module's OWN
-tolerant parsing/request-shape behavior against mocked responses via respx,
-not a verified real API contract. Swapping to our own FastAPI-over-CLI
-wrapper later only touches `_ENDPOINTS`/`_build_slice_request`/
-`_parse_health` in slicer_client.py.
+"""Contract tests for `app.services.slicer_client` against our slicer
+sidecar (`slicer/`), with mocked responses via respx. The wrapper's own
+tests (`slicer/tests`) build requests with `_build_slice_request`, so the
+two stay in sync.
 """
 
 from __future__ import annotations
@@ -19,6 +16,7 @@ import respx
 from app.services.app_config import AppConfig
 from app.services.slicer_client import (
     SliceOptions,
+    SlicerBusy,
     SlicerClient,
     SlicerError,
     SlicerProtocolError,
@@ -39,11 +37,87 @@ def _zip_bytes() -> bytes:
 @respx.mock
 def test_health_contract():
     respx.get(f"{BASE_URL}/health").mock(
-        return_value=httpx.Response(200, json={"version": "1.2.5.7", "status": "ok"})
+        return_value=httpx.Response(
+            200, json={"version": "v02.08", "status": "ok", "busy": True, "max_concurrency": 1}
+        )
     )
     client = SlicerClient(BASE_URL)
     result = client.health()
-    assert result == {"version": "1.2.5.7", "ok": True}
+    assert result == {"version": "v02.08", "ok": True, "busy": True, "max_concurrency": 1}
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "body", [{"version": "1"}, {"status": "ok"}, {"status": 1, "version": "1"}]
+)
+def test_health_strict_missing_fields_raise_protocol_error(body):
+    respx.get(f"{BASE_URL}/health").mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(SlicerProtocolError):
+        SlicerClient(BASE_URL).health()
+
+
+@respx.mock
+def test_health_non_ok_status_is_not_ok():
+    respx.get(f"{BASE_URL}/health").mock(
+        return_value=httpx.Response(200, json={"version": "1", "status": "degraded"})
+    )
+    assert SlicerClient(BASE_URL).health()["ok"] is False
+
+
+@respx.mock
+def test_slice_429_raises_slicer_busy_which_is_unavailable():
+    respx.post(f"{BASE_URL}/slice").mock(
+        return_value=httpx.Response(429, json={"error": "busy", "message": "slicer is busy"})
+    )
+    with pytest.raises(SlicerBusy) as exc_info:
+        SlicerClient(BASE_URL).slice(
+            model=b"x",
+            filename="m.stl",
+            printer_profile={},
+            process_profile={},
+            filament_profiles=[],
+            bed_type="textured_plate",
+            options=SliceOptions(),
+        )
+    assert isinstance(exc_info.value, SlicerUnavailable)
+
+
+@respx.mock
+def test_slice_error_json_surfaces_error_and_message_but_not_log_tail():
+    respx.post(f"{BASE_URL}/slice").mock(
+        return_value=httpx.Response(
+            422,
+            json={
+                "error": "slice_failed",
+                "message": "bambu-studio exited 3",
+                "exit_code": 3,
+                "log_tail": "secret-log-tail",
+            },
+        )
+    )
+    with pytest.raises(SlicerError) as exc_info:
+        SlicerClient(BASE_URL).slice(
+            model=b"x",
+            filename="m.stl",
+            printer_profile={},
+            process_profile={},
+            filament_profiles=[],
+            bed_type="textured_plate",
+            options=SliceOptions(),
+        )
+    assert "slice_failed: bambu-studio exited 3" in str(exc_info.value)
+    assert "secret-log-tail" not in str(exc_info.value)
+
+
+@respx.mock
+def test_profiles_flatten_param_and_non_list():
+    route = respx.get(f"{BASE_URL}/profiles").mock(
+        return_value=httpx.Response(200, json=[{"kind": "printer", "name": "x"}])
+    )
+    assert SlicerClient(BASE_URL).profiles(flatten=True) == [{"kind": "printer", "name": "x"}]
+    assert route.calls.last.request.url.params["flatten"] == "1"
+    route.mock(return_value=httpx.Response(200, json={"a": 1}))
+    assert SlicerClient(BASE_URL).profiles() is None
 
 
 @respx.mock

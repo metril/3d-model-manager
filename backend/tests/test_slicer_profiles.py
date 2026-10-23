@@ -11,9 +11,11 @@ from pathlib import Path
 import pytest
 
 from app.models import SlicerProfile
-from app.models.enums import ProfileKind
+from app.models.enums import ProfileKind, ProfileSource
 from app.services.slicer_profiles import (
+    ParsedProfile,
     ProfileImportError,
+    filter_for_models,
     parse_bundle,
     resolve,
     upsert_profiles,
@@ -141,7 +143,7 @@ async def test_import_bundle_upserts(db_session):
 
     with base.sync_session() as session:
         result = upsert_profiles(session, parsed, user_id=None)
-    assert result == {"created": len(parsed), "updated": 0}
+    assert result == {"created": len(parsed), "updated": 0, "skipped": 0}
 
     rows = (await db_session.execute(SlicerProfile.__table__.select())).fetchall()
     assert len(rows) == len(parsed)
@@ -149,7 +151,63 @@ async def test_import_bundle_upserts(db_session):
     # Re-import: same (kind, name) rows update in place, no duplicates.
     with base.sync_session() as session:
         result2 = upsert_profiles(session, parsed, user_id=None)
-    assert result2 == {"created": 0, "updated": len(parsed)}
+    assert result2 == {"created": 0, "updated": len(parsed), "skipped": 0}
 
     rows2 = (await db_session.execute(SlicerProfile.__table__.select())).fetchall()
     assert len(rows2) == len(parsed)
+
+
+# ---------------------------------------------------------------------------
+# sidecar sync (source=SYNCED) + model filter
+# ---------------------------------------------------------------------------
+
+
+def _pp(name: str, data: dict | None = None) -> ParsedProfile:
+    return ParsedProfile(
+        kind=ProfileKind.PROCESS,
+        name=name,
+        printer_model=None,
+        nozzle_mm=None,
+        data=data or {"name": name, "v": 1},
+    )
+
+
+@pytest.mark.asyncio
+async def test_synced_upsert_idempotent_and_keeps_user_rows(db_session):
+    from sqlalchemy import select
+
+    from app.tasks import base
+
+    db_session.add(
+        SlicerProfile(
+            kind=ProfileKind.PROCESS, name="mine", data={"mine": True}, source=ProfileSource.BUILTIN
+        )
+    )
+    await db_session.commit()
+
+    batch = [_pp("a"), _pp("mine", {"name": "mine", "v": 2})]
+    with base.sync_session() as session:
+        first = upsert_profiles(session, batch, None, ProfileSource.SYNCED)
+        second = upsert_profiles(
+            session, [_pp("a", {"name": "a", "v": 2}), batch[1]], None, ProfileSource.SYNCED
+        )
+    assert first == {"created": 1, "updated": 0, "skipped": 1}
+    assert second == {"created": 0, "updated": 1, "skipped": 1}
+
+    db_session.expire_all()
+    rows = {r.name: r for r in (await db_session.execute(select(SlicerProfile))).scalars()}
+    assert rows["a"].source is ProfileSource.SYNCED and rows["a"].data["v"] == 2
+    assert rows["mine"].source is ProfileSource.BUILTIN and rows["mine"].data == {"mine": True}
+
+
+def test_filter_for_models():
+    entries = [
+        {"kind": "printer", "name": "A1M 0.4", "printer_model": "Bambu Lab A1 mini"},
+        {"kind": "printer", "name": "A1 0.4", "printer_model": "Bambu Lab A1"},
+        {"kind": "process", "name": "p-a1m", "compatible_printers": ["A1M 0.4"]},
+        {"kind": "process", "name": "p-a1", "compatible_printers": ["A1 0.4"]},
+        {"kind": "filament", "name": "f-both", "compatible_printers": ["A1 0.4", "A1M 0.4"]},
+    ]
+    kept = {e["name"] for e in filter_for_models(entries, ["A1 mini", None])}
+    assert kept == {"A1M 0.4", "p-a1m", "f-both"}  # "A1" must not match "A1 mini"
+    assert filter_for_models(entries, [None, ""]) == entries

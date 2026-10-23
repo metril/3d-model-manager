@@ -146,4 +146,28 @@ describe("SlicerIntegrationCard", () => {
     expect(screen.getByText(/Watched-folder polling is off/)).toBeInTheDocument();
     expect(screen.queryByText(/Watched folder:/)).not.toBeInTheDocument();
   });
+
+  it("offers profile sync only when the sidecar is configured", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/features") return Promise.resolve(featuresOut());
+      if (path === "/slicer/health") return Promise.resolve({ configured: true, ok: true, version: "v1" });
+      return Promise.resolve([]);
+    });
+    postMock.mockResolvedValue({ created: 3, updated: 0, skipped: 0 });
+
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Sync Bambu system profiles" }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/profiles/import", { from_sidecar: true, all: false }),
+    );
+    expect(await screen.findByText(/3 new, 0 updated/)).toBeInTheDocument();
+  });
+
+  it("hides profile sync when no sidecar is configured", async () => {
+    mockGet(featuresOut());
+    renderCard();
+    await screen.findByText("No tokens yet.");
+    expect(screen.queryByRole("button", { name: "Sync Bambu system profiles" })).toBeNull();
+  });
 });

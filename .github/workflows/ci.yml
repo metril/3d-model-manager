@@ -224,6 +224,20 @@ jobs:
         # zero dependencies, so nothing to install first.
         run: node --test extension/test/*.test.js
 
+  slicer-wrapper:
+    name: Slicer wrapper tests (mocked CLI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install "fastapi==0.115.*" httpx pytest python-multipart
+      - name: pytest
+        working-directory: slicer
+        run: python -m pytest -q
+
   docker-smoke:
     name: Docker build smoke (amd64)
     runs-on: ubuntu-latest

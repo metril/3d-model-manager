@@ -173,6 +173,67 @@ jobs:
 
   # ---- Build -------------------------------------------------------------
 
+  slicer-wrapper:
+    name: Slicer wrapper tests (mocked CLI)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install "fastapi==0.115.*" httpx pytest python-multipart
+      - name: pytest
+        working-directory: slicer
+        run: python -m pytest -q
+
+  # Slicer sidecar image: build, run the real smoke slice (20 mm cube with the
+  # bundled A1 mini profiles) against the container, then publish
+  # tdmm-slicer:<bambu-version>-<sha>. Independent of the app image.
+  slicer-image:
+    name: Slicer sidecar image
+    needs: [release-please, slicer-wrapper]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Resolve tag
+        id: tag
+        run: |
+          ver=$(sed -n 's/^ARG BAMBU_VERSION=//p' slicer/Dockerfile)
+          echo "value=${ver}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Build (loaded locally)
+        uses: docker/build-push-action@v7
+        with:
+          context: slicer
+          platforms: linux/amd64
+          load: true
+          tags: tdmm-slicer:smoke
+          cache-from: type=gha,scope=tdmm-slicer
+          cache-to: type=gha,mode=max,scope=tdmm-slicer,ignore-error=true
+      - name: Smoke slice
+        run: |
+          docker run -d --name slicer --read-only --tmpfs /tmp --tmpfs /home/slicer:uid=10001 \
+            -p 3001:3001 tdmm-slicer:smoke
+          for i in $(seq 1 30); do curl -sf localhost:3001/health && break; sleep 2; done
+          python3 slicer/smoke.py http://localhost:3001
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/tdmm-slicer"
+          docker tag tdmm-slicer:smoke "$img:${{ steps.tag.outputs.value }}"
+          docker push "$img:${{ steps.tag.outputs.value }}"
+
   build:
     name: Build ${{ matrix.arch }}
     needs: [release-please, backend-lint, backend-test, web, extension]

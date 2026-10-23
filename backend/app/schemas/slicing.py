@@ -50,6 +50,7 @@ class ProfileOut(BaseModel):
 class ProfileImportOut(BaseModel):
     created: int
     updated: int
+    skipped: int = 0
 
 
 class RecipeIn(BaseModel):
