@@ -374,6 +374,7 @@ def test_last_report_at_only_moves_when_dump_changes(monkeypatch):
         **snap.A1_MINI_DUMP,
         "print": {**snap.A1_MINI_DUMP["print"], "spd_lvl": 3},
     }
+    a._snapshot()
     assert a._dump_sig != json.dumps(snap.A1_MINI_DUMP, sort_keys=True, default=str)
 
 
