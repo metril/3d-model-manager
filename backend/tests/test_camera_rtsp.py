@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 import shutil
+import socket
 import threading
 import time
 
@@ -109,18 +110,15 @@ paths:
 @pytest.fixture(scope="module")
 def mediamtx_port(tmp_path_factory):
     """mediamtx (ffmpeg flavour) publishing a test pattern over rtsps with a
-    self-signed cert. Skips when Docker or a local ffmpeg is unavailable."""
-    if shutil.which("ffmpeg") is None:
-        if os.environ.get("TDMM_REQUIRE_FFMPEG_TESTS") == "1":
-            pytest.fail("ffmpeg missing but TDMM_REQUIRE_FFMPEG_TESTS=1")
-        pytest.skip("ffmpeg not installed")
+    self-signed cert. Skips when Docker is unavailable. Readiness = the
+    mapped rtsps port accepts a TCP connection (mediamtx logs only WAR lines
+    at ``logLevel: warn``, so there is no log line to wait on)."""
     try:
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.x509.oid import NameOID
         from testcontainers.core.container import DockerContainer
-        from testcontainers.core.waiting_utils import wait_for_logs
     except Exception as exc:  # pragma: no cover
         pytest.skip(f"testcontainers unavailable: {exc}")
 
@@ -162,24 +160,50 @@ def mediamtx_port(tmp_path_factory):
     except Exception as exc:
         pytest.skip(f"docker unavailable: {exc}")
     try:
-        wait_for_logs(c, "listener opened", timeout=30)
-        time.sleep(3)  # let runOnInit start publishing
-        yield int(c.get_exposed_port(8322)), c.get_container_host_ip()
+        host, port = c.get_container_host_ip(), int(c.get_exposed_port(8322))
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                socket.create_connection((host, port), timeout=2).close()
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    pytest.fail("mediamtx rtsps port never accepted connections")
+                time.sleep(0.5)
+        yield port, host
     finally:
         c.stop()
 
 
+def test_mediamtx_fixture_rtsps_port_ready(mediamtx_port) -> None:
+    """Docker-only (no ffmpeg needed): the fixture started the container and
+    the rtsps listener is reachable."""
+    port, host = mediamtx_port
+    socket.create_connection((host, port), timeout=5).close()
+
+
 @pytest.mark.integration
 def test_rtsps_testpattern_yields_jpeg_frames(mediamtx_port) -> None:
+    if shutil.which("ffmpeg") is None:
+        if os.environ.get("TDMM_REQUIRE_FFMPEG_TESTS") == "1":
+            pytest.fail("ffmpeg missing but TDMM_REQUIRE_FFMPEG_TESTS=1")
+        pytest.skip("ffmpeg not installed")
     port, host = mediamtx_port
     url = f"rtsps://bblp:code@{host}:{port}/streaming/live/1"
-    src = FfmpegMjpegSource(build_argv(url, fps=5, tls_insecure=True), threading.Event())
     frames: list[bytes] = []
-    with src:
-        for f in src.frames():
-            frames.append(f)
-            if len(frames) >= 3:
-                break
+    deadline = time.monotonic() + 60
+    # The publisher (runOnInit ffmpeg) may still be starting: ffmpeg exits
+    # until the path has a stream, so retry within a generous window.
+    while len(frames) < 3 and time.monotonic() < deadline:
+        src = FfmpegMjpegSource(build_argv(url, fps=5, tls_insecure=True), threading.Event())
+        try:
+            with src:
+                for f in src.frames():
+                    frames.append(f)
+                    if len(frames) >= 3:
+                        break
+        except Exception:
+            time.sleep(1)
     assert len(frames) >= 3
     assert all(f[:2] == b"\xff\xd8" and f[-2:] == b"\xff\xd9" for f in frames)
 
