@@ -36,8 +36,19 @@ from app.schemas.slicing import (
     SlicerHealthOut,
 )
 from app.services.app_config import get_app_config
-from app.services.slicer_client import SlicerError, SlicerProtocolError, client_from_config
-from app.services.slicer_profiles import ProfileImportError, parse_bundle, upsert_profiles
+from app.services.slicer_client import (
+    SlicerError,
+    SlicerProtocolError,
+    SlicerUnavailable,
+    client_from_config,
+)
+from app.services.slicer_profiles import (
+    ProfileImportError,
+    filter_for_models,
+    parse_bundle,
+    upsert_profiles,
+    usable_models,
+)
 
 # I7: a hand-entered or scripted bundle upload shouldn't be able to exhaust
 # worker memory/disk -- a legitimate Bambu Studio BBL export is a few MB at
@@ -143,8 +154,11 @@ async def update_profile(
 ) -> ProfileOut:
     profile = await _get_profile_or_404(db, profile_id)
     require_owner_or_admin(ctx, profile.created_by_user_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(profile, field, value)
+    if changes and profile.source is ProfileSource.SYNCED:
+        profile.source = ProfileSource.BUILTIN  # user-edited: a re-sync must not overwrite it
     await db.commit()
     await db.refresh(profile)
     return _profile_out(profile, with_data=True)
@@ -228,14 +242,27 @@ async def import_profiles(
         if client is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no slicer sidecar configured")
         try:
-            profiles = await anyio.to_thread.run_sync(client.profiles)
+            profiles = await anyio.to_thread.run_sync(lambda: client.profiles(flatten=True))
+        except SlicerUnavailable as exc:  # unreachable or busy
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
         except SlicerError as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
         if profiles is None:
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND, "slicer sidecar doesn't expose its own profiles"
             )
-        return await _import_from_dicts(db, profiles, ctx.user.id)
+        if not payload.get("all"):
+            models = (await db.execute(select(Printer.model))).scalars().all()
+            wanted = usable_models(list(models))
+            profiles = filter_for_models(profiles, wanted)
+            if wanted and not any(p.get("kind") == "printer" for p in profiles):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "No sidecar profiles match your printer models ("
+                    + ", ".join(sorted(set(wanted)))
+                    + "). Tick 'All Bambu printers' to sync everything.",
+                )
+        return await _import_from_dicts(db, profiles, ctx.user.id, source=ProfileSource.SYNCED)
 
     path = payload.get("path")
     if path:
@@ -274,12 +301,14 @@ async def _import_from_path(
 
 
 async def _import_from_dicts(
-    db: AsyncSession, raw_profiles: list[dict], user_id: int | None
+    db: AsyncSession,
+    raw_profiles: list[dict],
+    user_id: int | None,
+    source: ProfileSource | None = None,
 ) -> ProfileImportOut:
-    """Best-effort import of the sidecar's own bundled presets -- the
-    image's real shape is unverified (see ``app.services.slicer_client``), so
-    this only accepts items that already carry our own ``kind``/``name``/
-    ``data`` fields, skipping anything else rather than guessing."""
+    """Imports the sidecar's `/profiles?flatten=1` items (``kind``/``name``/
+    ``printer_model``/``nozzle_mm``/``data``), skipping malformed ones.
+    ``source=SYNCED`` makes it a non-destructive sync (see ``upsert_profiles``)."""
     from app.services.slicer_profiles import ParsedProfile
 
     parsed = []
@@ -303,7 +332,7 @@ async def _import_from_dicts(
 
     def _run() -> dict:
         with base.sync_session() as session:
-            return upsert_profiles(session, parsed, user_id)
+            return upsert_profiles(session, parsed, user_id, source)
 
     result = await anyio.to_thread.run_sync(_run)
     await db.commit()

@@ -49,9 +49,13 @@ function invalidateProfiles(queryClient: ReturnType<typeof useQueryClient>) {
 export function useImportProfiles() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { bundle: File } | { fromSidecar: true }) => {
+    mutationFn: (payload: { bundle: File } | { fromSidecar: true; all?: boolean }) => {
       if ("fromSidecar" in payload) {
-        return api.post<ProfileImportResult>("/profiles/import", { from_sidecar: true });
+        // `all: false` (default) limits the sync to the configured printers' models.
+        return api.post<ProfileImportResult>("/profiles/import", {
+          from_sidecar: true,
+          all: payload.all ?? false,
+        });
       }
       const form = new FormData();
       form.set("bundle", payload.bundle);

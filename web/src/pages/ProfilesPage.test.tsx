@@ -182,6 +182,34 @@ describe("ProfilesPage", () => {
     expect(await screen.findByText("Sidecar not configured")).toBeInTheDocument();
   });
 
+  it("syncs Bambu system profiles from the sidecar (own printers by default, all on request)", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/slicer/health") return Promise.resolve({ configured: true, ok: true, version: "v1" });
+      if (path.startsWith("/profiles?")) return Promise.resolve([]);
+      return Promise.resolve([]);
+    });
+    postMock.mockResolvedValue({ created: 5, updated: 1, skipped: 2 });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sync Bambu system profiles" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/profiles/import", { from_sidecar: true, all: false }),
+    );
+    expect(await screen.findByText(/5 new, 1 updated, 2 kept/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/All Bambu printers/));
+    fireEvent.click(screen.getByRole("button", { name: "Sync Bambu system profiles" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenLastCalledWith("/profiles/import", { from_sidecar: true, all: true }),
+    );
+  });
+
+  it("hides the sync action when no sidecar is configured", async () => {
+    renderPage();
+    await screen.findByText("A1 mini 0.4");
+    expect(screen.queryByRole("button", { name: "Sync Bambu system profiles" })).toBeNull();
+  });
+
   it("hides Import and New recipe for a viewer", async () => {
     authMock.mockReturnValue({ can: () => false, canPrinter: () => true });
     renderPage();

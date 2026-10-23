@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import SlicerProfile
-from app.models.enums import ProfileKind
+from app.models.enums import ProfileKind, ProfileSource
 
 _KIND_BY_DIR = {
     "machine": ProfileKind.PRINTER,
@@ -230,13 +230,25 @@ def _parse_bundle_dir(root: Path, printer_model: str | None) -> list[ParsedProfi
     return parsed
 
 
-def upsert_profiles(session: Session, parsed: list[ParsedProfile], user_id: int | None) -> dict:
+def upsert_profiles(
+    session: Session,
+    parsed: list[ParsedProfile],
+    user_id: int | None,
+    source: ProfileSource | None = None,
+) -> dict:
     """Get-or-creates a `SlicerProfile` row per `(kind, name)` -- a
     re-import of the same bundle updates `data`/`printer_model`/`nozzle_mm`
-    in place rather than duplicating. Returns `{"created": n, "updated": n}`.
+    in place rather than duplicating. Returns `{"created", "updated",
+    "skipped"}`.
+
+    `source=ProfileSource.SYNCED` (sidecar sync): new rows are tagged
+    `synced`; an existing row is only refreshed when it is itself `synced`
+    -- imported or hand-made/edited rows are left alone and counted as
+    `skipped`.
     """
     created = 0
     updated = 0
+    skipped = 0
     for profile in parsed:
         existing = session.execute(
             select(SlicerProfile).where(
@@ -244,21 +256,66 @@ def upsert_profiles(session: Session, parsed: list[ParsedProfile], user_id: int 
             )
         ).scalar_one_or_none()
         if existing is None:
-            session.add(
-                SlicerProfile(
-                    kind=profile.kind,
-                    name=profile.name,
-                    printer_model=profile.printer_model,
-                    nozzle_mm=profile.nozzle_mm,
-                    data=profile.data,
-                    created_by_user_id=user_id,
-                )
+            row = SlicerProfile(
+                kind=profile.kind,
+                name=profile.name,
+                printer_model=profile.printer_model,
+                nozzle_mm=profile.nozzle_mm,
+                data=profile.data,
+                created_by_user_id=user_id,
             )
+            if source is not None:
+                row.source = source
+            session.add(row)
             created += 1
+        elif source is ProfileSource.SYNCED and existing.source is not ProfileSource.SYNCED:
+            skipped += 1
         else:
             existing.printer_model = profile.printer_model
             existing.nozzle_mm = profile.nozzle_mm
             existing.data = profile.data
             updated += 1
     session.commit()
-    return {"created": created, "updated": updated}
+    return {"created": created, "updated": updated, "skipped": skipped}
+
+
+def _norm_model(model: str | None) -> str:
+    text = (model or "").lower().replace("bambu lab", "").replace("bambulab", "")
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+# Common shorthand -> the normalised sidecar `printer_model` it stands for.
+_MODEL_ALIASES = {
+    "x1c": "x1carbon",
+    "a1m": "a1mini",
+}
+
+
+def usable_models(models: list[str | None]) -> list[str]:
+    return [m for m in models if _norm_model(m)]
+
+
+def filter_for_models(entries: list[dict], models: list[str | None]) -> list[dict]:
+    """Keeps sidecar entries relevant to the configured printer `models`
+    (compared ignoring case/spacing/the "Bambu Lab" prefix): printer
+    presets of those models, plus process/filament presets whose
+    `compatible_printers` names a kept printer. No usable models -> all
+    entries (nothing to filter on)."""
+    wanted = {_norm_model(m) for m in models if _norm_model(m)}
+    wanted |= {_MODEL_ALIASES[w] for w in wanted if w in _MODEL_ALIASES}
+    if not wanted:
+        return entries
+    kept_printers = {
+        e["name"]
+        for e in entries
+        if e.get("kind") == "printer" and _norm_model(e.get("printer_model")) in wanted
+    }
+    return [
+        e
+        for e in entries
+        if (e.get("kind") == "printer" and e["name"] in kept_printers)
+        or (
+            e.get("kind") != "printer"
+            and kept_printers.intersection(e.get("compatible_printers") or [])
+        )
+    ]

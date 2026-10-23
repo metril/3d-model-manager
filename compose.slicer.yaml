@@ -1,28 +1,30 @@
-# Slicer sidecar (P6 "slicer, profiles, recipes and dispatch" plan, Task 2)
-# -- a pinned `ghcr.io/maziggy/bambu-studio-api` image fronting Bambu
-# Studio's CLI slicer over HTTP. Profile `slicer`: `docker compose --profile
-# slicer up -d` (or set `COMPOSE_PROFILES=slicer` in `.env`, same convention
-# as the printer/beat profiles -- see `.env.example`).
+# Slicer sidecar -- our own FastAPI wrapper (./slicer) around the Bambu Studio
+# CLI. Profile `slicer`: `docker compose --profile slicer up -d` (or set
+# `COMPOSE_PROFILES=slicer` in `.env`, same convention as the printer/beat
+# profiles -- see `.env.example`). Set TDMM_SLICER_URL=http://slicer:3001 to
+# switch the integration on.
 #
-# `app.services.slicer_client.SlicerClient` talks to it; the real endpoint
-# shapes are UNVERIFIED (no live image was reachable while writing this --
-# see that module's docstring), so nothing here depends on them beyond the
-# healthcheck path.
-#
-# Tag pin: the image publishes no semver `latest` worth trusting (it moves)
-# and no dated tags -- its GHCR tag list (`bambuddy-<version>`, inspected
-# via the anonymous GHCR token endpoint since this isn't our registry) tops
-# out, as of 2026-10-22, at `bambuddy-1.2.5.7` (there's also a
-# `bambuddy-1.2.6b1`, but that's a beta of the NEXT minor, skipped in favor
-# of the highest stable patch). Override with `SLICER_TAG` in `.env`
-# without editing this file.
+# `app.services.slicer_client.SlicerClient` talks to it. The release workflow
+# publishes `ghcr.io/<owner>/tdmm-slicer:<bambu-version>-<sha>`; set
+# SLICER_TAG to that to use the published image instead of building locally.
+# The Bambu Studio AppImage is pinned (version + sha256) in slicer/Dockerfile.
 services:
   slicer:
-    image: ghcr.io/maziggy/bambu-studio-api:${SLICER_TAG:-bambuddy-1.2.5.7}
+    build: ./slicer
+    image: tdmm-slicer:${SLICER_TAG:-local}
     platform: linux/amd64
     profiles: [slicer]
     expose:
       - "3001"
+    environment:
+      SLICER_MAX_JOBS: ${SLICER_MAX_JOBS:-1}
+      SLICER_JOB_TIMEOUT_S: ${SLICER_JOB_TIMEOUT_S:-600}
+      SLICER_USE_XVFB: ${SLICER_USE_XVFB:-0}
+    mem_limit: ${SLICER_MEM_LIMIT:-4g}
+    read_only: true
+    tmpfs:
+      - /tmp:size=${SLICER_TMP_SIZE:-1g}
+      - /home/slicer:uid=10001,gid=10001
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:3001/health', timeout=3)"]
       interval: 10s

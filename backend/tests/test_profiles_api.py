@@ -8,8 +8,8 @@ import pytest
 import respx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import SlicerProfile
-from app.models.enums import ProfileKind
+from app.models import Printer, SlicerProfile
+from app.models.enums import PrinterKind, ProfileKind, ProfileSource
 from tests.slicer_fixtures import write_bundle_zip
 
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
@@ -424,3 +424,149 @@ async def test_profile_create_source_is_builtin(authenticated_client: httpx.Asyn
     )
     assert r.status_code == 201, r.text
     assert r.json()["source"] == "builtin"
+
+
+# ---------------------------------------------------------------------------
+# Sidecar profile sync
+# ---------------------------------------------------------------------------
+
+_SIDECAR = [
+    {
+        "kind": "printer",
+        "name": "A1M 0.4",
+        "printer_model": "Bambu Lab A1 mini",
+        "nozzle_mm": 0.4,
+        "data": {"name": "A1M 0.4", "t": 1},
+    },
+    {
+        "kind": "printer",
+        "name": "X1C 0.4",
+        "printer_model": "Bambu Lab X1 Carbon",
+        "nozzle_mm": 0.4,
+        "data": {"name": "X1C 0.4"},
+    },
+    {
+        "kind": "process",
+        "name": "p-a1m",
+        "compatible_printers": ["A1M 0.4"],
+        "printer_model": "Bambu Lab A1 mini",
+        "nozzle_mm": 0.4,
+        "data": {"name": "p-a1m"},
+    },
+    {
+        "kind": "process",
+        "name": "p-x1c",
+        "compatible_printers": ["X1C 0.4"],
+        "data": {"name": "p-x1c"},
+    },
+]
+
+
+async def _sync(client: httpx.AsyncClient, monkeypatch, body: dict):
+    from app.config import get_settings
+
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+    try:
+        with respx.mock:
+            route = respx.get("http://slicer:3001/profiles").mock(
+                return_value=httpx.Response(200, json=_SIDECAR)
+            )
+            r = await client.post("/api/profiles/import", json=body)
+            assert route.calls.last.request.url.params["flatten"] == "1"
+    finally:
+        get_settings.cache_clear()
+    return r
+
+
+async def test_sync_filters_to_configured_printer_models_and_is_idempotent(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    db_session.add(
+        Printer(
+            name="a1m",
+            kind=PrinterKind.BAMBU_LAN,
+            host="h",
+            serial="s",
+            access_code_enc="x",
+            model="A1 mini",
+        )
+    )
+    await db_session.commit()
+
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"created": 2, "updated": 0, "skipped": 0}
+    names = {p["name"]: p for p in (await authenticated_client.get("/api/profiles")).json()}
+    assert set(names) == {"A1M 0.4", "p-a1m"}
+    assert names["p-a1m"]["source"] == "synced"
+
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True})
+    assert r.json() == {"created": 0, "updated": 2, "skipped": 0}
+
+
+async def test_sync_all_option_imports_everything(
+    authenticated_client: httpx.AsyncClient, monkeypatch
+):
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True, "all": True})
+    assert r.json()["created"] == 4
+
+
+async def test_sync_never_overwrites_user_edited_row(
+    authenticated_client: httpx.AsyncClient, monkeypatch
+):
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True, "all": True})
+    assert r.status_code == 200
+    rows = (await authenticated_client.get("/api/profiles")).json()
+    pid = next(p["id"] for p in rows if p["name"] == "p-a1m")
+
+    r = await authenticated_client.patch(f"/api/profiles/{pid}", json={"data": {"edited": True}})
+    assert r.status_code == 200 and r.json()["source"] == ProfileSource.BUILTIN.value
+
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True, "all": True})
+    assert r.json() == {"created": 0, "updated": 3, "skipped": 1}
+    got = (await authenticated_client.get(f"/api/profiles/{pid}")).json()
+    assert got["data"] == {"edited": True}
+
+
+async def test_sync_no_matching_models_gives_hint(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    db_session.add(
+        Printer(
+            name="odd",
+            kind=PrinterKind.BAMBU_LAN,
+            host="h",
+            serial="s",
+            access_code_enc="x",
+            model="Prusa MK4",
+        )
+    )
+    await db_session.commit()
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True})
+    assert r.status_code == 422
+    assert "Prusa MK4" in r.json()["detail"] and "All Bambu" in r.json()["detail"]
+
+
+async def test_sync_sidecar_down_is_503_and_error_is_502(
+    authenticated_client: httpx.AsyncClient, monkeypatch
+):
+    from app.config import get_settings
+
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+    try:
+        with respx.mock:
+            route = respx.get("http://slicer:3001/profiles").mock(
+                side_effect=httpx.ConnectError("down")
+            )
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 503
+            route.mock(return_value=httpx.Response(500, json={"message": "boom"}))
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 502
+            route.mock(return_value=httpx.Response(404))
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 404
+    finally:
+        get_settings.cache_clear()

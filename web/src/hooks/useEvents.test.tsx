@@ -4,7 +4,8 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { JobUpdatedEvent } from "@/api/types";
-import { EventsProvider, useEvents } from "@/hooks/useEvents";
+import { useEvents } from "@/hooks/eventsContext";
+import { EventsProvider } from "@/hooks/useEvents";
 
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as LibraryPage.test.tsx), so the fake has to be created

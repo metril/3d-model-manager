@@ -20,7 +20,7 @@ vi.mock("@/api/upload", async (importOriginal) => {
   return { ...actual, uploadFile: uploadFileMock };
 });
 
-vi.mock("@/hooks/useEvents", () => ({
+vi.mock("@/hooks/eventsContext", () => ({
   useEvents: () => ({
     subscribe: (listener: (event: JobUpdatedEvent) => void) => {
       eventsListener.current = listener;

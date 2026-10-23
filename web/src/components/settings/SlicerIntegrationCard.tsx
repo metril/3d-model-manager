@@ -32,7 +32,9 @@ import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useApiTokens, useCreateApiToken, useRevokeApiToken } from "@/api/apiTokens";
 import { useFeatures } from "@/api/features";
+import { useSlicerHealth } from "@/api/slicing";
 import type { ApiTokenOut } from "@/api/types";
+import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +44,7 @@ import { formatDate } from "@/lib/format";
 
 export function SlicerIntegrationCard() {
   const tokens = useApiTokens();
+  const health = useSlicerHealth();
 
   return (
     <Card>
@@ -94,6 +97,17 @@ export function SlicerIntegrationCard() {
           <ScriptDownloadLink />
           <WatchedFolderStatus />
         </div>
+
+        {health.data?.configured ? (
+          <div className="space-y-2 border-t border-border pt-4">
+            <h3 className="text-sm font-medium text-foreground">Slicer profiles</h3>
+            <p className="text-xs text-muted-foreground">
+              Import the slicer sidecar&apos;s bundled Bambu printer, process and filament presets
+              (version {health.data.version ?? "?"}). Edited or imported profiles are never overwritten.
+            </p>
+            <SyncProfilesButton idPrefix="card-sync" />
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

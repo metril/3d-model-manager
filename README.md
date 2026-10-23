@@ -420,10 +420,9 @@ named preset, so **Files → Print**'s Profile step can offer "slice and
 send" for an unsliced source file (3MF/STL/STEP/OBJ) instead of requiring
 an already-sliced `.gcode.3mf`. Enable it with
 `docker compose --profile slicer up -d` (or `COMPOSE_PROFILES=slicer` in
-`.env`), which brings up the pinned `slicer` sidecar
-(`ghcr.io/maziggy/bambu-studio-api:${SLICER_TAG:-bambuddy-1.2.5.7}`,
-`compose.slicer.yaml`) — a container fronting Bambu Studio's CLI slicer
-over HTTP. `TDMM_SLICER_URL` (`.env.example`) points the API at it; unset,
+`.env`), which builds and starts the `slicer` sidecar (`./slicer`, a
+FastAPI wrapper around a pinned Bambu Studio CLI, `compose.slicer.yaml`).
+`TDMM_SLICER_URL` (`.env.example`) points the API at it; unset,
 no slicer integration and recipe actions stay disabled (`GET /api/slicer/
 health` reports `configured: false`).
 
@@ -434,8 +433,11 @@ from a Bambu Studio **profile bundle** (`.zip`/folder containing a
 `BBL.json` manifest — the same tree Bambu Studio writes under its own
 config directory, e.g. `~/.config/BambuStudio/system/`\* on Linux or
 `%APPDATA%\BambuStudio\system\` on Windows) via **Import**, or by pulling
-whatever profiles the running sidecar already knows about
-(`from_sidecar: true`) once it's up. A profile edited after import takes
+**Sync Bambu system profiles** (Profiles page / Slicer integration card),
+which pulls the sidecar's bundled Bambu presets — only your configured
+printers' models by default, or all of them. Synced rows are tagged
+`synced`: a re-sync refreshes them but never overwrites imported or
+user-edited profiles. A profile edited after import takes
 effect on the very next slice — nothing is cached inside the sidecar
 itself.
 

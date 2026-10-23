@@ -1,0 +1,13 @@
+[project]
+name = "tdmm-slicer"
+version = "0.1.0"
+description = "FastAPI wrapper around the Bambu Studio CLI"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.115.*", "uvicorn[standard]==0.34.*", "python-multipart==0.0.20"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

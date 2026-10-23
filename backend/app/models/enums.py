@@ -215,6 +215,9 @@ class ProfileSource(StrEnum):
 
     IMPORT = "import"
     BUILTIN = "builtin"
+    # Pulled from the slicer sidecar's bundled Bambu presets (re-sync may
+    # overwrite it); editing one flips it to BUILTIN so it's never clobbered.
+    SYNCED = "synced"
 
 
 class Fanout(StrEnum):

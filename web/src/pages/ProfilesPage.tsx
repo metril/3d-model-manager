@@ -14,6 +14,7 @@ import { ApiError } from "@/api/client";
 import { useDeleteRecipe, useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { PrintRecipe, ProfileKind } from "@/api/types";
 import { ProfileImportDialog } from "@/components/inventory/ProfileImportDialog";
+import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { RecipeForm } from "@/components/inventory/RecipeForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ function ProfilesTab() {
   const [kindFilter, setKindFilter] = useState<ProfileKind | "all">("all");
   const [importOpen, setImportOpen] = useState(false);
   const profiles = useProfiles(kindFilter === "all" ? undefined : kindFilter);
+  const health = useSlicerHealth();
 
   return (
     <div className="flex flex-col gap-4">
@@ -75,6 +77,8 @@ function ProfilesTab() {
           ) : null}
         </div>
       </div>
+
+      {canWrite && health.data?.configured ? <SyncProfilesButton idPrefix="profiles-sync" /> : null}
 
       <Card>
         <CardContent>

@@ -1646,7 +1646,7 @@ export type OidcProviderPatchIn = Partial<OidcProviderCreateIn>;
 // slicing.py, P6 "slicer, profiles and dispatch" plan) -------------------
 
 export type ProfileKind = "printer" | "process" | "filament";
-export type ProfileSource = "import" | "builtin";
+export type ProfileSource = "import" | "builtin" | "synced";
 export type Fanout = "single" | "spread" | "first_n";
 
 export interface SlicerProfile {
@@ -1666,6 +1666,8 @@ export interface SlicerProfile {
 export interface ProfileImportResult {
   created: number;
   updated: number;
+  /** Rows a sidecar sync left alone because they're imported or user-edited. */
+  skipped?: number;
 }
 
 export interface PrintRecipe {
