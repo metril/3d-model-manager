@@ -187,4 +187,68 @@ describe("CameraTile", () => {
     expect(postMock).not.toHaveBeenCalled();
     expect(getMock).not.toHaveBeenCalled();
   });
+
+  it("does not CSS-rotate snapshot mode (backend rotates stills)", async () => {
+    getMock.mockImplementation((path: string) =>
+      path.endsWith("/camera/status")
+        ? Promise.resolve({ status: "idle", source: "a1", beta: false, rotation: 90, default_fps: 5 })
+        : Promise.reject(new Error("x")),
+    );
+    renderTile();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    await vi.waitFor(() => expect(img.style.transform).toContain("rotate(90deg)"));
+    fireEvent.click(screen.getByRole("button", { name: "Switch to snapshots" }));
+    const snap = await screen.findByRole("img", { name: "Camera feed" });
+    expect(snap.style.transform).toBe("");
+  });
+
+  it("still gives up when each reconnect serves a cached first frame", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // First sample after every (re)connect differs from the last one, then freezes.
+    let n = 0;
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = (() => ({
+      drawImage: () => {},
+      getImageData: () => ({ data: new Uint8ClampedArray([n++ < 1000 ? 1 : 1]) }),
+    })) as unknown as typeof orig;
+    const nw = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth");
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { value: 10, configurable: true });
+    try {
+      renderTile();
+      await screen.findByRole("img", { name: "Camera feed" });
+      for (let i = 0; i < 90; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+        if (screen.queryByText("Camera offline")) break;
+      }
+      expect(screen.getByText("Camera offline")).toBeInTheDocument();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
+      if (nw) Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", nw);
+    }
+  });
+
+  it("errored retry fires even when urls is a fresh object each render", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const qc = new QueryClient();
+    const ui = () => (
+      <QueryClientProvider client={qc}>
+        <CameraTile printerId={7} online urls={{ stream_url: "/s?token=t", snapshot_url: "/p?token=t" }} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui());
+    fireEvent.error(await screen.findByRole("img", { name: "Camera feed" }));
+    expect(screen.getByText("Camera offline")).toBeInTheDocument();
+    for (let i = 0; i < 9; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      rerender(ui());
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.getByRole("img", { name: "Camera feed" })).toBeInTheDocument();
+  });
 });

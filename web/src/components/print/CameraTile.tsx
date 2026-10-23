@@ -145,11 +145,15 @@ export function CameraTile({
 
   const tokens = useCameraUrls(printerId, { enabled: online && !urls });
   const status = useCameraStatus(printerId, { enabled: online && !urls });
+  const refetchToken = tokens.refetch;
   const effective = urls ?? tokens.data;
 
   const rotation = (((rotationProp ?? status.data?.rotation ?? 0) % 360) + 360) % 360;
   const fps = fpsOverride ?? status.data?.default_fps;
-  const sideways = rotation === 90 || rotation === 270;
+  // The backend rotates snapshots itself; only the MJPEG stream needs CSS rotation.
+  const cssRotation = mode === "stream" ? rotation : 0;
+  const sideways = cssRotation === 90 || cssRotation === 270;
+  const hasUrls = urls != null;
   const noCamera = status.data?.source === "none";
 
   // Auto-retry (10s) after a stream error: refetch a fresh token and give
@@ -160,11 +164,11 @@ export function CameraTile({
       setErrored(false);
       setLoaded(false);
       attempts.current = 0;
-      if (!urls) void tokens.refetch();
+      if (!hasUrls) void refetchToken();
       else setNonce((n) => n + 1);
     }, RETRY_MS);
     return () => clearTimeout(timer);
-  }, [errored, tokens, urls]);
+  }, [errored, refetchToken, hasUrls]);
 
   // A printer going back online clears any stale error from a previous session.
   useEffect(() => {
@@ -198,9 +202,12 @@ export function CameraTile({
     const id = setInterval(() => {
       const h = sampleHash(imgRef.current);
       if (h !== null && h !== lastHash) {
+        // Frames only count as "advancing" once a second distinct hash is
+        // seen: the first sample after a reconnect may be the server's
+        // cached frame and must not reset the attempt budget.
+        if (lastHash !== null) attempts.current = 0;
         lastHash = h;
         lastFrame = Date.now();
-        attempts.current = 0;
       }
       if (Date.now() - lastFrame <= STALL_MS) return;
       clearInterval(id);
@@ -291,7 +298,7 @@ export function CameraTile({
   }
 
   const fit = sideways && box.w > 0 && box.h > 0 ? Math.min(box.h / box.w, box.w / box.h) : 1;
-  const imgTransform = `rotate(${rotation}deg)${sideways ? ` scale(${fit})` : ""}`;
+  const imgTransform = `rotate(${cssRotation}deg)${sideways ? ` scale(${fit})` : ""}`;
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   return (
@@ -339,7 +346,7 @@ export function CameraTile({
                   sideways ? "object-contain" : "object-cover",
                   loaded ? "opacity-100" : "opacity-0",
                 )}
-                style={rotation ? { transform: imgTransform } : undefined}
+                style={cssRotation ? { transform: imgTransform } : undefined}
                 onLoad={() => setLoaded(true)}
                 onError={() => setErrored(true)}
               />
