@@ -29,6 +29,7 @@ import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
 import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
 import { parsePrintHistorySearch } from "@/pages/printHistorySearch";
+import { parsePrintDashSearch } from "@/pages/printerDashSearch";
 import { parseViewerWindowSearch } from "@/pages/viewerWindowSearch";
 
 export interface RouterContext {
@@ -105,7 +106,12 @@ export function redirectForIndex(ctx: {
 const indexRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/",
-  validateSearch: parseLibrarySearch,
+  // `/` is the print dashboard (its own `status|offline|q|sort` params) AND the
+  // old library bookmark target (`collection|category|path`): parse both.
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...parseLibrarySearch(search),
+    ...parsePrintDashSearch(search),
+  }),
   beforeLoad: async ({ context, search }) => {
     const features = await context.queryClient.ensureQueryData(featuresQueryOptions);
     const me = await context.queryClient.ensureQueryData(authQueryOptions);
