@@ -25,6 +25,7 @@ _DEFAULTS = {
     "filament_cost_per_kg": 20.0,
     "machine_cost_per_hour": 0.0,
     "energy_cost_per_kwh": 0.0,
+    "sensor_history_days": 30,
 }
 
 
@@ -64,6 +65,7 @@ async def test_put_persists_all_five_fields_and_get_reflects_them(authenticated_
         "filament_cost_per_kg": 25.0,
         "machine_cost_per_hour": 2.5,
         "energy_cost_per_kwh": 0.35,
+        "sensor_history_days": 14,
     }
     put = await authenticated_client.put("/api/settings/app", json=payload)
     assert put.status_code == 200

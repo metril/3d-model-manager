@@ -91,6 +91,8 @@ class AppConfig(BaseModel):
     # way `filament_cost_per_kg`/`machine_cost_per_hour` are -- no env
     # backing, a fresh row always seeds this literal default.
     energy_cost_per_kwh: float = 0.0
+    # Q8b: how many days of printer_sensor_samples the daily prune keeps.
+    sensor_history_days: int = 30
 
 
 def _env_config(settings: Settings) -> AppConfig:

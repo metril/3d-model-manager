@@ -66,6 +66,7 @@ celery_app.conf.update(
         "app.tasks.billing",
         "app.tasks.home_assistant",
         "app.tasks.spoolman",
+        "app.tasks.sensors",
     ),
 )
 
@@ -132,4 +133,12 @@ from app.tasks import spoolman as _spoolman  # noqa: E402
 celery_app.conf.beat_schedule["spoolman-reconcile"] = {
     "task": "app.tasks.spoolman.reconcile",
     "schedule": _spoolman.RECONCILE_INTERVAL_S,
+}
+
+# Additive: Q8b sensor history -- daily prune of printer_sensor_samples.
+from app.tasks import sensors as _sensors  # noqa: E402,F401
+
+celery_app.conf.beat_schedule["sensors-prune"] = {
+    "task": "app.tasks.sensors.prune",
+    "schedule": crontab(hour=3, minute=15),
 }

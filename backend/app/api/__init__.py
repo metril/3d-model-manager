@@ -67,6 +67,7 @@ from app.api import (
     reports,
     revisions,
     scan,
+    sensors,
     settings,
     slicer,
     spoolman,
@@ -106,6 +107,7 @@ protected_router.include_router(scan.router)
 protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
 protected_router.include_router(home_assistant.router)
+protected_router.include_router(sensors.router)
 protected_router.include_router(spoolman.router)
 protected_router.include_router(external_links.router)
 protected_router.include_router(features.router)

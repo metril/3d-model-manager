@@ -39,6 +39,7 @@ from app.models.library import (
 )
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
+from app.models.sensors import PrinterSensorSample
 from app.models.slicing import PrintRecipe, SlicerProfile
 from app.models.storage import FileLocation, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
@@ -71,6 +72,7 @@ __all__ = [
     "Print",
     "Printer",
     "PrinterAccess",
+    "PrinterSensorSample",
     "PrintArchive",
     "PrintJob",
     "PrintQueueEntry",
