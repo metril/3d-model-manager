@@ -1,20 +1,19 @@
 /**
- * `/` print-first home (P3 Task 8): a `PrinterCard` grid plus a right rail
- * (`UpNextList`, `RecentRunsList`) fed by one `usePrintersOverview` poll.
+ * `/` print-first home (P3 Task 8, Q3): a status summary bar, filter/sort
+ * toolbar (URL params, `printerDashSearch.ts`), bulk-select toolbar and a
+ * grid of bambuddy-layout `PrinterCard`s plus a right rail (`UpNextList`,
+ * `RecentRunsList`), all fed by one `usePrintersOverview` poll.
  * `redirectForIndex` (`routes.tsx`) already keeps anyone without a visible
  * printer off this route unless they're an admin who could add one, so a
  * zero-printer render here shows the setup card rather than an empty state.
  *
- * Grid density: 1 printer stays single-column (a 2-up grid for one card
- * looks broken), 2 goes `md:grid-cols-2`, 3+ goes `lg:grid-cols-3` --
- * mirrors the gallery's own breakpoint conventions.
- *
- * P4 Task 9: each card's `camera` slot gets a live `CameraTile` for
- * `can_print` items only -- the token mint requires that permission, so
- * a viewer without it keeps the plain placeholder instead of a tile that
- * would just sit offline.
+ * Card size (S/M/L/XL) lives in localStorage (`useCardSize`) and drives the
+ * grid columns (5/3/2/1). A live `CameraTile` is only mounted on L/XL cards
+ * for `can_print` items (the token mint requires that permission; smaller
+ * cards link to the detail page's camera instead of streaming N feeds).
  */
-import type { ReactNode } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -22,26 +21,41 @@ import { usePrintersOverview } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
+import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
+import { CARD_SIZES, GRID_CLASS, useCardSize } from "@/components/print/card/cardSize";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
+import { StatusSummaryBar } from "@/components/print/StatusSummaryBar";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/page-container";
-
-function gridClassName(count: number): string {
-  if (count >= 3) return "grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3";
-  if (count === 2) return "grid grid-cols-1 gap-4 md:grid-cols-2";
-  return "grid grid-cols-1 gap-4";
-}
+import { filterItems, sortGroups, summarize } from "@/lib/printerDashboard";
+import { cn } from "@/lib/utils";
+import { DASH_SORTS, parsePrintDashSearch, type PrintDashSearch } from "@/pages/printerDashSearch";
 
 export function PrintDashboardPage() {
   const overview = usePrintersOverview();
+  const navigate = useNavigate();
+  const search = parsePrintDashSearch(useSearch({ strict: false }) as Record<string, unknown>);
+  const [size, setSize] = useCardSize();
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  function patchSearch(patch: Partial<PrintDashSearch>) {
+    void navigate({
+      to: ".",
+      search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
+      replace: true,
+    });
+  }
   const auth = useAuth();
   const canReview = auth.can("queue:review");
   const reviewCount = useReviewCount({ enabled: canReview });
-  const printers = overview.data?.printers ?? [];
+  const printers = useMemo(() => overview.data?.printers ?? [], [overview.data]);
+  const summary = useMemo(() => summarize(printers), [printers]);
+  const groups = useMemo(() => sortGroups(filterItems(printers, search), search.sort), [printers, search]);
   const upNext = overview.data?.up_next ?? [];
   const recentRuns = overview.data?.recent_runs ?? [];
   // P7 Task 9: the review inbox card joins the rail only for a reviewer
@@ -90,18 +104,121 @@ export function PrintDashboardPage() {
       </div>
 
       <div className="flex flex-col gap-6 xl:flex-row">
-        <div className={`flex-1 ${gridClassName(printers.length)}`}>
-          {printers.map((item) => (
-            <PrinterCard
-              key={item.printer.id}
-              item={item}
-              camera={
-                item.can_print ? (
-                  <CameraTile printerId={item.printer.id} online={item.status.online} />
-                ) : undefined
-              }
-              badge={item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : undefined}
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <StatusSummaryBar summary={summary} active={search.status} onSelect={(status) => patchSearch({ status })} />
+
+          <div className="flex flex-wrap items-center gap-2" data-slot="dash-toolbar">
+            <Input
+              type="search"
+              className="h-8 w-48"
+              placeholder="Search printers"
+              aria-label="Search printers"
+              defaultValue={search.q ?? ""}
+              onChange={(e) => patchSearch({ q: e.target.value || undefined })}
             />
+            <label className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={search.offline === "hide"}
+                onChange={(e) => patchSearch({ offline: e.target.checked ? "hide" : undefined })}
+              />
+              Hide offline
+            </label>
+            <label className="flex items-center gap-1.5 text-sm">
+              Sort
+              <select
+                aria-label="Sort printers"
+                className="h-8 rounded-md border bg-background px-2 text-sm"
+                value={search.sort ?? "name"}
+                onChange={(e) => patchSearch({ sort: e.target.value === "name" ? undefined : (e.target.value as PrintDashSearch["sort"]) })}
+              >
+                {DASH_SORTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s === "eta" ? "ETA" : s[0].toUpperCase() + s.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              variant={selectMode ? "default" : "outline"}
+              aria-pressed={selectMode}
+              onClick={() => {
+                setSelectMode((v) => !v);
+                setSelected(new Set());
+              }}
+            >
+              Select
+            </Button>
+            <div role="radiogroup" aria-label="Card size" className="ml-auto inline-flex overflow-hidden rounded-md border">
+              {CARD_SIZES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={size === s}
+                  className={cn("px-2.5 py-1 text-xs", size === s ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+                  onClick={() => setSize(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectMode && selected.size > 0 ? (
+            <BulkPrinterToolbar
+              selected={printers.filter((p) => selected.has(p.printer.id))}
+              onDone={() => {
+                setSelected(new Set());
+                void overview.refetch();
+              }}
+              onClear={() => setSelected(new Set())}
+            />
+          ) : null}
+
+          {groups.every((g) => g.items.length === 0) ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">No printers match these filters.</p>
+          ) : null}
+          {groups.map((group) => (
+            <section key={group.key} className="flex flex-col gap-2">
+              {group.label ? (
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.label} <span className="font-mono">({group.items.length})</span>
+                </h2>
+              ) : null}
+              <div className={cn("grid gap-4", size === "L" || size === "XL" ? "gap-6" : "", GRID_CLASS[size])}>
+                {group.items.map((item) => (
+                  <PrinterCard
+                    key={item.printer.id}
+                    item={item}
+                    size={size}
+                    selected={selectMode ? selected.has(item.printer.id) : undefined}
+                    onSelectedChange={
+                      selectMode
+                        ? (on) =>
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (on) next.add(item.printer.id);
+                              else next.delete(item.printer.id);
+                              return next;
+                            })
+                        : undefined
+                    }
+                    camera={
+                      item.can_print && (size === "L" || size === "XL") ? (
+                        <CameraTile printerId={item.printer.id} online={item.status.online} />
+                      ) : undefined
+                    }
+                    badge={item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : undefined}
+                    // TODO(Q5-web): onInfo/onDiagnose/onHms via usePrinterModals(item.printer.id).
+                    // TODO(Q7-web): badgeExtra <MaintenanceBadge/>, footerExtra <PlugRow/>.
+                    // TODO(Q4-web): footerExtra <CameraSplitButton/>.
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
 

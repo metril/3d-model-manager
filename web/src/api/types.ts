@@ -625,6 +625,26 @@ export interface PrinterOut {
   options: Record<string, unknown>;
   access_code_set: boolean;
   build_volume_mm: { x: number; y: number; z: number } | null;
+  // Q1: model capability table + lifetime print hours (optional: older payloads omit them).
+  capabilities?: PrinterCapabilities;
+  total_print_hours?: number | null;
+}
+
+export interface PrinterCapabilities {
+  model_key?: string | null;
+  chamber_heater: boolean;
+  chamber_temp: boolean;
+  airduct: boolean;
+  door: boolean;
+  dual_nozzle: boolean;
+  aux_fan: boolean;
+  chamber_fan: boolean;
+  camera: string;
+  lidar: boolean;
+  max_bed?: number | null;
+  max_nozzle?: number | null;
+  ams_drying: boolean;
+  verified: boolean;
 }
 
 export interface PrinterCreate {
@@ -800,6 +820,56 @@ export interface PrinterStatusOut {
   subtask_name: string | null;
   wifi_signal: string | null;
   trays: AmsTray[];
+  // Q1 status schema v2 -- all optional (fan values are percent).
+  nozzle_target?: number | null;
+  bed_target?: number | null;
+  chamber_temper?: number | null;
+  chamber_target?: number | null;
+  fan_part_pct?: number | null;
+  fan_aux_pct?: number | null;
+  fan_chamber_pct?: number | null;
+  light_on?: boolean | null;
+  speed_level?: number | null;
+  stage?: string | null;
+  hms?: Array<{ attr: number; code: number }>;
+  sdcard?: boolean | null;
+  nozzle_type?: string | null;
+  firmware?: { ota: string | null; ams: Array<{ id: number; sw_ver: string | null }> } | null;
+  ams_units?: AmsUnit[];
+  ext_tray?: AmsTray | null;
+  /** Global slot id of the loaded tray (not sent by the API yet; the card shows a marker when present). */
+  tray_now?: number | null;
+  print_thumbnail_key?: string | null;
+  ipcam?: boolean | null;
+  dev_mode?: boolean | null;
+  dev_mode_reason?: string | null;
+  last_report_at?: string | null;
+}
+
+export interface AmsUnit {
+  id: number;
+  humidity: number | null;
+  temp: number | null;
+  serial: string | null;
+  fw: string | null;
+}
+
+export interface DevModeWarning {
+  printer_id: number;
+  name: string;
+  reason: string | null;
+}
+
+export interface PrintableObject {
+  id: number;
+  name: string;
+  plate: number;
+}
+
+export interface ActiveObjectsOut {
+  job_id: number | null;
+  plate: number | null;
+  objects: PrintableObject[];
 }
 
 // `POST /printers/{id}/camera/token` (P4 camera plan, Task 4/8): relative

@@ -1,6 +1,6 @@
 import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
@@ -13,9 +13,10 @@ import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
 // rail widgets it composes) runs for real; only the network boundary is
 // faked, so the SSE-driven refetch below exercises the actual
 // invalidate-then-refetch wiring instead of a stand-in.
-const { getMock, patchMock, meBox, featuresBox, overviewBox, reviewCountBox, reviewInboxBox } = vi.hoisted(() => ({
+const { getMock, patchMock, postMock, meBox, featuresBox, overviewBox, reviewCountBox, reviewInboxBox } = vi.hoisted(() => ({
   getMock: vi.fn(),
   patchMock: vi.fn(),
+  postMock: vi.fn(),
   meBox: {
     current: {
       id: 1,
@@ -51,10 +52,10 @@ vi.mock("@/api/client", async (importOriginal) => {
         return Promise.reject(new Error(`unexpected GET ${url}`));
       },
       patch: (url: string, body: unknown) => patchMock(url, body),
-      post: (url: string) =>
+      post: (url: string, body?: unknown) =>
         url.includes("/camera/token")
           ? Promise.resolve({ stream_url: "/stream", snapshot_url: "/snapshot", expires_at: "2026-01-01T00:00:00Z" })
-          : Promise.resolve(undefined),
+          : postMock(url, body) ?? Promise.resolve(undefined),
     },
   };
 });
@@ -101,7 +102,7 @@ function printerItem(id: number, overrides: Partial<PrinterOverviewItem> = {}): 
   };
 }
 
-function renderPage() {
+function renderPage(initial = "/") {
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: PrintDashboardPage });
   const modelRoute = createRoute({ getParentRoute: () => rootRoute, path: "/models/$slug", component: () => null });
@@ -109,7 +110,7 @@ function renderPage() {
   const queueRoute = createRoute({ getParentRoute: () => rootRoute, path: "/print/queue", component: () => null });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute, modelRoute, printerRoute, queueRoute]),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [initial] }),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -138,6 +139,8 @@ class StubEventSource {
 beforeEach(() => {
   getMock.mockReset();
   patchMock.mockReset();
+  postMock.mockReset();
+  localStorage.clear();
   featuresBox.current = { printer_enabled: true };
   overviewBox.current = { printers: [], up_next: [], recent_runs: [] };
   getMock.mockImplementation(() => Promise.resolve(overviewBox.current));
@@ -170,24 +173,9 @@ describe("PrintDashboardPage printer counts", () => {
     expect(await screen.findByText("Printer setup")).toBeInTheDocument();
   });
 
-  it("renders 1 card without a 2-column grid with 1 printer", async () => {
-    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
-
-    renderPage();
-
-    await screen.findByText("Printer 1");
-    expect(document.querySelectorAll('[data-slot="printer-card"]')).toHaveLength(1);
-    expect(document.querySelector(".md\\:grid-cols-2")).toBeNull();
-  });
-
-  it("renders 2 cards with a md:grid-cols-2 grid with 2 printers", async () => {
+  it("renders a card per printer in the size-driven grid (default M: 3 columns)", async () => {
     overviewBox.current = {
-      printers: [
-        printerItem(1, {
-          status: status({ gcode_state: "RUNNING", mc_percent: 42, layer_num: 10, total_layer_num: 120 }),
-        }),
-        printerItem(2, { status: status({ gcode_state: "IDLE" }) }),
-      ],
+      printers: [printerItem(1), printerItem(2, { status: status({ gcode_state: "IDLE" }) })],
       up_next: [],
       recent_runs: [],
     };
@@ -196,10 +184,23 @@ describe("PrintDashboardPage printer counts", () => {
 
     await screen.findByText("Printer 1");
     expect(document.querySelectorAll('[data-slot="printer-card"]')).toHaveLength(2);
-    expect(document.querySelector(".md\\:grid-cols-2")).not.toBeNull();
+    expect(document.querySelector(".xl\\:grid-cols-3")).not.toBeNull();
   });
 
-  it("renders a CameraTile only for can_print printers", async () => {
+  it("card size selector persists to localStorage and changes the grid", async () => {
+    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
+    renderPage();
+    await screen.findByText("Printer 1");
+    fireEvent.click(screen.getByRole("radio", { name: "XL" }));
+    expect(localStorage.getItem("printerCardSize")).toBe("XL");
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "XL");
+    fireEvent.click(screen.getByRole("radio", { name: "S" }));
+    expect(localStorage.getItem("printerCardSize")).toBe("S");
+    expect(document.querySelector(".xl\\:grid-cols-5")).not.toBeNull();
+  });
+
+  it("renders a CameraTile only for can_print printers on L/XL cards", async () => {
+    localStorage.setItem("printerCardSize", "L");
     overviewBox.current = {
       printers: [printerItem(1, { can_print: true, can_control: false }), printerItem(2, { can_print: false, can_control: true })],
       up_next: [],
@@ -210,6 +211,134 @@ describe("PrintDashboardPage printer counts", () => {
 
     await screen.findByText("Printer 1");
     expect(document.querySelectorAll('[data-slot="camera-tile"]')).toHaveLength(1);
+  });
+
+  it("renders no CameraTile on M cards", async () => {
+    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
+    renderPage();
+    await screen.findByText("Printer 1");
+    expect(document.querySelectorAll('[data-slot="camera-tile"]')).toHaveLength(0);
+  });
+});
+
+function fleet(): PrintersOverviewOut {
+  return {
+    printers: [
+      printerItem(1, { printer: { ...printerItem(1).printer, name: "Alpha", model: "A1 mini" }, status: status({ gcode_state: "RUNNING", mc_percent: 10, mc_remaining_time: 120 }) }),
+      printerItem(2, { printer: { ...printerItem(2).printer, name: "Bravo", model: "X1 Carbon" }, status: status({ gcode_state: "PAUSE", mc_remaining_time: 30 }) }),
+      printerItem(3, { printer: { ...printerItem(3).printer, name: "Charlie", model: "A1 mini" }, status: status({ gcode_state: "IDLE" }) }),
+      printerItem(4, { printer: { ...printerItem(4).printer, name: "Delta", model: "P1S" }, status: status({ gcode_state: "FAILED" }) }),
+      printerItem(5, { printer: { ...printerItem(5).printer, name: "Echo", model: "P1S" }, status: status({ online: false }) }),
+    ],
+    up_next: [],
+    recent_runs: [],
+  };
+}
+
+const cardNames = () =>
+  [...document.querySelectorAll('[data-slot="card-header"] a')].map((a) => a.textContent);
+
+describe("PrintDashboardPage summary, filters and sort", () => {
+  it("summary bar counts each status and shows the next printer to free up", async () => {
+    overviewBox.current = fleet();
+    renderPage();
+    await screen.findByText("Alpha");
+    for (const [st, n] of [["printing", 1], ["paused", 1], ["available", 1], ["problem", 1], ["offline", 1], ["finished", 0]] as const) {
+      expect(screen.getByRole("button", { name: `${st} ${n}` })).toBeInTheDocument();
+    }
+    expect(screen.getByTestId("next-free")).toHaveTextContent("Next free: Bravo in 30m");
+  });
+
+  it("clicking a status chip filters via ?status= and clicking again clears it", async () => {
+    overviewBox.current = fleet();
+    renderPage();
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "problem 1" }));
+    await waitFor(() => expect(cardNames()).toEqual(["Delta"]));
+    fireEvent.click(screen.getByRole("button", { name: "problem 1" }));
+    await waitFor(() => expect(cardNames()).toHaveLength(5));
+  });
+
+  it("reads filters from the URL: ?status=offline", async () => {
+    overviewBox.current = fleet();
+    renderPage("/?status=offline");
+    await waitFor(() => expect(cardNames()).toEqual(["Echo"]));
+  });
+
+  it("hide offline and search narrow the list", async () => {
+    overviewBox.current = fleet();
+    renderPage();
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByLabelText("Hide offline"));
+    await waitFor(() => expect(cardNames()).not.toContain("Echo"));
+    fireEvent.change(screen.getByLabelText("Search printers"), { target: { value: "p1s" } });
+    await waitFor(() => expect(cardNames()).toEqual(["Delta"]));
+  });
+
+  it("shows an empty-filter message", async () => {
+    overviewBox.current = fleet();
+    renderPage("/?q=zzz");
+    expect(await screen.findByText("No printers match these filters.")).toBeInTheDocument();
+  });
+
+  it("a paused printer with a print_error counts as paused and is bulk-eligible", async () => {
+    const o = fleet();
+    o.printers[1] = printerItem(2, {
+      printer: { ...printerItem(2).printer, name: "Bravo" },
+      status: status({ gcode_state: "PAUSE", print_error: 5 }),
+    });
+    overviewBox.current = o;
+    renderPage();
+    await screen.findByText("Alpha");
+    expect(screen.getByRole("button", { name: "paused 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "problem 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
+    expect(await screen.findByRole("button", { name: "Stop selected (1)" })).toBeEnabled();
+  });
+
+  it("sort by ETA puts the soonest-free printer first", async () => {
+    overviewBox.current = fleet();
+    renderPage("/?sort=eta");
+    await waitFor(() => expect(cardNames().slice(0, 2)).toEqual(["Bravo", "Alpha"]));
+  });
+
+  it("sort by status groups under headers in status order", async () => {
+    overviewBox.current = fleet();
+    renderPage("/?sort=status");
+    await screen.findByText("Alpha");
+    const headers = [...document.querySelectorAll("h2")].map((h) => h.textContent?.replace(/\(\d+\)/, "").trim());
+    expect(headers).toEqual(["Printing", "Paused", "Problem", "Available", "Offline"]);
+  });
+
+  it("sort by model groups by model name", async () => {
+    overviewBox.current = fleet();
+    renderPage("/?sort=model");
+    await screen.findByText("Alpha");
+    const headers = [...document.querySelectorAll("h2")].map((h) => h.textContent?.replace(/\(\d+\)/, "").trim());
+    expect(headers).toEqual(["A1 mini", "P1S", "X1 Carbon"]);
+  });
+});
+
+describe("PrintDashboardPage bulk select", () => {
+  it("pauses / stops the selected printers with one request each, after confirmation", async () => {
+    overviewBox.current = fleet();
+    postMock.mockResolvedValue(undefined);
+    renderPage();
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Alpha" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Charlie" }));
+    expect(await screen.findByText("3 selected")).toBeInTheDocument();
+    // Only Alpha (printing) can pause; Alpha + Bravo can stop.
+    fireEvent.click(screen.getByRole("button", { name: "Stop selected (2)" }));
+    expect(postMock).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+    expect(postMock).toHaveBeenCalledWith("/printers/1/stop", undefined);
+    expect(postMock).toHaveBeenCalledWith("/printers/2/stop", undefined);
   });
 });
 

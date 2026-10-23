@@ -1,215 +1,149 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AmsTray, PrinterOverviewItem } from "@/api/types";
 import { PrinterCard } from "@/components/print/PrinterCard";
+import { a1Mini, renderCard, tray, x1c } from "@/components/print/card/testUtils";
 
-const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+const { getMock, postMock, uploadMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), uploadMock: vi.fn() }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock } };
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock } };
 });
-
-// `SlotAssignPopover` has its own test suite; here we only need to tell
-// whether `PrinterCard` wrapped a chip in it or not, so a thin marker
-// stands in for the real popover/select/combobox machinery.
-vi.mock("@/components/inventory/SlotAssignPopover", () => ({
-  SlotAssignPopover: ({ children }: { children?: ReactNode }) => (
-    <div data-testid="slot-assign-popover">{children}</div>
-  ),
+vi.mock("@/api/upload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/upload")>()),
+  uploadFile: uploadMock,
 }));
-
-function tray(overrides: Partial<AmsTray> = {}): AmsTray {
-  return {
-    slot: 0,
-    ams_unit: null,
-    tray: null,
-    color: null,
-    material: null,
-    tray_type: null,
-    tray_uuid: null,
-    remain_pct: null,
-    spool: null,
-    ...overrides,
-  };
-}
-
-function item(overrides: Partial<PrinterOverviewItem> = {}): PrinterOverviewItem {
-  return {
-    printer: {
-      id: 1,
-      name: "Bambu A1",
-      kind: "bambu_lan",
-      host: "192.168.1.50",
-      serial: "AC12345",
-      model: "A1 mini",
-      enabled: true,
-      options: {},
-      access_code_set: true,
-      build_volume_mm: null,
-    },
-    status: {
-      online: true,
-      gcode_state: "IDLE",
-      mc_percent: null,
-      layer_num: null,
-      total_layer_num: null,
-      mc_remaining_time: null,
-      print_error: null,
-      nozzle_temper: 215,
-      bed_temper: 220,
-      subtask_name: null,
-      wifi_signal: null,
-      trays: [],
-    },
-    active_job: null,
-    last_runs: [],
-    can_print: true,
-    can_control: true,
-    up_next: [],
-    ...overrides,
-  };
-}
-
-function renderCard(ui: React.ReactElement) {
-  const rootRoute = createRootRoute();
-  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
-  const detailRoute = createRoute({ getParentRoute: () => rootRoute, path: "/printers/$id", component: () => null });
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, detailRoute]),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
-  });
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
+// `SlotAssignPopover` has its own suite; a marker tells us whether the card wrapped a slot in it.
+vi.mock("@/components/inventory/SlotAssignPopover", () => ({
+  SlotAssignPopover: ({ children }: { children?: ReactNode }) => <div data-testid="slot-assign-popover">{children}</div>,
+}));
 
 describe("PrinterCard", () => {
   beforeEach(() => {
-    getMock.mockReset();
-    getMock.mockResolvedValue([]);
+    getMock.mockReset().mockResolvedValue([]);
+    postMock.mockReset().mockResolvedValue({ ok: true });
+    uploadMock.mockReset();
+    localStorage.clear();
   });
 
   it("links the header to the printer's detail page", async () => {
-    renderCard(<PrinterCard item={item()} />);
-
-    const link = await screen.findByRole("link", { name: "Bambu A1" });
-    expect(link).toHaveAttribute("href", "/printers/1");
+    renderCard(<PrinterCard item={a1Mini()} />);
+    expect(await screen.findByRole("link", { name: "A1 Mini" })).toHaveAttribute("href", "/printers/1");
   });
 
-  it("shows an Offline badge when the printer is offline", async () => {
-    renderCard(<PrinterCard item={item({ status: { ...item().status, online: false } })} />);
-
-    expect(await screen.findByText("Offline")).toBeInTheDocument();
+  it("shows an Offline badge when the printer is offline and hides tiles/controls", async () => {
+    renderCard(<PrinterCard item={a1Mini({}, { online: false })} />);
+    expect((await screen.findAllByText("Offline")).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("tile-bed")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Chamber light" })).toBeNull();
   });
 
-  it("shows nozzle/bed temps with muted units", async () => {
-    renderCard(<PrinterCard item={item()} />);
-
-    expect(await screen.findByText(/215 \/ 220/)).toBeInTheDocument();
+  it("A1 Mini shows nozzle/bed tiles with current temps and no chamber tile", async () => {
+    renderCard(<PrinterCard item={a1Mini({}, { nozzle_temper: 215, bed_temper: 60 })} />);
+    expect(await screen.findByTestId("tile-nozzle")).toHaveTextContent("215");
+    expect(screen.getByTestId("tile-bed")).toHaveTextContent("60");
+    expect(screen.queryByTestId("tile-chamber")).toBeNull();
   });
 
-  it("badges a low-stock tray straight off tray.spool.low_stock (no extra spool lookup)", async () => {
-    renderCard(
-      <PrinterCard
-        item={item({
-          status: {
-            ...item().status,
-            trays: [
-              tray({
-                slot: 0,
-                color: "#FF0000",
-                material: "PLA",
-                spool: {
-                  id: 9,
-                  material_type: "PLA",
-                  brand: null,
-                  color_hex: "#FF0000",
-                  color_name: null,
-                  low_stock: true,
-                },
-              }),
-            ],
-          },
-        })}
-      />,
-    );
+  it("X1C shows chamber and the untested tooltip on controls", async () => {
+    renderCard(<PrinterCard item={x1c()} />);
+    expect(await screen.findByTestId("tile-chamber")).toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("button", { name: "Chamber light" }));
+    expect((await screen.findAllByText("Untested on this model")).length).toBeGreaterThan(0);
+  });
 
+  it("badges a low-stock tray straight off tray.spool.low_stock", async () => {
+    const spool = { id: 9, material_type: "PLA", brand: null, color_hex: "#FF0000", color_name: null, low_stock: true };
+    renderCard(<PrinterCard item={a1Mini({}, { trays: [tray({ spool })] })} />);
     expect(await screen.findByText("Low")).toBeInTheDocument();
-    expect(getMock).not.toHaveBeenCalled();
   });
 
-  it("renders a filament chip per AMS tray", async () => {
-    renderCard(
-      <PrinterCard
-        item={item({
-          status: {
-            ...item().status,
-            trays: [
-              tray({ slot: 0, color: "#FF0000", material: "PLA" }),
-              tray({ slot: 1, color: "#00FF00", material: "PETG" }),
-            ],
-          },
-        })}
-      />,
-    );
-
-    await screen.findByRole("link", { name: "Bambu A1" });
-    const chips = document.querySelectorAll('[data-slot="filament-chip"]');
-    expect(chips).toHaveLength(2);
+  it("renders a slot circle per AMS tray, wrapped in SlotAssignPopover for controllers only", async () => {
+    const trays = [tray({ slot: 0 }), tray({ slot: 1, tray: 1, color: "#00FF00", material: "PETG", tray_type: "PETG" })];
+    const { unmount } = renderCard(<PrinterCard item={a1Mini({ can_control: true }, { trays })} />);
+    expect(await screen.findAllByTestId("slot-assign-popover")).toHaveLength(2);
+    unmount();
+    renderCard(<PrinterCard item={a1Mini({ can_control: false }, { trays })} />);
+    await screen.findByTestId("slot-0");
+    expect(screen.queryByTestId("slot-assign-popover")).toBeNull();
   });
 
   it("shows Idle when there's no active job", async () => {
-    renderCard(<PrinterCard item={item()} />);
-
-    await screen.findByRole("link", { name: "Bambu A1" });
+    renderCard(<PrinterCard item={a1Mini()} />);
+    await screen.findByRole("link", { name: "A1 Mini" });
     expect(screen.getAllByText("Idle").length).toBeGreaterThan(0);
   });
 
-  it("renders the badge slot", async () => {
-    renderCard(<PrinterCard item={item()} badge={<span>Primary</span>} />);
-
+  it("renders the badge and camera slots", async () => {
+    renderCard(<PrinterCard item={a1Mini()} badge={<span>Primary</span>} camera={<span>Live feed</span>} />);
     expect(await screen.findByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Live feed")).toBeInTheDocument();
   });
 
-  it("renders the camera slot in place of the placeholder", async () => {
-    renderCard(<PrinterCard item={item()} camera={<span>Live feed</span>} />);
-
-    expect(await screen.findByText("Live feed")).toBeInTheDocument();
-  });
-
-  it("wraps AMS chips in SlotAssignPopover for a control-capable viewer", async () => {
+  it("header/badge/footer extra slots accept nodes or render props with the card context", async () => {
     renderCard(
       <PrinterCard
-        item={item({
-          can_control: true,
-          status: { ...item().status, trays: [tray({ slot: 0, color: "#FF0000", material: "PLA" })] },
-        })}
+        item={a1Mini()}
+        headerExtra={<span>hx</span>}
+        badgeExtra={(ctx) => <span>bx {ctx.printer.name}</span>}
+        footerExtra={(ctx) => <span>fx {String(ctx.canControl)}</span>}
       />,
     );
-
-    expect(await screen.findAllByTestId("slot-assign-popover")).toHaveLength(1);
+    expect(await screen.findByText("hx")).toBeInTheDocument();
+    expect(screen.getByText("bx A1 Mini")).toBeInTheDocument();
+    expect(screen.getByText("fx true")).toBeInTheDocument();
   });
 
-  it("renders plain chips (no popover) for a viewer without control", async () => {
-    renderCard(
-      <PrinterCard
-        item={item({
-          can_control: false,
-          status: { ...item().status, trays: [tray({ slot: 0, color: "#FF0000", material: "PLA" })] },
-        })}
-      />,
-    );
+  it("scales the body per size via --pc-s", async () => {
+    const { unmount } = renderCard(<PrinterCard item={a1Mini()} size="L" />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    expect(document.querySelector<HTMLElement>('[data-slot="printer-card"]')!.style.getPropertyValue("--pc-s")).toBe("1.2");
+    unmount();
+    renderCard(<PrinterCard item={a1Mini()} size="XL" />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    expect(document.querySelector<HTMLElement>('[data-slot="printer-card"]')!.style.getPropertyValue("--pc-s")).toBe("1.4");
+  });
 
-    await screen.findByRole("link", { name: "Bambu A1" });
-    expect(screen.queryByTestId("slot-assign-popover")).toBeNull();
-    expect(document.querySelectorAll('[data-slot="filament-chip"]')).toHaveLength(1);
+  it("S is compact; click expands to M with a Back pill that collapses again", async () => {
+    renderCard(<PrinterCard item={a1Mini({}, { gcode_state: "RUNNING", mc_percent: 30 })} size="S" />);
+    expect(await screen.findByRole("progressbar")).toHaveAttribute("aria-valuenow", "30");
+    expect(screen.queryByTestId("tile-bed")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand A1 Mini" }));
+    expect(await screen.findByTestId("tile-bed")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "M");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.queryByTestId("tile-bed")).toBeNull());
+  });
+
+  it("bulk-select checkbox calls back", async () => {
+    const onSel = vi.fn();
+    renderCard(<PrinterCard item={a1Mini()} selected={false} onSelectedChange={onSel} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select A1 Mini" }));
+    expect(onSel).toHaveBeenCalledWith(true);
+  });
+
+  it("dropping a .3mf on the card creates a model, uploads and queues it for this printer", async () => {
+    postMock.mockImplementation((url: string) =>
+      url === "/models" ? Promise.resolve({ id: 7, current_revision: { id: 70 } }) : Promise.resolve({ id: 1 }),
+    );
+    uploadMock.mockResolvedValue({ job_id: "j" });
+    renderCard(<PrinterCard item={a1Mini()} />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    const file = new File(["x"], "cube.3mf");
+    fireEvent.drop(document.querySelector('[data-slot="printer-card"]')!, { dataTransfer: { items: [], files: [file] } });
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ model_id: 7, printer_id: 1 })));
+    expect(uploadMock).toHaveBeenCalledWith(expect.objectContaining({ modelId: 7, revisionId: 70, relPath: "cube.3mf" }));
+  });
+
+  it("does not accept drops without print permission", async () => {
+    renderCard(<PrinterCard item={a1Mini({ can_print: false })} />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    fireEvent.drop(document.querySelector('[data-slot="printer-card"]')!, {
+      dataTransfer: { items: [], files: [new File(["x"], "cube.3mf")] },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(uploadMock).not.toHaveBeenCalled();
   });
 });

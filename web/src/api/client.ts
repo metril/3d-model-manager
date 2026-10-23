@@ -16,12 +16,15 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
+  /** Machine code from `{code, detail}` bodies (printer control routes), else undefined. */
+  readonly code?: string;
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, code?: string) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -35,7 +38,7 @@ function isUnauthenticatedRedirectExempt(): boolean {
   return window.location.pathname === "/login";
 }
 
-async function extractDetail(response: Response): Promise<string> {
+async function extractError(response: Response): Promise<{ detail: string; code?: string }> {
   try {
     const data: unknown = await response.json();
     if (
@@ -44,12 +47,16 @@ async function extractDetail(response: Response): Promise<string> {
       "detail" in data &&
       typeof (data as { detail: unknown }).detail === "string"
     ) {
-      return (data as { detail: string }).detail;
+      const code = (data as { code?: unknown }).code;
+      return {
+        detail: (data as { detail: string }).detail,
+        code: typeof code === "string" ? code : undefined,
+      };
     }
   } catch {
     // Response body wasn't JSON (or was empty) — fall through to statusText.
   }
-  return response.statusText || `Request failed with status ${response.status}`;
+  return { detail: response.statusText || `Request failed with status ${response.status}` };
 }
 
 /** Shared 401/error/empty-body handling for both the JSON path (`request`)
@@ -58,11 +65,12 @@ async function extractDetail(response: Response): Promise<string> {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (response.status === 401 && !isUnauthenticatedRedirectExempt()) {
     window.location.assign("/login");
-    throw new ApiError(401, await extractDetail(response));
+    throw new ApiError(401, (await extractError(response)).detail);
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, await extractDetail(response));
+    const { detail, code } = await extractError(response);
+    throw new ApiError(response.status, detail, code);
   }
 
   if (response.status === 204 || response.headers.get("content-length") === "0") {

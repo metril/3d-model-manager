@@ -296,3 +296,13 @@
     font-weight: 600;
   }
 }
+/* Q3 printer card: body scale (S/M 1, L 1.2, XL 1.4) via --pc-s set on the card root. */
+.pc-t9 { font-size: calc(9px * var(--pc-s, 1)); }
+.pc-t10 { font-size: calc(10px * var(--pc-s, 1)); }
+.pc-t11 { font-size: calc(11px * var(--pc-s, 1)); }
+.pc-t12 { font-size: calc(12px * var(--pc-s, 1)); }
+.pc-t14 { font-size: calc(14px * var(--pc-s, 1)); }
+.pc-i { width: calc(14px * var(--pc-s, 1)); height: calc(14px * var(--pc-s, 1)); }
+.pc-thumb { width: calc(96px * var(--pc-s, 1)); height: calc(96px * var(--pc-s, 1)); }
+@keyframes pc-spin { to { transform: rotate(360deg); } }
+.pc-spin { animation: pc-spin 1s linear infinite; }
