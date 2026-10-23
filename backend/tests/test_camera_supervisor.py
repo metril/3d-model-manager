@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
+import pytest
 import redis as redis_lib
 
 from app.printers.base import PrinterConnection
@@ -194,3 +196,62 @@ def test_unsupported_sets_status_and_no_retry(redis_url):
         sup.tick()
     assert sup._workers[pid] is worker_after_unsupported
     assert cs.get_status(r, pid) == "unsupported"
+
+
+# -- Q4 source selection -----------------------------------------------------
+
+
+def _conn(model, options=None):
+    return PrinterConnection(
+        host="h", serial="SER", access_code="code", model=model, options=options or {}
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "options", "cls"),
+    [
+        ("A1 Mini", {}, "CameraA1Client"),
+        ("X1C", {}, "FfmpegMjpegSource"),
+        (
+            "X1C",
+            {"camera": {"kind": "snapshot", "url": "http://cam/s.jpg"}},
+            "ExternalCameraSource",
+        ),
+        ("A1", {"camera": {"kind": "mjpeg", "url": "http://cam/s.mjpg"}}, "ExternalCameraSource"),
+    ],
+)
+def test_open_camera_source_selection(model, options, cls) -> None:
+    from app.printers.bambu import BambuLanAdapter
+
+    src = BambuLanAdapter(_conn(model, options)).open_camera(threading.Event())
+    assert type(src).__name__ == cls
+
+
+def test_open_camera_none_unsupported() -> None:
+    from app.printers.bambu import BambuLanAdapter
+
+    with pytest.raises(NotImplementedError):
+        BambuLanAdapter(_conn("Unknown Model")).open_camera(threading.Event())
+
+
+def test_camera_options_roundtrip(tmp_path, monkeypatch) -> None:
+    from app.config import get_settings
+    from app.printers.camera_select import decrypt_options, normalize_options, redact_options
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    s = get_settings()
+    norm = normalize_options(
+        s, {"camera": {"kind": "mjpeg", "url": "http://u:p@cam/x"}, "camera_rotation": 90}, None
+    )
+    assert "u:p" not in str(norm) and norm["camera"]["url_enc"]
+    assert redact_options(norm)["camera"] == {"kind": "mjpeg", "has_url": True}
+    assert decrypt_options(s, norm)["camera"]["url"] == "http://u:p@cam/x"
+    # editing without re-sending the url keeps the stored ciphertext
+    kept = normalize_options(s, {"camera": {"kind": "mjpeg"}}, norm)
+    assert kept["camera"]["url_enc"] == norm["camera"]["url_enc"]
+    with pytest.raises(ValueError):
+        normalize_options(s, {"camera_rotation": 45}, None)
+    with pytest.raises(ValueError):
+        normalize_options(s, {"camera": {"kind": "rtsp", "url": "http://x"}}, None)
+    get_settings.cache_clear()

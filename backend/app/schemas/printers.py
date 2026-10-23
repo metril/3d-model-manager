@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import PrinterKind, PrintJobOrigin
+from app.printers.camera_select import redact_options
 
 if TYPE_CHECKING:
     from app.models import Printer, PrintJob
@@ -167,7 +168,7 @@ class PrinterOut(BaseModel):
             serial=p.serial,
             model=p.model,
             enabled=p.enabled,
-            options=p.options or {},
+            options=redact_options(p.options),
             access_code_set=bool(p.access_code_enc),
             build_volume_mm=p.build_volume_mm,
             capabilities=CapabilitiesOut(**capabilities_for(p.model, p.serial).as_dict()),
@@ -414,3 +415,43 @@ class CameraUrlsOut(BaseModel):
     stream_url: str
     snapshot_url: str
     expires_at: datetime
+
+
+class CameraStatusOut(BaseModel):
+    status: str
+    source: str  # external | a1 | rtsp | none
+    beta: bool
+    rotation: int
+    default_fps: int
+
+
+class OverlayTokenIn(BaseModel):
+    label: str | None = None
+
+
+class OverlayTokenOut(BaseModel):
+    id: int
+    printer_id: int
+    label: str | None
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+class OverlayTokenCreatedOut(OverlayTokenOut):
+    token: str  # plaintext, shown once
+    overlay_url: str
+
+
+class OverlayOut(BaseModel):
+    printer_name: str
+    gcode_state: str | None
+    progress: int | None
+    layer: int | None
+    total_layers: int | None
+    remaining_min: int | None
+    nozzle_temp: float | None
+    bed_temp: float | None
+    subtask_name: str | None
+    rotation: int
+    stream_url: str
+    snapshot_url: str

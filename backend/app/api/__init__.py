@@ -90,6 +90,7 @@ api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
 api_router.include_router(files.public_router)
 api_router.include_router(printers.camera_public_router)
+api_router.include_router(printers.overlay_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)

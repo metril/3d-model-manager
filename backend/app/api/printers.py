@@ -14,7 +14,10 @@ function, when a probe actually runs with the flag on (see
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
+import secrets
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -41,18 +44,30 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
-from app.models import Printer, PrintJob, User
+from app.models import OverlayToken, Printer, PrintJob, User
 from app.models.inventory import Spool
 from app.printers import discovery
 from app.printers.base import command_channel
+from app.printers.camera_rtsp import BETA as RTSP_BETA
+from app.printers.camera_select import (
+    DEFAULT_FPS,
+    camera_kind,
+    normalize_options,
+    rotation_of,
+)
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.schemas.inventory import SlotAssignIn
 from app.schemas.printers import (
     AmsTrayOut,
+    CameraStatusOut,
     CameraUrlsOut,
     DetectSerialIn,
     DetectSerialOut,
+    OverlayOut,
+    OverlayTokenCreatedOut,
+    OverlayTokenIn,
+    OverlayTokenOut,
     PrinterCreate,
     PrinterOut,
     PrintersOverviewOut,
@@ -124,6 +139,10 @@ async def create_printer(
         if payload.build_volume_mm is not None
         else seed_build_volume_mm(payload.model)
     )
+    try:
+        options = normalize_options(settings, payload.options, None)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     printer = Printer(
         name=payload.name,
         kind=payload.kind,
@@ -132,7 +151,7 @@ async def create_printer(
         access_code_enc=encrypt_secret(settings, code),
         model=payload.model,
         enabled=payload.enabled,
-        options=payload.options,
+        options=options,
         build_volume_mm=build_volume_mm,
     )
     db.add(printer)
@@ -234,6 +253,11 @@ async def update_printer(
                 'Cannot set access code to the placeholder "***"; enter the real code.',
             )
         # blank, or sentinel-with-a-stored-code -> keep the existing ciphertext
+    if data.get("options") is not None:
+        try:
+            data["options"] = normalize_options(settings, data["options"], printer.options)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     for key, value in data.items():
         setattr(printer, key, value)
     # R13c: a `model` change that leaves `build_volume_mm` NULL (and the
@@ -507,7 +531,176 @@ camera_public_router = APIRouter(prefix="/printers", tags=["printers"])
 # giving up and ending the stream -- module-level so tests can monkeypatch
 # ``STREAM_IDLE_S`` down for a fast "ends when idle" test.
 HEARTBEAT_S = cs.HEARTBEAT_S
+MAX_FPS = 15
+OVERLAY_PREFIX = "ovl_"
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def _overlay_token_valid(db: AsyncSession, printer_id: int, token: str) -> bool:
+    row = (
+        await db.execute(
+            select(OverlayToken.id).where(
+                OverlayToken.token_hash == _hash_token(token),
+                OverlayToken.printer_id == printer_id,
+                OverlayToken.revoked_at.is_(None),
+            )
+        )
+    ).first()
+    return row is not None
+
+
+def _rotate_jpeg(jpeg: bytes, degrees: int) -> bytes:
+    """Rotate clockwise by ``degrees`` (90/180/270) with Pillow."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg))
+    method = {
+        90: Image.Transpose.ROTATE_270,
+        180: Image.Transpose.ROTATE_180,
+        270: Image.Transpose.ROTATE_90,
+    }[degrees]
+    out = io.BytesIO()
+    img.transpose(method).save(out, format="JPEG", quality=85)
+    return out.getvalue()
+
+
 STREAM_IDLE_S = 20.0
+
+
+@router.get(
+    "/{printer_id}/camera/status",
+    response_model=CameraStatusOut,
+    dependencies=[Depends(require_printer_access("print"))],
+)
+async def camera_status(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> CameraStatusOut:
+    printer = await _get_or_404(db, printer_id)
+    source = camera_kind(printer.model, printer.serial, printer.options)
+    redis = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        live = await cs.aget_status(redis, printer_id)
+    finally:
+        await redis.aclose()
+    return CameraStatusOut(
+        status="unsupported" if source == "none" else (live or "idle"),
+        source=source,
+        beta=RTSP_BETA and source == "rtsp",
+        rotation=rotation_of(printer.options),
+        default_fps=DEFAULT_FPS,
+    )
+
+
+@router.post(
+    "/{printer_id}/overlay-tokens",
+    response_model=OverlayTokenCreatedOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def create_overlay_token(
+    printer_id: int,
+    payload: OverlayTokenIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> OverlayTokenCreatedOut:
+    """Mints a read-only overlay token; the plaintext is returned ONCE."""
+    await _get_or_404(db, printer_id)
+    token = OVERLAY_PREFIX + secrets.token_urlsafe(32)
+    row = OverlayToken(
+        printer_id=printer_id,
+        token_hash=_hash_token(token),
+        label=payload.label if payload else None,
+        created_by_user_id=ctx.user.id,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return OverlayTokenCreatedOut(
+        **OverlayTokenOut.model_validate(row, from_attributes=True).model_dump(),
+        token=token,
+        overlay_url=f"/overlay/{printer_id}?token={token}",
+    )
+
+
+@router.get(
+    "/{printer_id}/overlay-tokens",
+    response_model=list[OverlayTokenOut],
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def list_overlay_tokens(
+    printer_id: int, db: AsyncSession = Depends(get_db)
+) -> list[OverlayToken]:
+    await _get_or_404(db, printer_id)
+    rows = await db.execute(
+        select(OverlayToken).where(OverlayToken.printer_id == printer_id).order_by(OverlayToken.id)
+    )
+    return list(rows.scalars())
+
+
+@router.delete(
+    "/{printer_id}/overlay-tokens/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def revoke_overlay_token(
+    printer_id: int, token_id: int, db: AsyncSession = Depends(get_db)
+) -> None:
+    row = await db.get(OverlayToken, token_id)
+    if row is None or row.printer_id != printer_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "overlay token not found")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+        await db.commit()
+
+
+overlay_router = APIRouter(prefix="/overlay", tags=["overlay"])
+
+
+@overlay_router.get("/{printer_id}", response_model=OverlayOut)
+async def overlay(
+    printer_id: int,
+    token: str = Query(...),
+    settings: Settings = Depends(get_settings),
+) -> OverlayOut:
+    """Public (token-scoped) overlay data for OBS browser sources."""
+    async with get_sessionmaker()() as db:
+        if not token.startswith(OVERLAY_PREFIX) or not await _overlay_token_valid(
+            db, printer_id, token
+        ):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or revoked token")
+        config = await get_app_config(db, settings)
+        if not config.printer_enabled:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "printer integration is disabled"
+            )
+        printer = await db.get(Printer, printer_id)
+        if printer is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+        name, options = printer.name, printer.options
+    redis = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        state = await read_state_async(redis, printer_id) or {}
+    finally:
+        await redis.aclose()
+    return OverlayOut(
+        printer_name=name,
+        gcode_state=state.get("gcode_state"),
+        progress=state.get("mc_percent"),
+        layer=state.get("layer_num"),
+        total_layers=state.get("total_layer_num"),
+        remaining_min=state.get("mc_remaining_time"),
+        nozzle_temp=state.get("nozzle_temper"),
+        bed_temp=state.get("bed_temper"),
+        subtask_name=state.get("subtask_name"),
+        rotation=rotation_of(options),
+        stream_url=f"/api/printers/{printer_id}/camera/stream?token={token}",
+        snapshot_url=f"/api/printers/{printer_id}/camera/snapshot?token={token}",
+    )
 
 
 @router.post(
@@ -542,8 +735,9 @@ async def _authorize_camera(
     token: str | None,
     tdmm_session: str | None,
     settings: Settings,
-) -> None:
-    """Session cookie OR a scoped camera token authorizes the public
+) -> dict:
+    """Returns the printer's ``options`` (rotation etc.). Session cookie,
+    scoped camera token, or overlay token authorizes the public
     stream/snapshot routes -- both need only ``print`` access to the printer
     (viewing is not control). The token path is a minimal active-user +
     ``can_print_async`` check, not a rebuilt ``AuthContext``. Uses its own
@@ -553,7 +747,11 @@ async def _authorize_camera(
     be held open for as long as the MJPEG stream runs.
     """
     async with get_sessionmaker()() as db:
-        if token is not None:
+        if token is not None and token.startswith(OVERLAY_PREFIX):
+            if not await _overlay_token_valid(db, printer_id, token):
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or revoked token")
+            allowed = True
+        elif token is not None:
             scope = signed_urls.verify_scoped(settings, token, f"camera:{printer_id}:")
             if scope is None:
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired token")
@@ -575,9 +773,12 @@ async def _authorize_camera(
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "printer integration is disabled"
             )
+        printer = await db.get(Printer, printer_id)
+        options = dict(printer.options or {}) if printer is not None else {}
 
     if not allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "printer access denied")
+    return options
 
 
 def _mjpeg_part(jpeg: bytes) -> bytes:
@@ -588,7 +789,9 @@ def _mjpeg_part(jpeg: bytes) -> bytes:
     )
 
 
-async def mjpeg_parts(redis, printer_id: int, viewer_id: str) -> AsyncIterator[bytes]:
+async def mjpeg_parts(
+    redis, printer_id: int, viewer_id: str, min_interval: float = 0.0
+) -> AsyncIterator[bytes]:
     """Yield ``multipart/x-mixed-replace`` parts for ``printer_id``'s live
     camera feed. Registers ``viewer_id`` (so printerd's camera worker starts
     or stays up), subscribes the frame pub/sub channel, yields whatever
@@ -607,6 +810,7 @@ async def mjpeg_parts(redis, printer_id: int, viewer_id: str) -> AsyncIterator[b
         now = time.monotonic()
         last_frame_at = now
         last_heartbeat_at = now
+        last_yield_at = now
         if frame is not None:
             yield _mjpeg_part(frame)
 
@@ -615,7 +819,9 @@ async def mjpeg_parts(redis, printer_id: int, viewer_id: str) -> AsyncIterator[b
             now = time.monotonic()
             if message is not None and message["type"] == "message":
                 last_frame_at = now
-                yield _mjpeg_part(message["data"])
+                if now - last_yield_at >= min_interval:
+                    last_yield_at = now
+                    yield _mjpeg_part(message["data"])
 
             if now - last_heartbeat_at >= HEARTBEAT_S:
                 await cs.aadd_viewer(redis, printer_id, viewer_id)
@@ -639,10 +845,13 @@ async def mjpeg_parts(redis, printer_id: int, viewer_id: str) -> AsyncIterator[b
 async def camera_stream(
     printer_id: int,
     token: str | None = Query(default=None),
+    fps: int | None = Query(default=None, ge=1, le=MAX_FPS),
     tdmm_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
-    await _authorize_camera(printer_id, token, tdmm_session, settings)
+    options = await _authorize_camera(printer_id, token, tdmm_session, settings)
+    if fps is None and camera_kind(None, None, options) == "external":
+        fps = DEFAULT_FPS
     redis = aioredis.Redis.from_url(settings.redis_url)
     try:
         if await cs.aget_status(redis, printer_id) == "unsupported":
@@ -654,7 +863,7 @@ async def camera_stream(
 
     async def _gen() -> AsyncIterator[bytes]:
         try:
-            async for part in mjpeg_parts(redis, printer_id, viewer_id):
+            async for part in mjpeg_parts(redis, printer_id, viewer_id, 1.0 / fps if fps else 0.0):
                 yield part
         finally:
             await redis.aclose()
@@ -673,7 +882,7 @@ async def camera_snapshot(
     tdmm_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     settings: Settings = Depends(get_settings),
 ) -> Response:
-    await _authorize_camera(printer_id, token, tdmm_session, settings)
+    options = await _authorize_camera(printer_id, token, tdmm_session, settings)
     redis = aioredis.Redis.from_url(settings.redis_url)
     try:
         current_status = await cs.aget_status(redis, printer_id)
@@ -692,6 +901,9 @@ async def camera_snapshot(
                 "camera is warming up",
                 headers={"Retry-After": "2"},
             )
+        rotation = rotation_of(options)
+        if rotation:
+            frame = await anyio.to_thread.run_sync(_rotate_jpeg, frame, rotation)
         return Response(
             content=frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
         )

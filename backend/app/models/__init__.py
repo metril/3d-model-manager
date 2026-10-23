@@ -38,6 +38,7 @@ from app.models.library import (
     Tag,
     model_tags,
 )
+from app.models.overlay_token import OverlayToken
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.sensors import PrinterSensorSample
@@ -57,6 +58,7 @@ __all__ = [
     "CostCenter",
     "Derivative",
     "ExternalLink",
+    "OverlayToken",
     "File",
     "FileLocation",
     "FollowedCollection",

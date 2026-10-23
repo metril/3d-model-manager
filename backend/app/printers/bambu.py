@@ -764,15 +764,12 @@ class BambuLanAdapter(PrinterAdapter):
 
     # -- camera (P4 camera plan) ---------------------------------------
     def open_camera(self, stop: threading.Event) -> CameraSource:
-        """A1-class printers only -- the camera protocol in
-        ``camera_a1.py`` is specific to that port/handshake. X1 models use
-        RTSP instead and are not supported here. Lazy-imported (flag-off
-        import safety: only printerd's camera supervisor ever calls this)."""
-        if (self.conn.model or "").upper().startswith("X1"):
-            raise NotImplementedError("X1 uses RTSP, not the A1 camera protocol")
-        from app.printers.camera_a1 import CameraA1Client
+        """a1 | rtsp | external | none by capabilities/options (Q4). Lazy
+        imports (flag-off import safety: only printerd's camera supervisor
+        ever calls this)."""
+        from app.printers.camera_select import open_camera_for
 
-        return CameraA1Client(self.conn.host, self.conn.access_code, stop=stop)
+        return open_camera_for(self.conn, stop)
 
     # -- probe ---------------------------------------------------------
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:
