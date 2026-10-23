@@ -571,7 +571,15 @@ def test_reconnect_after_broker_restart(
             probe.wait_for(lambda m: m[0] == BRIDGE_STATUS and m[1] == b"online", timeout=40.0)
             is not None
         )
-        discovery_count = sum(1 for m in probe.messages if m[0].startswith("homeassistant/"))
+        # Discovery is published after "online" and arrives asynchronously.
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            discovery_count = sum(
+                1 for m in list(probe.messages) if m[0].startswith("homeassistant/")
+            )
+            if discovery_count >= 14:
+                break
+            time.sleep(0.1)
         assert discovery_count >= 14
     finally:
         bridge.stop()
