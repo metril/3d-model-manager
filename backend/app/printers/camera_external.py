@@ -3,8 +3,10 @@ with kind mjpeg | rtsp | snapshot. Takes precedence over the built-in camera."""
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import threading
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from types import TracebackType
@@ -26,6 +28,21 @@ def validate_url(kind: str, url: str) -> None:
     scheme = url.split("://", 1)[0].lower() if "://" in url else ""
     if kind not in KINDS or scheme not in ALLOWED_SCHEMES[kind]:
         raise ValueError(f"{kind} camera needs a {'/'.join(ALLOWED_SCHEMES.get(kind, ()))} URL")
+
+
+def split_credentials(url: str) -> tuple[str, dict[str, str]]:
+    """urllib ignores ``user:pass@`` in the URL: strip it and send Basic auth."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.username is None:
+        return url, {}
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    if parts.port:
+        host += f":{parts.port}"
+    cred = f"{urllib.parse.unquote(parts.username)}:{urllib.parse.unquote(parts.password or '')}"
+    token = base64.b64encode(cred.encode()).decode()
+    return urllib.parse.urlunsplit(parts._replace(netloc=host)), {"Authorization": f"Basic {token}"}
 
 
 class ExternalCameraSource:
@@ -57,7 +74,9 @@ class ExternalCameraSource:
         self.close()
 
     def _open(self):
-        return urllib.request.urlopen(self._url, timeout=HTTP_TIMEOUT_S)  # noqa: S310 -- scheme validated
+        url, headers = split_credentials(self._url)
+        req = urllib.request.Request(url, headers=headers)  # noqa: S310 -- scheme validated
+        return urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S)  # noqa: S310
 
     def frames(self) -> Iterator[bytes]:
         if self._kind == "rtsp":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import shutil
 import threading
 import time
@@ -49,15 +50,16 @@ def test_bambu_url_and_beta_flag() -> None:
 
 
 def test_ffmpeg_argv() -> None:
-    argv = build_argv("rtsps://u:p@h:322/streaming/live/1", fps=5, tls_insecure=True)
-    assert argv[0] == "ffmpeg"
-    i = argv.index("-rtsp_transport")
-    assert argv[i + 1] == "tcp"
-    assert argv[argv.index("-tls_verify") + 1] == "0"
-    assert argv[argv.index("-i") + 1] == "rtsps://u:p@h:322/streaming/live/1"
-    assert argv[argv.index("-vf") + 1] == "fps=5"
-    assert argv[-2:] == ["mjpeg", "-"]
-    assert "-tls_verify" not in build_argv("http://x/y.mjpg")
+    url = "rtsps://u:p@h:322/streaming/live/1"
+    argv = build_argv(url, fps=5, tls_insecure=True)
+    assert argv == [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-rtsp_transport", "tcp", "-timeout", "10000000",
+        "-i", url, "-an", "-vf", "fps=5", "-q:v", "5", "-f", "mjpeg", "-",
+    ]  # fmt: skip
+    assert "-rw_timeout" not in argv and "-tls_verify" not in argv
+    http = build_argv("http://x/y.mjpg")
+    assert "-rw_timeout" in http and "-timeout" not in http and "-rtsp_transport" not in http
 
 
 def test_ffmpeg_exit_before_frame_raises() -> None:
@@ -90,16 +92,16 @@ hls: no
 webrtc: no
 srt: no
 rtspTransports: [tcp]
-rtspEncryption: "strict"
+rtspEncryption: optional
 rtspServerKey: /certs/key.pem
 rtspServerCert: /certs/cert.pem
-rtspAddress: ""
+rtspAddress: :8554
 rtspsAddress: :8322
 paths:
   streaming/live/1:
     runOnInit: >-
       ffmpeg -re -f lavfi -i testsrc=size=320x240:rate=10 -c:v libx264 -preset ultrafast
-      -tune zerolatency -pix_fmt yuv420p -f rtsp rtsp://localhost:$RTSP_PORT/$MTX_PATH
+      -tune zerolatency -pix_fmt yuv420p -f rtsp rtsp://localhost:8554/$MTX_PATH
     runOnInitRestart: yes
 """
 
@@ -109,6 +111,8 @@ def mediamtx_port(tmp_path_factory):
     """mediamtx (ffmpeg flavour) publishing a test pattern over rtsps with a
     self-signed cert. Skips when Docker or a local ffmpeg is unavailable."""
     if shutil.which("ffmpeg") is None:
+        if os.environ.get("TDMM_REQUIRE_FFMPEG_TESTS") == "1":
+            pytest.fail("ffmpeg missing but TDMM_REQUIRE_FFMPEG_TESTS=1")
         pytest.skip("ffmpeg not installed")
     try:
         from cryptography import x509
@@ -178,3 +182,36 @@ def test_rtsps_testpattern_yields_jpeg_frames(mediamtx_port) -> None:
                 break
     assert len(frames) >= 3
     assert all(f[:2] == b"\xff\xd8" and f[-2:] == b"\xff\xd9" for f in frames)
+
+
+def test_external_http_credentials_sent_as_basic_auth() -> None:
+    import base64
+    import http.server
+
+    from app.printers.camera_external import ExternalCameraSource
+
+    seen: dict = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            seen["auth"] = self.headers.get("Authorization")
+            seen["path"] = self.path
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(A)))
+            self.end_headers()
+            self.wfile.write(A)
+
+        def log_message(self, *a) -> None:
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://us%40er:p%3Aw@127.0.0.1:{srv.server_port}/snap.jpg"
+        src = ExternalCameraSource("snapshot", url)
+        with src:
+            assert next(src.frames()) == A
+    finally:
+        srv.shutdown()
+    assert seen["path"] == "/snap.jpg"
+    assert seen["auth"] == "Basic " + base64.b64encode(b"us@er:p:w").decode()

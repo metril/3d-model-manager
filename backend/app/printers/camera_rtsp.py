@@ -69,13 +69,15 @@ class JpegSplitter:
 def build_argv(
     url: str, *, fps: int = RTSP_FPS, tls_insecure: bool = False, ffmpeg: str = "ffmpeg"
 ) -> list[str]:
+    """``tls_insecure`` is accepted for call-site clarity: ffmpeg's rtsps
+    default is already no cert verification, and ``-tls_verify`` is not a
+    valid rtsp demuxer option (ffmpeg trac #7609)."""
     argv = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if url.startswith("rtsp"):
-        argv += ["-rtsp_transport", "tcp"]
-        if tls_insecure:
-            argv += ["-tls_verify", "0"]
-    argv += ["-rw_timeout", "10000000", "-i", url, "-an", "-vf", f"fps={fps}"]
-    argv += ["-q:v", "5", "-f", "mjpeg", "-"]
+        argv += ["-rtsp_transport", "tcp", "-timeout", "10000000"]
+    else:
+        argv += ["-rw_timeout", "10000000"]
+    argv += ["-i", url, "-an", "-vf", f"fps={fps}", "-q:v", "5", "-f", "mjpeg", "-"]
     return argv
 
 
