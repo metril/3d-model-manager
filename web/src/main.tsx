@@ -6,6 +6,8 @@ import { ThemeProvider } from "next-themes";
 
 import { Toaster } from "@/components/ui/sonner";
 import { queryClient } from "@/queryClient";
+import { AppearanceProvider } from "@/lib/appearance";
+import { registerServiceWorker } from "@/lib/pwa";
 import { router } from "@/router";
 
 import "./index.css";
@@ -18,10 +20,14 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <RouterProvider router={router} />
-        <Toaster />
+      <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="system" enableSystem>
+        <AppearanceProvider>
+          <RouterProvider router={router} />
+          <Toaster />
+        </AppearanceProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>,
 );
+
+registerServiceWorker();

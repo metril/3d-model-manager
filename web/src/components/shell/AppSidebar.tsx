@@ -11,26 +11,19 @@ import {
 
 import { useAuth, useLogout } from "@/api/auth";
 import { useCategories } from "@/api/categories";
-import { useFeatures } from "@/api/features";
 import { useFollowedCollections } from "@/api/collections";
-import { useFinanceConfig } from "@/api/finance";
 import { useFailedImportsCount } from "@/api/imports";
-import { usePrinters } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
 import { useScanRuns } from "@/api/scan";
 import type { ScanRunOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
-import {
-  NAV_GROUPS,
-  SYSTEM_ITEMS,
-  filterNavGroups,
-  printerNavItems,
-  type NavItem,
-} from "@/components/shell/navItems";
+import { type NavItem } from "@/components/shell/navItems";
+import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 import type { LibrarySearch } from "@/pages/librarySearch";
@@ -128,7 +121,16 @@ function NavLink({
    * item's "N awaiting review" (P7 Task 9). */
   badgeAriaLabel?: string;
 }) {
-  const link = (
+  const linkClass = cn(
+    "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+    collapsed && "justify-center px-0",
+  );
+  const link = item.externalUrl ? (
+    <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
+      <item.icon className="size-4 shrink-0" />
+      {!collapsed && item.label}
+    </a>
+  ) : (
     <Link
       to={item.to}
       // `item.params` is a plain `Record<string, string>` (see `navItems.ts`);
@@ -137,10 +139,7 @@ function NavLink({
       // can't express statically.
       params={item.params as never}
       activeOptions={{ exact: !!item.exact }}
-      className={cn(
-        "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-        collapsed && "justify-center px-0",
-      )}
+      className={linkClass}
       activeProps={{ className: "bg-muted font-medium text-foreground" }}
     >
       <item.icon className="size-4 shrink-0" />
@@ -191,19 +190,13 @@ export function AppSidebar({
   const { data: me, can } = useAuth();
   const logout = useLogout();
   const navigate = useNavigate();
-  const features = useFeatures();
   const failedImports = useFailedImportsCount();
   const followed = useFollowedCollections();
   const categories = useCategories();
-  const financeConfig = useFinanceConfig();
   const canReview = can("queue:review");
   const reviewCount = useReviewCount({ enabled: canReview });
   const [collapsed, setCollapsed] = useSidebarCollapsed();
-  // Finance (P7): visible to a manager always, to everyone else only once
-  // billing is on -- not a plain permission check, so it's resolved here
-  // rather than through `filterNavItems`/`filterNavGroups`.
-  const canSeeFinance = can("billing:manage") || !!financeConfig.data?.billing_enabled;
-  const visibleSystemItems = SYSTEM_ITEMS.filter((item) => !item.billingGated || canSeeFinance);
+  const { groups: visibleGroups, systemItems: visibleSystemItems, externalItems } = useVisibleNav();
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -214,21 +207,6 @@ export function AppSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mobileOpen, onCloseMobile]);
 
-  const printerEnabled = !!features.data?.printer_enabled;
-  const printers = usePrinters({ enabled: printerEnabled });
-  // Per-printer links sit right after History in the Print group (Task 6).
-  const groupsWithPrinters = NAV_GROUPS.map((group) => {
-    if (group.label !== "Print") return group;
-    const historyIndex = group.items.findIndex((item) => item.label === "History");
-    const items = [...group.items];
-    items.splice(historyIndex + 1, 0, ...printerNavItems(printers.data));
-    return { ...group, items };
-  });
-  const visibleGroups = filterNavGroups(groupsWithPrinters, {
-    printerEnabled,
-    can,
-    hasPrinter: (printers.data?.length ?? 0) > 0,
-  });
   const collections = (followed.data ?? []).slice(0, MAX_COLLECTION_LINKS);
   const hasMoreCollections = (followed.data?.length ?? 0) > MAX_COLLECTION_LINKS;
 
@@ -373,6 +351,14 @@ export function AppSidebar({
             ))}
           </div>
         )}
+        {externalItems.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {!collapsed && <div className="label-caps px-2.5 pb-1">Links</div>}
+            {externalItems.map((item) => (
+              <NavLink key={`ext:${item.params?.id}`} item={item} collapsed={collapsed} />
+            ))}
+          </div>
+        )}
       </nav>
       <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
         {visibleSystemItems.map((item) => (
@@ -388,6 +374,7 @@ export function AppSidebar({
       >
         {!collapsed && <span className="truncate text-sm text-muted-foreground">{me?.username}</span>}
         <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+          <InstallAppButton />
           <ThemeToggle />
           <Button
             type="button"

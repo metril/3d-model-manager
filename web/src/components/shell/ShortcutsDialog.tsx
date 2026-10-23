@@ -20,6 +20,7 @@ const SHORTCUTS: Array<{ keys: string; description: string }> = [
   { keys: "Shift + F", description: "Toggle fullscreen (3D viewer)" },
   { keys: "Ctrl/Cmd + K", description: "Open the command palette" },
   { keys: "Ctrl/Cmd + B", description: "Collapse/expand the sidebar" },
+  { keys: "1 – 9", description: "Jump to the first nine sidebar items" },
   { keys: "?", description: "Show this dialog" },
 ];
 

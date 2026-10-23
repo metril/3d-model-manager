@@ -29,6 +29,9 @@ from fastapi.responses import FileResponse
 _API_PREFIX = "api"
 
 
+_NO_CACHE_FILES = {"sw.js", "manifest.webmanifest"}
+
+
 def mount_spa(app: FastAPI, static_dir: Path) -> None:
     """Register the SPA catch-all route against ``app``, serving files (and
     the SPA fallback) from ``static_dir``. Caller is responsible for only
@@ -51,7 +54,9 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
         if candidate.is_relative_to(static_root) and candidate.is_file():
             # index.html is the mutable entry point; always send no-cache so
             # the browser checks for updates.
-            if candidate == index_file:
+            # Same for the service worker + manifest: unhashed, and a stale
+            # sw.js would pin users to an old app shell.
+            if candidate == index_file or full_path in _NO_CACHE_FILES:
                 return FileResponse(
                     candidate,
                     headers={"Cache-Control": "no-cache"},

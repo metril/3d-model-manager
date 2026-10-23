@@ -47,6 +47,7 @@ from app.api import (
     collections,
     events,
     ext,
+    external_links,
     features,
     files,
     finance,
@@ -106,6 +107,7 @@ protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
 protected_router.include_router(home_assistant.router)
 protected_router.include_router(spoolman.router)
+protected_router.include_router(external_links.router)
 protected_router.include_router(features.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)

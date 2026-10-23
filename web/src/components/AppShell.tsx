@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useNavigate } from "@tanstack/react-router";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
+import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { TopBar } from "@/components/shell/TopBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { EventsProvider } from "@/hooks/useEvents";
@@ -24,7 +25,25 @@ export function AppShell() {
   // this is the only state it needs from outside itself, opened by the
   // topbar's hamburger button.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  useHotkeys({ "?": () => setShortcutsOpen(true) });
+  const navigate = useNavigate();
+  const { ordered } = useVisibleNav();
+  // Digits 1-9 jump to the first nine visible sidebar items (the same order
+  // the sidebar renders). `useHotkeys` already ignores inputs/contenteditable.
+  const digitBindings: Record<string, () => void> = {};
+  ordered.slice(0, 9).forEach((item, index) => {
+    digitBindings[String(index + 1)] = () => {
+      if (document.querySelector('[role="dialog"]')) return;
+      if (item.externalUrl) window.open(item.externalUrl, "_blank", "noopener,noreferrer");
+      else void navigate({ to: item.to, params: item.params as never });
+    };
+  });
+  useHotkeys({
+    ...digitBindings,
+    "?": () => setShortcutsOpen(true),
+    // Focus the page's global search, when it exposes one (LibraryPage keeps
+    // its own `/` for the library search input).
+    "/": () => document.querySelector<HTMLElement>("[data-global-search]")?.focus(),
+  });
 
   return (
     <EventsProvider>

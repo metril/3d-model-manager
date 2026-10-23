@@ -13,6 +13,7 @@
 import type { LinkProps } from "@tanstack/react-router";
 import {
   Beaker,
+  Link2,
   Bookmark,
   CopyCheck,
   LayoutDashboard,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 
+import type { ExternalLink } from "@/api/externalLinks";
 import type { PrinterOut } from "@/api/types";
 import type { Perm } from "@/lib/permissions";
 
@@ -53,6 +55,9 @@ export interface NavItem {
    * everyone else only once billing is on -- `AppSidebar` resolves this
    * with `useFinanceConfig()`, since it isn't a plain permission check. */
   billingGated?: boolean;
+  /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
+   * rendered as a plain `<a target="_blank">` instead of a router Link. */
+  externalUrl?: string;
 }
 
 export interface NavGroup {
@@ -159,4 +164,16 @@ export function filterNavGroups(
     .filter((group) => !group.featureGated || opts.printerEnabled)
     .map((group) => ({ ...group, items: filterNavItems(group.items, opts) }))
     .filter((group) => group.items.length > 0);
+}
+
+/** Admin-configured sidebar links (Q8a). Iframe links route to
+ * `/external/$id`; new-tab links carry their URL in `externalUrl`. */
+export function externalNavItems(links: ExternalLink[] | undefined): NavItem[] {
+  return (links ?? []).map((link) => ({
+    to: "/external/$id",
+    label: link.name,
+    icon: Link2,
+    params: { id: String(link.id) },
+    externalUrl: link.open_mode === "newtab" ? link.url : undefined,
+  }));
 }
