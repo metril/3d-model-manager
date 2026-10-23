@@ -837,6 +837,8 @@ export interface PrinterStatusOut {
   firmware?: { ota: string | null; ams: Array<{ id: number; sw_ver: string | null }> } | null;
   ams_units?: AmsUnit[];
   ext_tray?: AmsTray | null;
+  /** Global slot id of the loaded tray (not sent by the API yet; the card shows a marker when present). */
+  tray_now?: number | null;
   print_thumbnail_key?: string | null;
   ipcam?: boolean | null;
   dev_mode?: boolean | null;
