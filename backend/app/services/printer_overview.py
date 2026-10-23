@@ -31,6 +31,7 @@ from app.schemas.printers import (
     PrinterStatusOut,
     PrintJobOut,
     SpoolBriefOut,
+    status_from_state,
 )
 from app.services import ha_state
 from app.services import queue as queue_service
@@ -38,21 +39,18 @@ from app.services import spool_inventory as sinv
 
 _ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
 
-# Mirrors app.api.printers._STATE_FIELDS -- kept as a separate copy rather
-# than an import, so this module (used by the API layer) never has to
-# import back into app.api.printers.
-_STATE_FIELDS = (
-    "gcode_state",
-    "mc_percent",
-    "layer_num",
-    "total_layer_num",
-    "mc_remaining_time",
-    "print_error",
-    "nozzle_temper",
-    "bed_temper",
-    "subtask_name",
-    "wifi_signal",
-)
+
+async def total_print_hours(db: AsyncSession, printer_ids: list[int]) -> dict[int, float]:
+    """Hours of archived print time per printer (one grouped query)."""
+    if not printer_ids:
+        return {}
+    stmt = (
+        select(PrintJob.printer_id, func.coalesce(func.sum(PrintArchive.duration_s), 0))
+        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
+        .where(PrintJob.printer_id.in_(printer_ids))
+        .group_by(PrintJob.printer_id)
+    )
+    return {pid: round(secs / 3600, 1) for pid, secs in (await db.execute(stmt)).all()}
 
 
 def _can(ctx: AuthContext, printer_id: int, kind: str) -> bool:
@@ -81,11 +79,7 @@ async def _statuses(
         if not state:
             out[pid] = PrinterStatusOut(online=False)
         else:
-            status_out = PrinterStatusOut(
-                online=True,
-                trays=state.get("trays") or [],
-                **{k: state.get(k) for k in _STATE_FIELDS},
-            )
+            status_out = status_from_state(state)
             for t in status_out.trays:
                 spool = smap.get((pid, t.slot))
                 if spool is not None:
@@ -208,6 +202,7 @@ async def build_overview(
     active_jobs = await _active_jobs(db, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
     ha_alerts = await _ha_alerts(redis, printer_ids)
+    hours = await total_print_hours(db, printer_ids)
 
     # P6 Task 8: one batched windowed query (per-target ``row_number()``,
     # not one query per printer) returns up to 3 non-terminal entries per
@@ -226,9 +221,14 @@ async def build_overview(
         else:
             up_next_by_printer.setdefault(target, []).append(entry)
 
+    def _printer_out(p: Printer) -> PrinterOut:
+        out = PrinterOut.from_model(p)
+        out.total_print_hours = hours.get(p.id, 0.0)
+        return out
+
     items = [
         PrinterOverviewItem(
-            printer=PrinterOut.from_model(p),
+            printer=_printer_out(p),
             status=statuses.get(p.id, PrinterStatusOut(online=False)),
             active_job=active_jobs.get(p.id),
             last_runs=last_runs.get(p.id, []),

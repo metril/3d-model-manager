@@ -125,3 +125,36 @@ async def test_command_409_when_printer_disabled(authenticated_client, printer_e
     assert (await authenticated_client.post(f"/api/printers/{pid}/pause")).status_code == 409
     assert (await authenticated_client.post(f"/api/printers/{pid}/resume")).status_code == 409
     assert (await authenticated_client.post(f"/api/printers/{pid}/stop")).status_code == 409
+
+
+async def test_status_v2_fields_from_redis(authenticated_client, printer_enabled, redis_url):
+    pid = await _make_printer(authenticated_client)
+    c = redis_lib.Redis.from_url(redis_url)
+    c.set(
+        state_key(pid),
+        json.dumps(
+            {
+                "gcode_state": "IDLE",
+                "bed_target": 60.0,
+                "fan_part_pct": 53,
+                "light_on": True,
+                "stage": "Heating nozzle",
+                "hms": [{"attr": 1, "code": 2}],
+                "firmware": {"ota": "01.07.00.00", "ams": [{"id": 0, "sw_ver": "1"}]},
+                "ams_units": [{"id": 0, "humidity": 31.0}],
+            }
+        ),
+    )
+    c.close()
+    body = (await authenticated_client.get(f"/api/printers/{pid}/status")).json()
+    assert body["bed_target"] == 60.0 and body["fan_part_pct"] == 53 and body["light_on"] is True
+    assert body["stage"] == "Heating nozzle" and body["hms"] == [{"attr": 1, "code": 2}]
+    assert body["firmware"]["ota"] == "01.07.00.00" and body["ams_units"][0]["humidity"] == 31.0
+    assert body["chamber_temper"] is None and body["dev_mode"] is None
+
+
+async def test_printer_out_has_capabilities(authenticated_client, printer_enabled):
+    pid = await _make_printer(authenticated_client)  # serial 0309ABC -> A1 mini by prefix
+    body = (await authenticated_client.get(f"/api/printers/{pid}")).json()
+    assert body["capabilities"]["model_key"] == "a1mini"
+    assert body["capabilities"]["verified"] is True

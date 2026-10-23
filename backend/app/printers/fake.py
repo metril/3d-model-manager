@@ -21,6 +21,7 @@ from app.printers.base import (
     ProbeResult,
     RemoteFile,
     ReportHandler,
+    public_state_from,
 )
 
 
@@ -148,20 +149,19 @@ class FakePrinterAdapter(PrinterAdapter):
         return merged
 
     def public_state(self, merged: dict) -> PrinterPublicState:
-        return PrinterPublicState(
-            gcode_state=merged.get("gcode_state"),
-            mc_percent=merged.get("mc_percent"),
-            layer_num=merged.get("layer_num"),
-            total_layer_num=merged.get("total_layer_num"),
-            mc_remaining_time=merged.get("mc_remaining_time"),
-            print_error=merged.get("print_error"),
-            nozzle_temper=merged.get("nozzle_temper"),
-            bed_temper=merged.get("bed_temper"),
-            subtask_name=merged.get("subtask_name"),
-            wifi_signal=merged.get("wifi_signal"),
-            trays=merged.get("trays") or [],
-            nozzle_mm=merged.get("nozzle_mm"),
-        )
+        defaults = {
+            "nozzle_target": 0.0,
+            "bed_target": 0.0,
+            "fan_part_pct": 0,
+            "fan_aux_pct": 0,
+            "light_on": False,
+            "speed_level": 2,
+            "sdcard": True,
+            "nozzle_type": "stainless_steel",
+            "firmware": {"ota": "01.05.00.00", "ams": []},
+            "ipcam": True,
+        }
+        return public_state_from({**defaults, **merged})
 
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None:
         if public.print_error:
