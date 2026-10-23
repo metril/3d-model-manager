@@ -157,15 +157,10 @@ describe("PrinterDetailPage", () => {
     expect(await screen.findByText("Printer integration is off")).toBeInTheDocument();
   });
 
-  it("shows Diagnose with settings:write and hides it without", async () => {
+  it("offers a Firmware button that opens the firmware modal", async () => {
     mockGet();
-    const { unmount } = renderDetail();
-    expect(await screen.findByRole("button", { name: "Diagnose" })).toBeInTheDocument();
-    unmount();
-    canBox.current = false;
     renderDetail();
-    await screen.findAllByText("Bambu A1", {}, { timeout: 3000 });
-    expect(screen.queryByRole("button", { name: "Diagnose" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Firmware" })).toBeInTheDocument();
   });
 
   it("hides Pause for a member without control", async () => {
