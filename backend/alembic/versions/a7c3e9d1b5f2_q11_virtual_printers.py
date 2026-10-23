@@ -1,7 +1,7 @@
 """q11 virtual printers
 
 Revision ID: a7c3e9d1b5f2
-Revises: c5d8a1e7f3b9
+Revises: a9c4e7d2b6f1
 Create Date: 2026-10-23 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a7c3e9d1b5f2"
-down_revision: str | Sequence[str] | None = "c5d8a1e7f3b9"
+down_revision: str | Sequence[str] | None = "a9c4e7d2b6f1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
