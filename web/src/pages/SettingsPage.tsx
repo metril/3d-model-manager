@@ -4,6 +4,7 @@ import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import { useStorageBackends } from "@/api/settings";
+import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
@@ -37,6 +38,7 @@ export function SettingsPage() {
   // shell gates on that same list.
   const backendsQuery = useStorageBackends();
   const auth = useAuth();
+  const { t } = useTranslation();
   const features = useFeatures();
   const canSettings = auth.can("settings:write");
   const isAdmin = auth.can("admin");
@@ -44,9 +46,9 @@ export function SettingsPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Settings</h1>
+        <h1 className="text-lg font-semibold text-foreground">{t("settings.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Automation, storage backends, printer, and connected accounts.
+          {t("settings.subtitle")}
         </p>
       </div>
 
@@ -55,25 +57,25 @@ export function SettingsPage() {
       ) : backendsQuery.isError ? (
         <Card className="mx-auto mt-12 max-w-md">
           <CardHeader className="items-center text-center">
-            <CardTitle>Couldn&apos;t load settings</CardTitle>
+            <CardTitle>{t("settings.loadError")}</CardTitle>
             <CardDescription>
               {backendsQuery.error instanceof ApiError ? backendsQuery.error.detail : "Something went wrong."}
             </CardDescription>
           </CardHeader>
           <div className="flex justify-center pb-4">
             <Button type="button" onClick={() => void backendsQuery.refetch()}>
-              Retry
+              {t("settings.retry")}
             </Button>
           </div>
         </Card>
       ) : (
         <Tabs defaultValue="general">
           <TabsList>
-            <TabsTrigger value="general">General</TabsTrigger>
-            {canSettings && <TabsTrigger value="storage">Storage</TabsTrigger>}
-            {canSettings && <TabsTrigger value="printer">Printer</TabsTrigger>}
-            <TabsTrigger value="accounts">Accounts</TabsTrigger>
-            {isAdmin && <TabsTrigger value="access">Access</TabsTrigger>}
+            <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
+            {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}
+            {canSettings && <TabsTrigger value="printer">{t("settings.tabs.printer")}</TabsTrigger>}
+            <TabsTrigger value="accounts">{t("settings.tabs.accounts")}</TabsTrigger>
+            {isAdmin && <TabsTrigger value="access">{t("settings.tabs.access")}</TabsTrigger>}
           </TabsList>
           <TabsContent value="general" className="space-y-6">
             <AppearanceCard />

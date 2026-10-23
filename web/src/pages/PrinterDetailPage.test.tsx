@@ -6,7 +6,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PrinterOut, PrinterStatusOut, PrintersOverviewOut } from "@/api/types";
@@ -83,13 +83,17 @@ const OVERVIEW: PrintersOverviewOut = {
   recent_runs: [],
 };
 
-function mockGet(options: { printers?: PrinterOut[]; features?: { printer_enabled: boolean } } = {}) {
+function mockGet(options: { printers?: PrinterOut[]; features?: { printer_enabled: boolean }; amsUnits?: number[] } = {}) {
   const printers = options.printers ?? [PRINTER];
   const features = options.features ?? { printer_enabled: true };
   getMock.mockImplementation((path: string) => {
     if (path === "/features") return Promise.resolve(features);
     if (path === "/printers") return Promise.resolve(printers);
-    if (path === "/printers/overview") return Promise.resolve(OVERVIEW);
+    if (path === "/printers/overview") {
+      const status = { ...STATUS, ams_units: (options.amsUnits ?? []).map((id) => ({ id })) };
+      return Promise.resolve({ ...OVERVIEW, printers: [{ ...OVERVIEW.printers[0], status }] });
+    }
+    if (path.startsWith("/printers/1/ams-history")) return Promise.resolve({ unit: 0, step_s: 60, points: [{ ts: "2026-10-23T10:00:00Z", humidity: 30, temp: 25 }] });
     if (path === "/printers/1/status") return Promise.resolve(STATUS);
     if (path.startsWith("/archives")) return Promise.resolve([]);
     return Promise.resolve({});
@@ -141,6 +145,20 @@ describe("PrinterDetailPage", () => {
     expect(document.querySelector('[data-slot="camera-tile"]')).toBeInTheDocument();
     expect(screen.getByTestId("history-stats")).toBeInTheDocument();
     expect(screen.getByTestId("tile-bed")).toBeInTheDocument();
+  });
+
+  it("hides AMS history without units; with 2 units charts both", async () => {
+    mockGet();
+    const first = renderDetail();
+    await screen.findByText("42%");
+    expect(screen.queryByRole("button", { name: "AMS history" })).toBeNull();
+    first.unmount();
+
+    mockGet({ amsUnits: [0, 1] });
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "AMS history" }));
+    expect(await screen.findByRole("img", { name: /AMS unit 2 - Humidity/ })).toBeInTheDocument();
+    expect(getMock).toHaveBeenCalledWith(expect.stringMatching(/^\/printers\/1\/ams-history\?unit=1&from=/));
   });
 
   it("shows a not-found card for an unknown id", async () => {

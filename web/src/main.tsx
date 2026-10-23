@@ -9,6 +9,7 @@ import { queryClient } from "@/queryClient";
 import { AppearanceProvider } from "@/lib/appearance";
 import { registerServiceWorker } from "@/lib/pwa";
 import { router } from "@/router";
+import "@/i18n";
 
 import "./index.css";
 

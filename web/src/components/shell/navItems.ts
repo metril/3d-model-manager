@@ -12,6 +12,7 @@
  */
 import type { LinkProps } from "@tanstack/react-router";
 import {
+  BarChart3,
   Beaker,
   Link2,
   Bookmark,
@@ -58,6 +59,8 @@ export interface NavItem {
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
    * rendered as a plain `<a target="_blank">` instead of a router Link. */
   externalUrl?: string;
+  /** `false` for user-provided labels (printer / external-link names): shown verbatim, never run through i18n. */
+  translate?: false;
 }
 
 export interface NavGroup {
@@ -76,6 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, requiresPrinterAccess: true },
       { to: "/print/queue", label: "Queue", icon: ListOrdered },
       { to: "/print/history", label: "History", icon: ListChecks },
+      { to: "/stats", label: "Stats", icon: BarChart3 },
     ],
   },
   {
@@ -131,6 +135,7 @@ export function printerNavItems(printers: PrinterOut[] | undefined): NavItem[] {
     label: printer.name,
     icon: Printer,
     featureGated: true,
+    translate: false,
     params: { id: String(printer.id) },
   }));
 }
@@ -173,6 +178,7 @@ export function externalNavItems(links: ExternalLink[] | undefined): NavItem[] {
     to: "/external/$id",
     label: link.name,
     icon: Link2,
+    translate: false,
     params: { id: String(link.id) },
     externalUrl: link.open_mode === "newtab" ? link.url : undefined,
   }));
