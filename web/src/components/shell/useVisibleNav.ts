@@ -15,7 +15,7 @@ import {
 
 /** The nav the current user actually sees -- shared by the sidebar and the
  * 1-9 jump shortcuts so the two can never disagree. `ordered` is the
- * sidebar's top-to-bottom order: groups, then System, then external links. */
+ * sidebar's top-to-bottom order: groups, then external links, then System. */
 export function useVisibleNav(): {
   groups: NavGroup[];
   systemItems: NavItem[];
@@ -52,6 +52,6 @@ export function useVisibleNav(): {
     groups,
     systemItems,
     externalItems,
-    ordered: [...groups.flatMap((group) => group.items), ...systemItems, ...externalItems],
+    ordered: [...groups.flatMap((group) => group.items), ...externalItems, ...systemItems],
   };
 }

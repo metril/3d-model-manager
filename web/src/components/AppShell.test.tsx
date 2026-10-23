@@ -124,6 +124,9 @@ describe("AppShell nav", () => {
     expect(newTab).toHaveAttribute("href", "https://g.example");
     expect(newTab).toHaveAttribute("target", "_blank");
     expect(screen.getByRole("link", { name: "Wiki" })).toHaveAttribute("href", "/external/8");
+    // Links render above System (Background jobs / Settings) in the sidebar.
+    const order = screen.getAllByRole("link").map((a) => a.textContent);
+    expect(order.indexOf("Wiki")).toBeLessThan(order.indexOf("Settings"));
   });
 
   it("hides the Print group when the printer feature flag is off", async () => {

@@ -1,7 +1,9 @@
 // App-shell-only service worker. It exists to make the app installable and to
 // load the shell quickly; it deliberately NEVER touches /api/* (live data,
 // camera streams, SSE) or any cross-origin or non-GET request.
-const CACHE = "tdmm-shell-v1";
+// __BUILD_ID__ is replaced per build by the stampServiceWorker plugin in
+// vite.config.ts, so each deploy gets a fresh cache and activate prunes old ones.
+const CACHE = "tdmm-shell-__BUILD_ID__";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -29,8 +31,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          void caches.open(CACHE).then((c) => c.put("/", copy));
+          // Only a clean 200 may replace the offline shell (never a 5xx/redirect).
+          if (res.ok && res.type === "basic" && !res.redirected) {
+            const copy = res.clone();
+            void caches.open(CACHE).then((c) => c.put("/", copy));
+          }
           return res;
         })
         .catch(() => caches.match("/")),
@@ -38,8 +43,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Hashed build assets + icons: cache first.
-  if (url.pathname.startsWith("/assets/") || /^\/(icon.*|manifest\.webmanifest)$/.test(url.pathname)) {
+  // Icons + manifest are unhashed: network first, cache fallback.
+  if (/^\/(icon.*|manifest\.webmanifest)$/.test(url.pathname)) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            void caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req)),
+    );
+    return;
+  }
+
+  // Hashed build assets: immutable, cache first.
+  if (url.pathname.startsWith("/assets/")) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>
