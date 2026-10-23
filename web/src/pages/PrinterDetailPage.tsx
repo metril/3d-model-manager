@@ -32,7 +32,6 @@ import { HeaterHistoryModal } from "@/components/print/modals/HeaterHistoryModal
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
-import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
