@@ -58,6 +58,10 @@ async def profiles(flatten: int = 0):
     return out
 
 
+# Multipart framing + the small JSON parts on top of the model itself.
+_UPLOAD_SLACK = 1 << 20
+
+
 async def _read_part(part: UploadFile, limit: int) -> bytes:
     data = bytearray()
     while chunk := await part.read(1 << 20):
@@ -65,6 +69,18 @@ async def _read_part(part: UploadFile, limit: int) -> bytes:
         if len(data) > limit:
             raise OverflowError
     return bytes(data)
+
+
+async def _spool_part(part: UploadFile, dest: Path, limit: int) -> None:
+    """Copy an upload part to `dest` chunk by chunk (never the whole model in
+    memory)."""
+    size = 0
+    with dest.open("wb") as fh:
+        while chunk := await part.read(1 << 20):
+            size += len(chunk)
+            if size > limit:
+                raise OverflowError
+            fh.write(chunk)
 
 
 def _load_json(raw: bytes, what: str):
@@ -77,6 +93,12 @@ def _load_json(raw: bytes, what: str):
 @app.post("/slice")
 async def slice_(request: Request):
     sem: asyncio.Semaphore = app.state.sem
+    try:
+        declared = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        declared = 0
+    if declared > MAX_UPLOAD + _UPLOAD_SLACK:
+        return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
     if sem.locked():
         return _err(429, "busy", "slicer is busy", headers={"Retry-After": "15"})
     await sem.acquire()
@@ -97,9 +119,17 @@ async def slice_(request: Request):
                 if not isinstance(part, UploadFile):
                     return _err(400, "bad_request", f"missing {key!r} file")
                 raw[key] = _load_json(await _read_part(part, MAX_UPLOAD), key)
-            options = _load_json((form.get("options") or "{}").encode(), "options")
+            raw_options = form.get("options") or "{}"
+            if not isinstance(raw_options, str):
+                return _err(400, "bad_request", "'options' must be a form field, not a file")
+            options = _load_json(raw_options.encode(), "options")
+            if not isinstance(options, dict):
+                return _err(400, "bad_request", "options must be a JSON object")
+            try:
+                plate = int(options["plate"]) if options.get("plate") else None
+            except (TypeError, ValueError):
+                return _err(400, "bad_request", "options.plate must be an integer")
             bed_type = str(form.get("bed_type") or "textured_plate")
-            model_bytes = await _read_part(model, MAX_UPLOAD)
         except OverflowError:
             return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
         except runner.BadRequest as exc:
@@ -108,6 +138,11 @@ async def slice_(request: Request):
         suffix = Path(model.filename or "").suffix.lower()
         if suffix not in MODEL_SUFFIXES:
             return _err(400, "bad_request", f"unsupported model type {suffix!r}")
+        job_model = job_dir / f"model{suffix}"
+        try:
+            await _spool_part(model, job_model, MAX_UPLOAD)
+        except OverflowError:
+            return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
         if not isinstance(raw["printer_profile"], dict) or not isinstance(
             raw["process_profile"], dict
         ):
@@ -128,8 +163,6 @@ async def slice_(request: Request):
         except (ProfileError, runner.BadRequest) as exc:
             return _err(400, "bad_profile", str(exc))
 
-        job_model = job_dir / f"model{suffix}"
-        job_model.write_bytes(model_bytes)
         settings = []
         for i, (kind, data) in enumerate(flat.items()):
             path = job_dir / f"{kind}.json"
@@ -141,7 +174,6 @@ async def slice_(request: Request):
             path.write_text(json.dumps(data))
             filaments.append(path)
 
-        plate = options.get("plate") if isinstance(options, dict) else None
         try:
             out = await runner.run_slice(
                 cli=CLI,
@@ -149,7 +181,7 @@ async def slice_(request: Request):
                 bed_type=bed_type,
                 auto_orient=bool(options.get("auto_orient")),
                 arrange=bool(options.get("arrange")),
-                plate=int(plate) if plate else None,
+                plate=plate,
                 timeout_s=JOB_TIMEOUT_S,
                 use_xvfb=USE_XVFB,
             )

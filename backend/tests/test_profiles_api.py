@@ -527,3 +527,46 @@ async def test_sync_never_overwrites_user_edited_row(
     assert r.json() == {"created": 0, "updated": 3, "skipped": 1}
     got = (await authenticated_client.get(f"/api/profiles/{pid}")).json()
     assert got["data"] == {"edited": True}
+
+
+async def test_sync_no_matching_models_gives_hint(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    db_session.add(
+        Printer(
+            name="odd",
+            kind=PrinterKind.BAMBU_LAN,
+            host="h",
+            serial="s",
+            access_code_enc="x",
+            model="Prusa MK4",
+        )
+    )
+    await db_session.commit()
+    r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True})
+    assert r.status_code == 422
+    assert "Prusa MK4" in r.json()["detail"] and "All Bambu" in r.json()["detail"]
+
+
+async def test_sync_sidecar_down_is_503_and_error_is_502(
+    authenticated_client: httpx.AsyncClient, monkeypatch
+):
+    from app.config import get_settings
+
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+    try:
+        with respx.mock:
+            route = respx.get("http://slicer:3001/profiles").mock(
+                side_effect=httpx.ConnectError("down")
+            )
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 503
+            route.mock(return_value=httpx.Response(500, json={"message": "boom"}))
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 502
+            route.mock(return_value=httpx.Response(404))
+            r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
+            assert r.status_code == 404
+    finally:
+        get_settings.cache_clear()

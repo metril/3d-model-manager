@@ -36,12 +36,18 @@ from app.schemas.slicing import (
     SlicerHealthOut,
 )
 from app.services.app_config import get_app_config
-from app.services.slicer_client import SlicerError, SlicerProtocolError, client_from_config
+from app.services.slicer_client import (
+    SlicerError,
+    SlicerProtocolError,
+    SlicerUnavailable,
+    client_from_config,
+)
 from app.services.slicer_profiles import (
     ProfileImportError,
     filter_for_models,
     parse_bundle,
     upsert_profiles,
+    usable_models,
 )
 
 # I7: a hand-entered or scripted bundle upload shouldn't be able to exhaust
@@ -237,6 +243,8 @@ async def import_profiles(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no slicer sidecar configured")
         try:
             profiles = await anyio.to_thread.run_sync(lambda: client.profiles(flatten=True))
+        except SlicerUnavailable as exc:  # unreachable or busy
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
         except SlicerError as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
         if profiles is None:
@@ -245,7 +253,15 @@ async def import_profiles(
             )
         if not payload.get("all"):
             models = (await db.execute(select(Printer.model))).scalars().all()
-            profiles = filter_for_models(profiles, list(models))
+            wanted = usable_models(list(models))
+            profiles = filter_for_models(profiles, wanted)
+            if wanted and not any(p.get("kind") == "printer" for p in profiles):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "No sidecar profiles match your printer models ("
+                    + ", ".join(sorted(set(wanted)))
+                    + "). Tick 'All Bambu printers' to sync everything.",
+                )
         return await _import_from_dicts(db, profiles, ctx.user.id, source=ProfileSource.SYNCED)
 
     path = payload.get("path")

@@ -327,3 +327,27 @@ def test_client_from_config_builds_client():
     )
     client = client_from_config(cfg)
     assert isinstance(client, SlicerClient)
+
+
+@respx.mock
+def test_profiles_404_is_none_but_errors_propagate():
+    route = respx.get(f"{BASE_URL}/profiles").mock(return_value=httpx.Response(404))
+    assert SlicerClient(BASE_URL).profiles() is None
+    route.mock(return_value=httpx.Response(500, json={"error": "x", "message": "boom"}))
+    with pytest.raises(SlicerError):
+        SlicerClient(BASE_URL).profiles()
+    route.mock(return_value=httpx.Response(429))
+    with pytest.raises(SlicerBusy):
+        SlicerClient(BASE_URL).profiles()
+    route.mock(side_effect=httpx.ConnectError("down"))
+    with pytest.raises(SlicerUnavailable):
+        SlicerClient(BASE_URL).profiles()
+
+
+@respx.mock
+def test_slice_timeout_exceeds_job_timeout_by_grace():
+    route = respx.post(f"{BASE_URL}/slice").mock(return_value=httpx.Response(500))
+    client = SlicerClient(BASE_URL, slice_timeout_s=100)
+    with pytest.raises(SlicerError):
+        client.slice(b"x", "m.stl", {}, {}, [], "textured_plate", SliceOptions())
+    assert route.calls.last.request.extensions["timeout"]["read"] == 160

@@ -211,3 +211,14 @@ def test_filter_for_models():
     kept = {e["name"] for e in filter_for_models(entries, ["A1 mini", None])}
     assert kept == {"A1M 0.4", "p-a1m", "f-both"}  # "A1" must not match "A1 mini"
     assert filter_for_models(entries, [None, ""]) == entries
+
+
+def test_filter_for_models_loose_aliases():
+    entries = [
+        {"kind": "printer", "name": "X1C 0.4", "printer_model": "Bambu Lab X1 Carbon"},
+        {"kind": "printer", "name": "A1M 0.4", "printer_model": "Bambu Lab A1 mini"},
+        {"kind": "process", "name": "p", "compatible_printers": ["X1C 0.4"]},
+    ]
+    assert {e["name"] for e in filter_for_models(entries, ["X1C"])} == {"X1C 0.4", "p"}
+    assert {e["name"] for e in filter_for_models(entries, ["Bambu Lab X1 Carbon"])} == {"X1C 0.4", "p"}
+    assert {e["name"] for e in filter_for_models(entries, ["A1M"])} == {"A1M 0.4"}

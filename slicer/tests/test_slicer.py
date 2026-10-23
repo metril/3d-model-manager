@@ -221,3 +221,23 @@ def test_slice_busy_429(api):
 def test_slice_missing_parts_400(api):
     assert api.post("/slice", data={"bed_type": "x"}).status_code == 400
     assert api.post("/slice", data={}).json()["error"] == "bad_request"
+
+
+def test_slice_oversize_content_length_413_before_parsing(api, monkeypatch):
+    monkeypatch.setattr(main, "MAX_UPLOAD", 10)
+    r = api.post("/slice", content=b"x", headers={"content-length": str(5 * 1024 * 1024)})
+    assert r.status_code == 413
+
+
+def test_slice_bad_options_400(api):
+    for bad in ("[1]", '"s"', "5", "{"):
+        req = _body()
+        req["data"]["options"] = bad
+        assert api.post("/slice", **req).status_code == 400, bad
+    req = _body()
+    req["data"]["options"] = '{"plate": "abc"}'
+    assert api.post("/slice", **req).status_code == 400
+    req = _body()
+    req["data"].pop("options")
+    req["files"].append(("options", ("options", b"{}", "application/json")))
+    assert api.post("/slice", **req).status_code == 400

@@ -284,6 +284,17 @@ def _norm_model(model: str | None) -> str:
     return "".join(ch for ch in text if ch.isalnum())
 
 
+# Common shorthand -> the normalised sidecar `printer_model` it stands for.
+_MODEL_ALIASES = {
+    "x1c": "x1carbon",
+    "a1m": "a1mini",
+}
+
+
+def usable_models(models: list[str | None]) -> list[str]:
+    return [m for m in models if _norm_model(m)]
+
+
 def filter_for_models(entries: list[dict], models: list[str | None]) -> list[dict]:
     """Keeps sidecar entries relevant to the configured printer `models`
     (compared ignoring case/spacing/the "Bambu Lab" prefix): printer
@@ -291,6 +302,7 @@ def filter_for_models(entries: list[dict], models: list[str | None]) -> list[dic
     `compatible_printers` names a kept printer. No usable models -> all
     entries (nothing to filter on)."""
     wanted = {_norm_model(m) for m in models if _norm_model(m)}
+    wanted |= {_MODEL_ALIASES[w] for w in wanted if w in _MODEL_ALIASES}
     if not wanted:
         return entries
     kept_printers = {

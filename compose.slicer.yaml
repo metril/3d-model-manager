@@ -23,7 +23,7 @@ services:
     mem_limit: ${SLICER_MEM_LIMIT:-4g}
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:size=${SLICER_TMP_SIZE:-1g}
       - /home/slicer:uid=10001,gid=10001
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:3001/health', timeout=3)"]

@@ -52,7 +52,9 @@ export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string })
       {result ? <p className="text-xs text-muted-foreground">{result}</p> : null}
       {sync.isError ? (
         <p role="alert" className="text-xs text-destructive">
-          {sync.error instanceof ApiError ? sync.error.detail : "Could not sync profiles."}
+          {sync.error instanceof ApiError
+            ? sync.error.detail
+            : (sync.error as Error).message || "Could not sync profiles."}
         </p>
       ) : null}
     </div>

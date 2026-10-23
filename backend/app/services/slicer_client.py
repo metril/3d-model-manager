@@ -35,6 +35,9 @@ _ENDPOINTS = {
 
 _DEFAULT_TIMEOUT = 120.0
 _DEFAULT_SLICE_TIMEOUT_S = 600.0
+# The client waits this much longer than the sidecar's job timeout so the
+# sidecar's own 504 (with its log tail) lands before the client gives up.
+_SLICE_TIMEOUT_GRACE_S = 60.0
 # M5: a well-behaved sidecar's gcode.3mf is a few hundred MB at most -- this
 # stops a misbehaving/compromised one from handing back something that
 # blows up worker memory/disk.
@@ -43,7 +46,12 @@ _MAX_SLICE_RESPONSE_BYTES = 100 * 1024 * 1024
 
 class SlicerError(Exception):
     """The sidecar responded, but with an error (non-2xx, or a body that
-    isn't the gcode.3mf archive it was supposed to be)."""
+    isn't the gcode.3mf archive it was supposed to be). `status` is the HTTP
+    status when there was one."""
+
+    def __init__(self, message: str = "", status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class SlicerUnavailable(SlicerError):
@@ -182,10 +190,13 @@ class SlicerClient:
                 "slicer returned %s for %r: %s", response.status_code, path, response.text[:2000]
             )
             if response.status_code == 429:
-                raise SlicerBusy(f"slicer is busy ({path!r})")
+                raise SlicerBusy(f"slicer is busy ({path!r})", 429)
             detail = _error_detail(response)
             suffix = f": {detail}" if detail else ""
-            raise SlicerError(f"slicer returned {response.status_code} for {path!r}{suffix}")
+            raise SlicerError(
+                f"slicer returned {response.status_code} for {path!r}{suffix}",
+                response.status_code,
+            )
         return response
 
     def health(self) -> dict:
@@ -198,13 +209,16 @@ class SlicerClient:
 
     def profiles(self, *, flatten: bool = False) -> list[dict] | None:
         """The sidecar's bundled Bambu presets (`flatten=True` includes each
-        full `data` body). `None` when it can't be read as a list -- callers
-        fall back to our own imported profiles."""
+        full `data` body). `None` only when the sidecar has no such endpoint
+        (404) or answers 2xx with something that isn't a list; an unreachable
+        / busy / erroring sidecar raises `SlicerError` subclasses.""" 
         params = {"flatten": "1"} if flatten else None
         try:
             response = self._request("GET", _ENDPOINTS["profiles"], params=params)
-        except SlicerError:
-            return None
+        except SlicerError as exc:
+            if exc.status == 404:
+                return None
+            raise
         try:
             data = response.json()
         except ValueError:
@@ -234,7 +248,10 @@ class SlicerClient:
             options=options,
         )
         response = self._request(
-            "POST", _ENDPOINTS["slice"], timeout=self._slice_timeout_s, **request_kwargs
+            "POST",
+            _ENDPOINTS["slice"],
+            timeout=self._slice_timeout_s + _SLICE_TIMEOUT_GRACE_S,
+            **request_kwargs,
         )
         content = response.content
         if len(content) > _MAX_SLICE_RESPONSE_BYTES:
