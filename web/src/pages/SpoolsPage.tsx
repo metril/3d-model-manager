@@ -13,6 +13,7 @@ import { useAuth } from "@/api/auth";
 import type { SpoolOut } from "@/api/types";
 import { SpoolForm } from "@/components/inventory/SpoolForm";
 import { SpoolTable } from "@/components/inventory/SpoolTable";
+import { SpoolmanLink } from "@/components/inventory/SpoolmanLink";
 import { SpoolUsageHistory } from "@/components/inventory/SpoolUsageHistory";
 import { useSpool } from "@/api/spools";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
                     Edit
                   </Button>
                 ) : null}
+                <SpoolmanLink spool={spool.data} />
                 <SpoolUsageHistory spool={spool.data} />
               </>
             )}

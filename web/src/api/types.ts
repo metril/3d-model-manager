@@ -716,6 +716,7 @@ export interface SpoolOut {
   location: string | null;
   low_stock_g: number;
   tray_uuid: string | null;
+  spoolman_id?: number | null;
   archived_at: string | null;
   last_used_at: string | null;
   created_by_user_id: number | null;

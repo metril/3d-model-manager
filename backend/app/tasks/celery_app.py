@@ -65,6 +65,7 @@ celery_app.conf.update(
         "app.tasks.dispatch",
         "app.tasks.billing",
         "app.tasks.home_assistant",
+        "app.tasks.spoolman",
     ),
 )
 
@@ -123,4 +124,12 @@ from app.tasks import home_assistant as _home_assistant  # noqa: E402
 celery_app.conf.beat_schedule["ha-poll"] = {
     "task": "app.tasks.home_assistant.poll_ha",
     "schedule": _home_assistant.POLL_INTERVAL_S,
+}
+
+# Additive: Q9 Spoolman reconcile (the task itself skips when mode=off).
+from app.tasks import spoolman as _spoolman  # noqa: E402
+
+celery_app.conf.beat_schedule["spoolman-reconcile"] = {
+    "task": "app.tasks.spoolman.reconcile",
+    "schedule": _spoolman.RECONCILE_INTERVAL_S,
 }

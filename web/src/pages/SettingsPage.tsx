@@ -18,6 +18,7 @@ import { PrintCostCard } from "@/components/settings/PrintCostCard";
 import { ScanReport } from "@/components/settings/ScanReport";
 import { SiteTokensCard } from "@/components/settings/SiteTokensCard";
 import { SlicerIntegrationCard } from "@/components/settings/SlicerIntegrationCard";
+import { SpoolmanCard } from "@/components/settings/SpoolmanCard";
 import { StorageBackendsCard } from "@/components/settings/StorageBackendsCard";
 import { UsersCard } from "@/components/settings/UsersCard";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ export function SettingsPage() {
             <AutomationCard />
             <CategoriesSection />
             <PrintCostCard />
+            {auth.can("inventory:write") && <SpoolmanCard />}
             {auth.data?.has_password && <ChangePasswordCard />}
           </TabsContent>
           {canSettings && (
