@@ -13,7 +13,7 @@
 # with `curl -s localhost:8080/api/health`.
 #
 # Everything else -- ports, env_file, volumes, healthchecks, depends_on, the
-# ROLE/command that differentiate the five app services, and the stock
+# ROLE/command that differentiate the six app services, and the stock
 # postgres/redis services -- comes from compose.yaml unchanged. This file only
 # swaps where the image comes from.
 #
@@ -26,7 +26,7 @@
 # decision, and also means `up -d` picks up a moved `latest`/`edge` tag without a
 # separate `pull`.
 #
-# The five services are all the SAME image (compose.yaml differentiates them by
+# The six app services are all the SAME image (compose.yaml differentiates them by
 # ROLE env / command), so the override is identical for each. Written longhand
 # rather than via a YAML anchor + merge key: `!reset` is a Compose custom tag
 # applied over the parsed tree, and its interaction with `<<:` is not worth being
@@ -54,6 +54,12 @@ services:
     pull_policy: always
 
   printerd:
+    image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
+    build: !reset null
+    pull_policy: always
+
+  # Profile-gated (`--profile virtual-printer`); same image, so same override.
+  virtual-printer:
     image: ghcr.io/metril/3d-model-manager:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
