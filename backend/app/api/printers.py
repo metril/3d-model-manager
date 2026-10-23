@@ -63,6 +63,7 @@ from app.schemas.printers import (
     ProbeOut,
     SpoolBriefOut,
     seed_build_volume_mm,
+    status_from_state,
 )
 from app.services import camera_state as cs
 from app.services import signed_urls, spool_inventory, spoolman
@@ -368,20 +369,6 @@ async def set_slot(
     return trays
 
 
-_STATE_FIELDS = (
-    "gcode_state",
-    "mc_percent",
-    "layer_num",
-    "total_layer_num",
-    "mc_remaining_time",
-    "print_error",
-    "nozzle_temper",
-    "bed_temper",
-    "subtask_name",
-    "wifi_signal",
-)
-
-
 async def _fill_tray_spools(db: AsyncSession, printer_id: int, trays: list[AmsTrayOut]) -> None:
     """Enrich each tray's ``spool`` from the printer's current slot
     assignments (P5 Task 6) -- the printer's own report only knows the
@@ -420,11 +407,7 @@ async def printer_status(
         return PrinterStatusOut(online=False)
     # `trays` (M8 G3) is a list, not a scalar -- pass it explicitly and coerce a
     # missing/None value (older state written before this field existed) to [].
-    out = PrinterStatusOut(
-        online=True,
-        trays=state.get("trays") or [],
-        **{k: state.get(k) for k in _STATE_FIELDS},
-    )
+    out = status_from_state(state)
     await _fill_tray_spools(db, printer_id, out.trays)
     return out
 

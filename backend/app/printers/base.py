@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, Protocol
@@ -108,6 +108,35 @@ class PrinterPublicState:
     # "remain_pct": int|None}]. Plain dicts (not a nested dataclass) so
     # `dataclasses.asdict` -> `json.dumps` round-trips them into Redis unchanged.
     trays: list[dict] = field(default_factory=list)
+    # Q1 status schema v2 -- all optional; fan values are already percent.
+    nozzle_target: float | None = None
+    bed_target: float | None = None
+    chamber_temper: float | None = None
+    chamber_target: float | None = None
+    fan_part_pct: int | None = None
+    fan_aux_pct: int | None = None
+    fan_chamber_pct: int | None = None
+    light_on: bool | None = None
+    speed_level: int | None = None
+    stage: str | None = None
+    hms: list[dict] = field(default_factory=list)  # [{"attr": int, "code": int}]
+    sdcard: bool | None = None
+    nozzle_type: str | None = None
+    firmware: dict | None = None  # {"ota": str|None, "ams": [{"id": int, "sw_ver": str}]}
+    ams_units: list[dict] = field(default_factory=list)
+    ext_tray: dict | None = None
+    print_thumbnail_key: str | None = None
+    ipcam: bool | None = None
+    dev_mode: bool | None = None  # None = unknown (probe lands in Q2)
+    dev_mode_reason: str | None = None
+    last_report_at: str | None = None  # ISO-8601 UTC
+
+
+def public_state_from(merged: dict) -> PrinterPublicState:
+    """Build a ``PrinterPublicState`` from a snapshot dict by field name
+    (missing keys fall back to the dataclass defaults)."""
+    names = {f.name for f in fields(PrinterPublicState)}
+    return PrinterPublicState(**{k: v for k, v in merged.items() if k in names and v is not None})
 
 
 def state_key(printer_id: int) -> str:

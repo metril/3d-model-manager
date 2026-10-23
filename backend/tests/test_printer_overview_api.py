@@ -223,3 +223,20 @@ async def test_overview_up_next_per_printer(
 
 async def test_overview_503_when_disabled(authenticated_client: httpx.AsyncClient):
     assert (await authenticated_client.get("/api/printers/overview")).status_code == 503
+
+
+async def test_overview_total_print_hours(
+    authenticated_client: httpx.AsyncClient,
+    printer_enabled: None,
+    db_session: AsyncSession,
+):
+    p1 = await _printer(db_session, "h1")
+    p2 = await _printer(db_session, "h2")
+    p3 = await _printer(db_session, "h3")
+    for n in range(3):  # each archive is 3600 s
+        await _finished_archive(db_session, p1, n=n)
+    await _finished_archive(db_session, p2, n=0)
+
+    body = (await authenticated_client.get("/api/printers/overview")).json()
+    hours = {i["printer"]["id"]: i["printer"]["total_print_hours"] for i in body["printers"]}
+    assert hours == {p1.id: 3.0, p2.id: 1.0, p3.id: 0.0}

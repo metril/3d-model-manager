@@ -30,8 +30,10 @@ from app.printers.base import (
     ProbeResult,
     RemoteFile,
     ReportHandler,
+    public_state_from,
 )
 from app.printers.registry import register_adapter
+from app.printers.stages import stage_name
 from app.services.spool_inventory import EXTERNAL_SLOT, EXTERNAL_UNIT, global_tray
 
 _GCODE_STATE_TO_JOB = {
@@ -200,6 +202,116 @@ def _nozzle_mm(dump: dict) -> float | None:
     return mm if mm > 0 else None
 
 
+def _fan_pct(value) -> int | None:
+    """Bambu fan speed 0-15 (sometimes 0-255) -> percent (same rule as
+    bambuddy's ``parse_fan_speed``)."""
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if n < 0:
+        return None
+    if n <= 15:
+        return round(n * 100 / 15)
+    if n <= 255:
+        return round(n * 100 / 255)
+    return None
+
+
+def _as_float(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _light_on(p, dump: dict) -> bool | None:
+    """Lib getter first ("on"/"off"), else the raw ``lights_report``."""
+    try:
+        state = str(p.get_light_state()).strip().lower()
+    except Exception:  # noqa: BLE001
+        state = ""
+    if state in ("on", "off"):
+        return state == "on"
+    reports = _dump_get(dump, "lights_report")
+    if isinstance(reports, list):
+        for r in reports:
+            if isinstance(r, dict) and r.get("node") == "chamber_light":
+                return r.get("mode") == "on"
+    return None
+
+
+def _hms(dump: dict) -> list[dict]:
+    out: list[dict] = []
+    raw = _dump_get(dump, "hms")
+    if isinstance(raw, list):
+        for e in raw:
+            if isinstance(e, dict):
+                attr, code = _as_int(e.get("attr")), _as_int(e.get("code"))
+                if attr is not None and code is not None:
+                    out.append({"attr": attr, "code": code})
+    return out
+
+
+def _modules(dump: dict) -> list[dict]:
+    info = dump.get("info")
+    mods = info.get("module") if isinstance(info, dict) else None
+    return [m for m in mods if isinstance(m, dict)] if isinstance(mods, list) else []
+
+
+# AMS / AMS Lite / AMS 2 Pro / AMS HT firmware modules.
+_AMS_MODULE = re.compile(r"^(ams|ams_f1|n3f|n3s)/\d+$")
+
+
+def _firmware(dump: dict) -> dict | None:
+    ota: str | None = None
+    ams: list[dict] = []
+    for m in _modules(dump):
+        name = str(m.get("name") or "")
+        if name == "ota":
+            ota = m.get("sw_ver")
+        elif _AMS_MODULE.match(name):
+            uid = _as_int(name.split("/", 1)[1])
+            if uid is not None:
+                ams.append({"id": uid, "sw_ver": m.get("sw_ver")})
+    if ota is None and not ams:
+        return None
+    return {"ota": ota, "ams": ams}
+
+
+def _ams_units(dump: dict, firmware: dict | None) -> list[dict]:
+    section = _dump_get(dump, "ams")
+    units = section.get("ams") if isinstance(section, dict) else None
+    if not isinstance(units, list):
+        return []
+    fw = {m["id"]: m.get("sw_ver") for m in (firmware or {}).get("ams", [])}
+    out: list[dict] = []
+    for pos, u in enumerate(units):
+        if not isinstance(u, dict):
+            continue
+        uid = _as_int(u.get("id"))
+        uid = pos if uid is None else uid
+        out.append(
+            {
+                "id": uid,
+                # humidity_raw is relative-humidity %; the 1-5 `humidity` is an
+                # inverted drop index and is deliberately never used.
+                "humidity": _as_float(u.get("humidity_raw")),
+                "temp": _as_float(u.get("temp")),
+                "serial": u.get("sn") or None,
+                "fw": fw.get(uid),
+            }
+        )
+    return out
+
+
+def _ipcam(dump: dict) -> bool | None:
+    cam = _dump_get(dump, "ipcam")
+    if isinstance(cam, dict) and "ipcam_record" in cam:
+        return cam.get("ipcam_record") == "enable"
+    return None
+
+
 def _dump_get(dump: dict, key: str):
     """Best-effort lookup of a field in the lib's mqtt_dump(). The real
     v2.6.6 Printer.mqtt_dump() returns the RAW top-level MQTT payload
@@ -305,6 +417,17 @@ class BambuLanAdapter(PrinterAdapter):
         super().__init__(conn)
         self._printer = None
         self._handler: ReportHandler | None = None
+        self._dump_sig: str | None = None
+        self._report_at: str | None = None
+
+    def _report_time(self, dump: dict) -> str:
+        """ISO time the printer last REPORTED something: bumped only when the
+        lib's merged dump changes (printerd re-reads it every few seconds)."""
+        sig = json.dumps(dump, sort_keys=True, default=str)
+        if sig != self._dump_sig or self._report_at is None:
+            self._dump_sig = sig
+            self._report_at = datetime.now(UTC).isoformat()
+        return self._report_at
 
     def _client(self):
         if self._printer is None:
@@ -321,7 +444,34 @@ class BambuLanAdapter(PrinterAdapter):
             dump = p.mqtt_dump() or {}
         except Exception:  # noqa: BLE001 -- mqtt_dump is best-effort for the two extras
             dump = {}
+        firmware = _firmware(dump)
+        vt = _dump_get(dump, "vt_tray")
+        # Raw dump, not p.nozzle_type(): the lib defaults to "stainless_steel"
+        # when unreported and raises on enum-unknown types.
+        nozzle_type = _dump_get(dump, "nozzle_type") or None
+        sdcard = _dump_get(dump, "sdcard")
         return {
+            "nozzle_target": _as_float(_dump_get(dump, "nozzle_target_temper")),
+            "bed_target": _as_float(_dump_get(dump, "bed_target_temper")),
+            "chamber_temper": _as_float(_dump_get(dump, "chamber_temper")),
+            "chamber_target": _as_float(_dump_get(dump, "chamber_target_temper")),
+            "fan_part_pct": _fan_pct(_dump_get(dump, "cooling_fan_speed")),
+            "fan_aux_pct": _fan_pct(_dump_get(dump, "big_fan1_speed")),
+            "fan_chamber_pct": _fan_pct(_dump_get(dump, "big_fan2_speed")),
+            "light_on": _light_on(p, dump),
+            "speed_level": _as_int(_dump_get(dump, "spd_lvl")),
+            "stage": stage_name(_dump_get(dump, "stg_cur")),
+            "hms": _hms(dump),
+            "sdcard": sdcard if isinstance(sdcard, bool) else None,
+            "nozzle_type": nozzle_type,
+            "firmware": firmware,
+            "ams_units": _ams_units(dump, firmware),
+            "ext_tray": _tray_entry(vt, EXTERNAL_UNIT, EXTERNAL_SLOT)
+            if isinstance(vt, dict)
+            else None,
+            "ipcam": _ipcam(dump),
+            "dev_mode": None,
+            "last_report_at": self._report_time(dump),
             "gcode_state": _state_token(p.get_state()),
             "mc_percent": _as_int(p.get_percentage()),
             "layer_num": _as_int(p.current_layer_num()),
@@ -342,20 +492,7 @@ class BambuLanAdapter(PrinterAdapter):
         return dict(report)
 
     def public_state(self, merged: dict) -> PrinterPublicState:
-        return PrinterPublicState(
-            gcode_state=merged.get("gcode_state"),
-            mc_percent=merged.get("mc_percent"),
-            layer_num=merged.get("layer_num"),
-            total_layer_num=merged.get("total_layer_num"),
-            mc_remaining_time=merged.get("mc_remaining_time"),
-            print_error=merged.get("print_error"),
-            nozzle_temper=merged.get("nozzle_temper"),
-            bed_temper=merged.get("bed_temper"),
-            subtask_name=merged.get("subtask_name"),
-            wifi_signal=merged.get("wifi_signal"),
-            trays=merged.get("trays") or [],
-            nozzle_mm=merged.get("nozzle_mm"),
-        )
+        return public_state_from(merged)
 
     def job_state(self, public: PrinterPublicState) -> PrintJobState | None:
         if public.print_error:

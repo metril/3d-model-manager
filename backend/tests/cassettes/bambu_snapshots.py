@@ -35,3 +35,48 @@ SNAPSHOT_FINISH = {
     "subtask_name": "widget",
 }
 SNAPSHOT_ERROR = {"gcode_state": "FAILED", "print_error": 83935248, "subtask_name": "widget"}
+
+# Recorded-shape A1 Mini ``mqtt_dump()`` (raw pushall: top-level {"print":..., "info":...}),
+# idle, 0.4 mm nozzle, no AMS, no chamber/aux fan. Fan speeds arrive as 0-15 strings.
+A1_MINI_DUMP = {
+    "print": {
+        "gcode_state": "IDLE",
+        "stg_cur": 255,
+        "print_error": 0,
+        "wifi_signal": "-52dBm",
+        "nozzle_diameter": "0.4",
+        "nozzle_target_temper": 0,
+        "bed_target_temper": 60,
+        "nozzle_type": "hardened_steel",
+        "nozzle_temper": 24.5,
+        "bed_temper": 59.8,
+        "cooling_fan_speed": "8",
+        "big_fan1_speed": "0",
+        "big_fan2_speed": "0",
+        "spd_lvl": 2,
+        "sdcard": True,
+        "hms": [{"attr": 83886336, "code": 65545}],
+        "lights_report": [{"node": "chamber_light", "mode": "on"}],
+        "ipcam": {"ipcam_record": "enable", "resolution": "720p"},
+        "ams": {
+            "ams": [
+                {
+                    "id": "0",
+                    "humidity": "4",
+                    "humidity_raw": "31",
+                    "temp": "24.6",
+                    "sn": "AMS123",
+                    "tray": [],
+                }
+            ]
+        },
+        "vt_tray": {"id": "254", "tray_type": "PLA", "tray_color": "FF0000FF"},
+    },
+    "info": {
+        "module": [
+            {"name": "ota", "sw_ver": "01.07.00.00"},
+            {"name": "ams_f1/0", "sw_ver": "00.00.06.49"},
+            {"name": "rv1126", "sw_ver": "00.00.14.74"},
+        ]
+    },
+}

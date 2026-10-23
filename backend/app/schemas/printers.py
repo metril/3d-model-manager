@@ -122,6 +122,23 @@ class PrinterUpdate(BaseModel):
         return _clean_serial(value)
 
 
+class CapabilitiesOut(BaseModel):
+    model_key: str | None = None
+    chamber_heater: bool = False
+    chamber_temp: bool = False
+    airduct: bool = False
+    door: bool = False
+    dual_nozzle: bool = False
+    aux_fan: bool = False
+    chamber_fan: bool = False
+    camera: str = "none"
+    lidar: bool = False
+    max_bed: int | None = None
+    max_nozzle: int | None = None
+    ams_drying: bool = False
+    verified: bool = False
+
+
 class PrinterOut(BaseModel):
     id: int
     name: str
@@ -133,9 +150,15 @@ class PrinterOut(BaseModel):
     options: dict
     access_code_set: bool  # NEVER the code or ciphertext
     build_volume_mm: BuildVolumeMm | None = None
+    capabilities: CapabilitiesOut = Field(default_factory=CapabilitiesOut)
+    # Sum of archived run durations (hours); filled by the overview builder,
+    # ``None`` where not computed.
+    total_print_hours: float | None = None
 
     @classmethod
     def from_model(cls, p: Printer) -> PrinterOut:
+        from app.printers.capabilities import capabilities_for
+
         return cls(
             id=p.id,
             name=p.name,
@@ -147,6 +170,7 @@ class PrinterOut(BaseModel):
             options=p.options or {},
             access_code_set=bool(p.access_code_enc),
             build_volume_mm=p.build_volume_mm,
+            capabilities=CapabilitiesOut(**capabilities_for(p.model, p.serial).as_dict()),
         )
 
 
@@ -219,6 +243,29 @@ class AmsTrayOut(BaseModel):
     spool: SpoolBriefOut | None = None
 
 
+class HmsEntryOut(BaseModel):
+    attr: int
+    code: int
+
+
+class AmsModuleFwOut(BaseModel):
+    id: int
+    sw_ver: str | None = None
+
+
+class FirmwareOut(BaseModel):
+    ota: str | None = None
+    ams: list[AmsModuleFwOut] = Field(default_factory=list)
+
+
+class AmsUnitOut(BaseModel):
+    id: int
+    humidity: float | None = None  # relative humidity %, never the 1-5 index
+    temp: float | None = None
+    serial: str | None = None
+    fw: str | None = None
+
+
 class PrinterStatusOut(BaseModel):
     online: bool
     gcode_state: str | None = None
@@ -232,6 +279,43 @@ class PrinterStatusOut(BaseModel):
     subtask_name: str | None = None
     wifi_signal: str | None = None
     trays: list[AmsTrayOut] = Field(default_factory=list)
+    # Q1 status schema v2 (all optional; fan values are percent).
+    nozzle_target: float | None = None
+    bed_target: float | None = None
+    chamber_temper: float | None = None
+    chamber_target: float | None = None
+    fan_part_pct: int | None = None
+    fan_aux_pct: int | None = None
+    fan_chamber_pct: int | None = None
+    light_on: bool | None = None
+    speed_level: int | None = None
+    stage: str | None = None
+    hms: list[HmsEntryOut] = Field(default_factory=list)
+    sdcard: bool | None = None
+    nozzle_type: str | None = None
+    firmware: FirmwareOut | None = None
+    ams_units: list[AmsUnitOut] = Field(default_factory=list)
+    ext_tray: AmsTrayOut | None = None
+    print_thumbnail_key: str | None = None
+    ipcam: bool | None = None
+    dev_mode: bool | None = None
+    dev_mode_reason: str | None = None
+    last_report_at: str | None = None
+
+
+# Everything in PrinterStatusOut that is copied verbatim from the Redis state.
+STATE_FIELDS: tuple[str, ...] = tuple(
+    k for k in PrinterStatusOut.model_fields if k not in ("online", "trays")
+)
+
+
+def status_from_state(state: dict) -> PrinterStatusOut:
+    """Online ``PrinterStatusOut`` from a printerd Redis state dict. Absent or
+    null list fields (state written before they existed) become ``[]``."""
+    data = {k: state.get(k) for k in STATE_FIELDS}
+    for k in ("hms", "ams_units"):
+        data[k] = data[k] or []
+    return PrinterStatusOut(online=True, trays=state.get("trays") or [], **data)
 
 
 class PrintRequest(BaseModel):
