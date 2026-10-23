@@ -36,6 +36,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PRINTER_MODELS } from "@/lib/printerState";
 
 interface PrinterDraft {
   name: string;
@@ -309,13 +310,27 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`${idPrefix}-model`}>Model</Label>
-          <Input
+          <select
             id={`${idPrefix}-model`}
             value={draft.model}
-            placeholder="A1 mini"
             onChange={(e) => setField("model", e.target.value)}
             disabled={busy}
-          />
+            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+          >
+            <option value="">Select a model</option>
+            {draft.model !== "" && !PRINTER_MODELS.some((g) => g.models.includes(draft.model)) ? (
+              <option value={draft.model}>{draft.model}</option>
+            ) : null}
+            {PRINTER_MODELS.map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <Label htmlFor={`${idPrefix}-access-code`}>Access code</Label>

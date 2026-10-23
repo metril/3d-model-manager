@@ -23,7 +23,7 @@ import { UpNextList } from "@/components/print/UpNextList";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
 import { StateBadge } from "@/components/ui/state-badge";
-import { toneForGcode } from "@/lib/printerState";
+import { modelKey, printerImage, toneForGcode } from "@/lib/printerState";
 
 export function PrinterCard({
   item,
@@ -52,9 +52,16 @@ export function PrinterCard({
       </div>
 
       <div className="flex flex-col gap-2 p-3">
-        <Link to="/printers/$id" params={{ id: String(printer.id) }} className="text-sm font-medium hover:underline">
-          {printer.name}
-        </Link>
+        <div className="flex items-center gap-2">
+          <img
+            src={printerImage(modelKey(printer.model, printer.serial))}
+            alt=""
+            className="size-8 shrink-0 object-contain"
+          />
+          <Link to="/printers/$id" params={{ id: String(printer.id) }} className="text-sm font-medium hover:underline">
+            {printer.name}
+          </Link>
+        </div>
 
         {activeJob ? (
           <ActiveJobStrip job={activeJob} status={status} printerId={printer.id} canControl={canControl} />
