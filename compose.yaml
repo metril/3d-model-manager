@@ -61,6 +61,7 @@ services:
       # GET /features (Settings "Slicer integration" card) -- it never reads
       # the folder, so no /watch volume here. Must match worker-io/beat.
       WATCH_DIR: /watch
+      TDMM_VP_ENABLED: ${TDMM_VP_ENABLED:-false}
       PUID: ${PUID:-}
       PGID: ${PGID:-}
     env_file:
@@ -209,6 +210,34 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Q11 virtual printer: a fake LAN Bambu printer (SSDP UDP 2021, MQTT/TLS
+  # 8883, FTPS 990) that turns a slicer "print" into a queue entry. Opt-in
+  # (`docker compose --profile virtual-printer up -d`, or add it to
+  # COMPOSE_PROFILES) and host-networked so slicers on the LAN can discover
+  # it: with `network_mode: host` the service cannot resolve `db`/`redis` by
+  # name, so DATABASE_URL/REDIS_URL in `.env` must be reachable from the
+  # host (e.g. localhost + published ports, or the LAN address). It checks
+  # the three ports are free at start and exits non-zero otherwise. Also set
+  # TDMM_VP_ENABLED=true in `.env` to show the Settings card. Tunables:
+  # TDMM_VP_BIND, TDMM_VP_PORT_{SSDP,MQTT,FTP}, TDMM_VP_PASV_{MIN,MAX,ADDRESS}.
+  virtual-printer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: tdmm:local
+    profiles: ["virtual-printer"]
+    network_mode: host
+    command: ["python", "-m", "app.virtual_printer"]
+    environment:
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+    env_file:
+      - .env
+    volumes:
+      - tdmm_data:/data
+      - ./library:/library
     restart: unless-stopped
 
   db:

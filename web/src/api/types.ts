@@ -538,6 +538,8 @@ export interface Features {
   // interval), so the frontend never re-derives it.
   watch_dir: string | null;
   watch_enabled: boolean;
+  // Q11: `TDMM_VP_ENABLED` -- shows the Settings virtual printer card.
+  virtual_printer_enabled?: boolean;
 }
 
 // `GET`/`PUT /settings/app` (backend/app/schemas/settings.py's
@@ -1790,3 +1792,32 @@ export interface HaLinkIn {
 }
 
 export type HaLinkPatchIn = Partial<HaLinkIn>;
+
+// `/api/virtual-printers` (backend/app/schemas/virtual_printers.py, Q11).
+export type VirtualPrinterMode = "queue" | "review" | "archive" | "proxy";
+
+export interface VirtualPrinter {
+  id: number;
+  name: string;
+  model: string;
+  serial: string;
+  access_code: string;
+  mode: VirtualPrinterMode;
+  target_printer_id: number | null;
+  enabled: boolean;
+  created_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VirtualPrinterIn {
+  name: string;
+  model: string;
+  mode: VirtualPrinterMode;
+  target_printer_id?: number | null;
+  enabled?: boolean;
+}
+
+export interface VirtualPrinterPatchIn extends Partial<VirtualPrinterIn> {
+  regenerate_access_code?: boolean;
+}
