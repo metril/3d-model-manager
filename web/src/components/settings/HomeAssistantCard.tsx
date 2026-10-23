@@ -100,8 +100,9 @@ function seedRest(s: HaSettings): RestDraft {
 function ActorField({ data }: { data: HaSettings }) {
   const actors = useHaActors();
   const save = useSaveHaSettings();
-  const actorBad = data.bridge_status?.actor_ok === false;
-  const actorMsg = data.bridge_status?.actor_error ?? "HA commands are blocked";
+  // Computed server-side, so it shows with or without an MQTT bridge.
+  const actorBad = !data.actor_ok;
+  const actorMsg = data.actor_error ?? "HA commands are blocked";
 
   return (
     <div className="flex flex-col gap-1.5">

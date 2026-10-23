@@ -529,3 +529,86 @@ async def test_actor_endpoints_forbidden_for_non_admin(member_client: httpx.Asyn
     assert r.status_code == 403
     r = await member_client.get("/api/settings/home-assistant/actors")
     assert r.status_code == 403
+
+
+async def _controller(make_user, make_group, printer_id: int, name: str = "ctl"):
+    user = await make_user("viewer", username=name)
+    await make_group(
+        f"g-{name}",
+        permissions=["printers:control"],
+        members=[user],
+        printer_access={printer_id: (False, True, False)},
+    )
+    return user
+
+
+async def test_actor_without_control_is_422_and_unlisted(
+    authenticated_client: httpx.AsyncClient, make_user, make_group, db_session: AsyncSession
+) -> None:
+    pid = await _printer(db_session)
+    nobody = await make_user("member", username="nobody")  # member: print only, no control
+    ctl = await _controller(make_user, make_group, pid)
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": nobody.id}
+    )
+    assert r.status_code == 422
+    names = [
+        a["username"]
+        for a in (await authenticated_client.get("/api/settings/home-assistant/actors")).json()
+    ]
+    assert "nobody" not in names and "ctl" in names
+
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": ctl.id}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["actor_ok"] is True and r.json()["actor_error"] is None
+
+
+async def test_rest_only_actor_status_in_get(
+    authenticated_client: httpx.AsyncClient, make_user, make_group, db_session: AsyncSession
+) -> None:
+    """No MQTT bridge (no ``ha:bridge:status``): GET computes the actor state itself."""
+    r = await authenticated_client.get("/api/settings/home-assistant")
+    assert r.json()["bridge_status"] is None
+    assert (r.json()["actor_ok"], r.json()["actor_error"]) == (False, "no HA service account")
+
+    # Stored actor that was since deactivated / lost control (seeded directly).
+    from app.crypto import encrypt_secret  # noqa: F401 -- keep import style local
+    from app.models import Setting
+
+    pid = await _printer(db_session)
+    ctl = await _controller(make_user, make_group, pid)
+    ghost = await make_user("viewer", username="ghost")
+    db_session.add(Setting(key="home_assistant", value={"ha_actor_user_id": ghost.id}))
+    await db_session.commit()
+    r = await authenticated_client.get("/api/settings/home-assistant")
+    assert r.json()["actor_error"] == "HA service account lacks printer control"
+
+    ghost.is_active = False
+    await db_session.commit()
+    r = await authenticated_client.get("/api/settings/home-assistant")
+    assert r.json()["actor_error"] == "HA service account is missing or inactive"
+
+    r = await authenticated_client.put(
+        "/api/settings/home-assistant", json={"ha_actor_user_id": ctl.id}
+    )
+    assert r.json()["actor_ok"] is True
+
+
+async def test_non_admin_cannot_pick_admin_actor(
+    make_user, make_group, login_as, admin_user, db_session: AsyncSession
+) -> None:
+    pid = await _printer(db_session)
+    editor = await make_user("viewer", username="editor")
+    await make_group("g-editor", permissions=["settings:write"], members=[editor])
+    ctl = await _controller(make_user, make_group, pid)
+    client = await login_as(editor)
+    r = await client.put("/api/settings/home-assistant", json={"ha_actor_user_id": admin_user.id})
+    assert r.status_code == 403
+    names = [
+        a["username"] for a in (await client.get("/api/settings/home-assistant/actors")).json()
+    ]
+    assert admin_user.username not in names
+    r = await client.put("/api/settings/home-assistant", json={"ha_actor_user_id": ctl.id})
+    assert r.status_code == 200, r.text

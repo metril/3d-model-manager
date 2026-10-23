@@ -27,6 +27,7 @@ from app.services.ha_state import (
     STATUS_TTL_S,
     _raw_key,
     alert_key,
+    denied_key,
     energy_acc_key,
     energy_key,
     fired_key,
@@ -104,6 +105,7 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
 
 
 _RESET_FACTOR = 0.9
+_DENIED_LOG_TTL_S = 600
 
 
 def counter_delta(prev: float | None, cur: float) -> float:
@@ -170,12 +172,14 @@ def _handle_pause_edge(
                 if (printer_state or {}).get("gcode_state") in PRINTING_STATES:
                     if not can_control_sync(s, actor_id, pid):
                         r.delete(fired_key(link.id, pid))
-                        logger.warning(
-                            "HA alert (%s) can't pause printer %s: HA service account "
-                            "unset or lacks control",
-                            link.entity_id,
-                            pid,
-                        )
+                        # Retry every poll, but warn at most once per 10 min.
+                        if r.set(denied_key(link.id, pid), 1, nx=True, ex=_DENIED_LOG_TTL_S):
+                            logger.warning(
+                                "HA alert (%s) can't pause printer %s: HA service account "
+                                "unset or lacks control",
+                                link.entity_id,
+                                pid,
+                            )
                         continue
                     r.publish(command_channel(pid), json.dumps({"command": "pause"}))
                     logger.info("HA alert paused printer %s (%s)", pid, link.entity_id)

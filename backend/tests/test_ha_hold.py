@@ -21,7 +21,7 @@ from app.models.printing import Printer, PrintJob
 from app.printers.base import command_channel, state_key
 from app.services import dispatcher
 from app.services.ha_config import HaConfig
-from app.services.ha_state import alert_key, fired_key
+from app.services.ha_state import alert_key, denied_key, fired_key
 from app.services.home_assistant import poll_once
 from app.tasks import base
 from tests.test_dispatcher import (
@@ -524,4 +524,69 @@ def test_pause_denied_without_actor_control_retries_when_fixed(redis_url: str, a
     assert msgs == [{"command": "pause"}]
     assert r.get(fired_key(link_id, pid)) is not None
     pubsub.close()
+    r.close()
+
+
+@respx.mock
+def test_acl_actor_pauses_only_printers_it_controls(redis_url: str):
+    from app.models.auth import Group, GroupMember, PrinterAccess, User
+    from app.models.enums import UserRole
+
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.shared_door", "on")
+    with base.sync_session() as s:
+        a = _seed_printer_raw(s, name="AclA")
+        b = _seed_printer_raw(s, name="AclB")
+        s.add(
+            HaLink(
+                printer_id=None,
+                entity_id="binary_sensor.shared_door",
+                role=HaRole.DOOR,
+                alert_condition={"op": "eq", "value": "on"},
+                pause_print=True,
+            )
+        )
+        user = User(username="acl-pauser", role=UserRole.VIEWER)
+        group = Group(name="g-acl-pauser", permissions=["printers:control"])
+        s.add_all([user, group])
+        s.flush()
+        s.add(GroupMember(group_id=group.id, user_id=user.id))
+        s.add(PrinterAccess(group_id=group.id, printer_id=a.id, can_control=True))
+        s.commit()
+        pid_a, pid_b, uid = a.id, b.id, user.id
+
+    for pid in (pid_a, pid_b):
+        r.set(state_key(pid), json.dumps(RUNNING_STATE))
+    ps_a, ps_b = r.pubsub(), r.pubsub()
+    ps_a.subscribe(command_channel(pid_a))
+    ps_b.subscribe(command_channel(pid_b))
+    ps_a.get_message(timeout=1)
+    ps_b.get_message(timeout=1)
+
+    with base.sync_session() as s:
+        poll_once(s, r, _cfg(ha_actor_user_id=uid))
+
+    msg_a = ps_a.get_message(timeout=1)
+    assert msg_a is not None and json.loads(msg_a["data"]) == {"command": "pause"}
+    assert ps_b.get_message(timeout=0.3) is None
+    ps_a.close()
+    ps_b.close()
+    r.close()
+
+
+@respx.mock
+def test_denied_pause_warning_is_throttled(redis_url: str, caplog):
+    import logging
+
+    r = redis_lib.Redis.from_url(redis_url)
+    _state_route("binary_sensor.door", "on")
+    pid, link_id, actor = _setup_denied(r, actor_kind="none")
+    with caplog.at_level(logging.WARNING, logger="app.services.home_assistant"):
+        for _ in range(3):
+            with base.sync_session() as s:
+                poll_once(s, r, _cfg(ha_actor_user_id=actor))
+    warnings = [x for x in caplog.records if "can't pause" in x.getMessage()]
+    assert len(warnings) == 1
+    assert 0 < r.ttl(denied_key(link_id, pid)) <= 600
+    assert r.get(fired_key(link_id, pid)) is None  # still retrying
     r.close()

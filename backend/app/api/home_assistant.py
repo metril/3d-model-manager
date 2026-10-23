@@ -38,7 +38,14 @@ from app.schemas.home_assistant import (
 )
 from app.services import ha_state
 from app.services.ha_client import HaClient, HaUnreachable
-from app.services.ha_config import HaConfig, get_ha_config, parse_mqtt_url, set_ha_config
+from app.services.ha_config import (
+    HaConfig,
+    actor_status,
+    get_ha_config,
+    parse_mqtt_url,
+    set_ha_config,
+)
+from app.services.permissions import load_grants
 
 router = APIRouter(
     prefix="/settings/home-assistant",
@@ -108,6 +115,7 @@ async def get_ha_settings(
             bridge_status = json.loads(bridge_raw)
 
     actor = await db.get(User, config.ha_actor_user_id) if config.ha_actor_user_id else None
+    actor_ok, actor_error = await actor_status(db, config.ha_actor_user_id)
 
     return HaSettingsOut(
         ha_mqtt_url=config.ha_mqtt_url,
@@ -118,6 +126,8 @@ async def get_ha_settings(
         has_token=bool(config.ha_token),
         ha_actor_user_id=config.ha_actor_user_id,
         ha_actor_username=actor.username if actor else None,
+        actor_ok=actor_ok,
+        actor_error=actor_error,
         pull_status=pull_status,
         bridge_status=bridge_status,
     )
@@ -128,6 +138,7 @@ async def put_ha_settings(
     payload: HaSettingsIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> HaSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
     actor_id = patch.get("ha_actor_user_id")
@@ -135,18 +146,32 @@ async def put_ha_settings(
         actor = await db.get(User, actor_id)
         if actor is None or not actor.is_active:
             raise HTTPException(422, "ha_actor_user_id must be an active user")
+        _, perms, _ = await load_grants(db, actor)
+        if "printers:control" not in perms:
+            raise HTTPException(422, "ha_actor_user_id needs the printers:control permission")
+        # Privilege escalation guard: a settings:write non-admin must not
+        # make HA act as an admin.
+        if "admin" in perms and not ctx.is_admin:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "only an admin can pick an admin")
     await set_ha_config(db, settings, patch)
     return await get_ha_settings(db=db, settings=settings)
 
 
 @router.get("/actors", response_model=list[HaActorOut])
-async def list_ha_actors(db: AsyncSession = Depends(get_db)) -> list[HaActorOut]:
-    """Active users selectable as the HA service account (``/admin/users``
-    is admin-only; this surface is ``settings:write``)."""
-    rows = await db.execute(
-        select(User.id, User.username).where(User.is_active).order_by(User.username)
-    )
-    return [HaActorOut(id=i, username=u) for i, u in rows.all()]
+async def list_ha_actors(
+    db: AsyncSession = Depends(get_db), ctx: AuthContext = Depends(require_session)
+) -> list[HaActorOut]:
+    """Active users selectable as the HA service account: those with
+    ``printers:control`` (admins included, but only listed to admin callers).
+    ``/admin/users`` is admin-only; this surface is ``settings:write``."""
+    users = (await db.scalars(select(User).where(User.is_active).order_by(User.username))).all()
+    out: list[HaActorOut] = []
+    for user in users:
+        _, perms, _ = await load_grants(db, user)
+        if "printers:control" not in perms or ("admin" in perms and not ctx.is_admin):
+            continue
+        out.append(HaActorOut(id=user.id, username=user.username))
+    return out
 
 
 def _run_mqtt_test(config: HaConfig) -> tuple[bool, str]:

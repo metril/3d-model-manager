@@ -32,11 +32,17 @@ from collections.abc import Callable
 from sqlalchemy import select
 
 from app.config import Settings
-from app.models import PrintArchive, Printer, PrintJob, PrintQueueEntry, User
+from app.models import PrintArchive, Printer, PrintJob, PrintQueueEntry
 from app.models.enums import QueueState
 from app.printers.base import command_channel
 from app.services import camera_state
-from app.services.ha_config import HaConfig, get_ha_config_sync, parse_mqtt_url
+from app.services.ha_config import (
+    NO_ACTOR_ERROR,
+    HaConfig,
+    actor_status_sync,
+    get_ha_config_sync,
+    parse_mqtt_url,
+)
 from app.services.ha_discovery import (
     BRIDGE_STATUS,
     BUTTONS,
@@ -58,8 +64,6 @@ COMMAND_FILTER = "tdmm/+/command"
 PUBLISHED_HASH_KEY = "ha:published"
 BRIDGE_STATUS_REDIS_KEY = "ha:bridge:status"
 BRIDGE_STATUS_TTL_S = 30
-NO_ACTOR_ERROR = "no HA service account"
-BAD_ACTOR_ERROR = "HA service account is missing or inactive"
 JOIN_TIMEOUT_S = 3.0
 _QUEUE_ACTIVE_STATES = (QueueState.WAITING, QueueState.SLICING, QueueState.READY)
 
@@ -277,14 +281,10 @@ class HaBridge:
         service account (set, exists, active); reported via the bridge
         status key. Per-printer control rights are checked per command."""
         actor_id = self._config.ha_actor_user_id if self._config else None
-        if actor_id is None:
-            self._actor_ok, self._actor_error = False, NO_ACTOR_ERROR
-            return
-        user = session.get(User, actor_id)
-        if user is None or not user.is_active:
-            self._actor_ok, self._actor_error = False, BAD_ACTOR_ERROR
-        else:
-            self._actor_ok, self._actor_error = True, None
+        self._actor_ok, self._actor_error = actor_status_sync(
+            session, actor_id, [p["id"] for p in self._printers]
+        )
+        if self._actor_ok:
             self._warned_no_actor = False
 
     # -- config / connect ------------------------------------------------

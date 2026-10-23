@@ -676,3 +676,51 @@ def test_command_published_for_allowed_actor(r, migrated_db, kind):
         bridge._refresh_actor(s)
     assert bridge._actor_ok is True and bridge._actor_error is None
     assert _published(r, pid_probe, lambda: _send(bridge, client, "Gok")) == [{"command": "pause"}]
+
+
+def _controller_user(pids: list[int], name: str) -> int:
+    """Non-admin viewer with global printers:control + ACL can_control on ``pids``."""
+    with base.sync_session() as s:
+        user = User(username=name, role=UserRole.VIEWER)
+        group = Group(name=f"g-{name}", permissions=["printers:control"])
+        s.add_all([user, group])
+        s.flush()
+        s.add(GroupMember(group_id=group.id, user_id=user.id))
+        for pid in pids:
+            s.add(PrinterAccess(group_id=group.id, printer_id=pid, can_control=True))
+        s.commit()
+        return user.id
+
+
+def test_acl_actor_allowed_and_denied_per_printer(r, migrated_db):
+    pid_a = _seed_printer(serial="GA")
+    pid_b = _seed_printer(serial="GB")
+    uid = _controller_user([pid_a], "acl-actor")
+    bridge, client, _ = _gated_bridge(r, uid, "GX")
+    bridge._printers = [
+        {"id": pid_a, "serial": "GA", "name": "a", "model": None},
+        {"id": pid_b, "serial": "GB", "name": "b", "model": None},
+    ]
+    with base.sync_session() as s:
+        bridge._refresh_actor(s)
+    assert bridge._actor_ok is True  # controls at least one known printer
+    for button in ("pause", "resume", "stop"):
+        assert _published(r, pid_a, lambda b=button: _send(bridge, client, "GA", b)) == [
+            {"command": button}
+        ]
+        assert _published(r, pid_b, lambda b=button: _send(bridge, client, "GB", b)) == []
+
+
+def test_actor_without_any_control_status(r, migrated_db):
+    pid = _seed_printer(serial="GN")
+    uid = _seed_user(UserRole.VIEWER, grant="perm", pid=pid)  # perm, no ACL row
+    bridge, client, _ = _gated_bridge(r, uid, "GM")
+    bridge._printers = [{"id": pid, "serial": "GN", "name": "n", "model": None}]
+    with base.sync_session() as s:
+        bridge._refresh_actor(s)
+    assert bridge._actor_ok is False
+    assert bridge._actor_error == "HA service account lacks printer control"
+    bridge._set_bridge_status(True, None)
+    status = json.loads(r.get(BRIDGE_STATUS_REDIS_KEY))
+    assert status["actor_ok"] is False
+    assert status["actor_error"] == "HA service account lacks printer control"

@@ -1734,6 +1734,8 @@ export interface HaSettings {
   has_token: boolean;
   ha_actor_user_id: number | null;
   ha_actor_username: string | null;
+  actor_ok: boolean;
+  actor_error: string | null;
   pull_status: { ok: boolean; errors?: string[]; checked_at?: string; [key: string]: unknown } | null;
   bridge_status: HaBridgeStatus | null;
 }

@@ -57,6 +57,8 @@ function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
     has_token: true,
     ha_actor_user_id: null,
     ha_actor_username: null,
+    actor_ok: true,
+    actor_error: null,
     pull_status: { ok: true },
     bridge_status: { connected: true, error: null, at: 1700000000 },
     ...overrides,
@@ -148,29 +150,32 @@ describe("HomeAssistantCard", () => {
     await waitFor(() => expect(putMock).toHaveBeenCalledWith("/settings/home-assistant", { ha_actor_user_id: null }));
   });
 
-  it("shows a warning badge when the bridge reports actor_ok=false", async () => {
-    mockGet(
-      fakeSettings({
-        bridge_status: { connected: true, error: null, at: 1, actor_ok: false, actor_error: "no HA service account" },
-      }),
-    );
+  it("shows the actor warning from the settings fields, with no bridge status", async () => {
+    mockGet(fakeSettings({ bridge_status: null, actor_ok: false, actor_error: "no HA service account" }));
     renderCard();
 
     expect(await screen.findByText("no HA service account")).toBeInTheDocument();
   });
 
-  it("shows no actor warning when actor_ok is true", async () => {
+  it("shows the lacks-control warning", async () => {
     mockGet(
       fakeSettings({
-        ha_actor_user_id: 1,
-        ha_actor_username: "admin",
-        bridge_status: { connected: true, error: null, at: 1, actor_ok: true, actor_error: null },
+        ha_actor_user_id: 2,
+        actor_ok: false,
+        actor_error: "HA service account lacks printer control",
       }),
     );
     renderCard();
 
+    expect(await screen.findByText("HA service account lacks printer control")).toBeInTheDocument();
+  });
+
+  it("shows no actor warning when actor_ok is true", async () => {
+    mockGet(fakeSettings({ ha_actor_user_id: 1, ha_actor_username: "admin" }));
+    renderCard();
+
     await screen.findByLabelText("HA acts as");
-    expect(screen.queryByText("no HA service account")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows the unreachable warning when pull_status.ok is false", async () => {

@@ -84,6 +84,8 @@ class HaSettingsOut(BaseModel):
     has_token: bool = False
     ha_actor_user_id: int | None = None
     ha_actor_username: str | None = None
+    actor_ok: bool = False
+    actor_error: str | None = None
     pull_status: dict | None = None
     bridge_status: dict | None = None
 
