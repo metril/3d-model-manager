@@ -131,7 +131,7 @@ function NavLink({
   const link = item.externalUrl ? (
     <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
       <item.icon className="size-4 shrink-0" />
-      {!collapsed && navLabel(item.label)}
+      {!collapsed && (item.translate === false ? item.label : navLabel(item.label))}
     </a>
   ) : (
     <Link
@@ -146,7 +146,7 @@ function NavLink({
       activeProps={{ className: "bg-muted font-medium text-foreground" }}
     >
       <item.icon className="size-4 shrink-0" />
-      {!collapsed && navLabel(item.label)}
+      {!collapsed && (item.translate === false ? item.label : navLabel(item.label))}
       {!collapsed && badge ? (
         <span
           className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-mono"
@@ -163,7 +163,7 @@ function NavLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{navLabel(item.label)}</TooltipContent>
+      <TooltipContent side="right">{(item.translate === false ? item.label : navLabel(item.label))}</TooltipContent>
     </Tooltip>
   );
 }

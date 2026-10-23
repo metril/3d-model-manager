@@ -149,6 +149,17 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
   });
 
+  it("renders user-provided printer names verbatim (no i18n interpolation/translation)", async () => {
+    featuresBox.current = { printer_enabled: true };
+    printersBox.current = [
+      { id: 1, name: "Print {{x}}" },
+      { id: 2, name: "Queue" },
+    ];
+    renderSidebar();
+    expect(await screen.findByRole("link", { name: "Print {{x}}" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Queue" }).map((a) => a.getAttribute("href"))).toContain("/printers/2");
+  });
+
   // Fix-review finding 1: every per-printer item shares the same `to`
   // (`/printers/$id`), so keying solely off `item.to` collided across
   // printers -- React logs a duplicate-key warning and can misrender the

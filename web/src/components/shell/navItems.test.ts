@@ -62,8 +62,8 @@ describe("navItems", () => {
   it("builds one printer nav item per printer, linking to /printers/$id with its id param", () => {
     const items = printerNavItems([fakePrinter({ id: 7, name: "Ender" }), fakePrinter({ id: 8, name: "Bambu" })]);
     expect(items).toEqual([
-      { to: "/printers/$id", label: "Ender", icon: Printer, featureGated: true, params: { id: "7" } },
-      { to: "/printers/$id", label: "Bambu", icon: Printer, featureGated: true, params: { id: "8" } },
+      { to: "/printers/$id", label: "Ender", icon: Printer, featureGated: true, translate: false, params: { id: "7" } },
+      { to: "/printers/$id", label: "Bambu", icon: Printer, featureGated: true, translate: false, params: { id: "8" } },
     ]);
   });
 

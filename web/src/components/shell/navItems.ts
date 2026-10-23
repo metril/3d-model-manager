@@ -59,6 +59,8 @@ export interface NavItem {
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
    * rendered as a plain `<a target="_blank">` instead of a router Link. */
   externalUrl?: string;
+  /** `false` for user-provided labels (printer / external-link names): shown verbatim, never run through i18n. */
+  translate?: false;
 }
 
 export interface NavGroup {
@@ -133,6 +135,7 @@ export function printerNavItems(printers: PrinterOut[] | undefined): NavItem[] {
     label: printer.name,
     icon: Printer,
     featureGated: true,
+    translate: false,
     params: { id: String(printer.id) },
   }));
 }
@@ -175,6 +178,7 @@ export function externalNavItems(links: ExternalLink[] | undefined): NavItem[] {
     to: "/external/$id",
     label: link.name,
     icon: Link2,
+    translate: false,
     params: { id: String(link.id) },
     externalUrl: link.open_mode === "newtab" ? link.url : undefined,
   }));
