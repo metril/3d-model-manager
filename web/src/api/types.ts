@@ -812,6 +812,42 @@ export interface CameraUrlsOut {
   expires_at: string;
 }
 
+export interface CameraStatusOut {
+  status: string;
+  source: "a1" | "rtsp" | "external" | "none";
+  beta: boolean;
+  rotation: number;
+  default_fps?: number;
+}
+
+export interface OverlayTokenOut {
+  id: number;
+  printer_id: number;
+  label: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface OverlayTokenCreatedOut extends OverlayTokenOut {
+  token: string;
+  overlay_url: string;
+}
+
+export interface OverlayOut {
+  printer_name: string;
+  gcode_state: string | null;
+  progress: number | null;
+  layer: number | null;
+  total_layers: number | null;
+  remaining_min: number | null;
+  nozzle_temp: number | null;
+  bed_temp: number | null;
+  subtask_name: string | null;
+  rotation: number;
+  stream_url: string;
+  snapshot_url: string;
+}
+
 export type PrintJobState =
   | "queued"
   | "uploading"

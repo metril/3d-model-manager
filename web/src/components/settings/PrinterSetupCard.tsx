@@ -34,6 +34,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PrinterCameraSection } from "@/components/settings/PrinterCameraSection";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PRINTER_MODELS } from "@/lib/printerState";
@@ -394,6 +395,8 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
           ) : null}
         </div>
       </div>
+
+      {printer ? <PrinterCameraSection printer={printer} /> : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" onClick={save} disabled={busy}>

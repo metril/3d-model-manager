@@ -4,11 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CameraTile } from "@/components/print/CameraTile";
 
-const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
+const { postMock, getMock } = vi.hoisted(() => ({ postMock: vi.fn(), getMock: vi.fn() }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, post: postMock } };
+  return { ...actual, api: { ...actual.api, post: postMock, get: getMock } };
 });
 
 // Controllable IntersectionObserver stub -- tests grab the live instance
@@ -39,6 +39,8 @@ function renderTile(props: Partial<{ printerId: number; online: boolean }> = {})
 
 beforeEach(() => {
   postMock.mockReset();
+  getMock.mockReset();
+  getMock.mockRejectedValue(new Error("no status"));
   postMock.mockResolvedValue({
     stream_url: "/api/printers/1/camera/stream?token=abc",
     snapshot_url: "/api/printers/1/camera/snapshot?token=abc",
@@ -110,5 +112,79 @@ describe("CameraTile", () => {
 
     expect(postMock).toHaveBeenCalledTimes(2);
     expect(await screen.findByRole("img", { name: "Camera feed" })).toBeInTheDocument();
+  });
+
+  it("applies rotation + fps from camera status and shows the beta badge", async () => {
+    getMock.mockImplementation((path: string) =>
+      path.endsWith("/camera/status")
+        ? Promise.resolve({ status: "idle", source: "rtsp", beta: true, rotation: 90, default_fps: 5 })
+        : Promise.reject(new Error("x")),
+    );
+    renderTile();
+
+    expect(await screen.findByText("beta")).toBeInTheDocument();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    expect(img.style.transform).toContain("rotate(90deg)");
+    expect(img).toHaveAttribute("src", "/api/printers/1/camera/stream?token=abc&fps=5");
+  });
+
+  it("reconnects with backoff after a 5s stall", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderTile();
+    await screen.findByRole("img", { name: "Camera feed" });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_500);
+    });
+    // first backoff is 1s -> img remounted with a reconnect nonce
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.getByRole("img", { name: "Camera feed" })).toHaveAttribute(
+      "src",
+      "/api/printers/1/camera/stream?token=abc&_r=1",
+    );
+  });
+
+  it("gives up after 5 failed reconnects and shows offline", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderTile();
+    await screen.findByRole("img", { name: "Camera feed" });
+
+    // 5 x (5s stall + backoff 1,2,4,8,16s) then the 6th stall errors out
+    for (let i = 0; i < 70; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      if (screen.queryByText("Camera offline")) break;
+    }
+    expect(screen.getByText("Camera offline")).toBeInTheDocument();
+  });
+
+  it("drops the img src on unmount", async () => {
+    const { unmount } = renderTile();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    unmount();
+    expect(img.getAttribute("src")).toBe("");
+  });
+
+  it("hides the light toggle without control permission and uses token urls without calls", async () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CameraTile
+          printerId={7}
+          online
+          urls={{ stream_url: "/s?token=t", snapshot_url: "/p?token=t" }}
+          rotation={180}
+        />
+      </QueryClientProvider>,
+    );
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    expect(img).toHaveAttribute("src", "/s?token=t");
+    expect(img.style.transform).toContain("rotate(180deg)");
+    expect(screen.queryByRole("button", { name: /light/i })).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
+    expect(getMock).not.toHaveBeenCalled();
   });
 });
