@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 import redis as redis_lib
 
 from app.models import Setting
@@ -30,7 +31,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         versions = [
             {
                 "version": "01.05.00.00",
-                "url": "https://dl.example/fw/a1mini_01.05.00.00.bin",
+                "url": "https://download.bambulab.com/fw/a1mini_01.05.00.00.bin",
                 "release_notes_en": "Fixes things",
                 "release_time": "2026-03-01",
             }
@@ -38,7 +39,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200, json={"pageProps": {"printerMap": {"a1-mini": {"versions": versions}}}}
         )
-    if u == "https://dl.example/fw/a1mini_01.05.00.00.bin":
+    if u == "https://download.bambulab.com/fw/a1mini_01.05.00.00.bin":
         return httpx.Response(200, content=IMG)
     return httpx.Response(404)
 
@@ -140,3 +141,31 @@ def test_cache_row_shape(migrated_db):
     with base.sync_session() as s, _client() as c:
         fw.refresh_cache(s, ["A1 Mini", None, "A1 Mini"], c)
         assert set(s.get(Setting, fw.CACHE_KEY).value) == {"a1-mini"}
+
+
+def test_download_rejects_bad_host_and_scheme(tmp_path):
+    for url in ("https://evil.example/fw.bin", "http://download.bambulab.com/fw.bin",
+                "https://bambulab.com.evil.example/fw.bin"):  # fmt: skip
+        with pytest.raises(ValueError):
+            fw.download_image(_client(), url, tmp_path)
+
+
+def test_download_size_cap_cleans_tmp(tmp_path, monkeypatch):
+    monkeypatch.setattr(fw, "MAX_IMAGE_BYTES", 5)
+    with pytest.raises(ValueError):
+        fw.download_image(
+            _client(), "https://download.bambulab.com/fw/a1mini_01.05.00.00.bin", tmp_path
+        )
+    assert list(tmp_path.iterdir()) == []
+
+    # running-count path (no Content-Length)
+    def h(request):
+        return httpx.Response(200, stream=httpx.ByteStream(IMG), headers={})
+
+    with pytest.raises(ValueError):
+        fw.download_image(
+            httpx.Client(transport=httpx.MockTransport(h)),
+            "https://download.bambulab.com/fw/x.bin",
+            tmp_path,
+        )
+    assert list(tmp_path.iterdir()) == []

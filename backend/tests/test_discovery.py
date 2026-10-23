@@ -238,3 +238,14 @@ async def test_discover_route(authenticated_client, printer_enabled, viewer_clie
     bad = await authenticated_client.post("/api/printers/discover", json={"cidr": "nope"})
     assert bad.status_code == 422
     assert (await viewer_client.post("/api/printers/discover", json={})).status_code == 403
+
+
+async def test_discover_rejects_unsafe_cidr(authenticated_client, printer_enabled):
+    for cidr in ("10.0.0.0/8", "fd00::/64", "8.8.8.0/24", "192.168.0.0/16"):
+        r = await authenticated_client.post("/api/printers/discover", json={"cidr": cidr})
+        assert r.status_code == 422, cidr
+
+
+def test_sweep_caps_host_materialisation(monkeypatch):
+    monkeypatch.setattr(discovery, "_probe_host", lambda *a: None)
+    assert discovery.sweep("10.0.0.0/8", budget=5.0) == []  # returns promptly, no 16M list

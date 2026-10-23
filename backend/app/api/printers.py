@@ -493,9 +493,14 @@ async def discover_printers(payload: DiscoverIn | None = None) -> list[Discovere
     cidr = payload.cidr if payload else None
     if cidr:
         try:
-            ipaddress.ip_network(cidr, strict=False)
+            net = ipaddress.ip_network(cidr, strict=False)
         except ValueError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid CIDR") from e
+        if net.version != 4 or net.prefixlen < 22 or not net.is_private:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "CIDR must be a private IPv4 network of /22 or smaller",
+            )
     items = await anyio.to_thread.run_sync(lambda: discovery.discover(cidr, budget=10.0))
     return [DiscoveredOut(**i) for i in items]
 

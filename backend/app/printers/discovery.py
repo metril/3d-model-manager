@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import ipaddress
+import itertools
 import re
 import socket
 import ssl
@@ -164,10 +165,10 @@ def sweep(
 ) -> list[dict]:
     """Bounded-concurrency TCP sweep: hosts answering TLS on ``port`` with a
     certificate CN are reported as printers. Stops at ``budget`` seconds."""
-    hosts = [str(h) for h in ipaddress.ip_network(cidr, strict=False).hosts()]
+    net = ipaddress.ip_network(cidr, strict=False)
+    hosts = [str(h) for h in itertools.islice(net.hosts(), _MAX_SWEEP_HOSTS)]
     if not hosts:  # /32 has no .hosts() in older semantics; treat as single
         hosts = [str(ipaddress.ip_network(cidr, strict=False).network_address)]
-    hosts = hosts[:_MAX_SWEEP_HOSTS]
     found: list[dict] = []
     pool = ThreadPoolExecutor(max_workers=concurrency)
     try:

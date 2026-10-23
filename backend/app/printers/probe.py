@@ -273,10 +273,18 @@ def diagnose(
 
     from app.printers.capabilities import capabilities_for
 
+    deadline = time.monotonic() + timeout
+
+    def left() -> float:
+        return max(deadline - time.monotonic(), 0.0)
+
     checks: list[dict] = []
     cam = capabilities_for(model, serial).camera if (model or serial) else "none"
+    tcp_t = min(3.0, timeout * 0.4)
     with ThreadPoolExecutor(max_workers=len(_PORTS)) as pool:
-        opened = dict(zip(_PORTS, pool.map(lambda p: _tcp_open(host, p), _PORTS), strict=True))
+        opened = dict(
+            zip(_PORTS, pool.map(lambda p: _tcp_open(host, p, tcp_t), _PORTS), strict=True)
+        )
     for port, (name, hint) in _PORTS.items():
         cid = f"tcp_{port}"
         if (port == 6000 and cam == "rtsp") or (port == 322 and cam == "a1"):
@@ -334,14 +342,14 @@ def diagnose(
         for cid, what in (("tls_serial", "TLS serial"), ("mqtt_auth", "MQTT auth")):
             checks.append(_check(cid, "skip", f"{what} skipped: port 8883 unreachable."))
     else:
-        cert = _cert_check(host, serial)
+        cert = _cert_check(host, serial, timeout=min(4.0, max(left(), 0.2)))
         checks.append(
             _check("tls_serial", "fail", cert.detail)
             if cert
             else _check("tls_serial", "ok", "Certificate serial matches.")
         )
         conn = PrinterConnection(host=host, serial=serial, access_code=access_code, model=model)
-        res = _mqtt_probe(conn, timeout=max(timeout, 1.0))
+        res = _mqtt_probe(conn, timeout=max(left(), 0.3))
         if res.ok or res.stage == "status":
             checks.append(_check("mqtt_auth", "ok", "Access code accepted."))
         else:

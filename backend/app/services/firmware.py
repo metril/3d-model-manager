@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -156,20 +157,41 @@ def make_client() -> httpx.Client:
     return httpx.Client(headers=UA, timeout=30.0)
 
 
+MAX_IMAGE_BYTES = 512 * 1024 * 1024
+
+
+def _check_image_url(url: str) -> None:
+    u = urlparse(url)
+    host = (u.hostname or "").lower()
+    if u.scheme != "https" or not (host == "bambulab.com" or host.endswith(".bambulab.com")):
+        raise ValueError("firmware URL must be https on a bambulab.com host")
+
+
 def download_image(client: httpx.Client, url: str, dest_dir: Path) -> Path:
     """Stream the firmware image to ``dest_dir`` keeping its original filename
-    (the printer matches on it)."""
+    (the printer matches on it). https + *.bambulab.com only, 512 MB cap."""
+    _check_image_url(url)
     dest_dir.mkdir(parents=True, exist_ok=True)
     name = Path(url.split("?", 1)[0]).name or "firmware.bin"
     final, tmp = dest_dir / name, dest_dir / f".dl_{name}"
     if final.exists():
         return final
-    with client.stream("GET", url, follow_redirects=True) as r:
-        r.raise_for_status()
-        with tmp.open("wb") as fh:
-            for chunk in r.iter_bytes(65536):
-                fh.write(chunk)
-    tmp.rename(final)
+    try:
+        with client.stream("GET", url, follow_redirects=True) as r:
+            r.raise_for_status()
+            _check_image_url(str(r.url))  # redirects must stay on bambulab.com
+            if int(r.headers.get("content-length") or 0) > MAX_IMAGE_BYTES:
+                raise ValueError("firmware image exceeds size cap")
+            total = 0
+            with tmp.open("wb") as fh:
+                for chunk in r.iter_bytes(65536):
+                    total += len(chunk)
+                    if total > MAX_IMAGE_BYTES:
+                        raise ValueError("firmware image exceeds size cap")
+                    fh.write(chunk)
+        tmp.rename(final)
+    finally:
+        tmp.unlink(missing_ok=True)
     return final
 
 

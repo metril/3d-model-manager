@@ -110,3 +110,9 @@ async def test_hms_clear_and_action_use_command_bus(
         c.close()
     assert [e["command"] for e in got] == ["clear_hms", "hms_action"]
     assert got[1]["args"]["action"] == "STOP_PRINTING" and got[1]["request_id"]
+
+
+def test_decode_state_malformed_items_never_raise():
+    out = hms.decode_state({"hms": [{"attr": 1, "code": "zz"}, {"code": [1]}, "x", None]})
+    assert len(out) == 2 and all(f["description"] is None for f in out)
+    assert hms.decode_state({"hms": "nope"}) == []

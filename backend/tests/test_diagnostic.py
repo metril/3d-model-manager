@@ -99,3 +99,26 @@ async def test_routes_need_settings_write(viewer_client, printer_enabled):
     body = {"host": "h", "serial": "S", "access_code": "c"}
     assert (await viewer_client.post("/api/printers/diagnostic", json=body)).status_code == 403
     assert (await viewer_client.get("/api/printers/1/diagnostic")).status_code == 403
+
+
+def test_diagnose_respects_overall_budget(monkeypatch):
+    import time
+
+    def slow(host, port, timeout=3.0):
+        time.sleep(timeout)
+        return True
+
+    def slow_cert(host, serial, timeout=4.0, **kw):
+        time.sleep(timeout)
+
+    def slow_mqtt(conn, timeout):
+        time.sleep(timeout)
+        return ProbeResult(False, "x", None, "connect")
+
+    monkeypatch.setattr(probe, "_tcp_open", slow)
+    monkeypatch.setattr(probe, "_cert_check", slow_cert)
+    monkeypatch.setattr(probe, "_mqtt_probe", slow_mqtt)
+    monkeypatch.setattr(probe, "_source_ip", lambda h: None)
+    t0 = time.monotonic()
+    probe.diagnose("192.168.1.50", "S", "c", timeout=2.0)
+    assert time.monotonic() - t0 < 3.0

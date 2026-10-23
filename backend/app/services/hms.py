@@ -98,10 +98,18 @@ def decode_state(state: dict | None, serial: str | None = None) -> list[dict]:
     state = state or {}
     model = (serial or "")[:3] or None
     out = []
-    for item in state.get("hms") or []:
+    items = state.get("hms")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            code = int(item.get("code") or 0)
+        except (TypeError, ValueError):
+            out.append(decode_hms(None, None, model))  # malformed -> "unknown" entry
+            continue
         # Codes < 0x4000 are status/phase indicators, not faults.
-        if isinstance(item, dict) and int(item.get("code") or 0) >= 0x4000:
-            out.append(decode_hms(item.get("attr", 0), item.get("code", 0), model))
+        if code >= 0x4000:
+            out.append(decode_hms(item.get("attr", 0), code, model))
     pe = state.get("print_error")
     if isinstance(pe, int) and pe:
         out.append(decode_print_error(pe, model))
