@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.models.enums import PrintJobState
@@ -335,7 +337,7 @@ def test_snapshot_a1_mini_v2_fields(monkeypatch):
     assert ps.fan_part_pct == 53 and ps.fan_aux_pct == 0 and ps.fan_chamber_pct == 0
     assert ps.light_on is True and ps.speed_level == 2 and ps.stage is None
     assert ps.hms == [{"attr": 83886336, "code": 65545}]
-    assert ps.sdcard is True and ps.nozzle_type == "stainless_steel" and ps.ipcam is True
+    assert ps.sdcard is True and ps.nozzle_type == "hardened_steel" and ps.ipcam is True
     assert ps.firmware == {"ota": "01.07.00.00", "ams": [{"id": 0, "sw_ver": "00.00.06.49"}]}
     assert ps.ams_units == [
         {"id": 0, "humidity": 31.0, "temp": 24.6, "serial": "AMS123", "fw": "00.00.06.49"}
@@ -360,3 +362,21 @@ def test_snapshot_without_extras_degrades_to_none(monkeypatch):
     ps = a.public_state(a._snapshot())
     assert ps.nozzle_target is None and ps.firmware is None and ps.hms == []
     assert ps.light_on is None and ps.fan_part_pct is None and ps.ams_units == []
+
+
+def test_last_report_at_only_moves_when_dump_changes(monkeypatch):
+    stub = A1MiniStub()
+    monkeypatch.setattr(bambu, "_build_printer", lambda conn: stub)
+    a = BambuLanAdapter(CONN)
+    t1 = a._snapshot()["last_report_at"]
+    assert a._snapshot()["last_report_at"] == t1
+    stub.mqtt_dump = lambda: {
+        **snap.A1_MINI_DUMP,
+        "print": {**snap.A1_MINI_DUMP["print"], "spd_lvl": 3},
+    }
+    assert a._dump_sig != json.dumps(snap.A1_MINI_DUMP, sort_keys=True, default=str)
+
+
+def test_nozzle_type_none_when_unreported(monkeypatch):
+    a, _stub = _stub_adapter(monkeypatch)
+    assert a._snapshot()["nozzle_type"] is None

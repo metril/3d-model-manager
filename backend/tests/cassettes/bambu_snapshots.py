@@ -47,6 +47,7 @@ A1_MINI_DUMP = {
         "nozzle_diameter": "0.4",
         "nozzle_target_temper": 0,
         "bed_target_temper": 60,
+        "nozzle_type": "hardened_steel",
         "nozzle_temper": 24.5,
         "bed_temper": 59.8,
         "cooling_fan_speed": "8",
@@ -74,7 +75,7 @@ A1_MINI_DUMP = {
     "info": {
         "module": [
             {"name": "ota", "sw_ver": "01.07.00.00"},
-            {"name": "ams/0", "sw_ver": "00.00.06.49"},
+            {"name": "ams_f1/0", "sw_ver": "00.00.06.49"},
             {"name": "rv1126", "sw_ver": "00.00.14.74"},
         ]
     },

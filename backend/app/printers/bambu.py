@@ -259,6 +259,10 @@ def _modules(dump: dict) -> list[dict]:
     return [m for m in mods if isinstance(m, dict)] if isinstance(mods, list) else []
 
 
+# AMS / AMS Lite / AMS 2 Pro / AMS HT firmware modules.
+_AMS_MODULE = re.compile(r"^(ams|ams_f1|n3f|n3s)/\d+$")
+
+
 def _firmware(dump: dict) -> dict | None:
     ota: str | None = None
     ams: list[dict] = []
@@ -266,7 +270,7 @@ def _firmware(dump: dict) -> dict | None:
         name = str(m.get("name") or "")
         if name == "ota":
             ota = m.get("sw_ver")
-        elif name.startswith("ams/"):
+        elif _AMS_MODULE.match(name):
             uid = _as_int(name.split("/", 1)[1])
             if uid is not None:
                 ams.append({"id": uid, "sw_ver": m.get("sw_ver")})
@@ -413,6 +417,17 @@ class BambuLanAdapter(PrinterAdapter):
         super().__init__(conn)
         self._printer = None
         self._handler: ReportHandler | None = None
+        self._dump_sig: str | None = None
+        self._report_at: str | None = None
+
+    def _report_time(self, dump: dict) -> str:
+        """ISO time the printer last REPORTED something: bumped only when the
+        lib's merged dump changes (printerd re-reads it every few seconds)."""
+        sig = json.dumps(dump, sort_keys=True, default=str)
+        if sig != self._dump_sig or self._report_at is None:
+            self._dump_sig = sig
+            self._report_at = datetime.now(UTC).isoformat()
+        return self._report_at
 
     def _client(self):
         if self._printer is None:
@@ -431,10 +446,9 @@ class BambuLanAdapter(PrinterAdapter):
             dump = {}
         firmware = _firmware(dump)
         vt = _dump_get(dump, "vt_tray")
-        try:
-            nozzle_type = str(p.nozzle_type() or "") or None
-        except Exception:  # noqa: BLE001
-            nozzle_type = None
+        # Raw dump, not p.nozzle_type(): the lib defaults to "stainless_steel"
+        # when unreported and raises on enum-unknown types.
+        nozzle_type = _dump_get(dump, "nozzle_type") or None
         sdcard = _dump_get(dump, "sdcard")
         return {
             "nozzle_target": _as_float(_dump_get(dump, "nozzle_target_temper")),
@@ -457,7 +471,7 @@ class BambuLanAdapter(PrinterAdapter):
             else None,
             "ipcam": _ipcam(dump),
             "dev_mode": None,
-            "last_report_at": datetime.now(UTC).isoformat(),
+            "last_report_at": self._report_time(dump),
             "gcode_state": _state_token(p.get_state()),
             "mc_percent": _as_int(p.get_percentage()),
             "layer_num": _as_int(p.current_layer_num()),
