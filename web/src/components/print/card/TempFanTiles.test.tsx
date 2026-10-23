@@ -1,7 +1,8 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { REVERT_MS, TempFanTiles } from "./TempFanTiles";
+import { TempFanTiles } from "./TempFanTiles";
+import { REVERT_MS } from "./useOptimistic";
 import { a1Mini, renderCard, x1c } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));

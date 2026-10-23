@@ -2,7 +2,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FilamentsSection, hasBackup } from "./FilamentsSection";
+import { hasBackup } from "./ams";
+import { FilamentsSection } from "./FilamentsSection";
 import { a1Mini, renderCard, tray, x1c } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));

@@ -7,7 +7,7 @@
  * `verified === false` adds the "Untested on this model" tooltip.
  */
 import { FanIcon, FlameIcon, ThermometerIcon } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useControl } from "@/api/printerControl";
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
@@ -16,28 +16,12 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import { capsOf } from "./caps";
+import { useOptimistic } from "./useOptimistic";
 import { UntestedTip } from "./UntestedTip";
-
-export const REVERT_MS = 10_000;
 
 interface Preset {
   label: string;
   value: number;
-}
-
-/** Optimistic value: shown until the reported value matches or 10 s pass. */
-export function useOptimistic(reported: number | null | undefined) {
-  const [pending, setPending] = useState<number | null>(null);
-  useEffect(() => {
-    if (pending == null) return;
-    if (reported != null && Math.round(reported) === pending) {
-      setPending(null);
-      return;
-    }
-    const t = setTimeout(() => setPending(null), REVERT_MS);
-    return () => clearTimeout(t);
-  }, [pending, reported]);
-  return [pending ?? reported ?? null, setPending, pending != null] as const;
 }
 
 function Tile({

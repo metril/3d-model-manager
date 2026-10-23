@@ -16,10 +16,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 
 import { capsOf, isBusy } from "./caps";
-import { useOptimistic } from "./TempFanTiles";
+import { useOptimistic } from "./useOptimistic";
 import { UntestedTip } from "./UntestedTip";
 
-export const SPEED_LEVELS = [
+const SPEED_LEVELS = [
   { level: 1, label: "Silent" },
   { level: 2, label: "Standard" },
   { level: 3, label: "Sport" },

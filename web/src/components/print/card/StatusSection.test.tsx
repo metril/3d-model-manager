@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActiveJobOut, ArchiveOut } from "@/api/types";
 
-import { etaClock, StatusSection } from "./StatusSection";
+import { etaClock } from "./etaClock";
+import { StatusSection } from "./StatusSection";
 import { a1Mini, renderCard } from "./testUtils";
 
 const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
