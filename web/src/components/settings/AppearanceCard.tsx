@@ -1,8 +1,10 @@
 import { useTheme } from "next-themes";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ACCENTS, STYLES, useAppearance } from "@/lib/appearanceCore";
+import { LANGUAGES } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 const MODES = ["light", "dark", "system"] as const;
@@ -33,15 +35,16 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function AppearanceCard() {
   const { theme, setTheme } = useTheme();
   const { style, accent, setStyle, setAccent } = useAppearance();
+  const { t, i18n } = useTranslation();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Appearance</CardTitle>
-        <CardDescription>Applies to this browser only.</CardDescription>
+        <CardTitle>{t("settings.appearance.title")}</CardTitle>
+        <CardDescription>{t("settings.appearance.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Row label="Mode">
+        <Row label={t("settings.appearance.mode")}>
           {MODES.map((mode) => (
             <Button
               key={mode}
@@ -56,7 +59,7 @@ export function AppearanceCard() {
             </Button>
           ))}
         </Row>
-        <Row label="Style">
+        <Row label={t("settings.appearance.style")}>
           {STYLES.map((value) => (
             <Button
               key={value}
@@ -71,7 +74,7 @@ export function AppearanceCard() {
             </Button>
           ))}
         </Row>
-        <Row label="Accent">
+        <Row label={t("settings.appearance.accent")}>
           {ACCENTS.map((value) => (
             <button
               key={value}
@@ -88,6 +91,24 @@ export function AppearanceCard() {
             />
           ))}
         </Row>
+        <div className="space-y-1.5">
+          <label htmlFor="ui-language" className="text-sm font-medium">
+            {t("settings.appearance.language")}
+          </label>
+          <select
+            id="ui-language"
+            value={i18n.resolvedLanguage ?? "en"}
+            onChange={(e) => void i18n.changeLanguage(e.target.value)}
+            className="block h-8 rounded-lg border border-input bg-background px-2 text-sm"
+          >
+            {Object.entries(LANGUAGES).map(([code, name]) => (
+              <option key={code} value={code}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">{t("settings.appearance.contribute")}</p>
+        </div>
       </CardContent>
     </Card>
   );

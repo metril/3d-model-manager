@@ -12,6 +12,7 @@
  */
 import type { LinkProps } from "@tanstack/react-router";
 import {
+  BarChart3,
   Beaker,
   Link2,
   Bookmark,
@@ -76,6 +77,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true, requiresPrinterAccess: true },
       { to: "/print/queue", label: "Queue", icon: ListOrdered },
       { to: "/print/history", label: "History", icon: ListChecks },
+      { to: "/stats", label: "Stats", icon: BarChart3 },
     ],
   },
   {

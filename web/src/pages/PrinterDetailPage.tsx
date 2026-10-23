@@ -13,6 +13,8 @@
  */
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
@@ -20,14 +22,38 @@ import { usePrinters, usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
+import { AmsHistoryModal } from "@/components/print/modals/AmsHistoryModal";
+import { HeaterHistoryModal } from "@/components/print/modals/HeaterHistoryModal";
 import { PrinterCard } from "@/components/print/PrinterCard";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const routeApi = getRouteApi("/authenticated/printers/$id");
+
+/** Q8c history buttons (card `footerExtra`): temperature always, AMS only
+ * when the printer reports units (`status.ams_units[].id`). */
+function HistoryButtons({ printerId, amsUnits }: { printerId: number; amsUnits: number[] }) {
+  const { t } = useTranslation();
+  const [modal, setModal] = useState<"heater" | "ams" | null>(null);
+  return (
+    <div className="flex gap-2">
+      <Button type="button" size="sm" variant="outline" onClick={() => setModal("heater")}>
+        {t("history.heaterBtn")}
+      </Button>
+      {amsUnits.length > 0 && (
+        <Button type="button" size="sm" variant="outline" onClick={() => setModal("ams")}>
+          {t("history.amsBtn")}
+        </Button>
+      )}
+      <HeaterHistoryModal printerId={printerId} open={modal === "heater"} onOpenChange={(o) => !o && setModal(null)} />
+      <AmsHistoryModal printerId={printerId} units={amsUnits} open={modal === "ams"} onOpenChange={(o) => !o && setModal(null)} />
+    </div>
+  );
+}
 
 export function PrinterDetailPage() {
   const { id } = routeApi.useParams();
@@ -88,6 +114,14 @@ export function PrinterDetailPage() {
                   <PrinterIcon className="size-8 text-muted-foreground/50" />
                 </div>
               )
+            }
+            footerExtra={
+              canPrinter(printer.id, "print") ? (
+                <HistoryButtons
+                  printerId={printer.id}
+                  amsUnits={overviewItem.status.ams_units?.map((u) => u.id) ?? []}
+                />
+              ) : undefined
             }
             badge={
               overviewItem.ha_alert ? (

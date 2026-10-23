@@ -1,0 +1,53 @@
+{
+  "nav": {
+    "Print": "Print", "Library": "Library", "Inventory": "Inventory", "Links": "Links", "Categories": "Categories",
+    "Dashboard": "Dashboard", "Queue": "Queue", "History": "History", "Stats": "Stats",
+    "Models": "Models", "Collections": "Collections", "Add": "Add", "Duplicates": "Duplicates",
+    "Spools": "Spools", "Materials": "Materials", "Profiles & recipes": "Profiles & recipes",
+    "Background jobs": "Background jobs", "Finance": "Finance", "Settings": "Settings"
+  },
+  "shell": {
+    "expandSidebar": "Expand sidebar", "collapseSidebar": "Collapse sidebar",
+    "shortcuts": "Keyboard shortcuts", "logout": "Log out",
+    "openMenu": "Open menu", "back": "Back", "search": "Search"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Automation, storage backends, printer, and connected accounts.",
+    "loadError": "Couldn't load settings", "retry": "Retry",
+    "tabs": { "general": "General", "storage": "Storage", "printer": "Printer", "accounts": "Accounts", "access": "Access" },
+    "appearance": {
+      "title": "Appearance", "desc": "Applies to this browser only.",
+      "mode": "Mode", "style": "Style", "accent": "Accent",
+      "language": "Language",
+      "contribute": "Want another language? Add locales/<code>.json under web/src/i18n and open a pull request."
+    }
+  },
+  "stats": {
+    "title": "Stats", "subtitle": "Print performance across your printers.",
+    "range": "Range", "days": "{{count}} days", "reset": "Reset layout",
+    "loadError": "Couldn't load stats", "empty": "No data in this range.",
+    "drag": "Drag to reorder {{name}}", "size": "Resize {{name}} (currently {{size}})",
+    "sizes": { "1": "small", "2": "medium", "3": "large" },
+    "w": {
+      "quick": "Quick stats", "success": "Success rate", "accuracy": "Time accuracy",
+      "failures": "Failure analysis", "heatmap": "Print activity", "records": "Records",
+      "printers": "Per-printer", "filament": "Filament trends"
+    },
+    "total": "Total prints", "completed": "Completed", "failed": "Failed", "canceled": "Canceled",
+    "hours": "Print hours", "filamentG": "Filament (g)",
+    "meanDelta": "Mean delta", "meanAbs": "Mean absolute error", "samples": "{{count}} timed prints",
+    "byErrorCode": "By error code", "byPrinter": "By printer", "byMaterial": "By material",
+    "longest": "Longest print", "mostFilament": "Most filament", "busiest": "Busiest day",
+    "prints": "{{count}} prints", "jobs": "Jobs", "successShort": "Success",
+    "tableView": "Table view", "chartView": "Chart view"
+  },
+  "history": {
+    "heater": "Temperature history", "ams": "AMS humidity and temperature",
+    "heaterBtn": "Temperature history", "amsBtn": "AMS history",
+    "range": "Range", "h1": "1 hour", "h6": "6 hours", "h24": "24 hours", "h168": "7 days",
+    "nozzle": "Nozzle", "bed": "Bed", "chamber": "Chamber",
+    "humidity": "Humidity (%)", "temp": "Temperature (°C)", "unit": "AMS unit {{n}}",
+    "empty": "No samples in this range.", "loadError": "Couldn't load history"
+  }
+}

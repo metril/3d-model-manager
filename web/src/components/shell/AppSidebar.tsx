@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import {
   ChevronsLeftIcon,
   HelpCircle,
@@ -21,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
+import { useNavLabel } from "@/components/shell/useNavLabel";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
 import { type NavItem } from "@/components/shell/navItems";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
@@ -121,6 +123,7 @@ function NavLink({
    * item's "N awaiting review" (P7 Task 9). */
   badgeAriaLabel?: string;
 }) {
+  const navLabel = useNavLabel();
   const linkClass = cn(
     "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
     collapsed && "justify-center px-0",
@@ -128,7 +131,7 @@ function NavLink({
   const link = item.externalUrl ? (
     <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
       <item.icon className="size-4 shrink-0" />
-      {!collapsed && item.label}
+      {!collapsed && navLabel(item.label)}
     </a>
   ) : (
     <Link
@@ -143,7 +146,7 @@ function NavLink({
       activeProps={{ className: "bg-muted font-medium text-foreground" }}
     >
       <item.icon className="size-4 shrink-0" />
-      {!collapsed && item.label}
+      {!collapsed && navLabel(item.label)}
       {!collapsed && badge ? (
         <span
           className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-mono"
@@ -160,7 +163,7 @@ function NavLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{item.label}</TooltipContent>
+      <TooltipContent side="right">{navLabel(item.label)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -196,6 +199,8 @@ export function AppSidebar({
   const canReview = can("queue:review");
   const reviewCount = useReviewCount({ enabled: canReview });
   const [collapsed, setCollapsed] = useSidebarCollapsed();
+  const { t } = useTranslation();
+  const navLabel = useNavLabel();
   const { groups: visibleGroups, systemItems: visibleSystemItems, externalItems } = useVisibleNav();
 
   useEffect(() => {
@@ -252,7 +257,7 @@ export function AppSidebar({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
           onClick={() => setCollapsed((prev) => !prev)}
         >
           <ChevronsLeftIcon className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
@@ -274,7 +279,7 @@ export function AppSidebar({
           <div key={group.label} className="flex flex-col gap-1">
             {!collapsed && (
               <div className="label-caps px-2.5 pb-1">
-                {group.label}
+                {navLabel(group.label)}
               </div>
             )}
             {group.items.map((item) => (
@@ -331,7 +336,7 @@ export function AppSidebar({
         {!collapsed && (categories.data?.length ?? 0) > 0 && (
           <div className="flex flex-col gap-1">
             <div className="label-caps px-2.5 pb-1">
-              Categories
+              {t("nav.Categories")}
             </div>
             {(categories.data ?? []).map((category) => (
               <Link
@@ -353,7 +358,7 @@ export function AppSidebar({
         )}
         {externalItems.length > 0 && (
           <div className="flex flex-col gap-1">
-            {!collapsed && <div className="label-caps px-2.5 pb-1">Links</div>}
+            {!collapsed && <div className="label-caps px-2.5 pb-1">{t("nav.Links")}</div>}
             {externalItems.map((item) => (
               <NavLink key={`ext:${item.params?.id}`} item={item} collapsed={collapsed} />
             ))}
@@ -380,7 +385,7 @@ export function AppSidebar({
             type="button"
             variant="outline"
             size="icon"
-            aria-label="Keyboard shortcuts"
+            aria-label={t("shell.shortcuts")}
             onClick={onOpenShortcuts}
           >
             <HelpCircle className="size-4" />
@@ -389,7 +394,7 @@ export function AppSidebar({
             type="button"
             variant="outline"
             size="icon"
-            aria-label="Log out"
+            aria-label={t("shell.logout")}
             onClick={handleLogout}
             disabled={logout.isPending}
           >

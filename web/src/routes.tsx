@@ -27,6 +27,7 @@ import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { StatsPage } from "@/pages/StatsPage";
 import { SpoolsPage } from "@/pages/SpoolsPage";
 import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
@@ -224,6 +225,12 @@ const printHistoryRoute = createRoute({
   component: PrintHistoryPage,
 });
 
+const statsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/stats",
+  component: StatsPage,
+});
+
 const printQueueRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/print/queue",
@@ -359,6 +366,7 @@ export const routeTree = rootRoute.addChildren([
     systemJobsRoute,
     systemFinanceRoute,
     jobsRedirectRoute,
+    statsRoute,
     settingsRoute,
     externalLinkRoute,
   ]),
