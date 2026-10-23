@@ -45,7 +45,9 @@ def upgrade() -> None:
             "open_mode IN ('iframe', 'newtab')", name=op.f("ck_external_links_open_mode")
         ),
     )
-    op.create_index("ix_external_links_created_by_user_id", "external_links", ["created_by_user_id"])
+    op.create_index(
+        "ix_external_links_created_by_user_id", "external_links", ["created_by_user_id"]
+    )
 
 
 def downgrade() -> None:

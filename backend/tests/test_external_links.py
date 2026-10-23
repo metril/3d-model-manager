@@ -3,7 +3,9 @@ import httpx
 
 async def test_crud_roundtrip(authenticated_client: httpx.AsyncClient) -> None:
     c = authenticated_client
-    r = await c.post("/api/external-links", json={"name": "B", "url": "https://b.example", "sort_order": 2})
+    r = await c.post(
+        "/api/external-links", json={"name": "B", "url": "https://b.example", "sort_order": 2}
+    )
     assert r.status_code == 201
     b = r.json()
     assert b["open_mode"] == "iframe"
@@ -30,7 +32,9 @@ async def test_rejects_bad_url_and_mode(authenticated_client: httpx.AsyncClient)
     for bad in ("javascript:alert(1)", "ftp://x", "not a url"):
         r = await c.post("/api/external-links", json={"name": "x", "url": bad})
         assert r.status_code == 422
-    r = await c.post("/api/external-links", json={"name": "x", "url": "https://x", "open_mode": "popup"})
+    r = await c.post(
+        "/api/external-links", json={"name": "x", "url": "https://x", "open_mode": "popup"}
+    )
     assert r.status_code == 422
 
 

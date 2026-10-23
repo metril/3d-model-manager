@@ -20,7 +20,8 @@ async def test_q8a_upgrade_downgrade(scratch_db) -> None:
         assert (row["sort_order"], row["open_mode"]) == (0, "iframe")
         with pytest.raises(asyncpg.CheckViolationError):
             await conn.execute(
-                "INSERT INTO external_links (name, url, open_mode) VALUES ('x', 'https://x', 'popup')"
+                "INSERT INTO external_links (name, url, open_mode) "
+                "VALUES ('x', 'https://x', 'popup')"
             )
     finally:
         await conn.close()

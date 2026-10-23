@@ -2,7 +2,7 @@ import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ACCENTS, STYLES, useAppearance } from "@/lib/appearance";
+import { ACCENTS, STYLES, useAppearance } from "@/lib/appearanceCore";
 import { cn } from "@/lib/utils";
 
 const MODES = ["light", "dark", "system"] as const;

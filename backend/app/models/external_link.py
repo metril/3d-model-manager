@@ -23,9 +23,7 @@ class ExternalLink(Base):
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default=func.now(), onupdate=func.now()
     )
