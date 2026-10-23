@@ -293,4 +293,43 @@ describe("PrinterSetupCard", () => {
     expect(await screen.findByText("Enter all three dimensions, or leave all blank.")).toBeInTheDocument();
     expect(patchMock).not.toHaveBeenCalled();
   });
+
+  async function fillNew() {
+    fireEvent.change(await screen.findByLabelText("Name", { selector: "#printer-new-name" }), { target: { value: "P" } });
+    fireEvent.change(document.getElementById("printer-new-host")!, { target: { value: "10.0.0.9" } });
+    fireEvent.change(document.getElementById("printer-new-serial")!, { target: { value: "SER9" } });
+    fireEvent.change(document.getElementById("printer-new-access-code")!, { target: { value: "code" } });
+  }
+
+  it("discovers printers and click-to-fills the add form", async () => {
+    mockApi({ printer_enabled: true }, [PRINTER]);
+    postMock.mockResolvedValue([{ host: "192.168.1.77", serial: "DISC1", model_hint: "A1 mini", source: "ssdp" }]);
+    renderCard();
+    const subnet = (await screen.findByLabelText("Subnet")) as HTMLInputElement;
+    await waitFor(() => expect(subnet.value).toBe("192.168.1.0/24"));
+    fireEvent.click(screen.getByRole("button", { name: "Scan" }));
+    fireEvent.click(await screen.findByText(/192\.168\.1\.77/));
+    expect(postMock).toHaveBeenCalledWith("/printers/discover", { cidr: "192.168.1.0/24" });
+    await waitFor(() => expect((document.getElementById("printer-new-host") as HTMLInputElement).value).toBe("192.168.1.77"));
+    expect((document.getElementById("printer-new-serial") as HTMLInputElement).value).toBe("DISC1");
+  });
+
+  it("shows preflight failures with Back / Save anyway instead of blocking", async () => {
+    mockApi({ printer_enabled: true });
+    postMock.mockImplementation((path: string) =>
+      path === "/printers/diagnostic"
+        ? Promise.resolve({ ok: false, checks: [{ id: "mqtt_auth", status: "fail", hint: "Wrong access code", detail: null }] })
+        : Promise.resolve({ ...PRINTER, id: 2 }),
+    );
+    renderCard();
+    await fillNew();
+    fireEvent.click(screen.getByRole("button", { name: "Add printer" }));
+    expect(await screen.findByText("Wrong access code")).toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalledWith("/printers", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByText("Wrong access code")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add printer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save anyway" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers", expect.objectContaining({ host: "10.0.0.9" })));
+  });
 });

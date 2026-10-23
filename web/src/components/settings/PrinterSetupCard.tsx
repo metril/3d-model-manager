@@ -16,11 +16,12 @@
  * straight off the printer's TLS cert (`POST /printers/detect-serial`) so
  * the user doesn't have to hunt for it on the printer's screen.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Trash2Icon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
+import { useDiagnostic, useDiscover } from "@/api/printerOps";
 import {
   useCreatePrinter,
   useDeletePrinter,
@@ -29,8 +30,9 @@ import {
   useTestPrinter,
   useUpdatePrinter,
 } from "@/api/printers";
-import type { PrinterOut, PrinterUpdate } from "@/api/types";
+import type { DiagnosticCheck, DiscoveredPrinter, PrinterOut, PrinterUpdate } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DiagnosticChecks, DiagnosticModal } from "@/components/print/modals";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -104,8 +106,71 @@ export function PrinterSetupCard() {
   return <EnabledPrinterSetupCard />;
 }
 
+type Fill = { seq: number; values: Partial<PrinterDraft> };
+
+/** Default scan target: the /24 of the first saved printer, else blank (server picks). */
+function defaultCidr(printers: PrinterOut[]): string {
+  const m = printers[0]?.host.match(/^(\d+\.\d+\.\d+)\.\d+$/);
+  return m ? `${m[1]}.0/24` : "";
+}
+
+function DiscoverSection({
+  defaultValue,
+  onPick,
+}: {
+  defaultValue: string;
+  onPick: (d: DiscoveredPrinter) => void;
+}) {
+  const [cidr, setCidr] = useState<string | null>(null);
+  const discover = useDiscover();
+  const value = cidr ?? defaultValue;
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+      <h2 className="text-sm font-semibold text-foreground">Discover printers</h2>
+      <div className="flex gap-1.5">
+        <Input
+          aria-label="Subnet"
+          value={value}
+          placeholder="192.168.1.0/24 (auto)"
+          onChange={(e) => setCidr(e.target.value)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={discover.isPending}
+          onClick={() => discover.mutate(value.trim() || null)}
+        >
+          {discover.isPending ? "Scanning..." : "Scan"}
+        </Button>
+      </div>
+      {discover.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {discover.error instanceof ApiError ? discover.error.detail : "Scan failed"}
+        </p>
+      ) : null}
+      {discover.data && discover.data.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No printers found.</p>
+      ) : null}
+      <ul className="space-y-1">
+        {(discover.data ?? []).map((d) => (
+          <li key={`${d.host}-${d.serial}`}>
+            <button
+              type="button"
+              className="w-full rounded-md border px-2 py-1 text-left text-sm hover:bg-muted"
+              onClick={() => onPick(d)}
+            >
+              {d.model_hint ?? "Bambu printer"} · {d.host} · {d.serial}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function EnabledPrinterSetupCard() {
   const printers = usePrinters();
+  const [fill, setFill] = useState<Fill | null>(null);
 
   return (
     <Card>
@@ -125,16 +190,32 @@ function EnabledPrinterSetupCard() {
         )}
         <div className="space-y-3 border-t pt-4">
           <h2 className="text-sm font-semibold text-foreground">Add a printer</h2>
-          <PrinterEditor />
+          <DiscoverSection
+            defaultValue={defaultCidr(printers.data ?? [])}
+            onPick={(d) =>
+              setFill((f) => ({
+                seq: (f?.seq ?? 0) + 1,
+                values: { name: d.model_hint ?? "Bambu printer", host: d.host, serial: d.serial, model: d.model_hint ?? "" },
+              }))
+            }
+          />
+          <PrinterEditor fill={fill} />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function PrinterEditor({ printer }: { printer?: PrinterOut }) {
+function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | null }) {
   const [draft, setDraft] = useState<PrinterDraft>(() => (printer ? seedDraft(printer) : emptyDraft()));
   const [errors, setErrors] = useState<DraftErrors>({});
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [failures, setFailures] = useState<DiagnosticCheck[] | null>(null);
+  const preflight = useDiagnostic();
+
+  useEffect(() => {
+    if (fill) setDraft((prev) => ({ ...prev, ...fill.values }));
+  }, [fill]);
 
   const createPrinter = useCreatePrinter();
   const updatePrinter = useUpdatePrinter(printer?.id ?? -1);
@@ -196,8 +277,26 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
     );
   }
 
+  /** New printers get a diagnostic preflight; failures offer Back / Save anyway
+   * instead of blocking, and a failed/unreachable preflight never blocks. */
   function save() {
     if (!validate()) return;
+    if (printer) return doSave();
+    preflight.mutate(
+      { adhoc: { host: draft.host, serial: draft.serial, access_code: draft.access_code, model: draft.model || null } },
+      {
+        onSuccess: (r) => {
+          const bad = (r?.checks ?? []).filter((c) => c.status === "fail");
+          if (bad.length > 0) setFailures(bad);
+          else doSave();
+        },
+        onError: () => doSave(),
+      },
+    );
+  }
+
+  function doSave() {
+    setFailures(null);
     const code = draft.access_code.trim();
     const buildVolume = buildVolumeBody();
     if (printer) {
@@ -399,8 +498,16 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
       {printer ? <PrinterCameraSection printer={printer} /> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" onClick={save} disabled={busy}>
-          {saveMutation.isPending ? "Saving..." : printer ? "Save changes" : "Add printer"}
+        <Button type="button" onClick={save} disabled={busy || preflight.isPending || failures !== null}>
+          {saveMutation.isPending ? "Saving..." : preflight.isPending ? "Checking..." : printer ? "Save changes" : "Add printer"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || (printer ? false : !draft.host.trim() || !draft.serial.trim() || !draft.access_code.trim())}
+          onClick={() => setDiagOpen(true)}
+        >
+          Run diagnostic
         </Button>
         {printer ? (
           <>
@@ -428,6 +535,27 @@ function PrinterEditor({ printer }: { printer?: PrinterOut }) {
           </>
         ) : null}
       </div>
+
+      {failures ? (
+        <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3">
+          <p className="text-sm font-medium text-destructive">Connection checks failed</p>
+          <DiagnosticChecks checks={failures} />
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setFailures(null)}>
+              Back
+            </Button>
+            <Button type="button" size="sm" onClick={doSave}>
+              Save anyway
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <DiagnosticModal
+        open={diagOpen}
+        onOpenChange={setDiagOpen}
+        printerId={printer && draft.access_code.trim() === "" ? printer.id : undefined}
+        adhoc={{ host: draft.host, serial: draft.serial, access_code: draft.access_code, model: draft.model || null }}
+      />
 
       {saveMutation.isError ? (
         <p role="alert" className="text-sm text-destructive">

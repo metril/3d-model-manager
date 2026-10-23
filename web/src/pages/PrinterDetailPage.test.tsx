@@ -12,7 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrinterOut, PrinterStatusOut, PrintersOverviewOut } from "@/api/types";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 
-const { getMock, canPrinterBox } = vi.hoisted(() => ({
+const { getMock, canPrinterBox, canBox } = vi.hoisted(() => ({
+  canBox: { current: true },
   getMock: vi.fn(),
   canPrinterBox: { current: (_id: number, _kind: string): boolean => true },
 }));
@@ -22,7 +23,7 @@ vi.mock("@/components/print/HistoryStats", () => ({ HistoryStats: () => <div dat
 
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
-  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: canPrinterBox.current }),
+  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => canBox.current, canPrinter: canPrinterBox.current }),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -118,6 +119,7 @@ function renderDetail(id = "1") {
 beforeEach(() => {
   getMock.mockReset();
   canPrinterBox.current = () => true;
+  canBox.current = true;
 });
 
 describe("PrinterDetailPage", () => {
@@ -153,6 +155,12 @@ describe("PrinterDetailPage", () => {
     renderDetail();
 
     expect(await screen.findByText("Printer integration is off")).toBeInTheDocument();
+  });
+
+  it("offers a Firmware button that opens the firmware modal", async () => {
+    mockGet();
+    renderDetail();
+    expect(await screen.findByRole("button", { name: "Firmware" })).toBeInTheDocument();
   });
 
   it("hides Pause for a member without control", async () => {

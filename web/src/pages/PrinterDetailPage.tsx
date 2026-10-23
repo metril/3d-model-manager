@@ -7,8 +7,8 @@
  *
  * The camera tile is live only when the viewer has `canPrinter(id, "print")`
  * (the token mint requires it) -- anyone else keeps the plain placeholder.
- * TODO(Q5-web): wire `usePrinterModals(printer.id)` into the card's
- * `onInfo/onDiagnose/onHms`; TODO(Q7-web): `MaintenanceBadge`/`PlugRow`/
+ * Q5: info/HMS/diagnose open via the card's callbacks (`usePrinterModals`);
+ * Firmware is a footer button. TODO(Q7-web): `MaintenanceBadge`/`PlugRow`/
  * `MaintenanceSection`; TODO(Q4-web): `CameraSplitButton` via `footerExtra`.
  */
 import { getRouteApi } from "@tanstack/react-router";
@@ -17,6 +17,9 @@ import { PrinterIcon } from "lucide-react";
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
+import type { PrinterOut, PrintersOverviewOut } from "@/api/types";
+import { usePrinterModals } from "@/components/print/modals";
+import { Button } from "@/components/ui/button";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
@@ -31,7 +34,6 @@ const routeApi = getRouteApi("/authenticated/printers/$id");
 
 export function PrinterDetailPage() {
   const { id } = routeApi.useParams();
-  const { canPrinter } = useAuth();
   const features = useFeatures();
   const enabled = !!features.data?.printer_enabled;
   const printers = usePrinters({ enabled });
@@ -69,6 +71,19 @@ export function PrinterDetailPage() {
   const overviewItem = overview.data?.printers.find((p) => p.printer.id === printer.id);
   if (!overviewItem) return <Skeleton className="h-64 w-full rounded-xl" />;
 
+  return <PrinterDetailBody printer={printer} overviewItem={overviewItem} />;
+}
+
+function PrinterDetailBody({
+  printer,
+  overviewItem,
+}: {
+  printer: PrinterOut;
+  overviewItem: PrintersOverviewOut["printers"][number];
+}) {
+  const { can, canPrinter } = useAuth();
+  const modals = usePrinterModals(printer.id);
+
   return (
     <PageContainer width="fluid">
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -80,6 +95,14 @@ export function PrinterDetailPage() {
               can_control: overviewItem.can_control && canPrinter(printer.id, "control"),
             }}
             size="XL"
+            onInfo={() => modals.open("info")}
+            onDiagnose={can("settings:write") ? () => modals.open("diagnostic") : undefined}
+            onHms={canPrinter(printer.id, "print") ? () => modals.open("hms") : undefined}
+            footerExtra={
+              <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
+                Firmware
+              </Button>
+            }
             camera={
               canPrinter(printer.id, "print") ? (
                 <CameraTile printerId={printer.id} online={overviewItem.status.online} />
@@ -107,6 +130,7 @@ export function PrinterDetailPage() {
         <h2 className="text-sm font-semibold text-foreground">Stats</h2>
         <HistoryStats />
       </section>
+      {modals.modals}
     </PageContainer>
   );
 }

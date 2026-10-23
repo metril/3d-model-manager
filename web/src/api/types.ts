@@ -1927,3 +1927,54 @@ export interface VirtualPrinterIn {
 export interface VirtualPrinterPatchIn extends Partial<VirtualPrinterIn> {
   regenerate_access_code?: boolean;
 }
+
+// Q5 (`/printers/{id}/hms|firmware|diagnostic`, `/printers/discover`).
+export interface HmsFault {
+  code: string;
+  full_code: string;
+  kind: "hms" | "print_error";
+  severity: string;
+  severity_level: number;
+  module: string;
+  description: string | null;
+  wiki_url: string;
+  actions: string[];
+}
+
+export interface FirmwareInfo {
+  model_supported: boolean;
+  current: string | null;
+  latest: string | null;
+  release_notes: string | null;
+  release_time: string | null;
+  checked_at: string | null;
+  download_available: boolean;
+  update_available: boolean;
+  upload: { status?: string; version?: string } | null;
+}
+
+export interface DiagnosticCheck {
+  id: string;
+  status: "ok" | "fail" | "skip";
+  hint: string;
+  detail: string | null;
+}
+
+export interface DiagnosticReport {
+  ok: boolean;
+  checks: DiagnosticCheck[];
+}
+
+export interface DiagnosticIn {
+  host: string;
+  serial: string;
+  access_code: string;
+  model?: string | null;
+}
+
+export interface DiscoveredPrinter {
+  host: string;
+  serial: string;
+  model_hint: string | null;
+  source: "ssdp" | "sweep";
+}
