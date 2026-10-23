@@ -90,7 +90,7 @@ def _publish_raw(p, payload: dict) -> None:
     result = client.publish(p.mqtt_client.command_topic, json.dumps(payload))
     result.wait_for_publish(timeout=5)
     if not result.is_published():
-        raise OSError("project_file publish failed")
+        raise OSError("command publish failed")
 
 
 FTP_TIMEOUT_S = 30
@@ -409,9 +409,44 @@ def _ams_trays(dump: dict) -> list[dict]:
     return trays
 
 
+_HOT_MATERIALS = ("PETG", "ABS", "ASA", "PC", "PA", "PET")
+
+
+def _load_temp(dump: dict, tray: int) -> int:
+    """Nozzle temp for a filament load: the tray's reported
+    ``nozzle_temp_max`` if known, else 250 for PETG/ABS-class, else 220."""
+    section = dump.get("print") if isinstance(dump.get("print"), dict) else dump
+    raw: dict | None = None
+    vt = section.get("vt_tray")
+    if tray == global_tray(EXTERNAL_UNIT, EXTERNAL_SLOT) and isinstance(vt, dict):
+        raw = vt
+    else:
+        units = (section.get("ams") or {}).get("ams")
+        for u_pos, unit in enumerate(units if isinstance(units, list) else []):
+            if not isinstance(unit, dict):
+                continue
+            uid = _as_int(unit.get("id"))
+            uid = u_pos if uid is None else uid
+            trays = unit.get("tray")
+            for t_pos, t in enumerate(trays if isinstance(trays, list) else []):
+                tid = _as_int(t.get("id")) if isinstance(t, dict) else None
+                tid = t_pos if tid is None else tid
+                if isinstance(t, dict) and global_tray(uid, tid) == tray:
+                    raw = t
+    if raw:
+        tmax = _as_int(raw.get("nozzle_temp_max"))
+        if tmax and 150 <= tmax <= 300:
+            return tmax
+        kind = str(raw.get("tray_type") or "").upper()
+        if kind.startswith(_HOT_MATERIALS):
+            return 250
+    return 220
+
+
 @register_adapter
 class BambuLanAdapter(PrinterAdapter):
     kind: ClassVar[PrinterKind] = PrinterKind.BAMBU_LAN
+    emits_replies: ClassVar[bool] = True
 
     def __init__(self, conn: PrinterConnection) -> None:
         super().__init__(conn)
@@ -471,6 +506,9 @@ class BambuLanAdapter(PrinterAdapter):
             else None,
             "ipcam": _ipcam(dump),
             "dev_mode": None,
+            # Raw inputs for printers/devmode.py (not PrinterPublicState fields).
+            "fun": _dump_get(dump, "fun"),
+            "ext_tray_raw": vt if isinstance(vt, dict) else None,
             "last_report_at": self._report_time(dump),
             "gcode_state": _state_token(p.get_state()),
             "mc_percent": _as_int(p.get_percentage()),
@@ -518,7 +556,22 @@ class BambuLanAdapter(PrinterAdapter):
         # socket connect timeout, polled every <=1s -- confirmed in
         # site-packages/paho/mqtt/client.py -- so it stays well inside a
         # probe's timeout.)
-        self._client().mqtt_start()
+        p = self._client()
+        mqtt = getattr(p, "mqtt_client", None)
+        if mqtt is not None:
+            mqtt.on_message_handler = self._tap_message
+        p.mqtt_start()
+
+    def _tap_message(self, _mqtt, _client, _userdata, msg) -> None:
+        """Forward command replies (a ``print`` dict carrying ``result``) to
+        printerd. Runs on the lib's paho thread; must never raise."""
+        try:
+            doc = json.loads(msg.payload)
+            pr = doc.get("print") if isinstance(doc, dict) else None
+            if isinstance(pr, dict) and "result" in pr and self._reply_handler is not None:
+                self._reply_handler(pr)
+        except Exception:  # noqa: BLE001
+            pass
 
     def close(self) -> None:
         if self._printer is not None:
@@ -546,6 +599,126 @@ class BambuLanAdapter(PrinterAdapter):
 
     def stop(self) -> None:
         self._client().stop_print()
+
+    # -- Q2 controls ---------------------------------------------------
+    @staticmethod
+    def _sent(ok) -> None:
+        # The lib returns False when its publish was refused (not connected).
+        if ok is False:
+            raise OSError("command not sent (printer not connected?)")
+
+    def set_temperature(self, target: str, value: int) -> None:
+        p = self._client()
+        if target == "nozzle":
+            # override=True: the lib otherwise silently drops targets < 40 C,
+            # which is exactly how a user turns heating off.
+            self._sent(p.mqtt_client.set_nozzle_temperature(value, override=True))
+        elif target == "bed":
+            self._sent(p.mqtt_client.set_bed_temperature(value, override=True))
+        elif target == "chamber":
+            self._sent(p.gcode(f"M141 S{value}", gcode_check=False))
+        else:
+            raise ValueError(target)
+
+    def set_fan(self, fan: str, pct: int) -> None:
+        p = self._client()
+        raw = round(pct * 255 / 100)  # lib int speeds are 0-255
+        setter = {
+            "part": p.set_part_fan_speed,
+            "aux": p.set_aux_fan_speed,
+            "chamber": p.set_chamber_fan_speed,
+        }[fan]
+        self._sent(setter(raw))
+
+    def set_light(self, on: bool) -> None:
+        p = self._client()
+        self._sent(p.turn_light_on() if on else p.turn_light_off())
+
+    def set_speed(self, level: int) -> None:
+        self._sent(self._client().set_print_speed(level))
+
+    def home(self) -> None:
+        self._sent(self._client().home_printer())
+
+    def jog(self, axis: str, mm: float) -> None:
+        # The lib's only Z helper (move_z_axis) is ABSOLUTE; a relative jog
+        # needs G91/G0/G90 for every axis (deviation noted in the Q2 plan).
+        feed = 600 if axis == "Z" else 3000
+        self._sent(
+            self._client().gcode(["G91", f"G0 {axis}{mm:g} F{feed}", "G90"], gcode_check=False)
+        )
+
+    def extrude(self, mm: float) -> None:
+        self._sent(self._client().gcode(["M83", f"G1 E{mm:g} F300"], gcode_check=False))
+
+    def send_gcode(self, gcode: str) -> None:
+        self._sent(self._client().gcode(gcode.splitlines() or [gcode]))
+
+    def skip_objects(self, object_ids: list[int]) -> None:
+        self._sent(self._client().skip_objects(object_ids))
+
+    def load_filament(self, tray: int) -> None:
+        try:
+            dump = self._client().mqtt_dump() or {}
+        except Exception:  # noqa: BLE001
+            dump = {}
+        temp = _load_temp(dump, tray)
+        _publish_raw(
+            self._client(),
+            {
+                "print": {
+                    "command": "ams_change_filament",
+                    "target": tray,
+                    "curr_temp": temp,
+                    "tar_temp": temp,
+                    "sequence_id": "0",
+                }
+            },
+        )
+
+    def unload_filament(self) -> None:
+        self._sent(self._client().unload_filament_spool())
+
+    def calibrate(self, bed_leveling: bool, vibration: bool, motor_noise: bool) -> None:
+        self._sent(self._client().calibrate_printer(bed_leveling, motor_noise, vibration))
+
+    def set_airduct(self, mode: str) -> None:
+        _publish_raw(
+            self._client(),
+            {
+                "print": {
+                    "command": "set_airduct",
+                    "modeId": 0 if mode == "cooling" else 1,
+                    "sequence_id": "0",
+                    "submode": -1,
+                }
+            },
+        )
+
+    def clear_hms(self) -> None:
+        _publish_raw(
+            self._client(), {"print": {"command": "clean_print_error", "sequence_id": "0"}}
+        )
+
+    def send_devmode_probe(self, slot: dict, seq: str) -> None:
+        """Echo the external slot's exact current values (a no-op when
+        accepted); ported from the upstream probe."""
+        payload = {
+            "command": "ams_filament_setting",
+            "ams_id": 255,
+            "tray_id": 0,
+            "slot_id": 0,
+            "tray_info_idx": slot["tray_info_idx"],
+            "tray_type": slot["tray_type"],
+            "tray_sub_brands": slot.get("tray_sub_brands", ""),
+            "tray_color": slot["tray_color"],
+            "nozzle_temp_min": slot["nozzle_temp_min"],
+            "nozzle_temp_max": slot["nozzle_temp_max"],
+            "sequence_id": seq,
+        }
+        if slot.get("setting_id"):
+            payload["setting_id"] = slot["setting_id"]
+        _publish_raw(self._client(), {"print": payload})
 
     # -- send ----------------------------------------------------------
     def upload_and_start(self, spec: PrintSpec) -> None:

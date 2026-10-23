@@ -60,6 +60,7 @@ from app.api import (
     oidc,
     print_flow,
     print_jobs,
+    printer_control,
     printers,
     prints,
     profiles,
@@ -111,6 +112,9 @@ protected_router.include_router(sensors.router)
 protected_router.include_router(spoolman.router)
 protected_router.include_router(external_links.router)
 protected_router.include_router(features.router)
+# printer_control first: its literal /printers/developer-mode-warnings must
+# match before printers.router's /printers/{printer_id}.
+protected_router.include_router(printer_control.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)
 protected_router.include_router(print_jobs.router)

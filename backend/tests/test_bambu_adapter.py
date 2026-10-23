@@ -381,3 +381,231 @@ def test_last_report_at_only_moves_when_dump_changes(monkeypatch):
 def test_nozzle_type_none_when_unreported(monkeypatch):
     a, _stub = _stub_adapter(monkeypatch)
     assert a._snapshot()["nozzle_type"] is None
+
+
+# -- Q2 controls -----------------------------------------------------------
+
+
+class _Pub:
+    def __init__(self):
+        self.sent: list[tuple[str, dict]] = []
+
+    def is_connected(self):
+        return True
+
+    def publish(self, topic, payload):
+        self.sent.append((topic, json.loads(payload)))
+        return self
+
+    def wait_for_publish(self, timeout=None):
+        pass
+
+    def is_published(self):
+        return True
+
+
+class _MqttStub:
+    command_topic = "device/S/request"
+
+    def __init__(self):
+        self._client = _Pub()
+        self.calls: list[tuple] = []
+        self.on_message_handler = None
+
+    def set_nozzle_temperature(self, v, override=False):
+        self.calls.append(("nozzle", v, override))
+        return True
+
+    def set_bed_temperature(self, v, override=False):
+        self.calls.append(("bed", v, override))
+        return True
+
+
+class _CtlPrinter:
+    def __init__(self):
+        self.mqtt_client = _MqttStub()
+        self.calls: list[tuple] = []
+        self.ok = True
+
+    def mqtt_start(self):
+        pass
+
+    def _rec(self, *c):
+        self.calls.append(c)
+        return self.ok
+
+    def gcode(self, g, gcode_check=True):
+        return self._rec("gcode", g, gcode_check)
+
+    def set_part_fan_speed(self, v):
+        return self._rec("part", v)
+
+    def set_aux_fan_speed(self, v):
+        return self._rec("aux", v)
+
+    def set_chamber_fan_speed(self, v):
+        return self._rec("chamber", v)
+
+    def turn_light_on(self):
+        return self._rec("light", True)
+
+    def turn_light_off(self):
+        return self._rec("light", False)
+
+    def set_print_speed(self, v):
+        return self._rec("speed", v)
+
+    def home_printer(self):
+        return self._rec("home")
+
+    def skip_objects(self, ids):
+        return self._rec("skip", ids)
+
+    def unload_filament_spool(self):
+        return self._rec("unload")
+
+    def calibrate_printer(self, bed, motor, vib):
+        return self._rec("calibrate", bed, motor, vib)
+
+
+@pytest.fixture
+def ctl(monkeypatch):
+    stub = _CtlPrinter()
+    monkeypatch.setattr(bambu, "_build_printer", lambda conn: stub)
+    return BambuLanAdapter(CONN), stub
+
+
+def test_ctl_temperatures_override_lib_guard(ctl):
+    a, p = ctl
+    a.set_temperature("nozzle", 0)
+    a.set_temperature("bed", 60)
+    a.set_temperature("chamber", 40)
+    assert p.mqtt_client.calls == [("nozzle", 0, True), ("bed", 60, True)]
+    assert p.calls == [("gcode", "M141 S40", False)]
+
+
+def test_ctl_fans_scale_pct_to_0_255(ctl):
+    a, p = ctl
+    a.set_fan("part", 100)
+    a.set_fan("aux", 50)
+    a.set_fan("chamber", 0)
+    assert p.calls == [("part", 255), ("aux", 128), ("chamber", 0)]
+
+
+def test_ctl_light_speed_home_calibrate_skip_unload(ctl):
+    a, p = ctl
+    a.set_light(True)
+    a.set_light(False)
+    a.set_speed(3)
+    a.home()
+    a.calibrate(True, False, True)
+    a.skip_objects([4, 9])
+    a.unload_filament()
+    assert p.calls == [
+        ("light", True),
+        ("light", False),
+        ("speed", 3),
+        ("home",),
+        ("calibrate", True, True, False),
+        ("skip", [4, 9]),
+        ("unload",),
+    ]
+
+
+def test_ctl_jog_extrude_gcode_use_relative_gcode(ctl):
+    a, p = ctl
+    a.jog("X", -10)
+    a.jog("Z", 1)
+    a.extrude(5)
+    a.send_gcode("G28\nM104 S0")
+    assert p.calls == [
+        ("gcode", ["G91", "G0 X-10 F3000", "G90"], False),
+        ("gcode", ["G91", "G0 Z1 F600", "G90"], False),
+        ("gcode", ["M83", "G1 E5 F300"], False),
+        ("gcode", ["G28", "M104 S0"], True),
+    ]
+
+
+def test_ctl_lib_refusal_raises(ctl):
+    a, p = ctl
+    p.ok = False
+    with pytest.raises(OSError):
+        a.set_light(True)
+
+
+def test_ctl_raw_airduct_clear_hms_load_and_probe(ctl):
+    a, p = ctl
+    a.set_airduct("heating")
+    a.set_airduct("cooling")
+    a.clear_hms()
+    a.load_filament(2)
+    a.send_devmode_probe(
+        {
+            "tray_info_idx": "GFA00",
+            "tray_type": "PLA",
+            "tray_color": "FF0000FF",
+            "nozzle_temp_min": 190,
+            "nozzle_temp_max": 230,
+            "setting_id": "S1",
+        },
+        "9000017",
+    )
+    sent = [pl["print"] for _, pl in p.mqtt_client._client.sent]
+    assert sent[0]["command"] == "set_airduct" and sent[0]["modeId"] == 1
+    assert sent[1]["modeId"] == 0
+    assert sent[2]["command"] == "clean_print_error"
+    assert sent[3]["command"] == "ams_change_filament" and sent[3]["target"] == 2
+    probe = sent[4]
+    assert probe["command"] == "ams_filament_setting" and probe["sequence_id"] == "9000017"
+    assert probe["tray_info_idx"] == "GFA00" and probe["nozzle_temp_max"] == 230
+    assert probe["setting_id"] == "S1" and probe["ams_id"] == 255
+
+
+def test_ctl_reply_tap_forwards_results_only(ctl):
+    a, p = ctl
+    got = []
+    a.set_reply_handler(got.append)
+    a.connect()
+
+    class Msg:
+        def __init__(self, d):
+            self.payload = json.dumps(d).encode()
+
+    tap = p.mqtt_client.on_message_handler
+    tap(None, None, None, Msg({"print": {"command": "push_status", "gcode_state": "IDLE"}}))
+    tap(None, None, None, Msg({"print": {"command": "gcode_line", "result": "success"}}))
+    tap(None, None, None, Msg({"nonsense": 1}))
+    assert got == [{"command": "gcode_line", "result": "success"}]
+
+
+def test_snapshot_carries_fun_and_ext_tray_raw(monkeypatch):
+    stub = StubPrinter()
+    stub.mqtt_dump = lambda: {"print": {"fun": "0x1", "vt_tray": {"tray_type": "PLA"}}}
+    monkeypatch.setattr(bambu, "_build_printer", lambda conn: stub)
+    snap_ = BambuLanAdapter(CONN)._snapshot()
+    assert snap_["fun"] == "0x1" and snap_["ext_tray_raw"] == {"tray_type": "PLA"}
+
+
+def test_load_filament_temp_from_tray_then_type_then_default(ctl):
+    a, p = ctl
+    dump = {
+        "print": {
+            "ams": {
+                "ams": [
+                    {
+                        "id": 0,
+                        "tray": [
+                            {"id": 0, "tray_type": "PLA", "nozzle_temp_max": 230},
+                            {"id": 1, "tray_type": "PETG"},
+                            {"id": 2},
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+    p.mqtt_dump = lambda: dump
+    for tray in (0, 1, 2, 3):
+        a.load_filament(tray)
+    temps = [pl["print"]["tar_temp"] for _, pl in p.mqtt_client._client.sent]
+    assert temps == [230, 250, 220, 220]

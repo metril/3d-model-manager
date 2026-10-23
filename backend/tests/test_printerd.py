@@ -903,3 +903,136 @@ def test_sensor_tick_skips_while_previous_enqueue_alive(worker, monkeypatch):
     assert w.sensor_tick(200.0)
     w._sensor_thread.join(2)
     assert len(calls) == 2
+
+
+# -- Q2 command bus v2 -------------------------------------------------------
+
+
+def _result(client, pid, rid):
+    from app.printers.base import cmd_result_key
+
+    raw = client.get(cmd_result_key(pid, rid))
+    return json.loads(raw) if raw else None
+
+
+def test_dispatch_runs_adapter_and_publishes_result_with_ttl(worker):
+    from app.printers.base import cmd_result_key
+
+    w, adapter, pid, client = worker
+    w.handle_report({"gcode_state": "IDLE"})
+    res = w.handle_command("set_temperature", {"target": "bed", "value": 60}, "rid1")
+    assert res == {"ok": True}
+    assert adapter.calls == [("set_temperature", "bed", 60)]
+    assert _result(client, pid, "rid1") == {"ok": True}
+    assert 0 < client.ttl(cmd_result_key(pid, "rid1")) <= 30
+
+
+def test_dispatch_table_maps_every_command(worker):
+    w, adapter, _pid, _c = worker
+    w.handle_report({"gcode_state": "IDLE", "nozzle_temper": 200})
+    for cmd, args in [
+        ("set_fan", {"fan": "part", "pct": 50}),
+        ("set_light", {"on": True}),
+        ("set_speed", {"level": 3}),
+        ("home", {}),
+        ("jog", {"axis": "x", "mm": 7}),
+        ("extrude", {"mm": 5}),
+        ("gcode", {"gcode": " G28 "}),
+        ("set_airduct", {"mode": "heating"}),
+        ("calibrate", {}),
+        ("clear_hms", {}),
+        ("load_filament", {"tray": 1}),
+        ("unload_filament", {}),
+    ]:
+        assert w.handle_command(cmd, args)["ok"] is True, cmd
+    assert ("jog", "X", 10.0) in adapter.calls  # step clamped to {1,10,50}
+    assert ("send_gcode", "G28") in adapter.calls
+    assert ("calibrate", True, True, True) in adapter.calls
+
+
+def test_bad_args_unknown_command_and_unsupported(worker):
+    w, adapter, _pid, _c = worker
+    assert w.handle_command("set_speed", {"level": 9})["code"] == "invalid"
+    assert w.handle_command("set_temperature", {"target": "bed", "value": 999})["code"] == "invalid"
+    assert w.handle_command("gcode", {"gcode": "x" * 1025})["code"] == "invalid"
+    assert w.handle_command("launch_missiles")["code"] == "unsupported"
+    adapter.raise_on["set_light"] = NotImplementedError()
+    assert w.handle_command("set_light", {"on": True})["code"] == "unsupported"
+    adapter.raise_on["home"] = OSError("boom")
+    assert w.handle_command("home")["code"] == "error"
+    assert w.handle_command("skip_objects", {"object_ids": []})["code"] == "invalid"
+
+
+@pytest.mark.parametrize("state", ["RUNNING", "PAUSE"])
+def test_motion_refused_while_printing(worker, state):
+    w, adapter, pid, client = worker
+    w.handle_report({"gcode_state": state, "nozzle_temper": 220})
+    for cmd, args in [
+        ("home", {}),
+        ("jog", {"axis": "X", "mm": 1}),
+        ("extrude", {"mm": 5}),
+        ("gcode", {"gcode": "G28"}),
+    ]:
+        assert w.handle_command(cmd, args, f"r-{cmd}")["code"] == "printing", cmd
+        assert _result(client, pid, f"r-{cmd}")["code"] == "printing"
+    assert adapter.calls == []
+    assert w.handle_command("set_speed", {"level": 3}) == {"ok": True}  # Sport while printing
+    assert w.handle_command("pause")["ok"] is True
+
+
+def test_cold_extrude_refused_and_skip_needs_active_print(worker):
+    w, adapter, _pid, _c = worker
+    w.handle_report({"gcode_state": "IDLE", "nozzle_temper": 169.0})
+    assert w.handle_command("extrude", {"mm": 5})["code"] == "cold_extrude"
+    assert w.handle_command("skip_objects", {"object_ids": [3]})["code"] == "not_printing"
+    w.handle_report({"gcode_state": "RUNNING"})
+    assert w.handle_command("skip_objects", {"object_ids": [3, 3, 1]}) == {"ok": True}
+    assert adapter.calls == [("skip_objects", [1, 3])]
+
+
+def test_verify_failed_reply_becomes_dev_mode_off_and_state_flips(worker):
+    w, adapter, pid, client = worker
+    w.handle_report({"gcode_state": "IDLE"})
+    adapter.reply = {
+        "command": "gcode_line",
+        "result": "failed",
+        "reason": "mqtt message verify failed",
+    }
+    res = w.handle_command("set_light", {"on": True}, "rid-off")
+    assert res["code"] == "dev_mode_off"
+    assert _result(client, pid, "rid-off")["code"] == "dev_mode_off"
+    state = json.loads(client.get(state_key(pid)))
+    assert state["dev_mode"] is False and state["dev_mode_reason"] == "command_verify_failed"
+    adapter.reply = {"command": "gcode_line", "result": "success"}
+    assert w.handle_command("set_light", {"on": False}) == {"ok": True}
+    assert json.loads(client.get(state_key(pid)))["dev_mode"] is True
+
+
+def test_report_publishes_dev_mode_and_sends_guarded_probe(worker, monkeypatch):
+    w, adapter, pid, client = worker
+    clock = [100.0]
+    monkeypatch.setattr(printerd_module.time, "monotonic", lambda: clock[0])
+    slot = {
+        "tray_info_idx": "GFA00",
+        "tray_type": "PLA",
+        "tray_color": "FF0000FF",
+        "nozzle_temp_min": 190,
+        "nozzle_temp_max": 230,
+    }
+    w.handle_report({"gcode_state": "RUNNING", "ext_tray_raw": slot})
+    clock[0] += 10
+    w.handle_report({"gcode_state": "RUNNING", "ext_tray_raw": slot})  # printing: no probe
+    assert adapter.calls == []
+    w.handle_report({"gcode_state": "IDLE", "ext_tray_raw": slot})
+    assert adapter.calls == [("devmode_probe", slot, "9000017")]
+    assert json.loads(client.get(state_key(pid)))["dev_mode"] is None  # unknown until answered
+    w.handle_reply({"sequence_id": "9000017", "result": "success"})
+    assert json.loads(client.get(state_key(pid)))["dev_mode"] is True
+
+
+def test_fun_bit_in_report_sets_dev_mode_without_probe(worker):
+    w, adapter, pid, client = worker
+    w.handle_report({"gcode_state": "IDLE", "fun": "0x20000000"})
+    state = json.loads(client.get(state_key(pid)))
+    assert state["dev_mode"] is False and state["dev_mode_reason"] == "fun_bit"
+    assert adapter.calls == []

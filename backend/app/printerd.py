@@ -33,9 +33,18 @@ from sqlalchemy import select
 from app.config import Settings, get_settings
 from app.models import Printer, PrintJob
 from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
-from app.printers.base import PrinterAdapter, PrinterPublicState, command_channel, state_key
+from app.printers import commands as cmds
+from app.printers.base import (
+    CMD_RESULT_TTL_S,
+    PrinterAdapter,
+    PrinterPublicState,
+    cmd_result_key,
+    command_channel,
+    state_key,
+)
 from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
+from app.printers.devmode import DevModeTracker, is_verify_failed_reply
 from app.printers.ha_bridge import HaBridge
 from app.printers.registry import build_adapter
 from app.services import camera_state, ha_state, spool_inventory
@@ -53,6 +62,9 @@ SENSOR_INTERVAL_S = 60.0
 # Bambu print_error code the printer reports when a print is cancelled
 # (0x0300400C). Pending live verification (P2 Task 12).
 CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
+# How long a command waits for the printer's MQTT reply (adapters that emit
+# replies only). Must stay well under the API's 3 s wait.
+REPLY_WAIT_S = 1.5
 
 
 def terminal_result(
@@ -145,7 +157,12 @@ class PrinterWorker:
         self._merged: dict | None = None
         self._stop_requested = False
         self._tray_sig: tuple | None = None
+        self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
+        self._reply_evt = threading.Event()
+        self._last_reply: dict | None = None
+        adapter.set_reply_handler(self.handle_reply)
+
         self._sensor_next = 0.0
         self._sensor_last_report: str | None = None
         self._sensor_thread: threading.Thread | None = None
@@ -177,11 +194,32 @@ class PrinterWorker:
         self._sensor_thread = t
         return True
 
-    def handle_report(self, report: dict) -> None:
-        self._merged = self.adapter.merge_report(self._merged, report)
-        public = self.adapter.public_state(self._merged)
+    def _write_public(self, public: PrinterPublicState) -> None:
+        public.dev_mode = self.devmode.state
+        public.dev_mode_reason = self.devmode.reason
         self._public = public
         self.redis.set(state_key(self.printer_id), json.dumps(dataclasses.asdict(public)))
+
+    def handle_reply(self, reply: dict) -> None:
+        """A printer command reply (adapter's MQTT thread): feeds lazy
+        Developer-Mode detection and wakes a command waiting on it."""
+        self.devmode.on_reply(reply, time.monotonic())
+        self._last_reply = reply
+        self._reply_evt.set()
+        if self._public is not None:
+            with contextlib.suppress(Exception):
+                self._write_public(self._public)
+
+    def handle_report(self, report: dict) -> None:
+        self._merged = self.adapter.merge_report(self._merged, report)
+        probe = self.devmode.on_report(self._merged, time.monotonic())
+        if probe is not None:
+            try:
+                self.adapter.send_devmode_probe(probe.slot, probe.seq)
+            except Exception as exc:  # NotImplementedError / publish failure: stay unknown
+                log.warning("printerd: dev-mode probe not sent: %s", type(exc).__name__)
+        public = self.adapter.public_state(self._merged)
+        self._write_public(public)
         self._auto_assign_on_tray_change(public)
         self._transition_active_job(public)
 
@@ -302,16 +340,61 @@ class PrinterWorker:
             except Exception as exc:
                 log.error("printerd: archive enqueue failed: %s", type(exc).__name__)
 
-    def handle_command(self, command: str) -> None:
-        if command == "pause":
-            self.adapter.pause()
-        elif command == "resume":
-            self.adapter.resume()
-        elif command == "stop":
-            self._stop_requested = True
-            self.adapter.stop()
-        else:
+    def handle_command(
+        self, command: str, args: dict | None = None, request_id: str | None = None
+    ) -> dict:
+        """Run one command from the dispatch table and (when the caller sent
+        a ``request_id``) publish the result to ``cmd_result_key``."""
+        result = self._execute(command, args or {})
+        if request_id:
+            with contextlib.suppress(Exception):
+                self.redis.set(
+                    cmd_result_key(self.printer_id, request_id),
+                    json.dumps(result),
+                    ex=CMD_RESULT_TTL_S,
+                )
+        return result
+
+    def _execute(self, command: str, args: dict) -> dict:
+        spec = cmds.DISPATCH.get(command)
+        if spec is None:
             log.warning("printerd: unknown command %r for printer %s", command, self.printer_id)
+            return {"ok": False, "code": "unsupported", "message": f"unknown command {command}"}
+        try:
+            clean = spec.validate(args)
+            merged = self._merged or {}
+            printing = merged.get("gcode_state") in cmds.PRINTING_STATES
+            if spec.refuse_printing and printing:
+                raise cmds.CommandError("printing", f"{command} refused while printing")
+            if spec.needs_printing and not printing:
+                raise cmds.CommandError("not_printing", f"{command} requires an active print")
+            if spec.cold_check:
+                nozzle = merged.get("nozzle_temper")
+                if not isinstance(nozzle, int | float) or nozzle < cmds.COLD_EXTRUDE_C:
+                    raise cmds.CommandError("cold_extrude", "nozzle below 170 C")
+            if command == "stop":
+                self._stop_requested = True
+            self._reply_evt.clear()
+            self._last_reply = None
+            spec.run(self.adapter, clean)
+            if self.adapter.emits_replies:
+                self._reply_evt.wait(REPLY_WAIT_S)
+            if is_verify_failed_reply(self._last_reply):
+                return {
+                    "ok": False,
+                    "code": "dev_mode_off",
+                    "message": str((self._last_reply or {}).get("reason", "")),
+                }
+            return {"ok": True}
+        except cmds.CommandError as e:
+            return {"ok": False, "code": e.code, "message": e.message}
+        except NotImplementedError:
+            return {"ok": False, "code": "unsupported", "message": f"{command} not supported"}
+        except ValueError as e:
+            return {"ok": False, "code": "invalid", "message": str(e)}
+        except Exception as e:  # noqa: BLE001 -- type only: text could echo the access code
+            log.error("printerd: command %r failed: %s", command, type(e).__name__)
+            return {"ok": False, "code": "error", "message": type(e).__name__}
 
 
 class PrinterDaemon:
@@ -382,12 +465,17 @@ class PrinterDaemon:
                     if msg["type"] != "message":
                         continue
                     try:
-                        command = json.loads(msg["data"]).get("command")
-                    except (ValueError, TypeError):
+                        body = json.loads(msg["data"])
+                        command = body.get("command")
+                        args = body.get("args")
+                        request_id = body.get("request_id")
+                    except (ValueError, TypeError, AttributeError):
                         continue
                     if command:
                         try:
-                            worker.handle_command(command)
+                            worker.handle_command(
+                                command, args if isinstance(args, dict) else None, request_id
+                            )
                         except Exception:
                             log.exception("printerd: command %r failed", command)
             except Exception:

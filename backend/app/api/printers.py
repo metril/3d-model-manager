@@ -412,10 +412,23 @@ async def printer_status(
     return out
 
 
-async def _publish_command(settings: Settings, printer_id: int, command: str) -> None:
+async def _publish_command(
+    settings: Settings,
+    printer_id: int,
+    command: str,
+    args: dict | None = None,
+    request_id: str | None = None,
+) -> str:
+    """Command envelope v2: ``{command, args, request_id}`` (printerd writes
+    its result to ``cmd_result_key``). Returns the request id."""
+    request_id = request_id or uuid.uuid4().hex
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
-        await client.publish(command_channel(printer_id), json.dumps({"command": command}))
+        await client.publish(
+            command_channel(printer_id),
+            json.dumps({"command": command, "args": args or {}, "request_id": request_id}),
+        )
+        return request_id
     finally:
         await client.aclose()
 

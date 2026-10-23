@@ -77,6 +77,13 @@ class FakePrinterAdapter(PrinterAdapter):
 
     def __init__(self, conn: PrinterConnection) -> None:
         super().__init__(conn)
+        # Q2: every control call is recorded as ``(name, args...)``. If
+        # ``reply`` is set it is delivered to the reply handler during the
+        # call (simulating the printer's MQTT answer); ``raise_on`` makes
+        # the named call raise.
+        self.calls: list[tuple] = []
+        self.reply: dict | None = None
+        self.raise_on: dict[str, Exception] = {}
         self.connected = False
         self.closed = False
         self.full_status_requests = 0
@@ -134,14 +141,73 @@ class FakePrinterAdapter(PrinterAdapter):
     def upload_and_start(self, spec: PrintSpec) -> None:
         self.uploaded.append(spec)
 
+    def _record(self, name: str, *args) -> None:
+        self.calls.append((name, *args))
+        if name in self.raise_on:
+            raise self.raise_on[name]
+        if self.reply is not None and self._reply_handler is not None:
+            self._reply_handler(dict(self.reply))
+
     def pause(self) -> None:
         self.paused += 1
+        self._record("pause")
 
     def resume(self) -> None:
         self.resumed += 1
+        self._record("resume")
 
     def stop(self) -> None:
         self.stopped += 1
+        self._record("stop")
+
+    def set_temperature(self, target: str, value: int) -> None:
+        self._record("set_temperature", target, value)
+
+    def set_fan(self, fan: str, pct: int) -> None:
+        self._record("set_fan", fan, pct)
+
+    def set_light(self, on: bool) -> None:
+        self._record("set_light", on)
+
+    def set_speed(self, level: int) -> None:
+        self._record("set_speed", level)
+
+    def home(self) -> None:
+        self._record("home")
+
+    def jog(self, axis: str, mm: float) -> None:
+        self._record("jog", axis, mm)
+
+    def extrude(self, mm: float) -> None:
+        self._record("extrude", mm)
+
+    def send_gcode(self, gcode: str) -> None:
+        self._record("send_gcode", gcode)
+
+    def skip_objects(self, object_ids: list[int]) -> None:
+        self._record("skip_objects", list(object_ids))
+
+    def load_filament(self, tray: int) -> None:
+        self._record("load_filament", tray)
+
+    def unload_filament(self) -> None:
+        self._record("unload_filament")
+
+    def calibrate(self, bed_leveling: bool, vibration: bool, motor_noise: bool) -> None:
+        self._record("calibrate", bed_leveling, vibration, motor_noise)
+
+    def set_airduct(self, mode: str) -> None:
+        self._record("set_airduct", mode)
+
+    def clear_hms(self) -> None:
+        self._record("clear_hms")
+
+    def send_devmode_probe(self, slot: dict, seq: str) -> None:
+        self.calls.append(("devmode_probe", dict(slot), seq))
+
+    def emit_reply(self, reply: dict) -> None:
+        assert self._reply_handler is not None
+        self._reply_handler(reply)
 
     def merge_report(self, prev: dict | None, report: dict) -> dict:
         merged = dict(prev or {})

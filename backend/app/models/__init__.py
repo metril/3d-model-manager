@@ -5,6 +5,7 @@ Importing this package registers every mapped class on the shared
 see the full schema (SPEC "Data model").
 """
 
+from app.models.audit_log import AuditLog
 from app.models.auth import (
     ApiToken,
     Group,
@@ -47,6 +48,7 @@ from app.models.virtual_printer import VirtualPrinter
 
 __all__ = [
     "ApiToken",
+    "AuditLog",
     "AssemblyThumb",
     "Base",
     "Blob",
