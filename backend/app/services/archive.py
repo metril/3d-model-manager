@@ -302,8 +302,9 @@ def archive_job(
     session.flush()  # so `run.id` exists for `settle_job`'s `charge(print_id=run.id)`
     billing.settle_job(session, job, run)
     session.commit()
-    # Q9: after the commit so a rolled-back/redelivered archive can't double-push.
-    spoolman.push_usages(session, usages)
+    # Q9: after the commit; push_usages sends only the delta vs. what was
+    # already pushed for this job, so a redelivery can't double-debit.
+    spoolman.push_usages(session, job.id, usages)
     if fetch_exc is not None:
         raise ArchiveFetchError(str(fetch_exc)) from fetch_exc
     return arc

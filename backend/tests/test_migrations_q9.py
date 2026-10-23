@@ -36,6 +36,7 @@ async def test_q9_upgrade_adds_spoolman_columns_and_table(scratch_db) -> None:
             "INSERT INTO spoolman_sync_state (spool_id, last_pulled_weight) VALUES ($1, 42.5)",
             spool_id,
         )
+        assert await conn.fetchval("select to_regclass('spoolman_pushes')") is not None
         await conn.execute("DELETE FROM spools WHERE id = $1", spool_id)
         assert await conn.fetchval("SELECT count(*) FROM spoolman_sync_state") == 0
     finally:
@@ -46,6 +47,7 @@ async def test_q9_upgrade_adds_spoolman_columns_and_table(scratch_db) -> None:
     conn = await asyncpg.connect(dsn)
     try:
         assert await conn.fetchval("select to_regclass('spoolman_sync_state')") is None
+        assert await conn.fetchval("select to_regclass('spoolman_pushes')") is None
         assert (
             await conn.fetchval(
                 "select column_name from information_schema.columns "

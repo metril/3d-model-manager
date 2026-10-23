@@ -118,3 +118,22 @@ class SpoolmanSyncState(Base):
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class SpoolmanPush(Base):
+    """Grams already pushed to Spoolman per (job, spool), so an archive
+    redelivery only sends the delta (Q9)."""
+
+    __tablename__ = "spoolman_pushes"
+
+    print_job_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("print_jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    spool_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("spools.id", ondelete="CASCADE"), primary_key=True
+    )
+    grams: Mapped[float] = mapped_column(Float, nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

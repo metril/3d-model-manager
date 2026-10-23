@@ -23,6 +23,11 @@ export function SpoolmanLink({ spool }: { spool: SpoolOut }) {
         <Button type="button" size="sm" variant="outline" disabled={unlink.isPending} onClick={() => unlink.mutate(spool.id)}>
           Unlink
         </Button>
+        {unlink.isError && (
+          <p role="alert" className="text-destructive">
+            {unlink.error instanceof ApiError ? unlink.error.detail : "Could not unlink."}
+          </p>
+        )}
       </div>
     );
   }

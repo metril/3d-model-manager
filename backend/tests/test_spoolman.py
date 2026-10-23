@@ -31,7 +31,7 @@ def test_mode_off_makes_no_http_calls(seed):
         assert spoolman.pull_spool(seed.s, sp) is None
         assert spoolman.set_location(seed.s, sp, "x") is False
         spoolman.on_slot_change(seed.s, 1, 0, 1, None, sp.id)
-        spoolman.push_usages(seed.s, [(sp, 3.0)])
+        spoolman.push_usages(seed.s, 1, [(sp, 3.0)])
         assert spoolman.reconcile(seed.s)["skipped"] is True
         assert not route.called
     assert seed.s.get(SpoolmanSyncState, sp.id) is None
@@ -55,6 +55,35 @@ def test_push_usage_failure_recorded_not_raised(seed):
         m.put(f"{API}/spool/7/use").mock(return_value=httpx.Response(500))
         assert spoolman.push_usage(seed.s, sp, 1.0) is False
     assert seed.s.get(SpoolmanSyncState, sp.id).last_error
+
+
+def test_redelivery_pushes_usage_once(seed):
+    _cfg(seed.s, "mirror")
+    sp = _spool(seed.s)
+    job_id = seed.job()
+    with respx.mock as m:
+        route = m.put(f"{API}/spool/7/use").mock(return_value=httpx.Response(200, json={}))
+        spoolman.push_usages(seed.s, job_id, [(sp, 10.0)])
+        spoolman.push_usages(seed.s, job_id, [(sp, 10.0)])
+        assert route.call_count == 1
+        spoolman.push_usages(seed.s, job_id, [(sp, 4.0)])  # shrank: negative delta
+    assert route.call_count == 2
+    assert route.calls.last.request.read() == b'{"use_weight":-6.0}'
+
+
+def test_failed_push_retried_on_redelivery(seed):
+    _cfg(seed.s, "mirror")
+    sp = _spool(seed.s)
+    job_id = seed.job()
+    with respx.mock as m:
+        route = m.put(f"{API}/spool/7/use").mock(
+            side_effect=[httpx.Response(500), httpx.Response(200, json={})]
+        )
+        spoolman.push_usages(seed.s, job_id, [(sp, 10.0)])
+        spoolman.push_usages(seed.s, job_id, [(sp, 10.0)])
+        spoolman.push_usages(seed.s, job_id, [(sp, 10.0)])
+    assert route.call_count == 2
+    assert route.calls.last.request.read() == b'{"use_weight":10.0}'
 
 
 def test_unlinked_spool_not_pushed(seed):

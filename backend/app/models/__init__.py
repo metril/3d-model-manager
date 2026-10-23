@@ -23,7 +23,7 @@ from app.models.collections import (
     RemoteCollectionItem,
 )
 from app.models.home_assistant import HaLink
-from app.models.inventory import Spool, SpoolmanSyncState, SpoolSlot, SpoolUsage
+from app.models.inventory import Spool, SpoolmanPush, SpoolmanSyncState, SpoolSlot, SpoolUsage
 from app.models.library import (
     Blob,
     Category,
@@ -80,6 +80,7 @@ __all__ = [
     "SlicerProfile",
     "Spool",
     "SpoolSlot",
+    "SpoolmanPush",
     "SpoolmanSyncState",
     "SpoolUsage",
     "StorageBackendRow",

@@ -28,7 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.models import Setting, Spool, SpoolmanSyncState
+from app.models import Setting, Spool, SpoolmanPush, SpoolmanSyncState
 from app.services.spool_inventory import global_tray
 
 SETTINGS_KEY = "spoolman"
@@ -205,7 +205,7 @@ def pull_spool(session: Session, spool: Spool) -> dict | None:
 
 def push_usage(session: Session, spool: Spool, grams: float) -> bool:
     cfg = get_config_sync(session)
-    if not cfg.active or spool.spoolman_id is None or grams <= 0:
+    if not cfg.active or spool.spoolman_id is None or grams == 0:
         return False
     try:
         _run(
@@ -220,15 +220,30 @@ def push_usage(session: Session, spool: Spool, grams: float) -> bool:
     return True
 
 
-def push_usages(session: Session, usages: list[tuple[Spool | None, float]]) -> None:
-    """Hook for ``record_job_usage``'s result. Best effort; never raises."""
+def push_usages(session: Session, job_id: int, usages: list[tuple[Spool | None, float]]) -> None:
+    """Hook for ``record_job_usage``'s result. Pushes only the delta against
+    what was already pushed for (job, spool), so archive redelivery never
+    double-debits; the pushed total is recorded only after a 2xx, so a failed
+    push is retried next time. Best effort; never raises."""
     try:
-        cfg = get_config_sync(session)
-        if not cfg.active:
+        if not get_config_sync(session).active:
             return
+        totals: dict[int, tuple[Spool, float]] = {}
         for spool, grams in usages:
-            if spool is not None:
-                push_usage(session, spool, grams)
+            if spool is not None and spool.spoolman_id is not None:
+                prev = totals.get(spool.id, (spool, 0.0))[1]
+                totals[spool.id] = (spool, prev + grams)
+        for spool, total in totals.values():
+            row = session.get(SpoolmanPush, (job_id, spool.id))
+            delta = total - (row.grams if row is not None else 0.0)
+            if abs(delta) < 1e-9:
+                continue
+            if push_usage(session, spool, delta):
+                if row is None:
+                    session.add(SpoolmanPush(print_job_id=job_id, spool_id=spool.id, grams=total))
+                else:
+                    row.grams = total
+                session.commit()
     except Exception:  # noqa: BLE001
         session.rollback()
 
