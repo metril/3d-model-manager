@@ -102,7 +102,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libosmesa6 libgl1-mesa-dri libgl1
+            libosmesa6 libgl1-mesa-dri libgl1 ffmpeg
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.* -- f3d will segfault in the EGL fallback"
@@ -136,8 +136,12 @@ jobs:
           docker pull postgres:16-alpine
           docker pull redis:7-alpine
           docker pull bitnamilegacy/minio:2025.5.24
+          docker pull bluenviron/mediamtx:latest-ffmpeg
       - name: pytest
         working-directory: backend
+        env:
+          # Q4: the mediamtx rtsps camera test must fail, not skip, without ffmpeg.
+          TDMM_REQUIRE_FFMPEG_TESTS: "1"
         # `-m` is single-valued in pytest, so passing it here REPLACES
         # pyproject's `addopts = "-m 'not e2e and not live_importer'"` rather
         # than combining with it -- both exclusions must be repeated verbatim or
