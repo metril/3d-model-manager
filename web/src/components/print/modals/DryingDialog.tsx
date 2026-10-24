@@ -18,12 +18,12 @@ type Mode = "now" | "at" | "after";
 const POWER = new Set([1, 8]);
 const RETRACT = 3;
 
-export const TEMP_RANGE = [45, 85] as const;
-export const HOURS_RANGE = [1, 24] as const;
+const TEMP_RANGE = [45, 85] as const;
+const HOURS_RANGE = [1, 24] as const;
 const clamp = (v: number, [lo, hi]: readonly [number, number] | readonly number[]) => Math.min(hi, Math.max(lo, v));
 
 /** `n3s` = AMS-HT (ids >= 128), otherwise `n3f` (AMS 2 Pro / AMS). */
-export function presetValues(p: DryingPreset | undefined, unitId: number): { temp: number; hours: number } | null {
+function presetValues(p: DryingPreset | undefined, unitId: number): { temp: number; hours: number } | null {
   if (!p) return null;
   return unitId >= 128 ? { temp: p.n3s_temp, hours: p.n3s_hours } : { temp: p.n3f_temp, hours: p.n3f_hours };
 }
@@ -44,7 +44,7 @@ export function DryingDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const caps = capsOf(printer);
+  const caps = { ...capsOf(printer), ...(status?.capabilities ?? {}) };
   const drying = useDrying(printer.id);
   const presets = useDryingPresets().data?.presets ?? {};
   const unit = status?.ams_units?.find((u) => u.id === unitId);

@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 import { unitLabel } from "./ams";
 
-export function formatLeft(totalSeconds: number): string {
+function formatLeft(totalSeconds: number): string {
   const mins = Math.max(0, Math.ceil(totalSeconds / 60));
   const h = Math.floor(mins / 60);
   return h > 0 ? `${h}h ${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
