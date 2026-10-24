@@ -155,5 +155,13 @@
     "status": {"printing": "printing", "paused": "paused", "finished": "finished", "available": "available", "problem": "problem", "offline": "offline"},
     "nextFree": "Next free: {{name}} in {{eta}}",
     "bulk": {"selected": "{{n}} selected", "pauseBtn": "Pause selected ({{n}})", "stopBtn": "Stop selected ({{n}})", "pause": "Pause", "stop": "Stop", "clear": "Clear", "pauseTitle": "Pause {{count}} prints?", "pauseTitle_one": "Pause {{count}} print?", "pauseTitle_other": "Pause {{count}} prints?", "stopTitle": "Stop {{count}} prints?", "stopTitle_one": "Stop {{count}} print?", "stopTitle_other": "Stop {{count}} prints?", "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.", "paused_one": "Paused {{count}} printer", "paused_other": "Paused {{count}} printers", "stopped_one": "Stopped {{count}} printer", "stopped_other": "Stopped {{count}} printers", "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}", "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"}
+  },
+  "gcodeViewer": {
+    "loading": "Reading toolpath…", "empty": "No G-code available for this item.", "loadFailed": "Could not load the G-code.", "retry": "Retry",
+    "colorMode": "Colour by", "legend": "Legend", "topLayer": "Top layer", "bottomLayer": "Bottom layer",
+    "mode": {"feature": "Feature", "tool": "Tool", "speed": "Speed", "layer": "Layer"},
+    "feature": {"wall": "Walls", "infill": "Infill", "support": "Support", "bridge": "Bridge / overhang", "skirt": "Skirt / brim", "travel": "Travel moves"},
+    "tool": "Tool {{n}}", "speedUnit": "mm/s", "layerWord": "layer",
+    "stats": {"layers": "{{count}} layers", "moves": "{{count}} moves", "extrusion": "{{m}} m filament", "time": "Est. {{time}}"}
   }
 }
