@@ -20,6 +20,7 @@ from app.config import Settings
 from app.crypto import decrypt_secret
 from app.models import HaLink, SmartPlug
 from app.models.enums import HaRole
+from app.services.drying import ACTIVE_DRY_STATUSES
 from app.services.ha_state import energy_acc_key, energy_key
 from app.services.printer_state import read_state_sync
 from app.services.smart_plugs.drivers import PlugError, PlugStatus, build_driver
@@ -55,9 +56,12 @@ def driver_for(session: Session, settings: Settings, plug: SmartPlug):
 
 
 def can_power_off(state: dict | None) -> bool:
-    """Printer reported in, is not printing, and the nozzle is cold."""
+    """Printer reported in, is not printing, no AMS is drying, and the
+    nozzle is cold."""
     if not state or state.get("gcode_state") not in IDLE_STATES:
         return False
+    if any(u.get("dry_status") in ACTIVE_DRY_STATUSES for u in state.get("ams_units") or []):
+        return False  # a drying cycle can run for hours
     nozzle = state.get("nozzle_temper")
     return nozzle is not None and float(nozzle) < COLD_NOZZLE_C
 

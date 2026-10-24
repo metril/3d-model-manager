@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,12 @@ class DryingConfig(BaseModel):
     queue_drying_enabled: bool = False
     queue_drying_block: bool = False
     print_drying_enabled: bool = False
+
+    @model_validator(mode="after")
+    def _good_le_fair(self) -> DryingConfig:
+        if self.ams_humidity_good > self.ams_humidity_fair:
+            raise ValueError("ams_humidity_good must not exceed ams_humidity_fair")
+        return self
 
     def presets_dict(self) -> dict[str, dict[str, int]]:
         return {k: p.model_dump() for k, p in self.presets.items()}

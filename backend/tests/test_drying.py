@@ -795,3 +795,78 @@ def test_notify_events_registered():
         assert ev in catalog.EVENT_IDS
         assert catalog.default_template(ev)[0] != "{{ event }}"
         assert catalog.sample_payload(ev)["ams_id"] == 0
+
+
+def test_stuck_queue_run_fails_and_releases_hold(rds, bus):
+    t0 = datetime.now(UTC)
+    _put_cfg(queue_drying_block=True)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        s.add(ScheduledDrying(printer_id=pid, ams_id=0, temp=65, duration_hours=2, source="queue"))
+        s.commit()
+    _put_state(rds, pid, ams_units=[{**UNIT, "dry_sf_reason": [3]}])
+    _tick(rds, t0)
+    with base.sync_session() as s:
+        row = s.scalars(select(ScheduledDrying)).one()
+    assert row.status == "waiting"
+    assert drying_tick.hold_reason(rds, pid) is None  # waiting rows never hold
+    counts = _tick(rds, t0 + timedelta(minutes=31))
+    with base.sync_session() as s:
+        row = s.scalars(select(ScheduledDrying)).one()
+    assert (row.status, row.error_code, counts["failed"]) == ("failed", "ams_retract_filament", 1)
+
+
+def test_queue_drying_ignores_unassigned_waiting_items(rds, bus, monkeypatch):
+    t0 = datetime.now(UTC)
+    _put_cfg(queue_drying_enabled=True, ams_humidity_fair=50)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+    _put_state(rds, pid)
+    monkeypatch.setattr(dispatcher, "eligible_queue_items", lambda s: [])
+    # a WAITING item may land anywhere (any-set) but no READY candidate (ready-set)
+    monkeypatch.setattr(dispatcher, "queue_target_ids", lambda s, c, i: (set(), {pid}))
+    _tick(rds, t0)
+    with base.sync_session() as s:
+        assert s.scalars(select(ScheduledDrying)).all() == []
+
+
+def test_row_is_running_before_command_is_published(rds, monkeypatch):
+    t0 = datetime.now(UTC)
+    seen = []
+
+    def send(r, row, fil):
+        with base.sync_session() as s2:
+            seen.append(s2.get(ScheduledDrying, row.id).status)
+
+    monkeypatch.setattr(drying_tick, "_send_start", send)
+    monkeypatch.setattr(drying_tick.events, "emit", lambda *a, **k: True)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        s.add(ScheduledDrying(printer_id=pid, ams_id=0, temp=65, duration_hours=2))
+        s.commit()
+    _put_state(rds, pid)
+    _tick(rds, t0)
+    assert seen == ["running"]
+
+
+@respx.mock
+def test_plug_auto_off_skipped_when_queue_wants_printer(rds, bus, monkeypatch):
+    from app.services.smart_plugs import manager
+
+    off = respx.post("http://plug/off").respond(200)
+    t0 = datetime.now(UTC)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        _plug(s, pid, auto_off_after_drying=True)
+    monkeypatch.setattr(manager, "_queue_wanted", lambda s, r: {pid})
+    _put_state(rds, pid, ams_units=[{**UNIT, "dry_status": 2}])
+    _tick(rds, t0)
+    _put_state(rds, pid)
+    _tick(rds, t0 + timedelta(minutes=1))
+    assert not off.called
+
+
+def test_humidity_good_must_not_exceed_fair():
+    with pytest.raises(ValueError):
+        DryingConfig(ams_humidity_good=70, ams_humidity_fair=60)
+    assert DryingConfig(ams_humidity_good=60, ams_humidity_fair=60)

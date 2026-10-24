@@ -29,6 +29,7 @@ from app.services.printer_state import read_state_sync
 log = logging.getLogger(__name__)
 
 DID_NOT_START_S = 90
+QUEUE_WAIT_MAX_S = 30 * 60
 HOLD_TTL_S = 130
 COOLDOWN_S = 6 * 3600  # per unit, after an automated cycle was created
 RETENTION_DAYS = 7
@@ -103,7 +104,12 @@ def _fail(row: ScheduledDrying, code: str, now: datetime) -> None:
 
 # -- steps ---------------------------------------------------------------------
 def _edges(
-    session: Session, r: Redis, settings: Settings, states: dict[int, dict | None], counts: dict
+    session: Session,
+    r: Redis,
+    settings: Settings,
+    states: dict[int, dict | None],
+    counts: dict,
+    queue_wanted: set[int] | None = None,
 ) -> None:
     """Observe unit active <-> idle transitions: notify, and plug auto-off
     once per finished cycle."""
@@ -132,8 +138,10 @@ def _edges(
                 events.emit("drying_finished", pid, {"ams_id": u["id"]})
         if not finished:
             continue
-        busy = state.get("gcode_state") in PRINTING_STATES or any(
-            _is_active(u) for u in _units(state)
+        busy = (
+            pid in (queue_wanted or ())
+            or state.get("gcode_state") in PRINTING_STATES
+            or any(_is_active(u) for u in _units(state))
         )
         plug = session.scalar(
             select(SmartPlug).where(
@@ -201,7 +209,7 @@ def _auto_candidates(
 
         try:
             items = dispatcher.eligible_queue_items(session)
-            wanted = dispatcher.queue_target_ids(session, r, items)[1]
+            wanted = dispatcher.queue_target_ids(session, r, items)[0]  # READY items only
         except Exception:  # noqa: BLE001
             log.exception("drying: queue evaluation failed")
             session.rollback()
@@ -316,7 +324,6 @@ def _start_due(
                 row.status, row.waiting_reason = "waiting", drying.WAITING_REASON_OFFLINE
             continue
         row.filament = out["filament"]
-        _send_start(r, row, row.filament)
         row.status, row.waiting_reason, row.started_at = "running", None, now
         session.add(
             AuditLog(
@@ -336,6 +343,24 @@ def _start_due(
         )
         running.add((row.printer_id, row.ams_id))
         counts["started"] += 1
+        session.commit()  # durable `running` first: a crash can't re-send the start
+        _send_start(r, row, row.filament)
+
+
+def _expire_stuck(session: Session, now: datetime, counts: dict) -> None:
+    """A queue-sourced run stuck ``waiting`` (blocked AMS, offline...) fails
+    after ``QUEUE_WAIT_MAX_S`` so it can't keep the queue waiting forever."""
+    cutoff = now - timedelta(seconds=QUEUE_WAIT_MAX_S)
+    rows = session.scalars(
+        select(ScheduledDrying).where(
+            ScheduledDrying.status == "waiting",
+            ScheduledDrying.source == "queue",
+            ScheduledDrying.created_at < cutoff,
+        )
+    )
+    for row in rows.all():
+        _fail(row, row.waiting_reason or "blocked", now)
+        counts["failed"] += 1
 
 
 def _holds(
@@ -345,13 +370,13 @@ def _holds(
     states: dict[int, dict | None],
 ) -> None:
     """Dispatcher hold: with ``queue_drying_block``, a printer whose AMS is
-    drying (or has a queue-sourced run waiting to start) is not a dispatch
-    target; the key's short TTL fails open if the tick dies."""
+    drying (or has a running queue-sourced run) is not a dispatch target; the
+    key's short TTL fails open if the tick dies."""
     queue_open = {
         p
         for (p,) in session.execute(
             select(ScheduledDrying.printer_id).where(
-                ScheduledDrying.status.in_(OPEN), ScheduledDrying.source == "queue"
+                ScheduledDrying.status == "running", ScheduledDrying.source == "queue"
             )
         ).all()
     }
@@ -377,9 +402,12 @@ def tick(
     counts = dict.fromkeys(("started", "done", "failed", "created", "plug_off"), 0)
     _update_running(session, r, states, now, counts)
     session.commit()
-    _edges(session, r, settings, states, counts)
+    from app.services.smart_plugs import manager
+
+    _edges(session, r, settings, states, counts, manager._queue_wanted(session, r))
     _auto_candidates(session, r, cfg, printers, states, now, counts)
     _start_due(session, r, printers, states, now, counts)
+    _expire_stuck(session, now, counts)
     session.execute(
         ScheduledDrying.__table__.delete().where(
             ScheduledDrying.status.in_(("done", "failed", "cancelled")),
