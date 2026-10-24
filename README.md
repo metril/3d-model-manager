@@ -188,7 +188,7 @@ Authentik example:
 3. Map IdP group names to TDMM groups (`group_mapping`), and optionally set `admin_group` to promote its members to admin on each login. The last active admin is never demoted by a sync.
 4. Accounts are matched by issuer and subject. Enable `link_by_email` to attach an existing account by e-mail (only when the IdP reports `email_verified: true`; require it in Authentik), and `auto_create_users` to create `member` accounts on first login.
 
-Keycloak: use `groups_claim = realm_access.roles`. Set the **Public URL** (Settings → Server) when running behind a reverse proxy so the callback origin is correct.
+Keycloak: use `groups_claim = realm_access.roles`. Set the **Public URL** (Settings → Server) when running behind a reverse proxy so the callback origin is correct. If the proxy terminates TLS on the docker network, either set `FORWARDED_ALLOW_IPS` in `.env` (the proxy's IP/CIDR, or `*`; default `127.0.0.1`) so the request scheme is seen as https, or simply set the Public URL to an `https://` address — the cookie `Secure` flag follows it, which is the simpler option.
 
 ## Upgrading
 
