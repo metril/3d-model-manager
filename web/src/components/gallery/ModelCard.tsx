@@ -255,7 +255,9 @@ export function ModelCard({
                     {model.best_slicer_file && (
                       <OpenInSlicerButton file={model.best_slicer_file} size="icon-sm" />
                     )}
-                    {model.printable_file && <SendToPrinterButton file={model.printable_file} />}
+                    {(model.printable_file ?? model.best_slicer_file) && (
+              <SendToPrinterButton file={(model.printable_file ?? model.best_slicer_file)!} />
+            )}
                   </div>
                 </span>
               )}

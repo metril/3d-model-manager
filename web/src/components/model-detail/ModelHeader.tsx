@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
+import { useFeatures } from "@/api/features";
 import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
@@ -150,8 +151,13 @@ export function ModelHeader({
   // only when there's a sliced file to plan against AND the viewer holds
   // the blanket `printers:print` permission (the dialog's own Send step
   // re-checks per-printer ACLs once a printer is picked).
-  const hasSlicedFile = (model.current_revision?.files ?? []).some((f) => f.format === "gcode_3mf");
-  const canPrint = hasSlicedFile && can("printers:print");
+  const features = useFeatures();
+  const revFiles = model.current_revision?.files ?? [];
+  const hasSlicedFile = revFiles.some((f) => f.format === "gcode_3mf");
+  // Unsliced sources can be printed too when the slicer sidecar can slice them.
+  const hasSliceableFile =
+    !!features.data?.slicer_configured && revFiles.some((f) => ["3mf", "stl", "step", "obj"].includes(f.format));
+  const canPrint = (hasSlicedFile || hasSliceableFile) && can("printers:print");
 
   // R9-C item 5: same mutation as the star button below.
   useHotkeys({ f: () => patchModel.mutate({ favorite: !model.favorite }) });

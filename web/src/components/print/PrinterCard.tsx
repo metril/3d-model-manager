@@ -235,7 +235,7 @@ export function PrinterCard({
         <ControlsSection printer={printer} status={status} canControl={canControl} />
         <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} />
         {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} /> : null}
-        <CardFooter canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
+        <CardFooter printerId={printer.id} canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
       </div>
     </div>
   );

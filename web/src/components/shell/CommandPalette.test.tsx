@@ -48,6 +48,7 @@ vi.mock("@/api/categories", () => ({
 
 vi.mock("@/api/library", () => ({
   useModelSearchQuery: () => ({ data: undefined }),
+  useRecentModelsQuery: () => ({ data: undefined }),
 }));
 
 function renderPalette(open: boolean) {

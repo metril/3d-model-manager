@@ -58,7 +58,7 @@ const MESH_FILE: FileOut = { ...SLICED_FILE, id: 8, format: "stl", kind: "mesh",
 // Only `printer_enabled` matters to this component -- `Pick` keeps every
 // call site above from having to also stub the Round 8 T6 slicer-watch
 // fields.
-function mockApi(features: Pick<Features, "printer_enabled">, printers: PrinterOut[]) {
+function mockApi(features: Pick<Features, "printer_enabled"> & Partial<Features>, printers: PrinterOut[]) {
   getMock.mockImplementation((path: string) => {
     if (path === "/features") return Promise.resolve(features);
     if (path === "/printers") return Promise.resolve(printers);
@@ -97,6 +97,14 @@ describe("SendToPrinterButton", () => {
 
     await waitFor(() => expect(getMock).toHaveBeenCalledWith("/features"));
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("offers a slice-and-print trigger for a mesh file only when the slicer is configured", async () => {
+    mockApi({ printer_enabled: true, slicer_configured: true }, [PRINTER]);
+
+    renderButton(MESH_FILE);
+
+    expect(await screen.findByRole("button", { name: `Slice and print ${MESH_FILE.rel_path}` })).toBeInTheDocument();
   });
 
   it("renders nothing when there are no printers configured", async () => {

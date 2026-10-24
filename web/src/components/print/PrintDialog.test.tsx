@@ -143,6 +143,12 @@ function mockApi({
     if (path.startsWith("/profiles")) {
       return Promise.resolve([PRINTER_PROFILE]);
     }
+    if (path === "/printers") {
+      return Promise.resolve([{ id: 5, name: "Printer A", model: "A1" }]);
+    }
+    if (path.startsWith("/models?")) {
+      return Promise.resolve({ items: [{ id: 42, name: "Benchy" }], next_cursor: null });
+    }
     if (path === "/recipes") {
       return Promise.resolve([RECIPE]);
     }
@@ -500,10 +506,56 @@ describe("PrintDialog", () => {
 
     const sliceAndSend = await screen.findByRole("button", { name: "Slice and send" });
     expect(sliceAndSend).toBeDisabled();
-    expect(sliceAndSend).toHaveAttribute("title", "Slicer sidecar unavailable");
+    expect(sliceAndSend).toHaveAttribute("title", expect.stringContaining("Slicer sidecar unavailable"));
     // M6: "Add to queue" with a recipe only enqueues it for the dispatcher
     // to slice later -- it never calls the sidecar itself, so it must stay
     // enabled even while the sidecar is down.
     expect(screen.getByRole("button", { name: "Add to queue" })).toBeEnabled();
+  });
+
+  it("uses a width class that survives the base dialog's sm:max-w-sm", async () => {
+    mockApi();
+    renderDialog({ kind: "pick" });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.className).toContain("sm:max-w-3xl");
+    expect(dialog.className.split(" ")).not.toContain("max-w-3xl");
+  });
+
+  it("titles the dialog with the printer and lists recent models on the pick step", async () => {
+    mockApi();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PrintDialog open onOpenChange={() => {}} source={{ kind: "pick" }} printerId={5} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Print on Printer A")).toBeTruthy();
+    expect(await screen.findByText("Benchy")).toBeTruthy();
+    expect(screen.getByText("Recent models")).toBeTruthy();
+  });
+
+  it("disables Slice and send until a source file is picked (recipe mode, several sources)", async () => {
+    mockApi();
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/features") return Promise.resolve({ printer_enabled: true, slicer_configured: true });
+      if (path === "/models/3/revisions") return Promise.resolve([{ id: 103 }]);
+      if (path === "/revisions/103")
+        return Promise.resolve({
+          files: [
+            { id: 21, rel_path: "a.stl", format: "stl" },
+            { id: 22, rel_path: "b.stl", format: "stl" },
+          ],
+        });
+      return base(path);
+    });
+    renderDialog({ kind: "model", modelId: 3 });
+    expect(await screen.findByText("a.stl")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const btn = await screen.findByRole("button", { name: "Slice and send" });
+    expect(btn).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add to queue" })).toBeDisabled();
   });
 });

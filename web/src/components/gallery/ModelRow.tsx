@@ -162,7 +162,9 @@ export function ModelRow({
         <span className="contents" onClick={stopRowNavigation}>
           <div className="flex shrink-0 items-center gap-1">
             {model.best_slicer_file && <OpenInSlicerButton file={model.best_slicer_file} size="icon-sm" />}
-            {model.printable_file && <SendToPrinterButton file={model.printable_file} />}
+            {(model.printable_file ?? model.best_slicer_file) && (
+              <SendToPrinterButton file={(model.printable_file ?? model.best_slicer_file)!} />
+            )}
           </div>
         </span>
       )}

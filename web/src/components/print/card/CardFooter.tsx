@@ -7,10 +7,12 @@ import { PrintDialog } from "@/components/print/PrintDialog";
 import { Button } from "@/components/ui/button";
 
 export function CardFooter({
+  printerId,
   canPrint,
   online,
   extra,
 }: {
+  printerId?: number;
   canPrint: boolean;
   online: boolean;
   /** `footer-extra` slot: Q4 `CameraSplitButton`, Q7 `PlugRow`. */
@@ -27,7 +29,7 @@ export function CardFooter({
           {t("card.footer.print")}
         </Button>
       ) : null}
-      {printOpen ? <PrintDialog open onOpenChange={setPrintOpen} source={{ kind: "pick" }} /> : null}
+      {printOpen ? <PrintDialog open onOpenChange={setPrintOpen} source={{ kind: "pick" }} printerId={printerId} /> : null}
     </div>
   );
 }

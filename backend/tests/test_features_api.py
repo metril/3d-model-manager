@@ -25,6 +25,7 @@ async def test_features_disabled_by_default(authenticated_client):
         "watch_dir": None,
         "watch_enabled": False,
         "virtual_printer_enabled": False,
+        "slicer_configured": False,
     }
 
 
@@ -35,6 +36,7 @@ async def test_features_enabled(authenticated_client, printer_enabled):
         "watch_dir": None,
         "watch_enabled": False,
         "virtual_printer_enabled": False,
+        "slicer_configured": False,
     }
 
 
@@ -107,3 +109,11 @@ async def test_features_db_row_overrides_env(
     assert body["printer_enabled"] is True
     assert body["watch_dir"] == str(watch)
     assert body["watch_enabled"] is True
+
+
+async def test_features_slicer_configured(authenticated_client, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
+    get_settings.cache_clear()
+    r = await authenticated_client.get("/api/features")
+    assert r.json()["slicer_configured"] is True
+    get_settings.cache_clear()

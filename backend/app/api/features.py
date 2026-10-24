@@ -40,4 +40,5 @@ async def get_features(
         "watch_dir": str(settings.watch_dir) if settings.watch_dir else None,
         "watch_enabled": settings.watch_dir is not None and config.watch_interval_s > 0,
         "virtual_printer_enabled": settings.vp_enabled,
+        "slicer_configured": bool(settings.slicer_url),
     }

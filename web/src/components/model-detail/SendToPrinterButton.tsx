@@ -1,6 +1,7 @@
 /**
  * Per-sliced-file "Print" button (Files tab): only renders for a sliced
- * `.gcode.3mf` blob (`format === "gcode_3mf"`), and only while the printer
+ * `.gcode.3mf` blob (or, with the slicer sidecar configured, a sliceable
+ * 3mf/stl/step/obj source, opened in recipe mode), and only while the printer
  * feature is on and at least one printer is configured -- otherwise it
  * self-hides rather than showing a disabled control.
  *
@@ -27,19 +28,21 @@ export function SendToPrinterButton({ file }: { file: FileOut }) {
   const [open, setOpen] = useState(false);
   const allowed = (printers.data ?? []).filter((p) => canPrinter(p.id, "print"));
 
-  if (!enabled || file.format !== "gcode_3mf" || allowed.length === 0) return null;
+  const sliced = file.format === "gcode_3mf";
+  const sliceable = !!features.data?.slicer_configured && ["3mf", "stl", "step", "obj"].includes(file.format);
+  if (!enabled || !(sliced || sliceable) || allowed.length === 0) return null;
   return (
     <>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={`Print ${file.rel_path}`}
+        aria-label={sliced ? `Print ${file.rel_path}` : `Slice and print ${file.rel_path}`}
         onClick={() => setOpen(true)}
       >
         <PrinterIcon className="size-4" />
       </Button>
-      <PrintDialog open={open} onOpenChange={setOpen} source={{ kind: "file", fileId: file.id }} />
+      <PrintDialog open={open} onOpenChange={setOpen} source={{ kind: "file", fileId: file.id }} sliceOnly={!sliced} />
     </>
   );
 }
