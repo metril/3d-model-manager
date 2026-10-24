@@ -107,7 +107,8 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "A storage-location sensor (e.g. humidity) crossed its alert threshold.",
         "{{ location|default('Storage') }}: {{ sensor|default('sensor') }} alert",
         "{{ sensor|default('Sensor') }} at {{ location|default('a storage location') }} reads "
-        "{{ state }}{{ unit }} ({{ direction|default('out of range') }} {{ threshold }}{{ unit }}).",
+        "{{ state }}{{ unit }} ({{ direction|default('out of range') }} "
+        "{{ threshold }}{{ unit }}).",
         {
             "location": "Dry cabinet",
             "sensor": "Humidity",
