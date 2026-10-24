@@ -1,19 +1,18 @@
 # Slicer sidecar -- our own FastAPI wrapper (./slicer) around the Bambu Studio
-# CLI. Profile `slicer`: `docker compose --profile slicer up -d` (or set
-# `COMPOSE_PROFILES=slicer` in `.env`, same convention as the printer/beat
-# profiles -- see `.env.example`). Set TDMM_SLICER_URL=http://slicer:3001 to
-# switch the integration on.
+# CLI. Always on (no profile); Settings -> Server enables/disables the
+# integration and sets its URL (default http://slicer:3001).
 #
 # `app.services.slicer_client.SlicerClient` talks to it. The release workflow
-# publishes `ghcr.io/<owner>/tdmm-slicer:<bambu-version>-<sha>`; set
-# SLICER_TAG to that to use the published image instead of building locally.
-# The Bambu Studio AppImage is pinned (version + sha256) in slicer/Dockerfile.
+# publishes ghcr.io/metril/3d-model-manager-slicer (:edge, :sha-<short>,
+# :<bambu-version>-<sha>, and :X.Y.Z/:X.Y/:X/:latest on releases);
+# compose.prod.yaml pulls it. Standalone, set SLICER_IMAGE to use a published
+# tag instead of the local build. The Bambu Studio AppImage is pinned
+# (version + sha256) in slicer/Dockerfile.
 services:
   slicer:
     build: ./slicer
-    image: tdmm-slicer:${SLICER_TAG:-local}
+    image: ${SLICER_IMAGE:-tdmm-slicer:local}
     platform: linux/amd64
-    profiles: [slicer]
     expose:
       - "3001"
     environment:

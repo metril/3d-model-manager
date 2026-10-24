@@ -57,8 +57,11 @@ subsequent command without repeating it. Unset, it defaults to `latest`. See
 "Releases & versioning" below for what each published tag means.
 
 All five app services — `api`, `worker-io`, `worker-cpu`, `beat`, `printerd` —
-run this **one** image; they differ only by the `ROLE` env var and their
-`command`. There is nothing to pull per-service.
+and the `virtual-printer` run this **one** image; they differ only by the
+`ROLE` env var and their `command`. The overlay also pulls the published
+slicer sidecar, `ghcr.io/metril/3d-model-manager-slicer:${IMAGE_TAG}`
+(amd64; versioned in lockstep with the app, so no extra variable).
+**Note:** `ghcr.io/metril/3d-model-manager-slicer:latest` only exists after the first release published following this change; until then use `IMAGE_TAG=edge` (or skip the slicer with `docker compose stop slicer`).
 
 Confirm what's actually running:
 
@@ -93,9 +96,40 @@ into: `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
 metadata/GLB-conversion/thumbnail pipeline, one process per core,
 memory-recycled -- see "Worker split" below), `beat` (ticks the scan/
 collection-sync/watched-folder dispatcher), `printerd` (the Bambu LAN MQTT
-supervisor), `db` (Postgres 16), and `redis`. `beat` and `printerd` idle
-harmlessly when their corresponding features are off in Settings — see
-"Scheduled scan" and "Printer integration" below. The api container runs
+supervisor), `slicer` and `obico-ml` (sidecars), `virtual-printer` (a fake
+LAN Bambu printer), `db` (Postgres 16), and `redis`. `beat`, `printerd`,
+`virtual-printer` and the sidecars idle harmlessly when their features are off
+in Settings — see "Scheduled scan" and "Printer integration" below. The
+sidecars are **always-on**: they cost RAM (the slicer is capped at 4 GiB) and
+disk (the obico-ml image is large). Turning one off in **Settings → Server**
+stops the app using it, not the container; run `docker compose stop slicer
+obico-ml` to reclaim the resources.
+
+**Virtual printer.** The `virtual-printer` container is host-networked (so
+slicers on your LAN can discover it over SSDP) and therefore cannot resolve
+`db`/`redis` by name. Compose instead publishes Postgres and Redis on
+**loopback only** — `127.0.0.1:15432` and `127.0.0.1:16379` (override with
+`TDMM_DB_HOST_PORT` / `TDMM_REDIS_HOST_PORT`) — and overrides the container's
+`DATABASE_URL`/`REDIS_URL` to point there, using the same `POSTGRES_*`
+credentials as the `db` service. Nothing to configure on a fresh deploy. It
+binds no ports until a virtual printer is enabled under **Settings →
+Printer**; the SSDP/MQTT/FTP ports (default 2021/udp, 8883, 990) and PASV range
+are editable under **Settings → Server** and apply without a restart. A port
+conflict shows as an error there instead of crashing the container.
+
+**Server settings.** Everything that used to be env-only — the public URL
+(and with it the OIDC callback and the `Secure` cookie flag), upload/download
+caps, SSE heartbeat, log level, slicer and Obico URLs/timeouts, and the
+virtual-printer network (bind, ports, PASV range) — lives in the database and
+is edited live from the admin-only **Settings → Server** tab, with health
+badges for the sidecars. The old env vars (`TDMM_PUBLIC_URL`, `MAX_UPLOAD_BYTES`,
+`MAX_DOWNLOAD_BYTES`, `SSE_HEARTBEAT_INTERVAL`, `TDMM_SLICER_URL`,
+`TDMM_SLICE_TIMEOUT_S`, `TDMM_OBICO_URL`, `TDMM_OBICO_CALLBACK`,
+`TDMM_VP_BIND`/`PORT_*`/`PASV_*`) only **seed the very first boot**; after
+that they are ignored (a startup warning and a banner in the Server tab name
+any still set). `COOKIE_SECURE` and `TDMM_VP_ENABLED` are gone.
+
+The api container runs
 Alembic migrations on startup, then serves both the JSON API (`/api/...`)
 and the built frontend SPA at <http://localhost:8080>.
 
@@ -154,7 +188,7 @@ Authentik example:
 3. Map IdP group names to TDMM groups (`group_mapping`), and optionally set `admin_group` to promote its members to admin on each login. The last active admin is never demoted by a sync.
 4. Accounts are matched by issuer and subject. Enable `link_by_email` to attach an existing account by e-mail (only when the IdP reports `email_verified: true`; require it in Authentik), and `auto_create_users` to create `member` accounts on first login.
 
-Keycloak: use `groups_claim = realm_access.roles`. Set `TDMM_PUBLIC_URL` when running behind a reverse proxy so the callback origin is correct.
+Keycloak: use `groups_claim = realm_access.roles`. Set the **Public URL** (Settings → Server) when running behind a reverse proxy so the callback origin is correct. If the proxy terminates TLS on the docker network, either set `FORWARDED_ALLOW_IPS` in `.env` (the proxy's IP/CIDR, or `*`; default `127.0.0.1`) so the request scheme is seen as https, or simply set the Public URL to an `https://` address — the cookie `Secure` flag follows it, which is the simpler option.
 
 ## Upgrading
 
@@ -193,7 +227,8 @@ docker compose up -d --build
 If you're upgrading a deployment from before the Settings-UI move (Round
 10): the five old env vars (`PRINTER_ENABLED`, `SCAN_INTERVAL`,
 `COLLECTION_SYNC_INTERVAL`, `WATCH_INTERVAL`, `WATCH_STABLE`) and
-`COMPOSE_PROFILES`/`--profile` are all obsolete. On the first boot after
+`COMPOSE_PROFILES`/`--profile` are all obsolete (the slicer, Obico and
+virtual-printer profiles are gone too — those containers always start). On the first boot after
 upgrading, whichever of the five env vars are still set in `.env` seed the
 new database-backed settings exactly once (a startup warning in the api
 logs names any it saw); every boot after that ignores them completely, and
@@ -414,17 +449,21 @@ used rather than a flat filament-cost assumption.
 
 ### Slicing, profiles & recipes
 
-**Off by default, like printer integration.** A *recipe* pairs a printer
+A *recipe* pairs a printer
 profile, a process profile and (optionally) filament profiles into one
 named preset, so **Files → Print**'s Profile step can offer "slice and
 send" for an unsliced source file (3MF/STL/STEP/OBJ) instead of requiring
-an already-sliced `.gcode.3mf`. Enable it with
-`docker compose --profile slicer up -d` (or `COMPOSE_PROFILES=slicer` in
-`.env`), which builds and starts the `slicer` sidecar (`./slicer`, a
-FastAPI wrapper around a pinned Bambu Studio CLI, `compose.slicer.yaml`).
-`TDMM_SLICER_URL` (`.env.example`) points the API at it; unset,
-no slicer integration and recipe actions stay disabled (`GET /api/slicer/
-health` reports `configured: false`).
+an already-sliced `.gcode.3mf`. The `slicer` sidecar (`./slicer`, a
+FastAPI wrapper around a pinned Bambu Studio CLI, `compose.slicer.yaml`)
+starts with the stack and is enabled by default; **Settings → Server**
+holds the on/off switch, URL (default `http://slicer:3001`), timeout, a
+health badge and a Test button. No env var is needed. With
+`compose.prod.yaml` the published image
+`ghcr.io/metril/3d-model-manager-slicer` (tags `edge`, `sha-<short>`,
+`<bambu>-<sha>`, and `X.Y.Z`/`X.Y`/`X`/`latest` per release; amd64 only) is
+pulled; a source build uses `tdmm-slicer:local`. Set `SLICER_IMAGE` in `.env`
+to pin another tag. With the slicer disabled, recipe actions stay off
+(`GET /api/slicer/health` reports `configured: false`).
 
 **Profiles** (`/inventory/profiles`) are the raw printer/process/filament
 JSON a slicer bundle exports, each tagged with a `kind` and (for printer
@@ -483,9 +522,8 @@ consume an attempt. Revoking a user's `inventory:write`/`printers:control`
 permission after they enqueued an item holds it (`held`) rather than
 silently dispatching on their behalf.
 
-`docker compose up` **without** `--profile slicer` still starts every other
-service — the slicer sidecar is additive, same posture as the printer
-integration.
+Disabling the slicer in **Settings → Server** leaves every other feature
+untouched; the container keeps idling until you `docker compose stop slicer`.
 
 ### Job review & budgets
 

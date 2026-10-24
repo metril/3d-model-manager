@@ -190,7 +190,9 @@ jobs:
 
   # Slicer sidecar image: build, run the real smoke slice (20 mm cube with the
   # bundled A1 mini profiles) against the container, then publish
-  # tdmm-slicer:<bambu-version>-<sha>. Independent of the app image.
+  # ghcr.io/<owner>/3d-model-manager-slicer. Independent of the app image.
+  # Every push to main: :edge, :sha-<short>, :<bambu-version>-<sha>. A release
+  # run additionally: :X.Y.Z, :X.Y, :X, :latest (same ladder as the app image).
   slicer-image:
     name: Slicer sidecar image
     needs: [release-please, slicer-wrapper]
@@ -202,11 +204,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-buildx-action@v4
-      - name: Resolve tag
+      - name: Resolve tags
         id: tag
+        env:
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+          MAJOR: ${{ needs.release-please.outputs.major }}
+          MINOR: ${{ needs.release-please.outputs.minor }}
         run: |
-          ver=$(sed -n 's/^ARG BAMBU_VERSION=//p' slicer/Dockerfile)
-          echo "value=${ver}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/3d-model-manager-slicer"
+          bambu=$(sed -n 's/^ARG BAMBU_VERSION=//p' slicer/Dockerfile)
+          tags="$img:edge $img:sha-${GITHUB_SHA::7} $img:${bambu}-${GITHUB_SHA::7}"
+          if [ "$RELEASE_CREATED" = "true" ]; then
+            tags="$tags $img:latest $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
+          fi
+          echo "list=${tags}" >> "$GITHUB_OUTPUT"
       - name: Build (loaded locally)
         uses: docker/build-push-action@v7
         with:
@@ -229,10 +241,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish
+        env:
+          TAGS: ${{ steps.tag.outputs.list }}
         run: |
-          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/tdmm-slicer"
-          docker tag tdmm-slicer:smoke "$img:${{ steps.tag.outputs.value }}"
-          docker push "$img:${{ steps.tag.outputs.value }}"
+          for t in $TAGS; do
+            docker tag tdmm-slicer:smoke "$t"
+            docker push "$t"
+          done
 
   build:
     name: Build ${{ matrix.arch }}
@@ -492,6 +507,10 @@ jobs:
             `linux/amd64`. One image serves every app service (`api`,
             `worker-io`, `worker-cpu`, `beat`, `printerd`) — they differ only by
             `ROLE`/`command`.
+
+            The slicer sidecar is published alongside as
+            `ghcr.io/${{ github.repository }}-slicer:${{ needs.release-please.outputs.version }}`
+            (`compose.prod.yaml` pulls it with the same `IMAGE_TAG`).
 
             ## Deploying
 
