@@ -29,10 +29,9 @@ export function PostPrintConfirmDialog() {
   const features = useFeatures();
   const verdict = useArchiveVerdict();
   const [snoozed, setSnoozed] = useState<number[]>(readSnoozed);
-  // The list endpoint has no `confirm_pending` filter: scan the newest page.
   const q = useQuery({
     queryKey: ["archives", "pending-confirm"] as const,
-    queryFn: () => api.get<ArchiveOut[]>("/archives?limit=20"),
+    queryFn: () => api.get<ArchiveOut[]>("/archives?confirm_pending=1&mine=1&limit=20"),
     enabled: !!features.data?.printer_enabled && me != null,
     refetchInterval: 30_000,
   });

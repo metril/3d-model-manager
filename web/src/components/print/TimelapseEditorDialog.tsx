@@ -42,14 +42,14 @@ function Editor({ archive, onDone }: { archive: ArchiveOut; onDone: () => void }
       toast.success(t("archiveX.timelapse.done"));
       void qc.invalidateQueries({ queryKey: ["archives"] });
       onDone();
-    } else if (state === "error") {
+    } else if (state === "error" || job.isError) {
       toast.error(job.data?.error ?? t("archiveX.timelapse.failed"));
       setJobId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, job.isError]);
 
-  const busy = process.isPending || (jobId != null && state !== "error");
+  const busy = process.isPending || (jobId != null && state !== "error" && !job.isError);
   const submit = () =>
     process.mutate(
       { trim_start: start, ...(end != null && end < duration ? { trim_end: end } : {}), speed, save_mode: mode },

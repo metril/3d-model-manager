@@ -208,6 +208,12 @@
       "override": "Result override",
       "overrideNone": "Recorded ({{result}})",
       "reset": "Reset",
+    "results": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "stopped": "Stopped"
+    },
       "delete": "Delete run",
       "deleteTitle": "Delete this archived run?",
       "deleteDesc": "Removes the archive and its stored files. The print job record is kept."
@@ -219,6 +225,13 @@
       "good": "Marked good",
       "bad": "Marked bad",
       "via": "via {{source}}",
+    "sources": {
+      "dialog": "dialog",
+      "link": "notification link",
+      "plate_clear": "plate cleared",
+      "card": "run card",
+      "api": "API"
+    },
       "failed": "Couldn't record the verdict",
       "later": "Later",
       "dialogDesc": "{{name}} on {{printer}} has finished."

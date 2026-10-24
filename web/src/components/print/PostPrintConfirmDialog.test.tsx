@@ -27,6 +27,7 @@ describe("PostPrintConfirmDialog", () => {
     ]);
     renderQ(<PostPrintConfirmDialog />);
     expect(await screen.findByText(/Mine on A1/)).toBeInTheDocument();
+    expect(m.get).toHaveBeenCalledWith("/archives?confirm_pending=1&mine=1&limit=20");
     fireEvent.click(screen.getByRole("button", { name: "Good" }));
     await waitFor(() => expect(m.post).toHaveBeenCalledWith("/archives/3/verdict", { verdict: "good", source: "dialog" }));
   });

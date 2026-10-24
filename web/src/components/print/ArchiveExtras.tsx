@@ -34,7 +34,7 @@ export function VerdictCard({ archive, canWrite }: { archive: ArchiveOut; canWri
           {archive.user_verdict === "good" ? t("archiveX.verdict.good") : t("archiveX.verdict.bad")}
         </p>
         <p className="text-xs text-muted-foreground">
-          {t("archiveX.verdict.via", { source: archive.user_verdict_source ?? "api" })}
+          {t("archiveX.verdict.via", { source: t(`archiveX.verdict.sources.${archive.user_verdict_source ?? "api"}`) })}
           {archive.verdict_at ? ` · ${formatDateTime(archive.verdict_at)}` : ""}
         </p>
       </section>
@@ -84,8 +84,8 @@ export function ArchiveEditor({
   const fail = (e: unknown) => toast.error(errText(e, t("archiveX.edit.failed")));
 
   const addTag = () => {
-    const v = draft.trim();
-    if (v && !tags.includes(v) && tags.length < 20) setTags([...tags, v.slice(0, 40)]);
+    const v = draft.trim().slice(0, 40);
+    if (v && !tags.includes(v) && tags.length < 20) setTags([...tags, v]);
     setDraft("");
   };
 
@@ -160,7 +160,7 @@ export function ArchiveEditor({
               <option value="">{t("archiveX.edit.overrideNone", { result: archive.recorded_result ?? archive.result })}</option>
               {RESULTS.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {t(`archiveX.edit.results.${r}`)}
                 </option>
               ))}
             </select>
@@ -279,7 +279,7 @@ export function PhotoGallery({ archive, canWrite }: { archive: ArchiveOut; canWr
         title={t("archiveX.photos.deleteTitle")}
         confirmLabel={t("archiveX.photos.delete")}
         destructive
-        onConfirm={() => toDelete && del.mutate(toDelete)}
+        onConfirm={() => toDelete && del.mutate(toDelete, { onError: (e) => toast.error(errText(e, t("archiveX.photos.failed"))) })}
       />
     </section>
   );

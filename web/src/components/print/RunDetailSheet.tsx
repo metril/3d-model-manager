@@ -194,7 +194,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
         key={archive.id}
         archive={archive}
         canWrite={canWriteArchive}
-        canOverride={isAdmin || canPrint}
+        canOverride={canWriteArchive}
         isAdmin={isAdmin}
         onDeleted={onDeleted}
       />

@@ -29,7 +29,7 @@ describe("VerdictCard", () => {
       />,
     );
     expect(screen.getByText("Marked good")).toBeInTheDocument();
-    expect(screen.getByText(/via link/)).toBeInTheDocument();
+    expect(screen.getByText(/via notification link/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Good" })).toBeNull();
   });
 });

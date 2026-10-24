@@ -82,9 +82,8 @@ export function PrintJobHistory({
   const [openId, setOpenId] = useState<number | null>(null);
   const printers = usePrinters();
   const effectivePrinterId = fixedPrinterId ?? printerId;
-  const archives = useArchives({ printerId: effectivePrinterId, result, ...(date ? { limit: 200 } : {}) });
-  // The backend has no date filter: the calendar's day is applied client-side.
-  const rows = date ? (archives.data ?? []).filter((r) => r.created_at.slice(0, 10) === date) : archives.data;
+  const archives = useArchives({ printerId: effectivePrinterId, result, ...(date ? { from: date, to: date } : {}) });
+  const rows = archives.data;
 
   return (
     <Card>

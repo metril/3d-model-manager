@@ -32,6 +32,9 @@ export interface ArchiveFilters {
   result?: ArchiveResult;
   modelId?: number;
   limit?: number;
+  /** Inclusive YYYY-MM-DD bounds (UTC day of created_at). */
+  from?: string;
+  to?: string;
 }
 
 export function useArchives(filters: ArchiveFilters = {}) {
@@ -40,9 +43,11 @@ export function useArchives(filters: ArchiveFilters = {}) {
   if (filters.result) params.set("result", filters.result);
   if (filters.modelId != null) params.set("model", String(filters.modelId));
   if (filters.limit != null) params.set("limit", String(filters.limit));
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
   const qs = params.toString();
   return useQuery({
-    queryKey: ["archives", filters.printerId ?? null, filters.result ?? null, filters.modelId ?? null, filters.limit ?? null] as const,
+    queryKey: ["archives", filters.from ?? null, filters.to ?? null, filters.printerId ?? null, filters.result ?? null, filters.modelId ?? null, filters.limit ?? null] as const,
     queryFn: () => api.get<ArchiveOut[]>(`/archives${qs ? `?${qs}` : ""}`),
     refetchInterval: (q) => archivesRefetchInterval(q.state.data),
   });
@@ -168,7 +173,9 @@ export function useTimelapseJob(id: number, jobId: string | null) {
     queryKey: ["archives", "timelapse", id, "job", jobId] as const,
     queryFn: () => api.get<TimelapseJobState>(`/archives/${id}/timelapse/jobs/${jobId}`),
     enabled: jobId != null,
-    refetchInterval: (q) => (q.state.data?.state === "done" || q.state.data?.state === "error" ? false : 1500),
+    retry: false,
+    refetchInterval: (q) =>
+      q.state.status === "error" || q.state.data?.state === "done" || q.state.data?.state === "error" ? false : 1500,
   });
 }
 

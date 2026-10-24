@@ -185,7 +185,7 @@ describe("RunDetailSheet", () => {
     auth({ canPrint: false });
     renderSheet();
     expect(screen.getByTestId("verdict-card")).toHaveTextContent("true");
-    expect(screen.getByTestId("archive-editor")).toHaveTextContent("true/false/false");
+    expect(screen.getByTestId("archive-editor")).toHaveTextContent("true/true/false");
   });
 
   it("admins get override + delete", () => {
