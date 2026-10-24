@@ -22,6 +22,7 @@ import { ColorCatalogPicker } from "@/components/inventory/ColorCatalogPicker";
 import { LocationCombobox } from "@/components/inventory/LocationCombobox";
 import { SupplierListEditor } from "@/components/inventory/SupplierListEditor";
 import { useAuth } from "@/api/auth";
+import { SpoolKProfilesSection } from "@/components/inventory/SpoolKProfilesSection";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -372,6 +373,8 @@ export function SpoolForm({
                 readOnly={rfidLocked}
               />
             </div>
+
+            {spool ? <SpoolKProfilesSection spoolId={spool.id} canWrite={canWrite} /> : null}
 
             {putSuppliers.isError ? (
               <p role="alert" className="text-sm text-destructive">
