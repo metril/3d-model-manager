@@ -1,0 +1,11 @@
+# T4-be live verification (A1 Mini)
+
+Prereqs: stack rebuilt on this branch, `alembic upgrade head`, A1 Mini online, a sliced `.gcode.3mf` of a small test print (a few minutes), notifications channel subscribed to `queue_item_skipped`.
+
+1. **Scheduled start.** `POST /api/queue {file_id, printer_id, scheduled_at: now+5min}`. Entry shows `waiting_reason: "scheduled"`; nothing sent for 5 min; after due time the next beat tick (~seconds) dispatches. `POST /api/queue/{id}/cancel-schedule` on a second entry makes it dispatch immediately.
+2. **Manual start.** Enqueue with `manual_start: true`: stays `waiting_reason: "manual"` while the printer is idle. `POST /api/queue/{id}/start` (reviewer/admin) -> dispatches within a tick; `released_at` set.
+3. **Require previous success.** Enqueue #1 and #2 (both `require_previous_success: true`, same printer). Cancel is neutral: cancelling #1 mid-print still runs #2. Repeat, but make #1 fail (pull filament / stop via a real fault so the job ends FAILED): #2 becomes `state: skipped`, `skipped_reason: "previous_failed"`, and a `queue_item_skipped` notification arrives. `POST /api/printers/{id}/queue/resume` re-queues #2 and it prints.
+4. **Bed soak.** `PUT /api/settings/queue-preheat {enabled: true, bed_targets: {"PLA": 60}, soak_s: 60}`. Enqueue a PLA print on the cold A1 Mini: entry shows `stage: "preheating"` (bed climbs to ~60), then `"soaking"` for 60 s, then dispatches. Override with `preheat_override: "off"` skips it. (Chamber `M141` path is fixture-only: the A1 Mini has no chamber heater.)
+5. **Keep-warm.** Enable `keep_warm_enabled` (bed 45 C, 30 min). Queue two prints; when #1 finishes the bed holds ~45 C until #2 starts; with nothing queued the bed target is released.
+6. **Auto power-off.** With a smart plug on the printer, enqueue with `auto_off_after: true`: after the print finishes and the nozzle is below 50 C the plug turns off (AuditLog `queue_auto_off`). Repeat with another entry queued behind it: plug stays on.
+7. **Batch.** `POST /api/batches {name, file_id, quantity: 3}` then `/dispatch`: 3 queue entries (`copies: 1`) tagged with the batch; `GET /api/batches/{id}` progress updates as they print; `DELETE` removes waiting ones.
