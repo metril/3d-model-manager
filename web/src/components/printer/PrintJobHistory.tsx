@@ -4,13 +4,18 @@
  * pulling artifacts off the printer (`archivesRefetchInterval`).
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { archiveThumbnailUrl, useArchives } from "@/api/archives";
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import type { ArchiveOut, ArchiveResult } from "@/api/types";
+import { CompareBar } from "@/components/print/ArchiveCompareDialog";
+import { useRunSelection } from "@/components/print/useRunSelection";
 import { RunDetailSheet } from "@/components/print/RunDetailSheet";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,10 +25,28 @@ import { formatCost, formatDateTime, humanizeDuration } from "@/lib/format";
 const RESULTS: ArchiveResult[] = ["completed", "failed", "canceled", "stopped"];
 const ALL = "all";
 
-function RunRow({ run, onOpen }: { run: ArchiveOut; onOpen: () => void }) {
+function RunRow({
+  run,
+  onOpen,
+  selected,
+  onToggle,
+}: {
+  run: ArchiveOut;
+  onOpen: () => void;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
   const name = run.model_name ?? run.subtask_name ?? `Run #${run.id}`;
   return (
     <TableRow className="cursor-pointer" onClick={onOpen}>
+      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggle}
+          aria-label={t("archiveX.compare.select", { name })}
+        />
+      </TableCell>
       <TableCell className="w-12">
         {run.has_thumbnail ? (
           <img src={archiveThumbnailUrl(run.id)} alt="" className="size-10 rounded object-cover" />
@@ -47,13 +70,20 @@ function RunRow({ run, onOpen }: { run: ArchiveOut; onOpen: () => void }) {
   );
 }
 
-export function PrintJobHistory({ printerId: fixedPrinterId }: { printerId?: number } = {}) {
+export function PrintJobHistory({
+  printerId: fixedPrinterId,
+  date,
+  onClearDate,
+}: { printerId?: number; date?: string; onClearDate?: () => void } = {}) {
+  const { t } = useTranslation();
+  const selection = useRunSelection();
   const [printerId, setPrinterId] = useState<number | undefined>();
   const [result, setResult] = useState<ArchiveResult | undefined>();
   const [openId, setOpenId] = useState<number | null>(null);
   const printers = usePrinters();
   const effectivePrinterId = fixedPrinterId ?? printerId;
-  const archives = useArchives({ printerId: effectivePrinterId, result });
+  const archives = useArchives({ printerId: effectivePrinterId, result, ...(date ? { from: date, to: date } : {}) });
+  const rows = archives.data;
 
   return (
     <Card>
@@ -97,6 +127,12 @@ export function PrintJobHistory({ printerId: fixedPrinterId }: { printerId?: num
               ))}
             </SelectContent>
           </Select>
+          {date ? (
+            <Button size="sm" variant="secondary" onClick={onClearDate}>
+              {t("archiveX.calendar.clearDate", { date })}
+            </Button>
+          ) : null}
+          <CompareBar selection={selection} />
         </div>
       </CardHeader>
       <CardContent>
@@ -106,12 +142,13 @@ export function PrintJobHistory({ printerId: fixedPrinterId }: { printerId?: num
           <p role="alert" className="text-sm text-destructive">
             {archives.error instanceof ApiError ? archives.error.detail : "Couldn't load print history."}
           </p>
-        ) : !archives.data || archives.data.length === 0 ? (
+        ) : !rows || rows.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">No finished prints yet.</p>
         ) : (
           <Table className="data-table">
             <TableHeader>
               <TableRow>
+                <TableHead />
                 <TableHead />
                 <TableHead>Name</TableHead>
                 <TableHead>Printer</TableHead>
@@ -124,8 +161,14 @@ export function PrintJobHistory({ printerId: fixedPrinterId }: { printerId?: num
               </TableRow>
             </TableHeader>
             <TableBody>
-              {archives.data.map((run) => (
-                <RunRow key={run.id} run={run} onOpen={() => setOpenId(run.id)} />
+              {rows.map((run) => (
+                <RunRow
+                  key={run.id}
+                  run={run}
+                  onOpen={() => setOpenId(run.id)}
+                  selected={selection.ids.includes(run.id)}
+                  onToggle={() => selection.toggle(run.id)}
+                />
               ))}
             </TableBody>
           </Table>

@@ -23,6 +23,14 @@ vi.mock("@/api/auth", () => ({ useAuth: () => authMock() }));
 // it's stubbed to just a visible marker when open, so this file only
 // asserts RunDetailSheet's OWN logic: whether Reprint shows, and that
 // clicking it opens the dialog with the archive source.
+vi.mock("@/components/print/ArchiveExtras", () => ({
+  VerdictCard: ({ canWrite }: { canWrite: boolean }) => <div data-testid="verdict-card">{String(canWrite)}</div>,
+  ArchiveEditor: ({ canWrite, canOverride, isAdmin }: { canWrite: boolean; canOverride: boolean; isAdmin: boolean }) => (
+    <div data-testid="archive-editor">{`${canWrite}/${canOverride}/${isAdmin}`}</div>
+  ),
+  PhotoGallery: () => null,
+}));
+vi.mock("@/components/print/TimelapseEditorDialog", () => ({ TimelapseEditorDialog: () => null }));
 vi.mock("@/components/print/PrintDialog", () => ({
   PrintDialog: ({ open, source }: { open: boolean; source: { kind: string; archiveId?: number } }) =>
     open ? <div data-testid="print-dialog">{`${source.kind}:${source.archiveId}`}</div> : null,
@@ -171,5 +179,29 @@ describe("RunDetailSheet", () => {
     renderSheet();
     fireEvent.click(screen.getByRole("button", { name: "Reprint" }));
     expect(screen.getByTestId("print-dialog")).toHaveTextContent("archive:3");
+  });
+
+  it("wires the archive extras: members who own the run can edit, delete is admin-only", () => {
+    auth({ canPrint: false });
+    renderSheet();
+    expect(screen.getByTestId("verdict-card")).toHaveTextContent("true");
+    expect(screen.getByTestId("archive-editor")).toHaveTextContent("true/true/false");
+  });
+
+  it("admins get override + delete", () => {
+    auth({ role: "admin" });
+    renderSheet();
+    expect(screen.getByTestId("archive-editor")).toHaveTextContent("true/true/true");
+  });
+
+  it("offers Edit timelapse only with a timelapse and printers:print", () => {
+    archiveMock.mockReturnValue({ ...archive, has_timelapse: true });
+    auth({ canPrint: false });
+    const { unmount } = renderSheet();
+    expect(screen.queryByRole("button", { name: "Edit timelapse" })).not.toBeInTheDocument();
+    unmount();
+    auth({ canPrint: true });
+    renderSheet();
+    expect(screen.getByRole("button", { name: "Edit timelapse" })).toBeInTheDocument();
   });
 });

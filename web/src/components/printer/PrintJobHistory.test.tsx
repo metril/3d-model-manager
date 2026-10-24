@@ -68,4 +68,9 @@ describe("PrintJobHistory", () => {
     render(<PrintJobHistory printerId={2} />);
     expect(useArchivesMock).toHaveBeenLastCalledWith(expect.objectContaining({ printerId: 2 }));
   });
+
+  it("passes the calendar day as from/to", () => {
+    render(<PrintJobHistory date="2026-01-01" />);
+    expect(useArchivesMock).toHaveBeenLastCalledWith(expect.objectContaining({ from: "2026-01-01", to: "2026-01-01" }));
+  });
 });

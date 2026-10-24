@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Outlet, useNavigate } from "@tanstack/react-router";
 
+import { PostPrintConfirmDialog } from "@/components/print/PostPrintConfirmDialog";
 import { DevModeBanner } from "@/components/shell/DevModeBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { CommandPalette } from "@/components/shell/CommandPalette";
@@ -70,6 +71,7 @@ export function AppShell() {
           </main>
         </div>
       </div>
+      <PostPrintConfirmDialog />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </EventsProvider>

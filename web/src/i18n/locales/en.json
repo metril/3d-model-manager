@@ -163,5 +163,132 @@
     "feature": {"wall": "Walls", "infill": "Infill", "support": "Support", "bridge": "Bridge / overhang", "skirt": "Skirt / brim", "travel": "Travel moves"},
     "tool": "Tool {{n}}", "speedUnit": "mm/s", "layerWord": "layer",
     "stats": {"layers": "{{count}} layers", "moves": "{{count}} moves", "extrusion": "{{m}} m filament", "time": "Est. {{time}}"}
+  },
+  "archiveX": {
+    "saved": "Saved",
+    "saveFailed": "Couldn't save",
+    "save": "Save",
+    "calendar": {
+      "tab": "Calendar",
+      "prev": "Previous month",
+      "next": "Next month",
+      "dayLabel": "{{date}}: {{count}} runs",
+      "legendOk": "Mostly ok",
+      "legendMixed": "Mixed",
+      "legendFailed": "Mostly failed",
+      "clearDate": "Showing {{date}} (clear)"
+    },
+    "compare": {
+      "select": "Select {{name}} for comparison",
+      "button": "Compare ({{count}})",
+      "max": "Max {{max}} runs",
+      "clear": "Clear",
+      "title": "Compare runs",
+      "desc": "Settings that differ between the selected runs, and how those settings correlate with success.",
+      "printer": "Printer",
+      "result": "Result",
+      "duration": "Duration (est / actual)",
+      "filament": "Filament",
+      "settingsDiff": "Differing settings",
+      "noDiff": "No differing settings.",
+      "correlation": "Setting vs success rate",
+      "noCorrelation": "No correlation data.",
+      "setting": "Setting",
+      "value": "Value",
+      "successRate": "Success",
+      "error": "Couldn't load the comparison."
+    },
+    "edit": {
+      "notes": "Notes",
+      "tags": "Tags",
+      "tagPlaceholder": "Add a tag and press Enter",
+      "removeTag": "Remove tag {{tag}}",
+      "save": "Save notes and tags",
+      "failed": "Couldn't update the run",
+      "override": "Result override",
+      "overrideNone": "Recorded ({{result}})",
+      "reset": "Reset",
+    "results": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "stopped": "Stopped"
+    },
+      "delete": "Delete run",
+      "deleteTitle": "Delete this archived run?",
+      "deleteDesc": "Removes the archive and its stored files. The print job record is kept."
+    },
+    "verdict": {
+      "question": "Was this print good?",
+      "goodBtn": "Good",
+      "badBtn": "Bad",
+      "good": "Marked good",
+      "bad": "Marked bad",
+      "via": "via {{source}}",
+    "sources": {
+      "dialog": "dialog",
+      "link": "notification link",
+      "plate_clear": "plate cleared",
+      "card": "run card",
+      "api": "API"
+    },
+      "failed": "Couldn't record the verdict",
+      "later": "Later",
+      "dialogDesc": "{{name}} on {{printer}} has finished."
+    },
+    "photos": {
+      "title": "Photos",
+      "upload": "Upload photo",
+      "alt": "Run photo",
+      "delete": "Delete photo",
+      "deleteTitle": "Delete this photo?",
+      "badType": "Use a JPEG, PNG or WebP image.",
+      "tooBig": "Photo must be 15 MB or smaller.",
+      "failed": "Upload failed"
+    },
+    "timelapse": {
+      "edit": "Edit timelapse",
+      "title": "Edit timelapse",
+      "desc": "Trim and change the speed. Processing runs on the server.",
+      "start": "Trim start: {{s}} s",
+      "end": "Trim end: {{s}} s",
+      "speed": "Speed",
+      "saveMode": "Save as",
+      "replace": "Replace original",
+      "new": "New video",
+      "process": "Process",
+      "processing": "Processing...",
+      "done": "Timelapse updated",
+      "failed": "Timelapse processing failed"
+    },
+    "purge": {
+      "title": "Archive purge",
+      "desc": "Automatically delete old archived runs' stored files (daily 03:30). Print job history and the ledger are kept.",
+      "enabled": "Enable automatic purge",
+      "olderThan": "Older than (days)",
+      "keepFailed": "Keep failed runs",
+      "keepVerdict": "Keep runs with an outcome verdict",
+      "preview": "Preview",
+      "previewResult": "{{count}} runs, {{size}} would be deleted.",
+      "previewFailed": "Preview failed",
+      "run": "Purge now",
+      "confirmTitle": "Delete {{count}} archived runs?",
+      "confirmDesc": "This cannot be undone.",
+      "done": "Deleted {{count}} runs ({{size}})",
+      "runFailed": "Purge failed",
+      "lastRun": "Last run {{when}}: {{count}} deleted, {{size}}",
+      "neverRun": "Never run",
+      "nextRun": "next {{when}}"
+    },
+    "confirm": {
+      "title": "Outcome confirmation",
+      "desc": "Ask whether finished prints were good, via the app dialog and notification links.",
+      "enabled": "Ask after prints",
+      "external": "Include prints started outside the app",
+      "defaultOutcome": "If nobody answers",
+      "outcomeNone": "Leave unanswered",
+      "afterH": "Apply default after (hours)",
+      "goodOnPlateClear": "Mark good when the plate is cleared"
+    }
   }
 }

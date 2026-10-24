@@ -7,6 +7,8 @@ import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
+import { ArchivePurgeCard } from "@/components/settings/ArchivePurgeCard";
+import { ConfirmOutcomeCard } from "@/components/settings/ConfirmOutcomeCard";
 import { BackupsCard } from "@/components/settings/BackupsCard";
 import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
@@ -103,6 +105,7 @@ export function SettingsPage() {
             <TabsContent value="storage" className="space-y-6">
               <StorageBackendsCard />
               <BackupsCard />
+              <ArchivePurgeCard />
               <ScanReport />
             </TabsContent>
           )}
@@ -111,6 +114,7 @@ export function SettingsPage() {
               <PrinterEnabledCard />
               <PrinterSetupCard />
               <FailureDetectionCard />
+              <ConfirmOutcomeCard />
               <HomeAssistantCard />
               <VirtualPrinterCard />
             </TabsContent>
