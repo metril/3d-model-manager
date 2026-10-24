@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 /** Tiny emitter announcing "a hosted surface may have moved to another
  * browser window" (dock pop-out / re-dock). Surfaces that schedule work on a
@@ -20,11 +20,7 @@ export function createRelocateEmitter(): RelocateEmitter {
   };
 }
 
-const RelocateContext = createContext<RelocateEmitter | null>(null);
-
-export function RelocateProvider({ emitter, children }: { emitter: RelocateEmitter; children: ReactNode }) {
-  return <RelocateContext.Provider value={emitter}>{children}</RelocateContext.Provider>;
-}
+export const RelocateContext = createContext<RelocateEmitter | null>(null);
 
 export function useRelocateEmitter(): RelocateEmitter | null {
   return useContext(RelocateContext);

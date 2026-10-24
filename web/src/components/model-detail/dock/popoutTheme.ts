@@ -4,6 +4,7 @@ const THEME_ATTRS = ["data-theme", "data-accent", "data-style"] as const;
 
 export function copyTheme(from: HTMLElement, to: HTMLElement): void {
   to.className = from.className;
+  to.style.colorScheme = from.style.colorScheme;
   for (const attr of THEME_ATTRS) {
     const value = from.getAttribute(attr);
     if (value === null) to.removeAttribute(attr);

@@ -3,13 +3,15 @@ import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockvie
 import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import { RelocateProvider, createRelocateEmitter } from "@/lib/windowRelocate";
+import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { buildDefaultLayout, addPanelAtDefault } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
 import { syncThemeInto } from "./popoutTheme";
 
 const POPOUT_URL = "/popout.html";
+// dockview applies its (dark) default theme to the dock element unless told otherwise.
+const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
 
 /** Group header button: pop the group into its own window, or (inside a
  * pop-out) close the window, which docks the panels back. */
@@ -77,21 +79,21 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
       flushLayout();
       syncs.forEach((dispose) => dispose());
       syncs.clear();
-      onApi?.(null);
     };
-  }, [onApi]);
+  }, []);
 
   return (
-    <RelocateProvider emitter={emitter}>
-      <div className="dockview-theme-tdmm h-[calc(100svh-13rem)] min-h-[640px] w-full" data-testid="model-detail-dock">
+    <RelocateContext.Provider value={emitter}>
+      <div className="h-[calc(100svh-13rem)] min-h-[640px] w-full" data-testid="model-detail-dock">
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}
           getTabContextMenuItems={() => ["popout", "maximize", "separator", "close"]}
           popoutUrl={POPOUT_URL}
+          theme={DOCK_THEME}
           onReady={handleReady}
         />
       </div>
-    </RelocateProvider>
+    </RelocateContext.Provider>
   );
 }

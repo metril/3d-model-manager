@@ -42,6 +42,24 @@ export const RIGHT_PANELS: readonly PanelId[] = [
   "specs",
 ];
 
+/** Default dock groups. Tabs within a group keep today's card order; the
+ * default layout stacks `leftTop` over `leftBottom` and `rightTop` over
+ * `rightBottom`. */
+export const DEFAULT_GROUPS = {
+  leftTop: ["viewer"],
+  leftBottom: ["description", "tagsLinks", "related"],
+  rightTop: ["gcodeProfiles", "printHistory", "filesDocs"],
+  rightBottom: ["revisions", "notes", "printTips", "specs"],
+} as const satisfies Record<string, readonly PanelId[]>;
+export type DefaultGroup = keyof typeof DEFAULT_GROUPS;
+/** The tab that starts active in each default group. */
+export const DEFAULT_ACTIVE: Record<DefaultGroup, PanelId> = {
+  leftTop: "viewer",
+  leftBottom: "description",
+  rightTop: "filesDocs",
+  rightBottom: "revisions",
+};
+
 export function isPanelId(value: unknown): value is PanelId {
   return typeof value === "string" && (PANEL_IDS as readonly string[]).includes(value);
 }

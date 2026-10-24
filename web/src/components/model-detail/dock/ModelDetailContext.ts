@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext } from "react";
 
 import type { ModelDetail } from "@/api/types";
 import type { useStudioSelection } from "@/components/model-detail/studioSelection";
@@ -14,15 +14,7 @@ export type ModelDetailContextValue = {
 
 const ModelDetailContext = createContext<ModelDetailContextValue | null>(null);
 
-export function ModelDetailProvider({
-  value,
-  children,
-}: {
-  value: ModelDetailContextValue;
-  children: ReactNode;
-}) {
-  return <ModelDetailContext.Provider value={value}>{children}</ModelDetailContext.Provider>;
-}
+export const ModelDetailProvider = ModelDetailContext.Provider;
 
 export function useModelDetail(): ModelDetailContextValue {
   const value = useContext(ModelDetailContext);

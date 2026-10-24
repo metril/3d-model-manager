@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType, type FunctionComponent } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 
 import { RelatedModels } from "@/components/model-detail/RelatedModels";
@@ -15,12 +15,11 @@ import { TagsLinksCard } from "@/components/model-detail/cards/TagsLinksCard";
 import { PortalContainerContext } from "@/lib/portalContainer";
 import { useRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
-import { PANEL_IDS, PANEL_TITLES, type PanelId } from "./panelMeta";
+import type { PanelId } from "./panelMeta";
 
-export { PANEL_IDS, PANEL_TITLES, type PanelId };
 
 // Thin adapters: the cards keep their own props; these read the page context.
-function ViewerContent() {
+function ViewerContent({ fill }: { fill?: boolean }) {
   const { model, studio } = useModelDetail();
   return (
     <StudioWorkspace
@@ -29,6 +28,7 @@ function ViewerContent() {
       others={studio.others}
       selection={studio.selection}
       onSelectAssembly={studio.onSelectAssembly}
+      fill={fill}
     />
   );
 }
@@ -73,8 +73,7 @@ function SpecsContent() {
   return <SpecsCard model={useModelDetail().model} />;
 }
 
-/** Bare panel bodies, used directly by the stacked (<900px) fallback. */
-export const PANEL_CONTENT: Record<PanelId, ComponentType> = {
+const CONTENT: Record<PanelId, ComponentType<{ fill?: boolean }>> = {
   viewer: ViewerContent,
   description: DescriptionContent,
   tagsLinks: TagsLinksContent,
@@ -88,10 +87,16 @@ export const PANEL_CONTENT: Record<PanelId, ComponentType> = {
   specs: SpecsContent,
 };
 
+/** Bare panel body for `id`; also used directly by the stacked (<900px) fallback. */
+export function PanelContent({ id, fill }: { id: PanelId; fill?: boolean }) {
+  const Content = CONTENT[id];
+  return <Content fill={fill} />;
+}
+
 /** Scrolling frame around a docked panel. Tracks which window currently hosts
  * it and publishes that window's <body> so Radix overlays opened from inside
  * the panel render in the same window (a pop-out), not behind it. */
-function PanelFrame({ api, children }: { api: IDockviewPanelProps["api"]; children: React.ReactNode }) {
+function PanelFrame({ api, fill, children }: { api: IDockviewPanelProps["api"]; fill?: boolean; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState<HTMLElement | undefined>(undefined);
   const relocated = useRelocateEmitter();
@@ -110,37 +115,20 @@ function PanelFrame({ api, children }: { api: IDockviewPanelProps["api"]; childr
 
   return (
     <PortalContainerContext.Provider value={container}>
-      <div ref={ref} className="h-full overflow-auto p-2">
+      <div ref={ref} className={fill ? "h-full overflow-hidden p-2" : "h-full overflow-auto p-2"}>
         {children}
       </div>
     </PortalContainerContext.Provider>
   );
 }
 
-function makeDockComponent(id: PanelId): FunctionComponent<IDockviewPanelProps> {
-  const Content = PANEL_CONTENT[id];
-  function DockPanel(props: IDockviewPanelProps) {
-    return (
-      <PanelFrame api={props.api}>
-        <Content />
-      </PanelFrame>
-    );
-  }
-  DockPanel.displayName = `DockPanel(${id})`;
-  return DockPanel;
+/** The single dockview component behind every panel; dockview passes the panel
+ * id as `api.id`. */
+export function DockPanel(props: IDockviewPanelProps) {
+  const id = props.api.id as PanelId;
+  return (
+    <PanelFrame api={props.api} fill={id === "viewer"}>
+      <PanelContent id={id} fill={id === "viewer"} />
+    </PanelFrame>
+  );
 }
-
-export type PanelDef = {
-  id: PanelId;
-  title: string;
-  component: FunctionComponent<IDockviewPanelProps>;
-};
-
-export const PANEL_REGISTRY: Record<PanelId, PanelDef> = Object.fromEntries(
-  PANEL_IDS.map((id) => [id, { id, title: PANEL_TITLES[id], component: makeDockComponent(id) }]),
-) as Record<PanelId, PanelDef>;
-
-/** `components` map for `<DockviewReact>`; keys double as `contentComponent`. */
-export const DOCK_COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = Object.fromEntries(
-  PANEL_IDS.map((id) => [id, PANEL_REGISTRY[id].component]),
-);

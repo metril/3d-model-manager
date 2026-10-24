@@ -54,9 +54,11 @@ function parseStored(raw: string | null): { layout: SerializedDockview; known: P
 }
 
 /** Popout windows never survive a reload (the browser closes them), so a saved
- * layout must not reference them. Fold each popped-out group's panels back into
- * the group it was popped from (or the first docked group); orphans with no
- * docked group are dropped and re-added by `missingPanels`. */
+ * layout must not reference them. dockview keeps a popped-out group in the grid
+ * as a hidden placeholder (`visible: false`); un-hide it, and make sure every
+ * popped-out panel sits in exactly one docked group (the placeholder, else the
+ * first docked group). Orphans with no docked group are dropped and re-added by
+ * `missingPanels`. */
 export function stripPopouts(layout: SerializedDockview): SerializedDockview {
   const popouts = layout.popoutGroups ?? [];
   const { popoutGroups: _drop, ...rest } = layout;
@@ -64,17 +66,29 @@ export function stripPopouts(layout: SerializedDockview): SerializedDockview {
   if (popouts.length === 0) return layout;
   const next: SerializedDockview = JSON.parse(JSON.stringify(rest));
   const docked = leaves(next.grid.root);
+  const placed = new Set(docked.flatMap((leaf) => leaf.views ?? []));
   for (const popout of popouts) {
     const poppedLeaves = popout.grid ? leaves(popout.grid.root) : popout.data ? [popout.data as LeafData] : [];
     const target = docked.find((leaf) => leaf.id === popout.gridReferenceGroup) ?? docked[0];
     for (const leaf of poppedLeaves) {
       for (const view of leaf.views ?? []) {
-        if (target) target.views = [...(target.views ?? []), view];
-        else delete next.panels[view];
+        if (placed.has(view)) continue;
+        if (target) {
+          target.views = [...(target.views ?? []), view];
+          placed.add(view);
+        } else delete next.panels[view];
       }
     }
   }
+  unhide(next.grid.root);
+  for (const leaf of docked) leaf.activeView ??= leaf.views?.[0];
   return next;
+}
+
+function unhide(node: unknown): void {
+  if (!isRecord(node)) return;
+  if (node.visible === false) node.visible = true;
+  if (node.type === "branch" && Array.isArray(node.data)) node.data.forEach(unhide);
 }
 
 /** Saved layout plus the registry panels that did not exist when it was saved

@@ -97,6 +97,19 @@ describe("layoutStore", () => {
     expect((out.grid.root.data as { views: string[] }).views).toEqual(["viewer", "notes", "specs"]);
   });
 
+  it("un-hides the placeholder group dockview keeps for a popped-out group", () => {
+    const hidden = { ...leaf("g2", ["specs"]), visible: false };
+    const withPopout = layout({
+      popoutGroups: [{ data: { id: "g2", views: ["specs"] }, gridReferenceGroup: "g2", position: {} }] as never,
+      grid: { ...layout().grid, root: { type: "branch", data: [leaf("g1", ["viewer", "notes"]), hidden], size: 100 } },
+    });
+    const out = stripPopouts(withPopout);
+    const nodes = out.grid.root.data as { visible?: boolean; data: { views: string[]; activeView?: string } }[];
+    expect(nodes[1].visible).toBe(true);
+    expect(nodes[1].data.views).toEqual(["specs"]); // not duplicated
+    expect(nodes[1].data.activeView).toBe("specs");
+  });
+
   it("writeLayout never persists popout groups", () => {
     writeLayout(
       layout({ popoutGroups: [{ data: { id: "g3", views: [] }, position: {} }] as never }),

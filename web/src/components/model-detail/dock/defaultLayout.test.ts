@@ -37,12 +37,22 @@ describe("defaultLayout", () => {
       direction: "within",
     });
     expect(calls.find((c) => c.id === "gcodeProfiles")?.position).toMatchObject({ direction: "right" });
+    expect(calls.find((c) => c.id === "revisions")?.position).toMatchObject({
+      referencePanel: { id: "gcodeProfiles" },
+      direction: "below",
+    });
   });
 
-  it("re-adds a closed right-stack card below its predecessor", () => {
-    const { api, calls } = fakeApi(["viewer", "gcodeProfiles", "printHistory", "filesDocs", "revisions", "printTips"]);
+  it("re-adds a closed right card as a tab of its default group", () => {
+    const { api, calls } = fakeApi(["viewer", "revisions", "printTips", "filesDocs"]);
     addPanelAtDefault(api, "notes");
-    expect(calls[0].position).toMatchObject({ referencePanel: { id: "revisions" }, direction: "below" });
+    expect(calls[0].position).toMatchObject({ referencePanel: { id: "revisions" }, direction: "within" });
+  });
+
+  it("re-adds a whole closed group next to its neighbour group", () => {
+    const { api, calls } = fakeApi(["viewer", "filesDocs"]);
+    addPanelAtDefault(api, "specs");
+    expect(calls[0].position).toMatchObject({ referencePanel: { id: "filesDocs" }, direction: "below" });
   });
 
   it("re-adds a left tab into the existing tab group, else below the viewer", () => {

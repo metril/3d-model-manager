@@ -1,24 +1,15 @@
-import type { DockviewApi } from "dockview-react";
+import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import { LEFT_PANELS, RIGHT_PANELS, PANEL_TITLES, type PanelId } from "./panelMeta";
+import { DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
 
 const LEFT_WIDTH = 0.62;
-const VIEWER_HEIGHT = 0.62;
-/** Relative heights of the right-hand stack, in `RIGHT_PANELS` order. */
-const RIGHT_WEIGHTS: Partial<Record<PanelId, number>> = {
-  gcodeProfiles: 1,
-  printHistory: 1,
-  filesDocs: 2,
-  revisions: 1,
-  notes: 1,
-  printTips: 1,
-  specs: 1.4,
-};
+const LEFT_TOP_HEIGHT = 0.62;
+const RIGHT_TOP_HEIGHT = 0.5;
 
-/** The three cards under the viewer share one tabbed group. */
-const LEFT_TABS: readonly PanelId[] = ["description", "tagsLinks", "related"];
+type Direction = "above" | "below" | "left" | "right";
+type Position = { referencePanel: IDockviewPanel; direction: Direction | "within" };
 
-function addPanel(api: DockviewApi, id: PanelId, position?: Parameters<DockviewApi["addPanel"]>[0]["position"]) {
+function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
   return api.addPanel({
     id,
     component: id,
@@ -30,52 +21,51 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Parameters<DockviewA
   });
 }
 
-/** Today's two-column arrangement: viewer over a tabbed Description / Tags /
- * Related group on the left (~62%); the seven cards stacked on the right. */
+/** Today's two-column arrangement as dock groups: the viewer over a tabbed
+ * Description / Tags / Related group on the left (~62%); the seven cards in
+ * two tabbed groups (kept in today's order) on the right. */
 export function buildDefaultLayout(api: DockviewApi): void {
   api.clear();
-  const viewer = addPanel(api, "viewer");
-  const description = addPanel(api, "description", { referencePanel: viewer, direction: "below" });
-  addPanel(api, "tagsLinks", { referencePanel: description, direction: "within" });
-  addPanel(api, "related", { referencePanel: description, direction: "within" });
-  description.api.setActive();
+  const { leftTop, leftBottom, rightTop, rightBottom } = DEFAULT_GROUPS;
+  const viewer = addPanel(api, leftTop[0]);
+  const descriptionGroup = addPanel(api, leftBottom[0], { referencePanel: viewer, direction: "below" });
+  for (const id of leftBottom.slice(1)) addPanel(api, id, { referencePanel: descriptionGroup, direction: "within" });
+  const rightA = addPanel(api, rightTop[0], { referencePanel: viewer, direction: "right" });
+  for (const id of rightTop.slice(1)) addPanel(api, id, { referencePanel: rightA, direction: "within" });
+  const rightB = addPanel(api, rightBottom[0], { referencePanel: rightA, direction: "below" });
+  for (const id of rightBottom.slice(1)) addPanel(api, id, { referencePanel: rightB, direction: "within" });
 
-  let previous = addPanel(api, RIGHT_PANELS[0], { referencePanel: viewer, direction: "right" });
-  for (const id of RIGHT_PANELS.slice(1)) {
-    previous = addPanel(api, id, { referencePanel: previous, direction: "below" });
-  }
+  for (const group of Object.keys(DEFAULT_ACTIVE) as DefaultGroup[]) api.getPanel(DEFAULT_ACTIVE[group])?.api.setActive();
 
-  // Sizes are best-effort: a zero-sized (not yet laid out) container skips them.
+  // Sizes are best-effort: a not-yet-measured (zero-sized) container skips them.
   const { width, height } = api;
   if (width > 0 && height > 0) {
-    viewer.api.setSize({ width: width * LEFT_WIDTH, height: height * VIEWER_HEIGHT });
-    const total = RIGHT_PANELS.reduce((sum, id) => sum + (RIGHT_WEIGHTS[id] ?? 1), 0);
-    for (const id of RIGHT_PANELS.slice(0, -1)) {
-      api.getPanel(id)?.api.setSize({ height: (height * (RIGHT_WEIGHTS[id] ?? 1)) / total });
-    }
+    viewer.api.setSize({ width: width * LEFT_WIDTH, height: height * LEFT_TOP_HEIGHT });
+    rightA.api.setSize({ height: height * RIGHT_TOP_HEIGHT });
   }
 }
 
 /** Re-adds one closed panel near where it lives in the default layout. */
 export function addPanelAtDefault(api: DockviewApi, id: PanelId): void {
-  const has = (other: PanelId) => api.getPanel(other) !== undefined && other !== id;
+  const has = (other: PanelId) => other !== id && api.getPanel(other) !== undefined;
   const ref = (other: PanelId) => api.getPanel(other)!;
+  const groupOf = (Object.keys(DEFAULT_GROUPS) as DefaultGroup[]).find((g) =>
+    (DEFAULT_GROUPS[g] as readonly PanelId[]).includes(id),
+  )!;
 
-  if ((LEFT_TABS as readonly PanelId[]).includes(id)) {
-    const sibling = LEFT_TABS.find(has);
-    if (sibling) return void addPanel(api, id, { referencePanel: ref(sibling), direction: "within" });
-    if (has("viewer")) return void addPanel(api, id, { referencePanel: ref("viewer"), direction: "below" });
-  } else if (id === "viewer") {
-    const below = LEFT_TABS.find(has);
-    if (below) return void addPanel(api, id, { referencePanel: ref(below), direction: "above" });
-  } else {
-    const index = RIGHT_PANELS.indexOf(id);
-    const before = [...RIGHT_PANELS.slice(0, index)].reverse().find(has);
-    if (before) return void addPanel(api, id, { referencePanel: ref(before), direction: "below" });
-    const after = RIGHT_PANELS.slice(index + 1).find(has);
-    if (after) return void addPanel(api, id, { referencePanel: ref(after), direction: "above" });
-    const anchor = LEFT_PANELS.find(has);
-    if (anchor) return void addPanel(api, id, { referencePanel: ref(anchor), direction: "right" });
+  const sibling = (DEFAULT_GROUPS[groupOf] as readonly PanelId[]).find(has);
+  if (sibling) return void addPanel(api, id, { referencePanel: ref(sibling), direction: "within" });
+
+  const anyOf = (group: DefaultGroup) => (DEFAULT_GROUPS[group] as readonly PanelId[]).find(has);
+  const placements: Record<DefaultGroup, Array<[DefaultGroup, Direction]>> = {
+    leftTop: [["leftBottom", "above"], ["rightTop", "left"], ["rightBottom", "left"]],
+    leftBottom: [["leftTop", "below"], ["rightTop", "left"], ["rightBottom", "left"]],
+    rightTop: [["rightBottom", "above"], ["leftTop", "right"], ["leftBottom", "right"]],
+    rightBottom: [["rightTop", "below"], ["leftTop", "right"], ["leftBottom", "right"]],
+  };
+  for (const [neighbour, direction] of placements[groupOf]) {
+    const target = anyOf(neighbour);
+    if (target) return void addPanel(api, id, { referencePanel: ref(target), direction });
   }
   addPanel(api, id);
 }
