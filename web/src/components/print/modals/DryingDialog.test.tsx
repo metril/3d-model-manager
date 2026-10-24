@@ -88,6 +88,15 @@ describe("DryingDialog", () => {
     expect(inputs()[1].value).toBe("1");
   });
 
+  it("editing only temp keeps the preset hours", async () => {
+    setup();
+    await waitFor(() => expect(inputs()[0].value).toBe("45"));
+    fireEvent.change(inputs()[0], { target: { value: "50" } });
+    expect(inputs()[1].value).toBe("12");
+    fireEvent.click(screen.getByRole("button", { name: "Start drying" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/drying/start", expect.objectContaining({ temp: 50, duration_hours: 12 })));
+  });
+
   it("schedules at a time with start_after ISO", async () => {
     setup();
     await waitFor(() => expect(inputs()[0].value).toBe("45"));

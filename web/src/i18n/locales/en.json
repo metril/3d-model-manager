@@ -173,6 +173,12 @@
     "sub": {"1": "Heating", "2": "Dehumidifying"},
     "left": "{{time}} left",
     "screenOnly": "Start from the printer screen",
+    "error": {
+      "screen_only": "This printer can only start drying from its own screen.",
+      "unsupported": "This printer or AMS does not support drying.",
+      "printing": "Drying cannot start while printing on this printer. Schedule it for after the print.",
+      "blocked": "The AMS is not ready to dry right now."
+    },
     "scheduled": "Scheduled",
     "noSchedules": "No scheduled drying.",
     "cancel": "Cancel",
@@ -209,6 +215,7 @@
       "queueBlock": "Hold the printer while drying",
       "print": "Allow drying while printing",
       "save": "Save",
+      "saved": "Drying settings saved",
       "invalid": {
         "temp": "{{name}}: temperature must be 45-85 °C",
         "hours": "{{name}}: hours must be 1-24",

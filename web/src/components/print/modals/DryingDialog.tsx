@@ -1,5 +1,5 @@
 /** T1: start/stop/schedule AMS drying for one unit. */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { startAfterIso, useDrying, useDryingPresets } from "@/api/drying";
@@ -20,6 +20,8 @@ const RETRACT = 3;
 
 const TEMP_RANGE = [45, 85] as const;
 const HOURS_RANGE = [1, 24] as const;
+/** Current local time as a `datetime-local` value. */
+const localNow = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 const clamp = (v: number, [lo, hi]: readonly [number, number] | readonly number[]) => Math.min(hi, Math.max(lo, v));
 
 /** `n3s` = AMS-HT (ids >= 128), otherwise `n3f` (AMS 2 Pro / AMS). */
@@ -57,17 +59,26 @@ export function DryingDialog({
   const nowBlockedByPrint = printing && !caps.ams_drying_while_printing;
 
   const [filament, setFilament] = useState<string>(loaded[0] ?? "PLA");
-  const [temp, setTemp] = useState("");
-  const [hours, setHours] = useState("");
-  const [touched, setTouched] = useState(false);
+  // null = follow the chosen filament's preset; a string = the user's own value for that field.
+  const [temp, setTemp] = useState<string | null>(null);
+  const [hours, setHours] = useState<string | null>(null);
   const [rotate, setRotate] = useState(false);
   const [mode, setMode] = useState<Mode>(nowBlockedByPrint ? "after" : "now");
   const [atTime, setAtTime] = useState("");
 
   // Backfill temp/hours from the preset of the chosen filament until the user edits them.
   const preset = presetValues(presets[filament], unitId);
-  const tempVal = temp !== "" || touched ? temp : String(preset?.temp ?? 45);
-  const hoursVal = hours !== "" || touched ? hours : String(preset?.hours ?? 12);
+  const tempVal = temp ?? String(preset?.temp ?? 45);
+  const hoursVal = hours ?? String(preset?.hours ?? 12);
+
+  // The overview status can arrive after mount: re-seed filament and mode once when it first does.
+  const seeded = useRef(status != null);
+  useEffect(() => {
+    if (seeded.current || !status) return;
+    seeded.current = true;
+    setFilament(loaded[0] ?? "PLA");
+    setMode(nowBlockedByPrint ? "after" : "now");
+  }, [status, loaded, nowBlockedByPrint]);
 
   const codes = unit?.dry_sf_reason ?? [];
   const active = (unit?.dry_status ?? 0) > 0;
@@ -80,14 +91,16 @@ export function DryingDialog({
     if (v) {
       setTemp(String(v.temp));
       setHours(String(v.hours));
-      setTouched(true);
+    } else {
+      setTemp(null);
+      setHours(null);
     }
   }
   const finalTemp = clamp(Number(tempVal) || TEMP_RANGE[0], TEMP_RANGE);
   const finalHours = clamp(Math.round(Number(hoursVal)) || HOURS_RANGE[0], HOURS_RANGE);
   const startAfter = mode === "at" ? startAfterIso(atTime) : null;
   const startDisabled =
-    disabled || (mode === "now" && (blocked || nowBlockedByPrint)) || (mode === "at" && !startAfter);
+    disabled || (mode === "now" && (blocked || nowBlockedByPrint)) || (mode === "at" && (!startAfter || new Date(startAfter).getTime() <= Date.now()));
 
   async function submit() {
     const body = { ams_id: unitId, temp: finalTemp, duration_hours: finalHours, filament, rotate_tray: rotate };
@@ -98,7 +111,7 @@ export function DryingDialog({
     if (ok) onOpenChange(false);
   }
 
-  const number = (value: string, set: (v: string) => void, range: readonly [number, number], label: string) => (
+  const number = (value: string, set: (v: string | null) => void, range: readonly [number, number], label: string) => (
     <div className="space-y-1">
       <Label>{label}</Label>
       <Input
@@ -108,10 +121,7 @@ export function DryingDialog({
         max={range[1]}
         value={value}
         disabled={disabled}
-        onChange={(e) => {
-          setTouched(true);
-          set(e.target.value);
-        }}
+        onChange={(e) => set(e.target.value)}
         onBlur={() => set(String(clamp(Math.round(Number(value)) || range[0], range)))}
       />
     </div>
@@ -199,7 +209,7 @@ export function DryingDialog({
                 ))}
             </div>
             {mode === "at" ? (
-              <Input type="datetime-local" aria-label={t("drying.atTime")} value={atTime} onChange={(e) => setAtTime(e.target.value)} />
+              <Input type="datetime-local" min={localNow()} aria-label={t("drying.atTime")} value={atTime} onChange={(e) => setAtTime(e.target.value)} />
             ) : null}
             {mode === "after" ? <p className="text-xs text-muted-foreground">{t("drying.afterNote")}</p> : null}
           </div>
