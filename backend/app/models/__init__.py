@@ -23,6 +23,7 @@ from app.models.collections import (
     RemoteCollectionCache,
     RemoteCollectionItem,
 )
+from app.models.detection import FailureDetection
 from app.models.external_link import ExternalLink
 from app.models.home_assistant import HaLink
 from app.models.inventory import Spool, SpoolmanPush, SpoolmanSyncState, SpoolSlot, SpoolUsage
@@ -85,6 +86,7 @@ __all__ = [
     "Print",
     "Printer",
     "PrinterAccess",
+    "FailureDetection",
     "PrinterSensorSample",
     "PrintArchive",
     "PrintJob",

@@ -61,6 +61,7 @@ from app.api import (
     models,
     notes,
     notifications,
+    obico,
     oidc,
     print_flow,
     print_jobs,
@@ -97,6 +98,7 @@ api_router.include_router(metrics.router)
 api_router.include_router(files.public_router)
 api_router.include_router(printers.camera_public_router)
 api_router.include_router(printers.overlay_router)
+api_router.include_router(obico.public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
@@ -119,6 +121,7 @@ protected_router.include_router(events.router)
 protected_router.include_router(scan.router)
 protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
+protected_router.include_router(obico.settings_router)
 protected_router.include_router(home_assistant.router)
 protected_router.include_router(sensors.router)
 protected_router.include_router(spoolman.router)
@@ -127,6 +130,7 @@ protected_router.include_router(features.router)
 # printer_control first: its literal /printers/developer-mode-warnings must
 # match before printers.router's /printers/{printer_id}.
 protected_router.include_router(printer_control.router)
+protected_router.include_router(obico.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)
 protected_router.include_router(print_jobs.router)

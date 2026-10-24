@@ -46,6 +46,7 @@ from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
 from app.printers.devmode import DevModeTracker, is_verify_failed_reply
 from app.printers.ha_bridge import HaBridge
+from app.printers.obico_watcher import ObicoSupervisor
 from app.printers.registry import build_adapter
 from app.services import camera_state, ha_state, hms, spool_inventory
 from app.services.app_config import get_app_config_sync
@@ -209,6 +210,9 @@ class PrinterWorker:
         t.start()
         self._sensor_thread = t
         return True
+
+    def is_running(self) -> bool:
+        return (self._merged or {}).get("gcode_state") == "RUNNING"
 
     def _write_public(self, public: PrinterPublicState) -> None:
         public.dev_mode = self.devmode.state
@@ -473,6 +477,7 @@ class PrinterDaemon:
         self._signatures: dict[int, tuple[str, str, str]] = {}
         self._stop = threading.Event()
         self.camera = CameraSupervisor(self.redis)
+        self.obico = ObicoSupervisor(self.redis, settings)
         self.ha = HaBridge(self.redis, self.settings, active_ids=lambda: set(self._workers))
 
     def enabled_printers(self) -> list[Printer]:
@@ -499,6 +504,7 @@ class PrinterDaemon:
         self._signatures[printer.id] = _signature(printer)
         self._subscribe_commands(printer.id, worker)
         self.camera.add(printer.id, adapter)
+        self.obico.add(printer.id, worker.is_running)
         return worker
 
     def _safe_start(self, printer: Printer) -> None:
@@ -554,6 +560,7 @@ class PrinterDaemon:
     def stop_printer(self, printer_id: int) -> None:
         self._signatures.pop(printer_id, None)
         self.camera.remove(printer_id)
+        self.obico.remove(printer_id)
         stop = self._cmd_stops.pop(printer_id, None)
         if stop is not None:
             stop.set()
@@ -591,6 +598,7 @@ class PrinterDaemon:
     def run(self) -> None:
         self.reconcile()  # initial start (replaces the old one-shot start loop)
         self.camera.start()
+        self.obico.start()
         self.ha.start()
         while not self._stop.wait(_POLL_INTERVAL_S):
             try:
@@ -621,6 +629,7 @@ class PrinterDaemon:
         for printer_id in list(self._workers):
             self.stop_printer(printer_id)
         self.camera.stop()
+        self.obico.stop()
         self.ha.stop()
 
 

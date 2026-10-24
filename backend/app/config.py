@@ -116,6 +116,15 @@ class Settings(BaseSettings):
     # returns `None` and slicer-dependent features stay off, mirroring
     # `printer_enabled`'s off-by-default posture. Env: `TDMM_SLICER_URL`.
     slicer_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_SLICER_URL"))
+    # Q10: Obico ML sidecar base URL (`compose.obico.yaml`, profile `obico`),
+    # e.g. `http://obico-ml:3333`. Seeds the default for Settings -> Failure
+    # detection until saved there. Env: `TDMM_OBICO_URL`.
+    obico_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_OBICO_URL"))
+    # Q10: base URL the ML sidecar uses to fetch the one-shot snapshot from the
+    # API. Env: `TDMM_OBICO_CALLBACK`.
+    obico_callback: str = Field(
+        default="http://api:8000", validation_alias=AliasChoices("TDMM_OBICO_CALLBACK")
+    )
     # How long `SlicerClient.slice` waits for the sidecar's own slice call
     # (seconds) before giving up -- separate from `_DEFAULT_TIMEOUT`
     # (health/profiles, fast calls) since a real slice can run long. Env:

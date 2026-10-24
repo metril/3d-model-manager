@@ -43,6 +43,8 @@ PUBLIC_ROUTES = {
     ("get", "/api/auth/oidc/{slug}/callback"),
     # Q4: token-scoped overlay data for OBS browser sources (overlay token in the query).
     ("get", "/api/overlay/{printer_id}"),
+    # Q10: one-shot snapshot the Obico ML sidecar fetches (unguessable single-use nonce).
+    ("get", "/api/obico/frame/{nonce}"),
 }
 
 # Dummy values for every path parameter used anywhere in the API, so a
@@ -97,6 +99,9 @@ _PATH_PARAM_VALUES = {
     # Q6: notification channels/templates.
     "channel_id": "1",
     "template_id": "1",
+    # Q10: Obico detection events + one-shot snapshot nonce.
+    "detection_id": "1",
+    "nonce": "n",
     # P6: slicer profiles + print recipes.
     "profile_id": "1",
     "recipe_id": "1",
