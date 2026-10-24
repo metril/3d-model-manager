@@ -4,6 +4,7 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { usePortalContainer } from "@/lib/portalContainer"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
@@ -51,12 +52,16 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  container,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Portal target; defaults to the hosting dock panel's document body. */
+  container?: HTMLElement | null
 }) {
+  const panelContainer = usePortalContainer()
   return (
-    <DialogPortal>
+    <DialogPortal container={container ?? panelContainer}>
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"

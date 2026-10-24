@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { PortalContainerContext } from "@/lib/portalContainer";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
@@ -44,5 +45,24 @@ describe("Popover/Sheet container prop", () => {
     expect(container.contains(content)).toBe(true);
 
     document.body.removeChild(container);
+  });
+});
+
+describe("PortalContainerContext", () => {
+  it("portals overlays into the panel container unless one is passed explicitly", () => {
+    const panel = document.createElement("div");
+    document.body.appendChild(panel);
+
+    render(
+      <PortalContainerContext.Provider value={panel}>
+        <Popover defaultOpen>
+          <PopoverTrigger>Open</PopoverTrigger>
+          <PopoverContent>Ctx body</PopoverContent>
+        </Popover>
+      </PortalContainerContext.Provider>,
+    );
+
+    expect(panel.contains(screen.getByText("Ctx body"))).toBe(true);
+    document.body.removeChild(panel);
   });
 });

@@ -2,6 +2,7 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { usePortalContainer } from "@/lib/portalContainer"
 
 function Popover({
   ...props
@@ -28,8 +29,9 @@ function PopoverContent({
    * the fullscreened element, including the default body portal). */
   container?: HTMLElement | null;
 }) {
+  const panelContainer = usePortalContainer()
   return (
-    <PopoverPrimitive.Portal container={container ?? undefined}>
+    <PopoverPrimitive.Portal container={container ?? panelContainer}>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}

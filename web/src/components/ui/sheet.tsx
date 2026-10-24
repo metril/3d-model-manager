@@ -5,6 +5,7 @@ import { Dialog as SheetPrimitive } from "radix-ui"
 import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { usePortalContainer } from "@/lib/portalContainer"
 import { Button } from "@/components/ui/button"
 
 function Sheet({
@@ -66,8 +67,9 @@ function SheetContent({
   container?: HTMLElement | null
   showCloseButton?: boolean
 }) {
+  const panelContainer = usePortalContainer()
   return (
-    <SheetPortal container={container ?? undefined}>
+    <SheetPortal container={container ?? panelContainer}>
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
