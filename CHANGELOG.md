@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.5.0](https://github.com/metril/3d-model-manager/compare/v0.4.0...v0.5.0) (2026-10-24)
+
+
+### Features
+
+* **camera:** Q4 RTSP source, external cameras, overlay tokens ([#21](https://github.com/metril/3d-model-manager/issues/21)) ([38c8173](https://github.com/metril/3d-model-manager/commit/38c817331b86678eee426dfef5550b15bb7de715))
+* **inventory:** Q9 Spoolman connector ([#17](https://github.com/metril/3d-model-manager/issues/17)) ([95c6710](https://github.com/metril/3d-model-manager/commit/95c6710349165f65de40be84460e54654aac9a37))
+* **notify:** Q6 notifications ([#30](https://github.com/metril/3d-model-manager/issues/30)) ([0ed258f](https://github.com/metril/3d-model-manager/commit/0ed258fa0e5318f68df249f5102dfc7ff33f15d0))
+* **ops:** Q7 maintenance, smart plugs, backups, updates, metrics ([#24](https://github.com/metril/3d-model-manager/issues/24)) ([60e9c4d](https://github.com/metril/3d-model-manager/commit/60e9c4d53f567357d4f7c6699bf23c162ee9d594))
+* **printers:** Q1 capabilities + status schema v2 ([#15](https://github.com/metril/3d-model-manager/issues/15)) ([6c8449b](https://github.com/metril/3d-model-manager/commit/6c8449b8e2b434c92e173877e0dfc8232503d718))
+* **printers:** Q10 Obico failure detection ([#31](https://github.com/metril/3d-model-manager/issues/31)) ([99efac7](https://github.com/metril/3d-model-manager/commit/99efac7f3ea87883b0dabd48e39586bfe8d25475))
+* **printers:** Q11 virtual printer ([#18](https://github.com/metril/3d-model-manager/issues/18)) ([88ecf75](https://github.com/metril/3d-model-manager/commit/88ecf75b0aebc189c65469101d3d686bee3b51cb))
+* **printers:** Q2 command bus v2, controls, Developer Mode ([#25](https://github.com/metril/3d-model-manager/issues/25)) ([fec131c](https://github.com/metril/3d-model-manager/commit/fec131cc010600d6e337514cce7f8e877e27b016))
+* **printers:** Q5 HMS catalog, firmware, diagnostics, discovery ([#20](https://github.com/metril/3d-model-manager/issues/20)) ([0b981c2](https://github.com/metril/3d-model-manager/commit/0b981c2e56be52345c6ef46af11f808f9467f21e))
+* **settings:** server config in DB, seed-once from env, admin Server API ([#42](https://github.com/metril/3d-model-manager/issues/42)) ([885984f](https://github.com/metril/3d-model-manager/commit/885984f39b2979d547d5a5fe0f87d5c559acbd50))
+* **stats:** Q8b sensor history and stats API ([#23](https://github.com/metril/3d-model-manager/issues/23)) ([5714f52](https://github.com/metril/3d-model-manager/commit/5714f52744ca4698487f375bcd20e337822474ea))
+* **vp:** idle until enabled, hot-reload network, status in Redis ([#40](https://github.com/metril/3d-model-manager/issues/40)) ([7207017](https://github.com/metril/3d-model-manager/commit/7207017785fef12a89b714b400f8ce5774ed4370))
+* **web:** admin Server settings tab ([#41](https://github.com/metril/3d-model-manager/issues/41)) ([3314b30](https://github.com/metril/3d-model-manager/commit/3314b30c15bfbc49e53e197f5be3ddf03a0a2536))
+* **web:** Q1 printer model images + model registry ([#14](https://github.com/metril/3d-model-manager/issues/14)) ([46b57a1](https://github.com/metril/3d-model-manager/commit/46b57a1442875ac8e0285c04ca4ebbcf812e1e2b))
+* **web:** Q12 dashboard card hooks, tray/door/thumbnail status ([#36](https://github.com/metril/3d-model-manager/issues/36)) ([c8ea578](https://github.com/metril/3d-model-manager/commit/c8ea578b98a5941649941558ddd1e36bca4c85c8))
+* **web:** Q3 bambuddy-layout printer card and dashboard ([#29](https://github.com/metril/3d-model-manager/issues/29)) ([07edf89](https://github.com/metril/3d-model-manager/commit/07edf89baa1a7ef544b775427800b5cdd2175b43))
+* **web:** Q4 camera viewer, window, overlay, camwall ([#28](https://github.com/metril/3d-model-manager/issues/28)) ([71ef355](https://github.com/metril/3d-model-manager/commit/71ef355ab5df502f70eabd2a968ea52c1edaac04))
+* **web:** Q5 HMS, firmware, diagnostics, discovery UI ([#26](https://github.com/metril/3d-model-manager/issues/26)) ([d4adca4](https://github.com/metril/3d-model-manager/commit/d4adca4a7300e5ca97c5118cfb38e4309982d053))
+* **web:** Q7 maintenance, smart plugs, backups, updates UI ([#27](https://github.com/metril/3d-model-manager/issues/27)) ([de4a3e9](https://github.com/metril/3d-model-manager/commit/de4a3e91521c0f579b2d64fe371787191eb71054))
+* **web:** Q8a themes, PWA, shortcuts, external links ([#16](https://github.com/metril/3d-model-manager/issues/16)) ([c9bff91](https://github.com/metril/3d-model-manager/commit/c9bff91c8276da61fc3670be44b38bd880e60c78))
+* **web:** Q8c stats dashboard, history modals, i18n ([#32](https://github.com/metril/3d-model-manager/issues/32)) ([75dcbdc](https://github.com/metril/3d-model-manager/commit/75dcbdc1642d389cfa75529492a8dfb823085e97))
+
+
+### Bug Fixes
+
+* **web:** never offer recipes for an already-sliced file source ([#38](https://github.com/metril/3d-model-manager/issues/38)) ([8c8f00b](https://github.com/metril/3d-model-manager/commit/8c8f00be4b32631c8a5dfcc9c2d694e5d8aa0ab6))
+* **web:** print dialog width, print-on-printer from card, slicing discoverability ([#37](https://github.com/metril/3d-model-manager/issues/37)) ([8da1fce](https://github.com/metril/3d-model-manager/commit/8da1fced7bf654444c2e01331f5423ba7d4bf062))
+
 ## [0.4.0](https://github.com/metril/3d-model-manager/compare/v0.3.0...v0.4.0) (2026-10-23)
 
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "3D Model Manager — Send to app",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Save MakerWorld, Thingiverse, and Printables models to your self-hosted 3D Model Manager library, and keep your MakerWorld cookie synced.",
   "permissions": [
     "cookies",
