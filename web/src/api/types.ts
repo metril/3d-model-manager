@@ -2167,3 +2167,41 @@ export interface TimelapseJobState {
   error: string | null;
   filename: string | null;
 }
+
+// ---- T3 printer ops ----
+export type XcamSensitivity = "low" | "medium" | "high" | "never_halt";
+export interface XcamState {
+  enable: boolean;
+  sensitivity?: XcamSensitivity | null;
+}
+export interface PrintOptions {
+  xcam?: Record<string, XcamState>;
+  auto_recovery?: boolean | null;
+  auto_switch_filament?: boolean | null;
+}
+export type PrintOptionKey = "auto_recovery" | "auto_switch_filament";
+
+export interface SlotConfigIn {
+  tray_info_idx: string;
+  tray_type: string;
+  sub_brand: string;
+  /** RRGGBB[AA] without "#". */
+  color: string;
+  nozzle_min: number;
+  nozzle_max: number;
+  apply_device: boolean;
+}
+
+export interface RemoteFile {
+  name: string;
+  /** Full path on the SD card, e.g. "/model/a.3mf". */
+  path: string;
+  size: number | null;
+  mtime: string | null;
+  is_dir: boolean;
+}
+export interface FileStorage {
+  total?: number | null;
+  used?: number | null;
+  free?: number | null;
+}

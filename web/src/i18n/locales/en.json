@@ -290,5 +290,79 @@
       "afterH": "Apply default after (hours)",
       "goodOnPlateClear": "Mark good when the plate is cleared"
     }
+  },
+  "printerOps": {
+    "plateNeedsClearing": "Plate needs clearing",
+    "markCleared": "Mark plate cleared",
+    "plateCleared": "Plate marked as cleared",
+    "printOptions": {
+      "title": "Print options",
+      "menu": "Print options",
+      "empty": "This printer reports no print options.",
+      "autoRecovery": "Auto-recovery",
+      "autoSwitch": "AMS backup (auto switch filament)",
+      "sensitivity": "Sensitivity",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "never_halt": "Never halt",
+      "enable": "Enable {{name}}",
+      "module": {
+        "spaghetti_detector": "Spaghetti detection",
+        "first_layer_inspector": "First layer inspection",
+        "printing_monitor": "Printing monitor",
+        "buildplate_marker_detector": "Build plate marker detection",
+        "allow_skip_parts": "Allow skipping parts",
+        "pileup_detector": "Pile-up detection",
+        "clump_detector": "Nozzle clump detection",
+        "airprint_detector": "Air printing detection"
+      }
+    },
+    "slot": {
+      "configure": "Configure slot…",
+      "title": "Configure slot",
+      "material": "Material",
+      "subBrand": "Sub-brand",
+      "color": "Colour",
+      "nozzleMin": "Nozzle min °C",
+      "nozzleMax": "Nozzle max °C",
+      "apply": "Apply to printer",
+      "save": "Save",
+      "reset": "Reset slot",
+      "resetTitle": "Reset this slot?",
+      "resetDesc": "The printer will forget the filament in this slot.",
+      "saved": "Slot saved",
+      "resetDone": "Slot reset"
+    },
+    "ams": {
+      "rename": "Rename AMS…",
+      "renameTitle": "Rename AMS",
+      "label": "Label",
+      "clear": "Clear label",
+      "saved": "AMS renamed"
+    },
+    "files": {
+      "button": "Files",
+      "title": "Printer files",
+      "root": "SD card",
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified",
+      "empty": "This folder is empty.",
+      "loading": "Loading…",
+      "error": "Could not read the printer's storage.",
+      "download": "Download",
+      "delete": "Delete",
+      "print": "Print",
+      "up": "Up",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDesc": "The file is removed from the printer's storage.",
+      "deleted": "File deleted",
+      "printTitle": "Print {{name}}?",
+      "printDesc": "Starts printing this file from the printer's storage now.",
+      "printStarted": "Print started",
+      "storage": "{{used}} used of {{total}}",
+      "storageFree": "{{free}} free"
+    }
   }
 }

@@ -2,12 +2,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { toastControlError } from "@/api/printerControl";
 import type {
   DiagnosticIn,
   DiagnosticReport,
   DiscoveredPrinter,
+  FileStorage,
   FirmwareInfo,
   HmsFault,
+  RemoteFile,
+  SlotConfigIn,
 } from "@/api/types";
 
 export function useHms(printerId: number, enabled = true) {
@@ -65,3 +69,113 @@ export function useDiscover() {
       api.post<DiscoveredPrinter[]>("/printers/discover", cidr ? { cidr } : {}),
   });
 }
+
+// ---- T3 printer ops ----
+
+function invalidateStatus(qc: ReturnType<typeof useQueryClient>, printerId: number) {
+  void qc.invalidateQueries({ queryKey: ["printers", printerId, "status"] });
+  void qc.invalidateQueries({ queryKey: ["printers", "overview"] });
+}
+
+export function useClearPlate(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ awaiting_plate_clear: boolean }>(`/printers/${printerId}/clear-plate`),
+    onSuccess: () => invalidateStatus(qc, printerId),
+    onError: toastControlError,
+  });
+}
+
+/** `POST /printers/{id}/slots/{unit}/{slot}` -- configure filament on the slot (+ device when `apply_device`). */
+export function useConfigureSlot(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { unit: number; slot: number; body: SlotConfigIn }) =>
+      api.post<unknown>(`/printers/${printerId}/slots/${v.unit}/${v.slot}`, v.body),
+    onSuccess: () => invalidateStatus(qc, printerId),
+    onError: toastControlError,
+  });
+}
+
+export function useResetSlotDevice(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { unit: number; slot: number }) =>
+      api.delete<void>(`/printers/${printerId}/slots/${v.unit}/${v.slot}/device`),
+    onSuccess: () => invalidateStatus(qc, printerId),
+    onError: toastControlError,
+  });
+}
+
+/** Empty `label` clears (DELETE). */
+export function useAmsLabel(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { amsId: number; label: string }) =>
+      v.label.trim()
+        ? api.put<unknown>(`/printers/${printerId}/ams/${v.amsId}/label`, { label: v.label.trim() })
+        : api.delete<unknown>(`/printers/${printerId}/ams/${v.amsId}/label`),
+    onSuccess: () => invalidateStatus(qc, printerId),
+    onError: toastControlError,
+  });
+}
+
+// ---- SD card ----
+const filesKey = (printerId: number) => ["printers", printerId, "files"] as const;
+
+/** Tolerates a bare array or `{entries|files: [...]}`; derives `path`/`is_dir` when absent. */
+function normalizeFiles(raw: unknown, dir: string): RemoteFile[] {
+  const list = (Array.isArray(raw) ? raw : ((raw as { entries?: unknown[]; files?: unknown[] })?.entries ?? (raw as { files?: unknown[] })?.files ?? [])) as Array<Partial<RemoteFile>>;
+  const base = dir.replace(/\/+$/, "");
+  return list.map((f) => ({
+    name: f.name ?? "",
+    path: f.path ?? `${base}/${f.name ?? ""}`,
+    size: f.size ?? null,
+    mtime: f.mtime ?? null,
+    is_dir: !!f.is_dir,
+  }));
+}
+
+export function usePrinterFiles(printerId: number, path: string, enabled = true) {
+  return useQuery({
+    queryKey: [...filesKey(printerId), "list", path] as const,
+    queryFn: async () =>
+      normalizeFiles(await api.get<unknown>(`/printers/${printerId}/files?path=${encodeURIComponent(path)}`), path),
+    enabled,
+  });
+}
+
+export function useFileStorage(printerId: number, enabled = true) {
+  return useQuery({
+    queryKey: [...filesKey(printerId), "storage"] as const,
+    queryFn: () => api.get<FileStorage>(`/printers/${printerId}/files/storage`),
+    enabled,
+  });
+}
+
+export function fileDownloadUrl(printerId: number, path: string): string {
+  return `/api/printers/${printerId}/files/download?path=${encodeURIComponent(path)}`;
+}
+
+export function useDeletePrinterFile(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) => api.delete<void>(`/printers/${printerId}/files?path=${encodeURIComponent(path)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: filesKey(printerId) }),
+    onError: toastControlError,
+  });
+}
+
+export function usePrintSdFile(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { path: string; plate?: number; use_ams?: boolean }) =>
+      api.post<unknown>(`/printers/${printerId}/files/print`, { use_ams: true, ...v }),
+    onSuccess: () => {
+      invalidateStatus(qc, printerId);
+      void qc.invalidateQueries({ queryKey: ["printers", printerId, "active-job"] });
+    },
+    onError: toastControlError,
+  });
+}
+
