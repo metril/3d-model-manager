@@ -67,6 +67,7 @@ class PlugIn(BaseModel):
     config: dict = Field(default_factory=dict)
     auto_off_after_min: int | None = Field(default=None, ge=1, le=1440)
     auto_on_before_print: bool = False
+    auto_off_after_drying: bool = False
 
 
 class PlugOut(BaseModel):
@@ -75,6 +76,7 @@ class PlugOut(BaseModel):
     config: dict
     auto_off_after_min: int | None
     auto_on_before_print: bool
+    auto_off_after_drying: bool
     last_state: str | None
     last_power_w: float | None
     last_polled_at: datetime | None

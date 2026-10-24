@@ -47,6 +47,7 @@ from app.api import (
     blobs,
     categories,
     collections,
+    drying,
     events,
     ext,
     external_links,
@@ -157,6 +158,7 @@ protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
 protected_router.include_router(queue_settings.router)
+protected_router.include_router(drying.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)

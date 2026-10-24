@@ -79,6 +79,7 @@ _PATH_PARAM_VALUES = {
     "index": "1",
     "id": "1",
     "printer_id": "1",
+    "sid": "1",
     "import_id": "1",
     "backend_id": "1",
     # M8 H: followed collections / review queue / remote list browsing.

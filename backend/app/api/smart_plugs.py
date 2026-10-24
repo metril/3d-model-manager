@@ -55,6 +55,7 @@ def _out(settings: Settings, p: SmartPlug) -> PlugOut:
         config=_mask(cfg),
         auto_off_after_min=p.auto_off_after_min,
         auto_on_before_print=p.auto_on_before_print,
+        auto_off_after_drying=p.auto_off_after_drying,
         last_state=p.last_state,
         last_power_w=p.last_power_w,
         last_polled_at=p.last_polled_at,
@@ -117,6 +118,7 @@ async def put_plug(
     row.kind, row.config_enc = payload.kind, enc
     row.auto_off_after_min = payload.auto_off_after_min
     row.auto_on_before_print = payload.auto_on_before_print
+    row.auto_off_after_drying = payload.auto_off_after_drying
     await db.commit()
     await db.refresh(row)
     return _out(settings, row)
