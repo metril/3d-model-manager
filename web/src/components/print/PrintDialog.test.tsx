@@ -469,10 +469,17 @@ describe("PrintDialog", () => {
 
   it("resolves a missing file format via GET /files/{id}", async () => {
     const base = getMock.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
     getMock.mockImplementation((path: string) =>
-      path === "/files/10" ? Promise.resolve({ id: 10, rel_path: "a.stl", format: "stl" }) : base(path),
+      path === "/files/10" ? gate.then(() => ({ id: 10, rel_path: "a.stl", format: "stl" })) : base(path),
     );
     renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/files/10"));
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    await screen.findByRole("radiogroup");
+    expect(screen.queryByLabelText("PLA fast")).not.toBeInTheDocument();
+    release();
     expect(await screen.findByLabelText("PLA fast")).toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith("/files/10");
     expect(screen.queryByLabelText("As sliced")).not.toBeInTheDocument();

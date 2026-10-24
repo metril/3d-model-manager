@@ -432,6 +432,8 @@ export function PrintDialog({
       ? fileFormat === "gcode_3mf"
       : effectiveFileId != null && gcodeFiles.files.some((f) => f.id === effectiveFileId);
 
+  const formatUnknown = source.kind === "file" && fileFormat == null;
+
   const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
   // A reprint seeds `printerId` from the archived run before the person
   // ever visits the Send step -- that pre-selected printer can be busy or
@@ -722,7 +724,7 @@ export function PrintDialog({
                     </Label>
                   </div>
                 )}
-                {!effectiveIsSliced && filteredRecipes.map((r) => (
+                {!effectiveIsSliced && !formatUnknown && filteredRecipes.map((r) => (
                   <div key={r.id} className="flex items-center gap-2">
                     <RadioGroupItem value={String(r.id)} id={`print-dialog-profile-recipe-${r.id}`} />
                     <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
@@ -730,7 +732,7 @@ export function PrintDialog({
                     </Label>
                   </div>
                 ))}
-                {profileMode === "recipe" && !effectiveIsSliced && filteredRecipes.length === 0 && !recipes.isLoading ? (
+                {profileMode === "recipe" && !effectiveIsSliced && !formatUnknown && filteredRecipes.length === 0 && !recipes.isLoading ? (
                   <p className="text-sm text-muted-foreground">
                     {recipeList.length === 0 ? "No recipes yet." : "No recipe for this printer model."}{" "}
                     <Link to="/inventory/profiles" className="underline">
