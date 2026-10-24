@@ -85,6 +85,7 @@ async def login(
 
     st = await two_factor.status_for(db, user)
     if st.enabled:
+        await two_factor.guard(user.id)
         token = await two_factor.issue_token(
             db, two_factor.PRE_AUTH, user.id, two_factor.PRE_AUTH_TTL
         )

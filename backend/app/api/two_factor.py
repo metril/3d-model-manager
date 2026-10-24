@@ -70,10 +70,12 @@ async def verify(
     db: AsyncSession = Depends(get_db),
 ) -> VerifyOut:
     tok, user = await _pre_auth_user(db, payload.pre_auth_token)
+    await tf.guard(user.id)
     st = await tf.status_for(db, user)
     if payload.method not in st.methods:
         raise tf.err(422, "method_unavailable", "that method is not enabled")
     if not await tf.verify_method(db, user, payload.method, payload.code):
+        await tf.note_failure(user.id)
         if await tf.fail_token(db, tok):
             raise _gone()
         raise tf.err(status.HTTP_401_UNAUTHORIZED, "invalid_code", "invalid code")
@@ -180,12 +182,14 @@ async def totp_enable(
     ctx: AuthContext = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> BackupCodesOut:
+    await tf.guard(ctx.user.id)
     tok = await tf.load_token(db, payload.setup_token, (tf.TOTP_SETUP,), user_id=ctx.user.id)
     if tok is None:
         raise tf.err(410, "setup_expired", "setup expired; start again")
     secret = decrypt_secret(get_settings(), tok.payload["secret_enc"])
     step = tf.match_counter(secret, payload.code)
     if step is None:
+        await tf.note_failure(ctx.user.id)
         if await tf.fail_token(db, tok):
             raise tf.err(410, "setup_expired", "too many attempts; start again")
         raise tf.err(400, "invalid_code", "invalid code")
@@ -220,7 +224,9 @@ class ReauthIn(BaseModel):
 
 
 async def _reauth_or_400(db: AsyncSession, user: User, value: str) -> None:
+    await tf.guard(user.id)
     if not await tf.verify_reauth(db, user, value):
+        await tf.note_failure(user.id)
         await db.commit()  # persist attempt counters
         raise tf.err(400, "invalid_code", "invalid code or password")
 
@@ -251,7 +257,9 @@ async def backup_regenerate(
 ) -> BackupCodesOut:
     if await tf.get_totp(db, ctx.user.id) is None:
         raise tf.err(409, "totp_not_enabled", "no authenticator is enrolled")
+    await tf.guard(ctx.user.id)
     if not await tf.verify_totp(db, ctx.user.id, payload.code):
+        await tf.note_failure(ctx.user.id)
         await db.commit()
         raise tf.err(400, "invalid_code", "invalid code")
     codes = tf.generate_backup_codes()
@@ -292,7 +300,9 @@ async def email_confirm(
     ctx: AuthContext = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    await tf.guard(ctx.user.id)
     if not await tf.verify_email_otp(db, ctx.user.id, payload.code):
+        await tf.note_failure(ctx.user.id)
         await db.commit()
         raise tf.err(400, "invalid_code", "invalid code")
     ctx.user.email_otp_enabled = True

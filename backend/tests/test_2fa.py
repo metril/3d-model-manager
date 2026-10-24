@@ -43,6 +43,11 @@ def clock(monkeypatch) -> Clock:
     return c
 
 
+@pytest.fixture(autouse=True)
+async def _fresh_redis(redis_client):
+    """Per-user failure counters live in Redis and user ids restart each test."""
+
+
 @pytest.fixture
 def outbox(monkeypatch) -> list[tuple[str, str, str]]:
     sent: list[tuple[str, str, str]] = []
@@ -429,7 +434,7 @@ async def test_oidc_redirects_to_2fa_step(
     user, secret = await _oidc_user_with_totp(make_user, db_session, clock)
     r = await fake_idp.login(client, "authentik", {"sub": "sub-1"}, return_to="/library")
     loc = r.headers["location"]
-    assert loc.startswith("/login?step=2fa&token=") and "methods=totp" in loc
+    assert loc.startswith("/login#step=2fa&token=") and "methods=totp" in loc
     assert (await client.get("/api/auth/me")).status_code == 401
     token = re.search(r"token=([^&]+)", loc).group(1)
     ok = await verify(client, token, "totp", clock.code(secret))
@@ -524,3 +529,56 @@ def test_beat_schedule_has_sweeper():
 
     entry = celery_app.conf.beat_schedule["auth-sweep-ephemeral"]
     assert entry["task"] == "app.tasks.auth.sweep_ephemeral" and entry["schedule"] == 3600
+
+
+async def test_failures_across_tokens_lock_the_user(enrolled, client, clock, login_as):
+    user, secret, _ = enrolled
+    clock.t += STEP
+    for _ in range(2):
+        tok = (await pre_auth(client, user))["pre_auth_token"]
+        for _ in range(5):
+            assert (await verify(client, tok, "totp", "000000")).status_code in (401, 410)
+    # locked: a correct code on a fresh token is refused, and no new token is issued
+    r = await client.post(
+        "/api/auth/login", json={"username": user.username, "password": DEFAULT_PASSWORD}
+    )
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "2fa_locked"
+
+
+async def test_verify_refused_while_locked(enrolled, client, clock):
+    user, secret, _ = enrolled
+    clock.t += STEP
+    tok = (await pre_auth(client, user))["pre_auth_token"]
+    from app.services.two_factor import note_failure
+
+    for _ in range(10):
+        await note_failure(user.id)
+    r = await verify(client, tok, "totp", clock.code(secret))
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "2fa_locked"
+
+
+async def test_reauth_routes_share_the_lock(enrolled, clock):
+    user, secret, codes = enrolled
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+    ) as c:
+        clock.t += STEP
+        tok = (await pre_auth(c, user))["pre_auth_token"]
+        assert (await verify(c, tok, "backup", codes[0])).status_code == 200
+        for _ in range(5):
+            r = await c.post("/api/auth/2fa/totp/disable", json={"code_or_password": "wrong-pw"})
+            assert r.status_code == 400
+        for _ in range(5):
+            r = await c.post("/api/auth/2fa/backup/regenerate", json={"code": "000000"})
+            assert r.status_code == 400
+        r = await c.post("/api/auth/2fa/totp/disable", json={"code_or_password": DEFAULT_PASSWORD})
+        assert r.status_code == 429
+        clock.t += STEP
+        r = await c.post("/api/auth/2fa/backup/regenerate", json={"code": clock.code(secret)})
+        assert r.status_code == 429
+
+
+def test_reauth_only_checks_codes_for_matching_shape():
+    from app.services import two_factor as t
+
+    assert t.normalise_backup("abcd-efgh") == "ABCDEFGH"

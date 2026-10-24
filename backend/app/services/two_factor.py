@@ -19,6 +19,7 @@ import anyio
 import pyotp
 from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
+from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +49,37 @@ BACKUP_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 ISSUER = "3D Model Manager"
 SECURITY_KEY = "security"
+
+
+FAIL_LIMIT = 10
+FAIL_WINDOW_S = 15 * 60
+
+
+def _fail_key(user_id: int) -> str:
+    return f"tdmm:2fa:fail:{user_id}"
+
+
+async def guard(user_id: int) -> None:
+    """429 ``2fa_locked`` while the user has >= FAIL_LIMIT recent failed second-factor
+    attempts (across every token / re-auth route). Locked checks add no failures,
+    so the lock ends FAIL_WINDOW_S after the last real failure."""
+    r = Redis.from_url(get_settings().redis_url)
+    try:
+        n = int(await r.get(_fail_key(user_id)) or 0)
+    finally:
+        await r.aclose()
+    if n >= FAIL_LIMIT:
+        raise err(429, "2fa_locked", "too many failed attempts; try again in 15 minutes")
+
+
+async def note_failure(user_id: int) -> None:
+    r = Redis.from_url(get_settings().redis_url)
+    try:
+        key = _fail_key(user_id)
+        await r.incr(key)
+        await r.expire(key, FAIL_WINDOW_S)
+    finally:
+        await r.aclose()
 
 
 def err(status: int, code: str, message: str = "") -> HTTPException:
@@ -273,6 +305,8 @@ async def verify_backup(db: AsyncSession, user_id: int, code: str) -> bool:
 
 async def send_email_otp(db: AsyncSession, user: User) -> None:
     """Mint + email a 6-digit code (caller commits). Raises coded HTTP errors."""
+    # Serialise concurrent sends per user so the rate limit below cannot be raced.
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     if not user.email:
         raise err(409, "no_email", "this account has no email address")
     if not await mailer.is_configured(db):
@@ -354,8 +388,17 @@ async def verify_reauth(db: AsyncSession, user: User, value: str) -> bool:
     ):
         return True
     st = await status_for(db, user)
-    for method, enrolled in (("totp", st.totp), ("backup", st.totp), ("email", st.email)):
-        if enrolled and await verify_method(db, user, method, value):
+    # Only run the (argon2-heavy) code checks when the input has that code's shape.
+    is_digits = len(value.strip()) == 6 and value.strip().isdigit()
+    is_backup = len(normalise_backup(value)) == BACKUP_LEN and set(normalise_backup(value)) <= set(
+        BACKUP_ALPHABET
+    )
+    for method, enrolled, shaped in (
+        ("totp", st.totp, is_digits),
+        ("backup", st.totp, is_backup),
+        ("email", st.email, is_digits),
+    ):
+        if enrolled and shaped and await verify_method(db, user, method, value):
             return True
     return False
 
