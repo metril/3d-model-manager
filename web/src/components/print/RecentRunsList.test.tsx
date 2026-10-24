@@ -27,6 +27,14 @@ vi.mock("@/api/archives", async (importOriginal) => ({
 // react-query consumer with no `QueryClientProvider` in this file's render
 // tree, so it's stubbed out here (unit-tested on its own in
 // `PrintDialog.test.tsx`).
+vi.mock("@/components/print/ArchiveExtras", () => ({
+  VerdictCard: ({ canWrite }: { canWrite: boolean }) => <div data-testid="verdict-card">{String(canWrite)}</div>,
+  ArchiveEditor: ({ canWrite, canOverride, isAdmin }: { canWrite: boolean; canOverride: boolean; isAdmin: boolean }) => (
+    <div data-testid="archive-editor">{`${canWrite}/${canOverride}/${isAdmin}`}</div>
+  ),
+  PhotoGallery: () => null,
+}));
+vi.mock("@/components/print/TimelapseEditorDialog", () => ({ TimelapseEditorDialog: () => null }));
 vi.mock("@/components/print/PrintDialog", () => ({ PrintDialog: () => null }));
 
 function run(overrides: Partial<ArchiveOut> = {}): ArchiveOut {
