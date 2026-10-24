@@ -658,6 +658,8 @@ export interface PrinterCapabilities {
   drying_screen_only?: boolean;
   /** T1: drying may start while a print runs. */
   ams_drying_while_printing?: boolean;
+  /** T2: K-profile (pressure advance) management. */
+  kprofiles?: boolean;
 }
 
 export interface PrinterCreate {
@@ -717,6 +719,10 @@ export interface AmsTray {
   tray_uuid: string | null;
   remain_pct: number | null;
   spool: SpoolBrief | null;
+  /** T2: active pressure-advance profile index (-1 / null = default). */
+  cali_idx?: number | null;
+  k_value?: number | null;
+  tray_info_idx?: string | null;
 }
 
 export interface SpoolBrief {
@@ -2544,4 +2550,66 @@ export interface DryingSettings {
   queue_drying_enabled: boolean;
   queue_drying_block: boolean;
   print_drying_enabled: boolean;
+}
+
+// ---- T2 K-profiles ----
+
+export interface KProfile {
+  cali_idx: number;
+  setting_id: string;
+  filament_id: string;
+  name: string;
+  k_value: number;
+  n_coef: number;
+  extruder_id: number;
+  nozzle_id?: string | null;
+  nozzle_diameter: string | number;
+  ams_id?: number | null;
+  tray_id?: number | null;
+  note?: string | null;
+}
+
+export interface KProfileList {
+  profiles: KProfile[];
+  nozzle_diameter: string;
+  fetched_at?: string | null;
+}
+
+/** 202 body: the printer has not answered yet; poll with `request_id`. */
+export interface KProfilePending {
+  status: "pending";
+  request_id: string;
+}
+
+export interface KProfileIn {
+  name: string;
+  filament_id: string;
+  k_value: number;
+  n_coef: number;
+  nozzle_diameter: string;
+  extruder_id: number;
+  nozzle_id?: string | null;
+  /** Omit to create; send to edit. */
+  setting_id?: string;
+  cali_idx?: number;
+}
+
+export interface KProfileSelectIn {
+  ams_id: number;
+  tray_id: number;
+  cali_idx: number;
+  filament_id: string;
+  nozzle_diameter: string;
+}
+
+export interface SpoolKProfile {
+  printer_id: number;
+  extruder: number;
+  nozzle_diameter: string;
+  nozzle_type?: string | null;
+  k_value: number;
+  n_coef: number;
+  name: string;
+  cali_idx: number;
+  setting_id: string;
 }
