@@ -45,6 +45,9 @@ PUBLIC_ROUTES = {
     ("get", "/api/overlay/{printer_id}"),
     # Q10: one-shot snapshot the Obico ML sidecar fetches (unguessable single-use nonce).
     ("get", "/api/obico/frame/{nonce}"),
+    # T7: emailed/ntfy outcome-confirm links (unguessable single-use token; GET renders only).
+    ("get", "/api/archives/confirm/{token}/{verdict}"),
+    ("post", "/api/archives/confirm/{token}/{verdict}"),
 }
 
 # Dummy values for every path parameter used anywhere in the API, so a
@@ -63,6 +66,8 @@ _PATH_PARAM_VALUES = {
     "file_id": "1",
     "archive_id": "1",
     "filename": "placeholder.stl",
+    "token": "placeholder-token",
+    "verdict": "good",
     "note_id": "1",
     "name": "placeholder-tag",
     "tag_id": "1",

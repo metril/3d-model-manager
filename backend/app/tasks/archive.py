@@ -188,3 +188,26 @@ def archive_sweep() -> int:
     for job_id, state in rows:
         archive_print.apply_async(args=[job_id, _SWEEP_RESULT[PrintJobState(state)].value])
     return len(rows)
+
+
+@celery_app.task(name="app.tasks.archive.purge")
+def purge() -> str:
+    """Nightly retention purge (T7); a no-op unless ``archive_purge.enabled``."""
+    from app.services import archive_purge, archive_settings
+
+    settings = get_settings()
+    with base.sync_session() as session:
+        cfg = archive_settings.get_purge(session)
+        if not cfg.enabled:
+            return "disabled"
+        n, size = archive_purge.run_purge(session, settings, cfg)
+    return f"purged {n} ({size} bytes)"
+
+
+@celery_app.task(name="app.tasks.archive.confirm_defaults")
+def confirm_defaults() -> int:
+    """Hourly: apply ``confirm.default_outcome`` to long-pending archives."""
+    from app.services import archive_confirm
+
+    with base.sync_session() as session:
+        return archive_confirm.apply_defaults(session)
