@@ -7,30 +7,21 @@
  *
  * The camera tile is live only when the viewer has `canPrinter(id, "print")`
  * (the token mint requires it) -- anyone else keeps the plain placeholder.
- * Q5: info/HMS/diagnose open via the card's callbacks (`usePrinterModals`);
- * Firmware is a footer button; TODO(Q4-web): `CameraSplitButton` via `footerExtra`.
+ * Q12: badges, footer items and info/HMS/diagnose modals come from the shared
+ * `usePrinterCardExtras` (via `ManagedPrinterCard`), same as the dashboard.
  */
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
 import type { PrinterOut, PrintersOverviewOut } from "@/api/types";
-import { usePrinterModals } from "@/components/print/modals";
-import { Button } from "@/components/ui/button";
-import { MaintenanceBadge } from "@/components/maintenance/MaintenanceBadge";
 import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection";
-import { PlugRow } from "@/components/print/PlugRow";
 import { CameraTile } from "@/components/print/CameraTile";
-import { DetectionBadge } from "@/components/printer/DetectionBadge";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
-import { AmsHistoryModal } from "@/components/print/modals/AmsHistoryModal";
-import { HeaterHistoryModal } from "@/components/print/modals/HeaterHistoryModal";
-import { PrinterCard } from "@/components/print/PrinterCard";
+import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
 import { UpNextList } from "@/components/print/UpNextList";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,27 +29,6 @@ import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const routeApi = getRouteApi("/authenticated/printers/$id");
-
-/** Q8c history buttons (card `footerExtra`): temperature always, AMS only
- * when the printer reports units (`status.ams_units[].id`). */
-function HistoryButtons({ printerId, amsUnits }: { printerId: number; amsUnits: number[] }) {
-  const { t } = useTranslation();
-  const [modal, setModal] = useState<"heater" | "ams" | null>(null);
-  return (
-    <div className="flex gap-2">
-      <Button type="button" size="sm" variant="outline" onClick={() => setModal("heater")}>
-        {t("history.heaterBtn")}
-      </Button>
-      {amsUnits.length > 0 && (
-        <Button type="button" size="sm" variant="outline" onClick={() => setModal("ams")}>
-          {t("history.amsBtn")}
-        </Button>
-      )}
-      <HeaterHistoryModal printerId={printerId} open={modal === "heater"} onOpenChange={(o) => !o && setModal(null)} />
-      <AmsHistoryModal printerId={printerId} units={amsUnits} open={modal === "ams"} onOpenChange={(o) => !o && setModal(null)} />
-    </div>
-  );
-}
 
 export function PrinterDetailPage() {
   const { id } = routeApi.useParams();
@@ -109,23 +79,19 @@ function PrinterDetailBody({
   printer: PrinterOut;
   overviewItem: PrintersOverviewOut["printers"][number];
 }) {
-  const { can, canPrinter } = useAuth();
-  const modals = usePrinterModals(printer.id);
+  const { canPrinter } = useAuth();
 
   return (
     <PageContainer width="fluid">
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-4 lg:max-w-4xl">
-          <PrinterCard
+          <ManagedPrinterCard
             item={{
               ...overviewItem,
               can_print: overviewItem.can_print && canPrinter(printer.id, "print"),
               can_control: overviewItem.can_control && canPrinter(printer.id, "control"),
             }}
             size="XL"
-            onInfo={() => modals.open("info")}
-            onDiagnose={can("settings:write") ? () => modals.open("diagnostic") : undefined}
-            onHms={canPrinter(printer.id, "print") ? () => modals.open("hms") : undefined}
             camera={
               canPrinter(printer.id, "print") ? (
                 <CameraTile printerId={printer.id} online={overviewItem.status.online} />
@@ -140,26 +106,6 @@ function PrinterDetailBody({
                 <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
               ) : undefined
             }
-            badgeExtra={
-              <>
-                <MaintenanceBadge printerId={printer.id} />
-                {canPrinter(printer.id, "print") ? <DetectionBadge printerId={printer.id} /> : null}
-              </>
-            }
-            footerExtra={(ctx) => (
-              <>
-                <PlugRow printerId={printer.id} canControl={ctx.canControl} />
-                <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
-                  Firmware
-                </Button>
-                {canPrinter(printer.id, "print") ? (
-                  <HistoryButtons
-                    printerId={printer.id}
-                    amsUnits={overviewItem.status.ams_units?.map((u) => u.id) ?? []}
-                  />
-                ) : null}
-              </>
-            )}
           />
           <MaintenanceSection
             printerId={printer.id}
@@ -178,7 +124,6 @@ function PrinterDetailBody({
         <h2 className="text-sm font-semibold text-foreground">Stats</h2>
         <HistoryStats />
       </section>
-      {modals.modals}
     </PageContainer>
   );
 }

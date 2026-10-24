@@ -56,9 +56,11 @@ A1_MINI_DUMP = {
         "spd_lvl": 2,
         "sdcard": True,
         "hms": [{"attr": 83886336, "code": 65545}],
+        "home_flag": 8388608,  # bit 23 set, but the A1 Mini has no door sensor
         "lights_report": [{"node": "chamber_light", "mode": "on"}],
         "ipcam": {"ipcam_record": "enable", "resolution": "720p"},
         "ams": {
+            "tray_now": "254",
             "ams": [
                 {
                     "id": "0",
@@ -68,7 +70,7 @@ A1_MINI_DUMP = {
                     "sn": "AMS123",
                     "tray": [],
                 }
-            ]
+            ],
         },
         "vt_tray": {"id": "254", "tray_type": "PLA", "tray_color": "FF0000FF"},
     },

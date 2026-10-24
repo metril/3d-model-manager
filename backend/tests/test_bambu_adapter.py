@@ -344,6 +344,7 @@ def test_snapshot_a1_mini_v2_fields(monkeypatch):
     ]
     assert ps.ext_tray is not None and ps.ext_tray["material"] == "PLA"
     assert ps.dev_mode is None and ps.last_report_at
+    assert ps.tray_now == 254 and ps.door_open is None  # A1 Mini: no door capability
 
 
 def test_fan_pct_scale():
@@ -609,3 +610,21 @@ def test_load_filament_temp_from_tray_then_type_then_default(ctl):
         a.load_filament(tray)
     temps = [pl["print"]["tar_temp"] for _, pl in p.mqtt_client._client.sent]
     assert temps == [230, 250, 220, 220]
+
+
+def test_tray_now_parsing():
+    assert bambu._tray_now({"print": {"ams": {"tray_now": "2"}}}) == 2
+    assert bambu._tray_now({"ams": {"tray_now": 255}}) == 255
+    assert bambu._tray_now({"print": {"ams": {"tray_now": "x"}}}) is None
+    assert bambu._tray_now({"print": {}}) is None
+
+
+def test_door_open_only_with_door_capability():
+    set_bit = {"print": {"home_flag": 0x00800000, "stat": "0"}}
+    clear = {"print": {"home_flag": 0x100, "stat": "0"}}
+    assert bambu._door_open(set_bit, "X1C", None) is True
+    assert bambu._door_open(clear, "X1C", None) is False
+    # non-X1 door models read the hex `stat` field
+    assert bambu._door_open({"print": {"stat": "800000"}}, "H2D", None) is True
+    assert bambu._door_open({"print": {"home_flag": 0x00800000}}, "H2D", None) is None
+    assert bambu._door_open(set_bit, "A1 mini", None) is None

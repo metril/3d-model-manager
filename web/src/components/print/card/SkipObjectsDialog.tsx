@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useSkipObjects } from "@/api/printerControl";
 import type { PrintableObject } from "@/api/types";
@@ -18,6 +19,7 @@ export function SkipObjectsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const skip = useSkipObjects(printerId);
   const toggle = (id: number) =>
@@ -34,8 +36,8 @@ export function SkipObjectsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Skip objects</DialogTitle>
-          <DialogDescription>Skipped objects are not printed from the next layer on. This can&apos;t be undone.</DialogDescription>
+          <DialogTitle>{t("card.skip.title")}</DialogTitle>
+          <DialogDescription>{t("card.skip.desc")}</DialogDescription>
         </DialogHeader>
         <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
           {objects.map((o) => (
@@ -62,7 +64,7 @@ export function SkipObjectsDialog({
               })
             }
           >
-            Skip {picked.size || ""} selected
+            {t("card.skip.submit", { n: picked.size || "" })}
           </Button>
         </DialogFooter>
       </DialogContent>

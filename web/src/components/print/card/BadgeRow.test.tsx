@@ -39,4 +39,19 @@ describe("BadgeRow", () => {
     expect(screen.getByText("Dev Mode off")).toBeInTheDocument();
     expect(screen.getByText("maint")).toBeInTheDocument();
   });
+
+  it("door chip reflects door_open: open, closed, unknown", async () => {
+    const open = x1c({}, { door_open: true });
+    const { unmount } = renderCard(<BadgeRow printer={open.printer} status={open.status} queueCount={0} />);
+    expect(await screen.findByText("Door open")).toBeInTheDocument();
+    unmount();
+    const closed = x1c({}, { door_open: false });
+    const second = renderCard(<BadgeRow printer={closed.printer} status={closed.status} queueCount={0} />);
+    expect(await screen.findByText("Door closed")).toBeInTheDocument();
+    second.unmount();
+    const a1 = a1Mini({}, { door_open: true });
+    renderCard(<BadgeRow printer={a1.printer} status={a1.status} queueCount={0} />);
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.queryByTestId("door-chip")).toBeNull(); // no door capability, no chip
+  });
 });

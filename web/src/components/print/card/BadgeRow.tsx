@@ -1,6 +1,7 @@
 /** Connection, WiFi/Ethernet, HMS, queue, firmware, door and dev-mode chips. `extra` is the `badge-extra` slot. */
 import { DoorOpenIcon, ShieldAlertIcon, WifiIcon, CableIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -20,44 +21,53 @@ export function BadgeRow({
   onHms?: () => void;
   extra?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const caps = capsOf(printer);
   const hms = status.hms?.length ?? 0;
   const fw = status.firmware?.ota;
   return (
     <div className="pc-t11 flex flex-wrap items-center gap-1.5" data-slot="badge-row">
-      <Badge variant={status.online ? "secondary" : "outline"}>{status.online ? "Connected" : "Offline"}</Badge>
+      <Badge variant={status.online ? "secondary" : "outline"}>{status.online ? t("card.badge.connected") : t("card.badge.offline")}</Badge>
       {status.online ? (
-        <Badge variant="outline" title="Network">
+        <Badge variant="outline" title={t("card.badge.network")}>
           {status.wifi_signal ? <WifiIcon /> : <CableIcon />}
-          {status.wifi_signal ?? "Ethernet"}
+          {status.wifi_signal ?? t("card.badge.ethernet")}
         </Badge>
       ) : null}
       {hms > 0 ? (
         onHms ? (
-          <button type="button" onClick={onHms} aria-label={`HMS ${hms}`}>
+          <button type="button" onClick={onHms} aria-label={t("card.badge.hms", { n: hms })}>
             <Badge variant="destructive">
               <ShieldAlertIcon />
-              HMS {hms}
+              {t("card.badge.hms", { n: hms })}
             </Badge>
           </button>
         ) : (
           <Badge variant="destructive">
             <ShieldAlertIcon />
-            HMS {hms}
+            {t("card.badge.hms", { n: hms })}
           </Badge>
         )
       ) : null}
-      {queueCount > 0 ? <Badge variant="secondary">{queueCount} queued</Badge> : null}
-      {fw ? <Badge variant="outline">FW {fw}</Badge> : null}
+      {queueCount > 0 ? <Badge variant="secondary">{t("card.badge.queued", { n: queueCount })}</Badge> : null}
+      {fw ? <Badge variant="outline">{t("card.badge.fw", { v: fw })}</Badge> : null}
       {caps.door ? (
-        <Badge variant="outline" title="Door sensor present">
+        <Badge
+          variant={status.door_open ? "secondary" : "outline"}
+          title={t("card.badge.doorTitle")}
+          data-testid="door-chip"
+        >
           <DoorOpenIcon />
-          Door
+          {status.door_open == null
+            ? t("card.badge.door")
+            : status.door_open
+              ? t("card.badge.doorOpen")
+              : t("card.badge.doorClosed")}
         </Badge>
       ) : null}
       {status.dev_mode === false ? (
-        <Badge variant="destructive" title={status.dev_mode_reason ?? "Developer LAN mode is off"}>
-          Dev Mode off
+        <Badge variant="destructive" title={status.dev_mode_reason ?? t("card.badge.devModeTip")}>
+          {t("card.badge.devModeOff")}
         </Badge>
       ) : null}
       {extra}

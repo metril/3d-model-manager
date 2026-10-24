@@ -838,8 +838,10 @@ export interface PrinterStatusOut {
   firmware?: { ota: string | null; ams: Array<{ id: number; sw_ver: string | null }> } | null;
   ams_units?: AmsUnit[];
   ext_tray?: AmsTray | null;
-  /** Global slot id of the loaded tray (not sent by the API yet; the card shows a marker when present). */
+  /** Loaded tray (AMS `tray_now`): global slot id, 254 = external spool, 255 = none. */
   tray_now?: number | null;
+  /** Enclosure door; only reported for models with a door sensor. */
+  door_open?: boolean | null;
   print_thumbnail_key?: string | null;
   ipcam?: boolean | null;
   dev_mode?: boolean | null;
@@ -1529,6 +1531,8 @@ export interface ActiveJobOut extends PrintJobOut {
   model_id: number | null;
   model_slug: string | null;
   model_name: string | null;
+  /** Plate thumbnail of the job's stored 3MF, else null. */
+  thumbnail_url?: string | null;
 }
 
 export interface PrinterOverviewItem {

@@ -6,6 +6,7 @@
  */
 import { LightbulbIcon, MoveIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useControl } from "@/api/printerControl";
 import { usePrinterCommand } from "@/api/printers";
@@ -20,14 +21,15 @@ import { useOptimistic } from "./useOptimistic";
 import { UntestedTip } from "./UntestedTip";
 
 const SPEED_LEVELS = [
-  { level: 1, label: "Silent" },
-  { level: 2, label: "Standard" },
-  { level: 3, label: "Sport" },
-  { level: 4, label: "Ludicrous" },
+  { level: 1, key: "card.controls.silent" },
+  { level: 2, key: "card.controls.standard" },
+  { level: 3, key: "card.controls.sport" },
+  { level: 4, key: "card.controls.ludicrous" },
 ] as const;
 const STEPS = [1, 10, 50] as const;
 
 function MovementPopover({ printerId, busy, untested }: { printerId: number; busy: boolean; untested: boolean }) {
+  const { t } = useTranslation();
   const control = useControl(printerId);
   const [step, setStep] = useState<number>(10);
   const jog = (axis: "X" | "Y" | "Z", sign: 1 | -1) => void control.send("jog", { axis, mm: sign * step });
@@ -40,14 +42,14 @@ function MovementPopover({ printerId, busy, untested }: { printerId: number; bus
     <Popover>
       <UntestedTip show={untested}>
         <PopoverTrigger asChild>
-          <Button type="button" size="sm" variant="outline" disabled={busy} aria-label="Movement">
+          <Button type="button" size="sm" variant="outline" disabled={busy} aria-label={t("card.controls.movement")}>
             <MoveIcon />
-            Move
+            {t("card.controls.move")}
           </Button>
         </PopoverTrigger>
       </UntestedTip>
       <PopoverContent className="w-60">
-        <div className="flex items-center gap-1" role="radiogroup" aria-label="Jog step">
+        <div className="flex items-center gap-1" role="radiogroup" aria-label={t("card.controls.jogStep")}>
           {STEPS.map((s) => (
             <Button
               key={s}
@@ -58,7 +60,7 @@ function MovementPopover({ printerId, busy, untested }: { printerId: number; bus
               variant={step === s ? "default" : "outline"}
               onClick={() => setStep(s)}
             >
-              {s} mm
+              {t("card.controls.mm", { n: s })}
             </Button>
           ))}
         </div>
@@ -67,7 +69,7 @@ function MovementPopover({ printerId, busy, untested }: { printerId: number; bus
           {btn("Y+", () => jog("Y", 1))}
           <span />
           {btn("X-", () => jog("X", -1))}
-          {btn("Home", () => void control.send("home"))}
+          {btn(t("card.controls.home"), () => void control.send("home"))}
           {btn("X+", () => jog("X", 1))}
           <span />
           {btn("Y-", () => jog("Y", -1))}
@@ -76,10 +78,10 @@ function MovementPopover({ printerId, busy, untested }: { printerId: number; bus
         <div className="grid grid-cols-2 gap-1">
           {btn("Z+", () => jog("Z", 1))}
           {btn("Z-", () => jog("Z", -1))}
-          {btn("Extrude", () => void control.send("extrude", { mm: 10 }))}
-          {btn("Retract", () => void control.send("extrude", { mm: -10 }))}
+          {btn(t("card.controls.extrude"), () => void control.send("extrude", { mm: 10 }))}
+          {btn(t("card.controls.retract"), () => void control.send("extrude", { mm: -10 }))}
         </div>
-        <p className="text-xs text-muted-foreground">Extrude needs the nozzle at 170 °C or hotter.</p>
+        <p className="text-xs text-muted-foreground">{t("card.controls.extrudeHint")}</p>
       </PopoverContent>
     </Popover>
   );
@@ -94,6 +96,7 @@ export function ControlsSection({
   status: PrinterStatusOut;
   canControl: boolean;
 }) {
+  const { t } = useTranslation();
   const caps = capsOf(printer);
   const control = useControl(printer.id);
   const command = usePrinterCommand(printer.id);
@@ -118,7 +121,7 @@ export function ControlsSection({
             size="sm"
             variant={lightOn ? "default" : "outline"}
             aria-pressed={lightOn}
-            aria-label="Chamber light"
+            aria-label={t("card.controls.lightLabel")}
             onClick={async () => {
               clearTimeout(lightTimer.current);
               setLight(!lightOn);
@@ -131,11 +134,11 @@ export function ControlsSection({
             }}
           >
             <LightbulbIcon />
-            Light
+            {t("card.controls.light")}
           </Button>
         </UntestedTip>
-        <div role="radiogroup" aria-label="Print speed" className="inline-flex overflow-hidden rounded-md border">
-          {SPEED_LEVELS.map(({ level, label }) => (
+        <div role="radiogroup" aria-label={t("card.controls.speed")} className="inline-flex overflow-hidden rounded-md border">
+          {SPEED_LEVELS.map(({ level, key }) => (
             <UntestedTip key={level} show={untested}>
               <button
                 type="button"
@@ -150,7 +153,7 @@ export function ControlsSection({
                   if (!(await control.send("speed", { level }))) setSpeed(null);
                 }}
               >
-                {label}
+                {t(key)}
               </button>
             </UntestedTip>
           ))}
@@ -160,7 +163,7 @@ export function ControlsSection({
       <div className="flex flex-wrap items-center gap-2">
         <MovementPopover printerId={printer.id} busy={busy} untested={untested} />
         {caps.airduct ? (
-          <div role="group" aria-label="Airduct" className="inline-flex overflow-hidden rounded-md border">
+          <div role="group" aria-label={t("card.controls.airduct")} className="inline-flex overflow-hidden rounded-md border">
             {(["cooling", "heating"] as const).map((mode) => (
               <UntestedTip key={mode} show={untested}>
                 <button
@@ -168,7 +171,7 @@ export function ControlsSection({
                   className="pc-t11 px-2 py-1 capitalize hover:bg-muted"
                   onClick={() => void control.send("airduct", { mode })}
                 >
-                  {mode}
+                  {t(mode === "cooling" ? "card.controls.cooling" : "card.controls.heating")}
                 </button>
               </UntestedTip>
             ))}
@@ -176,14 +179,14 @@ export function ControlsSection({
         ) : null}
         <ConfirmDialog
           trigger={
-            <Button type="button" size="sm" variant="outline" disabled={busy} aria-label="Calibration">
+            <Button type="button" size="sm" variant="outline" disabled={busy} aria-label={t("card.controls.calibration")}>
               <WrenchIcon />
-              Calibrate
+              {t("card.controls.calibrate")}
             </Button>
           }
-          title="Run calibration?"
-          description="Bed levelling, vibration compensation and motor noise cancellation. The printer will move."
-          confirmLabel="Calibrate"
+          title={t("card.controls.calibrateTitle")}
+          description={t("card.controls.calibrateDesc")}
+          confirmLabel={t("card.controls.calibrate")}
           onConfirm={() => void control.send("calibrate", {})}
         />
         {printing || paused ? (
@@ -191,22 +194,22 @@ export function ControlsSection({
             <ConfirmDialog
               trigger={
                 <Button type="button" size="sm" variant="outline" disabled={command.isPending}>
-                  {paused ? "Resume" : "Pause"}
+                  {paused ? t("card.controls.resume") : t("card.controls.pause")}
                 </Button>
               }
-              title={paused ? "Resume this print?" : "Pause this print?"}
-              confirmLabel={paused ? "Resume" : "Pause"}
+              title={paused ? t("card.controls.resumeTitle") : t("card.controls.pauseTitle")}
+              confirmLabel={paused ? t("card.controls.resume") : t("card.controls.pause")}
               onConfirm={() => command.mutate(paused ? "resume" : "pause")}
             />
             <ConfirmDialog
               trigger={
                 <Button type="button" size="sm" variant="destructive" disabled={command.isPending}>
-                  Stop
+                  {t("card.controls.stop")}
                 </Button>
               }
-              title="Stop this print?"
-              description="The printer will cancel the job in progress. This can't be undone."
-              confirmLabel="Stop"
+              title={t("card.controls.stopTitle")}
+              description={t("card.controls.stopDesc")}
+              confirmLabel={t("card.controls.stop")}
               destructive
               onConfirm={() => command.mutate("stop")}
             />

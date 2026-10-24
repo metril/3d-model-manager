@@ -16,6 +16,7 @@ import type {
 
 const mKey = (pid: number) => ["printers", pid, "maintenance"] as const;
 const plugKey = (pid: number) => ["printers", pid, "plug"] as const;
+const plugSummaryKey = ["printers", "plugs", "summary"] as const;
 const OPS = ["settings", "ops"] as const;
 const BACKUPS = ["admin", "backups"] as const;
 
@@ -98,11 +99,23 @@ export function usePlug(pid: number, poll = true) {
   });
 }
 
+/** Every visible printer's plug in ONE poll; absent id = no plug. */
+export function usePlugSummary() {
+  return useQuery({
+    queryKey: plugSummaryKey,
+    queryFn: () => api.get<{ plugs: Record<string, PlugOut> }>("/printers/plugs/summary"),
+    refetchInterval: 15_000,
+  });
+}
+
 export function usePlugToggle(pid: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (on: boolean) => api.post<PlugOut>(`/printers/${pid}/plug/${on ? "on" : "off"}`),
-    onSuccess: (d) => qc.setQueryData(plugKey(pid), d),
+    onSuccess: (d) => {
+      qc.setQueryData(plugKey(pid), d);
+      void qc.invalidateQueries({ queryKey: plugSummaryKey });
+    },
   });
 }
 
@@ -110,7 +123,10 @@ export function useSavePlug(pid: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: PlugIn) => api.put<PlugOut>(`/printers/${pid}/plug`, body),
-    onSuccess: (d) => qc.setQueryData(plugKey(pid), d),
+    onSuccess: (d) => {
+      qc.setQueryData(plugKey(pid), d);
+      void qc.invalidateQueries({ queryKey: plugSummaryKey });
+    },
   });
 }
 
@@ -118,7 +134,10 @@ export function useDeletePlug(pid: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.delete<void>(`/printers/${pid}/plug`),
-    onSuccess: () => qc.setQueryData(plugKey(pid), null),
+    onSuccess: () => {
+      qc.setQueryData(plugKey(pid), null);
+      void qc.invalidateQueries({ queryKey: plugSummaryKey });
+    },
   });
 }
 

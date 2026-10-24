@@ -7,6 +7,7 @@
  */
 import { AlertTriangleIcon, HelpCircleIcon, XIcon } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useDevModeUnknown, useDevModeWarnings } from "@/api/printerControl";
 import { useFeatures } from "@/api/features";
@@ -32,6 +33,7 @@ function Banner({
   names: string[];
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const off = variant === "off";
   return (
     <div
@@ -45,13 +47,13 @@ function Banner({
       {off ? <AlertTriangleIcon className="size-4 shrink-0" /> : <HelpCircleIcon className="size-4 shrink-0" />}
       <span className="min-w-0 flex-1">
         {off
-          ? `Developer LAN mode is not enabled on: ${names.join(", ")}. Some features may not work.`
-          : `Developer LAN mode status is not known yet for: ${names.join(", ")}. Controls may be rejected.`}{" "}
+          ? t("card.devBanner.off", { names: names.join(", ") })
+          : t("card.devBanner.unknown", { names: names.join(", ") })}{" "}
         <a href={DEV_MODE_WIKI} target="_blank" rel="noopener noreferrer" className="underline">
-          How to enable it
+          {t("card.devBanner.how")}
         </a>
       </span>
-      <button type="button" aria-label="Dismiss" className="rounded p-1 hover:bg-foreground/10" onClick={onDismiss}>
+      <button type="button" aria-label={t("card.devBanner.dismiss")} className="rounded p-1 hover:bg-foreground/10" onClick={onDismiss}>
         <XIcon className="size-4" />
       </button>
     </div>

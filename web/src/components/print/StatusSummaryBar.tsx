@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { DashSummary } from "@/lib/printerDashboard";
 import { formatEta } from "@/lib/formatEta";
 import { DASH_STATUSES, type DashStatus } from "@/pages/printerDashSearch";
@@ -22,6 +23,7 @@ export function StatusSummaryBar({
   active?: DashStatus;
   onSelect: (status: DashStatus | undefined) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div data-slot="status-summary" className="flex flex-wrap items-center gap-2 text-sm">
       {DASH_STATUSES.map((st) => (
@@ -29,7 +31,7 @@ export function StatusSummaryBar({
           key={st}
           type="button"
           aria-pressed={active === st}
-          aria-label={`${st} ${summary.counts[st]}`}
+          aria-label={`${t(`dash.status.${st}`)} ${summary.counts[st]}`}
           onClick={() => onSelect(active === st ? undefined : st)}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 capitalize",
@@ -38,12 +40,12 @@ export function StatusSummaryBar({
         >
           <span className={cn("size-2 rounded-full", TONE[st])} />
           <span className="font-mono tabular-nums">{summary.counts[st]}</span>
-          {st}
+          {t(`dash.status.${st}`)}
         </button>
       ))}
       {summary.next ? (
         <span className="ml-auto text-muted-foreground" data-testid="next-free">
-          Next free: {summary.next.name} in {formatEta(summary.next.minutes)}
+          {t("dash.nextFree", { name: summary.next.name, eta: formatEta(summary.next.minutes) })}
         </span>
       ) : null}
     </div>

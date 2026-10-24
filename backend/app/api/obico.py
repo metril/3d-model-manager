@@ -16,11 +16,17 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_perm, require_printer_access, require_printer_enabled
+from app.api.deps import (
+    AuthContext,
+    require_perm,
+    require_printer_access,
+    require_printer_enabled,
+    require_session,
+)
 from app.api.printers import _get_or_404
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import FailureDetection
+from app.models import FailureDetection, Printer
 from app.services import camera_state, obico
 from app.services.obico import ObicoConfig, PrinterDetection
 from app.services.obico_ml import MlError, score_frame
@@ -100,6 +106,10 @@ async def _status(settings: Settings, printer_id: int) -> DetectionStatusOut:
         raw = await r.get(obico.status_key(printer_id))
     finally:
         await r.aclose()
+    return _parse_status(raw)
+
+
+def _parse_status(raw: str | bytes | None) -> DetectionStatusOut:
     if not raw:
         return DetectionStatusOut()
     try:
@@ -156,6 +166,40 @@ async def test_obico_settings(
 
 
 # -- per printer ----------------------------------------------------------
+
+
+class DetectionSummaryOut(BaseModel):
+    printers: dict[int, DetectionStatusOut]
+
+
+@router.get("/detections/summary", response_model=DetectionSummaryOut)
+async def detections_summary(
+    ctx: AuthContext = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> DetectionSummaryOut:
+    """Live detection status of every printer the caller may print on (one
+    query + one MGET), so a dashboard of N cards polls once, not N times."""
+    ids = [r for r in (await db.scalars(select(Printer.id))).all()]
+    ids = [i for i in ids if _can_print(ctx, i)]
+    out: dict[int, DetectionStatusOut] = {}
+    if ids:
+        r = await _redis(settings)
+        try:
+            raws = await r.mget([obico.status_key(i) for i in ids])
+        finally:
+            await r.aclose()
+        for i, raw in zip(ids, raws, strict=True):
+            out[i] = _parse_status(raw)
+    return DetectionSummaryOut(printers=out)
+
+
+def _can_print(ctx: AuthContext, printer_id: int) -> bool:
+    try:
+        ctx.require_printer(printer_id, "print")
+    except HTTPException:
+        return False
+    return True
 
 
 @router.get("/{printer_id}/detection", response_model=PrinterDetectionOut, dependencies=[_print])

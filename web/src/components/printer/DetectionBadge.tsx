@@ -3,7 +3,7 @@
  * "detection paused" after repeated ML errors. Renders nothing while
  * detection is idle. Exported for the Q3 card's BadgeRow.
  */
-import { usePrinterDetection } from "@/api/detection";
+import { useDetectionSummary, usePrinterDetection } from "@/api/detection";
 import type { DetectionStatus } from "@/api/detection";
 import { cn } from "@/lib/utils";
 
@@ -36,4 +36,12 @@ export function DetectionBadge({ printerId }: { printerId: number }) {
   const q = usePrinterDetection(printerId, { poll: true });
   if (!q.data?.status) return null;
   return <DetectionBadgeView status={q.data.status} />;
+}
+
+/** Card variant: reads the shared summary poll instead of one query per printer. */
+export function SharedDetectionBadge({ printerId }: { printerId: number }) {
+  const q = useDetectionSummary();
+  const status = q.data?.printers?.[String(printerId)];
+  if (!status) return null;
+  return <DetectionBadgeView status={status} />;
 }

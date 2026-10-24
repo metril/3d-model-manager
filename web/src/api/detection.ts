@@ -71,6 +71,15 @@ export function usePrinterDetection(printerId: number, opts: { poll?: boolean } 
   });
 }
 
+/** Every printable printer's live detection status in ONE poll (dashboard cards share it). */
+export function useDetectionSummary() {
+  return useQuery({
+    queryKey: ["printers", "detections", "summary"] as const,
+    queryFn: () => api.get<{ printers: Record<string, DetectionStatus> }>("/printers/detections/summary"),
+    refetchInterval: 10_000,
+  });
+}
+
 export function useSavePrinterDetection(printerId: number) {
   const qc = useQueryClient();
   return useMutation({

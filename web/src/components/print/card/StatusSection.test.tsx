@@ -36,6 +36,23 @@ describe("StatusSection", () => {
     expect(screen.getByText(/from the app/)).toBeInTheDocument();
   });
 
+  it("printing: thumbnail comes from the active job's thumbnail_url", async () => {
+    const it = a1Mini({}, PRINTING);
+    const job = { ...JOB, thumbnail_url: "/api/blobs/abc/plates/1/thumb" } as ActiveJobOut;
+    const { container } = renderCard(
+      <StatusSection printerId={1} status={it.status} activeJob={job} lastRuns={[RUN]} canControl />,
+    );
+    await screen.findByText("Benchy");
+    expect(container.querySelector("img")).toHaveAttribute("src", "/api/blobs/abc/plates/1/thumb");
+  });
+
+  it("printing without a thumbnail_url shows the placeholder", async () => {
+    const it = a1Mini({}, PRINTING);
+    const { container } = renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
+    await screen.findByText("Benchy");
+    expect(container.querySelector("img")).toBeNull();
+  });
+
   it("idle: Last: ... with archive thumbnail, plate-clear pill after FINISH", async () => {
     const it = a1Mini({}, { gcode_state: "FINISH" });
     const { container } = renderCard(

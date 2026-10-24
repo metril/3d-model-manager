@@ -32,6 +32,7 @@ from app.printers.base import (
     ReportHandler,
     public_state_from,
 )
+from app.printers.capabilities import capabilities_for, model_key
 from app.printers.registry import register_adapter
 from app.printers.stages import stage_name
 from app.services.spool_inventory import EXTERNAL_SLOT, EXTERNAL_UNIT, global_tray
@@ -389,6 +390,32 @@ def _ams_units(dump: dict, firmware: dict | None) -> list[dict]:
     return out
 
 
+def _tray_now(dump: dict) -> int | None:
+    """AMS report `tray_now` (str or int): 0-253 loaded slot, 254 external, 255 none."""
+    section = _dump_get(dump, "ams")
+    raw = section.get("tray_now") if isinstance(section, dict) else None
+    n = _as_int(raw)
+    return n if n is not None and 0 <= n <= 255 else None
+
+
+_DOOR_BIT = 0x00800000
+
+
+def _door_open(dump: dict, model: str | None, serial: str | None) -> bool | None:
+    """Door state, only for models with a door sensor. X1 reports it in
+    `home_flag` bit 23; other families in the hex `stat` field (same bit)."""
+    if not capabilities_for(model, serial).door:
+        return None
+    raw = _dump_get(dump, "home_flag")
+    if raw is None or not str(model_key(model, serial) or "").startswith("x1"):
+        raw = _dump_get(dump, "stat")
+    try:
+        value = int(raw, 16) if isinstance(raw, str) else int(raw)
+    except (TypeError, ValueError):
+        return None
+    return bool(value & _DOOR_BIT)
+
+
 def _ipcam(dump: dict) -> bool | None:
     cam = _dump_get(dump, "ipcam")
     if isinstance(cam, dict) and "ipcam_record" in cam:
@@ -606,6 +633,8 @@ class BambuLanAdapter(PrinterAdapter):
             "wifi_signal": _dump_get(dump, "wifi_signal"),
             "trays": _ams_trays(dump),
             "nozzle_mm": _nozzle_mm(dump),
+            "tray_now": _tray_now(dump),
+            "door_open": _door_open(dump, self.conn.model, self.conn.serial),
         }
 
     def merge_report(self, prev: dict | None, report: dict) -> dict:

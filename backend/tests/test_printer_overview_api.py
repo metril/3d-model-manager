@@ -129,6 +129,7 @@ async def test_overview_shape(
     assert items[p1.id]["status"]["online"] is True
     assert items[p1.id]["active_job"]["layer"] == 10
     assert items[p2.id]["active_job"] is None
+    assert items[p1.id]["active_job"]["thumbnail_url"] is None  # no stored 3MF
     assert items[p2.id]["status"]["online"] is False
     assert len(items[p1.id]["last_runs"]) <= 5
     assert len(body["up_next"]) <= 3
@@ -240,3 +241,13 @@ async def test_overview_total_print_hours(
     body = (await authenticated_client.get("/api/printers/overview")).json()
     hours = {i["printer"]["id"]: i["printer"]["total_print_hours"] for i in body["printers"]}
     assert hours == {p1.id: 3.0, p2.id: 1.0, p3.id: 0.0}
+
+
+def test_plate_thumb_url_only_for_stored_3mf():
+    from app.services.printer_overview import _plate_thumb_url
+
+    h = "a" * 64
+    assert _plate_thumb_url(h, "x/plate.gcode.3mf", 2) == f"/api/blobs/{h}/plates/2/thumb"
+    assert _plate_thumb_url(h, "x.3MF", None) == f"/api/blobs/{h}/plates/1/thumb"
+    assert _plate_thumb_url(h, "x.stl", 1) is None
+    assert _plate_thumb_url(None, None, 1) is None

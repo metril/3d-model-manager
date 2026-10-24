@@ -132,6 +132,10 @@ class PrinterPublicState:
     dev_mode: bool | None = None  # None = unknown (probe lands in Q2)
     dev_mode_reason: str | None = None
     last_report_at: str | None = None  # ISO-8601 UTC
+    # Q12: loaded tray (AMS report `tray_now`; 254 = external spool, 255 = none)
+    # and the enclosure door (only on models whose capabilities have a door).
+    tray_now: int | None = None
+    door_open: bool | None = None
 
 
 def public_state_from(merged: dict) -> PrinterPublicState:
