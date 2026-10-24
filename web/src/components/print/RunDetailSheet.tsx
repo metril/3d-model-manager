@@ -1,9 +1,12 @@
 /** Archived run detail: artifacts, per-tray estimate, costs, and owner/admin grading. */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { archiveFileUrl, archiveSnapshotUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
+import { ArchiveEditor, PhotoGallery, VerdictCard } from "@/components/print/ArchiveExtras";
+import { TimelapseEditorDialog } from "@/components/print/TimelapseEditorDialog";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { TimelapsePlayer } from "@/components/print/TimelapsePlayer";
 import { Badge } from "@/components/ui/badge";
@@ -102,7 +105,9 @@ function Grading({ run }: { run: PrintEntry }) {
   );
 }
 
-function Body({ archive }: { archive: ArchiveOut }) {
+function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => void }) {
+  const { t } = useTranslation();
+  const [tlOpen, setTlOpen] = useState(false);
   const { data: me, can } = useAuth();
   const [reprintOpen, setReprintOpen] = useState(false);
   const run = archive.run;
@@ -111,6 +116,10 @@ function Body({ archive }: { archive: ArchiveOut }) {
     can("library:write") &&
     (can("admin") || (me != null && archive.created_by_user_id != null && me.id === archive.created_by_user_id) ||
       (me != null && run.created_by_user_id === me.id));
+  const isAdmin = can("admin");
+  const canPrint = can("printers:print");
+  const isOwner = me != null && archive.created_by_user_id === me.id;
+  const canWriteArchive = isAdmin || isOwner || canPrint;
   const note = FETCH_NOTE[archive.fetch_state];
 
   return (
@@ -180,6 +189,25 @@ function Body({ archive }: { archive: ArchiveOut }) {
           />
         </>
       ) : null}
+      <VerdictCard archive={archive} canWrite={canWriteArchive} />
+      <ArchiveEditor
+        key={archive.id}
+        archive={archive}
+        canWrite={canWriteArchive}
+        canOverride={isAdmin || canPrint}
+        isAdmin={isAdmin}
+        onDeleted={onDeleted}
+      />
+      <PhotoGallery archive={archive} canWrite={canWriteArchive} />
+      {archive.has_timelapse && canWriteArchive && canPrint ? (
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => setTlOpen(true)}>
+            {t("archiveX.timelapse.edit")}
+          </Button>
+          <TimelapseEditorDialog archive={archive} open={tlOpen} onOpenChange={setTlOpen} />
+        </>
+      ) : null}
+      {/* toolpathSlot: the G-code toolpath viewer mounts here (T8 follow-up). */}
       {archive.has_file ? (
         <Button asChild variant="outline" size="sm">
           <a href={archiveFileUrl(archive.id)} download>
@@ -206,7 +234,7 @@ export function RunDetailSheet({
           <SheetTitle>{data ? (data.model_name ?? data.subtask_name ?? `Run #${data.id}`) : "Run"}</SheetTitle>
           <SheetDescription>Archived print run</SheetDescription>
         </SheetHeader>
-        {data ? <Body archive={data} /> : null}
+        {data ? <Body archive={data} onDeleted={() => onOpenChange(false)} /> : null}
       </SheetContent>
     </Sheet>
   );

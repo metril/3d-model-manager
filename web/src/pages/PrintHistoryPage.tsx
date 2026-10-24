@@ -8,8 +8,10 @@
  * matches the `/` and `/printer` redirect policies' treatment of the flag.
  */
 import { getRouteApi } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { useFeatures } from "@/api/features";
+import { PrintCalendar } from "@/components/print/PrintCalendar";
 import { HistoryStats } from "@/components/print/HistoryStats";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
 import { PageContainer } from "@/components/ui/page-container";
@@ -18,7 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const routeApi = getRouteApi("/authenticated/print/history");
 
 export function PrintHistoryPage() {
-  const { tab } = routeApi.useSearch();
+  const { tab, date } = routeApi.useSearch();
+  const { t } = useTranslation();
   const navigate = routeApi.useNavigate();
   const features = useFeatures();
   const printerEnabled = !!features.data?.printer_enabled;
@@ -37,15 +40,19 @@ export function PrintHistoryPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => navigate({ search: { tab: v as "runs" | "stats" } })}>
+      <Tabs value={activeTab} onValueChange={(v) => navigate({ search: { tab: v as "runs" | "stats" | "calendar" } })}>
         {printerEnabled ? (
           <TabsList>
             <TabsTrigger value="runs">Runs</TabsTrigger>
+            <TabsTrigger value="calendar">{t("archiveX.calendar.tab")}</TabsTrigger>
             <TabsTrigger value="stats">Stats</TabsTrigger>
           </TabsList>
         ) : null}
         <TabsContent value="runs">
-          <PrintJobHistory />
+          <PrintJobHistory date={date} onClearDate={() => navigate({ search: { tab: "runs" } })} />
+        </TabsContent>
+        <TabsContent value="calendar">
+          <PrintCalendar onSelectDay={(d) => navigate({ search: { tab: "runs", date: d } })} />
         </TabsContent>
         <TabsContent value="stats">
           <HistoryStats />

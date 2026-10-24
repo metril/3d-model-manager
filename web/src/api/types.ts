@@ -1385,6 +1385,18 @@ export interface ArchiveOut {
   created_at: string;
   created_by_user_id: number | null;
   run: PrintEntry | null;
+  // T7 archive extras (optional so older fixtures still type-check)
+  recorded_result?: ArchiveResult;
+  result_override?: ArchiveResult | null;
+  notes?: string | null;
+  tags?: string[];
+  confirm_requested?: boolean;
+  confirm_expires_at?: string | null;
+  user_verdict?: ArchiveVerdict | null;
+  user_verdict_source?: VerdictSource | null;
+  verdict_at?: string | null;
+  verdict_by_user_id?: number | null;
+  photos?: ArchivePhoto[];
 }
 
 // -- print queue (backend/app/schemas/queue.py, Branch 4 Task 1) -----------
@@ -2072,4 +2084,86 @@ export interface UpdateInfo {
   update_available: boolean;
   checked_at: string | null;
   error: string | null;
+}
+
+// ---- T7 archive extras ----
+
+export type ArchiveVerdict = "good" | "bad";
+export type VerdictSource = "dialog" | "link" | "plate_clear" | "card" | "api";
+
+export interface ArchivePhoto {
+  filename: string;
+  kind: "photo" | "timelapse";
+  uploaded_by: number | null;
+  at: string;
+}
+
+export interface ArchivePatchIn {
+  notes?: string | null;
+  tags?: string[];
+  result_override?: ArchiveResult | null;
+}
+
+export interface CompareOut {
+  archives: ArchiveOut[];
+  settings_diff: { key: string; values: Record<string, unknown> }[];
+  filament: Record<string, EstFilament[] | null>;
+  time: Record<string, { estimated_s: number | null; actual_s: number | null }>;
+  correlation: { key: string; value: unknown; success_rate: number; n: number }[];
+}
+
+export interface CalendarDay {
+  date: string;
+  count: number;
+  ok: number;
+  failed: number;
+  hours: number;
+}
+
+export interface ArchivePurgeSettings {
+  enabled: boolean;
+  older_than_days: number;
+  keep_failed: boolean;
+  keep_with_verdict: boolean;
+}
+export interface PurgePreview {
+  count: number;
+  bytes: number;
+}
+export interface PurgeRunOut {
+  deleted: number;
+  bytes: number;
+}
+export interface PurgeStats {
+  last_run_at: string | null;
+  last_deleted: number;
+  last_bytes: number;
+  next_run: string | null;
+}
+
+export interface ConfirmSettings {
+  enabled: boolean;
+  external_prints: boolean;
+  default_outcome: ArchiveVerdict | null;
+  default_after_h: number;
+  default_good_on_plate_clear: boolean;
+}
+
+export interface TimelapseInfo {
+  duration_s: number;
+  fps: number;
+  width: number;
+  height: number;
+  bytes: number;
+}
+export interface TimelapseProcessIn {
+  trim_start: number;
+  trim_end?: number;
+  speed: number;
+  save_mode: "replace" | "new";
+}
+export interface TimelapseJobState {
+  state: "pending" | "running" | "done" | "error";
+  error: string | null;
+  filename: string | null;
 }

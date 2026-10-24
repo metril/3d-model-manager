@@ -10,9 +10,13 @@
  * `react(only-export-components)` fast-refresh lint rule.
  */
 export interface PrintHistorySearch {
-  tab: "runs" | "stats";
+  tab: "runs" | "stats" | "calendar";
+  /** YYYY-MM-DD: Runs tab filtered to that (UTC) day, set by the calendar. */
+  date?: string;
 }
 
 export function parsePrintHistorySearch(search: Record<string, unknown>): PrintHistorySearch {
-  return { tab: search.tab === "stats" ? "stats" : "runs" };
+  const tab = search.tab === "stats" || search.tab === "calendar" ? search.tab : "runs";
+  const date = typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? search.date : undefined;
+  return date ? { tab, date } : { tab };
 }
