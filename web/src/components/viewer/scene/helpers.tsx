@@ -66,7 +66,7 @@ export function CaptureBridge({ apiRef }: { apiRef?: React.MutableRefObject<View
     apiRef.current = {
       screenshot: () =>
         new Promise((resolve) => {
-          advance(performance.now());
+          advance(performance.now() / 1000);
           gl.domElement.toBlob((blob) => resolve(blob), "image/png");
         }),
     };

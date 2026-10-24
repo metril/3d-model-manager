@@ -27,6 +27,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "dockview-react": "^8.6.1",
     "dompurify": "^3.4.11",
     "gcode-preview": "^2.18.0",
     "i18next": "^26.5.7",

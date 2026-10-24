@@ -16,12 +16,15 @@ function StudioWorkspaceGeneration({
   others,
   selection,
   onSelectAssembly,
+  fill,
 }: {
   model: ModelDetail;
   glbable: FileOut[];
   others: FileOut[];
   selection: StudioSelection | undefined;
   onSelectAssembly: () => void;
+  /** Fill the host's height (dock panel) rather than the fixed inline stage. */
+  fill?: boolean;
 }) {
   const coverUrl = model.cover_blob_hash ? `/api/blobs/${model.cover_blob_hash}/thumb?size=512` : null;
   const { stageProps } = useViewerScene({
@@ -41,8 +44,9 @@ function StudioWorkspaceGeneration({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className={fill ? "flex h-full min-h-0 min-w-0 flex-col gap-4" : "flex min-w-0 flex-col gap-4"}>
       <StudioSurface
+        fill={fill}
         selection={selection}
         hasGlb={glbable.length > 0}
         otherFiles={others}
@@ -72,12 +76,15 @@ export function StudioWorkspace({
   others,
   selection,
   onSelectAssembly,
+  fill,
 }: {
   model: ModelDetail;
   glbable: FileOut[];
   others: FileOut[];
   selection: StudioSelection | undefined;
   onSelectAssembly: () => void;
+  /** Fill the host's height (dock panel) rather than the fixed inline stage. */
+  fill?: boolean;
 }) {
   return (
     <StudioWorkspaceGeneration
@@ -87,6 +94,7 @@ export function StudioWorkspace({
       others={others}
       selection={selection}
       onSelectAssembly={onSelectAssembly}
+      fill={fill}
     />
   );
 }

@@ -6,7 +6,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ModelDetailPage } from "@/pages/ModelDetailPage";
@@ -48,7 +48,11 @@ vi.mock("@/api/library", () => ({
 }));
 
 vi.mock("@/components/model-detail/ModelHeader", () => ({
-  ModelHeader: () => <div data-testid="model-header" />,
+  ModelHeader: ({ onToggleEditMode }: { onToggleEditMode: () => void }) => (
+    <button type="button" data-testid="model-header" onClick={onToggleEditMode}>
+      toggle edit
+    </button>
+  ),
 }));
 vi.mock("@/components/model-detail/ArchivedBanner", () => ({
   ArchivedBanner: () => <div data-testid="archived-banner" />,
@@ -60,7 +64,9 @@ vi.mock("@/components/model-detail/RelatedModels", () => ({
   RelatedModels: () => <div data-testid="card-related" />,
 }));
 vi.mock("@/components/model-detail/cards/DescriptionCard", () => ({
-  DescriptionCard: () => <div data-testid="card-description" />,
+  DescriptionCard: ({ editMode }: { editMode: boolean }) => (
+    <div data-testid="card-description" data-edit={String(editMode)} />
+  ),
 }));
 vi.mock("@/components/model-detail/cards/TagsLinksCard", () => ({
   TagsLinksCard: () => <div data-testid="card-tags-links" />,
@@ -147,5 +153,15 @@ describe("ModelDetailPage -- composition (R13a DetailLayout)", () => {
     const rightIndexes = rightOrder.map((id) => ids.indexOf(id));
     expect(rightIndexes).toEqual([...rightIndexes].sort((a, b) => a - b));
     expect(rightIndexes.every((i) => i !== -1)).toBe(true);
+  });
+
+  it("passes the page's edit-mode toggle through context to DescriptionCard", async () => {
+    renderPage();
+    const toggle = await screen.findByTestId("model-header");
+    expect(screen.getByTestId("card-description")).toHaveAttribute("data-edit", "false");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByTestId("card-description")).toHaveAttribute("data-edit", "true");
   });
 });
