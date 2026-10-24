@@ -90,6 +90,18 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "Failure detection scored {{ score|default('high') }} on {{ printer_name }}.",
         {"score": 0.92},
     ),
+    "print_confirm_request": (
+        "Print outcome check",
+        "Asks whether a finished print came out well (tap a link to answer).",
+        "How did {{ subtask_name|default('the print') }} turn out?",
+        "{{ printer_name }} finished {{ subtask_name|default('a print') }}. "
+        "Good: {{ good_url }} Bad: {{ bad_url }}",
+        {
+            "subtask_name": "benchy.3mf",
+            "good_url": "https://tdmm.example/api/archives/confirm/TOKEN/good?tap=1",
+            "bad_url": "https://tdmm.example/api/archives/confirm/TOKEN/bad?tap=1",
+        },
+    ),
 }
 
 EVENT_IDS = tuple(_EVENTS)

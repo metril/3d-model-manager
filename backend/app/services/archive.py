@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ftplib
 import hashlib
+import logging
 import tempfile
 import zipfile
 from dataclasses import asdict
@@ -32,12 +33,14 @@ from app.pipeline.slicedmeta import parse_gcode_3mf
 from app.printers.connection import connection_from_printer
 from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
-from app.services import billing, spool_inventory, spoolman
+from app.services import archive_confirm, billing, spool_inventory, spoolman
 from app.services.app_config import get_app_config_sync
 from app.services.costing import CostRates, charged_grams, filament_cost, job_energy_kwh, price_run
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
 from app.services.slicer_intake import _find_model_by_name_ci_sync
 from app.services.slicer_naming import _safe_basename, model_name_from_filename
+
+logger = logging.getLogger(__name__)
 
 RESULT_TO_PRINT_RESULT = {
     ArchiveResult.COMPLETED: PrintResult.SUCCESS,
@@ -301,6 +304,10 @@ def archive_job(
             model.print_count += 1
     session.flush()  # so `run.id` exists for `settle_job`'s `charge(print_id=run.id)`
     billing.settle_job(session, job, run)
+    try:
+        archive_confirm.request_confirm(session, settings, arc, job, printer.name)
+    except Exception:
+        logger.exception("confirm request failed for job %s", job.id)
     session.commit()
     # Q9: after the commit; push_usages sends only the delta vs. what was
     # already pushed for this job, so a redelivery can't double-debit.
