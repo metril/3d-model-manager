@@ -423,6 +423,15 @@ async def test_verdict_good_clears_only_bad_override(authenticated_client, db_se
     ).status_code == 422
 
 
+async def test_bad_verdict_on_failed_run_clears_manual_override(authenticated_client, db_session):
+    p = await _printer(db_session)
+    a = await _arc(
+        db_session, p, result=ArchiveResult.FAILED, result_override=ArchiveResult.COMPLETED
+    )
+    r = await authenticated_client.post(f"/api/archives/{a.id}/verdict", json={"verdict": "bad"})
+    assert r.json()["result_override"] is None and r.json()["result"] == "failed"
+
+
 async def test_bad_verdict_on_failed_run_sets_no_override(authenticated_client, db_session):
     p = await _printer(db_session)
     a = await _arc(db_session, p, result=ArchiveResult.FAILED)
@@ -574,7 +583,37 @@ async def test_timelapse_info_thumbnails_process(
         f"/api/archives/{a.id}/timelapse/process", data={"trim_start": "2", "trim_end": "1"}
     )
     assert bad.status_code == 422
+    bad = await c.post(
+        f"/api/archives/{a.id}/timelapse/process", data={"trim_start": "0", "trim_end": "60"}
+    )
+    assert bad.status_code == 422  # beyond the clip's duration
     assert (await c.get(f"/api/archives/{a.id}/timelapse/jobs/nope")).status_code == 404
+
+
+async def test_timelapse_process_409_while_avi(authenticated_client, db_session):
+    sha = "7" * 64
+    db_session.add(Blob(hash=sha, size=1, kind=BlobKind.VIDEO, format=BlobFormat.AVI))
+    await db_session.flush()
+    a = await _arc(db_session, await _printer(db_session), timelapse_blob=sha)
+    path = archive_path(get_settings(), sha, "avi")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    r = await authenticated_client.post(f"/api/archives/{a.id}/timelapse/process", data={})
+    assert r.status_code == 409
+
+
+async def test_timelapse_new_mode_redelivery_is_idempotent(
+    authenticated_client, db_session, tmp_path
+):
+    from app.tasks.media import timelapse_edit
+
+    a = await _arc_with_timelapse(db_session, tmp_path)
+    aid = a.id
+    args = (aid, "job-x", 0.0, None, 1.0, "new", None)
+    assert timelapse_edit.apply(args=args).get() == "done"
+    assert timelapse_edit.apply(args=args).get() == "done"
+    db_session.expire_all()
+    assert len((await db_session.get(PrintArchive, aid)).photos) == 1
 
 
 async def test_timelapse_requires_print_perm_and_media(
@@ -602,11 +641,62 @@ async def test_photo_upload_list_get_delete(authenticated_client, db_session):
     got = await c.get(f"/api/archives/{a.id}/photos/{name}")
     assert got.status_code == 200 and got.headers["content-type"] == "image/png"
     assert (await c.get(f"/api/archives/{a.id}/photos/missing.png")).status_code == 404
-    assert (await c.delete(f"/api/archives/{a.id}/photos/{name}")).status_code == 204
-    assert (await c.get(f"/api/archives/{a.id}/photos")).json() == []
-    assert not any(
-        archive_path(get_settings(), h, "png").exists() for h in [a.timelapse_blob or ""]
+    aid = a.id
+    db_session.expire_all()
+    sha = (await db_session.get(PrintArchive, aid)).photos[0]["blob"]
+    path = archive_path(get_settings(), sha, "png")
+    assert path.exists() and await db_session.get(Blob, sha) is not None
+    assert (await c.delete(f"/api/archives/{aid}/photos/{name}")).status_code == 204
+    assert (await c.get(f"/api/archives/{aid}/photos")).json() == []
+    db_session.expire_all()
+    assert await db_session.get(Blob, sha) is None and not path.exists()
+
+
+async def test_palette_png_colours_survive(authenticated_client, db_session):
+    a = await _arc(db_session, await _printer(db_session))
+    img = Image.new("P", (4, 4))
+    img.putpalette([255, 0, 0, 0, 255, 0] + [0] * 250)
+    img.putpixel((1, 1), 1)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    url = f"/api/archives/{a.id}/photos"
+    r = await authenticated_client.post(url, files={"file": ("p.png", buf.getvalue(), "image/png")})
+    out = Image.open(
+        BytesIO((await authenticated_client.get(f"{url}/{r.json()['filename']}")).content)
     )
+    rgb = out.convert("RGB")
+    assert rgb.getpixel((0, 0)) == (255, 0, 0) and rgb.getpixel((1, 1)) == (0, 255, 0)
+
+
+async def test_delete_keeps_shared_blobs(authenticated_client, db_session, seed):
+    p = await _printer(db_session)
+    h_file, h_col, h_photo = "e" * 64, "f" * 64, "9" * 64
+    seed.file("shared", h_file)  # library File on h_file (creates the Blob row)
+    for h, fmt in ((h_col, BlobFormat.PNG), (h_photo, BlobFormat.PNG)):
+        db_session.add(Blob(hash=h, size=1, kind=BlobKind.IMAGE, format=fmt))
+    await db_session.commit()
+    paths = {
+        h_file: archive_path(get_settings(), h_file, "gcode.3mf"),
+        h_col: archive_path(get_settings(), h_col, "png"),
+        h_photo: archive_path(get_settings(), h_photo, "png"),
+    }
+    for path in paths.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+    victim = await _arc(
+        db_session,
+        p,
+        archive_blob=h_file,
+        thumbnail_blob=h_col,
+        photos=[{"filename": "a.png", "blob": h_photo, "kind": "photo"}],
+    )
+    vid = victim.id
+    await _arc(db_session, p, thumbnail_blob=h_col)
+    await _arc(db_session, p, photos=[{"filename": "b.png", "blob": h_photo, "kind": "photo"}])
+    assert (await authenticated_client.delete(f"/api/archives/{vid}")).status_code == 204
+    db_session.expire_all()
+    for h, path in paths.items():
+        assert await db_session.get(Blob, h) is not None and path.exists()
 
 
 async def test_photo_validation_exif_and_resize(authenticated_client, db_session):
@@ -659,3 +749,28 @@ async def test_settings_groups_roundtrip(authenticated_client, member_client):
         await c.put("/api/settings/archive_purge", json={"older_than_days": 0})
     ).status_code == 422
     assert (await member_client.put("/api/settings/confirm", json=body)).status_code == 403
+
+
+async def test_list_filters_date_pending_mine(authenticated_client, db_session, admin_user):
+    p = await _printer(db_session)
+    uid = admin_user.id
+    old = await _arc(db_session, p, age_days=10)
+    pend = await _arc(db_session, p, confirm_requested=True)
+    done = await _arc(db_session, p, confirm_requested=True, user_verdict=ArchiveVerdict.GOOD)
+    mine = await _arc(db_session, p, owner=admin_user)
+    ids = {"old": old.id, "pend": pend.id, "done": done.id, "mine": mine.id}
+    c = authenticated_client
+
+    async def got(q: str) -> set[int]:
+        r = await c.get(f"/api/archives?{q}")
+        assert r.status_code == 200, r.text
+        return {a["id"] for a in r.json()}
+
+    today = datetime.now(UTC).date()
+    day = (today - timedelta(days=10)).isoformat()
+    assert await got(f"from={day}&to={day}") == {ids["old"]}
+    assert ids["old"] not in await got(f"from={today.isoformat()}")
+    assert await got(f"to={(today - timedelta(days=5)).isoformat()}") == {ids["old"]}
+    assert await got("confirm_pending=1") == {ids["pend"]}
+    assert await got("mine=1") == {ids["mine"]}
+    assert uid

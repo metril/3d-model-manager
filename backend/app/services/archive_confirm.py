@@ -61,8 +61,7 @@ def apply_verdict(
     prior ``bad`` verdict put it there."""
     prior = arc.user_verdict
     if verdict == ArchiveVerdict.BAD:
-        if arc.result != ArchiveResult.FAILED:
-            arc.result_override = ArchiveResult.FAILED
+        arc.result_override = None if arc.result == ArchiveResult.FAILED else ArchiveResult.FAILED
     elif prior == ArchiveVerdict.BAD and arc.result_override == ArchiveResult.FAILED:
         arc.result_override = None
     arc.user_verdict = verdict

@@ -185,6 +185,10 @@ def timelapse_edit(
             return "error"
         _ensure_blob(session, new_sha, len(data), BlobKind.VIDEO, BlobFormat.MP4)
         if save_mode == "new":
+            dup = next((x for x in (arc.photos or []) if x.get("blob") == new_sha), None)
+            if dup is not None:  # redelivery: already appended
+                _set_job(job_id, state="done", filename=dup["filename"])
+                return "done"
             filename = f"edit-{secrets.token_hex(6)}.mp4"
             arc.photos = [
                 *(arc.photos or []),

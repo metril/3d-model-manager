@@ -519,11 +519,17 @@ async def timelapse_process(
     ctx: AuthContext = Depends(require_session),
     settings: Settings = Depends(get_settings),
 ) -> TimelapseJobOut:
-    arc, _blob, _path = await _timelapse(db, ctx, settings, archive_id)
+    arc, blob, path = await _timelapse(db, ctx, settings, archive_id)
+    if blob.format == BlobFormat.AVI:
+        raise HTTPException(status.HTTP_409_CONFLICT, "timelapse is still being transcoded")
     if trim_end is not None and trim_end <= trim_start:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "trim_end must exceed trim_start"
         )
+    info = await anyio.to_thread.run_sync(_probe, path)
+    dur = float((info.get("format") or {}).get("duration") or 0)
+    if dur and (trim_start >= dur or (trim_end is not None and trim_end > dur + 0.05)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "trim exceeds video duration")
     from app.tasks.media import timelapse_edit
 
     job_id = uuid.uuid4().hex
@@ -588,12 +594,16 @@ def _reencode(data: bytes) -> tuple[bytes, str, BlobFormat]:
     img = ImageOps.exif_transpose(img)
     img.thumbnail((MAX_PHOTO_PX, MAX_PHOTO_PX))
     ext, bfmt = _PHOTO_FORMATS[fmt]
-    if fmt == "JPEG" and img.mode not in ("RGB", "L"):
+    if fmt == "JPEG":
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+    elif img.mode in ("P", "PA", "LA"):
+        img = img.convert("RGBA")
+    elif img.mode not in ("RGB", "RGBA", "L"):
         img = img.convert("RGB")
+    img.info = {}  # no EXIF / text chunks / ICC carried into the output
     buf = BytesIO()
-    clean = Image.new(img.mode, img.size)
-    clean.putdata(list(img.getdata()))  # drops every ancillary chunk / EXIF
-    clean.save(buf, format=fmt, **({"quality": 90} if fmt != "PNG" else {}))
+    img.save(buf, format=fmt, **({"quality": 90, "exif": b""} if fmt != "PNG" else {}))
     return buf.getvalue(), ext, bfmt
 
 
