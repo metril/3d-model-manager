@@ -149,6 +149,9 @@ function mockApi({
     if (path.startsWith("/models?")) {
       return Promise.resolve({ items: [{ id: 42, name: "Benchy" }], next_cursor: null });
     }
+    if (path.startsWith("/files/")) {
+      return Promise.resolve({ id: 10, rel_path: "a.gcode.3mf", format: "gcode_3mf" });
+    }
     if (path === "/recipes") {
       return Promise.resolve([RECIPE]);
     }
@@ -449,11 +452,34 @@ describe("PrintDialog", () => {
     expect(options).toContain("External");
   });
 
-  it("choosing a recipe swaps Send now for Slice and send / Add to queue", async () => {
-    renderDialog({ kind: "file", fileId: 10 });
+  it("a gcode_3mf file source offers no recipe radios", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "gcode_3mf" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
-
     fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    expect(await screen.findByLabelText("As sliced")).toBeInTheDocument();
+    expect(screen.queryByLabelText("PLA fast")).not.toBeInTheDocument();
+  });
+
+  it("an stl file source starts in recipe mode", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
+    expect(await screen.findByLabelText("PLA fast")).toBeInTheDocument();
+    expect(screen.queryByLabelText("As sliced")).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalledWith("/print/plan", expect.anything());
+  });
+
+  it("resolves a missing file format via GET /files/{id}", async () => {
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/files/10" ? Promise.resolve({ id: 10, rel_path: "a.stl", format: "stl" }) : base(path),
+    );
+    renderDialog({ kind: "file", fileId: 10 });
+    expect(await screen.findByLabelText("PLA fast")).toBeInTheDocument();
+    expect(getMock).toHaveBeenCalledWith("/files/10");
+    expect(screen.queryByLabelText("As sliced")).not.toBeInTheDocument();
+  });
+
+  it("choosing a recipe swaps Send now for Slice and send / Add to queue", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
     fireEvent.click(await screen.findByLabelText("PLA fast"));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
@@ -463,10 +489,7 @@ describe("PrintDialog", () => {
   });
 
   it("Slice and send posts the recipe with front:true and toasts the printer name", async () => {
-    renderDialog({ kind: "file", fileId: 10 });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
     fireEvent.click(await screen.findByLabelText("PLA fast"));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
@@ -497,10 +520,7 @@ describe("PrintDialog", () => {
 
   it("disables only Slice and send (not Add to queue) when the slicer sidecar is down", async () => {
     mockApi({ slicerOk: false });
-    renderDialog({ kind: "file", fileId: 10 });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
     fireEvent.click(await screen.findByLabelText("PLA fast"));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 

@@ -64,7 +64,7 @@ import { cn } from "@/lib/utils";
 import { formatCost, humanizeDuration } from "@/lib/format";
 
 export type PrintSource =
-  | { kind: "file"; fileId: number }
+  | { kind: "file"; fileId: number; format?: string }
   | { kind: "model"; modelId: number }
   | { kind: "archive"; archiveId: number }
   | { kind: "pick" };
@@ -209,6 +209,14 @@ export function PrintDialog({
   /** The chosen file is an unsliced source: start in recipe mode. */
   sliceOnly?: boolean;
 }) {
+  // A file source's format: passed by the caller, else fetched.
+  const passedFormat = source.kind === "file" ? source.format : undefined;
+  const fileQuery = useQuery({
+    queryKey: ["files", "format", source.kind === "file" ? source.fileId : null] as const,
+    queryFn: () => api.get<{ format: string }>(`/files/${source.kind === "file" ? source.fileId : 0}`),
+    enabled: open && source.kind === "file" && passedFormat == null,
+  });
+  const fileFormat = passedFormat ?? fileQuery.data?.format;
   const [step, setStep] = useState(0);
   const [autoAdvanced, setAutoAdvanced] = useState(false);
   const [pickedModelId, setPickedModelId] = useState<number | null>(null);
@@ -250,6 +258,18 @@ export function PrintDialog({
     setCostCenterSeeded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
+
+  // Once a file source's format is known it decides the mode: sliced ->
+  // as-sliced (never a recipe), anything else -> recipe. Runs after the
+  // reset effect above.
+  useEffect(() => {
+    if (!open || source.kind !== "file" || fileFormat == null) return;
+    const sliced = fileFormat === "gcode_3mf";
+    setSliceOnly(!sliced);
+    setProfileMode(sliced ? "as-sliced" : "recipe");
+    setSelectedRecipeId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, source.kind, source.kind === "file" ? source.fileId : null, fileFormat]);
 
   const modelIdForFiles = source.kind === "model" ? source.modelId : pickedModelId;
   // Picking a different model (pick mode) starts the mode decision over.
@@ -305,7 +325,7 @@ export function PrintDialog({
   // so the plan's own defaults never trigger a second fetch under it (the
   // plan it already returned already reflects its own defaults).
   const planQuery = usePrintPlan(
-    !usingReprintPlan && effectiveFileId != null && profileMode !== "recipe"
+    !usingReprintPlan && effectiveFileId != null && profileMode !== "recipe" && !(source.kind === "file" && (fileFormat == null || fileFormat !== "gcode_3mf"))
       ? { file_id: effectiveFileId, plate: plate ?? undefined, printer_id: printerId ?? undefined, overrides }
       : null,
   );
@@ -407,7 +427,10 @@ export function PrintDialog({
   const recipeActionsDisabled = slicerHealth.data?.ok !== true;
 
   // A file known to be an already-sliced gcode_3mf is always "as sliced".
-  const effectiveIsSliced = effectiveFileId != null && gcodeFiles.files.some((f) => f.id === effectiveFileId);
+  const effectiveIsSliced =
+    source.kind === "file"
+      ? fileFormat === "gcode_3mf"
+      : effectiveFileId != null && gcodeFiles.files.some((f) => f.id === effectiveFileId);
 
   const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
   // A reprint seeds `printerId` from the archived run before the person
