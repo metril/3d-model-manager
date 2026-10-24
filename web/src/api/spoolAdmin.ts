@@ -289,7 +289,7 @@ export function useImportCommit() {
 export function useLabelPreview(req: LabelRequest | null) {
   return useQuery({
     queryKey: ["spool-labels", "preview", req],
-    queryFn: async () => URL.createObjectURL(await fetchBlob("/spools/labels/preview", { method: "POST", body: req })),
+    queryFn: () => fetchBlob("/spools/labels/preview", { method: "POST", body: req }),
     enabled: req != null && req.ids.length > 0,
     staleTime: 60_000,
     gcTime: 0,

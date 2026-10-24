@@ -1,5 +1,5 @@
 /** Label sheet generator (T5): template/page/format controls, live preview, Download. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
@@ -25,6 +25,16 @@ export function LabelsDialog({
   const [format, setFormat] = useState<LabelFormat>("pdf");
   const preview = useLabelPreview(open ? { ids, template, page } : null);
   const download = useDownloadLabels();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!preview.data) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(preview.data);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [preview.data]);
 
   const sel = (id: string, label: string, value: string, set: (v: string) => void, options: string[]) => (
     <div className="flex flex-col gap-1.5">
@@ -64,8 +74,8 @@ export function LabelsDialog({
               <span role="alert" className="text-sm text-destructive">
                 {preview.error instanceof ApiError ? preview.error.detail : t("spoolAdmin.labels.previewFailed")}
               </span>
-            ) : preview.data ? (
-              <img src={preview.data} alt={t("spoolAdmin.labels.previewAlt")} className="max-h-96 max-w-full object-contain" />
+            ) : previewUrl ? (
+              <img src={previewUrl} alt={t("spoolAdmin.labels.previewAlt")} className="max-h-96 max-w-full object-contain" />
             ) : null}
           </div>
         </div>

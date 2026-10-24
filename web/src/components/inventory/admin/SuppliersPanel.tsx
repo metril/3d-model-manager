@@ -9,7 +9,7 @@ import { useCreateSupplier, useDeleteSupplier, usePatchSupplier, useSuppliers } 
 import type { Supplier } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,6 +60,7 @@ function SupplierDialog({ open, onOpenChange, supplier }: { open: boolean; onOpe
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{supplier ? t("spoolAdmin.sup.editTitle") : t("spoolAdmin.sup.newTitle")}</DialogTitle>
+            <DialogDescription>{t("spoolAdmin.sup.dialogDesc")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="sup-name">{t("spoolAdmin.common.name")}</Label>

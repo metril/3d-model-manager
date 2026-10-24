@@ -16,7 +16,7 @@ import type { ColorCatalogEntry } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,6 +73,7 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{entry ? t("spoolAdmin.catalog.editTitle") : t("spoolAdmin.catalog.newTitle")}</DialogTitle>
+            <DialogDescription>{t("spoolAdmin.catalog.dialogDesc")}</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -93,7 +94,7 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cc-fx">{t("spoolAdmin.catalog.effect")}</Label>
-              <Input id="cc-fx" placeholder="sparkle, matte…" {...bind("effect_type")} />
+              <Input id="cc-fx" placeholder={t("spoolAdmin.catalog.effectPlaceholder")} {...bind("effect_type")} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cc-extra">{t("spoolAdmin.catalog.extra")}</Label>

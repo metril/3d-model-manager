@@ -20,6 +20,7 @@ export function SupplierListEditor({
   const { t } = useTranslation();
   const suppliers = useSuppliers();
   const options = suppliers.data ?? [];
+  const usedBy = (i: number) => new Set(value.filter((_, j) => j !== i).map((r) => r.supplier_id));
 
   const patch = (i: number, p: Partial<SpoolSupplierLink>) => onChange(value.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const setSource = (i: number) => onChange(value.map((r, j) => ({ ...r, is_purchase_source: j === i })));
@@ -47,7 +48,7 @@ export function SupplierListEditor({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {options.map((s) => (
+              {options.filter((s) => !usedBy(i).has(s.id)).map((s) => (
                 <SelectItem key={s.id} value={String(s.id)}>
                   {s.name}
                 </SelectItem>
@@ -65,7 +66,7 @@ export function SupplierListEditor({
             type="number"
             step="0.01"
             aria-label={t("spoolAdmin.sup.price")}
-            placeholder="€/kg"
+            placeholder={t("spoolAdmin.sup.pricePlaceholder")}
             value={row.quoted_price_per_kg ?? ""}
             disabled={disabled}
             onChange={(e) => patch(i, { quoted_price_per_kg: e.target.value === "" ? null : Number(e.target.value) })}

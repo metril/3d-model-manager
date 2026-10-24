@@ -22,6 +22,7 @@ export function LocationCombobox({
   const create = useCreateLocation();
   const [query, setQuery] = useState(initialName ?? "");
   const [open, setOpen] = useState(false);
+  const [pickedName, setPickedName] = useState<string | null>(initialName ?? null);
 
   const term = query.trim();
   const all = locations.data ?? [];
@@ -30,6 +31,7 @@ export function LocationCombobox({
 
   function pick(locId: number, name: string) {
     setQuery(name);
+    setPickedName(name);
     setOpen(false);
     onChange(locId);
   }
@@ -53,9 +55,15 @@ export function LocationCombobox({
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          if (e.target.value.trim() === "") onChange(null);
+          if (e.target.value.trim() !== pickedName?.trim()) {
+            setPickedName(null);
+            onChange(null);
+          }
         }}
       />
+      {!pickedName && term && !open ? (
+        <p className="mt-1 text-xs text-muted-foreground">{t("spoolAdmin.loc.unassignedHint")}</p>
+      ) : null}
       {open && !disabled ? (
         <ul
           id={`${id}-list`}

@@ -21,7 +21,7 @@ import type { LocationSensor, StorageLocation } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -62,6 +62,7 @@ function LocationDialog({ open, onOpenChange, location }: { open: boolean; onOpe
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{location ? t("spoolAdmin.loc.editTitle") : t("spoolAdmin.loc.newTitle")}</DialogTitle>
+            <DialogDescription>{t("spoolAdmin.loc.dialogDesc")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="loc-name">{t("spoolAdmin.common.name")}</Label>
@@ -154,6 +155,7 @@ function SensorDialog({
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{sensor ? t("spoolAdmin.sensor.editTitle") : t("spoolAdmin.sensor.newTitle")}</DialogTitle>
+            <DialogDescription>{t("spoolAdmin.sensor.dialogDesc")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="sensor-entity">{t("spoolAdmin.sensor.entity")}</Label>

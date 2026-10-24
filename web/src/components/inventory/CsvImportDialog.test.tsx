@@ -70,5 +70,7 @@ describe("CsvImportDialog", () => {
     expect(await screen.findByText(/preview expired/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Re-check" }));
     await waitFor(() => expect(formMock).toHaveBeenCalledTimes(2));
+    await screen.findByText("bad weight");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

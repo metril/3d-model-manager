@@ -484,7 +484,7 @@
         "png": "PNG"
       }
     },
-    "loc": {
+    "loc": {"unassignedHint": "Not linked to a location. Pick or create one to assign.", "dialogDesc": "A storage place for spools.", 
       "placeholder": "Search or create a location",
       "create": "Create ‘{{name}}’",
       "empty": "No locations yet",
@@ -500,7 +500,7 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDesc": "Spools stored here become unassigned."
     },
-    "sensor": {
+    "sensor": {"dialogDesc": "Link a Home Assistant sensor and set alert thresholds.", 
       "title": "Sensors at {{name}}",
       "add": "Add sensor",
       "empty": "No sensors on this location.",
@@ -515,7 +515,7 @@
       "showOnCard": "Show on spool card",
       "notify": "Notify on alert"
     },
-    "sup": {
+    "sup": {"pricePlaceholder": "€/kg", "dialogDesc": "Supplier contact and account details.", 
       "title": "Suppliers",
       "supplier": "Supplier",
       "article": "Article no.",
@@ -536,7 +536,7 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDesc": "The supplier is removed from every spool that references it."
     },
-    "catalog": {
+    "catalog": {"effectPlaceholder": "sparkle, matte…", "dialogDesc": "A named filament colour used for autocomplete.", 
       "search": "Search colour catalog",
       "placeholder": "Search colour catalog (e.g. Bambu Jade)",
       "none": "No matching colours",

@@ -38,6 +38,7 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
   function runDry(f: File) {
     setExpired(false);
     setPreview(null);
+    commit.reset();
     dry.mutate(f, { onSuccess: setPreview });
   }
 
