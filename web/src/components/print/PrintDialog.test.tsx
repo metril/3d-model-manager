@@ -623,7 +623,7 @@ describe("PrintDialog", () => {
     expect(await screen.findByLabelText("PLA fast")).toBeEnabled();
     expect(screen.getByLabelText(/X1C fast/)).toBeDisabled();
     expect(screen.getByText("for Bambu Lab X1 Carbon")).toBeInTheDocument();
-    expect(screen.queryByText(/No recipe for this printer model/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/None of your recipes fit/)).not.toBeInTheDocument();
   });
 
   it("explains when no recipe fits the printer", async () => {

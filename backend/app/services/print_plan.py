@@ -68,10 +68,12 @@ def recipe_compatibility_reason(
 ) -> str | None:
     """Why ``recipe`` can't run on ``printer`` (``None`` when it can).
 
-    The single source of truth the recipe picker (``GET /recipes?printer_id=``)
-    and the dispatcher's model filter share: a pin to a different printer, a
-    ``target_printer_model`` mismatch, or the recipe's printer *profile* being
-    for another model -- the latter two via ``model_matches``.
+    Used by the recipe picker (``GET /recipes?printer_id=``): a pin to a
+    different printer, a ``target_printer_model`` mismatch, or the recipe's
+    printer *profile* being for another model -- the latter two via
+    ``model_matches``. The dispatcher applies only the pin and target-model
+    checks (``app.services.dispatcher``), so the picker is the stricter of
+    the two by design.
     """
     if recipe.target_printer_id is not None and recipe.target_printer_id != printer.id:
         return f"pinned to {pinned_name or 'another printer'}"
