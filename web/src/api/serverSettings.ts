@@ -48,7 +48,7 @@ export interface ServerStatusOut {
     vp_id: number | null;
     bind: string | null;
     ports: { ssdp: number; mqtt: number; ftp: number } | null;
-    pasv: [number, number] | null;
+    pasv: number[] | null;
     errors: string[];
     ts: string | null;
   };

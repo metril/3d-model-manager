@@ -26,7 +26,7 @@ vi.mock("@/api/client", async (importOriginal) => {
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 let status: ServerStatusOut;
-const OBICO = { url: "http://obico-ml:3333", enabled: false, interval_s: 10, warn: 0.38, pause: 0.78, action: "notify", callback_url: "http://api:8000" };
+const OBICO = { url: "http://obico-ml:3333", enabled: false, interval_s: 10, warn: 0.38, pause: 0.78, action: "notify", callback_url: "http://api:8080" };
 
 // Saves merge onto the cached config, so seed the cache with the card's data.
 function ui(node: ReactElement, seed?: ServerSettingsOut) {

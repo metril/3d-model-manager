@@ -61,7 +61,7 @@ function Form({ initial }: { initial: ObicoSettings }) {
             ) : null}
           </Field>
           <Field id="srv-obico-cb" label={t("settings.server.obico.callback")} seeded={{}}>
-            <Input id="srv-obico-cb" value={cb} placeholder="http://api:8000" onChange={(e) => setCb(e.target.value)} />
+            <Input id="srv-obico-cb" value={cb} placeholder="http://api:8080" onChange={(e) => setCb(e.target.value)} />
           </Field>
         </div>
         <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>

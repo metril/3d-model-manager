@@ -23,7 +23,7 @@ const SETTINGS = {
   warn: 0.38,
   pause: 0.78,
   action: "notify",
-  callback_url: "http://api:8000",
+  callback_url: "http://api:8080",
 };
 
 function renderCard() {
