@@ -20,7 +20,7 @@ const ALL_METHODS: TwoFactorMethod[] = ["totp", "email", "backup"];
 
 function parseMethods(csv?: string): TwoFactorMethod[] {
   const list = (csv ?? "").split(",").filter((m): m is TwoFactorMethod => ALL_METHODS.includes(m as TwoFactorMethod));
-  return list.length ? list : ALL_METHODS;
+  return list;
 }
 
 /** Only same-origin absolute paths; anything else falls back to `/`. */
@@ -43,9 +43,13 @@ export function LoginPage() {
   } = useSearch({ strict: false }) as { error?: string; step?: string; token?: string; methods?: string };
   // OIDC redirect (`?step=2fa&token=`): the token IS the pre-auth token.
   const [pending, setPending] = useState<Pending | null>(() =>
-    step === "2fa" && oidcToken ? { token: oidcToken, methods: parseMethods(oidcMethods) } : null,
+    step === "2fa" && oidcToken && parseMethods(oidcMethods).length
+      ? { token: oidcToken, methods: parseMethods(oidcMethods) }
+      : null,
   );
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() =>
+    step === "2fa" && (!oidcToken || !parseMethods(oidcMethods).length) ? t("twofa.login.expired") : null,
+  );
   const providers = useOidcProviders().data ?? [];
   const bannerMessage = errorCode ? (ERROR_COPY[errorCode] ?? ERROR_COPY.oidc_failed) : null;
   const [username, setUsername] = useState("");
@@ -55,7 +59,7 @@ export function LoginPage() {
 
   // Keep the one-time token out of the address bar / history.
   useEffect(() => {
-    if (step === "2fa" && oidcToken) void navigate({ to: "/login", search: {} as never, replace: true });
+    if (step === "2fa") void navigate({ to: "/login", search: {} as never, replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -57,4 +57,14 @@ describe("UsersCard", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Reset 2FA" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/admin/users/2/2fa/reset"));
   });
+
+  it("hides Reset 2FA on the admin's own row", async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(path === "/auth/me" ? { id: 2, permissions: [] } : [bob]),
+    );
+    renderCard();
+    await screen.findByText("bob");
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/auth/me"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Reset 2FA" })).toBeNull());
+  });
 });

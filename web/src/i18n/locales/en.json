@@ -575,6 +575,7 @@
     "email": {"rowDesc": "A one-time code is emailed to you at sign-in.", "noSmtp": "Ask an admin to configure outgoing email first.", "noAddress": "Add an email address to your account first.", "confirmTitle": "Confirm email codes", "confirmDesc": "We emailed you a code. Enter it to turn on email codes.", "codeLabel": "Emailed code", "enable": "Enable", "disableTitle": "Disable email codes?", "sendMe": "Email me a code", "sent": "Code sent"},
     "backup": {"title": "Backup codes", "remaining": "Codes remaining: {{count}}", "regenerate": "Regenerate", "regenTitle": "Regenerate backup codes", "regenDesc": "Enter a current authenticator code. Old backup codes stop working.", "regenDone": "Your old backup codes no longer work.", "once": "Store these somewhere safe. Each works once and they won't be shown again.", "list": "Backup codes", "copy": "Copy", "download": "Download .txt"},
     "login": {"title": "Two-factor verification", "prompt": {"totp": "Enter the 6-digit code from your authenticator app.", "email": "We'll email you a code. Request it, then enter it below.", "backup": "Enter one of your backup codes."}, "codeLabel": "Code", "backupLabel": "Backup code", "verify": "Verify", "verifying": "Verifying…", "useBackup": "Use a backup code", "useApp": "Use another method", "back": "Back to sign in", "sendCode": "Send code", "resend": "Send a new code", "invalid": "That code isn't right. Try again.", "failed": "Couldn't verify the code.", "expired": "That verification expired. Please sign in again.", "rateLimited": "Too many codes requested. Wait a few minutes and try again.", "noSmtp": "Email codes aren't available right now.", "sendFailed": "Couldn't send the code."},
+    "admin": {"reset": "Reset 2FA", "title": "Reset two-factor for {{user}}?", "desc": "Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in.", "done": "Two-factor reset for {{user}}", "failed": "Could not reset 2FA."},
     "enroll": {"title": "Set up two-factor authentication", "desc": "Your administrator requires two-factor authentication. Enable at least one method to continue.", "continue": "Continue"},
     "security": {"title": "Security", "desc": "Sign-in requirements for all accounts.", "require": "Require two-factor for all users"}
   },
@@ -588,7 +589,7 @@
     "username": "Username",
     "password": "Password",
     "passwordKeep": "Saved. Leave as is to keep it; clear to remove.",
-    "passwordUnset": "No password saved.",
+    "passwordUnset": "No password saved.", "passwordClearing": "The saved password will be removed when you save.", "passwordClear": "Clear password", "passwordKeepBtn": "Keep password",
     "fromAddr": "From address",
     "fromName": "From name",
     "invalidPort": "Port must be between 1 and 65535.",

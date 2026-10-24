@@ -1,7 +1,10 @@
 /** Admin: list, create, edit, reset password for, and deactivate users. */
 import { useState } from "react";
 
-import { useAdminReset2fa } from "@/api/auth";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+
+import { useAdminReset2fa, useAuth } from "@/api/auth";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useAdminUsers,
@@ -123,6 +126,8 @@ function UserRow({
   const [confirm2fa, setConfirm2fa] = useState(false);
   const reset = useResetUserPassword();
   const reset2fa = useAdminReset2fa();
+  const { t } = useTranslation();
+  const isSelf = useAuth().data?.id === user.id;
 
   function submitReset() {
     onError(null);
@@ -150,9 +155,11 @@ function UserRow({
           <Button type="button" size="sm" variant="outline" onClick={() => setOpen((o) => !o)}>
             Reset password
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setConfirm2fa(true)}>
-            Reset 2FA
-          </Button>
+          {!isSelf && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfirm2fa(true)}>
+              {t("twofa.admin.reset")}
+            </Button>
+          )}
           <Button type="button" size="sm" variant="outline" onClick={() => onActive(!user.is_active)}>
             {user.is_active ? "Deactivate" : "Activate"}
           </Button>
@@ -175,13 +182,16 @@ function UserRow({
       <ConfirmDialog
         open={confirm2fa}
         onOpenChange={setConfirm2fa}
-        title={`Reset two-factor for ${user.username}?`}
-        description="Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in."
-        confirmLabel="Reset 2FA"
+        title={t("twofa.admin.title", { user: user.username })}
+        description={t("twofa.admin.desc")}
+        confirmLabel={t("twofa.admin.reset")}
         destructive
         onConfirm={() => {
           onError(null);
-          reset2fa.mutate(user.id, { onError: (e) => onError(errText(e, "Could not reset 2FA.")) });
+          reset2fa.mutate(user.id, {
+            onSuccess: () => toast.success(t("twofa.admin.done", { user: user.username })),
+            onError: (e) => onError(errText(e, t("twofa.admin.failed"))),
+          });
         }}
       />
       {open && (

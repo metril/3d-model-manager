@@ -31,7 +31,9 @@ export function AppShell() {
   const mustEnroll = me?.must_enroll_2fa === true;
   useEffect(() => {
     if (mustEnroll) setSticky(true);
-  }, [mustEnroll]);
+    // Admin turned require_2fa off mid-session: nothing left to enrol in.
+    else if (me && !me.two_factor_enabled) setSticky(false);
+  }, [mustEnroll, me]);
   // A 403 `2fa_enrollment_required` from any call means our cached `me` is stale: refetch once
   // (no-op when the gate is already showing, so it can't loop).
   useEffect(() => {

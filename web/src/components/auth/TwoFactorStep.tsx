@@ -43,9 +43,11 @@ export function TwoFactorStep({ token, methods, onDone, onExpired, onBack }: Pro
       {
         onSuccess: (me) => {
           setCode("");
+          verify.reset();
           onDone(me);
         },
         onError: (e) => {
+          verify.reset();
           if (e instanceof ApiError && e.status === 410) return onExpired();
           setCode("");
           setError(

@@ -137,7 +137,10 @@ export function TwoFactorManager() {
         description={t("twofa.backup.regenDesc")}
         label={t("twofa.totp.codeLabel")}
         confirmLabel={t("twofa.backup.regenerate")}
-        onSubmit={async (v) => setNewCodes((await regen.mutateAsync(v)).backup_codes)}
+        onSubmit={async (v) => {
+          setNewCodes((await regen.mutateAsync(v)).backup_codes);
+          regen.reset();
+        }}
       />
       <CodePromptDialog
         open={prompt === "email-confirm"}
@@ -164,7 +167,12 @@ export function TwoFactorManager() {
           </Button>
         }
       />
-      <Dialog open={newCodes !== null} onOpenChange={(o) => !o && setNewCodes(null)}>
+      <Dialog open={newCodes !== null} onOpenChange={(o) => {
+          if (!o) {
+            setNewCodes(null);
+            regen.reset();
+          }
+        }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("twofa.totp.codesTitle")}</DialogTitle>
@@ -172,7 +180,10 @@ export function TwoFactorManager() {
           </DialogHeader>
           {newCodes ? <BackupCodes codes={newCodes} /> : null}
           <DialogFooter>
-            <Button type="button" onClick={() => setNewCodes(null)}>
+            <Button type="button" onClick={() => {
+                setNewCodes(null);
+                regen.reset();
+              }}>
               {t("twofa.totp.saved")}
             </Button>
           </DialogFooter>

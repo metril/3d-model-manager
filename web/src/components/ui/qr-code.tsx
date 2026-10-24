@@ -4,10 +4,17 @@ import { qrMatrix } from "@/lib/qr";
 
 /** Client-side QR (no dependency): one SVG path of dark modules on a white quiet-zone. */
 export function QrCode({ value, label, className }: { value: string; label: string; className?: string }) {
-  const m = useMemo(() => qrMatrix(value), [value]);
+  const m = useMemo(() => {
+    try {
+      return qrMatrix(value);
+    } catch {
+      return null; // payload too long: the caller still shows the manual key
+    }
+  }, [value]);
   const q = 4;
-  const n = m.length + q * 2;
+  const n = (m?.length ?? 0) + q * 2;
   const d = useMemo(() => {
+    if (!m) return "";
     const parts: string[] = [];
     m.forEach((row, y) =>
       row.forEach((on, x) => {
@@ -16,6 +23,7 @@ export function QrCode({ value, label, className }: { value: string; label: stri
     );
     return parts.join("");
   }, [m]);
+  if (!m) return null;
   return (
     <svg
       role="img"

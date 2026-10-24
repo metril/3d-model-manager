@@ -66,4 +66,16 @@ describe("SmtpCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send test email" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Test failed: auth failed");
   });
+
+  it("clears the stored password explicitly", async () => {
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "Clear password" }));
+    const pw = screen.getByLabelText("Password");
+    fireEvent.focus(pw);
+    fireEvent.blur(pw);
+    expect(pw).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    expect(putMock.mock.calls[0][1].smtp.password).toBe("");
+  });
 });

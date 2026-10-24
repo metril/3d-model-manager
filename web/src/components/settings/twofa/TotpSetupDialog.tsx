@@ -25,7 +25,10 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
   function start() {
     setError(null);
     setup.mutate(undefined, {
-      onSuccess: setData,
+      onSuccess: (d) => {
+        setData(d);
+        setup.reset();
+      },
       onError: (e) => setError(e instanceof ApiError ? e.detail : t("twofa.error")),
     });
   }
@@ -38,6 +41,8 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
       setCode("");
       setCodes(null);
       setError(null);
+      setup.reset();
+      enable.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -51,6 +56,8 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
         onSuccess: (r) => {
           setCode("");
           setCodes(r.backup_codes);
+          setData(null); // secret + setup token no longer needed
+          enable.reset(); // backup codes live in component state only
         },
         onError: (e) => {
           if (e instanceof ApiError && e.status === 410) {

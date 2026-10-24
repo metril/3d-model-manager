@@ -141,4 +141,10 @@ describe("LoginPage 2FA step", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
     expect(router.state.location.search).not.toHaveProperty("token");
   });
+
+  it("OIDC ?step=2fa without usable methods shows the expired notice", async () => {
+    renderLogin("/login?step=2fa&token=oidc-tok&methods=bogus");
+    expect(await screen.findByRole("alert")).toHaveTextContent("verification expired");
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+  });
 });

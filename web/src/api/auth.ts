@@ -74,6 +74,7 @@ export type LoginResult =
 export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: async (payload: LoginPayload): Promise<LoginResult> => {
       const res = await api.post<LoginResult | undefined>("/auth/login", payload);
       return res && res.requires_2fa ? res : { requires_2fa: false };
@@ -96,6 +97,7 @@ export type Verify2faResult = Me & { return_to?: string | null };
 export function useVerify2fa() {
   const queryClient = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: (payload: Verify2faPayload) => api.post<Verify2faResult>("/auth/2fa/verify", payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: authQueryOptions.queryKey }),
   });
@@ -131,6 +133,7 @@ export function useTwoFactorStatus() {
 function useTwoFactorMutation<TVars, TOut>(fn: (v: TVars) => Promise<TOut>) {
   const queryClient = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: fn,
     onSuccess: () =>
       Promise.all([
@@ -147,7 +150,7 @@ export interface TotpSetup {
 }
 
 export function useTotpSetup() {
-  return useMutation({ mutationFn: () => api.post<TotpSetup>("/auth/2fa/totp/setup") });
+  return useMutation({ gcTime: 0, mutationFn: () => api.post<TotpSetup>("/auth/2fa/totp/setup") });
 }
 
 export function useTotpEnable() {

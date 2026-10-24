@@ -31,6 +31,7 @@ export function SmtpCard({ data }: { data: ServerSettingsOut }) {
   const [fromAddr, setFromAddr] = useState(c.from_addr);
   const [fromName, setFromName] = useState(c.from_name);
   const [to, setTo] = useState("");
+  const [cleared, setCleared] = useState(false);
 
   const portN = Number(port);
   const valid = Number.isInteger(portN) && portN >= 1 && portN <= 65535;
@@ -86,10 +87,29 @@ export function SmtpCard({ data }: { data: ServerSettingsOut }) {
               autoComplete="new-password"
               value={password}
               onFocus={() => password === MASK && setPassword("")}
-              onBlur={() => password === "" && hasPassword && setPassword(MASK)}
-              onChange={(e) => setPassword(e.target.value)}
+              onBlur={() => password === "" && hasPassword && !cleared && setPassword(MASK)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (e.target.value) setCleared(false);
+              }}
             />
-            <p className="text-xs text-muted-foreground">{hasPassword ? t("smtp.passwordKeep") : t("smtp.passwordUnset")}</p>
+            <p className="text-xs text-muted-foreground">
+              {cleared ? t("smtp.passwordClearing") : hasPassword ? t("smtp.passwordKeep") : t("smtp.passwordUnset")}
+            </p>
+            {hasPassword ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="self-start"
+                onClick={() => {
+                  setCleared(!cleared);
+                  setPassword(cleared ? MASK : "");
+                }}
+              >
+                {cleared ? t("smtp.passwordKeepBtn") : t("smtp.passwordClear")}
+              </Button>
+            ) : null}
           </Field>
           <Field id="smtp-from-addr" label={t("smtp.fromAddr")} field="smtp_from" seeded={data.seeded_from_env}>
             <Input id="smtp-from-addr" type="email" value={fromAddr} onChange={(e) => setFromAddr(e.target.value)} />
