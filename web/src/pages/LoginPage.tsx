@@ -35,12 +35,19 @@ interface Pending {
 
 export function LoginPage() {
   const { t } = useTranslation();
-  const {
-    error: errorCode,
-    step,
-    token: oidcToken,
-    methods: oidcMethods,
-  } = useSearch({ strict: false }) as { error?: string; step?: string; token?: string; methods?: string };
+  const search = useSearch({ strict: false }) as { error?: string; step?: string; token?: string; methods?: string };
+  const errorCode = search.error;
+  // The OIDC redirect carries the token in the URL fragment (keeps it out of proxy logs);
+  // `?step=2fa` query params are still honoured as a fallback. Read once, strip at once.
+  const [oidc] = useState(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (hash.get("step")) {
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+      return { step: hash.get("step") ?? undefined, token: hash.get("token") ?? undefined, methods: hash.get("methods") ?? undefined };
+    }
+    return { step: search.step, token: search.token, methods: search.methods };
+  });
+  const { step, token: oidcToken, methods: oidcMethods } = oidc;
   // OIDC redirect (`?step=2fa&token=`): the token IS the pre-auth token.
   const [pending, setPending] = useState<Pending | null>(() =>
     step === "2fa" && oidcToken && parseMethods(oidcMethods).length
@@ -59,7 +66,7 @@ export function LoginPage() {
 
   // Keep the one-time token out of the address bar / history.
   useEffect(() => {
-    if (step === "2fa") void navigate({ to: "/login", search: {} as never, replace: true });
+    if (step === "2fa" && search.step === "2fa") void navigate({ to: "/login", search: {} as never, replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

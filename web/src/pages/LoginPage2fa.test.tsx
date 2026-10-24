@@ -147,4 +147,15 @@ describe("LoginPage 2FA step", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("verification expired");
     expect(screen.getByLabelText("Username")).toBeInTheDocument();
   });
+
+  it("OIDC fragment #step=2fa uses the token and strips the fragment", async () => {
+    postMock.mockResolvedValue({ id: 1 });
+    window.location.hash = "#step=2fa&token=frag-tok&methods=totp,backup";
+    renderLogin();
+    fireEvent.change(await screen.findByLabelText("Code"), { target: { value: "111222" } });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/auth/2fa/verify", { pre_auth_token: "frag-tok", method: "totp", code: "111222" }),
+    );
+    expect(window.location.hash).toBe("");
+  });
 });
