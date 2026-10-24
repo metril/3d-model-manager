@@ -105,6 +105,11 @@ async def _held_printer_ids(redis: Redis, printer_ids: list[int]) -> dict[int, s
             continue
         if alert.get("hold") and alert.get("reason"):
             out[pid] = alert["reason"]
+    # T1: queue_drying_block holds a printer while its AMS dries.
+    drying_raws = await redis.mget([f"drying:hold:{pid}" for pid in printer_ids])
+    for pid, raw in zip(printer_ids, drying_raws, strict=True):
+        if raw and pid not in out:
+            out[pid] = "drying"
     return out
 
 

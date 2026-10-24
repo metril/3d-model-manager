@@ -10,7 +10,6 @@ from app.models import Setting
 from app.services.drying import DEFAULT_PRESETS, DRY_HOURS_RANGE, DRY_TEMP_RANGE
 
 DRYING_KEY = "drying"
-_PRESET_FIELDS = ("n3f_temp", "n3s_temp", "n3f_hours", "n3s_hours")
 
 
 class DryingPreset(BaseModel):
@@ -34,6 +33,9 @@ class DryingConfig(BaseModel):
     queue_drying_enabled: bool = False
     queue_drying_block: bool = False
     print_drying_enabled: bool = False
+
+    def presets_dict(self) -> dict[str, dict[str, int]]:
+        return {k: p.model_dump() for k, p in self.presets.items()}
 
     @field_validator("presets")
     @classmethod

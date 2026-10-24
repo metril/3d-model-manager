@@ -6,12 +6,13 @@ from __future__ import annotations
 # Defined before the celery_app import (see app.tasks.dispatch for why).
 PLUG_INTERVAL_S = 60
 BACKUP_GATE_INTERVAL_S = 600
+DRYING_INTERVAL_S = 60
 
 from redis import Redis  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services import backup as backup_svc  # noqa: E402
-from app.services import updates  # noqa: E402
+from app.services import drying_tick, updates  # noqa: E402
 from app.services.smart_plugs import manager  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
@@ -24,6 +25,17 @@ def plugs_tick() -> dict:
     try:
         with base.sync_session() as s:
             return manager.tick(s, r, settings)
+    finally:
+        r.close()
+
+
+@celery_app.task(name="app.tasks.drying.tick", soft_time_limit=50, time_limit=55)
+def drying_tick_task() -> dict:
+    settings = get_settings()
+    r = Redis.from_url(settings.redis_url)
+    try:
+        with base.sync_session() as s:
+            return drying_tick.tick(s, r, settings)
     finally:
         r.close()
 
