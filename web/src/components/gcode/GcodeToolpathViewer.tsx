@@ -151,6 +151,7 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
       controls.dispose();
       grid.geometry.dispose();
       (grid.material as THREE.Material).dispose();
+      renderer.forceContextLoss();
       renderer.dispose();
       container.removeChild(renderer.domElement);
       sceneRef.current = cameraRef.current = controlsRef.current = null;

@@ -12,18 +12,27 @@ export function parseGcodeAsync(text: string, signal?: AbortSignal): Promise<Par
       return;
     }
     const done = () => worker.terminate();
-    signal?.addEventListener("abort", () => {
-      done();
-      reject(new DOMException("aborted", "AbortError"));
-    });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        done();
+        reject(new DOMException("aborted", "AbortError"));
+      },
+      { once: true },
+    );
     worker.onmessage = (e: MessageEvent<{ ok: boolean; result?: ParsedToolpath; error?: string }>) => {
       done();
       if (e.data.ok && e.data.result) resolve(e.data.result);
       else reject(new Error(e.data.error ?? "parse failed"));
     };
-    worker.onerror = (e) => {
+    worker.onerror = () => {
+      // Worker failed to load (CSP, stale chunk): parse on the main thread instead.
       done();
-      reject(new Error(e.message || "parse failed"));
+      try {
+        resolve(parseGcodeToolpath(text));
+      } catch (err) {
+        reject(err);
+      }
     };
     worker.postMessage(text);
   });

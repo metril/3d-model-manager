@@ -205,11 +205,20 @@ export function parseDuration(text: string): number | null {
 
 /** Reads a named axis out of a `G0`/`G1` line without allocating per token. */
 function readAxis(line: string, axis: string): number | undefined {
-  const at = line.indexOf(axis);
-  if (at < 0) return undefined;
-  // Guard against matching inside a comment or a word ("; X marks").
-  const value = Number.parseFloat(line.slice(at + 1));
-  return Number.isFinite(value) ? value : undefined;
+  const semi = line.indexOf(';');
+  const end = semi >= 0 ? semi : line.length;
+  let at = line.indexOf(axis);
+  // The letter must start a word or follow the command digits ("G1X10"), never sit inside another word.
+  while (at >= 0 && at < end) {
+    const prev = at > 0 ? line.charCodeAt(at - 1) : 32;
+    const isLetter = (prev >= 65 && prev <= 90) || (prev >= 97 && prev <= 122);
+    if (!isLetter) {
+      const value = Number.parseFloat(line.slice(at + 1, end));
+      return Number.isFinite(value) ? value : undefined;
+    }
+    at = line.indexOf(axis, at + 1);
+  }
+  return undefined;
 }
 
 /**
@@ -227,6 +236,7 @@ export function parseGcodeToolpath(gcode: string): ParsedToolpath {
   let z = 0;
   let e = 0;
   let relativeExtrusion = false;
+  let relativeXYZ = false;
   let feature: number = ToolpathType.wall;
   let width = 0;
   // Tally of observed widths. The *typical* one is wanted, not the largest: a
@@ -330,7 +340,9 @@ export function parseGcodeToolpath(gcode: string): ParsedToolpath {
       const value = colon >= 0 ? body.slice(colon + 1).trim() : '';
 
       if (estimatedSeconds === null && /estimated (printing )?time|total estimated time/i.test(body)) {
-        estimatedSeconds = parseDuration(body.slice(body.indexOf('=') >= 0 ? body.indexOf('=') + 1 : body.indexOf(':') + 1));
+        // Bambu: "model printing time: 33m 18s; total estimated time: 39m 31s" -- take only the total.
+        const m = /(?:total estimated time|estimated printing time[^=:]*)\s*[:=]\s*([^;]*)/i.exec(body) ?? /estimated time\s*[:=]\s*([^;]*)/i.exec(body);
+        if (m) estimatedSeconds = parseDuration(m[1]);
       }
 
       if (key === 'FEATURE' || key === 'TYPE') {
@@ -361,6 +373,10 @@ export function parseGcodeToolpath(gcode: string): ParsedToolpath {
       relativeExtrusion = false;
       continue;
     }
+    if (/^G9[01](\s|$)/.test(line)) {
+      relativeXYZ = line.charCodeAt(2) === 49;
+      continue;
+    }
     if (line.startsWith('G92')) {
       const resetE = readAxis(line, 'E');
       if (resetE !== undefined) e = resetE;
@@ -379,12 +395,15 @@ export function parseGcodeToolpath(gcode: string): ParsedToolpath {
     if (!isLinear && !isArc) continue;
     // G20/G21/G28 etc. share the G-prefix; only the four move codes above are
     // handled, and `startsWith('G2')` would otherwise swallow G20/G28.
-    if (isArc && !/^G[23](\s|$)/.test(line)) continue;
-    if (isLinear && !/^G[01](\s|$)/.test(line)) continue;
+    if (isArc && !/^G[23](?![0-9])/.test(line)) continue;
+    if (isLinear && !/^G[01](?![0-9])/.test(line)) continue;
 
-    const nx = readAxis(line, 'X') ?? x;
-    const ny = readAxis(line, 'Y') ?? y;
-    const nz = readAxis(line, 'Z') ?? z;
+    const dx = readAxis(line, 'X');
+    const dy = readAxis(line, 'Y');
+    const dz = readAxis(line, 'Z');
+    const nx = dx === undefined ? x : relativeXYZ ? x + dx : dx;
+    const ny = dy === undefined ? y : relativeXYZ ? y + dy : dy;
+    const nz = dz === undefined ? z : relativeXYZ ? z + dz : dz;
     const rawE = readAxis(line, 'E');
     const rawF = readAxis(line, 'F');
     if (rawF !== undefined && rawF > 0) feed = rawF;
@@ -433,13 +452,14 @@ export function parseGcodeToolpath(gcode: string): ParsedToolpath {
         const maxStep = 2 * Math.acos(Math.max(-1, Math.min(1, 1 - ARC_TOLERANCE_MM / radius)));
         const steps = Math.max(1, Math.min(ARC_MAX_CHORDS, Math.ceil(Math.abs(sweep) / Math.max(maxStep, 1e-3))));
 
+        const z0 = z;
         for (let step = 1; step <= steps; step += 1) {
           const fraction = step / steps;
           const angle = startAngle + sweep * fraction;
           emit(
             cx + radius * Math.cos(angle),
             cy + radius * Math.sin(angle),
-            z + (nz - z) * fraction,
+            z0 + (nz - z0) * fraction,
             extruding,
           );
         }
@@ -494,7 +514,7 @@ export function rekeyLayers(
     const layerKey = bin(layers.length > 1 ? li / (layers.length - 1) : 0) + 1;
     for (let i = 0; i < paths.length; i += RECORD_STRIDE) {
       if (paths[i + 3] === ToolpathType.travel) continue;
-      if (mode === 'tool') paths[i + 3] = Math.min(paths[i + 7] + 1, MAX_TOOL);
+      if (mode === 'tool') paths[i + 3] = Math.min(paths[i + 7] + 1, MAX_TOOL + 1);
       else if (mode === 'layer') paths[i + 3] = layerKey;
       else {
         const f = layer.speeds[i / RECORD_STRIDE] ?? 0;

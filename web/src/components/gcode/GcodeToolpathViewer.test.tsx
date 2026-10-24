@@ -16,7 +16,7 @@ vi.mock("three", async (orig) => {
   const actual = await orig<typeof import("three")>();
   class FakeRenderer {
     domElement = document.createElement("canvas");
-    setSize = vi.fn(); setPixelRatio = vi.fn(); render = vi.fn(); dispose = vi.fn();
+    setSize = vi.fn(); setPixelRatio = vi.fn(); forceContextLoss = vi.fn(); render = vi.fn(); dispose = vi.fn();
   }
   return { ...actual, WebGLRenderer: FakeRenderer };
 });
