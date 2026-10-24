@@ -97,6 +97,7 @@ class FakePrinterAdapter(PrinterAdapter):
         self.download_errors = 0
         self.downloads: list[str] = []
         self.camera: FakeCamera | None = None
+        self.storage: int | None = None  # total bytes for storage_info()
 
     def list_dir(self, path: str) -> list[str]:
         parent = path.rstrip("/") or "/"
@@ -123,6 +124,13 @@ class FakePrinterAdapter(PrinterAdapter):
                         mtime=self.file_mtimes.get(key),
                     )
                 )
+        prefix = "/" if parent == "/" else parent + "/"
+        dirs = {
+            k[len(prefix) :].split("/", 1)[0]
+            for k in self.files
+            if k.startswith(prefix) and "/" in k[len(prefix) :]
+        }
+        out.extend(RemoteFile(name=d, size=None, mtime=None, is_dir=True) for d in sorted(dirs))
         return out
 
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult:
@@ -212,6 +220,54 @@ class FakePrinterAdapter(PrinterAdapter):
 
     def send_devmode_probe(self, slot: dict, seq: str) -> None:
         self.calls.append(("devmode_probe", dict(slot), seq))
+
+    def set_xcam(self, module: str, enable: bool, sensitivity: str) -> None:
+        self._record("set_xcam", module, enable, sensitivity)
+
+    def set_print_option(self, option: str, value: bool) -> None:
+        self._record("set_print_option", option, value)
+
+    def ams_slot_configure(
+        self,
+        ams_id: int,
+        tray_id: int,
+        tray_info_idx: str,
+        tray_type: str,
+        sub_brand: str,
+        color: str,
+        nozzle_min: int,
+        nozzle_max: int,
+    ) -> None:
+        self._record(
+            "ams_slot_configure",
+            ams_id,
+            tray_id,
+            tray_info_idx,
+            tray_type,
+            sub_brand,
+            color,
+            nozzle_min,
+            nozzle_max,
+        )
+
+    def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
+        self._record("ams_slot_reset", ams_id, tray_id)
+
+    def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
+        self._record("start_sd_print", path, plate, use_ams)
+
+    def delete_file(self, path: str) -> None:
+        self.calls.append(("delete_file", path))
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        del self.files[path]
+
+    def storage_info(self) -> dict | None:
+        self.calls.append(("storage_info",))
+        if self.storage is None:
+            return None
+        used = sum(len(v) for v in self.files.values())
+        return {"total": self.storage, "used": used, "free": self.storage - used, "source": "fake"}
 
     def emit_reply(self, reply: dict) -> None:
         assert self._reply_handler is not None
