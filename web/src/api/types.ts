@@ -745,6 +745,8 @@ export interface SpoolOut {
   weight_used_g: number;
   cost_per_kg: number | null;
   location: string | null;
+  location_id?: number | null;
+  suppliers?: SpoolSupplierLink[];
   low_stock_g: number;
   tray_uuid: string | null;
   spoolman_id?: number | null;
@@ -768,6 +770,7 @@ export interface SpoolCreate {
   weight_used_g?: number;
   cost_per_kg?: number | null;
   location?: string | null;
+  location_id?: number | null;
   low_stock_g?: number;
   tray_uuid?: string | null;
 }
@@ -783,6 +786,7 @@ export interface SpoolUpdate {
   weight_used_g?: number;
   cost_per_kg?: number | null;
   location?: string | null;
+  location_id?: number | null;
   low_stock_g?: number;
   tray_uuid?: string | null;
   archived?: boolean;
@@ -2173,6 +2177,142 @@ export interface TimelapseJobState {
   state: "pending" | "running" | "done" | "error";
   error: string | null;
   filename: string | null;
+
+// ---- T5 spool housekeeping ----
+export interface Supplier {
+  id: number;
+  name: string;
+  website: string | null;
+  customer_number: string | null;
+  note: string | null;
+  created_at: string;
+}
+export interface SupplierIn {
+  name: string;
+  website?: string | null;
+  customer_number?: string | null;
+  note?: string | null;
+}
+
+export interface SpoolSupplierLink {
+  supplier_id: number;
+  article_number: string | null;
+  quoted_price_per_kg: number | null;
+  is_purchase_source: boolean;
+}
+
+export interface LocationSensor {
+  id: number;
+  location_id: number;
+  name: string;
+  entity_id: string;
+  kind: string;
+  device_class: string | null;
+  unit: string | null;
+  alert_above: number | null;
+  alert_below: number | null;
+  notify_on_alert: boolean;
+  show_on_card: boolean;
+  sort_order: number;
+  last_state: string | null;
+  last_changed_at: string | null;
+  alerting: boolean;
+}
+export interface LocationSensorIn {
+  name: string;
+  entity_id: string;
+  kind?: string;
+  alert_above?: number | null;
+  alert_below?: number | null;
+  notify_on_alert?: boolean;
+  show_on_card?: boolean;
+  sort_order?: number;
+}
+export interface HaEntity {
+  entity_id: string;
+  name: string;
+  device_class: string | null;
+  unit: string | null;
+  state: string | null;
+}
+export interface SensorReading {
+  sensor_id: number;
+  state: string | null;
+  unit: string | null;
+  alerting: boolean;
+  last_changed_at: string | null;
+}
+export interface StorageLocation {
+  id: number;
+  name: string;
+  identifier: string | null;
+  created_at: string;
+  sensors?: LocationSensor[];
+}
+export interface StorageLocationIn {
+  name: string;
+  identifier?: string | null;
+}
+
+export interface ColorCatalogEntry {
+  id: number;
+  manufacturer: string;
+  color_name: string;
+  hex: string;
+  material: string | null;
+  is_default: boolean;
+  extra_colors: string[];
+  effect_type: string | null;
+}
+export interface ColorCatalogIn {
+  manufacturer: string;
+  color_name: string;
+  hex: string;
+  material?: string | null;
+  extra_colors?: string[];
+  effect_type?: string | null;
+}
+
+export interface BulkSpoolUpdate {
+  material_type?: string;
+  brand?: string | null;
+  color_hex?: string | null;
+  color_name?: string | null;
+  location_id?: number | null;
+  cost_per_kg?: number | null;
+  low_stock_g?: number;
+  label_weight_g?: number;
+}
+export interface BulkResult {
+  results: Array<{ id: number; ok: boolean; error?: string | null }>;
+  not_found: number[];
+}
+
+export interface CsvImportRow {
+  line: number;
+  action: "create" | "update" | "error";
+  spool_id?: number | null;
+  errors: string[];
+  warnings: string[];
+}
+export interface CsvImportPreview {
+  token: string;
+  rows: CsvImportRow[];
+  summary: { create: number; update: number; error: number };
+}
+export interface CsvImportResult {
+  created: number;
+  updated: number;
+  errors: number;
+}
+
+export type LabelTemplate = "tight" | "roomy";
+export type LabelPage = "a4" | "letter" | "roll_62mm";
+export type LabelFormat = "pdf" | "png";
+export interface LabelRequest {
+  ids: number[];
+  template: LabelTemplate;
+  page: LabelPage;
 }
 
 // ---- T3 printer ops ----
