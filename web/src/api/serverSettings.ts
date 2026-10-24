@@ -6,7 +6,21 @@ import { featuresQueryOptions } from "@/api/features";
 
 export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR";
 
+export type SmtpSecurity = "none" | "starttls" | "tls";
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  security: SmtpSecurity;
+  username: string;
+  /** Always "***" when set; sending "***" back keeps it, ""/null clears. */
+  password: string | null;
+  from_addr: string;
+  from_name: string;
+}
+
 export interface ServerConfig {
+  smtp: SmtpConfig;
   public_url: string | null;
   max_upload_bytes: number;
   max_download_bytes: number;
@@ -96,5 +110,17 @@ export function useTestSlicer() {
   return useMutation({
     mutationFn: (url?: string) =>
       api.post<SlicerTestOut>("/settings/server/slicer/test", url ? { url } : {}),
+  });
+}
+
+export interface SmtpTestOut {
+  ok: boolean;
+  error: string | null;
+}
+
+/** Sends a test mail synchronously via the SAVED server SMTP. */
+export function useSmtpTest() {
+  return useMutation({
+    mutationFn: (to: string) => api.post<SmtpTestOut>("/settings/server/smtp/test", { to }),
   });
 }

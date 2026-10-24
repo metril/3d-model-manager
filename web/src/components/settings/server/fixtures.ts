@@ -3,6 +3,7 @@ import type { ServerSettingsOut, ServerStatusOut } from "@/api/serverSettings";
 export function fakeServer(over: Partial<ServerSettingsOut["config"]> = {}, rest: Partial<ServerSettingsOut> = {}): ServerSettingsOut {
   return {
     config: {
+      smtp: { host: "", port: 587, security: "starttls", username: "", password: null, from_addr: "", from_name: "" },
       public_url: null,
       max_upload_bytes: 1073741824,
       max_download_bytes: 2147483648,

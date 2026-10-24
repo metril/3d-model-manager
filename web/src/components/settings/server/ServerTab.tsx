@@ -5,6 +5,7 @@ import { useServerSettings } from "@/api/serverSettings";
 import { LimitsCard } from "@/components/settings/server/LimitsCard";
 import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
 import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
+import { SmtpCard } from "@/components/settings/server/SmtpCard";
 import { SlicerServerCard } from "@/components/settings/server/SlicerServerCard";
 import { VpNetworkCard } from "@/components/settings/server/VpNetworkCard";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function ServerTab() {
       <PublicUrlCard data={data} />
       <LimitsCard data={data} />
       <SlicerServerCard data={data} />
+      <SmtpCard data={data} />
       <ObicoServerCard />
       <VpNetworkCard data={data} />
     </>

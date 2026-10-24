@@ -47,8 +47,13 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (search: Record<string, unknown>): { error?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { error?: string; step?: string; token?: string; methods?: string } => ({
     error: typeof search.error === "string" ? search.error : undefined,
+    step: typeof search.step === "string" ? search.step : undefined,
+    token: typeof search.token === "string" ? search.token : undefined,
+    methods: typeof search.methods === "string" ? search.methods : undefined,
   }),
   component: LoginPage,
 });

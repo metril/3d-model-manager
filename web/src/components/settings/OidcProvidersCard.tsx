@@ -104,6 +104,7 @@ function ProviderForm({ provider, onDone }: { provider: OidcProviderOut | null; 
   const [autoCreate, setAutoCreate] = useState(provider?.auto_create_users ?? false);
   const [linkEmail, setLinkEmail] = useState(provider?.link_by_email ?? false);
   const [enabled, setEnabled] = useState(provider?.enabled ?? true);
+  const [trustsMfa, setTrustsMfa] = useState(provider?.trusts_idp_mfa ?? false);
   const [copied, setCopied] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const mut = provider ? patch : create;
@@ -129,6 +130,7 @@ function ProviderForm({ provider, onDone }: { provider: OidcProviderOut | null; 
       auto_create_users: autoCreate,
       link_by_email: linkEmail,
       enabled,
+      trusts_idp_mfa: trustsMfa,
     };
     // Blank secret on edit is omitted entirely so the stored one is kept.
     if (provider) {
@@ -194,6 +196,10 @@ function ProviderForm({ provider, onDone }: { provider: OidcProviderOut | null; 
         <label className="flex items-center gap-2">
           <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enabled" />
           Enabled
+        </label>
+        <label className="flex items-center gap-2">
+          <Switch checked={trustsMfa} onCheckedChange={setTrustsMfa} aria-label="Trust identity provider MFA" />
+          Trust identity provider MFA (skip app 2FA)
         </label>
       </div>
       {(localError || mut.isError) && (

@@ -1760,6 +1760,7 @@ export interface OidcProviderOut {
   auto_create_users: boolean;
   link_by_email: boolean;
   enabled: boolean;
+  trusts_idp_mfa: boolean;
   /** Server-computed; display as-is, never rebuild from window.location. */
   callback_url: string;
 }
@@ -1777,6 +1778,7 @@ export interface OidcProviderCreateIn {
   auto_create_users?: boolean;
   link_by_email?: boolean;
   enabled?: boolean;
+  trusts_idp_mfa?: boolean;
 }
 
 export type OidcProviderPatchIn = Partial<OidcProviderCreateIn>;

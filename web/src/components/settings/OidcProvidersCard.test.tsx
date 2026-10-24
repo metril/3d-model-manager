@@ -13,7 +13,7 @@ vi.mock("@/api/client", async (importOriginal) => {
 const provider = {
   id: 3, name: "Authentik", slug: "authentik", discovery_url: "https://sso.example/.well-known/openid-configuration",
   client_id: "cid", has_client_secret: true, scopes: "openid", groups_claim: "groups", group_mapping: {},
-  admin_group: null, auto_create_users: false, link_by_email: false, enabled: true,
+  admin_group: null, auto_create_users: false, link_by_email: false, enabled: true, trusts_idp_mfa: false,
   callback_url: "https://tdmm.example/api/auth/oidc/authentik/callback",
 };
 
@@ -45,5 +45,14 @@ describe("OidcProvidersCard", () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Edit Authentik" }));
     expect(await screen.findByText(/\/api\/auth\/oidc\/authentik\/callback$/)).toBeInTheDocument();
+  });
+
+  it("sends trusts_idp_mfa when the switch is toggled", async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Authentik" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Trust identity provider MFA" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save provider" }));
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    expect(patchMock.mock.calls[0][1]).toMatchObject({ trusts_idp_mfa: true });
   });
 });

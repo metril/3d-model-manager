@@ -31,6 +31,8 @@ import { SlicerIntegrationCard } from "@/components/settings/SlicerIntegrationCa
 import { SpoolmanCard } from "@/components/settings/SpoolmanCard";
 import { StorageBackendsCard } from "@/components/settings/StorageBackendsCard";
 import { ServerTab } from "@/components/settings/server/ServerTab";
+import { SecurityCard } from "@/components/settings/SecurityCard";
+import { TwoFactorCard } from "@/components/settings/TwoFactorCard";
 import { UsersCard } from "@/components/settings/UsersCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -100,6 +102,7 @@ export function SettingsPage() {
             <PrintCostCard />
             {auth.can("inventory:write") && <SpoolmanCard />}
             {auth.data?.has_password && <ChangePasswordCard />}
+            <TwoFactorCard />
           </TabsContent>
           {canSettings && (
             <TabsContent value="storage" className="space-y-6">
@@ -159,6 +162,7 @@ export function SettingsPage() {
           </TabsContent>
           {isAdmin && (
             <TabsContent value="access" className="space-y-6">
+              <SecurityCard />
               <UsersCard />
               <GroupsCard />
               <OidcProvidersCard />
