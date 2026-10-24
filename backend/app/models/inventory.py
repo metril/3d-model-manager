@@ -6,17 +6,21 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Float,
     ForeignKey,
     Identity,
     Index,
     Integer,
+    Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, str_enum
 from app.models.enums import SpoolUsageSource
@@ -42,7 +46,12 @@ class Spool(Base):
     empty_weight_g: Mapped[float | None] = mapped_column(Float)
     weight_used_g: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("0"))
     cost_per_kg: Mapped[float | None] = mapped_column(Float)
-    location: Mapped[str | None] = mapped_column(String)
+    location_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("storage_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     low_stock_g: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("100"))
     tray_uuid: Mapped[str | None] = mapped_column(String, unique=True)
     # Linked Spoolman spool id (Q9); NULL = not linked.
@@ -53,6 +62,13 @@ class Spool(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    location_ref: Mapped["StorageLocation | None"] = relationship(lazy="joined")
+
+    @property
+    def location(self) -> str | None:
+        """Read-only storage-location name (compat with the old text column)."""
+        return self.location_ref.name if self.location_ref is not None else None
 
 
 class SpoolSlot(Base):
@@ -133,6 +149,115 @@ class SpoolmanPush(Base):
         BigInteger, ForeignKey("spools.id", ondelete="CASCADE"), primary_key=True
     )
     grams: Mapped[float] = mapped_column(Float, nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class Supplier(Base):
+    """A filament vendor (T5). ``name_key`` = lower(trim(name)), unique."""
+
+    __tablename__ = "suppliers"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    name_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    website: Mapped[str | None] = mapped_column(String)
+    customer_number: Mapped[str | None] = mapped_column(String)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class SpoolSupplier(Base):
+    __tablename__ = "spool_suppliers"
+    __table_args__ = (
+        UniqueConstraint("spool_id", "supplier_id", name="uq_spool_suppliers_spool_id_supplier_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    spool_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    supplier_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    article_number: Mapped[str | None] = mapped_column(String)
+    quoted_price_per_kg: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    is_purchase_source: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class StorageLocation(Base):
+    __tablename__ = "storage_locations"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    name_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    identifier: Mapped[str | None] = mapped_column(String)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class LocationHaSensor(Base):
+    """A Home Assistant entity attached to a storage location (T5)."""
+
+    __tablename__ = "location_ha_sensors"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    location_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("storage_locations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'other'"))
+    device_class: Mapped[str | None] = mapped_column(String)
+    unit: Mapped[str | None] = mapped_column(String)
+    alert_above: Mapped[float | None] = mapped_column(Numeric)
+    alert_below: Mapped[float | None] = mapped_column(Numeric)
+    notify_on_alert: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    show_on_card: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_state: Mapped[str | None] = mapped_column(String)
+    last_changed_at: Mapped[datetime | None]
+    alerting: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class ColorCatalogEntry(Base):
+    __tablename__ = "color_catalog"
+    __table_args__ = (
+        UniqueConstraint(
+            "manufacturer", "color_name", "material", name="uq_color_catalog_mfr_name_material"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    manufacturer: Mapped[str] = mapped_column(String, nullable=False)
+    color_name: Mapped[str] = mapped_column(String, nullable=False)
+    hex: Mapped[str] = mapped_column(String, nullable=False)
+    material: Mapped[str | None] = mapped_column(String)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    extra_colors: Mapped[list | None] = mapped_column(JSONB)
+    effect_type: Mapped[str | None] = mapped_column(String)
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

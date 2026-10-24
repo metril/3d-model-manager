@@ -46,7 +46,7 @@ class SpoolCreate(BaseModel):
     empty_weight_g: float | None = None
     weight_used_g: float = 0
     cost_per_kg: float | None = None
-    location: str | None = None
+    location_id: int | None = None
     low_stock_g: float = 100
     tray_uuid: str | None = None
 
@@ -66,7 +66,7 @@ class SpoolUpdate(BaseModel):
     empty_weight_g: float | None = None
     weight_used_g: float | None = None
     cost_per_kg: float | None = None
-    location: str | None = None
+    location_id: int | None = None
     low_stock_g: float | None = None
     tray_uuid: str | None = None
     archived: bool | None = None
@@ -88,7 +88,8 @@ class SpoolOut(BaseModel):
     empty_weight_g: float | None
     weight_used_g: float
     cost_per_kg: float | None
-    location: str | None
+    location_id: int | None = None
+    location: str | None = None
     low_stock_g: float
     tray_uuid: str | None
     spoolman_id: int | None = None
@@ -113,6 +114,7 @@ class SpoolOut(BaseModel):
             empty_weight_g=s.empty_weight_g,
             weight_used_g=s.weight_used_g,
             cost_per_kg=s.cost_per_kg,
+            location_id=s.location_id,
             location=s.location,
             low_stock_g=s.low_stock_g,
             tray_uuid=s.tray_uuid,
@@ -142,7 +144,25 @@ class SeriesPoint(BaseModel):
     remaining_g: float
 
 
+class SpoolSupplierOut(BaseModel):
+    supplier_id: int
+    supplier_name: str
+    article_number: str | None = None
+    quoted_price_per_kg: float | None = None
+    is_purchase_source: bool = False
+
+
+class SpoolSupplierIn(BaseModel):
+    supplier_id: int
+    article_number: str | None = None
+    quoted_price_per_kg: float | None = None
+    is_purchase_source: bool = False
+
+    _nn = field_validator("quoted_price_per_kg")(_non_negative)
+
+
 class SpoolDetailOut(SpoolOut):
+    suppliers: list[SpoolSupplierOut] = []
     usage: list[UsageRowOut]
     series: list[SeriesPoint]
 
