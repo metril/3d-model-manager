@@ -69,6 +69,7 @@ celery_app.conf.update(
         "app.tasks.sensors",
         "app.tasks.firmware",
         "app.tasks.ops",
+        "app.tasks.notify",
     ),
 )
 
@@ -151,6 +152,18 @@ from app.tasks import firmware as _firmware  # noqa: E402
 celery_app.conf.beat_schedule["firmware-check"] = {
     "task": "app.tasks.firmware.check_firmware",
     "schedule": _firmware.CHECK_INTERVAL_S,
+}
+
+# Additive: Q6 notifications -- drain the event queue and flush digests.
+from app.tasks import notify as _notify  # noqa: E402
+
+celery_app.conf.beat_schedule["notify-deliver"] = {
+    "task": "app.tasks.notify.deliver_pending",
+    "schedule": _notify.DRAIN_INTERVAL_S,
+}
+celery_app.conf.beat_schedule["notify-digest"] = {
+    "task": "app.tasks.notify.digest",
+    "schedule": 60,
 }
 
 # Additive: Q7 ops -- plug poll/auto-off, scheduled-backup gate (the task

@@ -94,6 +94,9 @@ _PATH_PARAM_VALUES = {
     "link_id": "1",
     # Q11: virtual printers.
     "vp_id": "1",
+    # Q6: notification channels/templates.
+    "channel_id": "1",
+    "template_id": "1",
     # P6: slicer profiles + print recipes.
     "profile_id": "1",
     "recipe_id": "1",

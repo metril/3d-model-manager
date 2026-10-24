@@ -43,6 +43,16 @@ async def list_queue(
         await client.aclose()
 
 
+def _notify_enqueued(entry: QueueEntryOut, ctx: AuthContext) -> None:
+    """Q6: queue_item_added (+ review_requested when it needs approval)."""
+    from app.services.notify.events import emit_bg
+
+    info = {"name": entry.model.name, "user": ctx.user.username, "queue_id": entry.id}
+    emit_bg("queue_item_added", entry.printer_id, info)
+    if entry.review_state.value == "pending":
+        emit_bg("review_requested", entry.printer_id, info)
+
+
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
@@ -62,7 +72,9 @@ async def enqueue(
     set) is never idempotent -- it always creates a new row.
     """
     if payload.file_id is not None:
-        return await queue_service.enqueue_file(db, settings, payload, ctx)
+        entry = await queue_service.enqueue_file(db, settings, payload, ctx)
+        _notify_enqueued(entry, ctx)
+        return entry
 
     if payload.model_id is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "model_id or file_id required")
@@ -72,6 +84,8 @@ async def enqueue(
     )
     if not created:
         response.status_code = status.HTTP_200_OK
+    else:
+        _notify_enqueued(entry, ctx)
     return entry
 
 

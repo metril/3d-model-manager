@@ -15,7 +15,7 @@
     "title": "Settings",
     "subtitle": "Automation, storage backends, printer, and connected accounts.",
     "loadError": "Couldn't load settings", "retry": "Retry",
-    "tabs": { "general": "General", "storage": "Storage", "printer": "Printer", "accounts": "Accounts", "access": "Access" },
+    "tabs": { "general": "General", "storage": "Storage", "printer": "Printer", "notifications": "Notifications", "accounts": "Accounts", "access": "Access" },
     "appearance": {
       "title": "Appearance", "desc": "Applies to this browser only.",
       "mode": "Mode", "style": "Style", "accent": "Accent",

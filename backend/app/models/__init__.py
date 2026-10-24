@@ -38,6 +38,7 @@ from app.models.library import (
     Tag,
     model_tags,
 )
+from app.models.notify import NotificationChannel, NotificationLog, NotificationTemplate
 from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.overlay_token import OverlayToken
 from app.models.printing import PrintArchive, Printer, PrintJob
@@ -76,6 +77,9 @@ __all__ = [
     "LedgerEntry",
     "Model",
     "Note",
+    "NotificationChannel",
+    "NotificationLog",
+    "NotificationTemplate",
     "OidcProvider",
     "PendingImport",
     "Print",

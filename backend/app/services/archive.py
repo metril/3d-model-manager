@@ -305,6 +305,7 @@ def archive_job(
     # Q9: after the commit; push_usages sends only the delta vs. what was
     # already pushed for this job, so a redelivery can't double-debit.
     spoolman.push_usages(session, job.id, usages)
+    _notify_low_stock(job.printer_id, usages)
     if fetch_exc is not None:
         raise ArchiveFetchError(str(fetch_exc)) from fetch_exc
     return arc
@@ -324,3 +325,29 @@ def mark_archive_error(
     arc.fetch_state = ArchiveFetchState.ERROR
     arc.fetch_error = message
     session.commit()
+
+
+def _notify_low_stock(printer_id: int, usages: list) -> None:
+    """Q6: emit ``filament_low`` for each spool this job pushed under its
+    low-stock threshold (crossing only, so a redelivery doesn't re-notify)."""
+    try:
+        from app.services.notify.events import emit
+
+        for spool, grams in usages:
+            if spool is None or not spool_inventory.is_low_stock(spool):
+                continue
+            if spool_inventory.remaining_g(spool) + grams < spool.low_stock_g:
+                continue  # was already low before this job
+            emit(
+                "filament_low",
+                printer_id,
+                {
+                    "spool_id": spool.id,
+                    "spool_name": " ".join(
+                        x for x in (spool.brand, spool.material_type, spool.color_name) if x
+                    ),
+                    "remaining_g": round(max(spool_inventory.remaining_g(spool), 0)),
+                },
+            )
+    except Exception:
+        pass
