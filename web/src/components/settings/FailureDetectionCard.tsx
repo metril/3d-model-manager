@@ -1,9 +1,10 @@
 /** Settings → Printer → Failure detection (Q10 Obico ML sidecar). */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import type { DetectionAction, ObicoSettings } from "@/api/detection";
-import { useObicoSettings, useSaveObicoSettings, useTestObico } from "@/api/detection";
+import { useObicoSettings, useSaveObicoSettings } from "@/api/detection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,9 +22,9 @@ export function FailureDetectionCard() {
 }
 
 function Form({ initial }: { initial: ObicoSettings }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<ObicoSettings>(initial);
   const save = useSaveObicoSettings();
-  const test = useTestObico();
   const set = <K extends keyof ObicoSettings>(k: K, v: ObicoSettings[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
   const invalid = draft.pause < draft.warn;
@@ -33,8 +34,8 @@ function Form({ initial }: { initial: ObicoSettings }) {
       <CardHeader>
         <CardTitle>Failure detection</CardTitle>
         <CardDescription>
-          Spaghetti detection via a self-hosted Obico ML sidecar (compose profile{" "}
-          <code>obico</code>). Enable it per printer in Printer setup.
+          Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in{" "}
+          <strong>{t("settings.server.obico.link")}</strong>). Enable it per printer in Printer setup.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -43,25 +44,6 @@ function Form({ initial }: { initial: ObicoSettings }) {
           <Label htmlFor="obico-enabled">Enable failure detection</Label>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5 sm:col-span-2">
-            <Label htmlFor="obico-url">ML API URL</Label>
-            <div className="flex gap-2">
-              <Input
-                id="obico-url"
-                value={draft.url}
-                placeholder="http://obico-ml:3333"
-                onChange={(e) => set("url", e.target.value)}
-              />
-              <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate(draft.url)}>
-                Test connection
-              </Button>
-            </div>
-            {test.data ? (
-              <p role="status" className={test.data.ok ? "text-xs text-emerald-600" : "text-xs text-destructive"}>
-                {test.data.ok ? "Connected" : `Failed (${test.data.detail})`}
-              </p>
-            ) : null}
-          </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="obico-interval">Check every (seconds)</Label>
             <Input

@@ -1,0 +1,182 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { ServerSettingsOut, ServerStatusOut } from "@/api/serverSettings";
+import { fakeServer, fakeStatus } from "@/components/settings/server/fixtures";
+import { LimitsCard } from "@/components/settings/server/LimitsCard";
+import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
+import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
+import { ServerTab } from "@/components/settings/server/ServerTab";
+import { SlicerServerCard } from "@/components/settings/server/SlicerServerCard";
+import { VpNetworkCard } from "@/components/settings/server/VpNetworkCard";
+
+const { getMock, postMock, putMock, toastMock } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  postMock: vi.fn(),
+  putMock: vi.fn(),
+  toastMock: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock } };
+});
+vi.mock("sonner", () => ({ toast: toastMock }));
+
+let status: ServerStatusOut;
+const OBICO = { url: "http://obico-ml:3333", enabled: false, interval_s: 10, warn: 0.38, pause: 0.78, action: "notify", callback_url: "http://api:8000" };
+
+function ui(node: ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
+}
+
+let current: ServerSettingsOut;
+beforeEach(() => {
+  [getMock, postMock, putMock, toastMock.success, toastMock.error].forEach((m) => m.mockReset());
+  status = fakeStatus();
+  current = fakeServer();
+  getMock.mockImplementation((path: string) => {
+    if (path === "/settings/server/status") return Promise.resolve(status);
+    if (path === "/settings/server") return Promise.resolve(current);
+    if (path === "/settings/obico") return Promise.resolve(OBICO);
+    return Promise.resolve(null);
+  });
+  putMock.mockImplementation((path: string, body: unknown) =>
+    Promise.resolve(path === "/settings/server" ? { ...current, config: body } : body),
+  );
+});
+
+describe("PublicUrlCard", () => {
+  it("warns on origin mismatch, offers current origin, and confirms before saving", async () => {
+    ui(<PublicUrlCard data={fakeServer()} />);
+    const input = screen.getByLabelText("Public URL");
+    fireEvent.change(input, { target: { value: "https://models.example.com/" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("differs from the address you are using");
+    expect(screen.getByText(/will be Secure/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(putMock).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Save anyway" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/server", expect.objectContaining({ public_url: "https://models.example.com" })),
+    );
+  });
+
+  it("Use current origin fills the origin and saves without a confirm", async () => {
+    ui(<PublicUrlCard data={fakeServer()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Use current origin" }));
+    expect(screen.getByLabelText("Public URL")).toHaveValue(window.location.origin);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+  });
+
+  it("shows the seeded hint", () => {
+    ui(<PublicUrlCard data={fakeServer({}, { seeded_from_env: { public_url: "TDMM_PUBLIC_URL" } })} />);
+    expect(screen.getByText("Seeded from environment (TDMM_PUBLIC_URL)")).toBeInTheDocument();
+  });
+});
+
+describe("LimitsCard", () => {
+  it("converts MB to bytes and saves the full object", async () => {
+    ui(<LimitsCard data={fakeServer()} />);
+    expect(screen.getByLabelText("Max upload (MB)")).toHaveValue(1024);
+    fireEvent.change(screen.getByLabelText("Max upload (MB)"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "DEBUG" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith(
+        "/settings/server",
+        expect.objectContaining({ max_upload_bytes: 2097152, log_level: "DEBUG", slicer_url: "http://slicer:3001" }),
+      ),
+    );
+  });
+
+  it("rejects an out-of-range heartbeat", () => {
+    ui(<LimitsCard data={fakeServer()} />);
+    fireEvent.change(screen.getByLabelText("SSE heartbeat (seconds)"), { target: { value: "1" } });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+});
+
+describe("SlicerServerCard", () => {
+  it("shows health from status and saves the toggle", async () => {
+    ui(<SlicerServerCard data={fakeServer()} />);
+    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Use the slicer"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/server", expect.objectContaining({ slicer_enabled: false })),
+    );
+  });
+
+  it("shows Not checked when health is null", async () => {
+    status = fakeStatus({ slicer_healthy: null });
+    ui(<SlicerServerCard data={fakeServer({ slicer_enabled: false })} />);
+    expect(await screen.findByText("Not checked")).toBeInTheDocument();
+  });
+
+  it("Test posts the draft URL and toasts the result", async () => {
+    postMock.mockResolvedValue({ ok: true, latency_ms: 12, detail: "ok" });
+    ui(<SlicerServerCard data={fakeServer()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Slicer reachable (12 ms)"));
+    expect(postMock).toHaveBeenCalledWith("/settings/server/slicer/test", { url: "http://slicer:3001" });
+  });
+
+  it("toasts a failed test", async () => {
+    postMock.mockResolvedValue({ ok: false, latency_ms: null, detail: "refused" });
+    ui(<SlicerServerCard data={fakeServer()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Slicer check failed: refused"));
+  });
+});
+
+describe("ObicoServerCard", () => {
+  it("round-trips the full obico object", async () => {
+    ui(<ObicoServerCard />);
+    fireEvent.change(await screen.findByLabelText("ML API URL"), { target: { value: "http://ml:3333" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/obico", { ...OBICO, url: "http://ml:3333" }),
+    );
+  });
+});
+
+describe("VpNetworkCard", () => {
+  it("blocks duplicate ports and a pasv range that overlaps a fixed port", () => {
+    ui(<VpNetworkCard data={fakeServer()} />);
+    fireEvent.change(screen.getByLabelText("MQTT port"), { target: { value: "2021" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("must be different");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("MQTT port"), { target: { value: "50005" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("must not include");
+    fireEvent.change(screen.getByLabelText("MQTT port"), { target: { value: "8883" } });
+    fireEvent.change(screen.getByLabelText("Passive port min"), { target: { value: "50020" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("must not exceed");
+  });
+
+  it("saves, mapping an empty passive address to null, and shows status errors", async () => {
+    status = fakeStatus({
+      virtual_printer: { state: "error", vp_id: 1, bind: null, ports: null, pasv: null, errors: ["port 990 in use"], ts: null },
+    });
+    ui(<VpNetworkCard data={fakeServer({ vp_pasv_address: "10.0.0.5" })} />);
+    expect(await screen.findByText("port 990 in use")).toBeInTheDocument();
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Passive address"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/server", expect.objectContaining({ vp_pasv_address: null })),
+    );
+  });
+});
+
+describe("ServerTab", () => {
+  it("renders the ignored-env banner", async () => {
+    current = fakeServer({}, { ignored_env: ["TDMM_SLICER_URL", "COOKIE_SECURE"] });
+    ui(<ServerTab />);
+    expect(await screen.findByText(/TDMM_SLICER_URL, COOKIE_SECURE/)).toBeInTheDocument();
+    expect(screen.getByText("Public URL", { selector: "[data-slot=card-title], div, h3" })).toBeInTheDocument();
+  });
+});

@@ -42,14 +42,13 @@ beforeEach(() => {
 describe("FailureDetectionCard", () => {
   it("saves edited settings", async () => {
     renderCard();
-    fireEvent.change(await screen.findByLabelText("ML API URL"), { target: { value: "http://ml:3333" } });
-    fireEvent.click(screen.getByLabelText("Enable failure detection"));
+    fireEvent.click(await screen.findByLabelText("Enable failure detection"));
     fireEvent.change(screen.getByLabelText("Pause threshold"), { target: { value: "0.6" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(putMock).toHaveBeenCalledWith(
         "/settings/obico",
-        expect.objectContaining({ url: "http://ml:3333", enabled: true, pause: 0.6 }),
+        expect.objectContaining({ url: "", enabled: true, pause: 0.6 }),
       ),
     );
   });
@@ -61,12 +60,10 @@ describe("FailureDetectionCard", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("tests the connection with the draft URL", async () => {
-    postMock.mockResolvedValue({ ok: true, detail: "HTTP 200" });
+  it("no longer renders the sidecar URL inputs", async () => {
     renderCard();
-    fireEvent.change(await screen.findByLabelText("ML API URL"), { target: { value: "http://ml:3333" } });
-    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
-    expect(postMock).toHaveBeenCalledWith("/settings/obico/test", { url: "http://ml:3333" });
+    await screen.findByLabelText("Pause threshold");
+    expect(screen.queryByLabelText("ML API URL")).not.toBeInTheDocument();
+    expect(screen.getByText("Settings, Server tab")).toBeInTheDocument();
   });
 });
