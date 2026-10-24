@@ -390,6 +390,9 @@ class _FakeHa:
             "attributes": {"unit_of_measurement": "%", "device_class": "humidity"},
         }
 
+    def ping(self) -> str:
+        return "API running."
+
     def close(self) -> None:
         pass
 
@@ -478,3 +481,68 @@ async def test_sensor_patch_delete(
 @pytest.mark.parametrize("path", ["/api/suppliers", "/api/storage-locations", "/api/color-catalog"])
 async def test_reads_open_to_viewer(viewer_client: httpx.AsyncClient, path: str):
     assert (await viewer_client.get(path)).status_code == 200
+
+
+async def test_id_list_caps_and_null_material_catalog_dup(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    ids = list(range(1, 502))
+    assert (await c.post("/api/spools/bulk-archive", json={"ids": ids})).status_code == 422
+    assert (await c.post("/api/spools/bulk-archive", json={"ids": []})).status_code == 422
+    upd = {"ids": ids, "update": {"brand": "x"}}
+    assert (await c.post("/api/spools/bulk-update", json=upd)).status_code == 422
+    lab = {"ids": list(range(1, 302)), "format": "pdf"}
+    assert (await c.post("/api/spools/labels", json=lab)).status_code == 422
+
+    row = {"manufacturer": "Acme", "color_name": "Teal", "hex": "#008080"}
+    assert (await c.post("/api/color-catalog", json=row)).status_code == 201
+    assert (await c.post("/api/color-catalog", json=row)).status_code == 409
+    other = {**row, "manufacturer": "ACME", "color_name": "teal"}
+    assert (await c.post("/api/color-catalog", json=other)).status_code == 201  # case differs
+
+
+async def test_sensor_entity_change_resets_state_and_unreachable_entity_continues(
+    authenticated_client: httpx.AsyncClient,
+):
+    from app.services.ha_client import HaUnreachable
+
+    c = authenticated_client
+    loc = (await c.post("/api/storage-locations", json={"name": "Z"})).json()
+    mk = lambda n, e: c.post(  # noqa: E731
+        f"/api/storage-locations/{loc['id']}/sensors",
+        json={"name": n, "entity_id": e, "alert_above": 10},
+    )
+    await mk("bad", "sensor.bad")
+    good = (await mk("good", "sensor.good")).json()
+
+    class Fake(_FakeHa):
+        def state(self, entity_id):
+            if entity_id == "sensor.bad":
+                raise HaUnreachable("500")
+            return super().state(entity_id)
+
+    cfg = HaConfig(None, None, None, "http://ha", "tok")
+
+    def tick():
+        with base.sync_session() as s:
+            return location_sensors.poll_once(
+                s,
+                cfg,
+                client_factory=lambda *_: Fake({"sensor.good": "99", "sensor.n": "1"}),
+                emit=lambda *a, **k: True,
+            )
+
+    import asyncio
+
+    await asyncio.get_running_loop().run_in_executor(None, tick)
+    rd = {
+        r["name"]: r for r in (await c.get(f"/api/storage-locations/{loc['id']}/readings")).json()
+    }
+    assert rd["bad"]["state"] == "unavailable" and rd["good"]["alerting"] is True
+
+    p = (
+        await c.patch(
+            f"/api/storage-locations/sensors/{good['id']}", json={"entity_id": "sensor.n"}
+        )
+    ).json()
+    assert p["alerting"] is False and p["last_state"] is None
+    assert p["last_changed_at"] is None and p["unit"] is None and p["device_class"] is None

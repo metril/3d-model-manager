@@ -58,11 +58,16 @@ def poll_once(
     client = client_factory(cfg.ha_url, cfg.ha_token)
     pending: list[dict] = []
     try:
+        try:
+            client.ping()  # reachability once; per-entity errors are handled below
+        except HaUnreachable:
+            return {"sensors": len(rows), "alerts": 0}
         for sensor, loc_name in rows:
             try:
                 st = client.state(sensor.entity_id)
             except HaUnreachable:
-                break  # HA down: leave readings as-is, retry next tick
+                sensor.last_state = "unavailable"  # this entity failed; carry on
+                continue
             if st is None:
                 sensor.last_state = "unavailable"
                 continue
