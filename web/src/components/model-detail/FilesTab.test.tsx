@@ -316,6 +316,12 @@ describe("FilesTab", () => {
     expect(screen.queryByRole("menuitem", { name: `View ${notViewable.rel_path} in 3D` })).not.toBeInTheDocument();
   });
 
+  it("keeps the compact hash copy button reachable by its accessible name", () => {
+    renderFilesTab([VERIFIED_FILE]);
+
+    expect(screen.getByRole("button", { name: `Copy hash ${VERIFIED_FILE.blob_hash}` })).toBeInTheDocument();
+  });
+
   it("excludes doc-kind files -- they only appear in the Docs tab", () => {
     const docFile: FileOut = { ...VERIFIED_FILE, id: 5, rel_path: "README.md", format: "md", kind: "doc" };
     renderFilesTab([VERIFIED_FILE, docFile]);
