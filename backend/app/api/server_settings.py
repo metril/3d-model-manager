@@ -86,7 +86,9 @@ async def put_server_settings(
 ) -> ServerSettingsOut:
     await migrate_legacy_slicer(db)
     old = await get_server_config(db)
-    new = await set_server_config(db, ServerConfig.model_validate(payload.model_dump()))
+    new = await set_server_config(
+        db, ServerConfig.model_validate(payload.model_dump()), commit=False
+    )
     changed = {
         f: [getattr(old, f), getattr(new, f)]
         for f in ServerConfig.model_fields

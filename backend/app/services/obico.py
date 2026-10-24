@@ -22,7 +22,7 @@ STATUS_TTL_S = 60
 FRAME_NONCE_TTL_S = 30
 EVENT_FRAME_TTL_S = 7 * 86400
 DEFAULT_URL = "http://obico-ml:3333"
-DEFAULT_CALLBACK = "http://api:8000"
+DEFAULT_CALLBACK = "http://api:8080"
 
 
 class ObicoConfig(BaseModel):

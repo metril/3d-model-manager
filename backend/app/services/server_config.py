@@ -239,7 +239,9 @@ def _row_value(cfg: ServerConfig, seeded: list[str]) -> dict:
     return {**cfg.model_dump(), SEEDED_META: seeded}
 
 
-async def set_server_config(db: AsyncSession, cfg: ServerConfig) -> ServerConfig:
+async def set_server_config(
+    db: AsyncSession, cfg: ServerConfig, *, commit: bool = True
+) -> ServerConfig:
     """Persist ``cfg`` (full replace). Fields whose value changed leave
     ``_seeded_from_env``. Returns the resolved config."""
     row = await db.get(Setting, SETTINGS_KEY)
@@ -251,7 +253,8 @@ async def set_server_config(db: AsyncSession, cfg: ServerConfig) -> ServerConfig
         db.add(Setting(key=SETTINGS_KEY, value=value))
     else:
         row.value = value  # fresh dict: JSONB change tracking
-    await db.commit()
+    if commit:
+        await db.commit()
     return _resolve(value)
 
 
@@ -399,6 +402,13 @@ def warn_ignored_server_env(
         log.warning(
             "COOKIE_SECURE is no longer used: the Secure flag follows the request scheme or the "
             "Public URL. Set the Public URL in Settings -> Server."
+        )
+    cs = os.environ.get("COOKIE_SECURE")
+    https = bool(cfg and cfg.public_url and cfg.public_url.startswith("https://"))
+    if cs is not None and cs.strip() != "" and not secure and https:
+        log.warning(
+            "COOKIE_SECURE is falsy but the Public URL is https: cookies are now Secure and "
+            "plain-http logins will fail. Set the Public URL to http or browse over https."
         )
     return names
 

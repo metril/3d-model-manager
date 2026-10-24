@@ -32,6 +32,7 @@ from app.schemas.queue import CreatedByOut, QueueEnqueueIn, QueueEntryOut, Revie
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
+from app.services.server_config import get_server_config
 
 # Formats the slicer sidecar can accept as input (mirrors
 # `app.services.library._GLB_FORMATS` -- the mesh/cad formats the pipeline
@@ -351,6 +352,8 @@ async def enqueue_file(
 
     sliced_file_id: int | None = None
     if payload.recipe_id is not None:
+        if not (await get_server_config(db, settings)).slicer_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, "slicer_disabled")
         recipe = await db.get(PrintRecipe, payload.recipe_id)
         if recipe is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"recipe {payload.recipe_id} not found")

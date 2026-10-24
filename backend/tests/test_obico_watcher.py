@@ -42,7 +42,7 @@ def rds(redis_url):
 
 
 def _cfg(**kw) -> ObicoConfig:
-    base_kw = dict(url="http://ml:3333", callback_url="http://api:8000", enabled=True)
+    base_kw = dict(url="http://ml:3333", callback_url="http://api:8080", enabled=True)
     return ObicoConfig(**{**base_kw, **kw})
 
 

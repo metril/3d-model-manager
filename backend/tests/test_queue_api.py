@@ -430,6 +430,14 @@ async def test_file_enqueue_with_recipe_is_waiting_and_accepts_unsliced(
     )
     recipe = await _recipe(db_session)
 
+    # Slicer disabled (test default) -> 409; enabled -> accepted.
+    r = await authenticated_client.post(
+        "/api/queue", json={"file_id": f.id, "recipe_id": recipe.id}
+    )
+    assert r.status_code == 409 and r.json()["detail"] == "slicer_disabled"
+    from tests.server_helpers import set_server
+
+    await set_server(slicer_enabled=True)
     r = await authenticated_client.post(
         "/api/queue", json={"file_id": f.id, "recipe_id": recipe.id}
     )

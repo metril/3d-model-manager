@@ -246,6 +246,13 @@ def test_warn_ignored_env(monkeypatch, caplog) -> None:
     assert "Public URL" in caplog.text
 
 
+def test_warn_falsy_cookie_secure_with_https_public_url(monkeypatch, caplog) -> None:
+    monkeypatch.setenv("COOKIE_SECURE", "false")
+    with caplog.at_level(logging.WARNING):
+        sc.warn_ignored_server_env(get_settings(), ServerConfig(public_url="https://m.example.com"))
+    assert "plain-http logins will fail" in caplog.text
+
+
 def test_no_warning_when_unset(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         assert sc.warn_ignored_server_env(get_settings()) == []
