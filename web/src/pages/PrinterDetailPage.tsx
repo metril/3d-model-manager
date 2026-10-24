@@ -135,13 +135,17 @@ function PrinterDetailBody({
                 </div>
               )
             }
-            badgeExtra={canPrinter(printer.id, "print") ? <DetectionBadge printerId={printer.id} /> : undefined}
             badge={
               overviewItem.ha_alert ? (
                 <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
               ) : undefined
             }
-            badgeExtra={<MaintenanceBadge printerId={printer.id} />}
+            badgeExtra={
+              <>
+                <MaintenanceBadge printerId={printer.id} />
+                {canPrinter(printer.id, "print") ? <DetectionBadge printerId={printer.id} /> : null}
+              </>
+            }
             footerExtra={(ctx) => (
               <>
                 <PlugRow printerId={printer.id} canControl={ctx.canControl} />

@@ -1,7 +1,7 @@
 """q10 failure_detections
 
 Revision ID: c9d4e6f8b2a1
-Revises: b6d1e8a3c5f2
+Revises: c6a1f4d8b2e7
 Create Date: 2026-10-23 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c9d4e6f8b2a1"
-down_revision: str | Sequence[str] | None = "b6d1e8a3c5f2"
+down_revision: str | Sequence[str] | None = "c6a1f4d8b2e7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

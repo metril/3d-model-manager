@@ -28,6 +28,7 @@ from app.models import PrintJob
 from app.models.enums import PrintJobState
 from app.printers.base import command_channel
 from app.services import camera_state, obico
+from app.services.notify.events import emit
 from app.services.obico import ObicoConfig, PrinterDetection
 from app.services.obico_ml import MlError, score_frame
 from app.tasks import base
@@ -89,11 +90,6 @@ def classify(smoothed: float, warn: float, pause: float) -> str:
 
 
 def _emit(event: str, printer_id: int, payload: dict) -> None:
-    """Q6 notifications may not be merged yet -- no-op when absent."""
-    try:
-        from app.services.notify.events import emit
-    except ImportError:
-        return
     try:
         emit(event, printer_id, payload)
     except Exception:
