@@ -66,6 +66,8 @@ import {
 } from "react";
 import * as THREE from "three";
 import { Canvas, useThree } from "@react-three/fiber";
+import { useOnRelocate } from "@/lib/windowRelocate";
+import { createRafScheduler } from "@/components/viewer/rafDriver";
 import {
   Bounds,
   Center,
@@ -796,7 +798,9 @@ export default function ModelViewer({
     // `GltfPart`'s owned-materials effect; without this the renderer would
     // silently ignore it.
     <Canvas
-      frameloop="demand"
+      // Driven by `RafDriver` (demand semantics, but on the rAF of whichever
+      // window hosts the canvas) so the viewer keeps rendering in a dock pop-out.
+      frameloop="never"
       dpr={[1, 2]}
       gl={{ antialias: false, localClippingEnabled: true }}
       className="h-full w-full"
@@ -971,6 +975,34 @@ export default function ModelViewer({
           real crevice), so this gate wins over the lighting preset's own
           `ao` choice rather than combining with it. */}
       <ViewerEffects ao={lighting.ao && !tools.section.enabled} />
+      <RafDriver />
     </Canvas>
   );
+}
+
+/** Replaces R3F's `invalidate` with one that schedules a single `advance` on
+ * the rAF of the window currently hosting the canvas (demand-style rendering
+ * for `frameloop="never"`), and re-targets when a dock moves the canvas
+ * between windows. */
+function RafDriver() {
+  const gl = useThree((state) => state.gl);
+  const set = useThree((state) => state.set);
+  const advance = useThree((state) => state.advance);
+  const scheduler = useMemo(
+    () =>
+      createRafScheduler(
+        () => gl.domElement.ownerDocument.defaultView ?? window,
+        (seconds) => advance(seconds, true),
+      ),
+    [gl, advance],
+  );
+
+  useLayoutEffect(() => {
+    set({ invalidate: scheduler.invalidate });
+    scheduler.invalidate();
+    return scheduler.cancel;
+  }, [scheduler, set]);
+
+  useOnRelocate(scheduler.invalidate);
+  return null;
 }
