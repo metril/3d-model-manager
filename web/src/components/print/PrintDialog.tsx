@@ -43,14 +43,15 @@ import { toast } from "sonner";
 import { useAuth } from "@/api/auth";
 import { api, ApiError } from "@/api/client";
 import { useCostCenters, useFinanceConfig } from "@/api/finance";
-import { useEnqueue } from "@/api/queue";
+import { useCreateBatch, useDispatchBatch, useEnqueue } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useRecipes, useSlicerHealth } from "@/api/slicing";
-import type { BlobFormat, PlanFilament, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
+import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
+import { NO_BATCH, SchedulingSection, type BatchChoice } from "@/components/print/SchedulingSection";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -60,6 +61,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SpecRow } from "@/components/ui/spec-row";
+import { draftToFields, EMPTY_SCHEDULE, isScheduleSet, type ScheduleDraft } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { formatCost, humanizeDuration } from "@/lib/format";
 
@@ -235,6 +237,10 @@ export function PrintDialog({
   const [copies, setCopies] = useState(1);
   const [costCenterId, setCostCenterId] = useState<number | null>(null);
   const [costCenterSeeded, setCostCenterSeeded] = useState(false);
+  // T4: collapsed-by-default scheduling section; untouched = payload unchanged.
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [sched, setSched] = useState<ScheduleDraft>(EMPTY_SCHEDULE);
+  const [batchChoice, setBatchChoice] = useState<BatchChoice>(NO_BATCH);
 
   // Reset everything when the dialog is relaunched for a different source
   // (or reopened) -- a stale plate/printer/override set from a previous
@@ -256,6 +262,9 @@ export function PrintDialog({
     setCopies(1);
     setCostCenterId(null);
     setCostCenterSeeded(false);
+    setSchedOpen(false);
+    setSched(EMPTY_SCHEDULE);
+    setBatchChoice(NO_BATCH);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
@@ -367,7 +376,39 @@ export function PrintDialog({
     setAutoAdvanced(true);
   }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length]);
 
-  const enqueue = useEnqueue();
+  const enqueueRaw = useEnqueue();
+  const createBatch = useCreateBatch();
+  const dispatchBatch = useDispatchBatch();
+  const enqueue = {
+    isPending: enqueueRaw.isPending || createBatch.isPending || dispatchBatch.isPending,
+  };
+  const schedActive = isScheduleSet(sched) || batchChoice.mode !== null;
+
+  /** Every queue submit goes through here so the T4 scheduling fields (and the
+   * "new batch" path: create + dispatch instead of a bare enqueue) apply. */
+  function submitQueue(body: QueueEnqueueBody, onSuccess: () => void) {
+    const fields = draftToFields(sched);
+    if (batchChoice.mode === "new") {
+      const name = batchChoice.name.trim() || `Batch ${new Date().toLocaleDateString()}`;
+      createBatch
+        .mutateAsync({
+          name,
+          quantity: batchChoice.quantity,
+          file_id: body.file_id ?? null,
+          recipe_id: body.recipe_id ?? null,
+          printer_id: body.printer_id ?? null,
+          plate_targets: body.plate != null ? { [String(body.plate)]: batchChoice.quantity } : {},
+          cost_center_id: body.cost_center_id ?? null,
+          ...fields,
+        })
+        .then((b) => dispatchBatch.mutateAsync(b.id))
+        .then(onSuccess)
+        .catch(() => undefined);
+      return;
+    }
+    const withBatch = typeof batchChoice.mode === "number" ? { ...fields, batch_id: batchChoice.mode } : fields;
+    enqueueRaw.mutate({ ...body, ...withBatch }, { onSuccess });
+  }
   const sendPrint = useSendPrint();
   const auth = useAuth();
   const financeConfig = useFinanceConfig();
@@ -439,6 +480,7 @@ export function PrintDialog({
   // never clears a stale selection. Send must stay disabled until the
   // selected printer is actually idle + compatible.
   const selectedPrinter = planPrinters.find((pp) => pp.id === effectivePrinterId) ?? null;
+  const selectedPrinterOut = (allPrintersQ.data ?? []).find((pp) => pp.id === effectivePrinterId) ?? null;
   const printerNotReady = selectedPrinter != null && !(selectedPrinter.idle && selectedPrinter.compatible);
 
   // P7 review/billing plan Task 9: once review or billing applies, the
@@ -455,7 +497,7 @@ export function PrintDialog({
 
   function handleSendNext() {
     if (effectiveFileId == null) return;
-    enqueue.mutate(
+    submitQueue(
       {
         file_id: effectiveFileId,
         plate: effectivePlate ?? undefined,
@@ -465,21 +507,19 @@ export function PrintDialog({
         front: true,
         cost_center_id: billingOn ? costCenterId : undefined,
       },
-      {
-        onSuccess: () => {
-          close();
-          toast.success(
-            needsReview(auth.data, effectivePrinterId) ? "Sent for review" : "Queued next",
-          );
-          onSent?.();
-        },
+      () => {
+        close();
+        toast.success(
+          needsReview(auth.data, effectivePrinterId) ? "Sent for review" : "Queued next",
+        );
+        onSent?.();
       },
     );
   }
 
   function handleSend() {
     if (!plan || effectivePrinterId == null || effectiveFileId == null) return;
-    if (sendNext) {
+    if (sendNext || schedActive) {
       handleSendNext();
       return;
     }
@@ -520,7 +560,7 @@ export function PrintDialog({
   // so the dispatcher can send it unchanged later (state `ready`).
   function handleAddToQueue() {
     if (effectiveFileId == null) return;
-    enqueue.mutate(
+    submitQueue(
       {
         file_id: effectiveFileId,
         plate: effectivePlate ?? undefined,
@@ -528,11 +568,9 @@ export function PrintDialog({
         ams_mapping: plan?.ams_mapping ?? undefined,
         options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse },
       },
-      {
-        onSuccess: () => {
-          close();
-          toast.success("Added to queue");
-        },
+      () => {
+        close();
+        toast.success("Added to queue");
       },
     );
   }
@@ -541,7 +579,7 @@ export function PrintDialog({
   // `waiting`) -- the dispatcher slices with the recipe then sends.
   function handleSliceAndSend() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
-    enqueue.mutate(
+    submitQueue(
       {
         file_id: effectiveFileId,
         recipe_id: selectedRecipeId,
@@ -549,11 +587,9 @@ export function PrintDialog({
         copies,
         front: true,
       },
-      {
-        onSuccess: () => {
-          close();
-          toast.success(`Slicing, then sending to ${selectedPrinter?.name ?? "printer"}`);
-        },
+      () => {
+        close();
+        toast.success(`Slicing, then sending to ${selectedPrinter?.name ?? "printer"}`);
       },
     );
   }
@@ -561,7 +597,7 @@ export function PrintDialog({
   // Recipe "Add to queue": appended at the end (`front: false`).
   function handleQueueRecipe() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
-    enqueue.mutate(
+    submitQueue(
       {
         file_id: effectiveFileId,
         recipe_id: selectedRecipeId,
@@ -569,11 +605,9 @@ export function PrintDialog({
         copies,
         front: false,
       },
-      {
-        onSuccess: () => {
-          close();
-          toast.success("Added to queue");
-        },
+      () => {
+        close();
+        toast.success("Added to queue");
       },
     );
   }
@@ -828,6 +862,15 @@ export function PrintDialog({
                     </Select>
                   </div>
                 ) : null}
+                <SchedulingSection
+                  open={schedOpen}
+                  onOpenChange={setSchedOpen}
+                  draft={sched}
+                  onChange={setSched}
+                  batch={batchChoice}
+                  onBatchChange={setBatchChoice}
+                  printer={selectedPrinterOut}
+                />
                 {(plan?.warnings ?? []).length > 0 ? (
                   <ul className="space-y-1">
                     {plan!.warnings.map((w, i) => (
@@ -910,14 +953,14 @@ export function PrintDialog({
                             // sending straight to the printer -- queueing is
                             // the whole point when the printer isn't ready
                             // yet, so `printerNotReady` only blocks "Send now".
-                            (!sendNext && printerNotReady) ||
+                            (!(sendNext || schedActive) && printerNotReady) ||
                             sendPrint.isPending ||
                             enqueue.isPending
                           }
                         >
                           {sendPrint.isPending || enqueue.isPending
                             ? "Sending..."
-                            : sendNext
+                            : sendNext || schedActive
                               ? "Send next"
                               : "Send now"}
                         </Button>

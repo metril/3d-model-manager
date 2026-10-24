@@ -2253,8 +2253,8 @@ export interface Batch {
   quantity: number;
   status: BatchStatus;
   due_date: string | null;
-  notes: string | null;
-  plate_targets: Record<string, number> | null;
+  notes: string;
+  plate_targets: Record<string, number>;
   cost_center_id: number | null;
   created_by_user_id: number | null;
   created_at: string;
@@ -2269,12 +2269,16 @@ export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
   printer_id?: number | null;
   quantity: number;
   due_date?: string | null;
-  notes?: string | null;
-  plate_targets?: Record<string, number> | null;
+  notes?: string;
+  plate_targets?: Record<string, number>;
   cost_center_id?: number | null;
 }
 
-export type BatchPatch = Partial<BatchIn>;
+/** PATCH /batches/{id}: no scheduling fields; quantity/plate_targets/recipe_id/
+ * printer_id only while the batch is a draft. */
+export type BatchPatch = Partial<
+  Pick<BatchIn, "name" | "quantity" | "due_date" | "notes" | "plate_targets" | "recipe_id" | "printer_id">
+>;
 
 export interface QueuePreheatSettings {
   enabled: boolean;

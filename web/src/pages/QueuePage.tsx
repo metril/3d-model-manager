@@ -18,7 +18,8 @@
  * lane rather than the whole queue.
  */
 import { Fragment, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { ArrowDownIcon, ArrowUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
@@ -26,6 +27,8 @@ import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import { useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
+import { BatchesPanel } from "@/components/print/BatchesPanel";
+import { LaneResumeButton, ScheduleChips } from "@/components/print/QueueScheduleChips";
 import { ReviewActions } from "@/components/print/ReviewActions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +36,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/format";
 import { FORMAT_LABELS } from "@/lib/formatMeta";
 
@@ -46,6 +50,7 @@ const STATE_LABELS: Record<QueueState, string> = {
   held: "Held",
   failed: "Failed",
   done: "Done",
+  skipped: "Skipped",
 };
 
 // P3's state-tone vocabulary (`index.css`'s `--state-*`), reused here
@@ -61,6 +66,7 @@ const STATE_CLASSES: Record<QueueState, string> = {
   held: "bg-transparent text-state-paused border-state-paused",
   failed: "bg-destructive/10 text-destructive border-transparent",
   done: "bg-state-finished/15 text-state-finished border-transparent",
+  skipped: "bg-transparent text-amber-600 border-amber-500 dark:text-amber-400",
 };
 
 export function QueueStateChip({
@@ -161,6 +167,32 @@ function groupByLane(entries: QueueEntry[], printers: PrinterOut[]) {
 }
 
 export function QueuePage() {
+  const { t } = useTranslation();
+  const search = useSearch({ strict: false }) as { tab?: "queue" | "batches"; batch?: number };
+  const navigate = useNavigate();
+  const tab = search.tab === "batches" ? "batches" : "queue";
+  return (
+    <PageContainer width="fluid">
+      <Tabs
+        value={tab}
+        onValueChange={(v) => void navigate({ to: "/print/queue", search: { tab: v as "queue" | "batches" } })}
+      >
+        <TabsList>
+          <TabsTrigger value="queue">{t("queueSched.tabs.queue")}</TabsTrigger>
+          <TabsTrigger value="batches">{t("queueSched.tabs.batches")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="queue" className="space-y-4">
+          <QueueLanes />
+        </TabsContent>
+        <TabsContent value="batches" className="space-y-4">
+          <BatchesPanel openBatchId={search.batch ?? null} />
+        </TabsContent>
+      </Tabs>
+    </PageContainer>
+  );
+}
+
+function QueueLanes() {
   const [includeDone, setIncludeDone] = useState(false);
   const queueQuery = useQueue({ includeDone });
   const printers = usePrinters();
@@ -173,7 +205,7 @@ export function QueuePage() {
   ];
 
   return (
-    <PageContainer width="fluid">
+    <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-foreground">Print queue</h1>
@@ -196,19 +228,27 @@ export function QueuePage() {
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2">
           {columns.map((col) => (
-            <QueueLane key={col.key} title={col.title} entries={lanes.get(col.key) ?? []} />
+            <QueueLane
+              key={col.key}
+              title={col.title}
+              printerId={col.key === ANY_PRINTER ? null : col.key}
+              entries={lanes.get(col.key) ?? []}
+            />
           ))}
         </div>
       )}
-    </PageContainer>
+    </>
   );
 }
 
-function QueueLane({ title, entries }: { title: string; entries: QueueEntry[] }) {
+function QueueLane({ title, entries, printerId }: { title: string; entries: QueueEntry[]; printerId: number | null }) {
   return (
     <Card className="w-80 shrink-0">
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm">{title}</CardTitle>
+          <LaneResumeButton printerId={printerId} entries={entries} />
+        </div>
         <CardDescription>{entries.length} queued</CardDescription>
       </CardHeader>
       <CardContent>
@@ -277,6 +317,7 @@ function QueueRow({
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
           <HeldChip reason={entry.printer_hold_reason} />
           <ReviewChips entry={entry} />
+          <ScheduleChips entry={entry} />
         </div>
         {entry.review_state === "pending" && can("queue:review") ? (
           <div className="mt-1.5">
