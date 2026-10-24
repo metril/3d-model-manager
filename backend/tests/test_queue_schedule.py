@@ -772,3 +772,23 @@ async def test_batch_delete_cancels_and_removes_waiting(authenticated_client: ht
     assert (await c.get(f"/api/batches/{b['id']}")).status_code == 404
     with base.sync_session() as s:
         assert s.scalar(select(AuditLog).where(AuditLog.action == "batch_delete")) is not None
+
+
+async def test_batch_carries_ams_mapping_options_and_names(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    b = await _new_batch(
+        c,
+        quantity=2,
+        ams_mapping=[0, 1],
+        options={"bed_levelling": False, "flow_cali": True, "timelapse": True},
+        copies_per_entry=2,
+    )
+    assert b["ams_mapping"] == [0, 1] and b["copies_per_entry"] == 2
+    assert b["options"]["timelapse"] is True and b["model_name"] and b["file_name"]
+    await c.post(f"/api/batches/{b['id']}/dispatch")
+    with base.sync_session() as s:
+        rows = s.scalars(select(PrintQueueEntry).where(PrintQueueEntry.batch_id == b["id"])).all()
+        assert len(rows) == 2
+        for e in rows:
+            assert e.copies == 2 and e.ams_mapping == [0, 1]
+            assert e.print_options == {"bed_levelling": False, "flow_cali": True, "timelapse": True}

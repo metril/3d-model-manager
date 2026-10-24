@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.queue import PlanOptions
+
 
 class _SchedulingIn(BaseModel):
     """Scheduling fields applied to every entry the batch creates."""
@@ -41,6 +43,9 @@ class BatchIn(_SchedulingIn):
     notes: str = Field(default="", max_length=2000)
     plate_targets: dict[str, int] = Field(default_factory=dict)
     cost_center_id: int | None = None
+    ams_mapping: list[int] | None = None
+    options: PlanOptions | None = None
+    copies_per_entry: int = Field(1, ge=1, le=50)
 
     _plates = field_validator("plate_targets")(_check_plates)
 
@@ -83,4 +88,9 @@ class BatchOut(BaseModel):
     cost_center_id: int | None = None
     created_by_user_id: int | None = None
     created_at: datetime
+    model_name: str | None = None
+    file_name: str | None = None
+    ams_mapping: list[int] | None = None
+    options: PlanOptions | None = None
+    copies_per_entry: int = 1
     progress: BatchProgress = Field(default_factory=BatchProgress)

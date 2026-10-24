@@ -63,8 +63,23 @@ async def _progress(db: AsyncSession, ids: list[int]) -> dict[int, BatchProgress
 
 async def to_out(db: AsyncSession, batches: list[PrintBatch]) -> list[BatchOut]:
     progress = await _progress(db, [b.id for b in batches])
+    from pathlib import Path
+
+    model_ids = {b.model_id for b in batches if b.model_id is not None}
+    file_ids = {b.file_id for b in batches if b.file_id is not None}
+    names = (
+        dict((await db.execute(select(Model.id, Model.name).where(Model.id.in_(model_ids)))).all())
+        if model_ids
+        else {}
+    )
+    files = (
+        dict((await db.execute(select(File.id, File.rel_path).where(File.id.in_(file_ids)))).all())
+        if file_ids
+        else {}
+    )
     result = []
     for b in batches:
+        o = b.options or {}
         p = progress[b.id]
         st = b.status
         if st == "active" and p.total > 0 and p.waiting == 0:
@@ -85,6 +100,11 @@ async def to_out(db: AsyncSession, batches: list[PrintBatch]) -> list[BatchOut]:
                 cost_center_id=b.cost_center_id,
                 created_by_user_id=b.created_by_user_id,
                 created_at=b.created_at,
+                model_name=names.get(b.model_id),
+                file_name=Path(files[b.file_id]).name if b.file_id in files else None,
+                ams_mapping=o.get("ams_mapping"),
+                options=o.get("print_options"),
+                copies_per_entry=o.get("copies_per_entry", 1),
                 progress=p,
             )
         )
@@ -131,9 +151,14 @@ async def create_batch(
         plate_targets=payload.plate_targets,
         cost_center_id=payload.cost_center_id,
         options={
-            k: (v.isoformat() if k == "scheduled_at" and v is not None else v)
-            for k in _SCHEDULING
-            for v in [getattr(payload, k)]
+            **{
+                k: (v.isoformat() if k == "scheduled_at" and v is not None else v)
+                for k in _SCHEDULING
+                for v in [getattr(payload, k)]
+            },
+            "ams_mapping": payload.ams_mapping,
+            "print_options": payload.options.model_dump() if payload.options else None,
+            "copies_per_entry": payload.copies_per_entry,
         },
         created_by_user_id=ctx.user.id,
     )
@@ -200,10 +225,12 @@ async def dispatch_batch(
                     plate=plate,
                     printer_id=batch.printer_id,
                     recipe_id=batch.recipe_id,
-                    copies=1,
+                    copies=opts.get("copies_per_entry", 1),
+                    ams_mapping=opts.get("ams_mapping"),
+                    options=opts.get("print_options"),
                     cost_center_id=batch.cost_center_id,
                     batch_id=batch.id,
-                    **{k: v for k, v in opts.items() if v is not None},
+                    **{k: opts[k] for k in _SCHEDULING if opts.get(k) is not None},
                 ),
                 ctx,
             )
