@@ -344,6 +344,11 @@ class PrinterWorker:
                 return
             if job.state == new_state.value:
                 return
+            if new_state in (PrintJobState.FINISHED, PrintJobState.FAILED):
+                # T3: the plate needs clearing -- set before the CANCELED remap below.
+                printer_row = session.get(Printer, self.printer_id)
+                if printer_row is not None:
+                    printer_row.awaiting_plate_clear = True
             prev_state = job.state
             result: ArchiveResult | None = None
             if new_state in _TERMINAL:

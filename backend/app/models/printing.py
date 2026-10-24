@@ -60,6 +60,27 @@ class Printer(Base):
     build_volume_mm: Mapped[dict | None] = mapped_column(JSONB)
     # Q7: the dispatcher skips a printer in maintenance mode.
     maintenance_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    # T3: set by printerd on FINISH/FAILED, cleared by `POST /printers/{id}/clear-plate`.
+    # Gates dispatch only when the `queue.require_plate_clear` setting is on.
+    awaiting_plate_clear: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+
+
+class AmsLabel(Base):
+    """T3: user label for one physical AMS unit, keyed by its serial so it
+    survives moving the unit between printers."""
+
+    __tablename__ = "ams_labels"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    ams_serial: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    ams_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
 class PrintJob(Base):

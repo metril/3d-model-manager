@@ -40,6 +40,7 @@ from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.permissions import can_print_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
+from app.services.queue_settings import get_queue_config_sync
 
 # 3 attempts total (slicing + dispatch share the one `attempts` counter) --
 # a sidecar-down slicer failure doesn't consume one (`app.tasks.slicing`'s
@@ -127,6 +128,14 @@ def printer_hold_reason(client: Redis, printer_id: int) -> str | None:
     the alert key's own 60s TTL (``ha_state.ALERT_TTL_S``) means a dead
     poller fails open within one cycle rather than holding forever."""
     return ha_state.hold_reason(client, printer_id)
+
+
+def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
+    """T3: the printer finished/failed a print and nobody confirmed the plate
+    is clear yet. Only a hold while ``queue.require_plate_clear`` is on."""
+    if gate_on and printer.awaiting_plate_clear:
+        return "awaiting_plate_clear"
+    return None
 
 
 def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:
@@ -229,8 +238,14 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
             )
         ).all()
     )
+    gate_plate = get_queue_config_sync(session).require_plate_clear
     for p in session.scalars(select(Printer)).all():
-        if not p.enabled or p.maintenance_mode or printer_hold_reason(client, p.id) is not None:
+        if (
+            not p.enabled
+            or p.maintenance_mode
+            or printer_hold_reason(client, p.id) is not None
+            or plate_hold_reason(p, gate_plate) is not None
+        ):
             busy.add(p.id)
             continue
         state = read_state_sync(client, p.id)
