@@ -6,7 +6,8 @@ listable when the printer feature flag is off (history outlives the flag).
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any
 
 import anyio
 import redis.asyncio as aioredis
@@ -116,6 +117,10 @@ async def list_archives(
     printer: int | None = None,
     result: ArchiveResult | None = None,
     model: int | None = None,
+    from_: Annotated[date | None, Query(alias="from")] = None,
+    to: date | None = None,
+    confirm_pending: bool = False,
+    mine: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -133,6 +138,19 @@ async def list_archives(
         )
     if model is not None:
         stmt = stmt.where(PrintArchive.model_id == model)
+    if from_ is not None:
+        stmt = stmt.where(
+            PrintArchive.created_at >= datetime(from_.year, from_.month, from_.day, tzinfo=UTC)
+        )
+    if to is not None:
+        end = datetime(to.year, to.month, to.day, tzinfo=UTC) + timedelta(days=1)
+        stmt = stmt.where(PrintArchive.created_at < end)
+    if confirm_pending:
+        stmt = stmt.where(
+            PrintArchive.confirm_requested.is_(True), PrintArchive.user_verdict.is_(None)
+        )
+    if mine:
+        stmt = stmt.where(PrintJob.created_by_user_id == ctx.user.id)
     stmt = stmt.order_by(PrintArchive.created_at.desc(), PrintArchive.id.desc())
     rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
     return [archive_out(r) for r in rows]
