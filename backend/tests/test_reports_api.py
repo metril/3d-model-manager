@@ -672,3 +672,19 @@ async def test_resolve_member_cannot_delete_others_models_copies(
     r = await authenticated_client.post("/api/reports/duplicates/resolve", json=body)
     assert r.status_code == 200 and r.json()["deleted"] == 1
     assert not await _file_row_exists(db_session, file_b.id)
+
+
+async def test_get_file_format(
+    authenticated_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    payload = await _create_model(authenticated_client, "Format lookup")
+    model, revision = await _model_and_revision(db_session, payload)
+    file = await seed_file(model, revision, "part.stl", b"format-bytes")
+
+    response = await authenticated_client.get(f"/api/files/{file.id}")
+    assert response.status_code == 200
+    assert response.json() == {"id": file.id, "rel_path": "part.stl", "format": "stl"}
+
+    assert (await authenticated_client.get("/api/files/999999")).status_code == 404

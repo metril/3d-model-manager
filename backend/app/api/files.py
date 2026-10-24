@@ -49,6 +49,25 @@ router = APIRouter(prefix="/files", tags=["files"])
 public_router = APIRouter(prefix="/files", tags=["files"])
 
 
+class FileFormatOut(BaseModel):
+    id: int
+    rel_path: str
+    format: BlobFormat
+
+
+@router.get("/{file_id}", response_model=FileFormatOut)
+async def get_file_format(file_id: int, db: AsyncSession = Depends(get_db)) -> FileFormatOut:
+    """Minimal file lookup (id, path, format) -- the print dialog needs a
+    file's format to know whether it is already sliced."""
+    file = await db.get(File, file_id)
+    if file is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
+    blob = await db.get(Blob, file.blob_hash)
+    if blob is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
+    return FileFormatOut(id=file.id, rel_path=file.rel_path, format=blob.format)
+
+
 @router.delete(
     "/{file_id}",
     status_code=status.HTTP_204_NO_CONTENT,

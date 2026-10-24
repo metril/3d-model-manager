@@ -42,7 +42,7 @@ export function SendToPrinterButton({ file }: { file: FileOut }) {
       >
         <PrinterIcon className="size-4" />
       </Button>
-      <PrintDialog open={open} onOpenChange={setOpen} source={{ kind: "file", fileId: file.id }} sliceOnly={!sliced} />
+      <PrintDialog open={open} onOpenChange={setOpen} source={{ kind: "file", fileId: file.id, format: file.format }} sliceOnly={!sliced} />
     </>
   );
 }
