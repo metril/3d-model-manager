@@ -9,6 +9,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,9 @@ router = APIRouter(
     prefix="/printers/{printer_id}/plug",
     tags=["smart-plugs"],
     dependencies=[Depends(require_printer_enabled)],
+)
+summary_router = APIRouter(
+    prefix="/printers/plugs", tags=["smart-plugs"], dependencies=[Depends(require_printer_enabled)]
 )
 _write = Depends(require_perm("settings:write"))
 _KEEP = "***"
@@ -168,3 +172,22 @@ async def plug_off(
     settings: Settings = Depends(get_settings),
 ) -> PlugOut:
     return await _act(printer_id, "off", db, settings)
+
+
+class PlugSummaryOut(BaseModel):
+    plugs: dict[int, PlugOut]
+
+
+@summary_router.get("/summary", response_model=PlugSummaryOut)
+async def plugs_summary(
+    ctx: AuthContext = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> PlugSummaryOut:
+    """Every visible printer's plug in one query (dashboard cards share it)."""
+    visible = visible_printer_ids(ctx)
+    stmt = select(SmartPlug)
+    if visible is not None:
+        stmt = stmt.where(SmartPlug.printer_id.in_(visible))
+    rows = (await db.scalars(stmt)).all()
+    return PlugSummaryOut(plugs={p.printer_id: _out(settings, p) for p in rows})

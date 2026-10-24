@@ -289,3 +289,14 @@ async def test_put_rejects_bad_config(authenticated_client):
     assert r.status_code == 422
     r = await c.put(f"/api/printers/{pid}/plug", json={"kind": "zigbee", "config": {}})
     assert r.status_code == 422
+
+
+async def test_plugs_summary(authenticated_client, viewer_client):
+    c = authenticated_client
+    a = (await c.post("/api/printers", json=CREATE)).json()["id"]
+    body = {"kind": "rest", "config": {"on_url": "http://plug/on", "off_url": "http://plug/off"}}
+    assert (await c.put(f"/api/printers/{a}/plug", json=body)).status_code == 200
+    out = await c.get("/api/printers/plugs/summary")
+    assert out.status_code == 200
+    assert list(out.json()["plugs"]) == [str(a)]
+    assert out.json()["plugs"][str(a)]["kind"] == "rest"

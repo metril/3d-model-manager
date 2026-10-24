@@ -130,6 +130,7 @@ protected_router.include_router(features.router)
 # printer_control first: its literal /printers/developer-mode-warnings must
 # match before printers.router's /printers/{printer_id}.
 protected_router.include_router(printer_control.router)
+protected_router.include_router(smart_plugs.summary_router)
 protected_router.include_router(obico.router)
 protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)

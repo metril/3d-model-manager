@@ -149,3 +149,25 @@ async def test_public_frame_is_single_use(client: httpx.AsyncClient, redis_url: 
     first = await client.get("/api/obico/frame/abc")
     assert first.status_code == 200 and first.content == JPEG
     assert (await client.get("/api/obico/frame/abc")).status_code == 404
+
+
+async def test_detections_summary(
+    authenticated_client: httpx.AsyncClient,
+    member_client: httpx.AsyncClient,
+    printer_row: Printer,
+    redis_url: str,
+) -> None:
+    r = redis_lib.Redis.from_url(redis_url)
+    r.set(obico.status_key(printer_row.id), '{"state":"warn","score":0.5,"smoothed":0.45}')
+    try:
+        out = await authenticated_client.get("/api/printers/detections/summary")
+        assert out.status_code == 200
+        body = out.json()["printers"]
+        assert body[str(printer_row.id)]["state"] == "warn"
+        # a member without an ACL row sees no printers
+        assert (await member_client.get("/api/printers/detections/summary")).json() == {
+            "printers": {}
+        }
+    finally:
+        r.delete(obico.status_key(printer_row.id))
+        r.close()

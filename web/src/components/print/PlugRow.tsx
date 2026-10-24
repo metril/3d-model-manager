@@ -1,14 +1,24 @@
 import { PlugIcon } from "lucide-react";
 
-import { usePlug, usePlugToggle } from "@/api/ops";
+import { usePlug, usePlugSummary, usePlugToggle } from "@/api/ops";
+import type { PlugOut } from "@/api/types";
 import { Switch } from "@/components/ui/switch";
 
 /** Smart-plug state + toggle for a printer; renders nothing when no plug is configured.
  * Exported for Q3's CardFooter. */
 export function PlugRow({ printerId, canControl = true }: { printerId: number; canControl?: boolean }) {
   const plug = usePlug(printerId);
+  return <PlugRowView printerId={printerId} plug={plug.data} canControl={canControl} />;
+}
+
+/** Card variant: reads the shared summary poll instead of one query per printer. */
+export function SharedPlugRow({ printerId, canControl = true }: { printerId: number; canControl?: boolean }) {
+  const summary = usePlugSummary();
+  return <PlugRowView printerId={printerId} plug={summary.data?.plugs?.[String(printerId)]} canControl={canControl} />;
+}
+
+function PlugRowView({ printerId, plug: p, canControl }: { printerId: number; plug: PlugOut | null | undefined; canControl: boolean }) {
   const toggle = usePlugToggle(printerId);
-  const p = plug.data;
   if (!p) return null;
   const on = p.last_state === "on";
   return (

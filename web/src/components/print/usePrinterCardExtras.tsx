@@ -12,10 +12,10 @@ import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { MaintenanceBadge } from "@/components/maintenance/MaintenanceBadge";
 import { CameraSplitButton } from "@/components/print/CameraSplitButton";
 import { HistoryButtons } from "@/components/print/HistoryButtons";
-import { PlugRow } from "@/components/print/PlugRow";
+import { SharedPlugRow } from "@/components/print/PlugRow";
 import { usePrinterModals } from "@/components/print/modals";
 import type { CardSlot } from "@/components/print/PrinterCard";
-import { DetectionBadge } from "@/components/printer/DetectionBadge";
+import { SharedDetectionBadge } from "@/components/printer/DetectionBadge";
 import { Button } from "@/components/ui/button";
 
 export interface CardPerms {
@@ -37,7 +37,7 @@ export interface CardExtras {
 export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusOut, perms: CardPerms): CardExtras {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const modals = usePrinterModals(printer.id);
+  const modals = usePrinterModals(printer.id, status);
   const amsUnits = status.ams_units?.map((u) => u.id) ?? [];
   const goDetail = () => void navigate({ to: "/printers/$id", params: { id: String(printer.id) } });
   return {
@@ -47,13 +47,13 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
     badgeExtra: (
       <>
         <MaintenanceBadge printerId={printer.id} />
-        {perms.canPrint ? <DetectionBadge printerId={printer.id} /> : null}
+        {perms.canPrint ? <SharedDetectionBadge printerId={printer.id} /> : null}
       </>
     ),
     footerExtra: (ctx) => (
       <>
         {perms.canPrint ? <CameraSplitButton printerId={printer.id} onInline={goDetail} /> : null}
-        <PlugRow printerId={printer.id} canControl={ctx.canControl} />
+        <SharedPlugRow printerId={printer.id} canControl={ctx.canControl} />
         <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
           {t("card.footer.firmware")}
         </Button>
