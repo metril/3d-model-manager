@@ -18,11 +18,13 @@ import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.services.server_config import ServerConfig
+if TYPE_CHECKING:  # not imported at runtime: slicer/tests load this file standalone
+    from app.services.server_config import ServerConfig
+
 
 logger = logging.getLogger(__name__)
 
