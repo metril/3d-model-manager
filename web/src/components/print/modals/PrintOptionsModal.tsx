@@ -38,19 +38,20 @@ export function PrintOptionsModal({
   const flagOf = (k: PrintOptionKey): boolean => flagOpt[k] ?? !!reported?.[k];
 
   async function setXcam(module: string, next: XcamState) {
-    const prev = xcamOf(module);
     setXcamOpt((o) => ({ ...o, [module]: next }));
     const body: Record<string, unknown> = {
       module,
       enable: next.enable,
       sensitivity: next.sensitivity ?? "medium",
     };
-    if (!(await control.send("xcam", body))) setXcamOpt((o) => ({ ...o, [module]: prev }));
+    await control.send("xcam", body);
+    // Success or failure: drop the override so the reported status takes over.
+    setXcamOpt(({ [module]: _drop, ...rest }) => rest);
   }
   async function setFlag(option: PrintOptionKey, value: boolean) {
-    const prev = flagOf(option);
     setFlagOpt((o) => ({ ...o, [option]: value }));
-    if (!(await control.send("print-option", { option, value }))) setFlagOpt((o) => ({ ...o, [option]: prev }));
+    await control.send("print-option", { option, value });
+    setFlagOpt(({ [option]: _drop, ...rest }) => rest);
   }
 
   return (

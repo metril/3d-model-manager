@@ -81,6 +81,17 @@ describe("PrintOptionsModal", () => {
     await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "false"));
   });
 
+  it("drops the override after a failed xcam command so reported state shows", async () => {
+    postMock.mockRejectedValueOnce(new ApiError(409, "offline", "offline"));
+    wrap(<PrintOptionsModal printer={printer({ xcam_modules: ["first_layer_inspector"] })} status={st} canControl open onOpenChange={() => {}} />);
+    const sw = screen.getByRole("switch", { name: /First layer inspection/ });
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(sw);
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    await waitFor(() => expect(sw).not.toBeDisabled());
+    expect(sw).toHaveAttribute("aria-checked", "false");
+  });
+
   it("disables everything without control", () => {
     wrap(<PrintOptionsModal printer={printer({ xcam_modules: ["spaghetti_detector"] })} status={st} canControl={false} open onOpenChange={() => {}} />);
     expect(screen.getByRole("switch", { name: "Auto-recovery" })).toBeDisabled();
@@ -155,5 +166,11 @@ describe("FileManagerModal", () => {
     });
     wrap(<FileManagerModal printerId={1} canControl sdPrint open onOpenChange={() => {}} />);
     expect(await screen.findByText("This folder is empty.")).toBeInTheDocument();
+  });
+
+  it("shows the error state", async () => {
+    getMock.mockRejectedValue(new ApiError(500, "boom", "boom"));
+    wrap(<FileManagerModal printerId={1} canControl sdPrint open onOpenChange={() => {}} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not read the printer's storage.");
   });
 });

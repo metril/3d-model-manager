@@ -48,7 +48,10 @@ function section(canControl = true, label: string | null = null) {
   const it = a1Mini(
     {},
     {
-      trays: [tray({ slot: 1, tray: 1, tray_type: "PLA", color: "#112233" })],
+      trays: [
+        tray({ slot: 1, tray: 1, tray_type: "PLA", color: "#112233" }),
+        tray({ ams_unit: 1, tray: 0, slot: 4, tray_type: "PETG", color: "#445566" }),
+      ],
       ams_units: [{ id: 0, humidity: 3, temp: 24, serial: null, fw: null, label }],
     },
   );
@@ -77,6 +80,28 @@ describe("slot configure + AMS rename", () => {
         apply_device: true,
       }),
     );
+  });
+
+  it("uses unit and in-unit tray index in the URL for a second AMS", async () => {
+    postMock.mockResolvedValue({});
+    section();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: /Slot 5 menu/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Configure slot…" }));
+    const dlg = await screen.findByRole("dialog", { name: "Configure slot" });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/slots/1/0", expect.objectContaining({ tray_type: "PETG" })));
+  });
+
+  it("empty AMS label clears via DELETE", async () => {
+    deleteMock.mockResolvedValue({});
+    section(true, "Dry box");
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Dry box menu" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename AMS…" }));
+    const dlg = await screen.findByRole("dialog", { name: "Rename AMS" });
+    fireEvent.change(within(dlg).getByLabelText("Label"), { target: { value: "  " } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/printers/1/ams/0/label"));
+    expect(putMock).not.toHaveBeenCalled();
   });
 
   it("resets the slot on the device after confirm", async () => {

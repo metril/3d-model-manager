@@ -18,15 +18,14 @@ function isPrintable(name: string): boolean {
 
 function fmtSize(n: number | null | undefined): string {
   if (n == null) return "—";
-  if (n < 1024) return `${n} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = n / 1024;
+  const units = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte"];
+  let v = n;
   let i = 0;
   while (v >= 1024 && i < units.length - 1) {
     v /= 1024;
     i++;
   }
-  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+  return new Intl.NumberFormat(undefined, { style: "unit", unit: units[i], unitDisplay: "narrow", maximumFractionDigits: v >= 100 || i === 0 ? 0 : 1 }).format(v);
 }
 
 export function FileManagerModal({
@@ -51,6 +50,10 @@ export function FileManagerModal({
   const [selected, setSelected] = useState<RemoteFile | null>(null);
   const [toDelete, setToDelete] = useState<RemoteFile | null>(null);
   const [toPrint, setToPrint] = useState<RemoteFile | null>(null);
+  const goTo = (p: string) => {
+    setSelected(null);
+    setPath(p);
+  };
   const files = usePrinterFiles(printerId, path, open);
   const storage = useFileStorage(printerId, open);
   const del = useDeletePrinterFile(printerId);
@@ -68,13 +71,13 @@ export function FileManagerModal({
           <DialogTitle>{t("printerOps.files.title")}</DialogTitle>
         </DialogHeader>
         <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1 text-sm">
-          <Button type="button" variant="ghost" size="xs" onClick={() => setPath("/")}>
+          <Button type="button" variant="ghost" size="xs" onClick={() => goTo("/")}>
             {t("printerOps.files.root")}
           </Button>
           {crumbs.map((c, i) => (
             <span key={`${i}-${c}`} className="flex items-center gap-1">
               <span className="text-muted-foreground">/</span>
-              <Button type="button" variant="ghost" size="xs" onClick={() => setPath(`/${crumbs.slice(0, i + 1).join("/")}`)}>
+              <Button type="button" variant="ghost" size="xs" onClick={() => goTo(`/${crumbs.slice(0, i + 1).join("/")}`)}>
                 {c}
               </Button>
             </span>
@@ -113,7 +116,7 @@ export function FileManagerModal({
                     <TableRow key={f.path} data-state={selected?.path === f.path ? "selected" : undefined}>
                       <TableCell>
                         {f.is_dir ? (
-                          <button type="button" className="flex items-center gap-1.5 hover:underline" onClick={() => setPath(f.path)}>
+                          <button type="button" className="flex items-center gap-1.5 hover:underline" onClick={() => goTo(f.path)}>
                             <FolderIcon className="size-4" />
                             {f.name}
                           </button>

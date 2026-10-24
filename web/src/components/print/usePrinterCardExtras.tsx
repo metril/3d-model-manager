@@ -63,7 +63,7 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
             </Button>
           </UntestedTip>
         ) : null}
-        {capsOf(printer).sd_browser ? (
+        {perms.canPrint && capsOf(printer).sd_browser ? (
           <Button variant="outline" size="sm" onClick={() => modals.open("files")}>
             {t("printerOps.files.button")}
           </Button>
