@@ -43,10 +43,11 @@ import { useAuth } from "@/api/auth";
 import { api, ApiError } from "@/api/client";
 import { useCostCenters, useFinanceConfig } from "@/api/finance";
 import { useEnqueue } from "@/api/queue";
-import { useModelSearchQuery } from "@/api/library";
+import { useFeatures } from "@/api/features";
+import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
-import { usePrinterStatus } from "@/api/printers";
+import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { BlobFormat, PlanFilament, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -195,18 +196,25 @@ export function PrintDialog({
   onOpenChange,
   source,
   onSent,
+  printerId: printerIdProp,
+  sliceOnly: sliceOnlyProp = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   source: PrintSource;
   onSent?: () => void;
+  /** Seeds the printer selection (e.g. launched from a printer card). */
+  printerId?: number;
+  /** The chosen file is an unsliced source: start in recipe mode. */
+  sliceOnly?: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [autoAdvanced, setAutoAdvanced] = useState(false);
   const [pickedModelId, setPickedModelId] = useState<number | null>(null);
   const [pickedFileId, setPickedFileId] = useState<number | null>(null);
   const [plate, setPlate] = useState<number | null>(null);
-  const [printerId, setPrinterId] = useState<number | null>(null);
+  const [printerId, setPrinterId] = useState<number | null>(printerIdProp ?? null);
+  const [sliceOnly, setSliceOnly] = useState(sliceOnlyProp);
   const [overrides, setOverrides] = useState<Record<number, number>>({});
   const [bedLevelling, setBedLevelling] = useState(true);
   const [flowCali, setFlowCali] = useState(true);
@@ -224,28 +232,42 @@ export function PrintDialog({
   // launch must not leak into this one.
   useEffect(() => {
     if (!open) return;
-    setStep(source.kind === "pick" ? SOURCE : source.kind === "model" ? SOURCE : PLATE);
+    setStep(source.kind === "pick" ? SOURCE : source.kind === "model" ? SOURCE : sliceOnlyProp ? PROFILE : PLATE);
     setAutoAdvanced(false);
     setPickedModelId(null);
     setPickedFileId(null);
     setPlate(null);
-    setPrinterId(null);
+    setPrinterId(printerIdProp ?? null);
+    setSliceOnly(sliceOnlyProp);
     setOverrides({});
     setOptionsSeeded(false);
     setModelQuery("");
-    setProfileMode("as-sliced");
+    setProfileMode(sliceOnlyProp ? "recipe" : "as-sliced");
     setSelectedRecipeId(null);
     setCopies(1);
     setCostCenterId(null);
     setCostCenterSeeded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
+  }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   const modelIdForFiles = source.kind === "model" ? source.modelId : pickedModelId;
-  const slicedFiles = useModelSourceFiles(
-    modelIdForFiles,
-    profileMode === "recipe" ? RECIPE_SOURCE_FORMATS : AS_SLICED_FORMATS,
-  );
+  const features = useFeatures();
+  const allPrintersQ = usePrinters();
+  const canPrinter = useAuth().canPrinter;
+  const slicerConfigured = !!features.data?.slicer_configured;
+  const gcodeFiles = useModelSourceFiles(modelIdForFiles, AS_SLICED_FORMATS);
+  const sourceFiles = useModelSourceFiles(modelIdForFiles, RECIPE_SOURCE_FORMATS);
+  const slicedFiles = profileMode === "recipe" ? sourceFiles : gcodeFiles;
+  // A model with only unsliced sources (and a slicer to slice them) goes
+  // straight to recipe mode instead of an empty "no files" list.
+  useEffect(() => {
+    if (source.kind === "file" || source.kind === "archive" || modelIdForFiles == null) return;
+    if (gcodeFiles.isLoading || sourceFiles.isLoading || sliceOnly) return;
+    if (slicerConfigured && gcodeFiles.files.length === 0 && sourceFiles.files.length > 0) {
+      setSliceOnly(true);
+      setProfileMode("recipe");
+    }
+  }, [source.kind, modelIdForFiles, gcodeFiles, sourceFiles, slicerConfigured, sliceOnly]);
   const autoFileId = slicedFiles.files.length === 1 ? slicedFiles.files[0].id : null;
 
   const resolvedFileId =
@@ -273,14 +295,21 @@ export function PrintDialog({
   // so the plan's own defaults never trigger a second fetch under it (the
   // plan it already returned already reflects its own defaults).
   const planQuery = usePrintPlan(
-    !usingReprintPlan && effectiveFileId != null
+    !usingReprintPlan && effectiveFileId != null && profileMode !== "recipe"
       ? { file_id: effectiveFileId, plate: plate ?? undefined, printer_id: printerId ?? undefined, overrides }
       : null,
   );
-  const plan = usingReprintPlan ? reprint.data : planQuery.data;
+  const plan = usingReprintPlan ? reprint.data : profileMode === "recipe" ? undefined : planQuery.data;
   const planError = usingReprintPlan ? reprint.error : planQuery.error;
+  // Recipe mode has no plan to default the printer from: use the only
+  // printer the person can print on, if there is exactly one.
+  const soleRecipePrinterId = (() => {
+    if (profileMode !== "recipe" || !Array.isArray(allPrintersQ.data)) return null;
+    const usable = allPrintersQ.data.filter((p) => canPrinter?.(p.id, "print") ?? true);
+    return usable.length === 1 ? usable[0].id : null;
+  })();
   const effectivePlate = plate ?? plan?.plate ?? null;
-  const effectivePrinterId = printerId ?? plan?.printer_id ?? null;
+  const effectivePrinterId = printerId ?? plan?.printer_id ?? soleRecipePrinterId;
 
   // Seed the toggle defaults from the plan's own defaults exactly once, so
   // later refetches (an override, a plate change) never clobber what the
@@ -294,16 +323,19 @@ export function PrintDialog({
   }, [plan, optionsSeeded]);
 
   // Auto-advance past any step with nothing to decide, exactly once.
+  // Recipe mode (an unsliced file) has no plan: it stops at Profile, where
+  // the recipe is chosen.
+  const recipeReady = profileMode === "recipe" && effectiveFileId != null;
   useEffect(() => {
-    if (!plan || autoAdvanced) return;
+    if ((!plan && !recipeReady) || autoAdvanced) return;
     let next = step;
     const sourceNeeded = source.kind === "pick" || (source.kind === "model" && slicedFiles.files.length > 1);
     if (next === SOURCE && !sourceNeeded) next = PLATE;
-    if (next === PLATE && plan.plates.length <= 1) next = PROFILE;
-    if (next === PROFILE) next = FILAMENT;
+    if (next === PLATE && (recipeReady || (plan?.plates.length ?? 0) <= 1)) next = PROFILE;
+    if (next === PROFILE && !recipeReady) next = FILAMENT;
     setStep(next);
     setAutoAdvanced(true);
-  }, [plan, autoAdvanced, step, source, slicedFiles.files.length]);
+  }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length]);
 
   const enqueue = useEnqueue();
   const sendPrint = useSendPrint();
@@ -329,6 +361,21 @@ export function PrintDialog({
     label: t.ams_unit === EXTERNAL_UNIT ? "External" : `AMS ${t.ams_unit}·${t.tray}`,
   }));
 
+  // Recipe mode has no plan to list printers from, so offer every printer
+  // the person may print on.
+  const allPrinters = { data: Array.isArray(allPrintersQ.data) ? allPrintersQ.data : [] };
+  const printerName = printerIdProp != null ? allPrinters.data.find((p) => p.id === printerIdProp)?.name : undefined;
+  const planPrinters = useMemo(
+    () =>
+      profileMode === "recipe"
+        ? allPrinters.data
+            .filter((p) => canPrinter?.(p.id, "print") ?? true)
+            .map((p) => ({ id: p.id, name: p.name, model: p.model ?? null, idle: true, compatible: true, reason: null as string | null }))
+        : plan?.printers ?? [],
+    [profileMode, allPrintersQ.data, plan?.printers, canPrinter],
+  );
+
+  const recent = useRecentModelsQuery(source.kind === "pick" && modelQuery.trim().length === 0);
   const modelSearch = useModelSearchQuery(modelQuery);
   const searchResults = modelQuery.trim().length > 0 ? modelSearch.data?.items ?? [] : [];
 
@@ -338,7 +385,7 @@ export function PrintDialog({
   const recipes = useRecipes();
   const printerProfiles = useProfiles("printer");
   const slicerHealth = useSlicerHealth();
-  const selectedPrinterModel = plan?.printers.find((p) => p.id === effectivePrinterId)?.model ?? null;
+  const selectedPrinterModel = planPrinters.find((p) => p.id === effectivePrinterId)?.model ?? null;
   const recipeList = Array.isArray(recipes.data) ? recipes.data : [];
   const profileList = Array.isArray(printerProfiles.data) ? printerProfiles.data : [];
   const filteredRecipes = recipeList.filter((r) => {
@@ -355,7 +402,7 @@ export function PrintDialog({
   // incompatible by now, and the radio group only disables an OPTION, it
   // never clears a stale selection. Send must stay disabled until the
   // selected printer is actually idle + compatible.
-  const selectedPrinter = plan?.printers.find((pp) => pp.id === effectivePrinterId) ?? null;
+  const selectedPrinter = planPrinters.find((pp) => pp.id === effectivePrinterId) ?? null;
   const printerNotReady = selectedPrinter != null && !(selectedPrinter.idle && selectedPrinter.compatible);
 
   // P7 review/billing plan Task 9: once review or billing applies, the
@@ -499,9 +546,9 @@ export function PrintDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex max-h-[85vh] sm:max-w-3xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 py-3">
-          <DialogTitle>Print</DialogTitle>
+          <DialogTitle>{printerIdProp != null ? `Print on ${printerName ?? "printer"}` : "Print"}</DialogTitle>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-4 overflow-y-auto p-5">
           <Rail step={step} onStep={setStep} />
@@ -523,8 +570,19 @@ export function PrintDialog({
                       onChange={(e) => setModelQuery(e.target.value)}
                       placeholder="Search models…"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {modelQuery.trim().length === 0
+                        ? "Pick a model to print, or search by name. "
+                        : ""}
+                      {slicerConfigured
+                        ? "Sliced .gcode.3mf files send directly; other models are sliced with a recipe first."
+                        : "Only sliced .gcode.3mf files can be printed (slicing needs the slicer sidecar)."}
+                    </p>
+                    {modelQuery.trim().length === 0 ? (
+                      <p className="label-caps text-muted-foreground">Recent models</p>
+                    ) : null}
                     <ul className="divide-y divide-border">
-                      {searchResults.map((m) => (
+                      {(modelQuery.trim().length === 0 ? recent.data?.items ?? [] : searchResults).map((m) => (
                         <li key={m.id}>
                           <button
                             type="button"
@@ -538,19 +596,33 @@ export function PrintDialog({
                     </ul>
                   </div>
                 ) : (
-                  <ul className="divide-y divide-border">
-                    {slicedFiles.files.map((f) => (
-                      <li key={f.id}>
-                        <button
-                          type="button"
-                          className="w-full py-2 text-left text-sm hover:underline"
-                          onClick={() => setPickedFileId(f.id)}
-                        >
-                          {f.rel_path}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <ul className="divide-y divide-border">
+                      {slicedFiles.files.map((f) => (
+                        <li key={f.id}>
+                          <button
+                            type="button"
+                            className="w-full py-2 text-left text-sm hover:underline"
+                            onClick={() => setPickedFileId(f.id)}
+                          >
+                            {f.rel_path}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {modelIdForFiles != null &&
+                    !gcodeFiles.isLoading &&
+                    !sourceFiles.isLoading &&
+                    slicedFiles.files.length === 0 ? (
+                      <p className="text-sm text-muted-foreground" data-testid="no-printable-files">
+                        {profileMode === "recipe"
+                          ? "This model has no sliceable files (3mf, stl, step, obj)."
+                          : slicerConfigured
+                            ? "This model has no sliced .gcode.3mf and no sliceable file (3mf, stl, step, obj). A recipe is needed to slice."
+                            : "This model has no sliced .gcode.3mf file. Only .gcode.3mf can be printed; slicing 3mf/stl/step/obj needs the slicer sidecar (TDMM_SLICER_URL)."}
+                      </p>
+                    ) : null}
+                  </>
                 )}
               </div>
             ) : null}
@@ -602,12 +674,18 @@ export function PrintDialog({
                   }
                 }}
               >
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="as-sliced" id="print-dialog-profile-as-sliced" />
-                  <Label htmlFor="print-dialog-profile-as-sliced" className="font-normal">
-                    As sliced
-                  </Label>
-                </div>
+                {sliceOnly ? (
+                  <p className="text-sm text-muted-foreground">
+                    This file isn't sliced yet. Choose a recipe: the slicer sidecar slices it, then it is sent to the printer.
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="as-sliced" id="print-dialog-profile-as-sliced" />
+                    <Label htmlFor="print-dialog-profile-as-sliced" className="font-normal">
+                      As sliced
+                    </Label>
+                  </div>
+                )}
                 {filteredRecipes.map((r) => (
                   <div key={r.id} className="flex items-center gap-2">
                     <RadioGroupItem value={String(r.id)} id={`print-dialog-profile-recipe-${r.id}`} />
@@ -616,6 +694,15 @@ export function PrintDialog({
                     </Label>
                   </div>
                 ))}
+                {profileMode === "recipe" && recipeList.length === 0 && !recipes.isLoading ? (
+                  <p className="text-sm text-muted-foreground">
+                    No recipes yet.{" "}
+                    <a href="/inventory/profiles" className="underline">
+                      Create a recipe to slice
+                    </a>
+                    .
+                  </p>
+                ) : null}
               </RadioGroup>
             ) : null}
 
@@ -645,7 +732,7 @@ export function PrintDialog({
                   value={effectivePrinterId != null ? String(effectivePrinterId) : ""}
                   onValueChange={(v) => setPrinterId(Number(v))}
                 >
-                  {(plan?.printers ?? []).map((p) => {
+                  {planPrinters.map((p) => {
                     const disabled = !(p.idle && p.compatible);
                     return (
                       <div key={p.id} className="flex items-center gap-2">
@@ -742,8 +829,14 @@ export function PrintDialog({
                       <Button
                         type="button"
                         onClick={handleSliceAndSend}
-                        disabled={recipeActionsDisabled || enqueue.isPending}
-                        title={recipeActionsDisabled ? "Slicer sidecar unavailable" : undefined}
+                        disabled={recipeActionsDisabled || selectedRecipeId == null || enqueue.isPending}
+                        title={
+                          recipeActionsDisabled
+                            ? "Slicer sidecar unavailable. Enable it with the compose `slicer` profile (--profile slicer) and set TDMM_SLICER_URL."
+                            : selectedRecipeId == null
+                              ? "Choose a recipe on the Profile step"
+                              : undefined
+                        }
                       >
                         Slice and send
                       </Button>
@@ -754,7 +847,7 @@ export function PrintDialog({
                         type="button"
                         variant="outline"
                         onClick={handleQueueRecipe}
-                        disabled={enqueue.isPending}
+                        disabled={selectedRecipeId == null || enqueue.isPending}
                       >
                         Add to queue
                       </Button>

@@ -58,6 +58,7 @@ vi.mock("@/api/printers", () => ({
 
 vi.mock("@/api/library", () => ({
   useModelSearchQuery: () => ({ data: undefined }),
+  useRecentModelsQuery: () => ({ data: undefined }),
 }));
 
 // AppShell wraps its children in the app-wide SSE `EventsProvider`, which

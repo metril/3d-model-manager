@@ -540,6 +540,8 @@ export interface Features {
   watch_enabled: boolean;
   // Q11: `TDMM_VP_ENABLED` -- shows the Settings virtual printer card.
   virtual_printer_enabled?: boolean;
+  // `TDMM_SLICER_URL` is set -- the slicer sidecar can slice unsliced models.
+  slicer_configured?: boolean;
 }
 
 // `GET`/`PUT /settings/app` (backend/app/schemas/settings.py's

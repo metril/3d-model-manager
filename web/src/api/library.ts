@@ -193,6 +193,15 @@ export function useModelSearchQuery(q: string) {
   });
 }
 
+/** Most recently updated models -- the print dialog's "Recent models" list. */
+export function useRecentModelsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ["models", "recent"] as const,
+    queryFn: () => api.get<GalleryPage>(buildModelsUrl({ sort: "-updated_at" }, undefined, 8)),
+    enabled,
+  });
+}
+
 /** The model detail page's "More from <collection>" strip (Task 2, collection
  * provenance) -- a small, non-paginated peek at a few other models imported
  * from the same followed collection. Disabled when the model has no
