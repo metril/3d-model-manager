@@ -21,7 +21,7 @@ function AddFromPrinter({ spoolId, onDone }: { spoolId: number; onDone: () => vo
   const { t } = useTranslation();
   const printers = usePrinters();
   const links = useSpoolKProfiles(spoolId);
-  const put = usePutSpoolKProfiles(spoolId);
+  const put = usePutSpoolKProfiles();
   const [printerId, setPrinterId] = useState("");
   const [nozzle, setNozzle] = useState("0.4");
   const pid = printerId ? Number(printerId) : 0;
@@ -71,7 +71,7 @@ function AddFromPrinter({ spoolId, onDone }: { spoolId: number; onDone: () => vo
               size="xs"
               disabled={put.isPending}
               onClick={() =>
-                put.mutate(mergeSpoolLink(links.data ?? [], profileToLink(pid, p)), { onSuccess: onDone })
+                put.mutate({ spoolId, links: mergeSpoolLink(links.data ?? [], profileToLink(pid, p)) }, { onSuccess: onDone })
               }
             >
               {t("kprofile.add")}

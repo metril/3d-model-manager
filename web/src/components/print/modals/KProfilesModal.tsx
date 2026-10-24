@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import i18n from "@/i18n";
+
 import { useAuth } from "@/api/auth";
 import { api } from "@/api/client";
 import {
   mergeSpoolLink,
   profileToLink,
+  usePutSpoolKProfiles,
   useDeleteKProfile,
   useKProfileNote,
   useKProfiles,
@@ -38,7 +41,7 @@ export function nozzleOrder(current: string): string[] {
 }
 
 export function trayLabel(tr: AmsTray): string {
-  return tr.ams_unit === 255 ? "Ext" : `A${(tr.ams_unit ?? 0) + 1}-${(tr.tray ?? tr.slot) + 1}`;
+  return tr.ams_unit === 255 ? i18n.t("kprofile.ext") : `A${(tr.ams_unit ?? 0) + 1}-${(tr.tray ?? tr.slot) + 1}`;
 }
 
 /** K 0-2 inclusive, n finite >= 0; returns an error key or null. */
@@ -46,7 +49,7 @@ export function validateK(k: string, n: string): "k" | "n" | null {
   const kv = Number(k);
   if (k.trim() === "" || !Number.isFinite(kv) || kv < 0 || kv > 2) return "k";
   const nv = Number(n);
-  if (n.trim() === "" || !Number.isFinite(nv) || nv < 0) return "n";
+  if (n.trim() === "" || !Number.isFinite(nv) || nv < 0 || nv > 2) return "n";
   return null;
 }
 
@@ -117,10 +120,10 @@ function EditRow({
   return (
     <tr data-testid="kprofile-edit" className="border-b bg-muted/40">
       <td className="p-1">
-        <Input aria-label={t("kprofile.name")} value={name} onChange={(e) => setName(e.target.value)} />
+        <Input aria-label={t("kprofile.name")} maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
       </td>
       <td className="p-1">
-        <Input aria-label={t("kprofile.filament")} value={fil} disabled={!!profile} onChange={(e) => setFil(e.target.value)} />
+        <Input aria-label={t("kprofile.filament")} maxLength={32} value={fil} disabled={!!profile} onChange={(e) => setFil(e.target.value)} />
       </td>
       <td className="p-1">
         <Input aria-label="K" aria-invalid={bad === "k"} inputMode="decimal" value={k} onChange={(e) => setK(e.target.value)} />
@@ -196,6 +199,7 @@ export function KProfilesModal({
   const select = useSelectKProfile(printer.id);
   const noteM = useKProfileNote(printer.id);
   const spools = useSpools();
+  const putSpool = usePutSpoolKProfiles();
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [confirmDel, setConfirmDel] = useState<KProfile | null>(null);
   const [linking, setLinking] = useState<KProfile | null>(null);
@@ -247,7 +251,7 @@ export function KProfilesModal({
   async function linkSpool(p: KProfile, spoolId: number) {
     try {
       const existing = await api.get<SpoolKProfile[]>(`/spools/${spoolId}/kprofiles`);
-      await api.put(`/spools/${spoolId}/kprofiles`, mergeSpoolLink(existing, profileToLink(printer.id, p)));
+      await putSpool.mutateAsync({ spoolId, links: mergeSpoolLink(existing, profileToLink(printer.id, p)) });
       toast.success(t("kprofile.linked"));
       setLinking(null);
     } catch (e) {

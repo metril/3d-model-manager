@@ -2605,11 +2605,11 @@ export interface KProfileSelectIn {
 export interface SpoolKProfile {
   printer_id: number;
   extruder: number;
-  nozzle_diameter: string;
+  nozzle_diameter: number;
   nozzle_type?: string | null;
   k_value: number;
-  n_coef: number;
-  name: string;
-  cali_idx: number;
-  setting_id: string;
+  n_coef: number | null;
+  name: string | null;
+  cali_idx: number | null;
+  setting_id: string | null;
 }

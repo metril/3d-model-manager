@@ -10,7 +10,7 @@ vi.mock("@/api/client", async (importOriginal) => {
   return { ...actual, api: { ...actual.api, get: getMock, put: putMock, delete: deleteMock } };
 });
 
-const LINK = { printer_id: 1, extruder: 0, nozzle_diameter: "0.4", k_value: 0.03, n_coef: 0, name: "Old", cali_idx: 2, setting_id: "PFold" };
+const LINK = { printer_id: 1, extruder: 0, nozzle_diameter: 0.4, k_value: 0.03, n_coef: 0, name: "Old", cali_idx: 2, setting_id: "PFold" };
 const PROFILE = { cali_idx: 5, setting_id: "PFnew", filament_id: "GFL99", name: "Fresh", k_value: 0.04, n_coef: 0, extruder_id: 0, nozzle_diameter: "0.4" };
 
 beforeEach(() => {
@@ -54,7 +54,7 @@ describe("SpoolKProfilesSection", () => {
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const [url, body] = putMock.mock.calls[0];
     expect(url).toBe("/spools/7/kprofiles");
-    expect(body).toEqual([LINK, expect.objectContaining({ printer_id: 2, extruder: 0, nozzle_diameter: "0.4", setting_id: "PFnew", cali_idx: 5, k_value: 0.04 })]);
+    expect(body).toEqual([LINK, expect.objectContaining({ printer_id: 2, extruder: 0, nozzle_diameter: 0.4, setting_id: "PFnew", cali_idx: 5, k_value: 0.04 })]);
   });
 
   it("hides write actions without permission", async () => {

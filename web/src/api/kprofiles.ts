@@ -36,12 +36,19 @@ function qs(s: KProfileScope, extra: Record<string, string> = {}): string {
   return `?${p.toString()}`;
 }
 
-export async function fetchKProfiles(printerId: number, scope: KProfileScope, refresh = false): Promise<KProfileList> {
+export async function fetchKProfiles(
+  printerId: number,
+  scope: KProfileScope,
+  refresh = false,
+  signal?: AbortSignal,
+): Promise<KProfileList> {
   let res = await api.get<KProfileList | KProfilePending>(`${base(printerId)}${qs(scope, refresh ? { refresh: "1" } : {})}`);
   const start = Date.now();
   while (isPending(res)) {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
     if (Date.now() - start >= kprofileTiming.maxMs) throw new Error("K-profile request timed out");
     await new Promise((r) => setTimeout(r, kprofileTiming.pollMs));
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
     res = await api.get<KProfileList | KProfilePending>(
       `${base(printerId)}${qs(scope, { request_id: res.request_id })}`,
     );
@@ -52,7 +59,7 @@ export async function fetchKProfiles(printerId: number, scope: KProfileScope, re
 export function useKProfiles(printerId: number, scope: KProfileScope, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: listKey(printerId, scope),
-    queryFn: () => fetchKProfiles(printerId, scope),
+    queryFn: ({ signal }) => fetchKProfiles(printerId, scope, false, signal),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     retry: false,
@@ -71,6 +78,10 @@ export function useRefreshKProfiles(printerId: number) {
 
 function invalidateList(qc: QueryClient, printerId: number) {
   void qc.invalidateQueries({ queryKey: allKey(printerId) });
+  // Stored spool links mirror profile name/K/n, so refresh every spool's list.
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === "spools" && q.queryKey[2] === "kprofiles",
+  });
 }
 
 export function useSaveKProfile(printerId: number) {
@@ -131,11 +142,12 @@ export function useSpoolKProfiles(spoolId: number | null | undefined) {
 }
 
 /** Replaces the spool's whole link list. */
-export function usePutSpoolKProfiles(spoolId: number) {
+export function usePutSpoolKProfiles() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (links: SpoolKProfile[]) => api.put<SpoolKProfile[]>(`/spools/${spoolId}/kprofiles`, links),
-    onSuccess: (data) => qc.setQueryData(spoolKey(spoolId), data),
+    mutationFn: ({ spoolId, links }: { spoolId: number; links: SpoolKProfile[] }) =>
+      api.put<SpoolKProfile[]>(`/spools/${spoolId}/kprofiles`, links),
+    onSuccess: (data, v) => qc.setQueryData(spoolKey(v.spoolId), data),
     onError: toastControlError,
   });
 }
@@ -154,7 +166,12 @@ export function useDeleteSpoolKProfile(spoolId: number) {
 export function mergeSpoolLink(existing: SpoolKProfile[], link: SpoolKProfile): SpoolKProfile[] {
   return [
     ...existing.filter(
-      (l) => !(l.printer_id === link.printer_id && l.extruder === link.extruder && l.nozzle_diameter === link.nozzle_diameter),
+      (l) =>
+        !(
+          l.printer_id === link.printer_id &&
+          l.extruder === link.extruder &&
+          Number(l.nozzle_diameter) === Number(link.nozzle_diameter)
+        ),
     ),
     link,
   ];
@@ -164,7 +181,7 @@ export function profileToLink(printerId: number, p: KProfile): SpoolKProfile {
   return {
     printer_id: printerId,
     extruder: p.extruder_id,
-    nozzle_diameter: String(p.nozzle_diameter),
+    nozzle_diameter: Number(p.nozzle_diameter),
     nozzle_type: null,
     k_value: p.k_value,
     n_coef: p.n_coef,

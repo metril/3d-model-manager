@@ -173,7 +173,7 @@ describe("KProfilesModal", () => {
 
   it("links a profile to a spool by merging its existing links", async () => {
     getMock.mockImplementation(async (url: string) =>
-      url === "/spools/7/kprofiles" ? [{ printer_id: 9, extruder: 0, nozzle_diameter: "0.4", k_value: 0.1, n_coef: 0, name: "x", cali_idx: 1, setting_id: "PFx" }] : url.includes("/printers/1/kprofiles") ? LIST : url.startsWith("/spools") ? [{ id: 7, material_type: "PLA", brand: "Bambu", color_name: "Red" }] : [],
+      url === "/spools/7/kprofiles" ? [{ printer_id: 9, extruder: 0, nozzle_diameter: 0.4, k_value: 0.1, n_coef: 0, name: "x", cali_idx: 1, setting_id: "PFx" }] : url.includes("/printers/1/kprofiles") ? LIST : url.startsWith("/spools") ? [{ id: 7, material_type: "PLA", brand: "Bambu", color_name: "Red" }] : [],
     );
     putMock.mockResolvedValue([]);
     setup();
@@ -185,7 +185,23 @@ describe("KProfilesModal", () => {
     const [url, body] = putMock.mock.calls[0];
     expect(url).toBe("/spools/7/kprofiles");
     expect(body).toHaveLength(2);
-    expect(body[1]).toMatchObject({ printer_id: 1, extruder: 0, nozzle_diameter: "0.4", setting_id: "PF111", cali_idx: 3 });
+    expect(body[1]).toMatchObject({ printer_id: 1, extruder: 0, nozzle_diameter: 0.4, setting_id: "PF111", cali_idx: 3 });
+  });
+
+  it("re-linking the same printer/extruder/nozzle replaces rather than duplicates", async () => {
+    getMock.mockImplementation(async (url: string) =>
+      url === "/spools/7/kprofiles" ? [{ printer_id: 1, extruder: 0, nozzle_diameter: 0.4, k_value: 0.1, n_coef: 0, name: "old", cali_idx: 1, setting_id: "PFold" }] : url.includes("/printers/1/kprofiles") ? LIST : url.startsWith("/spools") ? [{ id: 7, material_type: "PLA", brand: null, color_name: null }] : [],
+    );
+    putMock.mockResolvedValue([]);
+    setup();
+    fireEvent.click(within(await screen.findByTestId("kprofile-3")).getByText("Link to spool…"));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Choose a spool" }));
+    fireEvent.click(await screen.findByRole("option", { name: /#7/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    const body = putMock.mock.calls[0][1];
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ setting_id: "PF111", nozzle_diameter: 0.4 });
   });
 
   it("disables writes while printing and without control", async () => {
