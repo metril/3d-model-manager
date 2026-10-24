@@ -1,6 +1,7 @@
 /** T1 AMS drying hooks: start/stop, schedules, presets, settings. */
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import i18n from "@/i18n";
 
 import { ApiError, api } from "@/api/client";
 import { controlErrorMessage } from "@/api/printerControl";
@@ -12,16 +13,11 @@ import type {
   ScheduledDrying,
 } from "@/api/types";
 
-const MESSAGES: Record<string, string> = {
-  screen_only: "This printer can only start drying from its own screen.",
-  unsupported: "This printer or AMS does not support drying.",
-  printing: "Drying cannot start while printing on this printer. Schedule it for after the print.",
-};
 
 export function dryingErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.code && MESSAGES[error.code]) return MESSAGES[error.code];
-    if (error.code === "blocked") return error.detail || "The AMS is not ready to dry right now.";
+    if (error.code && ["screen_only", "unsupported", "printing"].includes(error.code)) return i18n.t(`drying.error.${error.code}`);
+    if (error.code === "blocked") return error.detail || i18n.t("drying.error.blocked");
   }
   return controlErrorMessage(error);
 }
@@ -135,7 +131,7 @@ export function useUpdateDryingSettings() {
     onSuccess: (data) => {
       qc.setQueryData(["settings", "drying"], data);
       void qc.invalidateQueries({ queryKey: ["drying", "presets"] });
-      toast.success("Drying settings saved");
+      toast.success(i18n.t("drying.settings.saved"));
     },
     onError: toastDryingError,
   });
