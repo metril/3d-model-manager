@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type FunctionComponent } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 
 import { RelatedModels } from "@/components/model-detail/RelatedModels";
@@ -13,6 +13,7 @@ import { RevisionsCard } from "@/components/model-detail/cards/RevisionsCard";
 import { SpecsCard } from "@/components/model-detail/cards/SpecsCard";
 import { TagsLinksCard } from "@/components/model-detail/cards/TagsLinksCard";
 import { PortalContainerContext } from "@/lib/portalContainer";
+import { useRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
 import { PANEL_IDS, PANEL_TITLES, type PanelId } from "./panelMeta";
 
@@ -93,17 +94,19 @@ export const PANEL_CONTENT: Record<PanelId, ComponentType> = {
 function PanelFrame({ api, children }: { api: IDockviewPanelProps["api"]; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [container, setContainer] = useState<HTMLElement | undefined>(undefined);
+  const relocated = useRelocateEmitter();
 
   useEffect(() => {
     const sync = () => {
       const body = ref.current?.ownerDocument.body;
       setContainer(body && body !== document.body ? body : undefined);
+      relocated?.emit();
     };
     sync();
     // Fires after the panel has settled in its new group/window.
     const sub = api.onDidLocationChange(sync);
     return () => sub.dispose();
-  }, [api]);
+  }, [api, relocated]);
 
   return (
     <PortalContainerContext.Provider value={container}>
@@ -114,7 +117,7 @@ function PanelFrame({ api, children }: { api: IDockviewPanelProps["api"]; childr
   );
 }
 
-function makeDockComponent(id: PanelId): ComponentType<IDockviewPanelProps> {
+function makeDockComponent(id: PanelId): FunctionComponent<IDockviewPanelProps> {
   const Content = PANEL_CONTENT[id];
   function DockPanel(props: IDockviewPanelProps) {
     return (
@@ -130,7 +133,7 @@ function makeDockComponent(id: PanelId): ComponentType<IDockviewPanelProps> {
 export type PanelDef = {
   id: PanelId;
   title: string;
-  component: ComponentType<IDockviewPanelProps>;
+  component: FunctionComponent<IDockviewPanelProps>;
 };
 
 export const PANEL_REGISTRY: Record<PanelId, PanelDef> = Object.fromEntries(
@@ -138,6 +141,6 @@ export const PANEL_REGISTRY: Record<PanelId, PanelDef> = Object.fromEntries(
 ) as Record<PanelId, PanelDef>;
 
 /** `components` map for `<DockviewReact>`; keys double as `contentComponent`. */
-export const DOCK_COMPONENTS: Record<string, ComponentType<IDockviewPanelProps>> = Object.fromEntries(
+export const DOCK_COMPONENTS: Record<string, FunctionComponent<IDockviewPanelProps>> = Object.fromEntries(
   PANEL_IDS.map((id) => [id, PANEL_REGISTRY[id].component]),
 );

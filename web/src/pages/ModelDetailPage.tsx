@@ -1,24 +1,18 @@
 import { useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
+import type { DockviewApi } from "dockview-react";
 
 import { useModel } from "@/api/library";
 import { ArchivedBanner } from "@/components/model-detail/ArchivedBanner";
-import { DetailLayout } from "@/components/model-detail/DetailLayout";
 import { ModelHeader } from "@/components/model-detail/ModelHeader";
-import { RelatedModels } from "@/components/model-detail/RelatedModels";
-import { StudioWorkspace } from "@/components/model-detail/StudioWorkspace";
 import { useStudioSelection } from "@/components/model-detail/studioSelection";
-import { DescriptionCard } from "@/components/model-detail/cards/DescriptionCard";
-import { FilesDocsCard } from "@/components/model-detail/cards/FilesDocsCard";
-import { GcodeProfilesCard } from "@/components/model-detail/cards/GcodeProfilesCard";
-import { NotesCard } from "@/components/model-detail/cards/NotesCard";
-import { PrintHistoryCard } from "@/components/model-detail/cards/PrintHistoryCard";
-import { PrintTipsCard } from "@/components/model-detail/cards/PrintTipsCard";
-import { RevisionsCard } from "@/components/model-detail/cards/RevisionsCard";
-import { SpecsCard } from "@/components/model-detail/cards/SpecsCard";
-import { TagsLinksCard } from "@/components/model-detail/cards/TagsLinksCard";
+import { ModelDetailDock } from "@/components/model-detail/dock/ModelDetailDock";
+import { ModelDetailProvider } from "@/components/model-detail/dock/ModelDetailContext";
+import { PanelsMenu } from "@/components/model-detail/dock/PanelsMenu";
+import { StackedPanels } from "@/components/model-detail/dock/StackedPanels";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/api/client";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 const routeApi = getRouteApi("/authenticated/models/$slug");
 
@@ -52,6 +46,9 @@ export function ModelDetailPage() {
   // the studio surface's selection here (not inside `StudioWorkspace`) so
   // `FilesDocsCard`'s per-row "View in 3D" action can reach it too.
   const studio = useStudioSelection(modelQuery.data);
+  // >=900px: dockable panels. Below: the stacked cards, no dock.
+  const docked = useMediaQuery("(min-width: 900px)");
+  const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
 
   if (modelQuery.isLoading) {
     return (
@@ -73,46 +70,20 @@ export function ModelDetailPage() {
   if (!model) return null;
 
   return (
-    <div className="space-y-6">
-      <ModelHeader
-        model={model}
-        editMode={editMode}
-        onToggleEditMode={() => setEditMode((prev) => !prev)}
-        onOpenRelocate={() => setRelocateOpen(true)}
-      />
-      <ArchivedBanner model={model} />
-      <DetailLayout
-        left={
-          <>
-            <StudioWorkspace
-              model={model}
-              glbable={studio.glbable}
-              others={studio.others}
-              selection={studio.selection}
-              onSelectAssembly={studio.onSelectAssembly}
-            />
-            <DescriptionCard model={model} editMode={editMode} />
-            <TagsLinksCard
-              model={model}
-              editMode={editMode}
-              relocateOpen={relocateOpen}
-              onRelocateOpenChange={setRelocateOpen}
-            />
-            <RelatedModels model={model} />
-          </>
-        }
-        right={
-          <>
-            <GcodeProfilesCard model={model} />
-            <PrintHistoryCard model={model} />
-            <FilesDocsCard model={model} onViewIn3D={studio.onViewIn3D} />
-            <RevisionsCard model={model} />
-            <NotesCard model={model} />
-            <PrintTipsCard model={model} />
-            <SpecsCard model={model} />
-          </>
-        }
-      />
-    </div>
+    <ModelDetailProvider
+      value={{ model, editMode, setEditMode, relocateOpen, setRelocateOpen, studio }}
+    >
+      <div className="space-y-6">
+        <ModelHeader
+          model={model}
+          editMode={editMode}
+          onToggleEditMode={() => setEditMode((prev) => !prev)}
+          onOpenRelocate={() => setRelocateOpen(true)}
+          panelsMenu={docked && dockApi ? <PanelsMenu api={dockApi} /> : undefined}
+        />
+        <ArchivedBanner model={model} />
+        {docked ? <ModelDetailDock onApi={setDockApi} /> : <StackedPanels />}
+      </div>
+    </ModelDetailProvider>
   );
 }

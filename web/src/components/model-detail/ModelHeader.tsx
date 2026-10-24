@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -127,11 +127,14 @@ export function ModelHeader({
   editMode,
   onToggleEditMode,
   onOpenRelocate,
+  panelsMenu,
 }: {
   model: ModelDetail;
   editMode: boolean;
   onToggleEditMode: () => void;
   onOpenRelocate: () => void;
+  /** Dock "Panels" dropdown; only present when the dockable layout is active. */
+  panelsMenu?: ReactNode;
 }) {
   const navigate = useNavigate();
   const { data: me, can } = useAuth();
@@ -267,6 +270,7 @@ export function ModelHeader({
             <ListPlusIcon />
             Add to queue
           </Button>
+          {panelsMenu}
           <Button type="button" variant="outline" onClick={onToggleEditMode}>
             <PencilIcon />
             {editMode ? "Done" : "Edit"}
