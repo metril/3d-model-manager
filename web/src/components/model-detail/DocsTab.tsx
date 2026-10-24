@@ -1,5 +1,5 @@
 /**
- * Docs tab (R13c): the same table shape as `FilesTab.tsx` but scoped to
+ * Docs tab (R13c): the same row layout as `FilesTab.tsx` but scoped to
  * `kind === "doc"` files, with a doc-specific expandable preview per row
  * instead of a mesh/sliced meta line -- pdf renders inline via `<iframe>`,
  * md/txt fetch their raw text and render it (markdown vs. plain `<pre>`),
@@ -10,14 +10,14 @@
  * fire an md/txt fetch for every doc up front -- docs tend to be few per
  * model, but there's no reason to pay for previews nobody opens.
  */
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { FileText as FileTextIcon } from "lucide-react";
 
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDateTime, humanizeBytes } from "@/lib/format";
+import { FileRow } from "@/components/model-detail/FileRow";
+import { formatDate, formatDateTime, humanizeBytes } from "@/lib/format";
 import { formatIcon } from "@/lib/formatMeta";
 import { MARKDOWN_CLASSNAME, renderMarkdown } from "@/lib/markdown";
 import type { FileOut, ModelDetail } from "@/api/types";
@@ -97,70 +97,51 @@ export function DocsTab({ model }: { model: ModelDetail }) {
 
   return (
     <div className="space-y-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-14">
-              <span className="sr-only">Thumbnail</span>
-            </TableHead>
-            <TableHead>Path</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead>Modified</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {files.map((file) => {
-            const previewable = isPreviewable(file);
-            const previewOpen = openPreviewId === file.id;
-            return (
-              <Fragment key={file.id}>
-                <TableRow>
-                  <TableCell>
-                    <DocThumb file={file} />
-                  </TableCell>
-                  <TableCell className="max-w-[28rem] font-mono text-xs 2xl:max-w-none">
-                    <div className="truncate" title={file.rel_path}>
-                      {file.rel_path}
-                    </div>
-                  </TableCell>
-                  <TableCell>{humanizeBytes(file.size)}</TableCell>
-                  <TableCell>{formatDateTime(file.mtime)}</TableCell>
-                  <TableCell>
-                    <Badge variant={file.verified_at ? "secondary" : "outline"}>
-                      {file.verified_at ? "stored" : "processing"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      {previewable ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setOpenPreviewId(previewOpen ? null : file.id)}
-                        >
-                          <FileTextIcon className="size-4" />
-                          {previewOpen ? "Hide preview" : "Preview"}
-                        </Button>
-                      ) : null}
-                      <FileActionsMenu file={file} model={model} isDoc />
-                    </div>
-                  </TableCell>
-                </TableRow>
-                {previewOpen ? (
-                  <TableRow>
-                    <TableCell colSpan={6} data-testid={`doc-preview-${file.id}`}>
-                      <DocPreview file={file} />
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
+      <ul role="list" className="@container/files divide-y">
+        {files.map((file) => {
+          const previewOpen = openPreviewId === file.id;
+          return (
+            <FileRow
+              key={file.id}
+              thumb={<DocThumb file={file} />}
+              path={file.rel_path}
+              facts={
+                <>
+                  <span>{humanizeBytes(file.size)}</span>
+                  <span className="@sm/files:hidden">{formatDate(file.mtime)}</span>
+                  <span className="hidden @sm/files:inline">{formatDateTime(file.mtime)}</span>
+                  <Badge variant={file.verified_at ? "secondary" : "outline"}>
+                    {file.verified_at ? "stored" : "processing"}
+                  </Badge>
+                </>
+              }
+              actions={
+                <>
+                  {isPreviewable(file) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setOpenPreviewId(previewOpen ? null : file.id)}
+                    >
+                      <FileTextIcon className="size-4" />
+                      <span className="sr-only @sm/files:not-sr-only">{previewOpen ? "Hide preview" : "Preview"}</span>
+                    </Button>
+                  ) : null}
+                  <FileActionsMenu file={file} model={model} isDoc />
+                </>
+              }
+              below={
+                previewOpen ? (
+                  <div data-testid={`doc-preview-${file.id}`}>
+                    <DocPreview file={file} />
+                  </div>
+                ) : null
+              }
+            />
+          );
+        })}
+      </ul>
     </div>
   );
 }

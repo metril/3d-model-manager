@@ -10,8 +10,8 @@ import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButt
 import { UploadDropzone, type UploadTarget } from "@/components/upload/UploadDropzone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDateTime, humanizeBytes, humanizeDuration } from "@/lib/format";
+import { FileRow } from "@/components/model-detail/FileRow";
+import { formatDate, formatDateTime, humanizeBytes, humanizeDuration } from "@/lib/format";
 import { formatIcon } from "@/lib/formatMeta";
 import { isSlicerEligible } from "@/lib/slicers";
 import type { BlobMetaOut, FileOut, ModelDetail } from "@/api/types";
@@ -82,7 +82,7 @@ export function FilesTab({
   const queryClient = useQueryClient();
   const [showAddFiles, setShowAddFiles] = useState(false);
   // Doc-kind files (README, license, etc.) surface only in the Docs tab --
-  // exclude them here so they don't also clutter the Files table.
+  // exclude them here so they don't also clutter the Files list.
   const files = (model.current_revision?.files ?? []).filter((file) => file.kind !== "doc");
   const currentRevision = model.current_revision;
 
@@ -121,63 +121,34 @@ export function FilesTab({
       {files.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">No files on the current revision yet.</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-14">
-                <span className="sr-only">Thumbnail</span>
-              </TableHead>
-              <TableHead>Path</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Hash</TableHead>
-              <TableHead>Modified</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {files.map((file) => {
-              const metaLine = fileMetaLine(file);
-              return (
-                <TableRow key={file.id}>
-                  <TableCell>
-                    <FileThumb file={file} />
-                  </TableCell>
-                  <TableCell className="max-w-[28rem] font-mono text-xs 2xl:max-w-none">
-                    <div className="truncate" title={file.rel_path}>
-                      {file.rel_path}
-                    </div>
-                    {metaLine ? (
-                      <div
-                        className="truncate font-sans text-[11px] font-normal text-muted-foreground"
-                        title={metaLine}
-                      >
-                        {metaLine}
-                      </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>{humanizeBytes(file.size)}</TableCell>
-                  <TableCell>
-                    <CopyableHash hash={file.blob_hash} />
-                  </TableCell>
-                  <TableCell>{formatDateTime(file.mtime)}</TableCell>
-                  <TableCell>
-                    <Badge variant={file.verified_at ? "secondary" : "outline"}>
-                      {file.verified_at ? "stored" : "processing"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <SendToPrinterButton file={file} />
-                      {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} /> : null}
-                      <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+        <ul role="list" className="@container/files divide-y">
+          {files.map((file) => (
+            <FileRow
+              key={file.id}
+              thumb={<FileThumb file={file} />}
+              path={file.rel_path}
+              meta={fileMetaLine(file)}
+              facts={
+                <>
+                  <span>{humanizeBytes(file.size)}</span>
+                  <span className="@sm/files:hidden">{formatDate(file.mtime)}</span>
+                  <span className="hidden @sm/files:inline">{formatDateTime(file.mtime)}</span>
+                  <Badge variant={file.verified_at ? "secondary" : "outline"}>
+                    {file.verified_at ? "stored" : "processing"}
+                  </Badge>
+                  <CopyableHash hash={file.blob_hash} compact />
+                </>
+              }
+              actions={
+                <>
+                  <SendToPrinterButton file={file} />
+                  {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
+                  <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} />
+                </>
+              }
+            />
+          ))}
+        </ul>
       )}
     </div>
   );
