@@ -51,10 +51,12 @@ dependencies = [
     # the app's first use of FastAPI/Starlette form parsing -- needs this
     # even though no `UploadFile` param exists anywhere else yet.
     "python-multipart>=0.0.9",
+    "pyotp>=2.10.0",
 ]
 
 [dependency-groups]
 dev = [
+    "aiosmtpd>=1.4.6",
     "pytest",
     "pytest-asyncio",
     "respx>=0.23.1",
