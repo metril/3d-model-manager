@@ -17,6 +17,7 @@ import json
 import httpx
 
 _MAX_BODY_BYTES = 64 * 1024
+_MAX_STATES_BYTES = 8 * 1024 * 1024
 
 
 class HaUnreachable(Exception):
@@ -52,6 +53,11 @@ class HaClient:
             return None
         return self._json(response)
 
+    def states(self) -> list[dict]:
+        """GET /api/states -- every entity (T5 location sensor picker)."""
+        data = self._json(self._get("/api/states"), limit=_MAX_STATES_BYTES)
+        return data if isinstance(data, list) else []
+
     def call_service(self, domain: str, service: str, data: dict) -> None:
         """POST /api/services/<domain>/<service> (Q7 smart plugs)."""
         try:
@@ -73,8 +79,8 @@ class HaClient:
         return response
 
     @staticmethod
-    def _json(response: httpx.Response) -> dict | None:
-        body = response.content[:_MAX_BODY_BYTES]
+    def _json(response: httpx.Response, limit: int = _MAX_BODY_BYTES) -> dict | list | None:
+        body = response.content[:limit]
         try:
             return json.loads(body)
         except ValueError as exc:
