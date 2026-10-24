@@ -36,6 +36,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -363,16 +364,16 @@ export function PrintDialog({
 
   // Recipe mode has no plan to list printers from, so offer every printer
   // the person may print on.
-  const allPrinters = { data: Array.isArray(allPrintersQ.data) ? allPrintersQ.data : [] };
-  const printerName = printerIdProp != null ? allPrinters.data.find((p) => p.id === printerIdProp)?.name : undefined;
+  const printerList = useMemo(() => (Array.isArray(allPrintersQ.data) ? allPrintersQ.data : []), [allPrintersQ.data]);
+  const printerName = printerIdProp != null ? printerList.find((p) => p.id === printerIdProp)?.name : undefined;
   const planPrinters = useMemo(
     () =>
       profileMode === "recipe"
-        ? allPrinters.data
+        ? printerList
             .filter((p) => canPrinter?.(p.id, "print") ?? true)
             .map((p) => ({ id: p.id, name: p.name, model: p.model ?? null, idle: true, compatible: true, reason: null as string | null }))
         : plan?.printers ?? [],
-    [profileMode, allPrintersQ.data, plan?.printers, canPrinter],
+    [profileMode, printerList, plan?.printers, canPrinter],
   );
 
   const recent = useRecentModelsQuery(source.kind === "pick" && modelQuery.trim().length === 0);
@@ -697,9 +698,9 @@ export function PrintDialog({
                 {profileMode === "recipe" && recipeList.length === 0 && !recipes.isLoading ? (
                   <p className="text-sm text-muted-foreground">
                     No recipes yet.{" "}
-                    <a href="/inventory/profiles" className="underline">
+                    <Link to="/inventory/profiles" className="underline">
                       Create a recipe to slice
-                    </a>
+                    </Link>
                     .
                   </p>
                 ) : null}
