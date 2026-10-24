@@ -44,8 +44,18 @@
 # Quickstart: `cp .env.example .env` then `docker compose up -d --build`.
 # See README "Quickstart" for the first-run admin password note.
 
+# Always-on sidecars (no profiles): the slicer and obico-ml containers always
+# start; Settings -> Server decides whether the app uses them. They cost RAM
+# (slicer mem_limit 4g) and disk (the obico-ml image is large); disabling one in
+# the UI stops its use, not the container -- `docker compose stop slicer
+# obico-ml` reclaims the resources.
+#
+# Server config (public URL, caps, slicer/obico URLs, virtual-printer network,
+# log level) lives in the DB and is edited from Settings -> Server. Env vars for
+# those only seed the very first boot (see .env.example).
 include:
   - compose.slicer.yaml
+  - compose.obico.yaml
 
 services:
   api:
@@ -93,7 +103,7 @@ services:
       # Round 8 Task 5: the container-side path the watched-folder task
       # (`app.tasks.slicer_watch`, routed to the `io` queue this worker
       # consumes) polls. Only fires ticks once `WATCH_INTERVAL`
-      # is also set in `.env` AND the `beat` profile is running.
+      # is also set in Settings AND `beat` is running.
       WATCH_DIR: /watch
       PUID: ${PUID:-}
       PGID: ${PGID:-}
@@ -212,26 +222,35 @@ services:
     restart: unless-stopped
 
   # Q11 virtual printer: a fake LAN Bambu printer (SSDP UDP 2021, MQTT/TLS
-  # 8883, FTPS 990) that turns a slicer "print" into a queue entry. Opt-in
-  # (`docker compose --profile virtual-printer up -d`, or add it to
-  # COMPOSE_PROFILES) and host-networked so slicers on the LAN can discover
-  # it: with `network_mode: host` the service cannot resolve `db`/`redis` by
-  # name, so DATABASE_URL/REDIS_URL in `.env` must be reachable from the
-  # host (e.g. localhost + published ports, or the LAN address). It checks
-  # the three ports are free at start and exits non-zero otherwise. Also set
-  # TDMM_VP_ENABLED=true in `.env` to show the Settings card. Tunables:
-  # TDMM_VP_BIND, TDMM_VP_PORT_{SSDP,MQTT,FTP}, TDMM_VP_PASV_{MIN,MAX,ADDRESS}.
+  # 8883, FTPS 990) that turns a slicer "print" into a queue entry. Always
+  # on, but it idles without binding any port until a virtual printer is
+  # enabled in Settings, and it hot-reloads network changes (bind, ports, PASV
+  # range) made in Settings -> Server. Host-networked so slicers on the LAN
+  # can discover it: with `network_mode: host` it cannot resolve `db`/`redis`
+  # by name, so DATABASE_URL/REDIS_URL are overridden below to the loopback
+  # host ports db/redis publish (TDMM_DB_HOST_PORT / TDMM_REDIS_HOST_PORT).
+  # The credentials come from the same POSTGRES_* interpolation as the db
+  # service. A port conflict shows as an error in Settings -> Server; the
+  # process keeps running and retries.
   virtual-printer:
     build:
       context: .
       dockerfile: docker/Dockerfile
     image: tdmm:local
-    profiles: ["virtual-printer"]
     network_mode: host
     command: ["python", "-m", "app.virtual_printer"]
     # No PUID/PGID: runs as root on purpose (privileged ports 990/8883 need it).
     env_file:
       - .env
+    # Overrides env_file: host networking can't resolve `db`/`redis`.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tdmm}:${POSTGRES_PASSWORD:-tdmm}@127.0.0.1:${TDMM_DB_HOST_PORT:-15432}/${POSTGRES_DB:-tdmm}
+      REDIS_URL: redis://127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - tdmm_data:/data
       - ./library:/library
@@ -240,14 +259,18 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      # Must match the credentials embedded in DATABASE_URL in .env.
-      POSTGRES_USER: tdmm
-      POSTGRES_PASSWORD: tdmm
-      POSTGRES_DB: tdmm
+      # Must match the credentials embedded in DATABASE_URL in .env. Also feeds
+      # the virtual-printer's DATABASE_URL below (single source).
+      POSTGRES_USER: ${POSTGRES_USER:-tdmm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tdmm}
+      POSTGRES_DB: ${POSTGRES_DB:-tdmm}
+    # Loopback-only host port, for the host-networked virtual-printer.
+    ports:
+      - "127.0.0.1:${TDMM_DB_HOST_PORT:-15432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tdmm -d tdmm"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -260,6 +283,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Loopback-only host port, for the host-networked virtual-printer.
+    ports:
+      - "127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

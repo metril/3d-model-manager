@@ -9,9 +9,11 @@
 # flag flipped on to drive the setup wizard/CRUD, a Developer-Mode test
 # probe that soft-fails with no hardware present, and the bare-`.gcode`/
 # not-ready-printer send-flow rejections -- no printer hardware or MQTT
-# broker involved) -- then tears the stack down. test_m4_printer.py toggles
-# `PRINTER_ENABLED` in `.env` and force-recreates the `api` container
-# itself, so no extra compose bring-up/profile flag is needed here.
+# broker involved) -- then tears the stack down. test_m4_printer.py flips the
+# printer flag live via `PUT /api/settings/app`, so no `.env` edit or
+# container recreate is needed. Only the core services are brought up (the
+# always-on slicer/obico-ml/virtual-printer sidecars are not needed by the
+# suite and would slow CI).
 #
 # Usage: scripts/e2e.sh [--keep-volumes]
 set -euo pipefail
@@ -67,8 +69,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Explicit core list: `compose.yaml` includes the slicer / obico-ml sidecars
+# (always-on, no profiles) and the virtual-printer; none are exercised here.
+CORE_SERVICES=(db redis api worker-io worker-cpu beat printerd)
+
 echo "==> Building and starting the stack..."
-docker compose up -d --build
+docker compose up -d --build "${CORE_SERVICES[@]}"
 
 echo "==> Waiting for ${HEALTH_URL} (timeout ${HEALTH_TIMEOUT_S}s)..."
 elapsed=0

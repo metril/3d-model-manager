@@ -1,7 +1,8 @@
 name: E2E
 
 # The docker-compose acceptance gate: scripts/e2e.sh brings the whole stack up
-# with `docker compose up -d --build`, waits up to 120s for GET /api/health,
+# core services (db redis api worker-io worker-cpu beat printerd -- not the
+# slicer/obico-ml/virtual-printer sidecars) with `docker compose up -d --build`, waits up to 120s for GET /api/health,
 # runs everything under backend/tests_e2e/ against the real HTTP API, then tears
 # the stack down again.
 #
