@@ -1802,6 +1802,9 @@ export interface PrintRecipe {
   n: number | null;
   created_by_user_id: number | null;
   created_at: string;
+  /** Only set when listed with `?printer_id=`; null/absent otherwise. */
+  compatible?: boolean | null;
+  incompatible_reason?: string | null;
 }
 
 export interface PrintRecipeIn {

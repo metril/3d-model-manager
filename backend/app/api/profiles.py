@@ -35,6 +35,7 @@ from app.schemas.slicing import (
     RecipeUpdate,
     SlicerHealthOut,
 )
+from app.services.print_plan import recipe_compatibility_reason
 from app.services.server_config import get_server_config
 from app.services.slicer_client import (
     SlicerError,
@@ -395,9 +396,36 @@ async def _validate_recipe(
 
 
 @router.get("/recipes", response_model=list[RecipeOut])
-async def list_recipes(db: AsyncSession = Depends(get_db)) -> list[RecipeOut]:
+async def list_recipes(
+    printer_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> list[RecipeOut]:
     rows = (await db.execute(select(PrintRecipe).order_by(PrintRecipe.name))).scalars().all()
-    return [RecipeOut.model_validate(row, from_attributes=True) for row in rows]
+    out = [RecipeOut.model_validate(row, from_attributes=True) for row in rows]
+    if printer_id is None:
+        return out
+    printer = await db.get(Printer, printer_id)
+    if printer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+    ctx.require_printer(printer_id, "print")
+    models = {
+        pid: model
+        for pid, model in (
+            await db.execute(select(SlicerProfile.id, SlicerProfile.printer_model))
+        ).all()
+    }
+    names = {pid: name for pid, name in (await db.execute(select(Printer.id, Printer.name))).all()}
+    for recipe, item in zip(rows, out, strict=True):
+        reason = recipe_compatibility_reason(
+            recipe,
+            models.get(recipe.printer_profile_id),
+            printer,
+            names.get(recipe.target_printer_id),
+        )
+        item.compatible = reason is None
+        item.incompatible_reason = reason
+    return out
 
 
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)

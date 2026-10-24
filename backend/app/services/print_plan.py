@@ -63,6 +63,27 @@ def model_matches(need: str | None, printer_model: str | None) -> bool:
     return a in b or b in a
 
 
+def recipe_compatibility_reason(
+    recipe, profile_printer_model: str | None, printer, pinned_name: str | None = None
+) -> str | None:
+    """Why ``recipe`` can't run on ``printer`` (``None`` when it can).
+
+    Used by the recipe picker (``GET /recipes?printer_id=``): a pin to a
+    different printer, a ``target_printer_model`` mismatch, or the recipe's
+    printer *profile* being for another model -- the latter two via
+    ``model_matches``. The dispatcher applies only the pin and target-model
+    checks (``app.services.dispatcher``), so the picker is the stricter of
+    the two by design.
+    """
+    if recipe.target_printer_id is not None and recipe.target_printer_id != printer.id:
+        return f"pinned to {pinned_name or 'another printer'}"
+    if not model_matches(recipe.target_printer_model, printer.model):
+        return f"for {recipe.target_printer_model}"
+    if not model_matches(profile_printer_model, printer.model):
+        return f"profile is for {profile_printer_model}"
+    return None
+
+
 class NotSendableError(ValueError):
     """A file/blob isn't in a state ``create_job``/``create_job_sync`` can
     send to a printer (wrong format, missing blob)."""

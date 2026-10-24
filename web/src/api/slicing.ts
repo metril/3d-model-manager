@@ -3,7 +3,7 @@
  * health (backend `app.api.profiles`, P6 "slicer, profiles and dispatch"
  * plan, Task 9). Mirrors `materials.ts`'s hooks shape.
  */
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import type {
@@ -65,13 +65,18 @@ export function useImportProfiles() {
   });
 }
 
-export const recipesQueryOptions = queryOptions({
-  queryKey: ["recipes"] as const,
-  queryFn: () => api.get<PrintRecipe[]>("/recipes"),
-});
+/** Prefix of every recipes query key; mutations invalidate by this. */
+const RECIPES_KEY = ["recipes"] as const;
 
-export function useRecipes() {
-  return useQuery(recipesQueryOptions);
+/** `printerId` asks the backend to annotate each recipe with `compatible` /
+ * `incompatible_reason` for that printer (the single source of truth). */
+export function useRecipes(printerId?: number) {
+  return useQuery({
+    queryKey: [...RECIPES_KEY, printerId ?? null] as const,
+    queryFn: () =>
+      api.get<PrintRecipe[]>(printerId != null ? `/recipes?printer_id=${printerId}` : "/recipes"),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useSaveRecipe() {
@@ -81,7 +86,7 @@ export function useSaveRecipe() {
       id != null
         ? api.patch<PrintRecipe>(`/recipes/${id}`, payload)
         : api.post<PrintRecipe>("/recipes", payload),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: recipesQueryOptions.queryKey }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: RECIPES_KEY }),
   });
 }
 
@@ -89,7 +94,7 @@ export function useDeleteRecipe() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/recipes/${id}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: recipesQueryOptions.queryKey }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: RECIPES_KEY }),
   });
 }
 

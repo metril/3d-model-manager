@@ -39,6 +39,18 @@ vi.mock("@/api/finance", () => ({
   useCostCenters: () => ({ data: costCentersBox.current }),
 }));
 
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    Link: ({ to, children, ...rest }: { to: string; children?: ReactNode } & Record<string, unknown>) => (
+      <a href={to} {...rest}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 vi.mock("sonner", () => ({
   toast: { success: toastSuccessMock, error: vi.fn() },
 }));
@@ -120,6 +132,8 @@ const PRINTER_PROFILE = {
   updated_at: "2026-06-01T00:00:00Z",
 };
 
+const recipesBox: { current: unknown[] } = { current: [RECIPE] };
+
 function mockApi({
   trays,
   slicerOk = true,
@@ -152,8 +166,8 @@ function mockApi({
     if (path.startsWith("/files/")) {
       return Promise.resolve({ id: 10, rel_path: "a.gcode.3mf", format: "gcode_3mf" });
     }
-    if (path === "/recipes") {
-      return Promise.resolve([RECIPE]);
+    if (path.startsWith("/recipes")) {
+      return Promise.resolve(recipesBox.current);
     }
     if (path === "/slicer/health") {
       return Promise.resolve({ configured: true, ok: slicerOk, version: slicerOk ? "1.2.5.7" : null });
@@ -213,6 +227,7 @@ beforeEach(() => {
   authDataBox.current = { id: 1, role: "member", permissions: [], printer_access: null };
   financeConfigBox.current = { billing_enabled: false };
   costCentersBox.current = [];
+  recipesBox.current = [RECIPE];
   mockApi();
 });
 
@@ -584,5 +599,44 @@ describe("PrintDialog", () => {
     const btn = await screen.findByRole("button", { name: "Slice and send" });
     expect(btn).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add to queue" })).toBeDisabled();
+  });
+
+  it("asks the backend for recipes annotated for the chosen printer", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
+    await screen.findByLabelText("PLA fast");
+    expect(getMock).toHaveBeenCalledWith("/recipes?printer_id=5");
+  });
+
+  it("shows compatible recipes enabled and incompatible ones disabled with the reason", async () => {
+    recipesBox.current = [
+      { ...RECIPE, target_printer_model: "Bambu Lab A1 mini", compatible: true, incompatible_reason: null },
+      {
+        ...RECIPE,
+        id: 10,
+        name: "X1C fast",
+        target_printer_model: "Bambu Lab X1 Carbon",
+        compatible: false,
+        incompatible_reason: "for Bambu Lab X1 Carbon",
+      },
+    ];
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
+    expect(await screen.findByLabelText("PLA fast")).toBeEnabled();
+    expect(screen.getByLabelText(/X1C fast/)).toBeDisabled();
+    expect(screen.getByText("for Bambu Lab X1 Carbon")).toBeInTheDocument();
+    expect(screen.queryByText(/None of your recipes fit/)).not.toBeInTheDocument();
+  });
+
+  it("explains when no recipe fits the printer", async () => {
+    recipesBox.current = [
+      { ...RECIPE, compatible: false, incompatible_reason: "for Bambu Lab X1 Carbon" },
+    ];
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
+    expect(await screen.findByText(/None of your recipes fit A1/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create a recipe to slice" })).toBeInTheDocument();
+  });
+
+  it("an iges source offers recipes", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "iges" });
+    expect(await screen.findByLabelText("PLA fast")).toBeInTheDocument();
   });
 });
