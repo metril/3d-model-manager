@@ -173,6 +173,21 @@ class ArchiveResult(StrEnum):
     STOPPED = "stopped"
 
 
+class ArchiveVerdict(StrEnum):
+    """T7 outcome-confirm verdict on an archived run."""
+
+    GOOD = "good"
+    BAD = "bad"
+
+
+class VerdictSource(StrEnum):
+    DIALOG = "dialog"
+    LINK = "link"
+    PLATE_CLEAR = "plate_clear"
+    CARD = "card"
+    API = "api"
+
+
 class ArchiveFetchState(StrEnum):
     """Progress of pulling a run's artifacts off the printer (P2
     ``print_archives.fetch_state``)."""

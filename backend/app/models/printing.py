@@ -19,16 +19,18 @@ from sqlalchemy import (
     text,
     true,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, str_enum
 from app.models.enums import (
     ArchiveFetchState,
     ArchiveResult,
+    ArchiveVerdict,
     PrinterKind,
     PrintJobOrigin,
     PrintJobState,
+    VerdictSource,
 )
 
 
@@ -93,6 +95,33 @@ class PrintJob(Base):
     # queued/started/finished lifecycle (see the state enum), so all three
     # are kept distinct rather than collapsing to created_at alone.
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # T7 archive extras.
+    notes: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    result_override: Mapped[ArchiveResult | None] = mapped_column(
+        str_enum(ArchiveResult, "archive_result_override"), nullable=True
+    )
+    confirm_requested: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    # sha256 hex of the plaintext token (only ever shown in the notification).
+    confirm_token: Mapped[str | None] = mapped_column(Text, unique=True)
+    confirm_token_used_at: Mapped[datetime | None] = mapped_column()
+    confirm_expires_at: Mapped[datetime | None] = mapped_column()
+    user_verdict: Mapped[ArchiveVerdict | None] = mapped_column(
+        str_enum(ArchiveVerdict, "archive_user_verdict"), nullable=True
+    )
+    user_verdict_source: Mapped[VerdictSource | None] = mapped_column(
+        str_enum(VerdictSource, "archive_verdict_source"), nullable=True
+    )
+    verdict_at: Mapped[datetime | None] = mapped_column()
+    verdict_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # [{filename, blob, kind: photo|timelapse, uploaded_by, at}]
+    photos: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
