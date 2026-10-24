@@ -192,6 +192,16 @@ celery_app.conf.beat_schedule["obico-prune"] = {
     "schedule": crontab(hour=3, minute=30),
 }
 
+# Additive: T7 archive retention purge (03:30) + hourly confirm-default sweep.
+celery_app.conf.beat_schedule["archive-purge"] = {
+    "task": "app.tasks.archive.purge",
+    "schedule": crontab(hour=3, minute=30),
+}
+celery_app.conf.beat_schedule["archive-confirm-defaults"] = {
+    "task": "app.tasks.archive.confirm_defaults",
+    "schedule": crontab(minute=7),
+}
+
 
 # Server settings (spec "Seed / precedence"): every long-lived process seeds
 # the DB-backed `server` + `obico` rows at start (idempotent, ON CONFLICT DO

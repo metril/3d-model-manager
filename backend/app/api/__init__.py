@@ -42,6 +42,7 @@ from app.api import (
     admin_oidc,
     admin_ops,
     archives,
+    archives_extras,
     auth,
     blobs,
     categories,
@@ -100,6 +101,7 @@ api_router.include_router(files.public_router)
 api_router.include_router(printers.camera_public_router)
 api_router.include_router(printers.overlay_router)
 api_router.include_router(obico.public_router)
+api_router.include_router(archives_extras.public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
@@ -138,6 +140,8 @@ protected_router.include_router(printers.router)
 protected_router.include_router(print_flow.router)
 protected_router.include_router(print_jobs.router)
 protected_router.include_router(prints.router)
+protected_router.include_router(archives_extras.router)
+protected_router.include_router(archives_extras.settings_router)
 protected_router.include_router(archives.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
