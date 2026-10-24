@@ -44,6 +44,7 @@ from app.api import (
     archives,
     archives_extras,
     auth,
+    batches,
     blobs,
     categories,
     collections,
@@ -157,8 +158,11 @@ protected_router.include_router(archives.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
+protected_router.include_router(queue.printer_queue_router)
 protected_router.include_router(queue_settings.router)
 protected_router.include_router(drying.router)
+protected_router.include_router(queue_settings.preheat_router)
+protected_router.include_router(batches.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)
