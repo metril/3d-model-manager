@@ -340,7 +340,18 @@ def test_snapshot_a1_mini_v2_fields(monkeypatch):
     assert ps.sdcard is True and ps.nozzle_type == "hardened_steel" and ps.ipcam is True
     assert ps.firmware == {"ota": "01.07.00.00", "ams": [{"id": 0, "sw_ver": "00.00.06.49"}]}
     assert ps.ams_units == [
-        {"id": 0, "humidity": 31.0, "temp": 24.6, "serial": "AMS123", "fw": "00.00.06.49"}
+        {
+            "id": 0,
+            "humidity": 31.0,
+            "temp": 24.6,
+            "serial": "AMS123",
+            "fw": "00.00.06.49",
+            "dry_time_min": None,
+            "dry_status": None,
+            "dry_sub_status": None,
+            "dry_sf_reason": [],
+            "humidity_index": 4,
+        }
     ]
     assert ps.ext_tray is not None and ps.ext_tray["material"] == "PLA"
     assert ps.dev_mode is None and ps.last_report_at
