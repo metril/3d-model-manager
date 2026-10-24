@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
 import type { StorageBackendOut } from "@/api/types";
+import { fakeServer, fakeStatus } from "@/components/settings/server/fixtures";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppearanceProvider } from "@/lib/appearance";
 import { SettingsPage } from "@/pages/SettingsPage";
 
@@ -84,8 +86,8 @@ vi.mock("@/components/ui/tabs", async () => {
     setValue: () => {},
   });
   return {
-    Tabs: ({ defaultValue, children }: { defaultValue?: string; children?: ReactNode }) => {
-      const [value, setValue] = React.useState(defaultValue ?? "");
+    Tabs: ({ value: initial, children }: { value?: string; children?: ReactNode }) => {
+      const [value, setValue] = React.useState(initial ?? "");
       return <TabsCtx.Provider value={{ value, setValue }}>{children}</TabsCtx.Provider>;
     },
     TabsList: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -138,6 +140,9 @@ function mockGet(backends: StorageBackendOut[] = []) {
     // BambuAccountCard's status query -- a well-shaped not-connected response.
     if (path === "/settings/bambu") return Promise.resolve({ connected: false, account: null, region: "global" });
     if (path === "/settings/app") return Promise.resolve(fakeAppSettings());
+    if (path === "/settings/server") return Promise.resolve(fakeServer());
+    if (path === "/settings/server/status") return Promise.resolve(fakeStatus());
+    if (path === "/virtual-printers") return Promise.resolve([]);
     if (path === "/features") return Promise.resolve({ printer_enabled: false, watch_dir: null, watch_enabled: false });
     return Promise.resolve([]);
   });
@@ -166,7 +171,9 @@ function renderSettingsPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <AppearanceProvider>
-        <RouterProvider router={router} />
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
       </AppearanceProvider>
     </QueryClientProvider>,
   );
@@ -182,6 +189,28 @@ beforeEach(() => {
 });
 
 describe("SettingsPage access gating", () => {
+  it("shows the Server tab only to admins", async () => {
+    mockGet();
+    renderSettingsPage();
+    fireEvent.click(await screen.findByRole("tab", { name: "Server" }));
+    expect(await screen.findByLabelText("Public URL")).toBeInTheDocument();
+  });
+
+  it("hides the Server tab without admin", async () => {
+    mockGet();
+    authState.perms = ["settings:write"];
+    renderSettingsPage();
+    await screen.findAllByRole("tab");
+    expect(screen.queryByRole("tab", { name: "Server" })).not.toBeInTheDocument();
+  });
+
+  it("always renders the virtual printer card on the Printer tab", async () => {
+    mockGet();
+    renderSettingsPage();
+    fireEvent.click(await screen.findByRole("tab", { name: "Printer" }));
+    expect(await screen.findByText("Virtual printer")).toBeInTheDocument();
+  });
+
   it("hides the Access tab for a member without admin", async () => {
     mockGet();
     authState.perms = ["settings:write"];
@@ -210,13 +239,13 @@ describe("SettingsPage access gating", () => {
 });
 
 describe("SettingsPage tabs", () => {
-  it("shows exactly General, Storage, Printer, Notifications, Accounts, and Access tabs (admin) -- no Scan tab", async () => {
+  it("shows exactly General, Storage, Printer, Notifications, Accounts, Access, and Server tabs (admin) -- no Scan tab", async () => {
     mockGet();
 
     renderSettingsPage();
 
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Notifications", "Accounts", "Access"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Notifications", "Accounts", "Access", "Server"]);
     expect(screen.queryByRole("tab", { name: "Scan" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Imports" })).not.toBeInTheDocument();
   });

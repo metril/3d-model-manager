@@ -1,8 +1,7 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
-import { useFeatures } from "@/api/features";
 import { useStorageBackends } from "@/api/settings";
 import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
@@ -29,6 +28,7 @@ import { SiteTokensCard } from "@/components/settings/SiteTokensCard";
 import { SlicerIntegrationCard } from "@/components/settings/SlicerIntegrationCard";
 import { SpoolmanCard } from "@/components/settings/SpoolmanCard";
 import { StorageBackendsCard } from "@/components/settings/StorageBackendsCard";
+import { ServerTab } from "@/components/settings/server/ServerTab";
 import { UsersCard } from "@/components/settings/UsersCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,9 +43,10 @@ export function SettingsPage() {
   const backendsQuery = useStorageBackends();
   const auth = useAuth();
   const { t } = useTranslation();
-  const features = useFeatures();
   const canSettings = auth.can("settings:write");
   const isAdmin = auth.can("admin");
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const navigate = useNavigate();
 
   return (
     <PageContainer width="default">
@@ -73,7 +74,10 @@ export function SettingsPage() {
           </div>
         </Card>
       ) : (
-        <Tabs defaultValue="general">
+        <Tabs
+          value={search.tab ?? "general"}
+          onValueChange={(v) => void navigate({ to: "/settings", search: { tab: v }, replace: true })}
+        >
           <TabsList>
             <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}
@@ -83,6 +87,7 @@ export function SettingsPage() {
             )}
             <TabsTrigger value="accounts">{t("settings.tabs.accounts")}</TabsTrigger>
             {isAdmin && <TabsTrigger value="access">{t("settings.tabs.access")}</TabsTrigger>}
+            {isAdmin && <TabsTrigger value="server">{t("settings.tabs.server")}</TabsTrigger>}
           </TabsList>
           <TabsContent value="general" className="space-y-6">
             <AppearanceCard />
@@ -107,7 +112,7 @@ export function SettingsPage() {
               <PrinterSetupCard />
               <FailureDetectionCard />
               <HomeAssistantCard />
-              {features.data?.virtual_printer_enabled && <VirtualPrinterCard />}
+              <VirtualPrinterCard />
             </TabsContent>
           )}
           {canSettings && (
@@ -153,6 +158,11 @@ export function SettingsPage() {
               <UsersCard />
               <GroupsCard />
               <OidcProvidersCard />
+            </TabsContent>
+          )}
+          {isAdmin && (
+            <TabsContent value="server" className="space-y-6">
+              <ServerTab />
             </TabsContent>
           )}
         </Tabs>

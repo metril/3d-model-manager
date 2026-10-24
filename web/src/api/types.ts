@@ -538,9 +538,11 @@ export interface Features {
   // interval), so the frontend never re-derives it.
   watch_dir: string | null;
   watch_enabled: boolean;
-  // Q11: `TDMM_VP_ENABLED` -- shows the Settings virtual printer card.
+  // Always true (the virtual printer ships always-on; kept for compat). Its
+  // network config lives in Settings -> Server.
   virtual_printer_enabled?: boolean;
-  // `TDMM_SLICER_URL` is set -- the slicer sidecar can slice unsliced models.
+  // Slicer enabled + URL set in Settings -> Server (DB only; live health comes
+  // from `/settings/server/status` and `/slicer/health`).
   slicer_configured?: boolean;
 }
 
