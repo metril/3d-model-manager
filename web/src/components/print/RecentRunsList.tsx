@@ -14,6 +14,7 @@ import { RunDetailSheet } from "@/components/print/RunDetailSheet";
 import { Button } from "@/components/ui/button";
 import { StateBadge } from "@/components/ui/state-badge";
 import { formatCost } from "@/lib/format";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { totalGrams } from "@/lib/totalGrams";
 import { toneForResult } from "@/lib/printerState";
 
@@ -65,18 +66,22 @@ export function RecentRunsList({ runs, limit = 10 }: { runs: ArchiveOut[]; limit
   const shown = runs.slice(0, limit);
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="label-caps">Recent runs</span>
-      {shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No runs yet.</p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {shown.map((run) => (
-            <RunRow key={run.id} run={run} onOpen={setOpenId} />
-          ))}
-        </ul>
-      )}
-      <RunDetailSheet archiveId={openId} onOpenChange={(open) => !open && setOpenId(null)} />
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent runs</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {shown.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No runs yet.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {shown.map((run) => (
+              <RunRow key={run.id} run={run} onOpen={setOpenId} />
+            ))}
+          </ul>
+        )}
+        <RunDetailSheet archiveId={openId} onOpenChange={(open) => !open && setOpenId(null)} />
+      </CardContent>
+    </Card>
   );
 }

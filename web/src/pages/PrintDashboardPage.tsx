@@ -128,7 +128,7 @@ export function PrintDashboardPage() {
               Sort
               <select
                 aria-label="Sort printers"
-                className="h-8 rounded-md border bg-background px-2 text-sm"
+                className="h-8 rounded-md border bg-card px-2 text-sm"
                 value={search.sort ?? "name"}
                 onChange={(e) => patchSearch({ sort: e.target.value === "name" ? undefined : (e.target.value as PrintDashSearch["sort"]) })}
               >

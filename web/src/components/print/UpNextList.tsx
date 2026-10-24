@@ -21,6 +21,7 @@ import { useMoveQueueEntry } from "@/api/queue";
 import type { QueueEntry } from "@/api/types";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function UpNextRow({ entry }: { entry: QueueEntry }) {
   const moveEntry = useMoveQueueEntry();
@@ -77,10 +78,18 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
   );
 }
 
-export function UpNextList({ entries, printerId }: { entries: QueueEntry[]; printerId?: number }) {
-  return (
-    <div className="flex flex-col gap-2" data-printer-id={printerId}>
-      <span className="label-caps">Up next</span>
+export function UpNextList({
+  entries,
+  printerId,
+  bare = false,
+}: {
+  entries: QueueEntry[];
+  printerId?: number;
+  /** Render without the Card surface, for placement inside another card. */
+  bare?: boolean;
+}) {
+  const body = (
+    <>
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {printerId != null ? "Nothing queued for this printer." : "Nothing queued."}
@@ -95,6 +104,22 @@ export function UpNextList({ entries, printerId }: { entries: QueueEntry[]; prin
       <Link to="/print/queue" className="text-xs text-muted-foreground hover:underline">
         All queue
       </Link>
-    </div>
+    </>
+  );
+  if (bare) {
+    return (
+      <div className="flex flex-col gap-2" data-printer-id={printerId}>
+        <span className="label-caps">Up next</span>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <Card data-printer-id={printerId}>
+      <CardHeader>
+        <CardTitle>Up next</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">{body}</CardContent>
+    </Card>
   );
 }
