@@ -253,6 +253,14 @@ class FakePrinterAdapter(PrinterAdapter):
     def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
         self._record("ams_slot_reset", ams_id, tray_id)
 
+    def drying_start(
+        self, ams_id: int, temp: int, duration_hours: int, filament: str, rotate_tray: bool
+    ) -> None:
+        self._record("drying_start", ams_id, temp, duration_hours, filament, rotate_tray)
+
+    def drying_stop(self, ams_id: int) -> None:
+        self._record("drying_stop", ams_id)
+
     def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
         self._record("start_sd_print", path, plate, use_ams)
 

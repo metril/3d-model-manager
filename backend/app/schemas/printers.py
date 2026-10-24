@@ -137,6 +137,8 @@ class CapabilitiesOut(BaseModel):
     max_bed: int | None = None
     max_nozzle: int | None = None
     ams_drying: bool = False
+    drying_screen_only: bool = False
+    ams_drying_while_printing: bool = False
     xcam_modules: list[str] = Field(default_factory=list)
     sd_browser: bool = False
     sd_print: bool = False
@@ -273,6 +275,15 @@ class AmsUnitOut(BaseModel):
     serial: str | None = None
     fw: str | None = None
     label: str | None = None  # T3: user label (ams_labels), merged by the status route
+    # T1 drying (info bits + adapter-cached cycle target; printer never echoes it).
+    dry_time_min: int | None = None
+    dry_status: int | None = None  # 0 off,1 checking,2 drying,3 cooling,4 stopping,5 error
+    dry_sub_status: int | None = None
+    dry_sf_reason: list[int] = Field(default_factory=list)
+    humidity_index: int | None = None  # raw 1-5 drop index (inverted vs %), display only
+    dry_target_temp: int | None = None
+    dry_filament: str | None = None
+    dry_started_at: float | None = None
 
 
 class PrinterStatusOut(BaseModel):
@@ -315,11 +326,15 @@ class PrinterStatusOut(BaseModel):
     print_options: dict = Field(default_factory=dict)
     # T3: from the DB (printers.awaiting_plate_clear), overlaid by the status route.
     awaiting_plate_clear: bool = False
+    # T1: firmware-aware capabilities (set by the status route; None offline).
+    capabilities: CapabilitiesOut | None = None
 
 
 # Everything in PrinterStatusOut that is copied verbatim from the Redis state.
 STATE_FIELDS: tuple[str, ...] = tuple(
-    k for k in PrinterStatusOut.model_fields if k not in ("online", "trays", "awaiting_plate_clear")
+    k
+    for k in PrinterStatusOut.model_fields
+    if k not in ("online", "trays", "awaiting_plate_clear", "capabilities")
 )
 
 

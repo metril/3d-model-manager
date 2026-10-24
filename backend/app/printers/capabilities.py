@@ -6,8 +6,10 @@ on real hardware; the UI shows an "untested" hint otherwise."""
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Literal
+
+from app.services import drying
 
 CameraKind = Literal["a1", "rtsp", "none"]
 
@@ -27,6 +29,9 @@ class Capabilities:
     max_bed: int | None = None
     max_nozzle: int | None = None
     ams_drying: bool = False
+    # T1: P1P/P1S dry from their own screen only; concurrent print+dry needs fw.
+    drying_screen_only: bool = False
+    ams_drying_while_printing: bool = False
     # T3: xcam modules the model exposes; SD browser / print-from-SD.
     xcam_modules: tuple[str, ...] = ()
     sd_browser: bool = False
@@ -149,7 +154,6 @@ CAPABILITIES: dict[str, Capabilities] = {
         camera="rtsp",
         max_bed=100,
         max_nozzle=300,
-        ams_drying=True,
         xcam_modules=_XCAM_ALL,
         sd_browser=True,
         sd_print=True,
@@ -165,7 +169,6 @@ CAPABILITIES: dict[str, Capabilities] = {
         camera="rtsp",
         max_bed=120,
         max_nozzle=350,
-        ams_drying=True,
         xcam_modules=_XCAM_ALL,
         sd_browser=True,
         sd_print=True,
@@ -182,7 +185,6 @@ CAPABILITIES: dict[str, Capabilities] = {
         camera="rtsp",
         max_bed=120,
         max_nozzle=350,
-        ams_drying=True,
         xcam_modules=_XCAM_ALL,
         sd_browser=True,
         sd_print=True,
@@ -199,12 +201,26 @@ CAPABILITIES: dict[str, Capabilities] = {
         camera="rtsp",
         max_bed=120,
         max_nozzle=350,
-        ams_drying=True,
         xcam_modules=_XCAM_ALL,
         sd_browser=True,
         sd_print=True,
     ),
 }
+
+
+def _with_drying(caps: Capabilities, firmware: str | None, known_fw: bool) -> Capabilities:
+    """Fill the drying flags from the T1 tables. Without a firmware string
+    (``known_fw`` False) only the model gate applies."""
+    key = caps.model_key
+    return replace(
+        caps,
+        ams_drying=drying.supports_drying(key, firmware, require_firmware=known_fw),
+        drying_screen_only=drying.drying_screen_only(key),
+        ams_drying_while_printing=drying.supports_drying_while_printing(key, firmware),
+    )
+
+
+CAPABILITIES = {k: _with_drying(v, None, False) for k, v in CAPABILITIES.items()}
 
 # Normalised (lowercase alnum) display names and internal product codes.
 _ALIASES: dict[str, str] = {
@@ -266,8 +282,14 @@ def model_key(model: str | None, serial: str | None = None) -> str | None:
     return _SERIAL_PREFIXES.get(prefix)
 
 
-def capabilities_for(model: str | None, serial: str | None = None) -> Capabilities:
+def capabilities_for(
+    model: str | None, serial: str | None = None, firmware: str | None = None
+) -> Capabilities:
     """Capabilities for a printer; unknown models get a conservative
-    all-off, unverified default."""
+    all-off, unverified default. ``firmware`` (the OTA version) tightens the
+    drying flags; omitted, only the model gate applies."""
     key = model_key(model, serial)
-    return CAPABILITIES.get(key, Capabilities()) if key else Capabilities()
+    caps = CAPABILITIES.get(key) if key else None
+    if caps is None:
+        return Capabilities()
+    return _with_drying(caps, firmware, True) if firmware else caps

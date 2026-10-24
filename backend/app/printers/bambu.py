@@ -37,6 +37,7 @@ from app.printers.base import (
 from app.printers.capabilities import capabilities_for, model_key
 from app.printers.registry import register_adapter
 from app.printers.stages import stage_name
+from app.services.drying import ACTIVE_DRY_STATUSES, ams_humidity_percent
 from app.services.spool_inventory import EXTERNAL_SLOT, EXTERNAL_UNIT, global_tray
 
 _GCODE_STATE_TO_JOB = {
@@ -217,6 +218,28 @@ def xcam_payload(module: str, enable: bool, sensitivity: str) -> dict:
 def print_option_payload(option: str, value: bool) -> dict:
     """``print.print_option`` (auto_recovery | auto_switch_filament)."""
     return {"print": {"command": "print_option", "sequence_id": "0", option: value}}
+
+
+def drying_payload(
+    ams_id: int, temp: int, duration_hours: int, filament: str, rotate_tray: bool, *, start: bool
+) -> dict:
+    """``print.ams_filament_drying`` (upstream ``send_drying_command``);
+    ``duration`` is hours on the wire. Stop = mode 0, temp/duration 0."""
+    return {
+        "print": {
+            "sequence_id": "0",
+            "command": "ams_filament_drying",
+            "ams_id": ams_id,
+            "temp": temp if start else 0,
+            "cooling_temp": 20 if start else 0,
+            "duration": duration_hours if start else 0,
+            "humidity": 0,
+            "mode": 1 if start else 0,
+            "rotate_tray": rotate_tray if start else False,
+            "filament": filament if start else "",
+            "close_power_conflict": False,
+        }
+    }
 
 
 def parse_print_options(dump: dict) -> dict:
@@ -402,6 +425,7 @@ def parse_storage(avbl: str | None, stat: str | None) -> dict | None:
 
 
 FTP_TIMEOUT_S = 30
+DRY_TARGET_GRACE_S = 120  # status lags the command; keep the target meanwhile
 
 
 def _build_ftp(conn: PrinterConnection):
@@ -604,13 +628,41 @@ def _ams_units(dump: dict, firmware: dict | None) -> list[dict]:
                 "id": uid,
                 # humidity_raw is relative-humidity %; the 1-5 `humidity` is an
                 # inverted drop index and is deliberately never used.
-                "humidity": _as_float(u.get("humidity_raw")),
                 "temp": _as_float(u.get("temp")),
                 "serial": u.get("sn") or None,
                 "fw": fw.get(uid),
+                **_dry_fields(u),
             }
         )
     return out
+
+
+def _dry_fields(u: dict) -> dict:
+    """Drying telemetry for one raw AMS unit: ``info`` is a hex bitmask
+    (dry_status = bits 4-7, dry_sub_status = bits 22-25); ``dry_sf_reason``
+    lists the codes that currently block a start."""
+    status = sub = None
+    try:
+        info = int(str(u.get("info")), 16)
+        status, sub = (info >> 4) & 0xF, (info >> 22) & 0xF
+    except (TypeError, ValueError):
+        pass
+    reasons = u.get("dry_sf_reason")
+    return {
+        "dry_time_min": _as_int(u.get("dry_time")),
+        "dry_status": status,
+        "dry_sub_status": sub,
+        "dry_sf_reason": [
+            int(r)
+            for r in (reasons if isinstance(reasons, list) else [])
+            if isinstance(r, int)
+            and not isinstance(r, bool)
+            or (isinstance(r, str) and r.isdigit())
+        ],
+        "humidity_index": _as_int(u.get("humidity")),
+        # humidity (%) comes from humidity_raw only; never from the inverted index
+        "humidity": ams_humidity_percent(u),
+    }
 
 
 def _tray_now(dump: dict) -> int | None:
@@ -789,6 +841,26 @@ class BambuLanAdapter(PrinterAdapter):
         self._dump_sig: str | None = None
         self._report_at: str | None = None
         self._opt_holds: dict[tuple[str, str], tuple[object, float]] = {}
+        # T1: the printer never echoes a drying cycle's target, so cache what
+        # we sent per AMS unit; dropped once the unit reports status 0 again.
+        self._dry_targets: dict[int, dict] = {}
+
+    def _with_dry_targets(self, units: list[dict]) -> list[dict]:
+        now = time.time()
+        for u in units:
+            tgt = self._dry_targets.get(u["id"])
+            status = u.get("dry_status")
+            if tgt is None or status is None:
+                continue
+            if status in ACTIVE_DRY_STATUSES:
+                tgt["seen"] = True
+            elif status == 0 and (tgt["seen"] or now - tgt["started_at"] > DRY_TARGET_GRACE_S):
+                del self._dry_targets[u["id"]]
+                continue
+            u["dry_target_temp"] = tgt["temp"]
+            u["dry_filament"] = tgt["filament"]
+            u["dry_started_at"] = tgt["started_at"]
+        return units
 
     def _report_time(self, dump: dict) -> str:
         """ISO time the printer last REPORTED something: bumped only when the
@@ -835,7 +907,7 @@ class BambuLanAdapter(PrinterAdapter):
             "sdcard": sdcard if isinstance(sdcard, bool) else None,
             "nozzle_type": nozzle_type,
             "firmware": firmware,
-            "ams_units": _ams_units(dump, firmware),
+            "ams_units": self._with_dry_targets(_ams_units(dump, firmware)),
             "ext_tray": _tray_entry(vt, EXTERNAL_UNIT, EXTERNAL_SLOT)
             if isinstance(vt, dict)
             else None,
@@ -1119,6 +1191,24 @@ class BambuLanAdapter(PrinterAdapter):
 
     def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
         _publish_raw(self._client(), slot_reset_payload(ams_id, tray_id))
+
+    def drying_start(
+        self, ams_id: int, temp: int, duration_hours: int, filament: str, rotate_tray: bool
+    ) -> None:
+        _publish_raw(
+            self._client(),
+            drying_payload(ams_id, temp, duration_hours, filament, rotate_tray, start=True),
+        )
+        self._dry_targets[ams_id] = {
+            "temp": temp,
+            "filament": filament,
+            "started_at": time.time(),
+            "seen": False,
+        }
+
+    def drying_stop(self, ams_id: int) -> None:
+        _publish_raw(self._client(), drying_payload(ams_id, 0, 0, "", False, start=False))
+        self._dry_targets.pop(ams_id, None)
 
     def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
         _publish_raw(self._client(), sd_project_file_payload(path, plate, use_ams))

@@ -458,6 +458,8 @@ class PrinterWorker:
                 nozzle = merged.get("nozzle_temper")
                 if not isinstance(nozzle, int | float) or nozzle < cmds.COLD_EXTRUDE_C:
                     raise cmds.CommandError("cold_extrude", "nozzle below 170 C")
+            if spec.preflight is not None:
+                spec.preflight(clean, merged)
             if command == "stop":
                 self._stop_requested = True
             self._reply_evt.clear()
@@ -473,7 +475,7 @@ class PrinterWorker:
                 }
             return {"ok": True}
         except cmds.CommandError as e:
-            return {"ok": False, "code": e.code, "message": e.message}
+            return {"ok": False, "code": e.code, "message": e.message, **e.extra}
         except NotImplementedError:
             return {"ok": False, "code": "unsupported", "message": f"{command} not supported"}
         except ValueError as e:

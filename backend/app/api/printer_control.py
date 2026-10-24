@@ -36,7 +36,7 @@ from app.printers import commands as cmds
 from app.printers.base import cmd_result_key, command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.gcode3mf import printable_objects
-from app.services import hooks
+from app.services import drying, hooks
 from app.services.printer_state import read_state_async
 from app.services.storage_backends import resolve_backend_for_file
 
@@ -59,12 +59,37 @@ _AUDITED = {
     "ams_slot_configure",
     "ams_slot_reset",
     "sd_print",
+    "drying_start",
+    "drying_stop",
 }
 _TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
 
 
-def _err(http: int, code: str, detail: str = "") -> JSONResponse:
-    return JSONResponse(status_code=http, content={"code": code, "detail": detail or code})
+def _err(http: int, code: str, detail: str = "", extra: dict | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=http, content={"code": code, "detail": detail or code, **(extra or {})}
+    )
+
+
+def _drying_gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONResponse | None:
+    """T1: model/firmware support, screen-only, print-while-drying, blocked
+    units; backfills ``clean["filament"]`` from the loaded tray."""
+    caps = capabilities_for(printer.model, printer.serial)
+    fw = (state.get("firmware") or {}).get("ota")
+    try:
+        out = drying.validate_preflight(
+            model_key=caps.model_key,
+            firmware=fw,
+            state=state,
+            ams_id=clean["ams_id"],
+            filament=clean.get("filament", ""),
+            stop=command == "drying_stop",
+        )
+    except drying.DryingRefused as e:
+        return _err(e.http, e.code, e.detail, e.extra)
+    if command == "drying_start":
+        clean["filament"] = out["filament"]
+    return None
 
 
 def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONResponse | None:
@@ -98,6 +123,8 @@ def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONRespo
         nozzle = state.get("nozzle_temper")
         if not isinstance(nozzle, int | float) or nozzle < cmds.COLD_EXTRUDE_C:
             return _err(409, "cold_extrude", "nozzle must be at least 170 C")
+    if command in ("drying_start", "drying_stop"):
+        return _drying_gate(command, clean, printer, state)
     if command == "jog" and printer.build_volume_mm:
         limit = printer.build_volume_mm.get(clean["axis"].lower())
         if isinstance(limit, int | float) and abs(clean["mm"]) > limit:
@@ -151,7 +178,8 @@ async def run_command(
                 if result.get("ok"):
                     return JSONResponse(status_code=200, content={"ok": True})
                 code = result.get("code", "error")
-                return _err(cmds.HTTP_STATUS.get(code, 409), code, result.get("message", ""))
+                extra = {k: v for k, v in result.items() if k in ("codes", "messages")}
+                return _err(cmds.HTTP_STATUS.get(code, 409), code, result.get("message", ""), extra)
             await asyncio.sleep(_POLL_S)
         return JSONResponse(
             status_code=202, content={"status": "pending", "request_id": request_id}
@@ -207,6 +235,30 @@ for _path, _command, _admin in _ROUTES:
             methods=["POST"],
             dependencies=[Depends(require_printer_access("control"))],
         )
+
+
+def _drying_endpoint(command: str):
+    async def endpoint(
+        printer_id: int,
+        body: dict = _BODY,
+        db: AsyncSession = Depends(get_db),
+        settings: Settings = Depends(get_settings),
+        ctx: AuthContext = Depends(require_session),
+    ) -> JSONResponse:
+        printer = await _get_enabled_or_404(db, printer_id)
+        return await run_command(db, settings, ctx, printer, command, body)
+
+    endpoint.__name__ = f"drying_{command}"
+    return endpoint
+
+
+for _verb in ("start", "stop"):  # T1: JSON body, not query params
+    router.add_api_route(
+        f"/{{printer_id}}/drying/{_verb}",
+        _drying_endpoint(f"drying_{_verb}"),
+        methods=["POST"],
+        dependencies=[Depends(require_printer_access("control"))],
+    )
 
 
 @router.post(

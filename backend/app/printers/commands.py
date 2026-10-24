@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.printers.base import PrinterAdapter
+from app.services import drying
 
 JOG_STEPS = (1, 10, 50)
 COLD_EXTRUDE_C = 170
@@ -20,16 +21,19 @@ HTTP_STATUS = {
     "not_printing": 409,
     "cold_extrude": 409,
     "unsupported": 422,
+    "screen_only": 409,
+    "blocked": 409,
     "invalid": 422,
     "error": 502,
 }
 
 
 class CommandError(Exception):
-    def __init__(self, code: str, message: str = "") -> None:
+    def __init__(self, code: str, message: str = "", extra: dict | None = None) -> None:
         super().__init__(message or code)
         self.code = code
         self.message = message or code
+        self.extra = extra or {}
 
 
 def _num(args: dict, key: str, lo: float, hi: float, *, integer: bool = False):
@@ -267,6 +271,45 @@ def _v_sd_print(args: dict) -> dict:
     return {"path": path, "plate": plate, "use_ams": _bool(args, "use_ams", True)}
 
 
+def _drying_ams_id(args: dict) -> int:
+    ams_id = _num(args, "ams_id", 0, 135, integer=True)
+    if not (ams_id <= 3 or ams_id >= 128):
+        raise CommandError("invalid", "ams_id must be 0-3 or 128-135")
+    return ams_id
+
+
+def _v_drying_start(args: dict) -> dict:
+    return {
+        "ams_id": _drying_ams_id(args),
+        "temp": _num(args, "temp", *drying.DRY_TEMP_RANGE, integer=True),
+        "duration_hours": _num(args, "duration_hours", *drying.DRY_HOURS_RANGE, integer=True),
+        "filament": _short_str(args, "filament", 32).strip(),
+        "rotate_tray": _bool(args, "rotate_tray", False),
+    }
+
+
+def _v_drying_stop(args: dict) -> dict:
+    return {"ams_id": _drying_ams_id(args)}
+
+
+def _pre_drying_start(clean: dict, state: dict) -> None:
+    """State-only preflight (printerd + API; model/firmware gates live in
+    ``services.drying.validate_preflight``): backfill the filament from the
+    loaded tray, refuse an unknown unit or one reporting ``dry_sf_reason``."""
+    ams_id = clean["ams_id"]
+    unit = drying.find_ams_unit(state, ams_id)
+    if unit is None:
+        raise CommandError("invalid", f"unknown AMS unit {ams_id}")
+    codes = drying.blocking_reason_codes(unit)
+    if codes:
+        raise CommandError(
+            "blocked",
+            drying.DRY_SF_REASON_MESSAGES[drying.primary_reason_code(codes)],
+            {"codes": codes, "messages": [drying.DRY_SF_REASON_MESSAGES[c] for c in codes]},
+        )
+    clean["filament"] = drying.resolve_filament(drying.unit_trays(state, ams_id), clean["filament"])
+
+
 @dataclass(frozen=True)
 class Spec:
     validate: Callable[[dict], dict]
@@ -274,6 +317,9 @@ class Spec:
     refuse_printing: bool = False  # refused server-side while RUNNING/PAUSE
     needs_printing: bool = False
     cold_check: bool = False
+    # T1: ``(clean, state)`` hook run after the generic guards; may backfill
+    # ``clean`` in place or raise ``CommandError`` (with ``extra``).
+    preflight: Callable[[dict, dict], None] | None = None
 
 
 DISPATCH: dict[str, Spec] = {
@@ -331,6 +377,14 @@ DISPATCH: dict[str, Spec] = {
         lambda a, x: a.start_sd_print(x["path"], x["plate"], x["use_ams"]),
         refuse_printing=True,
     ),
+    "drying_start": Spec(
+        _v_drying_start,
+        lambda a, x: a.drying_start(
+            x["ams_id"], x["temp"], x["duration_hours"], x["filament"], x["rotate_tray"]
+        ),
+        preflight=_pre_drying_start,
+    ),
+    "drying_stop": Spec(_v_drying_stop, lambda a, x: a.drying_stop(x["ams_id"])),
 }
 ALWAYS_ALLOWED = frozenset({"pause", "resume", "stop"})  # attempted even if dev mode is off
 

@@ -56,6 +56,7 @@ from app.printers.camera_select import (
     normalize_options,
     rotation_of,
 )
+from app.printers.capabilities import capabilities_for
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.schemas.printer_ops import (
@@ -71,6 +72,7 @@ from app.schemas.printers import (
     AmsTrayOut,
     CameraStatusOut,
     CameraUrlsOut,
+    CapabilitiesOut,
     DetectSerialIn,
     DetectSerialOut,
     OverlayOut,
@@ -533,6 +535,11 @@ async def printer_status(
     # missing/None value (older state written before this field existed) to [].
     out = status_from_state(state)
     out.awaiting_plate_clear = printer.awaiting_plate_clear
+    out.capabilities = CapabilitiesOut(
+        **capabilities_for(
+            printer.model, printer.serial, ((state.get("firmware") or {}).get("ota"))
+        ).as_dict()
+    )
     if out.ams_units:
         from app.api.printer_ops import label_map
 
