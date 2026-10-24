@@ -71,6 +71,7 @@ celery_app.conf.update(
         "app.tasks.ops",
         "app.tasks.notify",
         "app.tasks.obico",
+        "app.tasks.location_sensors",
     ),
 )
 
@@ -247,3 +248,12 @@ def _on_task_prerun(**_: object) -> None:
     if _level_poller is None:
         _level_poller = LevelPoller(ttl_s=30)
     _level_poller.maybe_apply_sync(base.sync_session)
+
+
+# Additive: T5 storage-location HA sensor poll (no-op without HA/sensors).
+from app.tasks import location_sensors as _location_sensors  # noqa: E402
+
+celery_app.conf.beat_schedule["location-sensors-poll"] = {
+    "task": "location_sensors.poll",
+    "schedule": _location_sensors.POLL_INTERVAL_S,
+}
