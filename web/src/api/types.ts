@@ -2248,6 +2248,8 @@ export interface Batch {
   name: string;
   model_id: number | null;
   file_id: number | null;
+  model_name?: string | null;
+  file_name?: string | null;
   recipe_id: number | null;
   printer_id: number | null;
   quantity: number;
@@ -2272,6 +2274,9 @@ export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
   notes?: string;
   plate_targets?: Record<string, number>;
   cost_center_id?: number | null;
+  ams_mapping?: number[] | null;
+  options?: PlanOptions | null;
+  copies_per_entry?: number;
 }
 
 /** PATCH /batches/{id}: no scheduling fields; quantity/plate_targets/recipe_id/

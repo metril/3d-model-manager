@@ -170,17 +170,21 @@ export function QueuePage() {
   const { t } = useTranslation();
   const search = useSearch({ strict: false }) as { tab?: "queue" | "batches"; batch?: number };
   const navigate = useNavigate();
-  const tab = search.tab === "batches" ? "batches" : "queue";
+  const { can } = useAuth();
+  const canReview = can("queue:review");
+  const tab = canReview && search.tab === "batches" ? "batches" : "queue";
   return (
     <PageContainer width="fluid">
       <Tabs
         value={tab}
         onValueChange={(v) => void navigate({ to: "/print/queue", search: { tab: v as "queue" | "batches" } })}
       >
-        <TabsList>
-          <TabsTrigger value="queue">{t("queueSched.tabs.queue")}</TabsTrigger>
-          <TabsTrigger value="batches">{t("queueSched.tabs.batches")}</TabsTrigger>
-        </TabsList>
+        {canReview ? (
+          <TabsList>
+            <TabsTrigger value="queue">{t("queueSched.tabs.queue")}</TabsTrigger>
+            <TabsTrigger value="batches">{t("queueSched.tabs.batches")}</TabsTrigger>
+          </TabsList>
+        ) : null}
         <TabsContent value="queue" className="space-y-4">
           <QueueLanes />
         </TabsContent>

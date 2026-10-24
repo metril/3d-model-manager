@@ -38,6 +38,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ImageIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
@@ -376,6 +377,7 @@ export function PrintDialog({
     setAutoAdvanced(true);
   }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length]);
 
+  const { t } = useTranslation();
   const enqueueRaw = useEnqueue();
   const createBatch = useCreateBatch();
   const dispatchBatch = useDispatchBatch();
@@ -389,7 +391,8 @@ export function PrintDialog({
   function submitQueue(body: QueueEnqueueBody, onSuccess: () => void) {
     const fields = draftToFields(sched);
     if (batchChoice.mode === "new") {
-      const name = batchChoice.name.trim() || `Batch ${new Date().toLocaleDateString()}`;
+      const name =
+        batchChoice.name.trim() || t("queueSched.defaultBatchName", { date: new Date().toLocaleDateString() });
       createBatch
         .mutateAsync({
           name,
@@ -399,10 +402,18 @@ export function PrintDialog({
           printer_id: body.printer_id ?? null,
           plate_targets: body.plate != null ? { [String(body.plate)]: batchChoice.quantity } : {},
           cost_center_id: body.cost_center_id ?? null,
+          ams_mapping: body.ams_mapping ?? null,
+          options: body.options ?? null,
+          ...(body.copies != null ? { copies_per_entry: body.copies } : {}),
           ...fields,
         })
-        .then((b) => dispatchBatch.mutateAsync(b.id))
-        .then(onSuccess)
+        .then((b) => {
+          // Created: a failed dispatch must not let a retry create a 2nd batch.
+          setBatchChoice({ ...batchChoice, mode: b.id });
+          return dispatchBatch.mutateAsync(b.id).then(onSuccess, () => {
+            toast.error(t("queueSched.batchDraftOnly"));
+          });
+        })
         .catch(() => undefined);
       return;
     }

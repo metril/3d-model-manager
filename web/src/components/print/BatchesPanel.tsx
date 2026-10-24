@@ -362,7 +362,7 @@ export function BatchesPanel({ openBatchId = null }: { openBatchId?: number | nu
   useEffect(() => setDetail(openBatchId), [openBatchId]);
 
   function err(e: unknown) {
-    toast.error(e instanceof ApiError ? e.detail : "Request failed");
+    toast.error(e instanceof ApiError ? e.detail : t("queueSched.batches.requestFailed"));
   }
 
   if (batches.isLoading) return <Skeleton className="h-48 w-full rounded-lg" />;
@@ -402,7 +402,13 @@ export function BatchesPanel({ openBatchId = null }: { openBatchId?: number | nu
                   </button>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {b.model_id != null ? `Model #${b.model_id}` : b.file_id != null ? `File #${b.file_id}` : "-"}
+                  {b.model_name ??
+                    b.file_name ??
+                    (b.model_id != null
+                      ? t("queueSched.batches.modelId", { id: b.model_id })
+                      : b.file_id != null
+                        ? t("queueSched.batches.fileId", { id: b.file_id })
+                        : "-")}
                 </TableCell>
                 <TableCell>{b.quantity}</TableCell>
                 <TableCell>

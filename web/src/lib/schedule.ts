@@ -64,6 +64,21 @@ export function isScheduleSet(draft: ScheduleDraft): boolean {
   return Object.keys(draftToFields(draft)).length > 0;
 }
 
+/** PATCH body with only the keys whose draft value differs from `base`
+ * (untouched `scheduled_at` keeps its original seconds server-side). */
+export function changedPatch(base: ScheduleDraft, draft: ScheduleDraft): Omit<QueueSchedulingFields, "batch_id"> {
+  const full = draftToPatch(draft);
+  const out: Omit<QueueSchedulingFields, "batch_id"> = {};
+  if (base.startAt !== draft.startAt) out.scheduled_at = full.scheduled_at;
+  if (base.manualStart !== draft.manualStart) out.manual_start = full.manual_start;
+  if (base.requirePrev !== draft.requirePrev) out.require_previous_success = full.require_previous_success;
+  if (base.autoOff !== draft.autoOff) out.auto_off_after = full.auto_off_after;
+  if (base.preheat !== draft.preheat) out.preheat_override = full.preheat_override;
+  if (base.preheat !== draft.preheat || base.chamberTarget !== draft.chamberTarget)
+    out.preheat_chamber_target = full.preheat_chamber_target;
+  return out;
+}
+
 /** Full PATCH body from a draft: unset fields are sent as explicit clears. */
 export function draftToPatch(draft: ScheduleDraft): Omit<QueueSchedulingFields, "batch_id"> {
   return {

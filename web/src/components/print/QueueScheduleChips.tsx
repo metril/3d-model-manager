@@ -15,7 +15,7 @@ import { SchedulingFields } from "@/components/print/SchedulingSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { draftToPatch, isoToLocal, type ScheduleDraft } from "@/lib/schedule";
+import { changedPatch, isoToLocal, type ScheduleDraft } from "@/lib/schedule";
 
 const EDITABLE = new Set(["waiting", "ready", "held", "slicing"]);
 
@@ -60,7 +60,10 @@ function SchedulePopover({ entry }: { entry: QueueEntry }) {
             size="sm"
             disabled={patch.isPending}
             onClick={() =>
-              patch.mutate({ entryId: entry.id, body: draftToPatch(draft) }, { onSuccess: () => setOpen(false) })
+              patch.mutate(
+                { entryId: entry.id, body: changedPatch(entryDraft(entry), draft) },
+                { onSuccess: () => setOpen(false) },
+              )
             }
           >
             {t("queueSched.edit.save")}
@@ -150,7 +153,7 @@ export function ScheduleChips({ entry }: { entry: QueueEntry }) {
           {t("queueSched.chip.powerOff")}
         </Badge>
       ) : null}
-      {entry.batch ? (
+      {entry.batch && canReview ? (
         <Link to="/print/queue" search={{ tab: "batches", batch: entry.batch.id }}>
           <Badge variant="outline" className="bg-transparent text-muted-foreground hover:bg-muted">
             {t("queueSched.chip.batch", { name: entry.batch.name })}

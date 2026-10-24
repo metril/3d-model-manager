@@ -48,6 +48,7 @@ export function useQueue({
 
 function invalidateQueue(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: ["queue"] });
+  void queryClient.invalidateQueries({ queryKey: ["batches"] });
   // P3 Task 3: the overview's `up_next` is the queue's head -- keep it
   // in sync with every queue mutation, not just a manual overview poll.
   void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });

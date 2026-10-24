@@ -228,7 +228,7 @@ export function QueuePreheatCard() {
         ) : null}
         {update.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Couldn't save."}
+            {update.error instanceof ApiError ? update.error.detail : t("queueSched.preheat_card.saveError")}
           </p>
         ) : null}
         <div className="flex items-center gap-3">

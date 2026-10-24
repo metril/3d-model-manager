@@ -371,7 +371,7 @@ describe("QueuePage scheduling chips (T4)", () => {
     expect(screen.getByText("Batch: Gears")).toBeInTheDocument();
   });
 
-  it("the inline editor patches the scheduling fields (cleared fields are explicit nulls/false)", async () => {
+  it("the inline editor patches only the changed scheduling fields", async () => {
     queueDataBox.current = [entry({ id: 11, manual_start: false })];
     renderQueuePage();
     fireEvent.click(await screen.findByRole("button", { name: "Schedule" }));
@@ -380,14 +380,7 @@ describe("QueuePage scheduling chips (T4)", () => {
     expect(patchMock).toHaveBeenCalledWith(
       {
         entryId: 11,
-        body: {
-          scheduled_at: null,
-          manual_start: true,
-          require_previous_success: false,
-          auto_off_after: false,
-          preheat_override: null,
-          preheat_chamber_target: null,
-        },
+        body: { manual_start: true },
       },
       expect.anything(),
     );
