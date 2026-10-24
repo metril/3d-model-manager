@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { useKProfiles, useSelectKProfile } from "@/api/kprofiles";
 import { useConfigureSlot, useResetSlotDevice } from "@/api/printerOps";
 import type { AmsTray } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -29,11 +30,16 @@ const MATERIALS: Record<string, { idx: string; min: number; max: number }> = {
 export function SlotConfigDialog({
   printerId,
   tray,
+  kprofiles = false,
+  nozzle = "0.4",
   open,
   onOpenChange,
 }: {
   printerId: number;
   tray: AmsTray;
+  /** T2: show the K-profile picker (printer has the `kprofiles` capability). */
+  kprofiles?: boolean;
+  nozzle?: string;
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -41,6 +47,9 @@ export function SlotConfigDialog({
   const configure = useConfigureSlot(printerId);
   const reset = useResetSlotDevice(printerId);
   const unit = tray.ams_unit ?? 0;
+  const kList = useKProfiles(printerId, { nozzle }, { enabled: kprofiles });
+  const selectK = useSelectKProfile(printerId);
+  const [kChoice, setKChoice] = useState("keep");
   const initial = tray.tray_type ?? tray.material ?? "PLA";
   const [material, setMaterial] = useState(initial in MATERIALS ? initial : "PLA");
   const [subBrand, setSubBrand] = useState("");
@@ -74,6 +83,16 @@ export function SlotConfigDialog({
           apply_device: apply,
         },
       });
+      if (kprofiles && kChoice !== "keep") {
+        const p = kList.data?.profiles.find((x) => String(x.cali_idx) === kChoice);
+        await selectK.mutateAsync({
+          ams_id: unit,
+          tray_id: tray.tray ?? tray.slot,
+          cali_idx: kChoice === "default" ? -1 : (p?.cali_idx ?? -1),
+          filament_id: p?.filament_id ?? MATERIALS[material].idx,
+          nozzle_diameter: nozzle,
+        });
+      }
       const st = !Array.isArray(res) ? (res as { device?: { status?: string } } | undefined)?.device?.status : undefined;
       if (st === "failed") toast.error(t("printerOps.slot.deviceFailed"));
       else if (st === "skipped" && apply) toast.warning(t("printerOps.slot.deviceSkipped"));
@@ -147,6 +166,26 @@ export function SlotConfigDialog({
               <Input id="slot-max" type="number" value={max} onChange={(e) => setMax(e.target.value)} />
             </div>
           </div>
+          {kprofiles ? (
+            <div className="space-y-1">
+              <Label>{t("kprofile.slotLabel")}</Label>
+              <Select value={kChoice} onValueChange={setKChoice}>
+                <SelectTrigger aria-label={t("kprofile.slotLabel")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="keep">{t("kprofile.keep")}</SelectItem>
+                  <SelectItem value="default">{t("kprofile.default")}</SelectItem>
+                  {(kList.data?.profiles ?? []).map((p) => (
+                    <SelectItem key={p.setting_id} value={String(p.cali_idx)}>
+                      {p.name} (K {p.k_value})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {tray.spool ? <p className="text-xs text-muted-foreground">{t("kprofile.autoHint")}</p> : null}
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
             <Checkbox id="slot-apply" checked={apply} onCheckedChange={(v) => setApply(v === true)} />
             <Label htmlFor="slot-apply">{t("printerOps.slot.apply")}</Label>

@@ -113,7 +113,7 @@ export function useKProfileNote(printerId: number) {
   return useMutation({
     mutationFn: ({ settingId, note }: { settingId: string; note: string }) => {
       const url = `${base(printerId)}/${encodeURIComponent(settingId)}/note`;
-      return note.trim() ? api.put<{ setting_id: string; note: string }>(url, { note: note.trim() }) : api.delete<void>(url);
+      return note.trim() ? api.put<unknown>(url, { note: note.trim() }) : api.delete<unknown>(url);
     },
     onSuccess: () => invalidateList(qc, printerId),
     onError: toastControlError,

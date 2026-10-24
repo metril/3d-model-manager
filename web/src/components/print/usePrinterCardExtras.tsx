@@ -65,6 +65,11 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
             </Button>
           </UntestedTip>
         ) : null}
+        {ctx.canControl && capsOf(printer).kprofiles ? (
+          <Button variant="outline" size="sm" onClick={() => modals.open("kprofiles")}>
+            {t("kprofile.menu")}
+          </Button>
+        ) : null}
         {perms.canPrint && capsOf(printer).sd_browser ? (
           <Button variant="outline" size="sm" onClick={() => modals.open("files")}>
             {t("printerOps.files.button")}
