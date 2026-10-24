@@ -77,7 +77,7 @@ function CompactCard({ item, onExpand, selected, onSelectedChange, badgeExtra }:
     <div
       data-slot="printer-card"
       data-size="S"
-      className="flex items-center gap-2 overflow-hidden rounded-[6px] border p-2"
+      className="flex items-center gap-2 overflow-hidden rounded-[6px] border bg-card text-card-foreground shadow-elevation-1 p-2"
     >
       {onSelectedChange ? (
         <Checkbox checked={!!selected} onCheckedChange={(v) => onSelectedChange(v === true)} aria-label={t("card.select", { name: printer.name })} />
@@ -160,7 +160,7 @@ export function PrinterCard({
       data-size={effective}
       style={style}
       className={cn(
-        "relative flex flex-col overflow-hidden rounded-[6px] border",
+        "relative flex flex-col overflow-hidden rounded-[6px] border bg-card text-card-foreground shadow-elevation-1",
         dragOver && canPrint && "ring-2 ring-primary",
         selected && "ring-2 ring-primary/60",
       )}
@@ -234,7 +234,7 @@ export function PrinterCard({
         {status.online ? <TempFanTiles printer={printer} status={status} canControl={canControl} /> : null}
         <ControlsSection printer={printer} status={status} canControl={canControl} />
         <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} />
-        {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} /> : null}
+        {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} bare /> : null}
         <CardFooter printerId={printer.id} canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
       </div>
     </div>
