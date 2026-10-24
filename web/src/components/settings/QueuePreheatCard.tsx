@@ -29,14 +29,14 @@ interface Draft {
   keepMax: string;
 }
 
-const toRows = (m: Record<string, number>): Row[] => Object.entries(m).map(([name, v]) => ({ name, temp: String(v) }));
+const toRows = (m: Record<string, number> | undefined): Row[] => Object.entries(m ?? {}).map(([name, v]) => ({ name, temp: String(v) }));
 
 function seed(s: QueuePreheatSettings): Draft {
   return {
-    enabled: s.enabled,
+    enabled: !!s.enabled,
     chamber: toRows(s.chamber_targets),
     bed: toRows(s.bed_targets),
-    maxWait: String(s.max_wait_s),
+    maxWait: String(s.max_wait_s ?? 600),
     soak: String(s.soak_s),
     keepWarm: s.keep_warm_enabled,
     keepBed: String(s.keep_warm_bed_c),
