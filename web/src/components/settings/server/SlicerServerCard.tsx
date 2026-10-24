@@ -9,6 +9,7 @@ import {
   useUpdateServerSettings,
   type ServerSettingsOut,
 } from "@/api/serverSettings";
+import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,15 +66,11 @@ export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
           <Field id="srv-slicer-url" label={t("settings.server.slicer.url")} field="slicer_url" seeded={data.seeded_from_env} className="sm:col-span-2">
             <div className="flex gap-2">
               <Input id="srv-slicer-url" value={url} placeholder="http://slicer:3001" onChange={(e) => setUrl(e.target.value)} />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={test.isPending || url.trim() === ""}
-                title={url.trim() === "" ? t("settings.server.slicer.needUrl") : undefined}
-                onClick={runTest}
-              >
-                {t("settings.server.slicer.test")}
-              </Button>
+              <DisabledReason reason={url.trim() === "" ? t("settings.server.slicer.needUrl") : null}>
+                <Button type="button" variant="outline" disabled={test.isPending || url.trim() === ""} onClick={runTest}>
+                  {t("settings.server.slicer.test")}
+                </Button>
+              </DisabledReason>
             </div>
           </Field>
           <Field id="srv-slice-timeout" label={t("settings.server.slicer.timeout")} field="slice_timeout_s" seeded={data.seeded_from_env}>
@@ -83,13 +80,13 @@ export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
         {!valid ? (
           <p role="alert" className="text-sm text-destructive">{t("settings.server.slicer.invalid")}</p>
         ) : null}
+        <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>
         <Button
           type="button"
           disabled={!valid || !dirty || save.isPending}
-          title={!dirty ? t("settings.server.noChanges") : undefined}
           onClick={() =>
             save.mutate(
-              { ...c, slicer_enabled: enabled, slicer_url: url.trim(), slice_timeout_s: tN },
+              { slicer_enabled: enabled, slicer_url: url.trim(), slice_timeout_s: tN },
               {
                 onSuccess: () => toast.success(t("settings.server.saved")),
                 onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("settings.server.saveError")),
@@ -99,6 +96,7 @@ export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
         >
           {t("settings.server.save")}
         </Button>
+        </DisabledReason>
       </CardContent>
     </Card>
   );

@@ -1,7 +1,9 @@
 /** Settings → Printer → Failure detection (Q10 Obico ML sidecar). */
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
+import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import type { DetectionAction, ObicoSettings } from "@/api/detection";
 import { useObicoSettings, useSaveObicoSettings } from "@/api/detection";
@@ -23,6 +25,7 @@ export function FailureDetectionCard() {
 
 function Form({ initial }: { initial: ObicoSettings }) {
   const { t } = useTranslation();
+  const isAdmin = useAuth().can("admin");
   const [draft, setDraft] = useState<ObicoSettings>(initial);
   const save = useSaveObicoSettings();
   const set = <K extends keyof ObicoSettings>(k: K, v: ObicoSettings[K]) =>
@@ -34,8 +37,14 @@ function Form({ initial }: { initial: ObicoSettings }) {
       <CardHeader>
         <CardTitle>Failure detection</CardTitle>
         <CardDescription>
-          Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in{" "}
-          <strong>{t("settings.server.obico.link")}</strong>). Enable it per printer in Printer setup.
+          {isAdmin ? (
+            <Trans
+              i18nKey="settings.server.obico.detectionDesc"
+              components={{ 1: <Link to="/settings" search={{ tab: "server" }} className="underline" /> }}
+            />
+          ) : (
+            t("settings.server.obico.detectionDescPlain")
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

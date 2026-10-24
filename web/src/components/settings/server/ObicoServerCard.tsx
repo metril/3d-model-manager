@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ApiError } from "@/api/client";
 import { useObicoSettings, useSaveObicoSettings, useTestObico, type ObicoSettings } from "@/api/detection";
 import { useServerStatus } from "@/api/serverSettings";
+import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,15 +48,11 @@ function Form({ initial }: { initial: ObicoSettings }) {
           <Field id="srv-obico-url" label={t("settings.server.obico.url")} seeded={{}}>
             <div className="flex gap-2">
               <Input id="srv-obico-url" value={url} placeholder="http://obico-ml:3333" onChange={(e) => setUrl(e.target.value)} />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={test.isPending || url.trim() === ""}
-                title={url.trim() === "" ? t("settings.server.obico.needUrl") : undefined}
-                onClick={() => test.mutate(url.trim())}
-              >
-                {t("settings.server.obico.test")}
-              </Button>
+              <DisabledReason reason={url.trim() === "" ? t("settings.server.obico.needUrl") : null}>
+                <Button type="button" variant="outline" disabled={test.isPending || url.trim() === ""} onClick={() => test.mutate(url.trim())}>
+                  {t("settings.server.obico.test")}
+                </Button>
+              </DisabledReason>
             </div>
             {test.data ? (
               <p role="status" className={test.data.ok ? "text-xs text-emerald-600" : "text-xs text-destructive"}>
@@ -67,10 +64,10 @@ function Form({ initial }: { initial: ObicoSettings }) {
             <Input id="srv-obico-cb" value={cb} placeholder="http://api:8000" onChange={(e) => setCb(e.target.value)} />
           </Field>
         </div>
+        <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>
         <Button
           type="button"
           disabled={!dirty || save.isPending}
-          title={!dirty ? t("settings.server.noChanges") : undefined}
           onClick={() =>
             save.mutate(
               { ...initial, url: url.trim(), callback_url: cb.trim() },
@@ -83,6 +80,7 @@ function Form({ initial }: { initial: ObicoSettings }) {
         >
           {t("settings.server.save")}
         </Button>
+        </DisabledReason>
       </CardContent>
     </Card>
   );

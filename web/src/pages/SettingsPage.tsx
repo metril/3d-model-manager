@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -45,6 +45,8 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const canSettings = auth.can("settings:write");
   const isAdmin = auth.can("admin");
+  const search = useSearch({ strict: false }) as { tab?: string };
+  const navigate = useNavigate();
 
   return (
     <PageContainer width="default">
@@ -72,7 +74,10 @@ export function SettingsPage() {
           </div>
         </Card>
       ) : (
-        <Tabs defaultValue="general">
+        <Tabs
+          value={search.tab ?? "general"}
+          onValueChange={(v) => void navigate({ to: "/settings", search: { tab: v }, replace: true })}
+        >
           <TabsList>
             <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}

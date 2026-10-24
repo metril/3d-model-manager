@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useServerStatus, useUpdateServerSettings, type ServerSettingsOut } from "@/api/serverSettings";
+import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,6 @@ export function VpNetworkCard({ data }: { data: ServerSettingsOut }) {
   else if ([n.ssdp, n.mqtt, n.ftp].some((p) => p >= n.min && p <= n.max)) error = t("settings.server.vp.errOverlap");
 
   const next = {
-    ...c,
     vp_bind: bind.trim(),
     vp_port_ssdp: n.ssdp,
     vp_port_mqtt: n.mqtt,
@@ -43,7 +43,7 @@ export function VpNetworkCard({ data }: { data: ServerSettingsOut }) {
     vp_pasv_max: n.max,
     vp_pasv_address: pasvAddr.trim() || null,
   };
-  const dirty = JSON.stringify(next) !== JSON.stringify(c);
+  const dirty = (Object.keys(next) as (keyof typeof next)[]).some((k) => next[k] !== c[k]);
   const vp = status.data?.virtual_printer;
   const state = vp?.state ?? "offline";
   const sv = data.seeded_from_env;
@@ -59,7 +59,7 @@ export function VpNetworkCard({ data }: { data: ServerSettingsOut }) {
         <CardTitle className="flex items-center gap-2">
           {t("settings.server.vp.title")}
           <Badge variant={state === "error" ? "destructive" : state === "running" ? "secondary" : "outline"}>
-            {t(`settings.server.vp.state.${state}`)}
+            {status.isLoading ? t("settings.server.vp.state.loading") : t(`settings.server.vp.state.${state}`)}
           </Badge>
         </CardTitle>
         <CardDescription>{t("settings.server.vp.desc")}</CardDescription>
@@ -86,10 +86,10 @@ export function VpNetworkCard({ data }: { data: ServerSettingsOut }) {
           </Field>
         </div>
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>
         <Button
           type="button"
           disabled={!!error || !dirty || save.isPending}
-          title={!dirty ? t("settings.server.noChanges") : undefined}
           onClick={() =>
             save.mutate(next, {
               onSuccess: () => toast.success(t("settings.server.saved")),
@@ -99,6 +99,7 @@ export function VpNetworkCard({ data }: { data: ServerSettingsOut }) {
         >
           {t("settings.server.save")}
         </Button>
+        </DisabledReason>
       </CardContent>
     </Card>
   );

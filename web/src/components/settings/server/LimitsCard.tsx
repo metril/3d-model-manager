@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useUpdateServerSettings, type LogLevel, type ServerSettingsOut } from "@/api/serverSettings";
+import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,14 +63,13 @@ export function LimitsCard({ data }: { data: ServerSettingsOut }) {
         {!valid ? (
           <p role="alert" className="text-sm text-destructive">{t("settings.server.limits.invalid")}</p>
         ) : null}
+        <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>
         <Button
           type="button"
           disabled={!valid || !dirty || save.isPending}
-          title={!dirty ? t("settings.server.noChanges") : undefined}
           onClick={() =>
             save.mutate(
               {
-                ...c,
                 max_upload_bytes: bytes(upN, c.max_upload_bytes),
                 max_download_bytes: bytes(downN, c.max_download_bytes),
                 sse_heartbeat_s: hbN,
@@ -84,6 +84,7 @@ export function LimitsCard({ data }: { data: ServerSettingsOut }) {
         >
           {t("settings.server.save")}
         </Button>
+        </DisabledReason>
       </CardContent>
     </Card>
   );

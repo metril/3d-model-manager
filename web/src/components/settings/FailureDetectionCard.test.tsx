@@ -14,6 +14,8 @@ vi.mock("@/api/client", async (importOriginal) => {
   return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock } };
 });
 
+vi.mock("@/api/auth", () => ({ useAuth: () => ({ can: () => false }) }));
+
 const SETTINGS = {
   url: "",
   enabled: false,
@@ -64,6 +66,6 @@ describe("FailureDetectionCard", () => {
     renderCard();
     await screen.findByLabelText("Pause threshold");
     expect(screen.queryByLabelText("ML API URL")).not.toBeInTheDocument();
-    expect(screen.getByText("Settings, Server tab")).toBeInTheDocument();
+    expect(screen.getByText(/Obico ML sidecar\. Enable it per printer/)).toBeInTheDocument();
   });
 });

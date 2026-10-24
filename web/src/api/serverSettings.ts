@@ -73,10 +73,17 @@ export function useServerStatus() {
   return useQuery(serverStatusQueryOptions);
 }
 
+/** Takes a PATCH of this card's fields and merges it onto the latest cached config, so
+ * saves from different cards don't clobber each other; `scope` serialises the PUTs. */
 export function useUpdateServerSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: ServerConfig) => api.put<ServerSettingsOut>("/settings/server", body),
+    scope: { id: "server-settings" },
+    mutationFn: (patch: Partial<ServerConfig>) => {
+      const current = qc.getQueryData(serverSettingsQueryOptions.queryKey);
+      if (!current) throw new Error("Server settings not loaded");
+      return api.put<ServerSettingsOut>("/settings/server", { ...current.config, ...patch });
+    },
     onSuccess: (data) => {
       qc.setQueryData(serverSettingsQueryOptions.queryKey, data);
       void qc.invalidateQueries({ queryKey: serverStatusQueryOptions.queryKey });

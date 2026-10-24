@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useUpdateServerSettings, type ServerSettingsOut } from "@/api/serverSettings";
+import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,14 +28,23 @@ export function PublicUrlCard({ data }: { data: ServerSettingsOut }) {
   const origin = window.location.origin;
   const url = norm(value);
   const validUrl = url === "" || /^https?:\/\/[^\s/]+/i.test(url);
-  const mismatch = url !== "" && validUrl && !url.toLowerCase().startsWith(origin.toLowerCase());
+  let mismatch = false;
+  try {
+    mismatch = url !== "" && validUrl && new URL(url).origin.toLowerCase() !== origin.toLowerCase();
+  } catch {
+    mismatch = false;
+  }
   const dirty = url !== (data.config.public_url ?? "");
-  const secure = url === "" ? null : url.toLowerCase().startsWith("https://");
+  const secure = !dirty
+    ? data.derived.cookie_secure
+    : url === ""
+      ? null
+      : url.toLowerCase().startsWith("https://");
 
   const commit = () => {
     setConfirming(false);
     save.mutate(
-      { ...data.config, public_url: url || null },
+      { public_url: url || null },
       {
         onSuccess: () => toast.success(t("settings.server.saved")),
         onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("settings.server.saveError")),
@@ -57,15 +67,11 @@ export function PublicUrlCard({ data }: { data: ServerSettingsOut }) {
               placeholder="https://models.example.com"
               onChange={(e) => setValue(e.target.value)}
             />
-            <Button
-              type="button"
-              variant="outline"
-              disabled={norm(value) === origin}
-              title={norm(value) === origin ? t("settings.server.publicUrl.alreadyOrigin") : undefined}
-              onClick={() => setValue(origin)}
-            >
-              {t("settings.server.publicUrl.useOrigin")}
-            </Button>
+            <DisabledReason reason={norm(value) === origin ? t("settings.server.publicUrl.alreadyOrigin") : null}>
+              <Button type="button" variant="outline" disabled={norm(value) === origin} onClick={() => setValue(origin)}>
+                {t("settings.server.publicUrl.useOrigin")}
+              </Button>
+            </DisabledReason>
           </div>
         </Field>
         {!validUrl ? (
@@ -83,14 +89,15 @@ export function PublicUrlCard({ data }: { data: ServerSettingsOut }) {
               ? t("settings.server.publicUrl.cookieSecure")
               : t("settings.server.publicUrl.cookieInsecure")}
         </p>
+        <DisabledReason reason={!dirty ? t("settings.server.noChanges") : null}>
         <Button
           type="button"
           disabled={!dirty || !validUrl || save.isPending}
-          title={!dirty ? t("settings.server.noChanges") : undefined}
           onClick={() => (mismatch ? setConfirming(true) : commit())}
         >
           {t("settings.server.save")}
         </Button>
+        </DisabledReason>
       </CardContent>
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <DialogContent className="sm:max-w-md">

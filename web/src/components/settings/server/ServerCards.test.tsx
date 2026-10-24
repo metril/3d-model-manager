@@ -3,7 +3,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ServerSettingsOut, ServerStatusOut } from "@/api/serverSettings";
+import { serverSettingsQueryOptions, type ServerSettingsOut, type ServerStatusOut } from "@/api/serverSettings";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { fakeServer, fakeStatus } from "@/components/settings/server/fixtures";
 import { LimitsCard } from "@/components/settings/server/LimitsCard";
 import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
@@ -27,10 +28,18 @@ vi.mock("sonner", () => ({ toast: toastMock }));
 let status: ServerStatusOut;
 const OBICO = { url: "http://obico-ml:3333", enabled: false, interval_s: 10, warn: 0.38, pause: 0.78, action: "notify", callback_url: "http://api:8000" };
 
-function ui(node: ReactElement) {
+// Saves merge onto the cached config, so seed the cache with the card's data.
+function ui(node: ReactElement, seed?: ServerSettingsOut) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
+  if (seed) qc.setQueryData(serverSettingsQueryOptions.queryKey, seed);
+  invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+  return { qc, ...render(
+    <QueryClientProvider client={qc}>
+      <TooltipProvider>{node}</TooltipProvider>
+    </QueryClientProvider>,
+  ) };
 }
+let invalidateSpy: ReturnType<typeof vi.spyOn>;
 
 let current: ServerSettingsOut;
 beforeEach(() => {
@@ -49,8 +58,22 @@ beforeEach(() => {
 });
 
 describe("PublicUrlCard", () => {
+  it("flags a different port or host as a mismatch even when the origin is a prefix", () => {
+    ui(<PublicUrlCard data={fakeServer()} />, fakeServer());
+    const o = window.location.origin;
+    fireEvent.change(screen.getByLabelText("Public URL"), { target: { value: `${o}9` } });
+    expect(screen.getByRole("alert")).toHaveTextContent("differs from the address you are using");
+    fireEvent.change(screen.getByLabelText("Public URL"), { target: { value: `${o}/sub` } });
+    expect(screen.queryByText(/differs from the address/)).not.toBeInTheDocument();
+  });
+
+  it("shows the server-derived cookie state until edited", () => {
+    ui(<PublicUrlCard data={fakeServer({}, { derived: { cookie_secure: true, request_origin: "x" } })} />, fakeServer());
+    expect(screen.getByText(/will be Secure/)).toBeInTheDocument();
+  });
+
   it("warns on origin mismatch, offers current origin, and confirms before saving", async () => {
-    ui(<PublicUrlCard data={fakeServer()} />);
+    ui(<PublicUrlCard data={fakeServer()} />, fakeServer());
     const input = screen.getByLabelText("Public URL");
     fireEvent.change(input, { target: { value: "https://models.example.com/" } });
     expect(screen.getByRole("alert")).toHaveTextContent("differs from the address you are using");
@@ -64,7 +87,7 @@ describe("PublicUrlCard", () => {
   });
 
   it("Use current origin fills the origin and saves without a confirm", async () => {
-    ui(<PublicUrlCard data={fakeServer()} />);
+    ui(<PublicUrlCard data={fakeServer()} />, fakeServer());
     fireEvent.click(screen.getByRole("button", { name: "Use current origin" }));
     expect(screen.getByLabelText("Public URL")).toHaveValue(window.location.origin);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -72,14 +95,14 @@ describe("PublicUrlCard", () => {
   });
 
   it("shows the seeded hint", () => {
-    ui(<PublicUrlCard data={fakeServer({}, { seeded_from_env: { public_url: "TDMM_PUBLIC_URL" } })} />);
+    ui(<PublicUrlCard data={fakeServer({}, { seeded_from_env: { public_url: "TDMM_PUBLIC_URL" } })} />, fakeServer({}, { seeded_from_env: { public_url: "TDMM_PUBLIC_URL" } }));
     expect(screen.getByText("Seeded from environment (TDMM_PUBLIC_URL)")).toBeInTheDocument();
   });
 });
 
 describe("LimitsCard", () => {
   it("converts MB to bytes and saves the full object", async () => {
-    ui(<LimitsCard data={fakeServer()} />);
+    ui(<LimitsCard data={fakeServer()} />, fakeServer());
     expect(screen.getByLabelText("Max upload (MB)")).toHaveValue(1024);
     fireEvent.change(screen.getByLabelText("Max upload (MB)"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "DEBUG" } });
@@ -90,10 +113,31 @@ describe("LimitsCard", () => {
         expect.objectContaining({ max_upload_bytes: 2097152, log_level: "DEBUG", slicer_url: "http://slicer:3001" }),
       ),
     );
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["features"] }));
+  });
+
+  it("merges each card's patch onto the latest config, so concurrent saves don't clobber", async () => {
+    const base = fakeServer();
+    const { qc } = ui(
+      <>
+        <LimitsCard data={base} />
+        <SlicerServerCard data={base} />
+      </>,
+      base,
+    );
+    fireEvent.change(screen.getByLabelText("Log level"), { target: { value: "DEBUG" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    // putMock echoes the body into the cache, as the real API would.
+    fireEvent.change(screen.getByLabelText("Slice timeout (seconds)"), { target: { value: "900" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(2));
+    expect(putMock.mock.calls[1][1]).toEqual(expect.objectContaining({ log_level: "DEBUG", slice_timeout_s: 900 }));
+    expect(qc.getQueryData<ServerSettingsOut>(serverSettingsQueryOptions.queryKey)?.config.log_level).toBe("DEBUG");
   });
 
   it("rejects an out-of-range heartbeat", () => {
-    ui(<LimitsCard data={fakeServer()} />);
+    ui(<LimitsCard data={fakeServer()} />, fakeServer());
     fireEvent.change(screen.getByLabelText("SSE heartbeat (seconds)"), { target: { value: "1" } });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -102,7 +146,7 @@ describe("LimitsCard", () => {
 
 describe("SlicerServerCard", () => {
   it("shows health from status and saves the toggle", async () => {
-    ui(<SlicerServerCard data={fakeServer()} />);
+    ui(<SlicerServerCard data={fakeServer()} />, fakeServer());
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Use the slicer"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -113,13 +157,13 @@ describe("SlicerServerCard", () => {
 
   it("shows Not checked when health is null", async () => {
     status = fakeStatus({ slicer_healthy: null });
-    ui(<SlicerServerCard data={fakeServer({ slicer_enabled: false })} />);
+    ui(<SlicerServerCard data={fakeServer({ slicer_enabled: false })} />, fakeServer({ slicer_enabled: false }));
     expect(await screen.findByText("Not checked")).toBeInTheDocument();
   });
 
   it("Test posts the draft URL and toasts the result", async () => {
     postMock.mockResolvedValue({ ok: true, latency_ms: 12, detail: "ok" });
-    ui(<SlicerServerCard data={fakeServer()} />);
+    ui(<SlicerServerCard data={fakeServer()} />, fakeServer());
     fireEvent.click(screen.getByRole("button", { name: "Test" }));
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Slicer reachable (12 ms)"));
     expect(postMock).toHaveBeenCalledWith("/settings/server/slicer/test", { url: "http://slicer:3001" });
@@ -127,7 +171,7 @@ describe("SlicerServerCard", () => {
 
   it("toasts a failed test", async () => {
     postMock.mockResolvedValue({ ok: false, latency_ms: null, detail: "refused" });
-    ui(<SlicerServerCard data={fakeServer()} />);
+    ui(<SlicerServerCard data={fakeServer()} />, fakeServer());
     fireEvent.click(screen.getByRole("button", { name: "Test" }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Slicer check failed: refused"));
   });
@@ -146,7 +190,7 @@ describe("ObicoServerCard", () => {
 
 describe("VpNetworkCard", () => {
   it("blocks duplicate ports and a pasv range that overlaps a fixed port", () => {
-    ui(<VpNetworkCard data={fakeServer()} />);
+    ui(<VpNetworkCard data={fakeServer()} />, fakeServer());
     fireEvent.change(screen.getByLabelText("MQTT port"), { target: { value: "2021" } });
     expect(screen.getByRole("alert")).toHaveTextContent("must be different");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -161,7 +205,7 @@ describe("VpNetworkCard", () => {
     status = fakeStatus({
       virtual_printer: { state: "error", vp_id: 1, bind: null, ports: null, pasv: null, errors: ["port 990 in use"], ts: null },
     });
-    ui(<VpNetworkCard data={fakeServer({ vp_pasv_address: "10.0.0.5" })} />);
+    ui(<VpNetworkCard data={fakeServer({ vp_pasv_address: "10.0.0.5" })} />, fakeServer({ vp_pasv_address: "10.0.0.5" }));
     expect(await screen.findByText("port 990 in use")).toBeInTheDocument();
     expect(screen.getByText("Error")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Passive address"), { target: { value: "" } });

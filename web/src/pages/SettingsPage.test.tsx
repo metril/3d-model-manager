@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 import type { StorageBackendOut } from "@/api/types";
 import { fakeServer, fakeStatus } from "@/components/settings/server/fixtures";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppearanceProvider } from "@/lib/appearance";
 import { SettingsPage } from "@/pages/SettingsPage";
 
@@ -85,8 +86,8 @@ vi.mock("@/components/ui/tabs", async () => {
     setValue: () => {},
   });
   return {
-    Tabs: ({ defaultValue, children }: { defaultValue?: string; children?: ReactNode }) => {
-      const [value, setValue] = React.useState(defaultValue ?? "");
+    Tabs: ({ value: initial, children }: { value?: string; children?: ReactNode }) => {
+      const [value, setValue] = React.useState(initial ?? "");
       return <TabsCtx.Provider value={{ value, setValue }}>{children}</TabsCtx.Provider>;
     },
     TabsList: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -170,7 +171,9 @@ function renderSettingsPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <AppearanceProvider>
-        <RouterProvider router={router} />
+        <TooltipProvider>
+          <RouterProvider router={router} />
+        </TooltipProvider>
       </AppearanceProvider>
     </QueryClientProvider>,
   );
