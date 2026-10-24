@@ -1427,7 +1427,15 @@ export interface ArchiveOut {
 // An ordered "models to print" worklist. `position` is a dense 1-based rank
 // over the whole queue, renumbered on every insert/delete/reorder.
 
-export type QueueState = "waiting" | "slicing" | "ready" | "dispatched" | "held" | "failed" | "done";
+export type QueueState =
+  | "waiting"
+  | "slicing"
+  | "ready"
+  | "dispatched"
+  | "held"
+  | "failed"
+  | "done"
+  | "skipped";
 
 export interface QueueEntry {
   id: number;
@@ -1472,9 +1480,22 @@ export interface QueueEntry {
   printer_hold_reason?: string | null;
   // M6: who queued it, for the review inbox.
   created_by?: { id: number; username: string } | null;
+  // T4 scheduling (see `QueueSchedulingFields` below).
+  scheduled_at?: string | null;
+  manual_start?: boolean;
+  require_previous_success?: boolean;
+  auto_off_after?: boolean;
+  preheat_override?: PreheatOverride | null;
+  preheat_chamber_target?: number | null;
+  batch_id?: number | null;
+  released_at?: string | null;
+  stage?: QueueStage | null;
+  waiting_reason?: string | null;
+  skipped_reason?: string | null;
+  batch?: { id: number; name: string } | null;
 }
 
-export interface QueueEnqueueBody {
+export interface QueueEnqueueBody extends QueueSchedulingFields {
   model_id?: number | null;
   file_id?: number | null;
   plate?: number | null;
@@ -2192,6 +2213,78 @@ export interface TimelapseJobState {
   state: "pending" | "running" | "done" | "error";
   error: string | null;
   filename: string | null;
+
+// ---- T4 queue scheduling ----
+// backend/app/schemas/queue.py + api/batches.py (docs/superpowers/plans/2026-10-24-t4-be.md).
+
+export type PreheatOverride = "on" | "off";
+export type QueueStage = "preheating" | "soaking";
+
+/** Writable scheduling fields shared by enqueue, PATCH /queue/{id} and batches.
+ * `null` clears on PATCH; omitted keys are left untouched. */
+export interface QueueSchedulingFields {
+  scheduled_at?: string | null;
+  manual_start?: boolean;
+  require_previous_success?: boolean;
+  auto_off_after?: boolean;
+  preheat_override?: PreheatOverride | null;
+  preheat_chamber_target?: number | null;
+  /** Enqueue only. */
+  batch_id?: number | null;
+}
+
+export type BatchStatus = "draft" | "active" | "done" | "cancelled";
+
+export interface BatchProgress {
+  total: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  waiting: number;
+}
+
+export interface Batch {
+  id: number;
+  name: string;
+  model_id: number | null;
+  file_id: number | null;
+  recipe_id: number | null;
+  printer_id: number | null;
+  quantity: number;
+  status: BatchStatus;
+  due_date: string | null;
+  notes: string | null;
+  plate_targets: Record<string, number> | null;
+  cost_center_id: number | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  progress: BatchProgress;
+}
+
+export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
+  name: string;
+  model_id?: number | null;
+  file_id?: number | null;
+  recipe_id?: number | null;
+  printer_id?: number | null;
+  quantity: number;
+  due_date?: string | null;
+  notes?: string | null;
+  plate_targets?: Record<string, number> | null;
+  cost_center_id?: number | null;
+}
+
+export type BatchPatch = Partial<BatchIn>;
+
+export interface QueuePreheatSettings {
+  enabled: boolean;
+  chamber_targets: Record<string, number>;
+  bed_targets: Record<string, number>;
+  max_wait_s: number;
+  soak_s: number;
+  keep_warm_enabled: boolean;
+  keep_warm_bed_c: number;
+  keep_warm_max_min: number;
 }
 
 // ---- T5 spool housekeeping ----
