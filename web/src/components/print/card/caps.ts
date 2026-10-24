@@ -13,6 +13,8 @@ export const NO_CAPS: PrinterCapabilities = {
   camera: "none",
   lidar: false,
   ams_drying: false,
+  drying_screen_only: false,
+  ams_drying_while_printing: false,
   verified: true,
 };
 
