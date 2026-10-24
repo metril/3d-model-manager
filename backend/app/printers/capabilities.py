@@ -36,6 +36,8 @@ class Capabilities:
     xcam_modules: tuple[str, ...] = ()
     sd_browser: bool = False
     sd_print: bool = False
+    # T2: K-profiles (pressure advance) list/set/delete/select.
+    kprofiles: bool = False
     verified: bool = False
 
     def as_dict(self) -> dict:
@@ -56,6 +58,7 @@ _XCAM_ALL = (*_XCAM_X1, "pileup_detector", "clump_detector", "airprint_detector"
 
 
 def _caps(key: str, **kw) -> Capabilities:
+    kw.setdefault("kprofiles", True)
     return Capabilities(model_key=key, **kw)
 
 

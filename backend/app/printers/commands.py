@@ -4,6 +4,7 @@ adapter call. Shared by printerd (execution) and the API (early 422)."""
 from __future__ import annotations
 
 import re
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ HTTP_STATUS = {
     "blocked": 409,
     "invalid": 422,
     "error": 502,
+    "timeout": 504,
 }
 
 
@@ -310,6 +312,99 @@ def _pre_drying_start(clean: dict, state: dict) -> None:
     clean["filament"] = drying.resolve_filament(drying.unit_trays(state, ams_id), clean["filament"])
 
 
+# -- T2 K-profiles ----------------------------------------------------------
+NOZZLE_DIAMETERS = ("0.2", "0.4", "0.6", "0.8", "1.0", "1.2")
+_SETTING_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
+
+
+def new_setting_id() -> str:
+    """``PF`` + 17 random digits (the id format BambuStudio mints)."""
+    return f"PF{10**16 + secrets.randbelow(9 * 10**16)}"
+
+
+def _nozzle_diameter(args: dict, key: str = "nozzle_diameter") -> str:
+    v = args.get(key, "0.4")
+    try:
+        if isinstance(v, bool):
+            raise TypeError
+        text = f"{float(v):.1f}"
+    except (TypeError, ValueError) as e:
+        raise CommandError("invalid", f"{key} must be a nozzle diameter") from e
+    if text not in NOZZLE_DIAMETERS:
+        raise CommandError("invalid", f"{key} must be one of {', '.join(NOZZLE_DIAMETERS)}")
+    return text
+
+
+def _extruder_id(args: dict) -> int:
+    return _num(args, "extruder_id", 0, 1, integer=True)
+
+
+def _v_kprofile_list(args: dict) -> dict:
+    out: dict = {"nozzle_diameter": _nozzle_diameter(args)}
+    if args.get("extruder_id") is not None:
+        out["extruder_id"] = _extruder_id(args)
+    return out
+
+
+def _filament_id(args: dict) -> str:
+    fid = _short_str(args, "filament_id", 32).strip()
+    if not fid:
+        raise CommandError("invalid", "filament_id is required")
+    return fid
+
+
+def _opt_setting_id(args: dict) -> str:
+    sid = args.get("setting_id") or ""
+    if sid and (not isinstance(sid, str) or not _SETTING_ID.fullmatch(sid)):
+        raise CommandError("invalid", "setting_id has an invalid format")
+    return sid
+
+
+def _v_kprofile_set(args: dict) -> dict:
+    name = _short_str(args, "name", 64).strip()
+    if not name:
+        raise CommandError("invalid", "name is required")
+    out = {
+        "name": name,
+        "filament_id": _filament_id(args),
+        "k_value": float(_num(args, "k_value", 0, 2)),
+        "n_coef": float(_num({"n": args.get("n_coef", 0)}, "n", 0, 2)),
+        "nozzle_diameter": _nozzle_diameter(args),
+        "extruder_id": _extruder_id({"extruder_id": args.get("extruder_id", 0)}),
+        "nozzle_id": _short_str(args, "nozzle_id", 32),
+    }
+    setting_id = _opt_setting_id(args)
+    if setting_id:  # edit in place: the slot index is required
+        out["cali_idx"] = _num(args, "cali_idx", 0, 4095, integer=True)
+    else:
+        setting_id = new_setting_id()
+        out["cali_idx"] = -1
+    out["setting_id"] = setting_id
+    return out
+
+
+def _v_kprofile_delete(args: dict) -> dict:
+    return {
+        "setting_id": _opt_setting_id(args),
+        "cali_idx": _num(args, "cali_idx", 0, 4095, integer=True),
+        "filament_id": _filament_id(args),
+        "nozzle_diameter": _nozzle_diameter(args),
+        "extruder_id": _extruder_id({"extruder_id": args.get("extruder_id", 0)}),
+        "nozzle_id": _short_str(args, "nozzle_id", 32),
+    }
+
+
+def _v_kprofile_select(args: dict) -> dict:
+    ams_id = _ams_id(args)
+    return {
+        "ams_id": ams_id,
+        "tray_id": _tray_id(args, ams_id),
+        "cali_idx": _num(args, "cali_idx", -1, 4095, integer=True),
+        "filament_id": _filament_id(args),
+        "nozzle_diameter": _nozzle_diameter(args),
+    }
+
+
 @dataclass(frozen=True)
 class Spec:
     validate: Callable[[dict], dict]
@@ -385,6 +480,21 @@ DISPATCH: dict[str, Spec] = {
         preflight=_pre_drying_start,
     ),
     "drying_stop": Spec(_v_drying_stop, lambda a, x: a.drying_stop(x["ams_id"])),
+    # T2: list is a query (allowed while printing); writes are not.
+    "kprofile_list": Spec(
+        _v_kprofile_list, lambda a, x: a.kprofile_list(x["nozzle_diameter"], x.get("extruder_id"))
+    ),
+    "kprofile_set": Spec(_v_kprofile_set, lambda a, x: a.kprofile_set(x), refuse_printing=True),
+    "kprofile_delete": Spec(
+        _v_kprofile_delete, lambda a, x: a.kprofile_delete(x), refuse_printing=True
+    ),
+    "kprofile_select": Spec(
+        _v_kprofile_select,
+        lambda a, x: a.kprofile_select(
+            x["ams_id"], x["tray_id"], x["cali_idx"], x["filament_id"], x["nozzle_diameter"]
+        ),
+        refuse_printing=True,
+    ),
 }
 ALWAYS_ALLOWED = frozenset({"pause", "resume", "stop"})  # attempted even if dev mode is off
 
