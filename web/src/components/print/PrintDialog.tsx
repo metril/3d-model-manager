@@ -49,7 +49,7 @@ import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
-import { useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
+import { useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { BlobFormat, PlanFilament, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -92,7 +92,7 @@ const STATUS_STYLE: Record<PlanFilamentStatus, string> = {
 // recipe picks from its sliceable sources instead (the recipe does its
 // own slicing).
 const AS_SLICED_FORMATS: BlobFormat[] = ["gcode_3mf"];
-const RECIPE_SOURCE_FORMATS: BlobFormat[] = ["3mf", "stl", "step", "obj"];
+const RECIPE_SOURCE_FORMATS: BlobFormat[] = ["3mf", "stl", "step", "obj", "iges"];
 
 /** The model's files matching `formats` on its current revision -- used by
  * the `model`/`pick` sources' file picker. Piggybacks on the same
@@ -409,22 +409,20 @@ export function PrintDialog({
   const modelSearch = useModelSearchQuery(modelQuery);
   const searchResults = modelQuery.trim().length > 0 ? modelSearch.data?.items ?? [] : [];
 
-  // Profile step: recipes filtered to the chosen printer's model (the
-  // plan's own printer, before the person reaches Send and picks one
-  // explicitly), or every recipe when no printer is known yet.
-  const recipes = useRecipes();
-  const printerProfiles = useProfiles("printer");
+  // Profile step: every recipe, annotated by the backend (the single source
+  // of truth) as compatible with the chosen printer or not; incompatible
+  // ones render disabled with the reason.
+  const recipes = useRecipes(effectivePrinterId ?? undefined);
   const slicerHealth = useSlicerHealth();
   const selectedPrinterModel = planPrinters.find((p) => p.id === effectivePrinterId)?.model ?? null;
   const recipeList = Array.isArray(recipes.data) ? recipes.data : [];
-  const profileList = Array.isArray(printerProfiles.data) ? printerProfiles.data : [];
-  const filteredRecipes = recipeList.filter((r) => {
-    if (selectedPrinterModel == null) return true;
-    const profile = profileList.find((p) => p.id === r.printer_profile_id);
-    return profile?.printer_model == null || profile.printer_model === selectedPrinterModel;
-  });
+  const allRecipesIncompatible = recipeList.length > 0 && recipeList.every((r) => r.compatible === false);
   const selectedRecipe = recipeList.find((r) => r.id === selectedRecipeId) ?? null;
   const recipeActionsDisabled = slicerHealth.data?.ok !== true;
+  // The printer changed under a chosen recipe that no longer fits it.
+  useEffect(() => {
+    if (selectedRecipe?.compatible === false) setSelectedRecipeId(null);
+  }, [selectedRecipe]);
 
   // A file known to be an already-sliced gcode_3mf is always "as sliced".
   const effectiveIsSliced =
@@ -724,17 +722,26 @@ export function PrintDialog({
                     </Label>
                   </div>
                 )}
-                {!effectiveIsSliced && !formatUnknown && filteredRecipes.map((r) => (
+                {!effectiveIsSliced && !formatUnknown && recipeList.map((r) => (
                   <div key={r.id} className="flex items-center gap-2">
-                    <RadioGroupItem value={String(r.id)} id={`print-dialog-profile-recipe-${r.id}`} />
+                    <RadioGroupItem
+                      value={String(r.id)}
+                      id={`print-dialog-profile-recipe-${r.id}`}
+                      disabled={r.compatible === false}
+                    />
                     <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
                       {r.name}
                     </Label>
+                    {r.compatible === false && r.incompatible_reason ? (
+                      <span className="text-xs text-muted-foreground">{r.incompatible_reason}</span>
+                    ) : null}
                   </div>
                 ))}
-                {profileMode === "recipe" && !effectiveIsSliced && !formatUnknown && filteredRecipes.length === 0 && !recipes.isLoading ? (
+                {profileMode === "recipe" && !effectiveIsSliced && !formatUnknown && (recipeList.length === 0 || allRecipesIncompatible) && !recipes.isLoading ? (
                   <p className="text-sm text-muted-foreground">
-                    {recipeList.length === 0 ? "No recipes yet." : "No recipe for this printer model."}{" "}
+                    {recipeList.length === 0
+                      ? "No recipes yet."
+                      : `None of your recipes fit ${selectedPrinterModel ?? "this printer"}.`}{" "}
                     <Link to="/inventory/profiles" className="underline">
                       Create a recipe to slice
                     </Link>

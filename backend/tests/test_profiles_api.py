@@ -556,3 +556,125 @@ async def test_sync_sidecar_down_is_503_and_error_is_502(
             assert r.status_code == 404
     finally:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Recipe compatibility annotation (GET /recipes?printer_id=)
+# ---------------------------------------------------------------------------
+
+
+async def _mk_recipe(
+    db_session: AsyncSession,
+    *,
+    name: str,
+    profile_model: str | None,
+    target_model: str | None = None,
+    target_printer_id: int | None = None,
+) -> int:
+    from app.models import PrintRecipe
+
+    pp = await _seed_profile(
+        db_session, kind=ProfileKind.PRINTER, name=f"{name}-pp", printer_model=profile_model
+    )
+    pr = await _seed_profile(db_session, kind=ProfileKind.PROCESS, name=f"{name}-pr")
+    recipe = PrintRecipe(
+        name=name,
+        printer_profile_id=pp,
+        process_profile_id=pr,
+        filament_profile_ids=[],
+        bed_type="textured_pei",
+        options={},
+        target_printer_id=target_printer_id,
+        target_printer_model=target_model,
+    )
+    db_session.add(recipe)
+    await db_session.commit()
+    await db_session.refresh(recipe)
+    return recipe.id
+
+
+async def _mk_printer(db_session: AsyncSession, *, name: str, model: str | None, serial: str):
+    p = Printer(
+        name=name,
+        kind=PrinterKind.BAMBU_LAN,
+        host="10.0.0.9",
+        serial=serial,
+        access_code_enc="x",
+        model=model,
+    )
+    db_session.add(p)
+    await db_session.commit()
+    await db_session.refresh(p)
+    return p
+
+
+async def test_recipes_annotated_for_printer(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    printer = await _mk_printer(db_session, name="Mini", model="A1 mini", serial="S-MINI")
+    other = await _mk_printer(db_session, name="Other", model="A1 mini", serial="S-OTHER")
+    await _mk_recipe(db_session, name="fits", profile_model="Bambu Lab A1 mini")
+    await _mk_recipe(db_session, name="wrong-profile", profile_model="Bambu Lab X1 Carbon")
+    await _mk_recipe(
+        db_session, name="wrong-target", profile_model="Bambu Lab A1 mini", target_model="X1 Carbon"
+    )
+    await _mk_recipe(
+        db_session,
+        name="pinned",
+        profile_model="Bambu Lab A1 mini",
+        target_printer_id=other.id,
+    )
+    await _mk_recipe(db_session, name="no-model", profile_model=None)
+
+    r = await authenticated_client.get("/api/recipes", params={"printer_id": printer.id})
+    assert r.status_code == 200, r.text
+    by_name = {x["name"]: x for x in r.json()}
+    assert by_name["fits"]["compatible"] is True
+    assert by_name["fits"]["incompatible_reason"] is None
+    assert by_name["no-model"]["compatible"] is True
+    assert by_name["wrong-profile"]["compatible"] is False
+    assert "X1 Carbon" in by_name["wrong-profile"]["incompatible_reason"]
+    assert by_name["wrong-target"]["compatible"] is False
+    assert "X1 Carbon" in by_name["wrong-target"]["incompatible_reason"]
+    assert by_name["pinned"]["compatible"] is False
+    assert "pinned" in by_name["pinned"]["incompatible_reason"]
+    assert "Other" in by_name["pinned"]["incompatible_reason"]
+
+
+async def test_recipes_without_printer_id_have_null_compat(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    await _mk_recipe(db_session, name="r", profile_model="Bambu Lab X1 Carbon")
+    r = await authenticated_client.get("/api/recipes")
+    assert r.status_code == 200
+    assert r.json()[0]["compatible"] is None
+    assert r.json()[0]["incompatible_reason"] is None
+
+
+async def test_recipes_unknown_printer_404(authenticated_client: httpx.AsyncClient):
+    r = await authenticated_client.get("/api/recipes", params={"printer_id": 999999})
+    assert r.status_code == 404
+
+
+async def test_recipes_printer_access_required(member_client: httpx.AsyncClient, printer_row):
+    r = await member_client.get("/api/recipes", params={"printer_id": printer_row.id})
+    assert r.status_code == 403
+
+
+def test_recipe_compatibility_reason_helper():
+    from types import SimpleNamespace as NS
+
+    from app.services.print_plan import recipe_compatibility_reason
+
+    printer = NS(id=1, name="Mini", model="A1 mini")
+    recipe = NS(target_printer_id=None, target_printer_model=None)
+    assert recipe_compatibility_reason(recipe, "Bambu Lab A1 mini", printer) is None
+    assert recipe_compatibility_reason(recipe, "BAMBU LAB A1 MINI", printer) is None
+    assert recipe_compatibility_reason(recipe, None, printer) is None
+    assert recipe_compatibility_reason(recipe, "Bambu Lab X1 Carbon", printer) is not None
+    printer_nomodel = NS(id=1, name="Mini", model=None)
+    assert recipe_compatibility_reason(recipe, "Bambu Lab X1 Carbon", printer_nomodel) is None
+    pinned = NS(target_printer_id=2, target_printer_model=None)
+    assert recipe_compatibility_reason(pinned, None, printer, "Other") == "pinned to Other"
+    for_x = NS(target_printer_id=None, target_printer_model="X1 Carbon")
+    assert recipe_compatibility_reason(for_x, None, printer) == "for X1 Carbon"

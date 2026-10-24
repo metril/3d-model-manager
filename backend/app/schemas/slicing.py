@@ -93,6 +93,9 @@ class RecipeOut(BaseModel):
     n: int | None = None
     created_by_user_id: int | None = None
     created_at: datetime
+    # Set only when listed with ``?printer_id=``; ``None`` otherwise.
+    compatible: bool | None = None
+    incompatible_reason: str | None = None
 
 
 class SlicerHealthOut(BaseModel):
