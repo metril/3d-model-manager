@@ -8,12 +8,15 @@ see the full schema (SPEC "Data model").
 from app.models.audit_log import AuditLog
 from app.models.auth import (
     ApiToken,
+    AuthEphemeralToken,
     Group,
     GroupMember,
     OidcProvider,
     PrinterAccess,
     Session,
     User,
+    UserOtpCode,
+    UserTotp,
 )
 from app.models.base import Base
 from app.models.billing import CostCenter, LedgerEntry
@@ -92,7 +95,10 @@ __all__ = [
     "NotificationChannel",
     "NotificationLog",
     "NotificationTemplate",
+    "AuthEphemeralToken",
     "OidcProvider",
+    "UserOtpCode",
+    "UserTotp",
     "PendingImport",
     "Print",
     "AmsLabel",

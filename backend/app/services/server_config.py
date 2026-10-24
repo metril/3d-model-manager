@@ -25,11 +25,14 @@ import os
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
+from cryptography.fernet import InvalidToken
 from pydantic import (
     BaseModel,
     Field,
+    SecretStr,
     ValidationError,
     ValidationInfo,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -38,7 +41,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, get_settings
+from app.crypto import decrypt_secret, encrypt_secret
 from app.models import Setting
 
 if TYPE_CHECKING:
@@ -69,7 +73,14 @@ ENV_SEED: dict[str, str] = {
     "vp_pasv_min": "TDMM_VP_PASV_MIN",
     "vp_pasv_max": "TDMM_VP_PASV_MAX",
     "vp_pasv_address": "TDMM_VP_PASV_ADDRESS",
+    "smtp.host": "TDMM_SMTP_HOST",
+    "smtp.port": "TDMM_SMTP_PORT",
+    "smtp.security": "TDMM_SMTP_SECURITY",
+    "smtp.username": "TDMM_SMTP_USERNAME",
+    "smtp.password": "TDMM_SMTP_PASSWORD",
+    "smtp.from_addr": "TDMM_SMTP_FROM",
 }
+SECRET_MASK = "***"  # noqa: S105
 # Env vars that are removed/moved but may still be set; warned about too.
 EXTRA_IGNORED_ENV = ("COOKIE_SECURE", "TDMM_VP_ENABLED", "TDMM_OBICO_URL", "TDMM_OBICO_CALLBACK")
 
@@ -83,7 +94,46 @@ _VP_NET_FIELDS = (
 )
 
 
+class SmtpConfig(BaseModel):
+    """Server-wide outgoing mail. ``password`` is encrypted in the row and
+    serializes as ``***`` to the API (``mode="json"``); python-mode dumps
+    (used by the row writer, which encrypts) carry the plaintext."""
+
+    host: str = ""
+    port: int = Field(default=587, ge=1, le=65535)
+    security: Literal["none", "starttls", "tls"] = "starttls"
+    username: str = ""
+    password: SecretStr | None = None
+    from_addr: str = ""
+    from_name: str = ""
+
+    @field_validator("host", "username", "from_addr", "from_name", mode="before")
+    @classmethod
+    def _strip(cls, v: Any) -> Any:
+        if v is None:
+            return ""
+        if not isinstance(v, str):
+            raise ValueError("must be a string")
+        return v.strip()
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def _blank_password(cls, v: Any) -> Any:
+        return None if v == "" else v
+
+    @field_serializer("password", when_used="always")
+    def _ser_password(self, v: SecretStr | None, info: Any) -> str | None:
+        if v is None:
+            return None
+        return SECRET_MASK if info.mode == "json" else v.get_secret_value()
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.host and self.from_addr)
+
+
 class ServerConfig(BaseModel):
+    smtp: SmtpConfig = Field(default_factory=SmtpConfig)
     public_url: str | None = None
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=MIB)
     max_download_bytes: int = Field(default=DEFAULT_MAX_DOWNLOAD_BYTES, ge=MIB)
@@ -186,6 +236,47 @@ def _defaults() -> dict[str, Any]:
     return ServerConfig().model_dump()
 
 
+def _decode_smtp(raw: Any) -> Any:
+    """Row -> model input: decrypt the stored SMTP password (an undecryptable
+    value degrades to unset, with a warning, rather than failing the read)."""
+    if not isinstance(raw, dict):
+        return {}
+    raw = dict(raw)
+    token = raw.get("password")
+    if token:
+        try:
+            raw["password"] = decrypt_secret(get_settings(), token)
+        except (InvalidToken, ValueError):
+            log.warning("server settings: stored smtp.password is undecryptable; ignoring")
+            raw["password"] = None
+    return raw
+
+
+def _encode(data: dict[str, Any]) -> dict[str, Any]:
+    """Python-mode dump -> row: encrypt the SMTP password."""
+    out = dict(data)
+    smtp = dict(out.get("smtp") or {})
+    if smtp.get("password"):
+        smtp["password"] = encrypt_secret(get_settings(), smtp["password"])
+    out["smtp"] = smtp
+    return out
+
+
+def flat(cfg: ServerConfig) -> dict[str, Any]:
+    """Top-level fields with ``smtp`` flattened to ``smtp.<field>`` keys (the
+    granularity of ``ENV_SEED`` / ``_seeded_from_env``)."""
+    out: dict[str, Any] = {}
+    for f in _FIELDS:
+        v = getattr(cfg, f)
+        if isinstance(v, SmtpConfig):
+            for sf in SmtpConfig.model_fields:
+                sv = getattr(v, sf)
+                out[f"smtp.{sf}"] = sv.get_secret_value() if isinstance(sv, SecretStr) else sv
+        else:
+            out[f] = v
+    return out
+
+
 def _resolve(value: dict | None) -> ServerConfig:
     """Defaults overlaid with the row. A stored value that no longer
     validates (hand-edited row) degrades field-by-field to its default
@@ -194,6 +285,7 @@ def _resolve(value: dict | None) -> ServerConfig:
     for field in _FIELDS:
         if value and field in value:
             data[field] = value[field]
+    data["smtp"] = _decode_smtp(data["smtp"])
     try:
         return ServerConfig.model_validate(data)
     except ValidationError as exc:
@@ -236,7 +328,7 @@ async def seeded_fields(db: AsyncSession) -> list[str]:
 
 
 def _row_value(cfg: ServerConfig, seeded: list[str]) -> dict:
-    return {**cfg.model_dump(), SEEDED_META: seeded}
+    return {**_encode(cfg.model_dump()), SEEDED_META: seeded}
 
 
 async def set_server_config(
@@ -247,7 +339,8 @@ async def set_server_config(
     row = await db.get(Setting, SETTINGS_KEY)
     old = _resolve(row.value if row else None)
     seeded = _meta(row.value if row else None)
-    changed = {f for f in _FIELDS if getattr(old, f) != getattr(cfg, f)}
+    fo, fn = flat(old), flat(cfg)
+    changed = {f for f in fn if fo[f] != fn[f]}
     value = _row_value(cfg, [f for f in seeded if f not in changed])
     if row is None:
         db.add(Setting(key=SETTINGS_KEY, value=value))
@@ -261,6 +354,23 @@ async def set_server_config(
 # --- seed ---------------------------------------------------------------
 
 
+def _with_field(data: dict, field: str, raw: Any) -> dict:
+    if "." not in field:
+        return {**data, field: raw}
+    group, sub = field.split(".", 1)
+    return {**data, group: {**(data.get(group) or {}), sub: raw}}
+
+
+def _merge_field(data: dict, cand: ServerConfig, field: str) -> dict:
+    if "." not in field:
+        return {**data, field: getattr(cand, field)}
+    group, sub = field.split(".", 1)
+    sv = getattr(getattr(cand, group), sub)
+    if isinstance(sv, SecretStr):
+        sv = sv.get_secret_value()
+    return {**data, group: {**(data.get(group) or {}), sub: sv}}
+
+
 def _build_seed(environ: Any, legacy_app: dict | None) -> tuple[dict, list[str]]:
     """Env (explicitly set, non-empty) -> legacy ``app`` row -> default, per
     field. An invalid env value warns and falls back for that field only."""
@@ -271,17 +381,17 @@ def _build_seed(environ: Any, legacy_app: dict | None) -> tuple[dict, list[str]]
         raw = environ.get(env_name)
         if raw is not None and raw.strip() != "":
             try:
-                cand = ServerConfig.model_validate({**data, field: raw}, context=skip)
+                cand = ServerConfig.model_validate(_with_field(data, field, raw), context=skip)
             except ValidationError as exc:
                 log.warning(
                     "%s=%r is invalid (%s); using the default for %s",
                     env_name,
-                    raw,
+                    "***" if field == "smtp.password" else raw,
                     exc.errors()[0]["msg"],
                     field,
                 )
             else:
-                data[field] = getattr(cand, field)
+                data = _merge_field(data, cand, field)
                 seeded.append(field)
                 continue
         if field in ("slicer_url", "slice_timeout_s") and legacy_app:
@@ -317,7 +427,7 @@ async def seed_server_config(db: AsyncSession, settings: Settings | None = None)
         return False
     legacy = await db.get(Setting, APP_KEY)
     data, seeded = _build_seed(os.environ, legacy.value if legacy else None)
-    result = await db.execute(_seed_insert({**data, SEEDED_META: seeded}))
+    result = await db.execute(_seed_insert({**_encode(data), SEEDED_META: seeded}))
     await db.commit()
     return bool(result.rowcount)
 
@@ -327,7 +437,7 @@ def seed_server_config_sync(session: Session, settings: Settings | None = None) 
         return False
     legacy = session.get(Setting, APP_KEY)
     data, seeded = _build_seed(os.environ, legacy.value if legacy else None)
-    result = session.execute(_seed_insert({**data, SEEDED_META: seeded}))
+    result = session.execute(_seed_insert({**_encode(data), SEEDED_META: seeded}))
     session.commit()
     return bool(result.rowcount)
 
@@ -425,9 +535,12 @@ def public_origin(cfg: ServerConfig, request: Request) -> str:
 
 __all__ = [
     "ENV_SEED",
+    "SECRET_MASK",
     "ServerConfig",
+    "SmtpConfig",
     "cookie_secure",
     "current_sync",
+    "flat",
     "get_server_config",
     "get_server_config_sync",
     "ignored_env",

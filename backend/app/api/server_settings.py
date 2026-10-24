@@ -31,8 +31,10 @@ from app.schemas.settings import (
 from app.services import obico
 from app.services.server_config import (
     ENV_SEED,
+    SECRET_MASK,
     ServerConfig,
     cookie_secure,
+    flat,
     get_server_config,
     ignored_env,
     migrate_legacy_slicer,
@@ -86,13 +88,15 @@ async def put_server_settings(
 ) -> ServerSettingsOut:
     await migrate_legacy_slicer(db)
     old = await get_server_config(db)
-    new = await set_server_config(
-        db, ServerConfig.model_validate(payload.model_dump()), commit=False
-    )
+    incoming = ServerConfig.model_validate(payload.model_dump())
+    pw = incoming.smtp.password
+    if pw is not None and pw.get_secret_value() == SECRET_MASK:
+        incoming.smtp.password = old.smtp.password  # "***" = keep the stored secret
+    new = await set_server_config(db, incoming, commit=False)
+    fo, fn = flat(old), flat(new)
+    # The SMTP password never enters the audit diff -- only that it changed.
     changed = {
-        f: [getattr(old, f), getattr(new, f)]
-        for f in ServerConfig.model_fields
-        if getattr(old, f) != getattr(new, f)
+        f: ([None, None] if f == "smtp.password" else [fo[f], fn[f]]) for f in fn if fo[f] != fn[f]
     }
     db.add(
         AuditLog(

@@ -72,6 +72,8 @@ celery_app.conf.update(
         "app.tasks.notify",
         "app.tasks.obico",
         "app.tasks.location_sensors",
+        "app.tasks.mail",
+        "app.tasks.auth",
     ),
 )
 
@@ -201,6 +203,14 @@ celery_app.conf.beat_schedule["archive-purge"] = {
 celery_app.conf.beat_schedule["archive-confirm-defaults"] = {
     "task": "app.tasks.archive.confirm_defaults",
     "schedule": crontab(minute=7),
+}
+
+# Additive: T6 hourly sweep of expired 2FA ephemeral tokens / email OTP codes.
+from app.tasks import auth as _auth  # noqa: E402,F401
+
+celery_app.conf.beat_schedule["auth-sweep-ephemeral"] = {
+    "task": "app.tasks.auth.sweep_ephemeral",
+    "schedule": 3600,
 }
 
 
