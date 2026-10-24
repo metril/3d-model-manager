@@ -97,6 +97,13 @@ def load_active(settings: Settings) -> VpConfig | None:
         )
 
 
+async def _safe_stop(svc: VirtualPrinterService) -> None:
+    try:
+        await svc.stop()
+    except Exception:
+        log.exception("virtual printer stop failed")
+
+
 async def run(
     settings: Settings,
     *,
@@ -132,7 +139,7 @@ async def run(
         if wanted is not None:
             if wanted != current:
                 if svc is not None:
-                    await svc.stop()
+                    await _safe_stop(svc)
                     svc = None
                 current, errors = wanted, []
                 vp, net = wanted
@@ -148,8 +155,7 @@ async def run(
                             log.exception("virtual printer failed to start; retrying next poll")
                             errors = [f"start failed: {exc}"]
                             if svc is not None:
-                                with contextlib.suppress(Exception):
-                                    await svc.stop()
+                                await _safe_stop(svc)
                             svc = None
                     if errors:
                         log.error("virtual printer cannot start: %s", "; ".join(errors))
@@ -165,7 +171,7 @@ async def run(
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), poll_s)
     if svc is not None:
-        await svc.stop()
+        await _safe_stop(svc)
     return 0
 
 

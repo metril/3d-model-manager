@@ -35,8 +35,7 @@ def preflight(net: VpNetwork) -> list[str]:
         if port == 0:
             continue
         with socket.socket(socket.AF_INET, kind) as s:
-            if kind == socket.SOCK_STREAM:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind((net.bind, port))
             except OSError as exc:

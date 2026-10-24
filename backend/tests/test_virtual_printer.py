@@ -427,10 +427,23 @@ async def test_port_conflict_is_error_status_and_never_exits(vp_env):
 
 
 async def test_network_change_restarts_service(vp_env):
-    other = replace(ZERO_NET, pasv_min=1, pasv_max=2)
-    h = _Harness(vp_env, [(_vp(), ZERO_NET), (_vp(), ZERO_NET), (_vp(), other)], polls=4)
+    def free(kind):
+        with socket.socket(socket.AF_INET, kind) as t:
+            t.bind(("127.0.0.1", 0))
+            return t.getsockname()[1]
+
+    fixed = replace(
+        ZERO_NET,
+        port_ssdp=free(socket.SOCK_DGRAM),
+        port_mqtt=free(socket.SOCK_STREAM),
+        port_ftp=free(socket.SOCK_STREAM),
+    )
+    other = replace(fixed, pasv_min=1, pasv_max=2)
+    h = _Harness(vp_env, [(_vp(), fixed), (_vp(), fixed), (_vp(), other)], polls=4)
     await h.go()
     assert len(h.services) == 2
+    assert "running" in [s["state"] for s in h.statuses]
+    assert all(s["state"] != "error" for s in h.statuses)  # same ports rebound cleanly
     assert h.services[1].net == other and h.statuses[-1]["pasv"] == [1, 2]
 
 
