@@ -60,6 +60,7 @@ from app.api import (
     housekeeping,
     imports,
     jobs,
+    kprofiles,
     maintenance,
     materials,
     metrics,
@@ -146,6 +147,8 @@ protected_router.include_router(features.router)
 # printer_control first: its literal /printers/developer-mode-warnings must
 # match before printers.router's /printers/{printer_id}.
 protected_router.include_router(printer_control.router)
+protected_router.include_router(kprofiles.router)
+protected_router.include_router(kprofiles.spool_router)
 protected_router.include_router(printer_ops.router)
 protected_router.include_router(smart_plugs.summary_router)
 protected_router.include_router(obico.router)
