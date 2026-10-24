@@ -21,6 +21,7 @@ from app.services import jobs as jobs_service
 from app.services import library, spool
 from app.services.import_dedup import find_model_by_blob_hash
 from app.services.layout import infer_blob_kind_format
+from app.services.server_config import get_server_config
 from app.tasks.ingest import store_to_backend
 
 router = APIRouter(tags=["uploads"])
@@ -61,7 +62,7 @@ async def upload_file(
     # the spool file (once dispatched, the spool's lifecycle belongs to
     # store_to_backend: deleted on success, kept on failure for retry).
     token, path, blob_hash, size = await spool.stream_to_spool(
-        request, settings, max_size=settings.max_upload_bytes
+        request, settings, max_size=(await get_server_config(db)).max_upload_bytes
     )
     try:
         if size == 0:

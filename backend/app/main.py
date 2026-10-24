@@ -1,5 +1,7 @@
 """FastAPI application factory and ASGI entrypoint (``app.main:app``)."""
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,11 +12,17 @@ from fastapi import FastAPI
 from app.api import api_router
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.logging_config import configure_logging
+from app.logging_config import LevelPoller, apply_level, configure_logging
 from app.services import spool
 from app.services.app_config import get_app_config, seed_app_config, warn_ignored_env
 from app.services.bootstrap import ensure_admin_user
+from app.services.obico import seed_obico_config
 from app.services.secrets_at_rest import reencrypt_secrets_at_rest
+from app.services.server_config import (
+    get_server_config,
+    seed_server_config,
+    warn_ignored_server_env,
+)
 from app.static import mount_spa
 
 logger = logging.getLogger(__name__)
@@ -44,8 +52,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 config.watch_stable_s,
             )
         warn_ignored_env(logger)
+        if await seed_server_config(session, settings):
+            logger.info("Seeded server settings (env / legacy app row / defaults)")
+        await seed_obico_config(session, settings)
+        server_cfg = await get_server_config(session, settings)
+        warn_ignored_server_env(settings, server_cfg)
+        apply_level(server_cfg.log_level)
         await reencrypt_secrets_at_rest(session, settings)
-    yield
+    poll_task = asyncio.create_task(_poll_log_level())
+    try:
+        yield
+    finally:
+        poll_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await poll_task
+
+
+_LEVEL_POLL_INTERVAL_S = 15.0
+
+
+async def _poll_log_level() -> None:
+    """Pick up `server.log_level` edits made through another api replica."""
+    poller = LevelPoller(ttl_s=0)
+    while True:
+        await asyncio.sleep(_LEVEL_POLL_INTERVAL_S)
+        await poller.maybe_apply(get_sessionmaker())
 
 
 def create_app() -> FastAPI:

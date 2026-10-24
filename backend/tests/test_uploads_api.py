@@ -679,16 +679,16 @@ async def test_upload_real_stl_enriches_file_detail_after_full_pipeline_run(
 async def test_upload_over_max_upload_bytes_is_413(
     authenticated_client: httpx.AsyncClient, db_session, data_dir, monkeypatch
 ) -> None:
-    from app.config import get_settings
+    from tests.server_helpers import set_server
 
-    monkeypatch.setattr(get_settings(), "max_upload_bytes", 4)
+    await set_server(max_upload_bytes=1024**2)
     created = await _create_model(authenticated_client, "Too Big Upload")
     response = await _upload(
         authenticated_client,
         model_id=created["id"],
         revision_id=created["current_revision"]["id"],
         rel_path="big.stl",
-        content=b"0123456789",
+        content=b"0" * (1024**2 + 1),
     )
     assert response.status_code == 413
     spool_dir = data_dir / "spool"

@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 
-from app.services.app_config import AppConfig
+from app.services.server_config import ServerConfig
 from app.services.slicer_client import (
     SliceOptions,
     SlicerBusy,
@@ -291,41 +291,18 @@ def test_read_timeout_raises_slicer_error_not_unavailable():
 
 
 def test_client_from_config_builds_client_with_slice_timeout():
-    cfg = AppConfig(
-        printer_enabled=False,
-        scan_interval_s=0,
-        collection_sync_interval_s=0,
-        watch_interval_s=0,
-        watch_stable_s=10.0,
-        slicer_url=BASE_URL,
-        slice_timeout_s=42,
-    )
+    cfg = ServerConfig(slicer_url=BASE_URL, slice_timeout_s=42)
     client = client_from_config(cfg)
     assert client._slice_timeout_s == 42
 
 
 def test_client_from_config_none():
-    cfg = AppConfig(
-        printer_enabled=False,
-        scan_interval_s=0,
-        collection_sync_interval_s=0,
-        watch_interval_s=0,
-        watch_stable_s=10.0,
-        slicer_url=None,
-    )
-    assert client_from_config(cfg) is None
+    assert client_from_config(ServerConfig(slicer_enabled=False)) is None
+    assert client_from_config(ServerConfig(slicer_url="")) is None
 
 
 def test_client_from_config_builds_client():
-    cfg = AppConfig(
-        printer_enabled=False,
-        scan_interval_s=0,
-        collection_sync_interval_s=0,
-        watch_interval_s=0,
-        watch_stable_s=10.0,
-        slicer_url=BASE_URL,
-    )
-    client = client_from_config(cfg)
+    client = client_from_config(ServerConfig(slicer_url=BASE_URL))
     assert isinstance(client, SlicerClient)
 
 

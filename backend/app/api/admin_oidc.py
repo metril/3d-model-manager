@@ -11,6 +11,7 @@ from app.crypto import encrypt_secret
 from app.db import get_db
 from app.models import Group, OidcProvider
 from app.schemas.admin import OidcProviderCreateIn, OidcProviderOut, OidcProviderPatchIn
+from app.services.server_config import get_server_config, public_origin
 
 router = APIRouter(
     prefix="/admin/oidc-providers",
@@ -19,8 +20,8 @@ router = APIRouter(
 )
 
 
-def _out(request: Request, p: OidcProvider) -> OidcProviderOut:
-    base = (get_settings().public_url or str(request.base_url)).rstrip("/")
+async def _out(db: AsyncSession, request: Request, p: OidcProvider) -> OidcProviderOut:
+    base = public_origin(await get_server_config(db), request)
     return OidcProviderOut(
         id=p.id,
         name=p.name,
@@ -66,7 +67,7 @@ async def list_providers(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> list[OidcProviderOut]:
     rows = (await db.scalars(select(OidcProvider).order_by(OidcProvider.name))).all()
-    return [_out(request, p) for p in rows]
+    return [await _out(db, request, p) for p in rows]
 
 
 @router.post("", response_model=OidcProviderOut, status_code=status.HTTP_201_CREATED)
@@ -83,7 +84,7 @@ async def create_provider(
         await db.rollback()
         raise _dup() from None
     await db.refresh(p)
-    return _out(request, p)
+    return await _out(db, request, p)
 
 
 @router.patch("/{provider_id}", response_model=OidcProviderOut)
@@ -111,7 +112,7 @@ async def patch_provider(
         await db.rollback()
         raise _dup() from None
     await db.refresh(p)
-    return _out(request, p)
+    return await _out(db, request, p)
 
 
 @router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)

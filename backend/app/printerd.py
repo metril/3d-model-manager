@@ -31,6 +31,7 @@ import redis
 from sqlalchemy import select
 
 from app.config import Settings, get_settings
+from app.logging_config import LevelPoller, configure_logging
 from app.models import Printer, PrintJob
 from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers import commands as cmds
@@ -52,6 +53,7 @@ from app.services import camera_state, ha_state, hms, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
+from app.services.server_config import seed_all_sync_safe
 from app.tasks import base
 
 log = logging.getLogger("printerd")
@@ -600,7 +602,9 @@ class PrinterDaemon:
         self.camera.start()
         self.obico.start()
         self.ha.start()
+        level_poller = LevelPoller(ttl_s=30)
         while not self._stop.wait(_POLL_INTERVAL_S):
+            level_poller.maybe_apply_sync(base.sync_session)
             try:
                 self.reconcile()
             except Exception as exc:
@@ -640,7 +644,8 @@ def main() -> None:
     daemon simply runs with zero workers instead of idling via
     `signal.pause()`, and picks printers up the moment the flag flips on
     without a restart."""
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
+    seed_all_sync_safe()
     settings = get_settings()
     daemon = PrinterDaemon(settings)
     signal.signal(signal.SIGTERM, lambda *_: daemon.stop())

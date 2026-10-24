@@ -68,17 +68,6 @@ class AppConfig(BaseModel):
     # these two literal defaults.
     filament_cost_per_kg: float = 20.0
     machine_cost_per_hour: float = 0.0
-    # P6: base URL of the slicer sidecar, straight off `Settings.slicer_url`
-    # (`TDMM_SLICER_URL`) via `_env_config` -- not yet exposed on the
-    # Settings UI/API schema (`AppSettingsIn`/`Out` in app.schemas.settings
-    # deliberately omit it), so this field only ever carries the env/default
-    # value today. `app.services.slicer_client.client_from_config` reads it.
-    slicer_url: str | None = None
-    # P6 final-review fix wave I1: how long a slice call waits for the
-    # sidecar before giving up, straight off `Settings.slice_timeout_s`
-    # (`TDMM_SLICE_TIMEOUT_S`) -- same not-yet-on-the-Settings-UI posture as
-    # `slicer_url` above.
-    slice_timeout_s: int = 600
     # P7 review/billing plan: master off switch for the whole cost-center/
     # ledger/review feature. Off by default -- no reservation/charge rows
     # get created and the review gate never applies -- same no-env-backing,
@@ -103,8 +92,6 @@ def _env_config(settings: Settings) -> AppConfig:
         collection_sync_interval_s=settings.collection_sync_interval_s,
         watch_interval_s=settings.watch_interval_s,
         watch_stable_s=settings.watch_stable_s,
-        slicer_url=settings.slicer_url,
-        slice_timeout_s=settings.slice_timeout_s,
     )
 
 

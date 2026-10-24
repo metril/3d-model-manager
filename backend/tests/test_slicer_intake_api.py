@@ -417,8 +417,13 @@ def test_resolve_and_attach_sync_replace_never_deletes_old_bytes_before_store(
 async def test_intake_over_max_upload_bytes_is_413(
     authenticated_client: httpx.AsyncClient, slicer_token: str, monkeypatch
 ) -> None:
-    monkeypatch.setattr(get_settings(), "max_upload_bytes", 4)
+    from tests.server_helpers import set_server
+
+    await set_server(max_upload_bytes=1024**2)
     response = await _intake(
-        authenticated_client, slicer_token, filename="Benchy.gcode.3mf", content=b"0123456789"
+        authenticated_client,
+        slicer_token,
+        filename="Benchy.gcode.3mf",
+        content=b"0" * (1024**2 + 1),
     )
     assert response.status_code == 413

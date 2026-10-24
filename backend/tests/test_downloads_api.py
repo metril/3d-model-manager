@@ -20,6 +20,7 @@ from app.services import storage_backends as sb
 from app.storage.config import LocalConfig
 from app.storage.local import LocalStorageBackend
 from tests.corpus import CorpusPaths
+from tests.server_helpers import set_server
 
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
@@ -508,7 +509,7 @@ async def test_slicer_link_uses_configured_public_url(
     db_session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``TDMM_PUBLIC_URL`` is set, it wins over ``request.base_url``
+    """When the Public URL server setting is set, it wins over ``request.base_url``
     (and is what an operator behind a reverse proxy/CDN needs)."""
     created = await _create_model(authenticated_client, "Public URL Target")
     model = await db_session.get(Model, created["id"])
@@ -516,12 +517,8 @@ async def test_slicer_link_uses_configured_public_url(
     revision = await db_session.get(Revision, revision_id)
     file = await seed_file(model, revision, "public.stl", b"bytes")
 
-    monkeypatch.setenv("TDMM_PUBLIC_URL", "https://models.example.com")
-    get_settings.cache_clear()
-    try:
-        response = await authenticated_client.post(f"/api/files/{file.id}/slicer-link")
-    finally:
-        get_settings.cache_clear()
+    await set_server(public_url="https://models.example.com")
+    response = await authenticated_client.post(f"/api/files/{file.id}/slicer-link")
 
     assert response.status_code == 200, response.text
     url = response.json()["url"]

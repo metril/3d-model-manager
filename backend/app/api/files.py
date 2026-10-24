@@ -34,6 +34,7 @@ from app.models.enums import BlobFormat
 from app.pipeline import slicedmeta
 from app.services import library, signed_urls
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
+from app.services.server_config import ServerConfig, get_server_config, public_origin
 from app.services.storage_backends import resolve_backend_for_file
 from app.storage.base import StorageBackend
 from app.storage.errors import StorageKeyNotFound
@@ -370,14 +371,14 @@ class SlicerLinkResponse(BaseModel):
     expires_at: datetime
 
 
-def _absolute_origin(request: Request, settings: Settings) -> str:
+def _absolute_origin(request: Request, cfg: ServerConfig) -> str:
     """Build ``scheme://host`` for the signed URL handed to a desktop
     slicer (review finding 3: the old version trusted client-supplied
     ``X-Forwarded-Proto``/``X-Forwarded-Host``/``Host`` headers with no
     allowlist, letting anyone mint a token embedded in an attacker-chosen
     absolute URL).
 
-    ``settings.public_url`` (``TDMM_PUBLIC_URL``), when configured, is
+    The server settings' ``public_url``, when configured, is
     always authoritative -- it's the operator's own declared externally-
     reachable origin. Otherwise this falls back to ``request.base_url``
     (this request's own scheme/host as uvicorn resolved it) and
@@ -388,9 +389,7 @@ def _absolute_origin(request: Request, settings: Settings) -> str:
     IP(s) before this code (or anything else in the app) ever sees the
     request -- that's the one place trusting a forwarded header is safe.
     """
-    if settings.public_url:
-        return settings.public_url.rstrip("/")
-    return str(request.base_url).rstrip("/")
+    return public_origin(cfg, request)
 
 
 @router.post("/{file_id}/slicer-link", response_model=SlicerLinkResponse)
@@ -414,7 +413,7 @@ async def create_slicer_link(
 
     token = signed_urls.sign_file_download(settings, file_id)
     expires_at = datetime.now(UTC) + timedelta(seconds=signed_urls.DEFAULT_TTL_S)
-    origin = _absolute_origin(request, settings)
+    origin = _absolute_origin(request, await get_server_config(db))
     filename = quote(PurePosixPath(file.rel_path).name, safe="")
     url = f"{origin}/api/files/{file_id}/download/{filename}?token={quote(token, safe='')}"
     return SlicerLinkResponse(url=url, expires_at=expires_at)

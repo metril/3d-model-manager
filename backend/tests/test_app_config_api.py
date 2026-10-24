@@ -329,12 +329,13 @@ async def test_sync_twins_get_and_set(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_slicer_url_overlays_from_env(db_session, monkeypatch):
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
-
-    config = await app_config.get_app_config(db_session, get_settings())
-    assert config.slicer_url == "http://slicer:3001"
+async def test_app_settings_in_ignores_legacy_slicer_keys(authenticated_client):
+    body = (await authenticated_client.get("/api/settings/app")).json()
+    r = await authenticated_client.put(
+        "/api/settings/app", json={**body, "slicer_url": "http://x", "slice_timeout_s": 5}
+    )
+    assert r.status_code == 200
+    assert "slicer_url" not in r.json()
 
 
 @pytest.mark.asyncio

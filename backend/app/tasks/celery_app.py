@@ -191,3 +191,49 @@ celery_app.conf.beat_schedule["obico-prune"] = {
     "task": "app.tasks.obico.prune",
     "schedule": crontab(hour=3, minute=30),
 }
+
+
+# Server settings (spec "Seed / precedence"): every long-lived process seeds
+# the DB-backed `server` + `obico` rows at start (idempotent, ON CONFLICT DO
+# NOTHING) and follows `server.log_level` at runtime. Imports are lazy: this
+# module is imported by the api process too.
+from celery.signals import beat_init, task_prerun, worker_process_init  # noqa: E402
+
+_level_poller = None
+
+
+def _apply_log_level_now() -> None:
+    from app.logging_config import LevelPoller
+    from app.tasks import base
+
+    global _level_poller
+    _level_poller = LevelPoller(ttl_s=30)
+    _level_poller.maybe_apply_sync(base.sync_session)
+
+
+@worker_process_init.connect
+def _on_worker_process_init(**_: object) -> None:
+    from app.services.server_config import seed_all_sync_safe
+
+    seed_all_sync_safe()
+    _apply_log_level_now()
+
+
+@beat_init.connect
+def _on_beat_init(**_: object) -> None:
+    # Beat logs little; the level is applied once at start (documented).
+    from app.services.server_config import seed_all_sync_safe
+
+    seed_all_sync_safe()
+    _apply_log_level_now()
+
+
+@task_prerun.connect
+def _on_task_prerun(**_: object) -> None:
+    from app.logging_config import LevelPoller
+    from app.tasks import base
+
+    global _level_poller
+    if _level_poller is None:
+        _level_poller = LevelPoller(ttl_s=30)
+    _level_poller.maybe_apply_sync(base.sync_session)

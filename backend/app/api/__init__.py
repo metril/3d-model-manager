@@ -74,6 +74,7 @@ from app.api import (
     revisions,
     scan,
     sensors,
+    server_settings,
     settings,
     slicer,
     smart_plugs,
@@ -119,6 +120,7 @@ protected_router.include_router(uploads.router)
 protected_router.include_router(jobs.router)
 protected_router.include_router(events.router)
 protected_router.include_router(scan.router)
+protected_router.include_router(server_settings.router)
 protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
 protected_router.include_router(obico.settings_router)

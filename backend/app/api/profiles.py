@@ -35,7 +35,7 @@ from app.schemas.slicing import (
     RecipeUpdate,
     SlicerHealthOut,
 )
-from app.services.app_config import get_app_config
+from app.services.server_config import get_server_config
 from app.services.slicer_client import (
     SlicerError,
     SlicerProtocolError,
@@ -237,7 +237,9 @@ async def import_profiles(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"invalid JSON: {exc}") from None
 
     if payload.get("from_sidecar"):
-        cfg = await get_app_config(db, get_settings())
+        cfg = await get_server_config(db, get_settings())
+        if not cfg.slicer_enabled:
+            raise HTTPException(status.HTTP_409_CONFLICT, "slicer_disabled")
         client = client_from_config(cfg)
         if client is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "no slicer sidecar configured")
@@ -471,7 +473,7 @@ async def delete_recipe(
 async def slicer_health(
     db: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> SlicerHealthOut:
-    cfg = await get_app_config(db, settings)
+    cfg = await get_server_config(db, settings)
     client = client_from_config(cfg)
     if client is None:
         return SlicerHealthOut(configured=False, ok=False)

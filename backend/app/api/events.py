@@ -10,9 +10,12 @@ import anyio
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
+from app.db import get_db
 from app.services.events import CHANNEL
+from app.services.server_config import get_server_config
 
 router = APIRouter(tags=["events"])
 
@@ -48,10 +51,19 @@ async def _event_stream(redis_url: str, heartbeat_interval: float) -> AsyncItera
             await client.aclose()
 
 
+async def _heartbeat_s(db: AsyncSession) -> float:
+    return (await get_server_config(db)).sse_heartbeat_s
+
+
 @router.get("/events")
-async def sse_events(settings: Settings = Depends(get_settings)) -> StreamingResponse:
+async def sse_events(
+    settings: Settings = Depends(get_settings), db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    # Read once per stream open (the DB session is released with the request
+    # scope's dependency teardown, not held for the stream's lifetime).
+    heartbeat = await _heartbeat_s(db)
     return StreamingResponse(
-        _event_stream(settings.redis_url, settings.sse_heartbeat_interval_s),
+        _event_stream(settings.redis_url, heartbeat),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

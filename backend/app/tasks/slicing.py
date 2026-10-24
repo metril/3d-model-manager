@@ -38,6 +38,7 @@ from app.services import billing, derivatives, library, spool
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
 from app.services.print_plan import estimate_item_sync
+from app.services.server_config import get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
     SlicerClient,
@@ -76,14 +77,19 @@ def slice_file(queue_entry_id: int) -> None:
 
     with base.sync_session() as session:
         cfg = get_app_config_sync(session, settings)
-        client = client_from_config(cfg)
+        server_cfg = get_server_config_sync(session, settings)
+        client = client_from_config(server_cfg)
         entry = session.get(PrintQueueEntry, queue_entry_id)
         if entry is None or entry.state != QueueState.SLICING:
             return
         claimed_at = entry.slicing_started_at
 
         if client is None:
-            entry.last_error = "slicer sidecar not configured"
+            entry.last_error = (
+                "slicer_disabled"
+                if not server_cfg.slicer_enabled
+                else "slicer sidecar not configured"
+            )
             entry.state = QueueState.WAITING
             entry.slicing_started_at = None
             session.commit()

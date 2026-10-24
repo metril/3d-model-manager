@@ -25,7 +25,7 @@ from app.config import get_settings
 from app.models import File, Printer, PrintQueueEntry
 from app.models.enums import PrinterKind, QueueState, ReviewState, VirtualPrinterMode
 from app.virtual_printer import service as vp_service
-from app.virtual_printer.intake import VpConfig
+from app.virtual_printer.intake import VpConfig, VpNetwork
 from app.virtual_printer.service import VirtualPrinterService, preflight
 from app.virtual_printer.ssdp import SEARCH_TARGET
 
@@ -36,19 +36,14 @@ SERIAL = "03000A123456789"
 
 
 @pytest.fixture
-def vp_env(monkeypatch: pytest.MonkeyPatch):
-    for k, v in {
-        "TDMM_VP_BIND": "127.0.0.1",
-        "TDMM_VP_PORT_SSDP": "0",
-        "TDMM_VP_PORT_MQTT": "0",
-        "TDMM_VP_PORT_FTP": "0",
-        "TDMM_VP_PASV_MIN": "0",
-        "TDMM_VP_PASV_MAX": "0",
-    }.items():
-        monkeypatch.setenv(k, v)
+def vp_env():
+    # Ports 0 = ephemeral (ServerConfig forbids 0, so VpNetwork is built directly).
     get_settings.cache_clear()
     yield get_settings()
     get_settings.cache_clear()
+
+
+NET = VpNetwork("127.0.0.1", 0, 0, 0, 0, 0)
 
 
 @pytest.fixture
@@ -66,7 +61,7 @@ async def make_service(vp_env) -> AsyncIterator[Callable[..., VirtualPrinterServ
             target_printer_id=target,
             created_by_user_id=user_id,
         )
-        svc = VirtualPrinterService(vp_env, cfg)
+        svc = VirtualPrinterService(vp_env, cfg, NET)
         await svc.start()
         started.append(svc)
         return svc
@@ -338,16 +333,10 @@ def test_preflight_reports_busy_port(monkeypatch):
     blocker.bind(("127.0.0.1", 0))
     blocker.listen()
     port = blocker.getsockname()[1]
-    monkeypatch.setenv("TDMM_VP_BIND", "127.0.0.1")
-    monkeypatch.setenv("TDMM_VP_PORT_SSDP", "0")
-    monkeypatch.setenv("TDMM_VP_PORT_MQTT", str(port))
-    monkeypatch.setenv("TDMM_VP_PORT_FTP", "0")
-    get_settings.cache_clear()
     try:
-        problems = preflight(get_settings())
+        problems = preflight(VpNetwork("127.0.0.1", 0, port, 0, 0, 0))
     finally:
         blocker.close()
-        get_settings.cache_clear()
     assert len(problems) == 1 and f"MQTT port {port}/tcp" in problems[0]
 
 
@@ -385,11 +374,6 @@ async def test_crud_routes(authenticated_client: httpx.AsyncClient, db_session):
     assert (await c.get(f"/api/virtual-printers/{vp['id']}")).status_code == 404
 
 
-async def test_features_flag(authenticated_client: httpx.AsyncClient, monkeypatch):
-    monkeypatch.setenv("TDMM_VP_ENABLED", "true")
-    get_settings.cache_clear()
-    try:
-        r = await authenticated_client.get("/api/features")
-    finally:
-        get_settings.cache_clear()
+async def test_features_flag(authenticated_client: httpx.AsyncClient):
+    r = await authenticated_client.get("/api/features")
     assert r.json()["virtual_printer_enabled"] is True

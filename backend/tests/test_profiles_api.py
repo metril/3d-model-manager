@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Printer, SlicerProfile
 from app.models.enums import PrinterKind, ProfileKind, ProfileSource
+from tests.server_helpers import set_server
 from tests.slicer_fixtures import write_bundle_zip
 
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
@@ -356,10 +357,7 @@ async def test_health_unconfigured(authenticated_client: httpx.AsyncClient):
 
 
 async def test_health_up(authenticated_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch):
-    from app.config import get_settings
-
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
     try:
         with respx.mock:
             respx.get("http://slicer:3001/health").mock(
@@ -367,7 +365,7 @@ async def test_health_up(authenticated_client: httpx.AsyncClient, monkeypatch: p
             )
             r = await authenticated_client.get("/api/slicer/health")
     finally:
-        get_settings.cache_clear()
+        pass
     assert r.status_code == 200
     body = r.json()
     assert body["configured"] is True
@@ -378,16 +376,13 @@ async def test_health_up(authenticated_client: httpx.AsyncClient, monkeypatch: p
 async def test_health_down(
     authenticated_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    from app.config import get_settings
-
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
     try:
         with respx.mock:
             respx.get("http://slicer:3001/health").mock(side_effect=httpx.ConnectError("refused"))
             r = await authenticated_client.get("/api/slicer/health")
     finally:
-        get_settings.cache_clear()
+        pass
     assert r.status_code == 200
     body = r.json()
     assert body["configured"] is True
@@ -401,10 +396,7 @@ async def test_health_non_object_body_is_502(
     """M4: a 2xx body that isn't even a JSON object (here, a bare list) is
     a protocol violation, not a plain "unhealthy" report -- 502, not a 200
     with `ok: false`."""
-    from app.config import get_settings
-
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
     try:
         with respx.mock:
             respx.get("http://slicer:3001/health").mock(
@@ -412,7 +404,7 @@ async def test_health_non_object_body_is_502(
             )
             r = await authenticated_client.get("/api/slicer/health")
     finally:
-        get_settings.cache_clear()
+        pass
     assert r.status_code == 502
 
 
@@ -463,10 +455,7 @@ _SIDECAR = [
 
 
 async def _sync(client: httpx.AsyncClient, monkeypatch, body: dict):
-    from app.config import get_settings
-
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
     try:
         with respx.mock:
             route = respx.get("http://slicer:3001/profiles").mock(
@@ -475,7 +464,7 @@ async def _sync(client: httpx.AsyncClient, monkeypatch, body: dict):
             r = await client.post("/api/profiles/import", json=body)
             assert route.calls.last.request.url.params["flatten"] == "1"
     finally:
-        get_settings.cache_clear()
+        pass
     return r
 
 
@@ -551,10 +540,7 @@ async def test_sync_no_matching_models_gives_hint(
 async def test_sync_sidecar_down_is_503_and_error_is_502(
     authenticated_client: httpx.AsyncClient, monkeypatch
 ):
-    from app.config import get_settings
-
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
     try:
         with respx.mock:
             route = respx.get("http://slicer:3001/profiles").mock(
@@ -569,4 +555,4 @@ async def test_sync_sidecar_down_is_503_and_error_is_502(
             r = await authenticated_client.post("/api/profiles/import", json={"from_sidecar": True})
             assert r.status_code == 404
     finally:
-        get_settings.cache_clear()
+        pass
