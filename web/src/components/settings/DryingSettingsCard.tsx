@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 const inRange = (v: number, lo: number, hi: number) => Number.isFinite(v) && v >= lo && v <= hi;
 
 /** Returns i18n error entries `[key, params]`; empty = valid. */
-export function validateDrying(s: DryingSettings): Array<[string, Record<string, string>]> {
+function validateDrying(s: DryingSettings): Array<[string, Record<string, string>]> {
   const errors: Array<[string, Record<string, string>]> = [];
   for (const [name, p] of Object.entries(s.presets)) {
     if (!name.trim()) errors.push(["name", {}]);
@@ -121,11 +121,11 @@ function Form({ initial }: { initial: DryingSettings }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label>{t("drying.settings.good")}</Label>
-          <Input type="number" value={Number.isNaN(s.ams_humidity_good) ? "" : s.ams_humidity_good} onChange={(e) => patch({ ams_humidity_good: num(e.target.value) })} />
+          <Input type="number" aria-label={t("drying.settings.good")} value={Number.isNaN(s.ams_humidity_good) ? "" : s.ams_humidity_good} onChange={(e) => patch({ ams_humidity_good: num(e.target.value) })} />
         </div>
         <div className="space-y-1">
           <Label>{t("drying.settings.fair")}</Label>
-          <Input type="number" value={Number.isNaN(s.ams_humidity_fair) ? "" : s.ams_humidity_fair} onChange={(e) => patch({ ams_humidity_fair: num(e.target.value) })} />
+          <Input type="number" aria-label={t("drying.settings.fair")} value={Number.isNaN(s.ams_humidity_fair) ? "" : s.ams_humidity_fair} onChange={(e) => patch({ ams_humidity_fair: num(e.target.value) })} />
         </div>
       </div>
 
@@ -176,6 +176,7 @@ function Form({ initial }: { initial: DryingSettings }) {
           <Input
             type="number"
             className="w-28"
+            aria-label={t("drying.settings.sustained")}
             disabled={!s.ambient_drying_enabled}
             value={Number.isNaN(s.ambient_sustained_min) ? "" : s.ambient_sustained_min}
             onChange={(e) => patch({ ambient_sustained_min: num(e.target.value) })}

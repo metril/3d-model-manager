@@ -215,7 +215,7 @@ export function FilamentsSection({
   onDry?: (unitId: number) => void;
 }) {
   const { t } = useTranslation();
-  const caps = capsOf(printer);
+  const caps = { ...capsOf(printer), ...(status.capabilities ?? {}) };
   const busy = isBusy(status.gcode_state);
   const ext = status.ext_tray ?? status.trays.find((x) => x.ams_unit === EXTERNAL_UNIT) ?? null;
   const ams = status.trays.filter((x) => x.ams_unit !== EXTERNAL_UNIT);

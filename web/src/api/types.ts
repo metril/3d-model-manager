@@ -823,6 +823,8 @@ export interface SlotAssignIn {
 }
 
 export interface PrinterStatusOut {
+  /** T1: firmware-aware capabilities (preferred over `PrinterOut.capabilities` when present). */
+  capabilities?: PrinterCapabilities | null;
   online: boolean;
   gcode_state: string | null;
   mc_percent: number | null;
