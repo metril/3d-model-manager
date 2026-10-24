@@ -17,6 +17,8 @@ async def test_me_shape_for_admin(authenticated_client, admin_user):
         "groups": [],
         "has_password": True,
         "printer_access": None,
+        "two_factor_enabled": False,
+        "must_enroll_2fa": False,
     }
 
 
