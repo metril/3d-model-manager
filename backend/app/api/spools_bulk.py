@@ -106,9 +106,7 @@ async def bulk_update(payload: BulkUpdateIn, db: AsyncSession = Depends(get_db))
     try:
         SpoolUpdate.model_validate(fields)
     except ValidationError as e:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, e.errors(include_url=False, include_context=False)
-        ) from e
+        raise HTTPException(422, e.errors(include_url=False, include_context=False)) from e
     archived = fields.pop("archived", None)
     if fields.get("location_id") is not None and (
         await db.get(StorageLocation, fields["location_id"]) is None
@@ -221,7 +219,7 @@ async def export_csv(
         try:
             stmt = stmt.where(Spool.id.in_([int(i) for i in ids.split(",") if i.strip()]))
         except ValueError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "ids must be integers") from e
+            raise HTTPException(422, "ids must be integers") from e
     spools = list((await db.execute(stmt.order_by(Spool.id))).scalars().all())
     body = await spool_csv.export_csv(db, spools)
     return Response(
@@ -307,7 +305,7 @@ async def _label_items(
     db: AsyncSession, ids: list[int], request_base: str
 ) -> list[spool_labels.LabelData]:
     if not ids:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "no spools selected")
+        raise HTTPException(422, "no spools selected")
     found, missing = await _load(db, ids)
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"spool(s) not found: {missing}")
