@@ -27,4 +27,3 @@ export function isBusy(gcodeState: string | null | undefined): boolean {
   return BUSY.has(gcodeState ?? "");
 }
 
-export const UNTESTED_TIP = "Untested on this model";

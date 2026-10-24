@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { api } from "@/api/client";
@@ -20,6 +21,7 @@ export function BulkPrinterToolbar({
   onDone: () => void;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const eligible = (action: Action) =>
     selected.filter((it) => {
@@ -35,9 +37,16 @@ export function BulkPrinterToolbar({
     setBusy(false);
     const failed = results.filter((r) => r.status === "rejected");
     const ok = results.length - failed.length;
-    const verb = action === "pause" ? "Paused" : "Stopped";
-    if (failed.length === 0) toast.success(`${verb} ${ok} printer${ok === 1 ? "" : "s"}`);
-    else toast.error(`${verb} ${ok} of ${results.length}: ${controlErrorMessage((failed[0] as PromiseRejectedResult).reason)}`);
+    const key = action === "pause" ? "dash.bulk.paused" : "dash.bulk.stopped";
+    if (failed.length === 0) toast.success(t(key, { count: ok }));
+    else
+      toast.error(
+        t(`${key}Partial`, {
+          ok,
+          total: results.length,
+          reason: controlErrorMessage((failed[0] as PromiseRejectedResult).reason),
+        }),
+      );
     onDone();
   }
 
@@ -45,31 +54,31 @@ export function BulkPrinterToolbar({
   const stopN = eligible("stop").length;
   return (
     <div data-slot="bulk-toolbar" className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-      <span className="font-medium">{selected.length} selected</span>
+      <span className="font-medium">{t("dash.bulk.selected", { n: selected.length })}</span>
       <ConfirmDialog
         trigger={
           <Button type="button" size="sm" variant="outline" disabled={busy || pauseN === 0}>
-            Pause selected ({pauseN})
+            {t("dash.bulk.pauseBtn", { n: pauseN })}
           </Button>
         }
-        title={`Pause ${pauseN} print${pauseN === 1 ? "" : "s"}?`}
-        confirmLabel="Pause"
+        title={t("dash.bulk.pauseTitle", { count: pauseN })}
+        confirmLabel={t("dash.bulk.pause")}
         onConfirm={() => void run("pause")}
       />
       <ConfirmDialog
         trigger={
           <Button type="button" size="sm" variant="destructive" disabled={busy || stopN === 0}>
-            Stop selected ({stopN})
+            {t("dash.bulk.stopBtn", { n: stopN })}
           </Button>
         }
-        title={`Stop ${stopN} print${stopN === 1 ? "" : "s"}?`}
-        description="The printers will cancel their jobs in progress. This can't be undone."
-        confirmLabel="Stop"
+        title={t("dash.bulk.stopTitle", { count: stopN })}
+        description={t("dash.bulk.stopDesc")}
+        confirmLabel={t("dash.bulk.stop")}
         destructive
         onConfirm={() => void run("stop")}
       />
       <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={onClear}>
-        Clear
+        {t("dash.bulk.clear")}
       </Button>
     </div>
   );

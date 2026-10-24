@@ -8,6 +8,7 @@
  */
 import { FanIcon, FlameIcon, ThermometerIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useControl } from "@/api/printerControl";
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-import { capsOf, UNTESTED_TIP } from "./caps";
+import { capsOf } from "./caps";
 import { useOptimistic } from "./useOptimistic";
 import { UntestedTip } from "./UntestedTip";
 
@@ -56,6 +57,7 @@ function Tile({
   onSet: (value: number) => Promise<boolean>;
   hint?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const apply = async (v: number) => {
@@ -87,7 +89,7 @@ function Tile({
               {body}
             </div>
           </TooltipTrigger>
-          <TooltipContent>{untested ? `${hint} ${UNTESTED_TIP}.` : hint}</TooltipContent>
+          <TooltipContent>{untested ? `${hint} ${t("card.untested")}.` : hint}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     );
@@ -97,14 +99,14 @@ function Tile({
     <Popover open={open} onOpenChange={setOpen}>
       <UntestedTip show={untested}>
         <PopoverTrigger asChild>
-          <button type="button" className="flex min-w-0 flex-1 text-left" aria-label={`Set ${label}`}>
+          <button type="button" className="flex min-w-0 flex-1 text-left" aria-label={t("card.temps.set", { label })}>
             {body}
           </button>
         </PopoverTrigger>
       </UntestedTip>
       <PopoverContent className="w-56">
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          {label} target ({unit})
+          {t("card.temps.target", { label, unit })}
           <Input
             type="number"
             min={0}
@@ -130,7 +132,7 @@ function Tile({
             disabled={draft === ""}
             onClick={() => void apply(Math.min(max, Math.max(0, Number(draft))))}
           >
-            Set
+            {t("card.temps.apply")}
           </Button>
         </div>
       </PopoverContent>
@@ -142,6 +144,7 @@ const fmt = (v: number | null | undefined) => (v == null ? "--" : String(Math.ro
 
 function TempTile({
   printerId,
+  tid,
   target,
   label,
   icon,
@@ -154,6 +157,8 @@ function TempTile({
   hint,
 }: {
   printerId: number;
+  /** Locale-independent test id suffix. */
+  tid: string;
   target: "nozzle" | "bed" | "chamber";
   label: string;
   icon: ReactNode;
@@ -165,18 +170,19 @@ function TempTile({
   untested: boolean;
   hint?: string;
 }) {
+  const { t } = useTranslation();
   const control = useControl(printerId);
   const [shown, setPending] = useOptimistic(reportedTarget);
   return (
     <Tile
-      testId={`tile-${label.toLowerCase().replaceAll(" ", "-")}`}
+      testId={`tile-${tid}`}
       label={label}
       icon={icon}
       current={fmt(current)}
       target={shown != null && shown > 0 ? Math.round(shown) : null}
       unit="°C"
       max={max}
-      presets={[...presets, { label: "Off", value: 0 }]}
+      presets={[...presets, { label: t("card.temps.off"), value: 0 }]}
       disabled={disabled}
       untested={untested}
       hint={hint}
@@ -243,6 +249,7 @@ export function TempFanTiles({
   status: PrinterStatusOut;
   canControl: boolean;
 }) {
+  const { t } = useTranslation();
   const caps = capsOf(printer);
   const disabled = !canControl || !status.online;
   const untested = !caps.verified;
@@ -262,8 +269,9 @@ export function TempFanTiles({
       <div className="flex gap-1.5">
         <TempTile
           {...common}
+          tid={caps.dual_nozzle ? "nozzle-l" : "nozzle"}
           target="nozzle"
-          label={caps.dual_nozzle ? "Nozzle L" : "Nozzle"}
+          label={caps.dual_nozzle ? t("card.temps.nozzleL") : t("card.temps.nozzle")}
           icon={<ThermometerIcon className="pc-i" />}
           current={status.nozzle_temper}
           reportedTarget={status.nozzle_target}
@@ -275,8 +283,9 @@ export function TempFanTiles({
           <TempTile
             {...common}
             disabled
+            tid="nozzle-r"
             target="nozzle"
-            label="Nozzle R"
+            label={t("card.temps.nozzleR")}
             icon={<ThermometerIcon className="pc-i" />}
             current={null}
             reportedTarget={null}
@@ -286,8 +295,9 @@ export function TempFanTiles({
         ) : null}
         <TempTile
           {...common}
+          tid="bed"
           target="bed"
-          label="Bed"
+          label={t("card.temps.bed")}
           icon={<FlameIcon className="pc-i" />}
           current={status.bed_temper}
           reportedTarget={status.bed_target}
@@ -298,22 +308,23 @@ export function TempFanTiles({
           <TempTile
             {...common}
             disabled={disabled || !caps.chamber_heater}
+            tid="chamber"
             target="chamber"
-            label="Chamber"
+            label={t("card.temps.chamber")}
             icon={<ThermometerIcon className="pc-i" />}
             current={status.chamber_temper}
             reportedTarget={status.chamber_target}
             max={65}
             presets={[]}
-            hint={caps.chamber_heater ? undefined : "Chamber temperature is read-only on this model."}
+            hint={caps.chamber_heater ? undefined : t("card.temps.chamberReadonly")}
           />
         ) : null}
       </div>
       <div className="flex gap-1.5">
-        <FanTile {...common} fan="part" label="Part fan" reported={status.fan_part_pct} />
-        {caps.aux_fan ? <FanTile {...common} fan="aux" label="Aux fan" reported={status.fan_aux_pct} /> : null}
+        <FanTile {...common} fan="part" label={t("card.temps.partFan")} reported={status.fan_part_pct} />
+        {caps.aux_fan ? <FanTile {...common} fan="aux" label={t("card.temps.auxFan")} reported={status.fan_aux_pct} /> : null}
         {caps.chamber_fan ? (
-          <FanTile {...common} fan="chamber" label="Chamber fan" reported={status.fan_chamber_pct} />
+          <FanTile {...common} fan="chamber" label={t("card.temps.chamberFan")} reported={status.fan_chamber_pct} />
         ) : null}
       </div>
     </div>

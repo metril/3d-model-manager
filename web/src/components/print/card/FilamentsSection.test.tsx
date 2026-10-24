@@ -51,6 +51,20 @@ describe("FilamentsSection", () => {
     expect(screen.queryByTestId("loaded-0")).toBeNull();
   });
 
+  it("tray_now 254 marks the external spool; 255 marks nothing", async () => {
+    const ext = tray({ slot: 254, ams_unit: 255, tray: 254 });
+    const it = a1Mini({}, { trays: [tray({ slot: 0 })], ext_tray: ext, tray_now: 254 });
+    const { unmount } = renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl />);
+    expect(await screen.findByTestId("loaded-254")).toBeInTheDocument();
+    expect(screen.queryByTestId("loaded-0")).toBeNull();
+    unmount();
+    const none = a1Mini({}, { trays: [tray({ slot: 0 })], ext_tray: ext, tray_now: 255 });
+    renderCard(<FilamentsSection printer={none.printer} status={none.status} canControl />);
+    await screen.findByTestId("slot-0");
+    expect(screen.queryByTestId("loaded-0")).toBeNull();
+    expect(screen.queryByTestId("loaded-254")).toBeNull();
+  });
+
   it("slot menu loads / unloads through the filament control route", async () => {
     const it = a1Mini({}, { trays: TRAYS });
     renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl />);

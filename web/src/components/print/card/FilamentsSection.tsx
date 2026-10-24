@@ -5,6 +5,7 @@
  * around each circle, the external spool card and an AMS-backup badge.
  */
 import { DropletsIcon, MoreVerticalIcon, ThermometerIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useControl } from "@/api/printerControl";
 import type { AmsTray, AmsUnit, PrinterOut, PrinterStatusOut } from "@/api/types";
@@ -38,6 +39,7 @@ function SlotCircle({
   busy: boolean;
   label: string;
 }) {
+  const { t } = useTranslation();
   const control = useControl(printer.id);
   const color = normalizeHex(tray.color);
   const remain = tray.remain_pct != null && tray.remain_pct >= 0 ? Math.min(100, tray.remain_pct) : null;
@@ -46,7 +48,7 @@ function SlotCircle({
     <button
       type="button"
       data-testid={`slot-${tray.slot}`}
-      aria-label={`${label} ${material ?? "empty"}`}
+      aria-label={`${label} ${material ?? t("card.filaments.emptyLower")}`}
       className="relative flex size-8 items-center justify-center rounded-full border-2 border-border"
       style={color ? { backgroundColor: color } : undefined}
     >
@@ -54,6 +56,7 @@ function SlotCircle({
       {loaded ? (
         <span
           data-testid={`loaded-${tray.slot}`}
+          title={t("card.filaments.loaded")}
           className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-state-finished ring-2 ring-background"
         />
       ) : null}
@@ -66,7 +69,7 @@ function SlotCircle({
         {canControl ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon-xs" aria-label={`${label} menu`}>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={t("card.filaments.slotMenu", { label })}>
                 <MoreVerticalIcon />
               </Button>
             </DropdownMenuTrigger>
@@ -75,33 +78,34 @@ function SlotCircle({
                 disabled={busy || tray.ams_unit === EXTERNAL_UNIT}
                 onSelect={() => void control.send("filament", { action: "load", tray: tray.slot })}
               >
-                Load
+                {t("card.filaments.load")}
               </DropdownMenuItem>
               <DropdownMenuItem disabled={busy} onSelect={() => void control.send("filament", { action: "unload" })}>
-                Unload
+                {t("card.filaments.unload")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
       </div>
-      <span className="pc-t10 max-w-full truncate">{material ?? "Empty"}</span>
+      <span className="pc-t10 max-w-full truncate">{material ?? t("card.filaments.empty")}</span>
       {remain != null ? (
         <div
           role="meter"
-          aria-label="Remaining"
+          aria-label={t("card.filaments.remaining")}
           aria-valuenow={remain}
           className="h-1 w-full overflow-hidden rounded-full bg-muted"
         >
           <div className="h-full bg-foreground/60" style={{ width: `${remain}%` }} />
         </div>
       ) : null}
-      {tray.spool?.low_stock ? <Badge variant="destructive">Low</Badge> : null}
+      {tray.spool?.low_stock ? <Badge variant="destructive">{t("card.filaments.low")}</Badge> : null}
       {mapping ? <Badge variant="secondary">{mapping}</Badge> : null}
     </div>
   );
 }
 
 function UnitHeader({ id, unit, onDry }: { id: number; unit?: AmsUnit; onDry?: (unitId: number) => void }) {
+  const { t } = useTranslation();
   const detail = (
     <span className="pc-t10 flex items-center gap-2 font-mono tabular-nums text-muted-foreground">
       {unit?.humidity != null ? (
@@ -127,10 +131,10 @@ function UnitHeader({ id, unit, onDry }: { id: number; unit?: AmsUnit; onDry?: (
             <TooltipTrigger asChild>{detail}</TooltipTrigger>
             <TooltipContent>
               <div className="space-y-0.5 text-xs">
-                <div>Humidity: {unit.humidity != null ? `${Math.round(unit.humidity)}%` : "--"}</div>
-                <div>Temp: {unit.temp != null ? `${Math.round(unit.temp)} °C` : "--"}</div>
-                {unit.serial ? <div>Serial: {unit.serial}</div> : null}
-                {unit.fw ? <div>Firmware: {unit.fw}</div> : null}
+                <div>{t("card.filaments.humidity", { v: unit.humidity != null ? `${Math.round(unit.humidity)}%` : "--" })}</div>
+                <div>{t("card.filaments.temp", { v: unit.temp != null ? `${Math.round(unit.temp)} °C` : "--" })}</div>
+                {unit.serial ? <div>{t("card.filaments.serial", { v: unit.serial })}</div> : null}
+                {unit.fw ? <div>{t("card.filaments.firmware", { v: unit.fw })}</div> : null}
               </div>
             </TooltipContent>
           </Tooltip>
@@ -138,7 +142,7 @@ function UnitHeader({ id, unit, onDry }: { id: number; unit?: AmsUnit; onDry?: (
       ) : null}
       {onDry ? (
         <Button type="button" variant="outline" size="xs" className="ml-auto" onClick={() => onDry(id)}>
-          Dry
+          {t("card.filaments.dry")}
         </Button>
       ) : null}
     </div>
@@ -160,21 +164,23 @@ export function FilamentsSection({
   /** AMS drying hook; the button renders only with the `ams_drying` capability AND a handler. */
   onDry?: (unitId: number) => void;
 }) {
+  const { t } = useTranslation();
   const caps = capsOf(printer);
   const busy = isBusy(status.gcode_state);
-  const ext = status.ext_tray ?? status.trays.find((t) => t.ams_unit === EXTERNAL_UNIT) ?? null;
-  const ams = status.trays.filter((t) => t.ams_unit !== EXTERNAL_UNIT);
+  const ext = status.ext_tray ?? status.trays.find((x) => x.ams_unit === EXTERNAL_UNIT) ?? null;
+  const ams = status.trays.filter((x) => x.ams_unit !== EXTERNAL_UNIT);
   if (ams.length === 0 && !ext) return null;
 
   const byUnit = new Map<number, AmsTray[]>();
-  for (const t of ams) byUnit.set(t.ams_unit ?? 0, [...(byUnit.get(t.ams_unit ?? 0) ?? []), t]);
+  for (const x of ams) byUnit.set(x.ams_unit ?? 0, [...(byUnit.get(x.ams_unit ?? 0) ?? []), x]);
+  // 254 = external spool, 255 = nothing loaded.
   const loadedSlot = status.tray_now ?? null;
 
   return (
     <div className="flex flex-col gap-2" data-slot="filaments-section">
       {hasBackup(ams) ? (
-        <Badge variant="secondary" className="self-start" title="Two slots hold the same filament">
-          AMS backup
+        <Badge variant="secondary" className="self-start" title={t("card.filaments.backupTip")}>
+          {t("card.filaments.backup")}
         </Badge>
       ) : null}
       <div className="flex flex-wrap gap-2">
@@ -186,16 +192,16 @@ export function FilamentsSection({
               onDry={caps.ams_drying && canControl ? onDry : undefined}
             />
             <div className="flex gap-1">
-              {trays.map((t) => (
+              {trays.map((tr) => (
                 <SlotCircle
-                  key={t.slot}
+                  key={tr.slot}
                   printer={printer}
-                  tray={t}
+                  tray={tr}
                   canControl={canControl}
-                  loaded={loadedSlot === t.slot}
-                  mapping={mapping?.[t.slot]}
+                  loaded={loadedSlot === tr.slot}
+                  mapping={mapping?.[tr.slot]}
                   busy={busy}
-                  label={`Slot ${t.slot + 1}`}
+                  label={t("card.filaments.slot", { n: tr.slot + 1 })}
                 />
               ))}
             </div>
@@ -203,14 +209,14 @@ export function FilamentsSection({
         ))}
         {ext ? (
           <div className="flex min-w-24 flex-col gap-1 rounded-md border p-2" data-slot="external-spool">
-            <span className="pc-t10 font-medium">External</span>
+            <span className="pc-t10 font-medium">{t("card.filaments.external")}</span>
             <SlotCircle
               printer={printer}
               tray={ext}
               canControl={canControl}
               loaded={loadedSlot === 254}
               busy={busy}
-              label="External spool"
+              label={t("card.filaments.externalSpool")}
             />
           </div>
         ) : null}

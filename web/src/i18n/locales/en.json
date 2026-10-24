@@ -49,5 +49,25 @@
     "nozzle": "Nozzle", "bed": "Bed", "chamber": "Chamber",
     "humidity": "Humidity (%)", "temp": "Temperature (°C)", "unit": "AMS unit {{n}}",
     "empty": "No samples in this range.", "loadError": "Couldn't load history"
+  },
+  "card": {
+    "select": "Select {{name}}",
+    "expand": "Expand {{name}}",
+    "back": "Back",
+    "untested": "Untested on this model",
+    "badge": {"connected": "Connected", "offline": "Offline", "network": "Network", "ethernet": "Ethernet", "hms": "HMS {{n}}", "queued": "{{n}} queued", "fw": "FW {{v}}", "door": "Door", "doorOpen": "Door open", "doorClosed": "Door closed", "doorTitle": "Door sensor", "devModeOff": "Dev Mode off", "devModeTip": "Developer LAN mode is off"},
+    "header": {"menu": "Printer menu", "edit": "Edit", "info": "Info", "reconnect": "Reconnect", "forceRefresh": "Force refresh", "diagnose": "Diagnose", "delete": "Delete", "reachable": "Printer reachable", "reconnectFailed": "Reconnect failed", "hours": "{{n}} h printed", "deleteTitle": "Delete {{name}}?", "deleteDesc": "The printer and its connection settings are removed. Print history is kept."},
+    "footer": {"print": "Print", "firmware": "Firmware"},
+    "status": {"offline": "Offline", "offlineLast": "Offline — last: {{name}}", "idle": "Idle", "last": "Last: {{name}} · {{result}}", "nothing": "Nothing printed yet", "clearPlate": "Clear plate", "print": "Print", "skip": "Skip objects", "left": "{{t}} left", "eta": "ETA {{t}}", "layer": "Layer {{n}}/{{total}}", "startedApp": "Started from the app", "startedPrinter": "Started on the printer"},
+    "controls": {"silent": "Silent", "standard": "Standard", "sport": "Sport", "ludicrous": "Ludicrous", "movement": "Movement", "move": "Move", "jogStep": "Jog step", "mm": "{{n}} mm", "home": "Home", "extrude": "Extrude", "retract": "Retract", "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.", "lightLabel": "Chamber light", "light": "Light", "speed": "Print speed", "airduct": "Airduct", "cooling": "cooling", "heating": "heating", "calibration": "Calibration", "calibrate": "Calibrate", "calibrateTitle": "Run calibration?", "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.", "resume": "Resume", "pause": "Pause", "resumeTitle": "Resume this print?", "pauseTitle": "Pause this print?", "stop": "Stop", "stopTitle": "Stop this print?", "stopDesc": "The printer will cancel the job in progress. This can't be undone."},
+    "temps": {"set": "Set {{label}}", "target": "{{label}} target ({{unit}})", "apply": "Set", "off": "Off", "nozzle": "Nozzle", "nozzleL": "Nozzle L", "nozzleR": "Nozzle R", "bed": "Bed", "chamber": "Chamber", "chamberReadonly": "Chamber temperature is read-only on this model.", "partFan": "Part fan", "auxFan": "Aux fan", "chamberFan": "Chamber fan"},
+    "filaments": {"emptyLower": "empty", "empty": "Empty", "loaded": "Loaded", "slotMenu": "{{label}} menu", "load": "Load", "unload": "Unload", "remaining": "Remaining", "low": "Low", "humidity": "Humidity: {{v}}", "temp": "Temp: {{v}}", "serial": "Serial: {{v}}", "firmware": "Firmware: {{v}}", "dry": "Dry", "backup": "AMS backup", "backupTip": "Two slots hold the same filament", "external": "External", "externalSpool": "External spool", "slot": "Slot {{n}}"},
+    "skip": {"title": "Skip objects", "desc": "Skipped objects are not printed from the next layer on. This can't be undone.", "submit": "Skip {{n}} selected"},
+    "devBanner": {"off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.", "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.", "how": "How to enable it", "dismiss": "Dismiss"}
+  },
+  "dash": {
+    "status": {"printing": "printing", "paused": "paused", "finished": "finished", "available": "available", "problem": "problem", "offline": "offline"},
+    "nextFree": "Next free: {{name}} in {{eta}}",
+    "bulk": {"selected": "{{n}} selected", "pauseBtn": "Pause selected ({{n}})", "stopBtn": "Stop selected ({{n}})", "pause": "Pause", "stop": "Stop", "clear": "Clear", "pauseTitle": "Pause {{count}} prints?", "pauseTitle_one": "Pause {{count}} print?", "pauseTitle_other": "Pause {{count}} prints?", "stopTitle": "Stop {{count}} prints?", "stopTitle_one": "Stop {{count}} print?", "stopTitle_other": "Stop {{count}} prints?", "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.", "paused_one": "Paused {{count}} printer", "paused_other": "Paused {{count}} printers", "stopped_one": "Stopped {{count}} printer", "stopped_other": "Stopped {{count}} printers", "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}", "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"}
   }
 }

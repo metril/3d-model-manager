@@ -142,6 +142,8 @@ async def test_status_v2_fields_from_redis(authenticated_client, printer_enabled
                 "hms": [{"attr": 1, "code": 2}],
                 "firmware": {"ota": "01.07.00.00", "ams": [{"id": 0, "sw_ver": "1"}]},
                 "ams_units": [{"id": 0, "humidity": 31.0}],
+                "tray_now": 1,
+                "door_open": True,
             }
         ),
     )
@@ -151,6 +153,7 @@ async def test_status_v2_fields_from_redis(authenticated_client, printer_enabled
     assert body["stage"] == "Heating nozzle" and body["hms"] == [{"attr": 1, "code": 2}]
     assert body["firmware"]["ota"] == "01.07.00.00" and body["ams_units"][0]["humidity"] == 31.0
     assert body["chamber_temper"] is None and body["dev_mode"] is None
+    assert body["tray_now"] == 1 and body["door_open"] is True
 
 
 async def test_printer_out_has_capabilities(authenticated_client, printer_enabled):

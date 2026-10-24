@@ -219,6 +219,23 @@ describe("PrintDashboardPage printer counts", () => {
     await screen.findByText("Printer 1");
     expect(document.querySelectorAll('[data-slot="camera-tile"]')).toHaveLength(0);
   });
+
+  it("Q12: every M card carries the shared extras (camera split, firmware, history); S shows none", async () => {
+    overviewBox.current = { printers: [printerItem(1), printerItem(2)], up_next: [], recent_runs: [] };
+    renderPage();
+    await screen.findByText("Printer 1");
+    expect(await screen.findAllByRole("button", { name: "Firmware" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Camera options" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Temperature history" })).toHaveLength(2);
+  });
+
+  it("Q12: S cards render no footer items", async () => {
+    localStorage.setItem("printerCardSize", "S");
+    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
+    renderPage();
+    await screen.findByText("Printer 1");
+    expect(screen.queryByRole("button", { name: "Firmware" })).toBeNull();
+  });
 });
 
 function fleet(): PrintersOverviewOut {

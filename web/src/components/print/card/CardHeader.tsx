@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MoreVerticalIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { api } from "@/api/client";
@@ -43,6 +44,7 @@ export function CardHeader({
   extra?: ReactNode;
   imageClassName?: string;
 }) {
+  const { t } = useTranslation();
   const auth = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -55,10 +57,10 @@ export function CardHeader({
   async function reconnect() {
     try {
       const res = await api.post<ProbeOut>(`/printers/${printer.id}/test`);
-      if (res.ok) toast.success("Printer reachable");
+      if (res.ok) toast.success(t("card.header.reachable"));
       else toast.error(res.detail);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Reconnect failed");
+      toast.error(e instanceof Error ? e.message : t("card.header.reconnectFailed"));
     }
     void qc.invalidateQueries({ queryKey: ["printers"] });
   }
@@ -79,7 +81,7 @@ export function CardHeader({
           {printer.name}
         </Link>
         <p className="pc-t11 truncate text-muted-foreground">
-          {[printer.model, nozzle, hours != null ? `${Math.round(hours)} h printed` : null]
+          {[printer.model, nozzle, hours != null ? t("card.header.hours", { n: Math.round(hours) }) : null]
             .filter(Boolean)
             .join(" · ")}
         </p>
@@ -87,23 +89,23 @@ export function CardHeader({
       {extra}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Printer menu">
+          <Button variant="ghost" size="icon-sm" aria-label={t("card.header.menu")}>
             <MoreVerticalIcon />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {canAdmin ? <DropdownMenuItem onSelect={() => void navigate({ to: "/settings" })}>Edit</DropdownMenuItem> : null}
-          {onInfo ? <DropdownMenuItem onSelect={onInfo}>Info</DropdownMenuItem> : null}
-          <DropdownMenuItem onSelect={() => void reconnect()}>Reconnect</DropdownMenuItem>
+          {canAdmin ? <DropdownMenuItem onSelect={() => void navigate({ to: "/settings" })}>{t("card.header.edit")}</DropdownMenuItem> : null}
+          {onInfo ? <DropdownMenuItem onSelect={onInfo}>{t("card.header.info")}</DropdownMenuItem> : null}
+          <DropdownMenuItem onSelect={() => void reconnect()}>{t("card.header.reconnect")}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void qc.invalidateQueries({ queryKey: ["printers"] })}>
-            Force refresh
+            {t("card.header.forceRefresh")}
           </DropdownMenuItem>
-          {onDiagnose && canAdmin ? <DropdownMenuItem onSelect={onDiagnose}>Diagnose</DropdownMenuItem> : null}
+          {onDiagnose && canAdmin ? <DropdownMenuItem onSelect={onDiagnose}>{t("card.header.diagnose")}</DropdownMenuItem> : null}
           {canAdmin ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
-                Delete
+                {t("card.header.delete")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -112,9 +114,9 @@ export function CardHeader({
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title={`Delete ${printer.name}?`}
-        description="The printer and its connection settings are removed. Print history is kept."
-        confirmLabel="Delete"
+        title={t("card.header.deleteTitle", { name: printer.name })}
+        description={t("card.header.deleteDesc")}
+        confirmLabel={t("card.header.delete")}
         destructive
         onConfirm={() => del.mutate(printer.id)}
       />

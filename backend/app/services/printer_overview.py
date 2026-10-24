@@ -110,6 +110,13 @@ async def _ha_alerts(redis: Redis, printer_ids: list[int]) -> dict[int, tuple[st
     return out
 
 
+def _plate_thumb_url(blob_hash: str | None, rel_path: str | None, plate: int | None) -> str | None:
+    """Plate thumbnail of a stored 3MF (rowless derivative; 404 -> card falls back)."""
+    if not blob_hash or not rel_path or not rel_path.lower().endswith(".3mf"):
+        return None
+    return f"/api/blobs/{blob_hash}/plates/{plate if plate and plate > 0 else 1}/thumb"
+
+
 async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, ActiveJobOut]:
     """Latest ``print_jobs`` row per printer whose state is still "in
     flight", resolved onto its file's model via ``DISTINCT ON
@@ -117,7 +124,7 @@ async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, Ac
     if not printer_ids:
         return {}
     stmt = (
-        select(PrintJob, Model)
+        select(PrintJob, Model, File.blob_hash, File.rel_path)
         .outerjoin(File, File.id == PrintJob.file_id)
         .outerjoin(Revision, Revision.id == File.revision_id)
         .outerjoin(Model, Model.id == Revision.model_id)
@@ -128,7 +135,7 @@ async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, Ac
     )
     rows = (await db.execute(stmt)).all()
     out: dict[int, ActiveJobOut] = {}
-    for job, model in rows:
+    for job, model, blob_hash, rel_path in rows:
         base = PrintJobOut.from_model(job).model_dump()
         out[job.printer_id] = ActiveJobOut(
             **base,
@@ -136,6 +143,7 @@ async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, Ac
             model_id=model.id if model else None,
             model_slug=model.slug if model else None,
             model_name=model.name if model else None,
+            thumbnail_url=_plate_thumb_url(blob_hash, rel_path, job.plate),
         )
     return out
 

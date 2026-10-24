@@ -23,7 +23,7 @@ import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
 import { CARD_SIZES, GRID_CLASS, useCardSize } from "@/components/print/card/cardSize";
-import { PrinterCard } from "@/components/print/PrinterCard";
+import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
 import { StatusSummaryBar } from "@/components/print/StatusSummaryBar";
@@ -190,7 +190,7 @@ export function PrintDashboardPage() {
               ) : null}
               <div className={cn("grid gap-4", size === "L" || size === "XL" ? "gap-6" : "", GRID_CLASS[size])}>
                 {group.items.map((item) => (
-                  <PrinterCard
+                  <ManagedPrinterCard
                     key={item.printer.id}
                     item={item}
                     size={size}
@@ -212,9 +212,6 @@ export function PrintDashboardPage() {
                       ) : undefined
                     }
                     badge={item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : undefined}
-                    // TODO(Q5-web): onInfo/onDiagnose/onHms via usePrinterModals(item.printer.id).
-                    // TODO(Q7-web): badgeExtra <MaintenanceBadge/>, footerExtra <PlugRow/>.
-                    // TODO(Q4-web): footerExtra <CameraSplitButton/>.
                   />
                 ))}
               </div>

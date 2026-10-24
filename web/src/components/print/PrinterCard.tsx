@@ -6,14 +6,16 @@
  * Sizes S/M/L/XL (`size`): S is a compact card (click expands it to M with a
  * "Back" pill); L/XL scale the body via `--pc-s`. Slots for sibling phases:
  *   - `headerExtra` / `badgeExtra` / `footerExtra`: node or `(ctx) => node`
- *     (Q7 `MaintenanceBadge` -> badgeExtra, Q7 `PlugRow` + Q4
- *     `CameraSplitButton` -> footerExtra).
- *   - `onInfo` / `onDiagnose` / `onHms`: Q5-web `usePrinterModals().open(...)`.
+ *     (filled by `usePrinterCardExtras`: maintenance/detection badges,
+ *     plug row, camera split button, firmware + history buttons). The compact
+ *     S card renders `badgeExtra` only.
+ *   - `onInfo` / `onDiagnose` / `onHms`: `usePrinterModals().open(...)`.
  *   - `camera`: optional live tile above the header; `badge`: top-right overlay.
  * A sliced file dropped on the card is uploaded and queued for this printer.
  */
 import { ArrowLeftIcon } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { PrinterOverviewItem, PrinterOut, PrinterStatusOut } from "@/api/types";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -61,11 +63,13 @@ export interface PrinterCardProps {
   onSelectedChange?: (selected: boolean) => void;
 }
 
-function CompactCard({ item, onExpand, selected, onSelectedChange }: { item: PrinterOverviewItem } & {
+function CompactCard({ item, onExpand, selected, onSelectedChange, badgeExtra }: { item: PrinterOverviewItem } & {
   onExpand: () => void;
+  badgeExtra?: ReactNode;
   selected?: boolean;
   onSelectedChange?: (selected: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { printer, status } = item;
   const { tone, label } = toneForGcode(status.online, status.gcode_state);
   const pct = tone === "printing" || tone === "paused" ? Math.max(0, Math.min(100, status.mc_percent ?? 0)) : null;
@@ -76,13 +80,14 @@ function CompactCard({ item, onExpand, selected, onSelectedChange }: { item: Pri
       className="flex items-center gap-2 overflow-hidden rounded-[6px] border p-2"
     >
       {onSelectedChange ? (
-        <Checkbox checked={!!selected} onCheckedChange={(v) => onSelectedChange(v === true)} aria-label={`Select ${printer.name}`} />
+        <Checkbox checked={!!selected} onCheckedChange={(v) => onSelectedChange(v === true)} aria-label={t("card.select", { name: printer.name })} />
       ) : null}
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={onExpand} aria-label={`Expand ${printer.name}`}>
+      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={onExpand} aria-label={t("card.expand", { name: printer.name })}>
         <img src={printerImage(modelKey(printer.model, printer.serial))} alt="" className="size-9 shrink-0 object-contain" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{printer.name}</span>
           <StateBadge tone={tone} label={label} pulse={tone === "printing"} />
+          {badgeExtra ? <span className="ml-1 inline-flex gap-1 align-middle">{badgeExtra}</span> : null}
           {pct != null ? (
             <span
               role="progressbar"
@@ -116,6 +121,7 @@ export function PrinterCard({
   onSelectedChange,
 }: PrinterCardProps) {
   const { printer, status, active_job: activeJob, can_control: canControl, can_print: canPrint, up_next: upNext } = item;
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -131,7 +137,13 @@ export function PrinterCard({
   if (size === "S" && !expanded) {
     return (
       <div ref={rootRef}>
-        <CompactCard item={item} onExpand={() => setExpanded(true)} selected={selected} onSelectedChange={onSelectedChange} />
+        <CompactCard
+          item={item}
+          onExpand={() => setExpanded(true)}
+          selected={selected}
+          onSelectedChange={onSelectedChange}
+          badgeExtra={renderSlot(badgeExtra, { printer: item.printer, status: item.status, canControl: item.can_control, canPrint: item.can_print })}
+        />
       </div>
     );
   }
@@ -181,7 +193,7 @@ export function PrinterCard({
           className="absolute right-12 top-2 z-10 inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs hover:bg-muted"
         >
           <ArrowLeftIcon className="size-3" />
-          Back
+          {t("card.back")}
         </button>
       ) : null}
 
@@ -192,7 +204,7 @@ export function PrinterCard({
               className="mt-1"
               checked={!!selected}
               onCheckedChange={(v) => onSelectedChange(v === true)}
-              aria-label={`Select ${printer.name}`}
+              aria-label={t("card.select", { name: printer.name })}
             />
           ) : null}
           <div className="min-w-0 flex-1">
@@ -223,7 +235,7 @@ export function PrinterCard({
         <ControlsSection printer={printer} status={status} canControl={canControl} />
         <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} />
         {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} /> : null}
-        <CardFooter printerId={printer.id} canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
+        <CardFooter canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
       </div>
     </div>
   );

@@ -304,6 +304,8 @@ class PrinterStatusOut(BaseModel):
     dev_mode: bool | None = None
     dev_mode_reason: str | None = None
     last_report_at: str | None = None
+    tray_now: int | None = None
+    door_open: bool | None = None
 
 
 # Everything in PrinterStatusOut that is copied verbatim from the Redis state.
@@ -379,6 +381,9 @@ class ActiveJobOut(PrintJobOut):
     model_id: int | None = None
     model_slug: str | None = None
     model_name: str | None = None
+    # Q12: the print's plate thumbnail (`/api/blobs/<hash>/plates/<n>/thumb`)
+    # when the job's file is a stored 3MF; else None.
+    thumbnail_url: str | None = None
 
 
 class PrinterOverviewItem(BaseModel):
