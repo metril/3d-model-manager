@@ -5,6 +5,7 @@ printerd round trip; only the MQTT ``sd_print`` start goes over the command bus.
 from __future__ import annotations
 
 import contextlib
+import ftplib
 import os
 import tempfile
 from collections.abc import Iterator
@@ -180,7 +181,7 @@ async def _ftp(adapter: PrinterAdapter, fn, *args):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "unsupported") from e
     except FileNotFoundError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found") from e
-    except OSError as e:  # type only: text could echo the access code
+    except (OSError, ftplib.Error) as e:  # type only: text could echo the access code
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, type(e).__name__) from e
 
 
@@ -217,7 +218,7 @@ async def sd_storage(
 ) -> SdStorageOut:
     _, adapter = await _sd_adapter(db, settings, printer_id)
     info = None
-    with contextlib.suppress(HTTPException, OSError):
+    with contextlib.suppress(HTTPException, OSError, ftplib.Error):
         info = await _ftp(adapter, adapter.storage_info)
     if info:
         return SdStorageOut(**info)

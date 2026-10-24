@@ -102,7 +102,8 @@ from app.tasks import base
 
 # AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
 # "external spool" sentinel pair (app.services.spool_inventory).
-_VALID_UNITS = frozenset({0, 1, 2, 3, spool_inventory.EXTERNAL_UNIT})
+_HT_UNITS = frozenset(range(128, 136))  # AMS-HT: single tray, slot 0 only
+_VALID_UNITS = frozenset({0, 1, 2, 3, spool_inventory.EXTERNAL_UNIT}) | _HT_UNITS
 _VALID_SLOTS = frozenset({0, 1, 2, 3})
 
 router = APIRouter(
@@ -348,15 +349,15 @@ async def start_print(
 def _validate_slot(unit: int, slot: int) -> None:
     valid = unit in _VALID_UNITS and (
         (unit == spool_inventory.EXTERNAL_UNIT and slot == spool_inventory.EXTERNAL_SLOT)
-        or (unit != spool_inventory.EXTERNAL_UNIT and slot in _VALID_SLOTS)
+        or (unit in _HT_UNITS and slot == 0)
+        or (unit < 4 and slot in _VALID_SLOTS)
     )
     if not valid:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid unit/slot")
 
 
-@router.api_route(
+@router.put(
     "/{printer_id}/slots/{unit}/{slot}",
-    methods=["PUT", "POST"],  # POST: alias used by the web slot-configure dialog
     response_model=None,
     dependencies=[Depends(require_printer_access("control"))],
 )
@@ -456,6 +457,17 @@ async def set_slot(
     if device is None:
         return trays
     return {"trays": [t.model_dump() for t in trays], "device": dev}
+
+
+# POST alias used by the web slot-configure dialog.
+router.add_api_route(
+    "/{printer_id}/slots/{unit}/{slot}",
+    set_slot,
+    methods=["POST"],
+    response_model=None,
+    name="set_slot_post",
+    dependencies=[Depends(require_printer_access("control"))],
+)
 
 
 @router.delete(

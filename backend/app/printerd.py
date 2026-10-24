@@ -173,6 +173,8 @@ class PrinterWorker:
         self._merged: dict | None = None
         self._stop_requested = False
         self._tray_sig: tuple | None = None
+        self._prev_gcode: str | None = None
+        self._stale_terminal = False
         self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
         self._reply_evt = threading.Event()
@@ -264,6 +266,12 @@ class PrinterWorker:
             except Exception as exc:  # NotImplementedError / publish failure: stay unknown
                 log.warning("printerd: dev-mode probe not sent: %s", type(exc).__name__)
         public = self.adapter.public_state(self._merged)
+        # The printer still reports the SAME terminal state as before: while a
+        # new job is STARTING that is the previous print's leftover, not its end.
+        self._stale_terminal = (
+            public.gcode_state in ("FINISH", "FAILED") and public.gcode_state == self._prev_gcode
+        )
+        self._prev_gcode = public.gcode_state
         self._write_public(public)
         self._auto_assign_on_tray_change(public)
         self._transition_active_job(public)
@@ -343,6 +351,14 @@ class PrinterWorker:
                 )
                 return
             if job.state == new_state.value:
+                return
+            if (
+                self._stale_terminal
+                and job.state == PrintJobState.STARTING.value
+                and job.started_at is None
+                and new_state in (PrintJobState.FINISHED, PrintJobState.FAILED)
+            ):
+                # Stale report from the PREVIOUS print: the new one hasn't begun.
                 return
             if new_state in (PrintJobState.FINISHED, PrintJobState.FAILED):
                 # T3: the plate needs clearing -- set before the CANCELED remap below.

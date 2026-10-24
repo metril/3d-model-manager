@@ -466,11 +466,29 @@ def test_normalize_sd_path(path, ok):
 
 
 def test_sd_project_file_payload_golden():
-    p = bambu.sd_project_file_payload("/cache/job one.gcode.3mf", 2, False)["print"]
-    assert p["url"] == "file:///sdcard/cache/job one.gcode.3mf"
-    assert p["param"] == "Metadata/plate_2.gcode" and p["file"] == "job one.gcode.3mf"
-    assert p["subtask_name"] == "job one" and p["use_ams"] is False
-    assert p["command"] == "project_file"
+    assert bambu.sd_project_file_payload("/cache/job one.gcode.3mf", 2, False) == {
+        "print": {
+            "command": "project_file",
+            "param": "Metadata/plate_2.gcode",
+            "file": "job one.gcode.3mf",
+            "url": "file:///sdcard/cache/job one.gcode.3mf",
+            "subtask_name": "job one",
+            "md5": "",
+            "bed_type": "auto",
+            "timelapse": False,
+            "bed_leveling": False,
+            "auto_bed_leveling": 2,
+            "flow_cali": False,
+            "extrude_cali_flag": 2,
+            "extrude_cali_manual_mode": 0,
+            "nozzle_offset_cali": 0,
+            "vibration_cali": True,
+            "layer_inspect": False,
+            "use_ams": False,
+            "sequence_id": "20000",
+        }
+    }
+    assert "ams_mapping" not in bambu.sd_project_file_payload("/a.3mf", None, True)["print"]
 
 
 def test_parse_storage():
@@ -611,23 +629,139 @@ def test_fake_adapter_sd_ops(fake_adapter):
     assert fake_adapter.storage_info()["free"] == 10
 
 
-def test_bambu_delete_and_storage(monkeypatch):
-    class Ftp:
-        def __init__(self, ret):
-            self.ret = ret
-            self.deleted = []
+class _FakeFtps:
+    def __init__(self, fail_login=None, delete_exc=None, data=b"abcdef"):
+        self.closed = 0
+        self.fail_login, self.delete_exc, self.data = fail_login, delete_exc, data
+        self.deleted: list[str] = []
 
-        def delete_file(self, p):
-            self.deleted.append(p)
-            return self.ret
+    def connect(self, host, port):
+        pass
 
-    a = BambuLanAdapter(CONN)
-    ok = Ftp("250 ok")
-    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: ok)
-    a.delete_file("/cache/a.3mf")
-    assert ok.deleted == ["/cache/a.3mf"]
-    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: Ftp(None))
+    def login(self, user, code):
+        if self.fail_login:
+            raise self.fail_login
+
+    def prot_p(self):
+        pass
+
+    def close(self):
+        self.closed += 1
+
+    def delete(self, p):
+        if self.delete_exc:
+            raise self.delete_exc
+        self.deleted.append(p)
+
+    def retrbinary(self, cmd, cb, blocksize=0):
+        for i in range(0, len(self.data), 4):  # block-by-block
+            cb(self.data[i : i + 4])
+
+
+class _FakeClient:
+    server_ip, port, user, access_code = "h", 990, "bblp", "12345678"
+
+    def __init__(self, ftps):
+        self.ftps = ftps
+
+
+def _ftp_adapter(monkeypatch, ftps):
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _FakeClient(ftps))
+    return BambuLanAdapter(CONN)
+
+
+def test_bambu_delete_maps_errors_and_closes(monkeypatch):
+    import ftplib
+
+    ok = _FakeFtps()
+    _ftp_adapter(monkeypatch, ok).delete_file("/cache/a.3mf")
+    assert ok.deleted == ["/cache/a.3mf"] and ok.closed == 1
+    gone = _FakeFtps(delete_exc=ftplib.error_perm("550 No such file"))
+    with pytest.raises(FileNotFoundError):
+        _ftp_adapter(monkeypatch, gone).delete_file("/x")
+    assert gone.closed == 1
+    denied = _FakeFtps(delete_exc=ftplib.error_perm("553 nope"))
     with pytest.raises(OSError):
-        a.delete_file("/cache/a.3mf")
+        _ftp_adapter(monkeypatch, denied).delete_file("/x")
+
+
+def test_bambu_login_failure_closes_socket_without_leaking_code(monkeypatch):
+    import ftplib
+
+    bad = _FakeFtps(fail_login=ftplib.error_perm("530 bad code 12345678"))
+    with pytest.raises(OSError) as ei:
+        _ftp_adapter(monkeypatch, bad).delete_file("/x")
+    assert bad.closed == 1 and "12345678" not in str(ei.value)
+
+
+def test_bambu_download_streams_to_file(monkeypatch, tmp_path):
+    import ftplib
+
+    ftps = _FakeFtps(data=b"0123456789")
+    dest = tmp_path / "out.bin"
+    _ftp_adapter(monkeypatch, ftps).download_file("/a.3mf", dest)
+    assert dest.read_bytes() == b"0123456789" and ftps.closed == 1
+
+    def boom(cmd, cb, blocksize=0):
+        raise ftplib.error_perm("550 missing")
+
+    ftps.retrbinary = boom
+    with pytest.raises(FileNotFoundError):
+        _ftp_adapter(monkeypatch, ftps).download_file("/a.3mf", tmp_path / "o2")
+
+
+def test_bambu_storage(monkeypatch):
+    a = BambuLanAdapter(CONN)
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: object())
     monkeypatch.setattr(bambu, "_ftp_commands", lambda client, cmds_: ["213 555", None])
     assert a.storage_info()["free"] == 555
+
+
+async def test_sd_route_maps_ftplib_error_to_502(authenticated_client, sd):
+    import ftplib
+
+    pid = await _printer(authenticated_client)
+
+    def boom(path):
+        raise ftplib.error_temp("421 busy")
+
+    sd.list_files = boom
+    r = await authenticated_client.get(f"/api/printers/{pid}/files")
+    assert r.status_code == 502
+
+
+async def test_ams_ht_slot_units(authenticated_client, printer_enabled):
+    pid = await _printer(authenticated_client)
+    body = {"spool_id": None}
+    assert (
+        await authenticated_client.put(f"/api/printers/{pid}/slots/128/0", json=body)
+    ).status_code == 200
+    assert (
+        await authenticated_client.put(f"/api/printers/{pid}/slots/135/0", json=body)
+    ).status_code == 200
+    for unit, slot in ((128, 1), (136, 0), (127, 0), (0, 4)):
+        r = await authenticated_client.put(f"/api/printers/{pid}/slots/{unit}/{slot}", json=body)
+        assert r.status_code == 422, (unit, slot)
+
+
+def test_stale_finish_does_not_close_starting_job(worker):
+    w, pid = worker
+    w.handle_report(snap.SNAPSHOT_FINISH)  # printer idles in FINISH (no job yet)
+    with base.sync_session() as s:
+        s.add(
+            PrintJob(
+                printer_id=pid,
+                file_id=None,
+                origin=PrintJobOrigin.APP,
+                state=PrintJobState.STARTING,
+                subtask_name="new",
+            )
+        )
+        s.commit()
+    w.handle_report(snap.SNAPSHOT_FINISH)  # previous print's leftover state
+    w.handle_report(snap.SNAPSHOT_FINISH)
+    with base.sync_session() as s:
+        jobs = s.scalars(select(PrintJob).where(PrintJob.printer_id == pid)).all()
+        assert len(jobs) == 1 and jobs[0].state == PrintJobState.STARTING.value
+        assert jobs[0].finished_at is None
+    assert _flag(pid) is False

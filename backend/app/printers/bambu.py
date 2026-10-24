@@ -325,16 +325,21 @@ def sd_project_file_payload(path: str, plate: int | None, use_ams: bool) -> dict
             "file": name,
             "url": f"file:///sdcard{path}",
             "subtask_name": stem,
-            "bed_leveling": True,
-            "bed_type": "textured_plate",
-            "flow_cali": True,
+            "md5": "",
+            "bed_type": "auto",
+            "timelapse": False,
+            # Calibrations follow BambuStudio's "auto" contract (not forced on).
+            "bed_leveling": False,
+            "auto_bed_leveling": 2,
+            "flow_cali": False,
+            "extrude_cali_flag": 2,
+            "extrude_cali_manual_mode": 0,
+            "nozzle_offset_cali": 0,
             "vibration_cali": True,
             "layer_inspect": False,
-            "timelapse": False,
             "use_ams": use_ams,
-            "ams_mapping": [0],
-            "sequence_id": "10000000",
-            "skip_objects": None,
+            # No ams_mapping: the printer resolves the file's own mapping.
+            "sequence_id": "20000",
         }
     }
 
@@ -342,24 +347,45 @@ def sd_project_file_payload(path: str, plate: int | None, use_ams: bool) -> dict
 _FREE_RE = re.compile(r"(\d+)\s*(?:bytes?\s*)?(?:free|available)", re.I)
 
 
+def _ftp_run(client, fn):
+    """Connect + login + PROT P on ``client.ftps``, run ``fn(ftps)``, always
+    close the socket. FTP 550 -> ``FileNotFoundError``; other FTP errors ->
+    ``OSError`` (type only: never echoes the access code). Tests monkeypatch
+    ``_build_ftp``."""
+    import ftplib
+
+    ftps = client.ftps
+    try:
+        ftps.connect(host=client.server_ip, port=client.port)
+        ftps.login(client.user, client.access_code)
+        ftps.prot_p()
+        return fn(ftps)
+    except ftplib.error_perm as e:
+        if str(e).startswith("550"):
+            raise FileNotFoundError("not found") from None
+        raise OSError("FTPS permission error") from None
+    except ftplib.Error as e:
+        raise OSError(f"FTPS {type(e).__name__}") from None
+    finally:
+        with contextlib.suppress(Exception):
+            ftps.close()
+
+
 def _ftp_commands(client, cmds: list[str]) -> list[str | None]:
     """Run raw FTP control commands on one FTPS session (``None`` per command
     that errored). Tests monkeypatch this."""
     import ftplib
 
-    from bambulabs_api.ftp_client import PrinterFTPClient
-
-    @PrinterFTPClient.connect_and_run
-    def run(self) -> list[str | None]:
+    def run(ftps) -> list[str | None]:
         out: list[str | None] = []
         for c in cmds:
             try:
-                out.append(self.ftps.sendcmd(c))
+                out.append(ftps.sendcmd(c))
             except (OSError, ftplib.Error):
                 out.append(None)
         return out
 
-    return run(client) or [None] * len(cmds)
+    return _ftp_run(client, run)
 
 
 def parse_storage(avbl: str | None, stat: str | None) -> dict | None:
@@ -1098,8 +1124,7 @@ class BambuLanAdapter(PrinterAdapter):
         _publish_raw(self._client(), sd_project_file_payload(path, plate, use_ams))
 
     def delete_file(self, path: str) -> None:
-        if _build_ftp(self.conn).delete_file(path) is None:
-            raise OSError(f"FTPS delete {path} failed")
+        _ftp_run(_build_ftp(self.conn), lambda ftps: ftps.delete(path))
 
     def storage_info(self) -> dict | None:
         res = _ftp_commands(_build_ftp(self.conn), ["AVBL", "STAT"])
@@ -1120,10 +1145,11 @@ class BambuLanAdapter(PrinterAdapter):
         return names
 
     def download_file(self, remote: str, dest: Path) -> None:
-        buf = _build_ftp(self.conn).download_file(remote)
-        if buf is None:
-            raise OSError(f"FTPS download {remote} failed")
-        Path(dest).write_bytes(buf.getvalue())
+        with Path(dest).open("wb") as fh:
+            _ftp_run(
+                _build_ftp(self.conn),
+                lambda ftps: ftps.retrbinary(f"RETR {remote}", fh.write, blocksize=524288),
+            )
 
     def list_files(self, path: str) -> list[RemoteFile]:
         res = _build_ftp(self.conn).list_directory(path)
