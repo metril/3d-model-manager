@@ -1,7 +1,7 @@
 """t6 two factor auth
 
 Revision ID: d2e7a1c5b903
-Revises: c9d4e6f8b2a1
+Revises: d7a3c5e9f1b4
 Create Date: 2026-10-24 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "d2e7a1c5b903"
-down_revision: str | Sequence[str] | None = "c9d4e6f8b2a1"
+down_revision: str | Sequence[str] | None = "d7a3c5e9f1b4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

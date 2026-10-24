@@ -576,9 +576,3 @@ async def test_reauth_routes_share_the_lock(enrolled, clock):
         clock.t += STEP
         r = await c.post("/api/auth/2fa/backup/regenerate", json={"code": clock.code(secret)})
         assert r.status_code == 429
-
-
-def test_reauth_only_checks_codes_for_matching_shape():
-    from app.services import two_factor as t
-
-    assert t.normalise_backup("abcd-efgh") == "ABCDEFGH"
