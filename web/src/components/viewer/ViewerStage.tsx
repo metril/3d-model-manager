@@ -14,7 +14,7 @@ import { LoaderCircleIcon } from "lucide-react";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useHotkeys } from "@/hooks/useHotkeys";
+import { useStageFullscreen } from "@/components/viewer/useStageFullscreen";
 import { cn } from "@/lib/utils";
 import type { BackgroundPreset } from "@/components/viewer/background";
 import type { ExplodeMode } from "@/components/viewer/explode";
@@ -524,26 +524,7 @@ export function ViewerStage({
   // wrapper needing focus first would make this harder to discover than the
   // other viewer controls. Bound only while this component is mounted.
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void stageRef.current?.requestFullscreen();
-    }
-  }, []);
-  useHotkeys({ F: toggleFullscreen }, { enabled: active });
-
-  // R10 studio item 9: the toolbar's Fullscreen button reflects whichever
-  // element is actually fullscreen right now via the Fullscreen API's own
-  // change event -- `document.fullscreenElement` is the only source of
-  // truth (the request is async, and ESC/browser chrome can also exit it
-  // without ever going through `toggleFullscreen` above).
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    const handleChange = () => setIsFullscreen(document.fullscreenElement === stageRef.current);
-    document.addEventListener("fullscreenchange", handleChange);
-    return () => document.removeEventListener("fullscreenchange", handleChange);
-  }, []);
+  const { isFullscreen, toggleFullscreen } = useStageFullscreen(stageRef, active);
 
   // Risk resolution 2: the More popover/sheet portals INTO the stage element
   // (not `document.body`) so it still renders while `stageRef.current` is

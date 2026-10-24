@@ -73,14 +73,22 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
     [emitter, onApi],
   );
 
+  const unmounted = useRef(false);
   useEffect(() => {
     const syncs = themeSyncs.current;
+    unmounted.current = false;
     return () => {
       flushLayout();
       syncs.forEach((dispose) => dispose());
       syncs.clear();
+      // Only a real unmount reports "no api": StrictMode's simulated unmount
+      // re-runs this effect synchronously, which clears the flag again.
+      unmounted.current = true;
+      queueMicrotask(() => {
+        if (unmounted.current) onApi?.(null);
+      });
     };
-  }, []);
+  }, [onApi]);
 
   return (
     <RelocateContext.Provider value={emitter}>

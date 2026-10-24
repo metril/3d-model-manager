@@ -4,7 +4,16 @@
  * by the (possibly hidden/minimised, hence throttled) main window. */
 export type RafWindow = Pick<Window, "requestAnimationFrame" | "cancelAnimationFrame">;
 
-export function createRafScheduler(getWindow: () => RafWindow, advance: (seconds: number) => void) {
+/** `advance` receives seconds from ONE window-independent monotonic clock
+ * (`now`, the main realm's `performance.now()` by default). The rAF timestamp is
+ * deliberately ignored: a pop-out window's timestamps count from its own
+ * `timeOrigin`, so mixing them with the main window's (or with `advance`
+ * calls elsewhere, e.g. screenshot capture) gives R3F a negative first delta. */
+export function createRafScheduler(
+  getWindow: () => RafWindow,
+  advance: (seconds: number) => void,
+  now: () => number = () => performance.now(),
+) {
   let handle = 0;
   let scheduledOn: RafWindow | null = null;
 
@@ -20,10 +29,10 @@ export function createRafScheduler(getWindow: () => RafWindow, advance: (seconds
     if (handle && scheduledOn === win) return; // already queued on the right window
     cancel();
     scheduledOn = win;
-    handle = win.requestAnimationFrame((timestamp) => {
+    handle = win.requestAnimationFrame(() => {
       handle = 0;
       scheduledOn = null;
-      advance(timestamp / 1000);
+      advance(now() / 1000);
     });
   };
 

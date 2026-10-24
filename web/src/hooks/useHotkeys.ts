@@ -5,13 +5,16 @@ function isMacPlatform(): boolean {
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
+  // Duck-typed: events from a pop-out window come from another realm, where
+  // `instanceof HTMLElement` against this window's constructor is false.
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  const tag = el.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   // jsdom (tests) doesn't compute `isContentEditable` from the attribute,
   // so check both.
-  const editable = target.getAttribute("contenteditable");
-  return target.isContentEditable || editable === "" || editable === "true";
+  const editable = el.getAttribute("contenteditable");
+  return el.isContentEditable || editable === "" || editable === "true";
 }
 
 /** Whether a spec's modifiers include mod/ctrl/meta -- such bindings bypass
@@ -66,11 +69,13 @@ function matchesSpec(spec: string, event: KeyboardEvent): boolean {
  * `event.preventDefault()` is called for it automatically. */
 export function useHotkeys(
   bindings: Record<string, (event: KeyboardEvent) => void>,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; doc?: Document },
 ) {
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
   const enabled = opts?.enabled ?? true;
+  // Listen on this document instead of the main one (a pop-out window's).
+  const doc = opts?.doc;
 
   useEffect(() => {
     if (!enabled) return;
@@ -88,7 +93,8 @@ export function useHotkeys(
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [enabled]);
+    const target = doc ?? document;
+    target.addEventListener("keydown", handleKeyDown);
+    return () => target.removeEventListener("keydown", handleKeyDown);
+  }, [enabled, doc]);
 }
