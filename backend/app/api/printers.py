@@ -58,7 +58,6 @@ from app.printers.camera_select import (
 )
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
-from app.schemas.inventory import SlotAssignIn
 from app.schemas.printer_ops import (
     DiagnosticIn,
     DiagnosticOut,
@@ -66,6 +65,7 @@ from app.schemas.printer_ops import (
     DiscoverIn,
     FirmwareInfoOut,
     HmsFaultOut,
+    SlotConfigIn,
 )
 from app.schemas.printers import (
     AmsTrayOut,
@@ -345,32 +345,56 @@ async def start_print(
     return PrintJobOut.from_model(job)
 
 
-@router.put(
-    "/{printer_id}/slots/{unit}/{slot}",
-    response_model=list[AmsTrayOut],
-    dependencies=[Depends(require_printer_access("control"))],
-)
-async def set_slot(
-    printer_id: int,
-    unit: int,
-    slot: int,
-    payload: SlotAssignIn,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> list[AmsTrayOut]:
-    """Point an AMS slot at a registered spool, or clear it (P5 Task 6).
-    ``unit``/``slot`` are the PER-UNIT coordinates the printer itself
-    reports (not the global tray id) -- ``unit`` 255 + ``slot`` 254 is the
-    "external spool" sentinel pair (``app.services.spool_inventory``).
-    """
+def _validate_slot(unit: int, slot: int) -> None:
     valid = unit in _VALID_UNITS and (
         (unit == spool_inventory.EXTERNAL_UNIT and slot == spool_inventory.EXTERNAL_SLOT)
         or (unit != spool_inventory.EXTERNAL_UNIT and slot in _VALID_SLOTS)
     )
     if not valid:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid unit/slot")
-    await _get_or_404(db, printer_id)
-    if payload.spool_id is not None and await db.get(Spool, payload.spool_id) is None:
+
+
+@router.put(
+    "/{printer_id}/slots/{unit}/{slot}",
+    response_model=None,
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def set_slot(
+    printer_id: int,
+    unit: int,
+    slot: int,
+    payload: SlotConfigIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+):
+    """Point an AMS slot at a registered spool, or clear it (P5 Task 6).
+    ``unit``/``slot`` are the PER-UNIT coordinates the printer itself
+    reports (not the global tray id) -- ``unit`` 255 + ``slot`` 254 is the
+    "external spool" sentinel pair (``app.services.spool_inventory``).
+
+    T3: when device-side fields are sent (``tray_type``/``color``/temps) the
+    filament profile is also written to the slot on the printer (only when
+    ``apply_device`` and printerd has state for it) and the response becomes
+    ``{"trays": [...], "device": {"status": applied|pending|skipped|failed, ...}}``;
+    without device fields it stays the plain tray list. Sending device fields
+    without ``spool_id`` leaves the DB assignment untouched.
+    """
+    _validate_slot(unit, slot)
+    printer = await _get_or_404(db, printer_id)
+    device = payload.device_args()
+    if device is not None and (
+        device["tray_type"] is None
+        or device["color"] is None
+        or device["nozzle_min"] is None
+        or device["nozzle_max"] is None
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "tray_type, color, nozzle_min and nozzle_max are required together",
+        )
+    assign_db = device is None or "spool_id" in payload.model_fields_set
+    if assign_db and payload.spool_id is not None and await db.get(Spool, payload.spool_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "spool not found")
 
     # Delegates to the shared `spool_inventory.assign_slot` (sync -- the
@@ -390,19 +414,70 @@ async def set_slot(
                 raise
             spoolman.on_slot_change(s, printer_id, unit, slot, old_spool_id, payload.spool_id)
 
-    try:
-        await anyio.to_thread.run_sync(_assign)
-    except IntegrityError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, "slot already assigned") from e
+    if assign_db:
+        try:
+            await anyio.to_thread.run_sync(_assign)
+        except IntegrityError as e:
+            raise HTTPException(status.HTTP_409_CONFLICT, "slot already assigned") from e
 
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:
         await client.aclose()
+
+    dev: dict = {"status": "skipped"}
+    if device is not None and payload.apply_device and state is not None:
+        from app.api.printer_control import run_command
+        from app.services.slot_hooks import kprofile_after_slot_configure
+
+        resp = await run_command(
+            db,
+            settings,
+            ctx,
+            printer,
+            "ams_slot_configure",
+            {"ams_id": unit, "tray_id": slot, **device},
+        )
+        body = json.loads(resp.body)
+        if resp.status_code == 200:
+            dev = {"status": "applied"}
+            await kprofile_after_slot_configure(
+                db, settings, ctx, printer, unit, slot, payload.spool_id
+            )
+        elif resp.status_code == 202:
+            dev = {"status": "pending", "request_id": body.get("request_id")}
+        else:
+            dev = {"status": "failed", "code": body.get("code"), "detail": body.get("detail")}
+
     trays = [AmsTrayOut(**t) for t in ((state or {}).get("trays") or [])]
     await _fill_tray_spools(db, printer_id, trays)
-    return trays
+    if device is None:
+        return trays
+    return {"trays": [t.model_dump() for t in trays], "device": dev}
+
+
+@router.delete(
+    "/{printer_id}/slots/{unit}/{slot}/device",
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def reset_slot_device(
+    printer_id: int,
+    unit: int,
+    slot: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+):
+    """Reset the slot's filament profile on the printer (empties it device-side).
+    The spool assignment in the DB is untouched."""
+    from app.api.printer_control import run_command
+
+    _validate_slot(unit, slot)
+    printer = await _get_enabled_or_404(db, printer_id)
+    return await run_command(
+        db, settings, ctx, printer, "ams_slot_reset", {"ams_id": unit, "tray_id": slot}
+    )
 
 
 async def _fill_tray_spools(db: AsyncSession, printer_id: int, trays: list[AmsTrayOut]) -> None:
@@ -433,17 +508,24 @@ async def printer_status(
     never a 500 (mirrors the send flow's preflight fail-closed behavior).
     """
     _require_visible(ctx, printer_id)
-    await _get_or_404(db, printer_id)
+    printer = await _get_or_404(db, printer_id)
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:
         await client.aclose()
     if state is None:
-        return PrinterStatusOut(online=False)
+        return PrinterStatusOut(online=False, awaiting_plate_clear=printer.awaiting_plate_clear)
     # `trays` (M8 G3) is a list, not a scalar -- pass it explicitly and coerce a
     # missing/None value (older state written before this field existed) to [].
     out = status_from_state(state)
+    out.awaiting_plate_clear = printer.awaiting_plate_clear
+    if out.ams_units:
+        from app.api.printer_ops import label_map
+
+        labels = await label_map(db, printer, state)
+        for u in out.ams_units:
+            u.label = labels.get(u.id)
     await _fill_tray_spools(db, printer_id, out.trays)
     return out
 

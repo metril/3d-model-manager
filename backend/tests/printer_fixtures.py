@@ -15,6 +15,7 @@ from app.printers.fake import FakePrinterAdapter
 _BUILD_ADAPTER_CALL_SITES = (
     "app.printers.registry",
     "app.api.printers",
+    "app.api.printer_ops",
     "app.tasks.printing",
     "app.printerd",
     "app.tasks.firmware",

@@ -137,6 +137,9 @@ class CapabilitiesOut(BaseModel):
     max_bed: int | None = None
     max_nozzle: int | None = None
     ams_drying: bool = False
+    xcam_modules: list[str] = Field(default_factory=list)
+    sd_browser: bool = False
+    sd_print: bool = False
     verified: bool = False
 
 
@@ -156,6 +159,7 @@ class PrinterOut(BaseModel):
     # ``None`` where not computed.
     total_print_hours: float | None = None
     maintenance_mode: bool = False
+    awaiting_plate_clear: bool = False
 
     @classmethod
     def from_model(cls, p: Printer) -> PrinterOut:
@@ -170,6 +174,7 @@ class PrinterOut(BaseModel):
             model=p.model,
             enabled=p.enabled,
             maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
+            awaiting_plate_clear=bool(getattr(p, "awaiting_plate_clear", False)),
             options=redact_options(p.options),
             access_code_set=bool(p.access_code_enc),
             build_volume_mm=p.build_volume_mm,
@@ -267,6 +272,7 @@ class AmsUnitOut(BaseModel):
     temp: float | None = None
     serial: str | None = None
     fw: str | None = None
+    label: str | None = None  # T3: user label (ams_labels), merged by the status route
 
 
 class PrinterStatusOut(BaseModel):
@@ -306,11 +312,14 @@ class PrinterStatusOut(BaseModel):
     last_report_at: str | None = None
     tray_now: int | None = None
     door_open: bool | None = None
+    print_options: dict = Field(default_factory=dict)
+    # T3: from the DB (printers.awaiting_plate_clear), overlaid by the status route.
+    awaiting_plate_clear: bool = False
 
 
 # Everything in PrinterStatusOut that is copied verbatim from the Redis state.
 STATE_FIELDS: tuple[str, ...] = tuple(
-    k for k in PrinterStatusOut.model_fields if k not in ("online", "trays")
+    k for k in PrinterStatusOut.model_fields if k not in ("online", "trays", "awaiting_plate_clear")
 )
 
 
@@ -320,6 +329,7 @@ def status_from_state(state: dict) -> PrinterStatusOut:
     data = {k: state.get(k) for k in STATE_FIELDS}
     for k in ("hms", "ams_units"):
         data[k] = data[k] or []
+    data["print_options"] = data["print_options"] or {}
     return PrinterStatusOut(online=True, trays=state.get("trays") or [], **data)
 
 

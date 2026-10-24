@@ -67,10 +67,12 @@ from app.api import (
     print_flow,
     print_jobs,
     printer_control,
+    printer_ops,
     printers,
     prints,
     profiles,
     queue,
+    queue_settings,
     reports,
     revisions,
     scan,
@@ -134,6 +136,7 @@ protected_router.include_router(features.router)
 # printer_control first: its literal /printers/developer-mode-warnings must
 # match before printers.router's /printers/{printer_id}.
 protected_router.include_router(printer_control.router)
+protected_router.include_router(printer_ops.router)
 protected_router.include_router(smart_plugs.summary_router)
 protected_router.include_router(obico.router)
 protected_router.include_router(printers.router)
@@ -146,6 +149,7 @@ protected_router.include_router(archives.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
+protected_router.include_router(queue_settings.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)

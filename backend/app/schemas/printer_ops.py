@@ -65,3 +65,73 @@ class DiscoveredOut(BaseModel):
     serial: str
     model_hint: str | None = None
     source: Literal["ssdp", "sweep"]
+
+
+# -- T3 printer ops ----------------------------------------------------------
+
+
+class SlotConfigIn(BaseModel):
+    """``PUT /printers/{id}/slots/{unit}/{slot}``. ``spool_id`` keeps its
+    legacy meaning (null = clear the assignment); the device-side fields
+    (all of ``tray_type``/``color``/``nozzle_min``/``nozzle_max`` required
+    together) additionally write the filament profile into the slot."""
+
+    spool_id: int | None = None
+    tray_info_idx: str | None = Field(default=None, max_length=32)
+    tray_type: str | None = Field(default=None, max_length=32)
+    sub_brand: str | None = Field(default=None, max_length=64)
+    color: str | None = Field(default=None, max_length=9)
+    nozzle_min: int | None = Field(default=None, ge=0, le=350)
+    nozzle_max: int | None = Field(default=None, ge=0, le=350)
+    apply_device: bool = True
+
+    def device_args(self) -> dict | None:
+        """The ``ams_slot_configure`` args, or ``None`` when no device field was sent."""
+        keys = ("tray_info_idx", "tray_type", "sub_brand", "color", "nozzle_min", "nozzle_max")
+        if all(getattr(self, k) is None for k in keys):
+            return None
+        return {
+            "tray_info_idx": self.tray_info_idx or "",
+            "tray_type": self.tray_type,
+            "sub_brand": self.sub_brand or "",
+            "color": self.color,
+            "nozzle_min": self.nozzle_min,
+            "nozzle_max": self.nozzle_max,
+        }
+
+
+class AmsLabelIn(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+
+
+class AmsLabelOut(BaseModel):
+    ams_id: int
+    ams_serial: str
+    label: str
+
+
+class SdEntryOut(BaseModel):
+    name: str
+    path: str
+    is_dir: bool
+    size: int | None = None
+    mtime: str | None = None
+
+
+class SdListOut(BaseModel):
+    path: str
+    entries: list[SdEntryOut]
+
+
+class SdStorageOut(BaseModel):
+    total: int | None = None
+    used: int | None = None
+    free: int | None = None
+    source: str = "unknown"  # avbl | stat | sdcard | unknown
+    present: bool | None = None  # SD inserted (state fallback)
+
+
+class SdPrintIn(BaseModel):
+    path: str
+    plate: int | None = Field(default=None, ge=1, le=99)
+    use_ams: bool = True
