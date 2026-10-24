@@ -77,6 +77,7 @@ from app.api import (
     reports,
     revisions,
     scan,
+    security_settings,
     sensors,
     server_settings,
     settings,
@@ -88,6 +89,7 @@ from app.api import (
     stats,
     storage_tree,
     tags,
+    two_factor,
     uploads,
     virtual_printers,
 )
@@ -97,6 +99,7 @@ from app.api.health import router as health_router
 api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(auth.public_router)
+api_router.include_router(two_factor.public_router)
 api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
 api_router.include_router(slicer.router)
@@ -109,6 +112,8 @@ api_router.include_router(archives_extras.public_router)
 
 protected_router = APIRouter(dependencies=[Depends(require_session)])
 protected_router.include_router(auth.protected_router)
+protected_router.include_router(two_factor.protected_router)
+protected_router.include_router(security_settings.router)
 protected_router.include_router(admin.router)
 protected_router.include_router(admin_oidc.router)
 protected_router.include_router(admin_ops.router)

@@ -8,9 +8,11 @@ import contextlib
 import json
 import time
 
+import anyio
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm
@@ -28,7 +30,7 @@ from app.schemas.settings import (
     SlicerTestOut,
     VpStatusOut,
 )
-from app.services import obico
+from app.services import mailer, obico
 from app.services.server_config import (
     ENV_SEED,
     SECRET_MASK,
@@ -109,6 +111,34 @@ async def put_server_settings(
     await db.commit()
     apply_level(new.log_level)
     return await _out(db, request)
+
+
+class SmtpTestIn(BaseModel):
+    to: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
+
+
+class SmtpTestOut(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+@router.post("/smtp/test", response_model=SmtpTestOut)
+async def test_smtp(payload: SmtpTestIn, db: AsyncSession = Depends(get_db)) -> SmtpTestOut:
+    """Send a test message synchronously through the SAVED server SMTP."""
+    cfg = (await get_server_config(db)).smtp
+    if not cfg.configured:
+        return SmtpTestOut(ok=False, error="not_configured")
+    try:
+        await anyio.to_thread.run_sync(
+            mailer.deliver,
+            cfg,
+            payload.to,
+            "SMTP test",
+            "This is a test message from your server. SMTP is working.",
+        )
+    except mailer.MailError as exc:
+        return SmtpTestOut(ok=False, error=str(exc))
+    return SmtpTestOut(ok=True)
 
 
 async def _probe(url: str, timeout: float) -> tuple[bool, str, int | None]:

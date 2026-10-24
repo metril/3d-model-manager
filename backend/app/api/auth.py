@@ -9,6 +9,7 @@ stay reachable without a session) and ``protected_router`` (``/auth/me``,
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from app.db import get_db
 from app.models import Session as SessionModel
 from app.models import User
 from app.security import DUMMY_HASH, hash_password, verify_password
+from app.services import two_factor
 from app.services.server_config import cookie_secure, get_server_config
 
 public_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -36,6 +38,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class LoginTwoFactorOut(BaseModel):
+    requires_2fa: bool = True
+    pre_auth_token: str
+    methods: list[str]
+
+
 def _invalid_credentials() -> HTTPException:
     """One message for both "no such user" and "wrong password" so a login
     attempt can never be used to enumerate valid usernames.
@@ -46,14 +54,21 @@ def _invalid_credentials() -> HTTPException:
     )
 
 
-@public_router.post("/login", status_code=status.HTTP_204_NO_CONTENT)
+@public_router.post(
+    "/login",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={200: {"model": LoginTwoFactorOut, "description": "Second factor required"}},
+)
 async def login(
     payload: LoginRequest,
     response: Response,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> None:
-    """Verify credentials, open a session, and set the session cookie."""
+) -> Response | None:
+    """Verify credentials, then either open a session (204 + cookie) or, when
+    the account has a second factor, return 200 with a pre-auth token and NO
+    session (finish with ``POST /auth/2fa/verify``)."""
     user = (
         await db.execute(select(User).where(User.username == payload.username))
     ).scalar_one_or_none()
@@ -68,7 +83,18 @@ async def login(
     if not verify_password(payload.password, user.password_hash):
         raise _invalid_credentials()
 
+    st = await two_factor.status_for(db, user)
+    if st.enabled:
+        token = await two_factor.issue_token(
+            db, two_factor.PRE_AUTH, user.id, two_factor.PRE_AUTH_TTL
+        )
+        await db.commit()
+        return JSONResponse(
+            LoginTwoFactorOut(pre_auth_token=token, methods=st.methods).model_dump()
+        )
+
     await start_session(db, response, user, request)
+    return None
 
 
 async def start_session(
@@ -126,14 +152,25 @@ class MeOut(BaseModel):
     groups: list[MeGroup]
     has_password: bool
     printer_access: dict[str, PrinterFlags] | None
+    two_factor_enabled: bool = False
+    must_enroll_2fa: bool = False
 
 
 @protected_router.get("/me", response_model=MeOut)
-async def me(ctx: AuthContext = Depends(require_session)) -> MeOut:
+async def me(
+    ctx: AuthContext = Depends(require_session), db: AsyncSession = Depends(get_db)
+) -> MeOut:
     """The authenticated user with resolved grants. ``printer_access`` is
     ``None`` for admins (all printers)."""
+    return await build_me(db, ctx)
+
+
+async def build_me(db: AsyncSession, ctx: AuthContext) -> MeOut:
     user = ctx.user
+    enabled = (await two_factor.status_for(db, user)).enabled
     return MeOut(
+        two_factor_enabled=enabled,
+        must_enroll_2fa=(not enabled) and await two_factor.require_2fa_enabled(db),
         id=user.id,
         username=user.username,
         display_name=user.display_name,

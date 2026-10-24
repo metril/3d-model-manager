@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import ApiToken, Group, Session, User
-from app.services import api_tokens
+from app.services import api_tokens, two_factor
 from app.services.app_config import get_app_config
 from app.services.permissions import PERMS, Perm, PrinterAcl, load_grants
 from app.storage.base import StorageBackend
@@ -81,7 +81,19 @@ def _unauthenticated() -> HTTPException:
     )
 
 
+def _enrollment_exempt(request: Request | None) -> bool:
+    """Routes a user who still must enroll a second factor may call. Direct
+    (non-DI) callers pass no request and are never exempt."""
+    if request is None:
+        return False
+    path = request.url.path
+    return path.startswith("/api/auth/") or (
+        path == "/api/settings/security" and request.method == "GET"
+    )
+
+
 async def require_session(
+    request: Request = None,  # type: ignore[assignment]  # None for direct callers
     tdmm_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     db: AsyncSession = Depends(get_db),
 ) -> AuthContext:
@@ -116,6 +128,13 @@ async def require_session(
     if now - session.last_seen_at > LAST_SEEN_THROTTLE:
         session.last_seen_at = now
         await db.commit()
+
+    if not _enrollment_exempt(request) and await two_factor.must_enroll(db, user):
+        raise two_factor.err(
+            status.HTTP_403_FORBIDDEN,
+            "2fa_enrollment_required",
+            "two-factor authentication must be enabled before using the app",
+        )
 
     groups, perms, acl = await load_grants(db, user)
     return AuthContext(user=user, session=session, perms=perms, printer_acl=acl, groups=groups)

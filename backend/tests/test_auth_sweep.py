@@ -37,6 +37,9 @@ pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 PUBLIC_ROUTES = {
     ("get", "/api/health"),
     ("post", "/api/auth/login"),
+    # T6: second step of a 2FA login -- authenticated by the pre-auth token.
+    ("post", "/api/auth/2fa/verify"),
+    ("post", "/api/auth/2fa/email/send"),
     # OIDC login flow: pre-session by definition (browser redirects to/from the IdP).
     ("get", "/api/auth/oidc/providers"),
     ("get", "/api/auth/oidc/{slug}/start"),

@@ -17,6 +17,15 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     # Self-service session/credential actions: every logged-in user.
     ("POST", "/api/auth/logout"),
     ("POST", "/api/auth/password"),
+    # T6: self-service two-factor enrolment (acts only on the caller's own account).
+    ("POST", "/api/auth/2fa/totp/setup"),
+    ("POST", "/api/auth/2fa/totp/enable"),
+    ("POST", "/api/auth/2fa/totp/disable"),
+    ("POST", "/api/auth/2fa/backup/regenerate"),
+    ("POST", "/api/auth/2fa/email/request"),
+    ("POST", "/api/auth/2fa/email/enable"),
+    ("POST", "/api/auth/2fa/email/confirm"),
+    ("POST", "/api/auth/2fa/email/disable"),
     # Personal extension tokens: any user manages their own.
     ("POST", "/api/settings/api-tokens"),
     ("DELETE", "/api/settings/api-tokens/{token_id}"),
