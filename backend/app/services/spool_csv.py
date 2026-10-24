@@ -262,7 +262,7 @@ async def parse(raw: bytes, db: AsyncSession) -> dict:
                 errs.append(f"rgba must be 6/8-char hex (got '{cell('rgba')}')")
             else:
                 data["color_hex"] = h
-        elif match is None and data.get("brand") and data.get("color_name"):
+        elif not errs and match is None and data.get("brand") and data.get("color_name"):
             b, n, m = (
                 data["brand"].lower(),
                 data["color_name"].lower(),

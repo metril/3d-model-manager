@@ -116,6 +116,11 @@ _PATH_PARAM_VALUES = {
     # Q7: maintenance tasks, backup runs.
     "task_id": "1",
     "run_id": "1",
+    # T5: spool housekeeping.
+    "supplier_id": "1",
+    "location_id": "1",
+    "sensor_id": "1",
+    "material": "PLA",
 }
 
 
