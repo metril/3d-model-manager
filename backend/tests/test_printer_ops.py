@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (pytest fixtures imported from test_printer_control_api)
 """T3 printer ops: clear plate, xcam/print options, AMS slot configure, AMS
 labels, SD browser + print-from-SD."""
 
@@ -16,8 +17,8 @@ from app.models.enums import PrinterKind, PrintJobOrigin, PrintJobState
 from app.printerd import PrinterWorker
 from app.printers import bambu
 from app.printers import commands as cmds
-from app.printers.base import PrinterConnection, state_key
 from app.printers.bambu import BambuLanAdapter
+from app.printers.base import PrinterConnection, state_key
 from app.printers.fake import FakePrinterAdapter
 from app.services import dispatcher, hooks, spool_inventory
 from app.tasks import base
@@ -510,14 +511,14 @@ async def test_sd_list_download_delete_storage(authenticated_client, sd, set_sta
     pid = await _printer(authenticated_client)
     r = await authenticated_client.get(f"/api/printers/{pid}/files", params={"path": "/"})
     assert r.status_code == 200
-    names = [(e["name"], e["is_dir"], e["path"]) for e in r.json()["entries"]]
+    names = [(e["name"], e["is_dir"], e["path"]) for e in r.json()]
     assert names == [
         ("cache", True, "/cache"),
         ("model", True, "/model"),
         ("a.3mf", False, "/a.3mf"),
     ]
     r = await authenticated_client.get(f"/api/printers/{pid}/files", params={"path": "/cache"})
-    assert [e["path"] for e in r.json()["entries"]] == [
+    assert [e["path"] for e in r.json()] == [
         "/cache/b.gcode.3mf",
         "/cache/readme.txt",
     ]

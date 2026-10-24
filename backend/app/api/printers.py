@@ -354,8 +354,9 @@ def _validate_slot(unit: int, slot: int) -> None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid unit/slot")
 
 
-@router.put(
+@router.api_route(
     "/{printer_id}/slots/{unit}/{slot}",
+    methods=["PUT", "POST"],  # POST: alias used by the web slot-configure dialog
     response_model=None,
     dependencies=[Depends(require_printer_access("control"))],
 )

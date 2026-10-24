@@ -34,7 +34,6 @@ from app.schemas.printer_ops import (
     AmsLabelIn,
     AmsLabelOut,
     SdEntryOut,
-    SdListOut,
     SdPrintIn,
     SdStorageOut,
 )
@@ -185,13 +184,13 @@ async def _ftp(adapter: PrinterAdapter, fn, *args):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, type(e).__name__) from e
 
 
-@router.get("/{printer_id}/files", response_model=SdListOut, dependencies=[_control])
+@router.get("/{printer_id}/files", response_model=list[SdEntryOut], dependencies=[_control])
 async def list_sd(
     printer_id: int,
     path: str = Query("/"),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> SdListOut:
+) -> list[SdEntryOut]:
     norm = _norm(path)
     _, adapter = await _sd_adapter(db, settings, printer_id)
     files = await _ftp(adapter, adapter.list_files, norm)
@@ -207,7 +206,7 @@ async def list_sd(
         for f in files
     ]
     entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
-    return SdListOut(path=norm, entries=entries)
+    return entries
 
 
 @router.get("/{printer_id}/files/storage", response_model=SdStorageOut, dependencies=[_control])

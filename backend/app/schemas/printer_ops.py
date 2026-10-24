@@ -118,11 +118,6 @@ class SdEntryOut(BaseModel):
     mtime: str | None = None
 
 
-class SdListOut(BaseModel):
-    path: str
-    entries: list[SdEntryOut]
-
-
 class SdStorageOut(BaseModel):
     total: int | None = None
     used: int | None = None
