@@ -52,12 +52,12 @@ def _nozzle_or_422(value: str) -> str:
     try:
         return cmds._nozzle_diameter({"nozzle_diameter": value})
     except cmds.CommandError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, e.message) from e
+        raise HTTPException(422, e.message) from e
 
 
 def _require_cap(printer: Printer) -> None:
     if not capabilities_for(printer.model, printer.serial).kprofiles:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "K-profiles are not supported")
+        raise HTTPException(422, "K-profiles are not supported")
 
 
 async def _shape(db: AsyncSession, printer_id: int, entry: dict, extruder: int | None) -> dict:
@@ -97,7 +97,7 @@ async def list_kprofiles(
     try:
         if request_id is not None:
             if not _REQUEST_ID.fullmatch(request_id):
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "bad request_id")
+                raise HTTPException(422, "bad request_id")
             raw = await client.get(cmd_result_key(printer_id, request_id))
             if not raw:
                 return JSONResponse(
@@ -336,7 +336,7 @@ async def put_spool_kprofiles(
         key = (item.printer_id, item.extruder, round(item.nozzle_diameter, 2))
         if key in seen:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                422,
                 "duplicate printer / extruder / nozzle_diameter entry",
             )
         seen.add(key)
