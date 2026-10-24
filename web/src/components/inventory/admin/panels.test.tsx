@@ -63,7 +63,7 @@ describe("SuppliersPanel", () => {
     await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/suppliers/1", expect.objectContaining({ customer_number: "C-2" })));
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Acme" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Delete$/ }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/suppliers/1"));
   });
 });
@@ -115,7 +115,7 @@ describe("LocationsPanel", () => {
     wrap(<LocationsPanel />);
     await screen.findByText("Dry box");
     fireEvent.click(screen.getByRole("button", { name: "Delete Dry box" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Delete$/ }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/storage-locations/4"));
   });
 });
