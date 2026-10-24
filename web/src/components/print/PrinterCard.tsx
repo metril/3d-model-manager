@@ -56,6 +56,8 @@ export interface PrinterCardProps {
   onInfo?: () => void;
   onDiagnose?: () => void;
   onHms?: () => void;
+  /** Opens the drying dialog for an AMS unit id. */
+  onDry?: (unitId: number) => void;
   /** AMS slot -> mapping pill text. */
   amsMapping?: Record<number, string>;
   /** Bulk-select checkbox (dashboard). */
@@ -116,6 +118,7 @@ export function PrinterCard({
   onInfo,
   onDiagnose,
   onHms,
+  onDry,
   amsMapping,
   selected,
   onSelectedChange,
@@ -233,7 +236,7 @@ export function PrinterCard({
         />
         {status.online ? <TempFanTiles printer={printer} status={status} canControl={canControl} /> : null}
         <ControlsSection printer={printer} status={status} canControl={canControl} />
-        <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} />
+        <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} onDry={onDry} />
         {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} bare /> : null}
         <CardFooter printerId={printer.id} canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
       </div>
