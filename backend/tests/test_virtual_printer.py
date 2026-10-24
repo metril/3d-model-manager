@@ -14,6 +14,7 @@ import threading
 import time
 import zipfile
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 
 import httpx
 import paho.mqtt.client as mqtt
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import File, Printer, PrintQueueEntry
 from app.models.enums import PrinterKind, QueueState, ReviewState, VirtualPrinterMode
+from app.virtual_printer import __main__ as vp_main
 from app.virtual_printer import service as vp_service
 from app.virtual_printer.intake import VpConfig, VpNetwork
 from app.virtual_printer.service import VirtualPrinterService, preflight
@@ -35,15 +37,16 @@ CODE = "12345678"
 SERIAL = "03000A123456789"
 
 
+ZERO_NET = VpNetwork(
+    bind="127.0.0.1", port_ssdp=0, port_mqtt=0, port_ftp=0, pasv_min=0, pasv_max=0, pasv_address=""
+)
+
+
 @pytest.fixture
 def vp_env():
-    # Ports 0 = ephemeral (ServerConfig forbids 0, so VpNetwork is built directly).
     get_settings.cache_clear()
     yield get_settings()
     get_settings.cache_clear()
-
-
-NET = VpNetwork("127.0.0.1", 0, 0, 0, 0, 0)
 
 
 @pytest.fixture
@@ -61,7 +64,7 @@ async def make_service(vp_env) -> AsyncIterator[Callable[..., VirtualPrinterServ
             target_printer_id=target,
             created_by_user_id=user_id,
         )
-        svc = VirtualPrinterService(vp_env, cfg, NET)
+        svc = VirtualPrinterService(vp_env, cfg, ZERO_NET)
         await svc.start()
         started.append(svc)
         return svc
@@ -328,16 +331,143 @@ async def test_ssdp_answers_msearch(make_service):
     assert "DevName.bambu.com: Virtual A1 Mini" in text
 
 
-def test_preflight_reports_busy_port(monkeypatch):
+def test_preflight_reports_busy_port():
     blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     blocker.bind(("127.0.0.1", 0))
     blocker.listen()
     port = blocker.getsockname()[1]
     try:
-        problems = preflight(VpNetwork("127.0.0.1", 0, port, 0, 0, 0))
+        problems = preflight(replace(ZERO_NET, port_mqtt=port))
     finally:
         blocker.close()
     assert len(problems) == 1 and f"MQTT port {port}/tcp" in problems[0]
+
+
+def _vp(**kw) -> VpConfig:
+    base = dict(
+        id=1, name="V", model="N1", serial=SERIAL, access_code=CODE,
+        mode=VirtualPrinterMode.QUEUE, target_printer_id=None, created_by_user_id=None,
+    )  # fmt: skip
+    return VpConfig(**{**base, **kw})
+
+
+class _Harness:
+    """Drives ``vp_main.run`` with fake config + status sink, stopping after N polls."""
+
+    def __init__(self, vp_env, wanted_seq, polls):
+        self.wanted_seq, self.polls, self.statuses, self.services = list(wanted_seq), polls, [], []
+        self.stop = asyncio.Event()
+        self.vp_env, self.n = vp_env, 0
+
+    def load(self, _s):
+        w = self.wanted_seq[min(self.n - 1, len(self.wanted_seq) - 1)]
+        if isinstance(w, Exception):
+            raise w
+        return w
+
+    def publish(self, _s, status):
+        self.statuses.append(status)
+
+    def on_poll(self):
+        self.n += 1
+        if self.n > self.polls:
+            self.stop.set()
+
+    def make(self, settings, vp, net):
+        svc = VirtualPrinterService(settings, vp, net)
+        self.services.append(svc)
+        return svc
+
+    async def go(self):
+        rc = await vp_main.run(
+            self.vp_env, load=self.load, publish=self.publish, poll_s=0.01, stop=self.stop,
+            on_poll=self.on_poll, make_service=self.make,
+        )  # fmt: skip
+        return rc
+
+
+async def test_idle_binds_nothing(vp_env, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("must not bind")
+
+    monkeypatch.setattr(vp_main, "preflight", boom)
+    h = _Harness(vp_env, [(None, ZERO_NET)], polls=2)
+    assert await h.go() == 0
+    assert not h.services
+    st = h.statuses[0]
+    assert st["state"] == "idle" and st["vp_id"] is None and st["errors"] == []
+    assert set(st) == {"state", "vp_id", "bind", "ports", "pasv", "errors", "ts"}
+
+
+async def test_enabled_row_runs_and_status_shape(vp_env):
+    h = _Harness(vp_env, [(_vp(), ZERO_NET)], polls=1)
+    assert await h.go() == 0
+    st = h.statuses[0]
+    assert st["state"] == "running" and st["vp_id"] == 1 and st["bind"] == "127.0.0.1"
+    assert st["ports"] == {"ssdp": 0, "mqtt": 0, "ftp": 0} and st["pasv"] == [0, 0]
+    assert len(h.services) == 1
+
+
+async def test_port_conflict_is_error_status_and_never_exits(vp_env):
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    port = blocker.getsockname()[1]
+    bad = replace(ZERO_NET, port_mqtt=port)
+    h = _Harness(vp_env, [(_vp(), bad), (_vp(), bad), (_vp(), ZERO_NET)], polls=4)
+    try:
+        assert await h.go() == 0
+    finally:
+        blocker.close()
+    states = [s["state"] for s in h.statuses]
+    assert states[0] == "error" and "MQTT" in h.statuses[0]["errors"][0]
+    assert states[1] == "error"  # retried while conflict persists
+    assert states[-1] == "running"  # recovers once the network changes
+    assert len(h.services) == 1
+
+
+async def test_network_change_restarts_service(vp_env):
+    other = replace(ZERO_NET, pasv_min=1, pasv_max=2)
+    h = _Harness(vp_env, [(_vp(), ZERO_NET), (_vp(), ZERO_NET), (_vp(), other)], polls=4)
+    await h.go()
+    assert len(h.services) == 2
+    assert h.services[1].net == other and h.statuses[-1]["pasv"] == [1, 2]
+
+
+async def test_disabling_row_stops_service(vp_env):
+    h = _Harness(vp_env, [(_vp(), ZERO_NET), (None, ZERO_NET)], polls=3)
+    await h.go()
+    assert [s["state"] for s in h.statuses][0] == "running"
+    assert h.statuses[-1]["state"] == "idle"
+
+
+async def test_db_failure_publishes_error_and_keeps_looping(vp_env):
+    h = _Harness(vp_env, [RuntimeError("db down"), (None, ZERO_NET)], polls=2)
+    assert await h.go() == 0
+    assert h.statuses[0]["state"] == "error" and "db down" in h.statuses[0]["errors"][0]
+    assert h.statuses[-1]["state"] == "idle"
+
+
+def test_publish_status_swallows_redis_failure(vp_env, monkeypatch):
+    monkeypatch.setattr(
+        vp_main.redis.Redis, "from_url", lambda *a, **k: (_ for _ in ()).throw(OSError("x"))
+    )
+    vp_main.publish_status(vp_env, {"state": "idle"})  # must not raise
+
+
+def test_publish_status_writes_key_with_ttl(vp_env, monkeypatch):
+    calls = []
+
+    class Fake:
+        def set(self, k, v, ex=None):
+            calls.append((k, json.loads(v), ex))
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(vp_main.redis.Redis, "from_url", lambda *a, **k: Fake())
+    vp_main.publish_status(vp_env, {"state": "idle"})
+    assert calls == [("tdmm:vp:status", {"state": "idle"}, 30)]
 
 
 # -- routes ------------------------------------------------------------
@@ -374,6 +504,28 @@ async def test_crud_routes(authenticated_client: httpx.AsyncClient, db_session):
     assert (await c.get(f"/api/virtual-printers/{vp['id']}")).status_code == 404
 
 
-async def test_features_flag(authenticated_client: httpx.AsyncClient):
-    r = await authenticated_client.get("/api/features")
+async def test_features_flag(authenticated_client: httpx.AsyncClient, monkeypatch):
+    monkeypatch.setenv("TDMM_VP_ENABLED", "true")
+    get_settings.cache_clear()
+    try:
+        r = await authenticated_client.get("/api/features")
+    finally:
+        get_settings.cache_clear()
     assert r.json()["virtual_printer_enabled"] is True
+
+
+async def test_run_seeds_before_polling(vp_env):
+    h = _Harness(vp_env, [(None, ZERO_NET)], polls=1)
+    order = []
+    h.on_poll_orig = h.on_poll
+    await vp_main.run(
+        vp_env,
+        load=h.load,
+        publish=h.publish,
+        poll_s=0.01,
+        stop=h.stop,
+        on_poll=lambda: (order.append("poll"), h.on_poll())[1],
+        seed=lambda: order.append("seed"),
+        make_service=h.make,
+    )
+    assert order[0] == "seed" and "poll" in order

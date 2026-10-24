@@ -61,7 +61,7 @@ class VirtualPrinterService:
             access_code=cfg.access_code,
             cert_path=str(cert),
             key_path=str(key),
-            bind=self.net.bind,
+            bind=net.bind,
             port=net.port_mqtt,
             on_print=self._on_print,
         )
@@ -70,18 +70,18 @@ class VirtualPrinterService:
             access_code=cfg.access_code,
             cert_path=str(cert),
             key_path=str(key),
-            bind=self.net.bind,
+            bind=net.bind,
             port=net.port_ftp,
-            pasv_min=self.net.pasv_min,
-            pasv_max=self.net.pasv_max,
-            pasv_address=self.net.pasv_address,
+            pasv_min=net.pasv_min,
+            pasv_max=net.pasv_max,
+            pasv_address=net.pasv_address,
             on_upload=self._on_upload,
         )
         self.ssdp = SsdpAnnouncer(
             name=cfg.name,
             model=cfg.model,
             serial=cfg.serial,
-            bind=self.net.bind,
+            bind=net.bind,
             port=net.port_ssdp,
         )
 
