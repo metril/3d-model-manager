@@ -61,6 +61,7 @@ and the `virtual-printer` run this **one** image; they differ only by the
 `ROLE` env var and their `command`. The overlay also pulls the published
 slicer sidecar, `ghcr.io/metril/3d-model-manager-slicer:${IMAGE_TAG}`
 (amd64; versioned in lockstep with the app, so no extra variable).
+**Note:** `ghcr.io/metril/3d-model-manager-slicer:latest` only exists after the first release published following this change; until then use `IMAGE_TAG=edge` (or skip the slicer with `docker compose stop slicer`).
 
 Confirm what's actually running:
 
