@@ -447,7 +447,14 @@ async def set_slot(
         if resp.status_code == 200:
             dev = {"status": "applied"}
             await kprofile_after_slot_configure(
-                db, settings, ctx, printer, unit, slot, payload.spool_id
+                db,
+                settings,
+                ctx,
+                printer,
+                unit,
+                slot,
+                payload.spool_id,
+                tray_info_idx=device.get("tray_info_idx"),
             )
         elif resp.status_code == 202:
             dev = {"status": "pending", "request_id": body.get("request_id")}
