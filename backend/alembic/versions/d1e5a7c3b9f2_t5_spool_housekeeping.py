@@ -1,7 +1,7 @@
 """t5 spool housekeeping: suppliers, storage locations, HA sensors, colour catalog
 
 Revision ID: d1e5a7c3b9f2
-Revises: d7a3c5e9f1b4
+Revises: d3a7c1e5f9b2
 Create Date: 2026-10-24 00:00:00.000000
 
 """
@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "d1e5a7c3b9f2"
-down_revision: str | Sequence[str] | None = "d7a3c5e9f1b4"
+down_revision: str | Sequence[str] | None = "d3a7c1e5f9b2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

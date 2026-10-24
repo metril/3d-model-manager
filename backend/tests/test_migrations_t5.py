@@ -3,7 +3,7 @@ import asyncpg
 from alembic import command
 from tests.migration_helpers import _run_alembic
 
-_PREV = "d7a3c5e9f1b4"
+_PREV = "d3a7c1e5f9b2"
 _T5 = "d1e5a7c3b9f2"
 
 
