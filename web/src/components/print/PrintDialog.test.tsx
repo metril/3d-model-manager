@@ -533,4 +533,29 @@ describe("PrintDialog", () => {
     expect(await screen.findByText("Benchy")).toBeTruthy();
     expect(screen.getByText("Recent models")).toBeTruthy();
   });
+
+  it("disables Slice and send until a source file is picked (recipe mode, several sources)", async () => {
+    mockApi();
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/features") return Promise.resolve({ printer_enabled: true, slicer_configured: true });
+      if (path === "/models/3/revisions") return Promise.resolve([{ id: 103 }]);
+      if (path === "/revisions/103")
+        return Promise.resolve({
+          files: [
+            { id: 21, rel_path: "a.stl", format: "stl" },
+            { id: 22, rel_path: "b.stl", format: "stl" },
+          ],
+        });
+      return base(path);
+    });
+    renderDialog({ kind: "model", modelId: 3 });
+    expect(await screen.findByText("a.stl")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const btn = await screen.findByRole("button", { name: "Slice and send" });
+    expect(btn).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add to queue" })).toBeDisabled();
+  });
 });

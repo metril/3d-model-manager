@@ -252,6 +252,15 @@ export function PrintDialog({
   }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   const modelIdForFiles = source.kind === "model" ? source.modelId : pickedModelId;
+  // Picking a different model (pick mode) starts the mode decision over.
+  useEffect(() => {
+    if (source.kind !== "pick") return;
+    setSliceOnly(sliceOnlyProp);
+    setProfileMode("as-sliced");
+    setSelectedRecipeId(null);
+    setPickedFileId(null);
+  }, [pickedModelId, source.kind, sliceOnlyProp]);
+
   const features = useFeatures();
   const allPrintersQ = usePrinters();
   const canPrinter = useAuth().canPrinter;
@@ -396,6 +405,9 @@ export function PrintDialog({
   });
   const selectedRecipe = recipeList.find((r) => r.id === selectedRecipeId) ?? null;
   const recipeActionsDisabled = slicerHealth.data?.ok !== true;
+
+  // A file known to be an already-sliced gcode_3mf is always "as sliced".
+  const effectiveIsSliced = effectiveFileId != null && gcodeFiles.files.some((f) => f.id === effectiveFileId);
 
   const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
   // A reprint seeds `printerId` from the archived run before the person
@@ -687,7 +699,7 @@ export function PrintDialog({
                     </Label>
                   </div>
                 )}
-                {filteredRecipes.map((r) => (
+                {!effectiveIsSliced && filteredRecipes.map((r) => (
                   <div key={r.id} className="flex items-center gap-2">
                     <RadioGroupItem value={String(r.id)} id={`print-dialog-profile-recipe-${r.id}`} />
                     <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
@@ -695,9 +707,9 @@ export function PrintDialog({
                     </Label>
                   </div>
                 ))}
-                {profileMode === "recipe" && recipeList.length === 0 && !recipes.isLoading ? (
+                {profileMode === "recipe" && !effectiveIsSliced && filteredRecipes.length === 0 && !recipes.isLoading ? (
                   <p className="text-sm text-muted-foreground">
-                    No recipes yet.{" "}
+                    {recipeList.length === 0 ? "No recipes yet." : "No recipe for this printer model."}{" "}
                     <Link to="/inventory/profiles" className="underline">
                       Create a recipe to slice
                     </Link>
@@ -830,7 +842,7 @@ export function PrintDialog({
                       <Button
                         type="button"
                         onClick={handleSliceAndSend}
-                        disabled={recipeActionsDisabled || selectedRecipeId == null || enqueue.isPending}
+                        disabled={recipeActionsDisabled || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                         title={
                           recipeActionsDisabled
                             ? "Slicer sidecar unavailable. Enable it with the compose `slicer` profile (--profile slicer) and set TDMM_SLICER_URL."
@@ -848,7 +860,7 @@ export function PrintDialog({
                         type="button"
                         variant="outline"
                         onClick={handleQueueRecipe}
-                        disabled={selectedRecipeId == null || enqueue.isPending}
+                        disabled={selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                       >
                         Add to queue
                       </Button>
