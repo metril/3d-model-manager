@@ -36,7 +36,7 @@ async def test_settings_test_connection(
     authenticated_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     r = await authenticated_client.post("/api/settings/obico/test", json={})
-    assert r.json() == {"ok": False, "detail": "not_configured"}
+    assert r.json()["ok"] is False  # default URL (http://obico-ml:3333) unreachable here
     r = await authenticated_client.post(
         "/api/settings/obico/test", json={"url": "http://127.0.0.1:1"}
     )
@@ -121,7 +121,7 @@ async def test_detection_test_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     url = f"/api/printers/{printer_row.id}/detection/test"
-    assert (await authenticated_client.post(url)).status_code == 422  # no URL yet
+    assert (await authenticated_client.post(url)).status_code == 409  # default URL, no frame yet
     await authenticated_client.put(
         "/api/settings/obico", json={"url": "http://ml:3333", "enabled": True}
     )
@@ -171,3 +171,52 @@ async def test_detections_summary(
     finally:
         r.delete(obico.status_key(printer_row.id))
         r.close()
+
+
+async def test_obico_seed_and_no_env_fallback(db_session, monkeypatch) -> None:
+    from sqlalchemy import delete
+
+    from app.config import get_settings
+    from app.models import Setting
+
+    await db_session.execute(delete(Setting).where(Setting.key == "obico"))
+    await db_session.commit()
+    monkeypatch.setenv("TDMM_OBICO_URL", "http://env-ml:1/")
+    monkeypatch.setenv("TDMM_OBICO_CALLBACK", "http://env-api:2")
+    # resolver never reads env
+    cfg = await obico.get_config(db_session, get_settings())
+    assert (cfg.url, cfg.callback_url) == (obico.DEFAULT_URL, obico.DEFAULT_CALLBACK)
+    assert await obico.seed_obico_config(db_session) is True
+    cfg = await obico.get_config(db_session, get_settings())
+    assert (cfg.url, cfg.callback_url, cfg.enabled) == (
+        "http://env-ml:1",
+        "http://env-api:2",
+        False,
+    )
+    assert await obico.seed_obico_config(db_session) is False  # idempotent, nothing empty
+
+
+async def test_obico_seed_refills_empty_url_keeps_enabled(db_session, monkeypatch) -> None:
+    from app.models import Setting
+
+    monkeypatch.delenv("TDMM_OBICO_URL", raising=False)
+    monkeypatch.delenv("TDMM_OBICO_CALLBACK", raising=False)
+    db_session.add(
+        Setting(key="obico", value={"url": "", "callback_url": "", "enabled": True, "warn": 0.3})
+    )
+    await db_session.commit()
+    assert await obico.seed_obico_config(db_session) is True
+    db_session.expire_all()
+    value = (await db_session.get(Setting, "obico")).value
+    assert value["url"] == obico.DEFAULT_URL and value["callback_url"] == obico.DEFAULT_CALLBACK
+    assert value["enabled"] is True and value["warn"] == 0.3
+
+
+async def test_obico_put_blank_callback_keeps_resolved(authenticated_client) -> None:
+    body = (await authenticated_client.get("/api/settings/obico")).json()
+    put = await authenticated_client.put(
+        "/api/settings/obico", json={**body, "callback_url": "http://cb:9"}
+    )
+    assert put.json()["callback_url"] == "http://cb:9"
+    put = await authenticated_client.put("/api/settings/obico", json={**body, "callback_url": "  "})
+    assert put.json()["callback_url"] == "http://cb:9"

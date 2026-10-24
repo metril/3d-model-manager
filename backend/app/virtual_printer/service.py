@@ -12,7 +12,7 @@ from typing import Any
 from app.config import Settings
 from app.virtual_printer import certs
 from app.virtual_printer.ftps import FtpsServer
-from app.virtual_printer.intake import IngestResult, VpConfig, ingest, normalize_name
+from app.virtual_printer.intake import IngestResult, VpConfig, VpNetwork, ingest, normalize_name
 from app.virtual_printer.mqtt import MqttBroker
 from app.virtual_printer.ssdp import SsdpAnnouncer
 
@@ -24,13 +24,13 @@ ORPHAN_UPLOAD_S = 30.0
 PENDING_COMMAND_S = 120.0
 
 
-def preflight(settings: Settings) -> list[str]:
+def preflight(net: VpNetwork) -> list[str]:
     """Human-readable problems for every required port that isn't free."""
     problems = []
     for label, kind, port in (
-        ("SSDP", socket.SOCK_DGRAM, settings.vp_port_ssdp),
-        ("MQTT", socket.SOCK_STREAM, settings.vp_port_mqtt),
-        ("FTPS", socket.SOCK_STREAM, settings.vp_port_ftp),
+        ("SSDP", socket.SOCK_DGRAM, net.port_ssdp),
+        ("MQTT", socket.SOCK_STREAM, net.port_mqtt),
+        ("FTPS", socket.SOCK_STREAM, net.port_ftp),
     ):
         if port == 0:
             continue
@@ -38,7 +38,7 @@ def preflight(settings: Settings) -> list[str]:
             if kind == socket.SOCK_STREAM:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind((settings.vp_bind, port))
+                s.bind((net.bind, port))
             except OSError as exc:
                 proto = "udp" if kind == socket.SOCK_DGRAM else "tcp"
                 problems.append(f"{label} port {port}/{proto} is not available ({exc.strerror})")
@@ -46,8 +46,8 @@ def preflight(settings: Settings) -> list[str]:
 
 
 class VirtualPrinterService:
-    def __init__(self, settings: Settings, cfg: VpConfig):
-        self.settings, self.cfg = settings, cfg
+    def __init__(self, settings: Settings, cfg: VpConfig, net: VpNetwork):
+        self.settings, self.cfg, self.net = settings, cfg, net
         base = settings.data_dir / "virtual-printer"
         self.upload_dir = base / "uploads"
         self.results: list[IngestResult] = []
@@ -61,8 +61,8 @@ class VirtualPrinterService:
             access_code=cfg.access_code,
             cert_path=str(cert),
             key_path=str(key),
-            bind=settings.vp_bind,
-            port=settings.vp_port_mqtt,
+            bind=self.net.bind,
+            port=net.port_mqtt,
             on_print=self._on_print,
         )
         self.ftps = FtpsServer(
@@ -70,19 +70,19 @@ class VirtualPrinterService:
             access_code=cfg.access_code,
             cert_path=str(cert),
             key_path=str(key),
-            bind=settings.vp_bind,
-            port=settings.vp_port_ftp,
-            pasv_min=settings.vp_pasv_min,
-            pasv_max=settings.vp_pasv_max,
-            pasv_address=settings.vp_pasv_address,
+            bind=self.net.bind,
+            port=net.port_ftp,
+            pasv_min=self.net.pasv_min,
+            pasv_max=self.net.pasv_max,
+            pasv_address=self.net.pasv_address,
             on_upload=self._on_upload,
         )
         self.ssdp = SsdpAnnouncer(
             name=cfg.name,
             model=cfg.model,
             serial=cfg.serial,
-            bind=settings.vp_bind,
-            port=settings.vp_port_ssdp,
+            bind=self.net.bind,
+            port=net.port_ssdp,
         )
 
     async def start(self) -> None:

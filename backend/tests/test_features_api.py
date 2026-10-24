@@ -24,7 +24,7 @@ async def test_features_disabled_by_default(authenticated_client):
         "printer_enabled": False,
         "watch_dir": None,
         "watch_enabled": False,
-        "virtual_printer_enabled": False,
+        "virtual_printer_enabled": True,
         "slicer_configured": False,
     }
 
@@ -35,7 +35,7 @@ async def test_features_enabled(authenticated_client, printer_enabled):
         "printer_enabled": True,
         "watch_dir": None,
         "watch_enabled": False,
-        "virtual_printer_enabled": False,
+        "virtual_printer_enabled": True,
         "slicer_configured": False,
     }
 
@@ -111,9 +111,12 @@ async def test_features_db_row_overrides_env(
     assert body["watch_enabled"] is True
 
 
-async def test_features_slicer_configured(authenticated_client, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("TDMM_SLICER_URL", "http://slicer:3001")
-    get_settings.cache_clear()
-    r = await authenticated_client.get("/api/features")
-    assert r.json()["slicer_configured"] is True
-    get_settings.cache_clear()
+async def test_features_slicer_configured(authenticated_client):
+    from tests.server_helpers import set_server
+
+    await set_server(slicer_enabled=True, slicer_url="http://slicer:3001")
+    assert (await authenticated_client.get("/api/features")).json()["slicer_configured"] is True
+    await set_server(slicer_enabled=False)
+    assert (await authenticated_client.get("/api/features")).json()["slicer_configured"] is False
+    await set_server(slicer_enabled=True, slicer_url="")
+    assert (await authenticated_client.get("/api/features")).json()["slicer_configured"] is False

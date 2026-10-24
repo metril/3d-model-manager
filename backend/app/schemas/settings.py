@@ -11,10 +11,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.imports import NonEmptyStr
 from app.services.app_config import AppConfig
+from app.services.server_config import ServerConfig
 
 # Bambu account region (global = api.bambulab.com, china = api.bambulab.cn) --
 # constrained at the schema boundary so a bogus region 422s here rather than
@@ -58,6 +59,10 @@ class ConnectionTestOut(BaseModel):
 
 
 class AppSettingsIn(BaseModel):
+    # Legacy clients may still send slicer_url/slice_timeout_s (moved to the
+    # `server` settings); they are silently dropped.
+    model_config = ConfigDict(extra="ignore")
+
     printer_enabled: bool
     scan_interval_s: int = Field(ge=0)
     collection_sync_interval_s: int = Field(ge=0)
@@ -235,3 +240,55 @@ class ApiTokenOut(BaseModel):
             user_id=row.user_id,
             username=username,
         )
+
+
+# ---------------------------------------------------------------------------
+# Server (infra) settings -- admin only; see app.services.server_config and
+# app.api.server_settings.
+# ---------------------------------------------------------------------------
+
+ServerSettingsIn = ServerConfig
+
+
+class ServerDerivedOut(BaseModel):
+    cookie_secure: bool | None  # None when it depends on the request scheme
+    request_origin: str
+
+
+class ServerSettingsOut(BaseModel):
+    config: ServerConfig
+    seeded_from_env: dict[str, str]
+    ignored_env: list[str]
+    derived: ServerDerivedOut
+
+
+class SlicerTestIn(BaseModel):
+    url: str | None = None
+
+
+class SlicerTestOut(BaseModel):
+    ok: bool
+    latency_ms: int | None
+    detail: str
+
+
+class ProbeOut(BaseModel):
+    ok: bool
+    detail: str
+
+
+class VpStatusOut(BaseModel):
+    state: Literal["idle", "running", "error", "offline"]
+    vp_id: int | None = None
+    bind: str | None = None
+    ports: dict[str, int] | None = None
+    pasv: list[int] | None = None
+    errors: list[str] = Field(default_factory=list)
+    ts: str | None = None
+
+
+class ServerStatusOut(BaseModel):
+    slicer: ProbeOut
+    slicer_healthy: bool | None
+    obico: ProbeOut
+    virtual_printer: VpStatusOut

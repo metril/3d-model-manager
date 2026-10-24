@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.services.app_config import get_app_config
+from app.services.server_config import get_server_config
 
 router = APIRouter(tags=["features"])
 
@@ -35,10 +36,11 @@ async def get_features(
     db: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict:
     config = await get_app_config(db, settings)
+    server = await get_server_config(db, settings)
     return {
         "printer_enabled": config.printer_enabled,
         "watch_dir": str(settings.watch_dir) if settings.watch_dir else None,
         "watch_enabled": settings.watch_dir is not None and config.watch_interval_s > 0,
-        "virtual_printer_enabled": settings.vp_enabled,
-        "slicer_configured": bool(settings.slicer_url),
+        "virtual_printer_enabled": True,  # always on (compat constant)
+        "slicer_configured": server.slicer_enabled and bool(server.slicer_url),
     }

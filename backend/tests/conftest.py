@@ -136,6 +136,13 @@ async def _truncate_all_tables(migrated_db: str) -> AsyncGenerator[None, None]:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+        # Controller decision 4: tests that assume "no slicer" get it via a
+        # seeded `server` row (the production default is slicer_enabled=true).
+        # Per-field overlay keeps every other field at its default.
+        await conn.execute(
+            text("INSERT INTO settings (key, value) VALUES ('server', CAST(:v AS jsonb))"),
+            {"v": '{"slicer_enabled": false}'},
+        )
     yield
 
 

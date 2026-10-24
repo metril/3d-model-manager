@@ -26,6 +26,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.slicer import IntakeOut
 from app.services import slicer_intake, spool
+from app.services.server_config import get_server_config
 from app.storage.base import StorageBackend
 
 _LIB_WRITE = require_token_perm("library:write")
@@ -45,6 +46,7 @@ async def intake(
     if not filename or not filename.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "filename is required")
 
+    max_upload = (await get_server_config(db)).max_upload_bytes
     await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
     token = uuid.uuid4()
     path = spool.spool_path(settings, token)
@@ -61,7 +63,7 @@ async def intake(
                 if not chunk:
                     continue
                 size += len(chunk)
-                if size > settings.max_upload_bytes:
+                if size > max_upload:
                     raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "upload too large")
                 hasher.update(chunk)
                 await anyio.to_thread.run_sync(fh.write, chunk)

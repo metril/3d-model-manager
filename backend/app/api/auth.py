@@ -8,17 +8,17 @@ stay reachable without a session) and ``protected_router`` (``/auth/me``,
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SESSION_COOKIE_NAME, SESSION_MAX_AGE, AuthContext, require_session
-from app.config import get_settings
 from app.db import get_db
 from app.models import Session as SessionModel
 from app.models import User
 from app.security import DUMMY_HASH, hash_password, verify_password
+from app.services.server_config import cookie_secure, get_server_config
 
 public_router = APIRouter(prefix="/auth", tags=["auth"])
 protected_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -50,6 +50,7 @@ def _invalid_credentials() -> HTTPException:
 async def login(
     payload: LoginRequest,
     response: Response,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Verify credentials, open a session, and set the session cookie."""
@@ -67,10 +68,12 @@ async def login(
     if not verify_password(payload.password, user.password_hash):
         raise _invalid_credentials()
 
-    await start_session(db, response, user)
+    await start_session(db, response, user, request)
 
 
-async def start_session(db: AsyncSession, response: Response, user: User) -> SessionModel:
+async def start_session(
+    db: AsyncSession, response: Response, user: User, request: Request | None = None
+) -> SessionModel:
     """Create a session row, stamp ``last_login_at``, set the cookie on the
     given ``response`` (any Response, e.g. a RedirectResponse) and commit.
     """
@@ -79,7 +82,7 @@ async def start_session(db: AsyncSession, response: Response, user: User) -> Ses
     user.last_login_at = datetime.now(UTC)
     await db.commit()
 
-    settings = get_settings()
+    secure = cookie_secure(await get_server_config(db), request)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=str(session.id),
@@ -87,7 +90,7 @@ async def start_session(db: AsyncSession, response: Response, user: User) -> Ses
         path="/",
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=secure,
     )
     return session
 
@@ -198,6 +201,7 @@ async def change_password(
 @protected_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     response: Response,
+    request: Request,
     ctx: AuthContext = Depends(require_session),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -205,11 +209,11 @@ async def logout(
     await db.delete(ctx.session)
     await db.commit()
 
-    settings = get_settings()
+    secure = cookie_secure(await get_server_config(db), request)
     response.delete_cookie(
         key=SESSION_COOKIE_NAME,
         path="/",
         httponly=True,
         samesite="lax",
-        secure=settings.cookie_secure,
+        secure=secure,
     )

@@ -143,9 +143,11 @@ async def put_obico_settings(
 ) -> ObicoConfig:
     cfg = ObicoConfig(**payload.model_dump())
     cfg.url = cfg.url.strip().rstrip("/")
-    cfg.callback_url = (cfg.callback_url.strip() or settings.obico_callback).rstrip("/")
+    # A blank callback keeps the currently resolved one (never reads env).
+    current = await obico.get_config(db, settings)
+    cfg.callback_url = (cfg.callback_url.strip() or current.callback_url).rstrip("/")
     await obico.put_config(db, cfg)
-    return cfg
+    return await obico.get_config(db, settings)
 
 
 @settings_router.post("/test", response_model=TestOut)

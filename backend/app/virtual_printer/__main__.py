@@ -15,7 +15,7 @@ from app.config import Settings, get_settings
 from app.crypto import decrypt_secret
 from app.models import VirtualPrinter
 from app.tasks import base
-from app.virtual_printer.intake import VpConfig
+from app.virtual_printer.intake import VpConfig, VpNetwork, load_network
 from app.virtual_printer.service import VirtualPrinterService, preflight
 
 log = logging.getLogger("virtual_printer")
@@ -45,7 +45,8 @@ def load_active(settings: Settings) -> VpConfig | None:
 
 
 async def run(settings: Settings) -> int:
-    problems = preflight(settings)
+    net = await asyncio.to_thread(load_network, settings)
+    problems = preflight(net)
     if problems:
         for p in problems:
             print(f"virtual-printer: cannot start: {p}", file=sys.stderr)
@@ -60,20 +61,22 @@ async def run(settings: Settings) -> int:
         loop.add_signal_handler(sig, stop.set)
     svc: VirtualPrinterService | None = None
     current: VpConfig | None = None
+    current_net: VpNetwork = net
     while not stop.is_set():
         try:
             wanted = await asyncio.to_thread(load_active, settings)
+            wanted_net = await asyncio.to_thread(load_network, settings)
         except Exception:
             log.exception("could not read virtual printer config")
-            wanted = current
-        if wanted != current:
+            wanted, wanted_net = current, current_net
+        if wanted != current or (wanted is not None and wanted_net != current_net):
             if svc is not None:
                 await svc.stop()
                 svc = None
-            current = wanted
+            current, current_net = wanted, wanted_net
             if wanted is not None:
                 try:
-                    svc = VirtualPrinterService(settings, wanted)
+                    svc = VirtualPrinterService(settings, wanted, wanted_net)
                     await svc.start()
                 except Exception:
                     log.exception("virtual printer failed to start; retrying next poll")

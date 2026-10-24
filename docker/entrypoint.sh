@@ -29,7 +29,11 @@ case "${ROLE:-api}" in
     echo "[entrypoint] running database migrations..."
     alembic upgrade head
     echo "[entrypoint] starting API server..."
-    exec uvicorn app.main:app --host 0.0.0.0 --port 8080
+    # --proxy-headers lets the request scheme (and so the cookie Secure flag) follow
+    # X-Forwarded-Proto from the trusted proxy IPs (FORWARDED_ALLOW_IPS; uvicorn
+    # defaults to 127.0.0.1 only).
+    exec uvicorn app.main:app --host 0.0.0.0 --port 8080 \
+      --proxy-headers --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
     ;;
   worker)
     echo "[entrypoint] starting Celery worker (queues: ${QUEUES:-io,cpu})..."

@@ -74,8 +74,12 @@ async def test_sse_forwards_a_published_job_event(
     # Short heartbeat so the test can deterministically wait for "the
     # endpoint has subscribed" (its first heartbeat) before publishing,
     # instead of racing a fixed sleep against the subscribe call.
-    monkeypatch.setenv("SSE_HEARTBEAT_INTERVAL", "0.05")
-    get_settings.cache_clear()
+    from app.api import events
+
+    async def _fast(_db):
+        return 0.05
+
+    monkeypatch.setattr(events, "_heartbeat_s", _fast)
 
     async def _consume() -> tuple[dict, uuid.UUID]:
         async with live_client.stream("GET", "/api/events") as response:
@@ -135,8 +139,12 @@ async def test_sse_client_disconnect_closes_pubsub(
     on ``PubSub.aclose`` and proving a real client disconnect still triggers
     it.
     """
-    monkeypatch.setenv("SSE_HEARTBEAT_INTERVAL", "0.05")
-    get_settings.cache_clear()
+    from app.api import events
+
+    async def _fast(_db):
+        return 0.05
+
+    monkeypatch.setattr(events, "_heartbeat_s", _fast)
 
     aclose_calls = 0
     original_aclose = aioredis.client.PubSub.aclose
@@ -168,8 +176,12 @@ async def test_sse_sends_heartbeat_when_idle(
     live_client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SSE_HEARTBEAT_INTERVAL", "0.05")
-    get_settings.cache_clear()
+    from app.api import events
+
+    async def _fast(_db):
+        return 0.05
+
+    monkeypatch.setattr(events, "_heartbeat_s", _fast)
 
     async def _first_nonblank_line() -> str:
         async with live_client.stream("GET", "/api/events") as response:

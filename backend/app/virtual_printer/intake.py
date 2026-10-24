@@ -25,11 +25,43 @@ from app.models.library import Blob, File, PrintQueueEntry
 from app.services import billing, slicer_intake
 from app.services.app_config import get_app_config_sync
 from app.services.print_plan import estimate_item_sync
+from app.services.server_config import ServerConfig, get_server_config_sync
 from app.services.slicer_naming import _safe_basename
 from app.services.storage_backends import resolve_default_backend_sync
 from app.tasks import base
 
 log = logging.getLogger("virtual_printer")
+
+
+@dataclass(frozen=True)
+class VpNetwork:
+    """The virtual printer's listen network (the ``vp_*`` fields of the DB-backed
+    ``ServerConfig``), frozen so ``wanted != current`` detects a change."""
+
+    bind: str
+    port_ssdp: int
+    port_mqtt: int
+    port_ftp: int
+    pasv_min: int
+    pasv_max: int
+    pasv_address: str = ""  # "" = the control socket's local IP
+
+    @classmethod
+    def from_config(cls, cfg: ServerConfig) -> VpNetwork:
+        return cls(
+            bind=cfg.vp_bind,
+            port_ssdp=cfg.vp_port_ssdp,
+            port_mqtt=cfg.vp_port_mqtt,
+            port_ftp=cfg.vp_port_ftp,
+            pasv_min=cfg.vp_pasv_min,
+            pasv_max=cfg.vp_pasv_max,
+            pasv_address=cfg.vp_pasv_address or "",
+        )
+
+
+def load_network(settings: Settings | None = None) -> VpNetwork:
+    with base.sync_session() as session:
+        return VpNetwork.from_config(get_server_config_sync(session, settings))
 
 
 @dataclass(frozen=True)

@@ -72,6 +72,13 @@ def _download_client() -> httpx.Client:
     )
 
 
+def _max_download_bytes(settings: Settings) -> int:
+    """The DB-backed ``server.max_download_bytes``, read once per download."""
+    from app.services.server_config import current_sync
+
+    return current_sync(settings).max_download_bytes
+
+
 def stream_remote_to_spool(
     settings: Settings,
     *,
@@ -94,6 +101,7 @@ def stream_remote_to_spool(
     path = spool.spool_path(settings, token)
     hasher = blake3()
     size = 0
+    max_bytes = _max_download_bytes(settings)
     try:
         with _download_client() as client, client.stream("GET", url, headers=headers or {}) as resp:
             resp.raise_for_status()
@@ -105,10 +113,8 @@ def stream_remote_to_spool(
                         continue
                     hasher.update(chunk)
                     size += len(chunk)
-                    if size > settings.max_download_bytes:
-                        raise ValueError(
-                            f"remote file {rel_path!r} exceeds {settings.max_download_bytes} bytes"
-                        )
+                    if size > max_bytes:
+                        raise ValueError(f"remote file {rel_path!r} exceeds {max_bytes} bytes")
                     fh.write(chunk)
     except BaseException:
         path.unlink(missing_ok=True)  # never orphan a spool file on a failed stream

@@ -18,11 +18,13 @@ import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from app.services.app_config import AppConfig
+if TYPE_CHECKING:  # not imported at runtime: slicer/tests load this file standalone
+    from app.services.server_config import ServerConfig
+
 
 logger = logging.getLogger(__name__)
 
@@ -264,10 +266,9 @@ class SlicerClient:
         return content
 
 
-def client_from_config(cfg: AppConfig) -> SlicerClient | None:
-    """`None` when no slicer sidecar is configured (`slicer_url` unset) --
-    callers treat that as "slicer integration off", mirroring
-    `printer_enabled`'s off-by-default posture."""
-    if not cfg.slicer_url:
+def client_from_config(cfg: ServerConfig) -> SlicerClient | None:
+    """`None` when the slicer is disabled or has no URL -- callers treat
+    that as "slicer integration off"."""
+    if not cfg.slicer_enabled or not cfg.slicer_url:
         return None
     return SlicerClient(cfg.slicer_url, slice_timeout_s=cfg.slice_timeout_s)

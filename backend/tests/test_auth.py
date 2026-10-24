@@ -119,22 +119,36 @@ async def test_login_cookie_flags_default_not_secure(
     assert "secure" not in header
 
 
-async def test_login_cookie_is_secure_when_configured(
-    client: httpx.AsyncClient,
-    admin_user: User,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("COOKIE_SECURE", "true")
-    get_settings.cache_clear()
-
+async def _login_secure(client: httpx.AsyncClient, base_url: str = "http://test") -> bool:
     response = await client.post(
-        "/api/auth/login", json={"username": USERNAME, "password": PASSWORD}
+        f"{base_url}/api/auth/login", json={"username": USERNAME, "password": PASSWORD}
     )
+    return "secure" in _set_cookie_header(response).lower().replace("samesite", "")
 
-    header = _set_cookie_header(response).lower()
-    assert "secure" in header
-    assert "httponly" in header
-    assert "samesite=lax" in header
+
+async def test_login_cookie_secure_follows_public_url_https(
+    client: httpx.AsyncClient, admin_user: User
+) -> None:
+    from tests.server_helpers import set_server
+
+    await set_server(public_url="https://models.example.com")
+    assert await _login_secure(client) is True
+
+
+async def test_login_cookie_not_secure_for_http_public_url(
+    client: httpx.AsyncClient, admin_user: User
+) -> None:
+    from tests.server_helpers import set_server
+
+    await set_server(public_url="http://models.example.com")
+    assert await _login_secure(client, "https://test") is False
+
+
+async def test_login_cookie_secure_follows_request_scheme_without_public_url(
+    client: httpx.AsyncClient, admin_user: User
+) -> None:
+    assert await _login_secure(client, "https://test") is True
+    assert await _login_secure(client, "http://test") is False
 
 
 # ---------------------------------------------------------------------------

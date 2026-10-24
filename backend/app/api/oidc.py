@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import OidcProvider
 from app.services import oidc as svc
+from app.services.server_config import cookie_secure, get_server_config, public_origin
 
 BIND_COOKIE = "tdmm_oidc"
 
@@ -30,9 +31,8 @@ def _fail(code: str) -> RedirectResponse:
     return RedirectResponse(f"/login?error={code}", status_code=302)
 
 
-def _redirect_uri(request: Request, slug: str) -> str:
-    settings = get_settings()
-    origin = (settings.public_url or str(request.base_url)).rstrip("/")
+async def _redirect_uri(db: AsyncSession, request: Request, slug: str) -> str:
+    origin = public_origin(await get_server_config(db), request)
     return f"{origin}/api/auth/oidc/{slug}/callback"
 
 
@@ -63,7 +63,10 @@ async def start(
     redis = Redis.from_url(get_settings().redis_url)
     try:
         url = await svc.start_login(
-            redis, provider, redirect_uri=_redirect_uri(request, slug), return_to=return_to
+            redis,
+            provider,
+            redirect_uri=await _redirect_uri(db, request, slug),
+            return_to=return_to,
         )
     except svc.OidcError as e:
         return _fail(e.code)
@@ -78,7 +81,7 @@ async def start(
         path="/api/auth/oidc",
         httponly=True,
         samesite="lax",
-        secure=get_settings().cookie_secure,
+        secure=cookie_secure(await get_server_config(db), request),
     )
     return response
 
@@ -108,7 +111,7 @@ async def callback(
             provider,
             code=code,
             state=state,
-            redirect_uri=_redirect_uri(request, slug),
+            redirect_uri=await _redirect_uri(db, request, slug),
         )
     except svc.OidcError as e:
         failure = _fail(e.code)
@@ -118,5 +121,5 @@ async def callback(
         await redis.aclose()
     response = RedirectResponse(return_to, status_code=302)
     response.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
-    await start_session(db, response, user)
+    await start_session(db, response, user, request)
     return response

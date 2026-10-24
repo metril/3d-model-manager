@@ -35,22 +35,6 @@ class Settings(BaseSettings):
     library_root: Path = Path("./library")
     admin_username: str = "admin"
     admin_password: SecretStr | None = None
-    cookie_secure: bool = False
-    # Byte caps on streamed ingest: PUT /api/uploads + slicer intake
-    # (`MAX_UPLOAD_BYTES`, default 4 GiB) and remote importer downloads
-    # (`MAX_DOWNLOAD_BYTES`, default 2 GiB). Exceeding them aborts the stream.
-    max_upload_bytes: int = Field(
-        default=4 * 1024**3, validation_alias=AliasChoices("MAX_UPLOAD_BYTES")
-    )
-    max_download_bytes: int = Field(
-        default=2 * 1024**3, validation_alias=AliasChoices("MAX_DOWNLOAD_BYTES")
-    )
-    # How often GET /api/events sends a `: ping` heartbeat comment while idle
-    # (Task 6). Overridable so tests don't have to wait a real 15s.
-    # Env: `SSE_HEARTBEAT_INTERVAL` (seconds; the field keeps the unit suffix).
-    sse_heartbeat_interval_s: float = Field(
-        default=15.0, validation_alias=AliasChoices("SSE_HEARTBEAT_INTERVAL")
-    )
     # Directory the built frontend (`web/dist`) lives in, e.g. `/app/static`
     # inside the Docker image (Task 9). `None` (the default) disables SPA
     # serving entirely -- local dev runs the Vite dev server instead, which
@@ -99,51 +83,13 @@ class Settings(BaseSettings):
     # set (e.g. to share one key across api/worker/printerd via env instead of
     # a shared volume). A urlsafe-base64 32-byte Fernet key.
     printer_key: SecretStr | None = None
-    # Externally-reachable origin (scheme + host, e.g.
-    # `https://models.example.com`) to use for absolute URLs this API mints
-    # for outside consumers -- currently just the signed slicer-deep-link
-    # URL from `POST /files/{id}/slicer-link` (`app.api.files
-    # ._absolute_origin`). Unset (the default) falls back to the request's
-    # own `request.base_url`, which does NOT read `X-Forwarded-*` headers
-    # (those are client-controllable and untrusted at this layer) -- a
-    # reverse proxy in front of the API should be handled by uvicorn's
-    # `--proxy-headers`/`--forwarded-allow-ips`, not by this app trusting
-    # forwarded headers itself. Env: `TDMM_PUBLIC_URL`.
-    public_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_PUBLIC_URL"))
-    # Base URL of the slicer sidecar (P6; `compose.slicer.yaml`, profile
-    # `slicer`), e.g. `http://slicer:3001`. Unset (the default) means no
-    # slicer integration -- `app.services.slicer_client.client_from_config`
-    # returns `None` and slicer-dependent features stay off, mirroring
-    # `printer_enabled`'s off-by-default posture. Env: `TDMM_SLICER_URL`.
-    slicer_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_SLICER_URL"))
-    # Q10: Obico ML sidecar base URL (`compose.obico.yaml`, profile `obico`),
-    # e.g. `http://obico-ml:3333`. Seeds the default for Settings -> Failure
-    # detection until saved there. Env: `TDMM_OBICO_URL`.
-    obico_url: str | None = Field(default=None, validation_alias=AliasChoices("TDMM_OBICO_URL"))
-    # Q10: base URL the ML sidecar uses to fetch the one-shot snapshot from the
-    # API. Env: `TDMM_OBICO_CALLBACK`.
-    obico_callback: str = Field(
-        default="http://api:8000", validation_alias=AliasChoices("TDMM_OBICO_CALLBACK")
-    )
-    # How long `SlicerClient.slice` waits for the sidecar's own slice call
-    # (seconds) before giving up -- separate from `_DEFAULT_TIMEOUT`
-    # (health/profiles, fast calls) since a real slice can run long. Env:
-    # `TDMM_SLICE_TIMEOUT_S`.
-    slice_timeout_s: int = Field(default=600, validation_alias=AliasChoices("TDMM_SLICE_TIMEOUT_S"))
 
-    # Q11 virtual printer (own compose service, `virtual-printer` profile).
-    # `vp_enabled` only drives the Settings card via GET /features; the
-    # service itself is gated by its compose profile.
-    vp_enabled: bool = Field(default=False, validation_alias=AliasChoices("TDMM_VP_ENABLED"))
-    vp_bind: str = Field(default="0.0.0.0", validation_alias=AliasChoices("TDMM_VP_BIND"))  # noqa: S104
-    vp_port_ssdp: int = Field(default=2021, validation_alias=AliasChoices("TDMM_VP_PORT_SSDP"))
-    vp_port_mqtt: int = Field(default=8883, validation_alias=AliasChoices("TDMM_VP_PORT_MQTT"))
-    vp_port_ftp: int = Field(default=990, validation_alias=AliasChoices("TDMM_VP_PORT_FTP"))
-    # FTPS passive data-port window (0 = ephemeral, used by tests) and the
-    # address advertised in PASV replies ("" = the control socket's local IP).
-    vp_pasv_min: int = Field(default=50000, validation_alias=AliasChoices("TDMM_VP_PASV_MIN"))
-    vp_pasv_max: int = Field(default=50009, validation_alias=AliasChoices("TDMM_VP_PASV_MAX"))
-    vp_pasv_address: str = Field(default="", validation_alias=AliasChoices("TDMM_VP_PASV_ADDRESS"))
+    # seed-only: public URL, upload/download caps, SSE heartbeat, slicer URL/
+    # timeout, virtual-printer network, Obico URLs and COOKIE_SECURE moved to
+    # the DB-backed `server` settings row (app.services.server_config /
+    # app.services.obico). Their env vars are read ONLY by those seed
+    # functions, straight from os.environ, so a malformed value can never
+    # crash get_settings().
 
 
 @lru_cache

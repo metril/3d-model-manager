@@ -61,7 +61,6 @@ services:
       # GET /features (Settings "Slicer integration" card) -- it never reads
       # the folder, so no /watch volume here. Must match worker-io/beat.
       WATCH_DIR: /watch
-      TDMM_VP_ENABLED: ${TDMM_VP_ENABLED:-false}
       PUID: ${PUID:-}
       PGID: ${PGID:-}
     env_file:
