@@ -245,8 +245,12 @@ class LocationHaSensor(Base):
 class ColorCatalogEntry(Base):
     __tablename__ = "color_catalog"
     __table_args__ = (
-        UniqueConstraint(
-            "manufacturer", "color_name", "material", name="uq_color_catalog_mfr_name_material"
+        Index(
+            "uq_color_catalog_mfr_name_material",
+            "manufacturer",
+            "color_name",
+            text("coalesce(material, '')"),
+            unique=True,
         ),
     )
 

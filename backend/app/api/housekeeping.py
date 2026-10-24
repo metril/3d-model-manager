@@ -276,11 +276,20 @@ async def update_sensor(
     if s is None:
         raise _404("sensor")
     data = payload.model_dump(exclude_unset=True)
+    old_entity = s.entity_id
     for k in ("name", "entity_id", "kind", "notify_on_alert", "show_on_card", "sort_order"):
         if k in data and data[k] is None:
             data.pop(k)
+    new_entity = data.get("entity_id")
     for k, v in data.items():
         setattr(s, k, v)
+    if new_entity is not None and new_entity != old_entity:
+        s.alerting = False
+        s.last_state = s.last_changed_at = s.unit = s.device_class = None
+        if "unit" in data:
+            s.unit = data["unit"]
+        if "device_class" in data:
+            s.device_class = data["device_class"]
     if {"alert_above", "alert_below"} & data.keys():
         s.alerting = False  # re-evaluated on the next poll
     await db.commit()

@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")
 
@@ -205,12 +205,12 @@ class BulkUpdateFields(BaseModel):
 
 
 class BulkUpdateIn(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(min_length=1, max_length=500)
     update: BulkUpdateFields
 
 
 class BulkIdsIn(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(min_length=1, max_length=500)
 
 
 class BulkItem(BaseModel):
@@ -260,7 +260,7 @@ class ImportResultOut(BaseModel):
 
 
 class LabelsIn(BaseModel):
-    ids: list[int]
+    ids: list[int] = Field(min_length=1, max_length=300)
     template: Literal["tight", "roomy"] = "roomy"
     page: Literal["a4", "letter", "roll_62mm"] = "a4"
     format: Literal["pdf", "png"] = "pdf"

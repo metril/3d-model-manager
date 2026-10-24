@@ -155,12 +155,16 @@ def upgrade() -> None:
         sa.Column("effect_type", sa.String(), nullable=True),
         *_audit_cols(),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_color_catalog")),
-        sa.UniqueConstraint(
-            "manufacturer", "color_name", "material", name="uq_color_catalog_mfr_name_material"
-        ),
         _user_fk("color_catalog"),
     )
     op.create_index("ix_color_catalog_created_by_user_id", "color_catalog", ["created_by_user_id"])
+    # coalesce so NULL-material rows cannot duplicate
+    op.create_index(
+        "uq_color_catalog_mfr_name_material",
+        "color_catalog",
+        ["manufacturer", "color_name", sa.text("coalesce(material, '')")],
+        unique=True,
+    )
 
     bind = op.get_bind()
     rows = json.loads(_CATALOG.read_text())
