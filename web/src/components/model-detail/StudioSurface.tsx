@@ -65,7 +65,11 @@ export function StudioSurface({
   otherFiles,
   stageProps,
   onSelectAssembly,
+  fill = false,
 }: {
+  /** Stretch the viewer to its container's height (dock panel) instead of the
+   * fixed inline height. */
+  fill?: boolean;
   selection: StudioSelection | undefined;
   hasGlb: boolean;
   otherFiles: FileOut[];
@@ -86,8 +90,8 @@ export function StudioSurface({
 
   if (selection.type === "assembly" && hasGlb) {
     return (
-      <div className="flex min-w-0 flex-col gap-4">
-        <ViewerStage {...stageProps} variant="inline" showWindowButtons />
+      <div className={fill ? "flex h-full min-h-0 min-w-0 flex-col gap-4" : "flex min-w-0 flex-col gap-4"}>
+        <ViewerStage {...stageProps} variant={fill ? "window" : "inline"} showWindowButtons />
       </div>
     );
   }
