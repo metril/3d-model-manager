@@ -82,3 +82,46 @@ A1_MINI_DUMP = {
         ]
     },
 }
+
+# T1 AMS drying ``mqtt_dump()`` -- SYNTHESIZED from the documented `info` bit
+# layout (BambuStudio DevFilaSystem: dry_status = bits 4-7, dry_sub_status =
+# bits 22-25), NOT a live capture. Idle H2D with one AMS 2 Pro and two AMS-HT:
+#   unit 0   info 0x00400023: status 2 (drying), sub 1, dry_time 540 min
+#   unit 1   info 0x0: status 0, index-only humidity (no humidity_raw)
+#   unit 128 info 0x3: status 0, blocked: dry_sf_reason [3] (retract) + [8] (power)
+#   unit 129 info 0x40: status 4 (stopping)
+AMS_DRYING_DUMP = {
+    "print": {
+        "gcode_state": "IDLE",
+        "ams": {
+            "tray_now": "255",
+            "ams": [
+                {
+                    "id": "0",
+                    "info": "400023",
+                    "dry_time": 540,
+                    "humidity": "4",
+                    "humidity_raw": "31",
+                    "temp": "52.0",
+                    "sn": "AMS2PRO1",
+                    "dry_sf_reason": [6],
+                    "tray": [{"id": "0", "tray_type": "PETG", "tray_color": "00FF00FF"}],
+                },
+                {"id": "1", "info": "0", "humidity": "2", "temp": "24.0", "tray": []},
+                {
+                    "id": "128",
+                    "info": "3",
+                    "dry_time": 0,
+                    "humidity": "3",
+                    "humidity_raw": "44",
+                    "temp": "25.0",
+                    "sn": "AMSHT001",
+                    "dry_sf_reason": [3, "8", "x"],
+                    "tray": [{"id": "0", "tray_type": "PLA", "tray_color": "FFFFFFFF"}],
+                },
+                {"id": "129", "info": "40", "dry_time": 10, "humidity_raw": "20", "tray": []},
+            ],
+        },
+    },
+    "info": {"module": [{"name": "ota", "sw_ver": "01.03.00.00"}]},
+}
