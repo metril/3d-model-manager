@@ -2213,6 +2213,7 @@ export interface TimelapseJobState {
   state: "pending" | "running" | "done" | "error";
   error: string | null;
   filename: string | null;
+}
 
 // ---- T4 queue scheduling ----
 // backend/app/schemas/queue.py + api/batches.py (docs/superpowers/plans/2026-10-24-t4-be.md).
@@ -2250,6 +2251,9 @@ export interface Batch {
   file_id: number | null;
   model_name?: string | null;
   file_name?: string | null;
+  ams_mapping?: number[] | null;
+  options?: PlanOptions | null;
+  copies_per_entry?: number;
   recipe_id: number | null;
   printer_id: number | null;
   quantity: number;
