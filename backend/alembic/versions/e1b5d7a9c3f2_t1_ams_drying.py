@@ -1,7 +1,7 @@
 """t1 ams drying: scheduled_dryings + smart_plugs.auto_off_after_drying
 
 Revision ID: e1b5d7a9c3f2
-Revises: d3a7c1e5f9b2
+Revises: d2e7a1c5b903
 Create Date: 2026-10-24 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e1b5d7a9c3f2"
-down_revision: str | Sequence[str] | None = "d3a7c1e5f9b2"
+down_revision: str | Sequence[str] | None = "d2e7a1c5b903"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
