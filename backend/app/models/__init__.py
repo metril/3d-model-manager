@@ -42,6 +42,7 @@ from app.models.inventory import (
     StorageLocation,
     Supplier,
 )
+from app.models.kprofiles import KProfileNote, SpoolKProfile
 from app.models.library import (
     Blob,
     Category,
@@ -105,6 +106,8 @@ __all__ = [
     "Print",
     "AmsLabel",
     "ScheduledDrying",
+    "KProfileNote",
+    "SpoolKProfile",
     "Printer",
     "PrinterAccess",
     "FailureDetection",

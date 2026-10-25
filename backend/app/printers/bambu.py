@@ -336,6 +336,124 @@ def slot_reset_payload(ams_id: int, tray_id: int) -> dict:
     return slot_configure_payload(ams_id, tray_id, "", "", "", "00000000", 0, 0)
 
 
+# -- T2 K-profiles (pressure advance) -------------------------------------
+
+
+def _guard_cali_merge(mqtt) -> None:
+    """The lib merges EVERY message into its print dict, so an
+    ``extrusion_cali_*`` reply would overwrite ``nozzle_diameter`` with the
+    size we asked about (bambuddy #2663). Skip the merge for those; they are
+    still forwarded to our tap."""
+    orig = getattr(mqtt, "manual_update", None)
+    if orig is None:
+        return
+
+    def guarded(doc):
+        pr = doc.get("print") if isinstance(doc, dict) else None
+        if isinstance(pr, dict) and str(pr.get("command", "")).startswith("extrusion_cali"):
+            return None
+        return orig(doc)
+
+    mqtt.manual_update = guarded
+
+
+def kprofile_get_payload(nozzle_diameter: str) -> dict:
+    return {
+        "print": {
+            "command": "extrusion_cali_get",
+            "filament_id": "",
+            "nozzle_diameter": nozzle_diameter,
+            "sequence_id": "0",
+        }
+    }
+
+
+def kprofile_set_payload(entry: dict, dual: bool) -> dict:
+    """``extrusion_cali_set`` for one profile. ``tray_id`` is ALWAYS 0: single-
+    nozzle firmware answers ``invalid tray_id`` to -1 yet applies the write
+    anyway (bambuddy #2718). ``cali_idx`` -1 creates a new slot."""
+    nozzle = entry["nozzle_diameter"]
+    nozzle_id = entry.get("nozzle_id") or f"{'HH' if dual else 'HS'}00-{nozzle}"
+    item = {
+        "ams_id": 0,
+        "cali_idx": entry.get("cali_idx") if entry.get("cali_idx") is not None else -1,
+        "extruder_id": entry.get("extruder_id", 0),
+        "filament_id": entry["filament_id"],
+        "k_value": f"{float(entry['k_value']):.6f}",
+        "n_coef": f"{float(entry.get('n_coef') or 0):.6f}",
+        "name": entry["name"],
+        "nozzle_diameter": nozzle,
+        "nozzle_id": nozzle_id,
+        "setting_id": entry.get("setting_id") or "",
+        "tray_id": 0,
+    }
+    return {
+        "print": {
+            "command": "extrusion_cali_set",
+            "filaments": [item],
+            "nozzle_diameter": nozzle,
+            "sequence_id": "0",
+        }
+    }
+
+
+def kprofile_del_payload(entry: dict, dual: bool) -> dict:
+    """``extrusion_cali_del``: H2D (dual nozzle) is keyed by extruder/nozzle,
+    every other model by ``setting_id``."""
+    nozzle = entry["nozzle_diameter"]
+    body: dict = {
+        "command": "extrusion_cali_del",
+        "sequence_id": "0",
+        "filament_id": entry["filament_id"],
+        "cali_idx": entry["cali_idx"],
+        "nozzle_diameter": nozzle,
+    }
+    if dual:
+        body.update(
+            extruder_id=entry.get("extruder_id", 0),
+            nozzle_id=entry.get("nozzle_id") or f"HH00-{nozzle}",
+        )
+    else:
+        body.update(
+            setting_id=entry.get("setting_id") or "",
+            nozzle_id=entry.get("nozzle_id") or f"HS00-{nozzle}",
+            extruder_id=entry.get("extruder_id", 0),
+        )
+    return {"print": body}
+
+
+def kprofile_sel_payload(
+    ams_id: int,
+    tray_id: int,
+    cali_idx: int,
+    filament_id: str,
+    nozzle_diameter: str,
+    dual: bool = False,
+) -> dict:
+    """``extrusion_cali_sel`` uses the GLOBAL tray id (ams*4+slot), unlike
+    ``ams_filament_setting``; never carries ``setting_id`` (mislinks on X1/P1S)."""
+    if ams_id == 255:
+        # Dual-nozzle: each external spool is its own virtual unit (254 + 0/1).
+        ext = 254 + (tray_id if tray_id in (0, 1) else 0) if dual else 254
+        wire_ams, wire_tray, slot = ext, ext, 0
+    elif ams_id <= 3:
+        wire_ams, wire_tray, slot = ams_id, ams_id * 4 + tray_id, tray_id
+    else:
+        wire_ams, wire_tray, slot = ams_id, tray_id, 0
+    return {
+        "print": {
+            "command": "extrusion_cali_sel",
+            "cali_idx": cali_idx,
+            "filament_id": filament_id,
+            "nozzle_diameter": nozzle_diameter,
+            "ams_id": wire_ams,
+            "tray_id": wire_tray,
+            "slot_id": slot,
+            "sequence_id": "0",
+        }
+    }
+
+
 def sd_project_file_payload(path: str, plate: int | None, use_ams: bool) -> dict:
     """``project_file`` for a file already on the SD card (``path`` is the
     normalised absolute path under the card root)."""
@@ -752,6 +870,10 @@ def _tray_entry(tray: dict, ams_unit: int, tray_num: int) -> dict:
         "tray_type": material,
         "tray_uuid": uuid,
         "remain_pct": remain_pct,
+        # T2: the printer's selected K-profile (-1 = default) and filament preset.
+        "cali_idx": _as_int(tray.get("cali_idx")),
+        "k_value": _as_float(tray.get("k")),
+        "tray_info_idx": tray.get("tray_info_idx") or None,
     }
 
 
@@ -972,6 +1094,7 @@ class BambuLanAdapter(PrinterAdapter):
         mqtt = getattr(p, "mqtt_client", None)
         if mqtt is not None:
             mqtt.on_message_handler = self._tap_message
+            _guard_cali_merge(mqtt)
         p.mqtt_start()
 
     def _tap_message(self, _mqtt, _client, _userdata, msg) -> None:
@@ -980,7 +1103,11 @@ class BambuLanAdapter(PrinterAdapter):
         try:
             doc = json.loads(msg.payload)
             pr = doc.get("print") if isinstance(doc, dict) else None
-            if isinstance(pr, dict) and "result" in pr and self._reply_handler is not None:
+            if (
+                isinstance(pr, dict)
+                and ("result" in pr or pr.get("command") == "extrusion_cali_get")
+                and self._reply_handler is not None
+            ):
                 self._reply_handler(pr)
         except Exception:  # noqa: BLE001
             pass
@@ -1212,6 +1339,31 @@ class BambuLanAdapter(PrinterAdapter):
 
     def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
         _publish_raw(self._client(), sd_project_file_payload(path, plate, use_ams))
+
+    # -- T2 K-profiles ---------------------------------------------------
+    def _dual(self) -> bool:
+        from app.printers.capabilities import capabilities_for
+
+        return capabilities_for(self.conn.model, self.conn.serial).dual_nozzle
+
+    def kprofile_list(self, nozzle_diameter: str, extruder_id: int | None = None) -> None:
+        _publish_raw(self._client(), kprofile_get_payload(nozzle_diameter))
+
+    def kprofile_set(self, entry: dict) -> None:
+        _publish_raw(self._client(), kprofile_set_payload(entry, self._dual()))
+
+    def kprofile_delete(self, entry: dict) -> None:
+        _publish_raw(self._client(), kprofile_del_payload(entry, self._dual()))
+
+    def kprofile_select(
+        self, ams_id: int, tray_id: int, cali_idx: int, filament_id: str, nozzle_diameter: str
+    ) -> None:
+        _publish_raw(
+            self._client(),
+            kprofile_sel_payload(
+                ams_id, tray_id, cali_idx, filament_id, nozzle_diameter, self._dual()
+            ),
+        )
 
     def delete_file(self, path: str) -> None:
         _ftp_run(_build_ftp(self.conn), lambda ftps: ftps.delete(path))

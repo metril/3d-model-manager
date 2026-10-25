@@ -49,7 +49,7 @@ from app.printers.devmode import DevModeTracker, is_verify_failed_reply
 from app.printers.ha_bridge import HaBridge
 from app.printers.obico_watcher import ObicoSupervisor
 from app.printers.registry import build_adapter
-from app.services import camera_state, ha_state, hms, spool_inventory
+from app.services import camera_state, ha_state, hms, kprofiles, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
@@ -69,6 +69,10 @@ CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
 # How long a command waits for the printer's MQTT reply (adapters that emit
 # replies only). Must stay well under the API's 3 s wait.
 REPLY_WAIT_S = 1.5
+# T2: how long ``kprofile_list`` waits for the ``extrusion_cali_get`` table.
+KPROFILE_WAIT_S = 5.0
+# ...and when it re-sends the request once (firmware sometimes ignores the first).
+KPROFILE_RETRY_S = 2.5
 
 
 def terminal_result(
@@ -179,6 +183,8 @@ class PrinterWorker:
         self._public: PrinterPublicState | None = None
         self._reply_evt = threading.Event()
         self._last_reply: dict | None = None
+        self._kp_evt = threading.Event()
+        self._kp_results: dict[str, dict] = {}
         adapter.set_reply_handler(self.handle_reply)
 
         self._hms_seen: set[str] | None = None
@@ -250,6 +256,9 @@ class PrinterWorker:
     def handle_reply(self, reply: dict) -> None:
         """A printer command reply (adapter's MQTT thread): feeds lazy
         Developer-Mode detection and wakes a command waiting on it."""
+        if reply.get("command") == "extrusion_cali_get":
+            self._on_kprofile_table(reply)
+            return
         self.devmode.on_reply(reply, time.monotonic())
         self._last_reply = reply
         self._reply_evt.set()
@@ -274,6 +283,7 @@ class PrinterWorker:
         self._prev_gcode = public.gcode_state
         self._write_public(public)
         self._auto_assign_on_tray_change(public)
+        self._reapply_on_idle(public)
         self._transition_active_job(public)
 
     def _auto_assign_on_tray_change(self, public: PrinterPublicState) -> None:
@@ -292,6 +302,108 @@ class PrinterWorker:
                 spool_inventory.auto_assign_from_trays(session, self.printer_id, public.trays)
         except Exception:
             log.exception("printerd: RFID auto-assign failed for printer %s", self.printer_id)
+
+    # -- T2 K-profiles ---------------------------------------------------
+    def _on_kprofile_table(self, reply: dict) -> None:
+        """An ``extrusion_cali_get`` table (solicited or broadcast): cache it
+        per nozzle and wake a waiting ``kprofile_list``."""
+        nozzle = kprofiles.norm_nozzle(reply.get("nozzle_diameter"))
+        if nozzle is None:
+            return
+        profiles = kprofiles.parse_kprofiles(reply.get("filaments"), nozzle)
+        with contextlib.suppress(Exception):
+            self._kp_results[nozzle] = kprofiles.store_cache(
+                self.redis, self.printer_id, nozzle, profiles
+            )
+        self._kp_evt.set()
+
+    def _finish_kprofile_list(self, clean: dict) -> dict:
+        nozzle = clean["nozzle_diameter"]
+        start = time.monotonic()
+        deadline = start + KPROFILE_WAIT_S
+        resent = False
+        while nozzle not in self._kp_results:
+            if not resent and time.monotonic() - start >= KPROFILE_RETRY_S:
+                resent = True
+                with contextlib.suppress(Exception):
+                    self.adapter.kprofile_list(nozzle, clean.get("extruder_id"))
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return {
+                    "ok": False,
+                    "code": "timeout",
+                    "message": "the printer did not answer the K-profile request",
+                }
+            self._kp_evt.wait(min(left, 0.25))
+            self._kp_evt.clear()
+        return {"ok": True, "payload": self._kp_results[nozzle]}
+
+    def _kprofile_post(self, command: str, clean: dict) -> dict | None:
+        """After a K-profile write: surface a printer-side rejection, drop the
+        stale table cache, and hand the (minted) ``setting_id`` back."""
+        if command == "kprofile_select":
+            ams, tray = clean["ams_id"], clean["tray_id"]
+            with contextlib.suppress(Exception):
+                if clean["cali_idx"] < 0:  # deliberate default K: the fixer must leave it
+                    self.redis.set(
+                        kprofiles.default_key(self.printer_id, ams, tray),
+                        "1",
+                        ex=kprofiles.DEFAULT_CHOSEN_TTL_S,
+                    )
+                else:
+                    self.redis.delete(kprofiles.default_key(self.printer_id, ams, tray))
+            return None
+        if command not in ("kprofile_set", "kprofile_delete"):
+            return None
+        reply = self._last_reply or {}
+        if reply.get("result") == "fail":
+            return {
+                "ok": False,
+                "code": "error",
+                "message": str(reply.get("reason") or "the printer rejected the K-profile"),
+            }
+        with contextlib.suppress(Exception):
+            kprofiles.invalidate_cache(self.redis, self.printer_id, clean["nozzle_diameter"])
+        if command == "kprofile_set":
+            return {"ok": True, "payload": {"setting_id": clean["setting_id"]}}
+        return None
+
+    def _reapply(self, state: dict, *, debounce: bool) -> list[dict]:
+        def send(ams_id: int, tray_id: int, cali_idx: int, filament_id: str, nozzle: str) -> None:
+            self.adapter.kprofile_select(ams_id, tray_id, cali_idx, filament_id, nozzle)
+
+        try:
+            with base.sync_session() as session:
+                return kprofiles.reapply_lost_kprofiles(
+                    session,
+                    self.printer_id,
+                    state,
+                    redis_client=self.redis,
+                    send=send,
+                    debounce=debounce,
+                )
+        except Exception as e:  # noqa: BLE001 -- type only
+            log.warning("printerd: K-profile reapply failed: %s", type(e).__name__)
+            return []
+
+    def _reapply_on_idle(self, public: PrinterPublicState) -> None:
+        """Drift fixer: on an idle push, re-select a stored K-profile on any
+        tray whose selection the printer lost (cheap pre-check, no DB)."""
+        if public.gcode_state not in kprofiles.IDLE_STATES:
+            return
+        trays = kprofiles.candidate_trays(self.redis, self.printer_id, public.trays)
+        if not trays:  # nothing lost, or negatively cached: no DB work
+            return
+        self._reapply({"trays": trays, "nozzle_mm": public.nozzle_mm}, debounce=True)
+
+    def _reapply_command(self) -> dict:
+        """Internal ``kprofile_reapply`` (not in DISPATCH, so never reachable
+        from the API): run the fixer now, before a queued job is sent."""
+        public = self._public
+        if public is None or public.gcode_state not in kprofiles.IDLE_STATES:
+            return {"ok": True, "payload": {"reapplied": []}}
+        done = self._reapply({"trays": public.trays, "nozzle_mm": public.nozzle_mm}, debounce=True)
+        return {"ok": True, "payload": {"reapplied": done}}
 
     def _active_job(self, session) -> PrintJob | None:
         return (
@@ -442,6 +554,8 @@ class PrinterWorker:
         return result
 
     def _execute(self, command: str, args: dict) -> dict:
+        if command == "kprofile_reapply":
+            return self._reapply_command()
         spec = cmds.DISPATCH.get(command)
         if spec is None:
             log.warning("printerd: unknown command %r for printer %s", command, self.printer_id)
@@ -464,7 +578,11 @@ class PrinterWorker:
                 self._stop_requested = True
             self._reply_evt.clear()
             self._last_reply = None
+            self._kp_results.clear()
+            self._kp_evt.clear()
             spec.run(self.adapter, clean)
+            if command == "kprofile_list":
+                return self._finish_kprofile_list(clean)
             if self.adapter.emits_replies:
                 self._reply_evt.wait(REPLY_WAIT_S)
             if is_verify_failed_reply(self._last_reply):
@@ -473,6 +591,8 @@ class PrinterWorker:
                     "code": "dev_mode_off",
                     "message": str((self._last_reply or {}).get("reason", "")),
                 }
+            if (post := self._kprofile_post(command, clean)) is not None:
+                return post
             return {"ok": True}
         except cmds.CommandError as e:
             return {"ok": False, "code": e.code, "message": e.message, **e.extra}
