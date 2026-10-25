@@ -52,6 +52,7 @@ dependencies = [
     # even though no `UploadFile` param exists anywhere else yet.
     "python-multipart>=0.0.9",
     "pyotp>=2.10.0",
+    "apprise>=2.1.0",
 ]
 
 [dependency-groups]

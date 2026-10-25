@@ -95,6 +95,7 @@ from app.api import (
     tags,
     two_factor,
     uploads,
+    user_notifications,
     virtual_printers,
 )
 from app.api.deps import require_session
@@ -186,5 +187,6 @@ protected_router.include_router(profiles.slicer_status_router)
 protected_router.include_router(virtual_printers.router)
 protected_router.include_router(notifications.public_router)
 protected_router.include_router(notifications.router)
+protected_router.include_router(user_notifications.router)
 
 api_router.include_router(protected_router)

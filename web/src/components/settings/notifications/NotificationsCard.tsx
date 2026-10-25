@@ -1,5 +1,5 @@
 /** Notification channels list (Q6): kind icon, enabled switch, edit/delete/test. */
-import { Bell, Mail, MessageSquare, Pencil, Send, Trash2, Webhook, type LucideIcon } from "lucide-react";
+import { Bell, Mail, Megaphone, MessageSquare, Pencil, Send, Trash2, Webhook, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
 function kindIcon(kind: string): LucideIcon {
+  if (kind === "apprise") return Megaphone;
   if (kind.includes("mail") || kind === "smtp") return Mail;
   if (kind.includes("webhook")) return Webhook;
   if (["telegram", "discord", "slack", "matrix"].includes(kind)) return MessageSquare;

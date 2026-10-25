@@ -14,6 +14,8 @@ export interface NotificationField {
   placeholder: string | null;
   default: string | null;
   options: string[] | null;
+  multiline?: boolean;
+  help?: string | null;
 }
 export interface NotificationKind {
   kind: string;
@@ -188,5 +190,33 @@ export function useNotificationLog(params: { status: string; limit: number; offs
     queryKey: ["notifications", "log", params] as const,
     queryFn: () => api.get<NotificationLogPage>(`${BASE}/log?${qs.toString()}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+export interface EmailPrefs {
+  notify_print_start: boolean;
+  notify_print_complete: boolean;
+  notify_print_failed: boolean;
+  notify_print_stopped: boolean;
+}
+export interface EmailPrefsOut extends EmailPrefs {
+  smtp_configured: boolean;
+  has_email: boolean;
+}
+
+const emailPrefsKey = ["user-notifications", "preferences"] as const;
+
+export function useEmailPrefs() {
+  return useQuery({
+    queryKey: emailPrefsKey,
+    queryFn: () => api.get<EmailPrefsOut>("/user-notifications/preferences"),
+  });
+}
+
+export function useUpdateEmailPrefs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: EmailPrefs) => api.put<EmailPrefsOut>("/user-notifications/preferences", body),
+    onSuccess: (data) => qc.setQueryData(emailPrefsKey, data),
   });
 }
