@@ -10,10 +10,10 @@ import {
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppProviders } from "@/AppProviders";
 import { ApiError } from "@/api/client";
 import type { StorageBackendOut } from "@/api/types";
 import { fakeServer, fakeStatus } from "@/components/settings/server/fixtures";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppearanceProvider } from "@/lib/appearance";
 import { SettingsPage } from "@/pages/SettingsPage";
 
@@ -173,9 +173,9 @@ function renderSettingsPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <AppearanceProvider>
-        <TooltipProvider>
+        <AppProviders>
           <RouterProvider router={router} />
-        </TooltipProvider>
+        </AppProviders>
       </AppearanceProvider>
     </QueryClientProvider>,
   );
