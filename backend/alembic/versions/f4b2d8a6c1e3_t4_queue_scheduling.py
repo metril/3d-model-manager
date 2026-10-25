@@ -1,7 +1,7 @@
 """t4 queue scheduling + batches
 
 Revision ID: f4b2d8a6c1e3
-Revises: d3a7c1e5f9b2
+Revises: e1b5d7a9c3f2
 Create Date: 2026-10-24 12:00:00.000000
 
 ``queue_state`` is a VARCHAR + CHECK (``str_enum``), so the new ``skipped``
@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "f4b2d8a6c1e3"
-down_revision: str | Sequence[str] | None = "d3a7c1e5f9b2"
+down_revision: str | Sequence[str] | None = "e1b5d7a9c3f2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
