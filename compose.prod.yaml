@@ -71,3 +71,8 @@ services:
     image: ghcr.io/metril/3d-model-manager-slicer:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always
+
+  obico-ml:
+    image: ghcr.io/metril/3d-model-manager-obico-ml:${IMAGE_TAG:-latest}
+    build: !reset null
+    pull_policy: always
