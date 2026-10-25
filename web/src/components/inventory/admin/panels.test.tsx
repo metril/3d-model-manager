@@ -76,7 +76,7 @@ describe("LocationsPanel", () => {
       if (path === "/storage-locations/4/readings")
         return Promise.resolve([{ sensor_id: 8, state: "35", unit: "%", alerting: true, last_changed_at: null }]);
       if (path === "/storage-locations/sensors/entities")
-        return Promise.resolve([{ entity_id: "sensor.temp", name: "Temp", device_class: "temperature", unit: "C", state: "20" }]);
+        return Promise.resolve([{ entity_id: "sensor.temp", friendly_name: "Temp", device_class: "temperature", unit: "C", state: "20" }]);
       return Promise.resolve([]);
     });
   });

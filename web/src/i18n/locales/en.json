@@ -403,7 +403,7 @@
       "costPerKg": "Cost / kg",
       "lowStock": "Low-stock (g)"
     },
-    "toolbar": {
+    "toolbar": {"capBulk": "Bulk actions are limited to {{max}} spools.", "capLabels": "Labels are limited to {{max}} spools.", 
       "label": "Spool bulk actions",
       "selected": "{{n}} selected",
       "bulkEdit": "Bulk edit",
@@ -457,6 +457,7 @@
       "commit": "Commit import",
       "done": "Imported: {{created}} created, {{updated}} updated",
       "act": {
+        "skipped": "Skipped",
         "create": "Create",
         "update": "Update",
         "error": "Error"

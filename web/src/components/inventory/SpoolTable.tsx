@@ -32,6 +32,8 @@ import { formatDateTime } from "@/lib/format";
 
 const EXTERNAL_UNIT = 255;
 const ALL = "all";
+const BULK_CAP = 500;
+const LABEL_CAP = 300;
 const MATERIAL_KINDS: MaterialKind[] = ["PLA", "PETG", "ABS", "ASA", "TPU", "Resin", "Other"];
 
 function slotLabel(spool: SpoolOut, printerName: (id: number) => string): string {
@@ -116,6 +118,8 @@ export function SpoolTable({
     setSelected(on ? new Set(spools.map((sp) => sp.id)) : new Set());
   }
   const clear = () => setSelected(new Set());
+  const overBulkCap = ids.length > BULK_CAP;
+  const overLabelCap = ids.length > LABEL_CAP;
   function runArchive() {
     archiveAction.mutate(ids, {
       onSuccess: () => {
@@ -209,21 +213,26 @@ export function SpoolTable({
           <span className="text-sm font-medium">{t("spoolAdmin.toolbar.selected", { n: ids.length })}</span>
           {canWrite ? (
             <>
-              <Button type="button" size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+              <Button type="button" size="sm" variant="outline" disabled={overBulkCap} onClick={() => setBulkOpen(true)}>
                 {t("spoolAdmin.toolbar.bulkEdit")}
               </Button>
-              <Button type="button" size="sm" variant="outline" disabled={archiveAction.isPending} onClick={runArchive}>
+              <Button type="button" size="sm" variant="outline" disabled={archiveAction.isPending || overBulkCap} onClick={runArchive}>
                 {showArchived ? t("spoolAdmin.toolbar.restore") : t("spoolAdmin.toolbar.archive")}
               </Button>
             </>
           ) : null}
-          <Button type="button" size="sm" variant="outline" onClick={() => setLabelsOpen(true)}>
+          <Button type="button" size="sm" variant="outline" disabled={overLabelCap} onClick={() => setLabelsOpen(true)}>
             {t("spoolAdmin.toolbar.labels")}
           </Button>
           {canWrite ? (
-            <Button type="button" size="sm" variant="destructive" onClick={() => setDeleteOpen(true)}>
+            <Button type="button" size="sm" variant="destructive" disabled={overBulkCap} onClick={() => setDeleteOpen(true)}>
               {t("spoolAdmin.toolbar.delete")}
             </Button>
+          ) : null}
+          {overBulkCap || overLabelCap ? (
+            <span className="text-xs text-muted-foreground">
+              {overBulkCap ? t("spoolAdmin.toolbar.capBulk", { max: BULK_CAP }) : t("spoolAdmin.toolbar.capLabels", { max: LABEL_CAP })}
+            </span>
           ) : null}
           <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={clear}>
             {t("spoolAdmin.toolbar.clear")}

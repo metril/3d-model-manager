@@ -17,7 +17,7 @@ import {
   usePatchLocation,
   usePatchSensor,
 } from "@/api/spoolAdmin";
-import type { LocationSensor, StorageLocation } from "@/api/types";
+import type { LocationSensor, SensorKind, StorageLocation } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/format";
+
+function sensorKind(deviceClass: string | null | undefined): SensorKind {
+  return deviceClass === "temperature" || deviceClass === "humidity" ? deviceClass : "other";
+}
 
 function LocationDialog({ open, onOpenChange, location }: { open: boolean; onOpenChange: (o: boolean) => void; location?: StorageLocation }) {
   const { t } = useTranslation();
@@ -128,7 +132,7 @@ function SensorDialog({
   function pickEntity(id: string) {
     setEntityId(id);
     const e = (entities.data ?? []).find((x) => x.entity_id === id);
-    if (e && !name.trim()) setName(e.name);
+    if (e && !name.trim()) setName(e.friendly_name ?? e.entity_id);
   }
 
   function submit(e: FormEvent) {
@@ -138,7 +142,7 @@ function SensorDialog({
     const payload = {
       name: name.trim(),
       entity_id: entityId,
-      kind: ent?.device_class ?? sensor?.kind ?? "sensor",
+      kind: sensorKind(ent?.device_class ?? sensor?.device_class ?? sensor?.kind),
       alert_above: num(above),
       alert_below: num(below),
       notify_on_alert: notify,
@@ -173,7 +177,7 @@ function SensorDialog({
                 <SelectContent>
                   {(entities.data ?? []).map((e) => (
                     <SelectItem key={e.entity_id} value={e.entity_id}>
-                      {e.name} ({e.entity_id}){e.state != null ? ` · ${e.state}${e.unit ?? ""}` : ""}
+                      {e.friendly_name ?? e.entity_id} ({e.entity_id}){e.state != null ? ` · ${e.state}${e.unit ?? ""}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

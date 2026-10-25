@@ -769,7 +769,6 @@ export interface SpoolCreate {
   empty_weight_g?: number | null;
   weight_used_g?: number;
   cost_per_kg?: number | null;
-  location?: string | null;
   location_id?: number | null;
   low_stock_g?: number;
   tray_uuid?: string | null;
@@ -785,7 +784,6 @@ export interface SpoolUpdate {
   empty_weight_g?: number | null;
   weight_used_g?: number;
   cost_per_kg?: number | null;
-  location?: string | null;
   location_id?: number | null;
   low_stock_g?: number;
   tray_uuid?: string | null;
@@ -2177,6 +2175,7 @@ export interface TimelapseJobState {
   state: "pending" | "running" | "done" | "error";
   error: string | null;
   filename: string | null;
+}
 
 // ---- T5 spool housekeeping ----
 export interface Supplier {
@@ -2186,6 +2185,7 @@ export interface Supplier {
   customer_number: string | null;
   note: string | null;
   created_at: string;
+  spool_count?: number;
 }
 export interface SupplierIn {
   name: string;
@@ -2196,6 +2196,7 @@ export interface SupplierIn {
 
 export interface SpoolSupplierLink {
   supplier_id: number;
+  supplier_name?: string;
   article_number: string | null;
   quoted_price_per_kg: number | null;
   is_purchase_source: boolean;
@@ -2218,10 +2219,11 @@ export interface LocationSensor {
   last_changed_at: string | null;
   alerting: boolean;
 }
+export type SensorKind = "temperature" | "humidity" | "other";
 export interface LocationSensorIn {
   name: string;
   entity_id: string;
-  kind?: string;
+  kind?: SensorKind;
   alert_above?: number | null;
   alert_below?: number | null;
   notify_on_alert?: boolean;
@@ -2230,13 +2232,16 @@ export interface LocationSensorIn {
 }
 export interface HaEntity {
   entity_id: string;
-  name: string;
+  friendly_name: string | null;
   device_class: string | null;
   unit: string | null;
   state: string | null;
 }
 export interface SensorReading {
   sensor_id: number;
+  name?: string;
+  kind?: string;
+  entity_id?: string;
   state: string | null;
   unit: string | null;
   alerting: boolean;
@@ -2247,6 +2252,7 @@ export interface StorageLocation {
   name: string;
   identifier: string | null;
   created_at: string;
+  spool_count?: number;
   sensors?: LocationSensor[];
 }
 export interface StorageLocationIn {
@@ -2261,7 +2267,7 @@ export interface ColorCatalogEntry {
   hex: string;
   material: string | null;
   is_default: boolean;
-  extra_colors: string[];
+  extra_colors: string[] | null;
   effect_type: string | null;
 }
 export interface ColorCatalogIn {
@@ -2290,15 +2296,16 @@ export interface BulkResult {
 
 export interface CsvImportRow {
   line: number;
-  action: "create" | "update" | "error";
+  action: "create" | "update" | "error" | "skipped";
   spool_id?: number | null;
   errors: string[];
   warnings: string[];
 }
 export interface CsvImportPreview {
-  token: string;
+  token: string | null;
   rows: CsvImportRow[];
-  summary: { create: number; update: number; error: number };
+  summary: { create: number; update: number; error: number; skipped?: number };
+  warnings?: string[];
 }
 export interface CsvImportResult {
   created: number;

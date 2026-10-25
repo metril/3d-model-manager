@@ -187,7 +187,7 @@ export function ColorCatalogPanel() {
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <FilamentChip color={c.hex} />
-                      {c.extra_colors.map((x) => (
+                      {(c.extra_colors ?? []).map((x) => (
                         <FilamentChip key={x} color={x} />
                       ))}
                     </div>

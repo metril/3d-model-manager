@@ -237,7 +237,15 @@ export function usePutSpoolSuppliers() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, links }: { id: number; links: SpoolSupplierLink[] }) =>
-      api.put<SpoolSupplierLink[]>(`/spools/${id}/suppliers`, links),
+      api.put<SpoolSupplierLink[]>(
+        `/spools/${id}/suppliers`,
+        links.map(({ supplier_id, article_number, quoted_price_per_kg, is_purchase_source }) => ({
+          supplier_id,
+          article_number,
+          quoted_price_per_kg,
+          is_purchase_source,
+        })),
+      ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["spools"] }),
   });
 }
@@ -298,7 +306,12 @@ export function useLabelPreview(req: LabelRequest | null) {
 export function useDownloadLabels() {
   return useMutation({
     mutationFn: async ({ req, format }: { req: LabelRequest; format: LabelFormat }) =>
-      downloadBlob(await fetchBlob("/spools/labels", { method: "POST", body: { ...req, format } }), `labels.${format}`),
+    {
+      const blob = await fetchBlob("/spools/labels", { method: "POST", body: { ...req, format } });
+      // png comes back as a zip when the sheet spans several pages
+      const ext = blob.type.includes("zip") ? "zip" : format;
+      downloadBlob(blob, `labels.${ext}`);
+    },
   });
 }
 

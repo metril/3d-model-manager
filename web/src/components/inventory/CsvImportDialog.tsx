@@ -49,7 +49,7 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
   }
 
   function doCommit() {
-    if (!preview) return;
+    if (!preview?.token) return;
     commit.mutate(preview.token, {
       onSuccess: (r) => {
         toast.success(t("spoolAdmin.csv.done", { created: r.created, updated: r.updated }));
@@ -64,7 +64,7 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
     });
   }
 
-  const blocked = !preview || preview.summary.create + preview.summary.update === 0;
+  const blocked = !preview || !preview.token || preview.summary.create + preview.summary.update === 0;
   const error = dry.error ?? (commit.error && !expired ? commit.error : null);
 
   return (
@@ -110,6 +110,13 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
                   error: preview.summary.error,
                 })}
               </p>
+              {(preview.warnings ?? []).length > 0 ? (
+                <ul className="list-disc pl-5 text-xs text-muted-foreground">
+                  {(preview.warnings ?? []).map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              ) : null}
               <Table className="data-table">
                 <TableHeader>
                   <TableRow>
