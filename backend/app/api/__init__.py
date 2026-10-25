@@ -86,6 +86,7 @@ from app.api import (
     sensors,
     server_settings,
     settings,
+    slice_jobs,
     slicer,
     smart_plugs,
     spoolman,
@@ -165,6 +166,7 @@ protected_router.include_router(archive_gcode.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
+protected_router.include_router(slice_jobs.router)
 protected_router.include_router(queue.printer_queue_router)
 protected_router.include_router(queue_settings.router)
 protected_router.include_router(drying.router)

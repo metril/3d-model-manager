@@ -319,6 +319,11 @@ class PrintQueueEntry(Base):
     )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Tail of the slicer CLI's output from the last failed slice (the
+    # sidecar's `log_tail`); cleared on a fresh attempt.
+    last_log: Mapped[str | None] = mapped_column(Text)
+    # Celery task id of the in-flight `slice_file`, so cancel can revoke it.
+    slice_task_id: Mapped[str | None] = mapped_column(String)
     ams_mapping: Mapped[dict | None] = mapped_column(JSONB)
     print_options: Mapped[dict | None] = mapped_column(JSONB)
     # P7 review/billing plan columns below. `cost_center_id` is the budget

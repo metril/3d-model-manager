@@ -277,6 +277,12 @@ class ProbeOut(BaseModel):
     detail: str
 
 
+class SlicerProbeOut(ProbeOut):
+    # Sidecar-reported details (version, bambu_version, busy/running/
+    # max_concurrency, job_timeout_s, mem_limit); None when unavailable.
+    info: dict | None = None
+
+
 class VpStatusOut(BaseModel):
     state: Literal["idle", "running", "error", "offline"]
     vp_id: int | None = None
@@ -288,7 +294,7 @@ class VpStatusOut(BaseModel):
 
 
 class ServerStatusOut(BaseModel):
-    slicer: ProbeOut
+    slicer: SlicerProbeOut
     slicer_healthy: bool | None
     obico: ProbeOut
     virtual_printer: VpStatusOut

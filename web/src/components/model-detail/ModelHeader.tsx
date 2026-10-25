@@ -25,6 +25,8 @@ import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
+import { SliceFileButton } from "@/components/slice/SliceFileButton";
+import { pickSliceableFile } from "@/components/slice/sliceable";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -173,6 +175,7 @@ export function ModelHeader({
   // revision, per `SLICER_FORMAT_PRIORITY` -- there's no broader "primary
   // file" concept to hang this off of yet.
   const slicerFile = pickBestSlicerFile(model.current_revision?.files ?? []);
+  const sliceableFile = pickSliceableFile(model.current_revision?.files ?? []);
 
   return (
     <div className="space-y-3 border-b border-border pb-4">
@@ -250,6 +253,7 @@ export function ModelHeader({
           >
             <StarIcon className={model.favorite ? "fill-amber-400 text-amber-500" : ""} />
           </Button>
+          {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" /> : null}
           {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
           {canPrint ? (
             <>

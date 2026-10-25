@@ -353,7 +353,9 @@ async def test_import_path_malformed_preset_json_is_422(
 async def test_health_unconfigured(authenticated_client: httpx.AsyncClient):
     r = await authenticated_client.get("/api/slicer/health")
     assert r.status_code == 200
-    assert r.json() == {"configured": False, "ok": False, "version": None, "error": None}
+    body = r.json()
+    assert body["configured"] is False and body["ok"] is False
+    assert body["version"] is None and body["error"] is None
 
 
 async def test_health_up(authenticated_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch):

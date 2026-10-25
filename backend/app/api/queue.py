@@ -138,6 +138,23 @@ async def retry_entry(
 
 
 @router.post(
+    "/{entry_id}/cancel-slice",
+    response_model=QueueEntryOut,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
+async def cancel_slice(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> QueueEntryOut:
+    entry = await db.get(PrintQueueEntry, entry_id)
+    if entry is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, entry.created_by_user_id)
+    return await queue_service.cancel_slicing(db, settings, entry_id)
+
+
+@router.post(
     "/{entry_id}/review",
     response_model=QueueEntryOut,
     dependencies=[Depends(require_perm("queue:review"))],

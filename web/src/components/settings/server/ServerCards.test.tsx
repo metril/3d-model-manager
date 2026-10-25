@@ -180,6 +180,33 @@ describe("SlicerServerCard", () => {
     expect(postMock).toHaveBeenCalledWith("/settings/server/slicer/test", { url: "http://slicer:3001" });
   });
 
+  it("shows sidecar version, slots, limits and no warning when the timeouts agree", async () => {
+    status = fakeStatus({
+      slicer: {
+        ok: true,
+        detail: "ok",
+        info: { version: "v02.08", bambu_version: "v02.08.02.61", running: 1, max_concurrency: 2, job_timeout_s: 900, mem_limit: 4294967296 },
+      },
+    });
+    ui(<SlicerServerCard data={fakeServer()} />, fakeServer());
+    const info = await screen.findByTestId("slicer-info");
+    expect(info).toHaveTextContent("v02.08.02.61");
+    expect(info).toHaveTextContent("1/2 idle");
+    expect(info).toHaveTextContent("900s");
+    expect(info).toHaveTextContent("4.0 GB");
+    expect(screen.queryByText(/kills jobs after/)).not.toBeInTheDocument();
+  });
+
+  it("warns when the sidecar job timeout is below the app slice timeout", async () => {
+    status = fakeStatus({
+      slicer: { ok: true, detail: "ok", info: { version: "v1", running: 1, max_concurrency: 1, job_timeout_s: 300 } },
+    });
+    ui(<SlicerServerCard data={fakeServer()} />, fakeServer());
+    expect(await screen.findByText(/kills jobs after 300s, before the 600s slice timeout/)).toBeInTheDocument();
+    expect(screen.getByTestId("slicer-info")).toHaveTextContent("1/1 busy");
+    expect(screen.getByTestId("slicer-info")).toHaveTextContent("unlimited");
+  });
+
   it("toasts a failed test", async () => {
     postMock.mockResolvedValue({ ok: false, latency_ms: null, detail: "refused" });
     ui(<SlicerServerCard data={fakeServer()} />, fakeServer());

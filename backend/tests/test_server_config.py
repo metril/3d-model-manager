@@ -394,13 +394,35 @@ async def test_status_endpoint(authenticated_client, redis_url) -> None:
             ex=30,
         )
         with respx.mock:
-            respx.get("http://s:1/health").mock(return_value=httpx.Response(200))
+            respx.get("http://s:1/health").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "status": "ok",
+                        "version": "v1",
+                        "busy": True,
+                        "running": 1,
+                        "max_concurrency": 2,
+                        "job_timeout_s": 600.0,
+                        "mem_limit": None,
+                        "bambu_version": "v02.08",
+                    },
+                )
+            )
             respx.get("http://obico-ml:3333/hc/").mock(return_value=httpx.Response(500))
             body = (await authenticated_client.get("/api/settings/server/status")).json()
             # second call within 10 s is served from the cache (no new probes)
             respx.get("http://s:1/health").mock(side_effect=httpx.ConnectError("x"))
             again = (await authenticated_client.get("/api/settings/server/status")).json()
         assert body["slicer_healthy"] is True and body["obico"]["ok"] is False
+        assert body["slicer"]["info"] == {
+            "version": "v1",
+            "bambu_version": "v02.08",
+            "busy": True,
+            "running": 1,
+            "max_concurrency": 2,
+            "job_timeout_s": 600.0,
+        }
         assert (
             body["virtual_printer"]["state"] == "running" and body["virtual_printer"]["vp_id"] == 3
         )

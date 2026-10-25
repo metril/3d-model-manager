@@ -11,6 +11,7 @@ import type {
   PrintRecipeIn,
   ProfileImportResult,
   ProfileKind,
+  SliceJob,
   SlicerHealth,
   SlicerProfile,
 } from "@/api/types";
@@ -105,4 +106,37 @@ export const slicerHealthQueryOptions = queryOptions({
 
 export function useSlicerHealth() {
   return useQuery(slicerHealthQueryOptions);
+}
+
+// -- standalone slice jobs (backend `app.api.slice_jobs`) --------------------
+
+const ACTIVE_SLICE_STATES = ["queued", "running"];
+
+/** `POST /files/{id}/slice` -- slices a file with a recipe, no queue entry. */
+export function useStartSlice() {
+  return useMutation({
+    mutationFn: ({ fileId, recipeId, plate }: { fileId: number; recipeId: number; plate?: number | null }) =>
+      api.post<SliceJob>(`/files/${fileId}/slice`, { recipe_id: recipeId, plate: plate ?? null }),
+  });
+}
+
+/** `GET /slice-jobs/{id}`, polled while the job is queued/running (the SSE
+ * `slice.updated` event invalidates it sooner). */
+export function useSliceJob(id: string | null) {
+  return useQuery({
+    queryKey: ["slice-job", id] as const,
+    queryFn: () => api.get<SliceJob>(`/slice-jobs/${id}`),
+    enabled: id != null,
+    refetchInterval: (query) =>
+      query.state.data && !ACTIVE_SLICE_STATES.includes(query.state.data.state) ? false : 2000,
+  });
+}
+
+/** `DELETE /slice-jobs/{id}` -- cancels a queued/running slice job. */
+export function useCancelSliceJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<SliceJob>(`/slice-jobs/${id}`),
+    onSuccess: (job) => queryClient.setQueryData(["slice-job", job.id], job),
+  });
 }

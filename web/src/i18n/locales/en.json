@@ -235,7 +235,16 @@
         "testOk": "Slicer reachable ({{ms}} ms)",
         "testFail": "Slicer check failed: {{detail}}",
         "testError": "Could not run the slicer test",
-        "invalid": "Timeout must be 30-7200 seconds and the URL is required while enabled."
+        "invalid": "Timeout must be 30-7200 seconds and the URL is required while enabled.",
+        "version": "Sidecar version",
+        "bambuVersion": "Bambu Studio CLI",
+        "slots": "Slice slots",
+        "busy": "busy",
+        "idle": "idle",
+        "jobTimeout": "Sidecar job timeout",
+        "memLimit": "Memory limit",
+        "unlimited": "unlimited",
+        "timeoutWarn": "The sidecar kills jobs after {{sidecar}}s, before the {{app}}s slice timeout set here, so long slices will fail. Raise SLICER_JOB_TIMEOUT_S on the sidecar or lower the timeout."
       },
       "obico": {
         "title": "Failure detection",

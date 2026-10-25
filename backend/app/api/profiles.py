@@ -521,4 +521,14 @@ async def slicer_health(
     except SlicerError as exc:
         return SlicerHealthOut(configured=True, ok=False, error=str(exc))
 
-    return SlicerHealthOut(configured=True, ok=result["ok"], version=result["version"] or None)
+    return SlicerHealthOut(
+        configured=True,
+        ok=result["ok"],
+        version=result["version"] or None,
+        busy=result["busy"],
+        running=result["running"],
+        max_concurrency=result["max_concurrency"],
+        job_timeout_s=result["job_timeout_s"],
+        mem_limit=result["mem_limit"],
+        bambu_version=result["bambu_version"],
+    )
