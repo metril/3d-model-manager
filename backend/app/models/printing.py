@@ -181,6 +181,10 @@ class PrintArchive(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # V4: explicit project link (progress also auto-matches by model/plate).
+    project_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # T7 archive extras.
     notes: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list[str]] = mapped_column(

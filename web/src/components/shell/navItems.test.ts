@@ -132,7 +132,7 @@ describe("navItems", () => {
     it("hides perm-gated items without dropping their group when siblings remain", () => {
       const groups = filterNavGroups(NAV_GROUPS, { printerEnabled: true, can: () => false });
       const library = groups.find((g) => g.label === "Library");
-      expect(library?.items.map((i) => i.to)).toEqual(["/library", "/collections"]);
+      expect(library?.items.map((i) => i.to)).toEqual(["/library", "/collections", "/projects"]);
       const inventory = groups.find((g) => g.label === "Inventory");
       expect(inventory?.items.map((i) => i.to)).toEqual(["/inventory/spools", "/inventory/profiles"]);
     });

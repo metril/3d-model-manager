@@ -78,6 +78,7 @@ from app.api import (
     printers,
     prints,
     profiles,
+    projects,
     queue,
     queue_settings,
     reports,
@@ -175,6 +176,7 @@ protected_router.include_router(queue_settings.router)
 protected_router.include_router(drying.router)
 protected_router.include_router(queue_settings.preheat_router)
 protected_router.include_router(batches.router)
+protected_router.include_router(projects.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)
