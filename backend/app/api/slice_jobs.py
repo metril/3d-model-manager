@@ -35,6 +35,8 @@ async def get_slice_job(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> SliceJobOut:
+    job = await slice_jobs.get_job(db, job_id)
+    require_owner_or_admin(ctx, job.created_by_user_id)
     return await slice_jobs.get_job_out(db, job_id)
 
 

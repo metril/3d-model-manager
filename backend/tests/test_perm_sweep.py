@@ -31,6 +31,8 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     # Personal extension tokens: any user manages their own.
     ("POST", "/api/settings/api-tokens"),
     ("DELETE", "/api/settings/api-tokens/{token_id}"),
+    ("POST", "/api/settings/api-keys"),
+    ("DELETE", "/api/settings/api-keys/{key_id}"),
     # Mints a signed download link for a file the viewer can already read.
     ("POST", "/api/files/{file_id}/slicer-link"),
     # P5 spool tray plan: a plan preview mutates nothing -- per-printer

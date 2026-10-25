@@ -182,6 +182,19 @@ describe("SliceJobsHost", () => {
     unmount();
   });
 
+  it("stops polling and untracks when the job can't be loaded (404)", async () => {
+    const { ApiError } = await import("@/api/client");
+    getMock.mockRejectedValue(new ApiError(404, "slice job gone"));
+    ui(<SliceJobsHost />);
+    act(() => trackSlice({ id: "job-gone", fileName: "cube.stl" }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+    expect(toastMock.error.mock.calls.at(-1)![0]).toContain("slice job gone");
+    expect(toastMock.dismiss).toHaveBeenCalledWith("slice-job-gone");
+    const calls = getMock.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 2300));
+    expect(getMock.mock.calls.length).toBe(calls);
+  });
+
   it("opens the log dialog and the print dialog from the toast", async () => {
     jobState = { ...JOB, state: "failed", error: "boom", log_tail: "tail of the log" };
     ui(<SliceJobsHost />);

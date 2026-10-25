@@ -25,6 +25,8 @@ import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
+import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
+import { ProjectsPage } from "@/pages/ProjectsPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { StatsPage } from "@/pages/StatsPage";
@@ -211,6 +213,18 @@ const collectionsRoute = createRoute({
   component: CollectionsPage,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects",
+  component: ProjectsPage,
+});
+
+const projectDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects/$id",
+  component: ProjectDetailPage,
+});
+
 // /dashboard (library stats) folded into /print/history?tab=stats (P3 Task 5).
 const dashboardRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -361,6 +375,8 @@ export const routeTree = rootRoute.addChildren([
     uploadRedirectRoute,
     importRedirectRoute,
     collectionsRoute,
+    projectsRoute,
+    projectDetailRoute,
     dashboardRedirectRoute,
     printHistoryRoute,
     printQueueRoute,

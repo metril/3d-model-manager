@@ -41,6 +41,7 @@ from app.api import (
     admin,
     admin_oidc,
     admin_ops,
+    api_keys,
     archive_gcode,
     archives,
     archives_extras,
@@ -52,6 +53,7 @@ from app.api import (
     drying,
     events,
     ext,
+    ext_v2,
     external_links,
     features,
     files,
@@ -77,6 +79,7 @@ from app.api import (
     printers,
     prints,
     profiles,
+    projects,
     queue,
     queue_settings,
     reports,
@@ -109,6 +112,7 @@ api_router.include_router(auth.public_router)
 api_router.include_router(two_factor.public_router)
 api_router.include_router(oidc.public_router)
 api_router.include_router(ext.router)
+api_router.include_router(ext_v2.router)
 api_router.include_router(slicer.router)
 api_router.include_router(metrics.router)
 api_router.include_router(files.public_router)
@@ -141,6 +145,7 @@ protected_router.include_router(scan.router)
 protected_router.include_router(server_settings.router)
 protected_router.include_router(settings.router)
 protected_router.include_router(settings.api_tokens_router)
+protected_router.include_router(api_keys.router)
 protected_router.include_router(obico.settings_router)
 protected_router.include_router(home_assistant.router)
 protected_router.include_router(sensors.router)
@@ -173,6 +178,7 @@ protected_router.include_router(queue_settings.router)
 protected_router.include_router(drying.router)
 protected_router.include_router(queue_settings.preheat_router)
 protected_router.include_router(batches.router)
+protected_router.include_router(projects.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)

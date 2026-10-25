@@ -90,6 +90,7 @@ _PATH_PARAM_VALUES = {
     "pending_id": "1",
     # M10 Workstream A: browser-extension API-token management.
     "token_id": "1",
+    "key_id": "1",
     # Branch 4 Task 1: print queue entries.
     "entry_id": "1",
     # Branch 5 Task 1: per-model print history.
@@ -111,6 +112,7 @@ _PATH_PARAM_VALUES = {
     # Q6: notification channels/templates.
     "channel_id": "1",
     "template_id": "1",
+    "item_id": "1",
     # Q10: Obico detection events + one-shot snapshot nonce.
     "detection_id": "1",
     "nonce": "n",
@@ -129,6 +131,9 @@ _PATH_PARAM_VALUES = {
     "material": "PLA",
     # T4: print batches.
     "batch_id": "1",
+    # V4: projects.
+    "project_id": "1",
+    "attachment_id": "1",
 }
 
 

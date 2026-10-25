@@ -80,6 +80,21 @@ def test_webhook_default_and_template_escapes_json():
     assert json.loads(seen[1].content) == {"text": 'say "hi"'}
 
 
+def test_webhook_hmac_signature():
+    import hashlib
+    import hmac
+
+    c, seen = _client()
+    PROVIDERS["webhook"].send({"url": "http://h/x", "signing_secret": "topsecret"}, MSG, c)
+    req = seen[0]
+    ts = req.headers["x-tdmm-timestamp"]
+    expect = hmac.new(b"topsecret", ts.encode() + b"." + req.content, hashlib.sha256).hexdigest()
+    assert req.headers["x-tdmm-signature"] == f"sha256={expect}"
+    assert req.headers["x-tdmm-event"] == "job_finished"
+    PROVIDERS["webhook"].send({"url": "http://h/x"}, MSG, c)
+    assert "x-tdmm-signature" not in seen[1].headers
+
+
 def test_callmebot_and_bark():
     c, seen = _client()
     PROVIDERS["callmebot"].send({"phone": "+1", "apikey": "k"}, MSG, c)

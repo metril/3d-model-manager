@@ -66,6 +66,7 @@ from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.overlay_token import OverlayToken
 from app.models.printing import AmsLabel, PlateReference, PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
+from app.models.projects import Project, ProjectAttachment, ProjectEvent, ProjectItem
 from app.models.sensors import PrinterSensorSample
 from app.models.slicing import PrintRecipe, SliceJob, SlicerProfile
 from app.models.storage import FileLocation, StorageBackendRow
@@ -121,6 +122,10 @@ __all__ = [
     "PrinterSensorSample",
     "PrintArchive",
     "PrintBatch",
+    "Project",
+    "ProjectAttachment",
+    "ProjectEvent",
+    "ProjectItem",
     "PrintJob",
     "PrintQueueEntry",
     "PrintRecipe",
