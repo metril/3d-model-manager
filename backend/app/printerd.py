@@ -531,7 +531,11 @@ class PrinterWorker:
                 emit_bg(
                     "job_failed",
                     self.printer_id,
-                    {**info, "error": str(public.print_error) if public.print_error else None},
+                    {
+                        **info,
+                        "error": str(public.print_error) if public.print_error else None,
+                        "result": result.value,
+                    },
                 )
             try:
                 _enqueue_archive(job_id, result)

@@ -1,21 +1,48 @@
 {
   "nav": {
-    "Print": "Print", "Library": "Library", "Inventory": "Inventory", "Links": "Links", "Categories": "Categories",
-    "Dashboard": "Dashboard", "Queue": "Queue", "History": "History", "Stats": "Stats",
-    "Models": "Models", "Collections": "Collections", "Add": "Add", "Duplicates": "Duplicates",
-    "Spools": "Spools", "Materials": "Materials", "Profiles & recipes": "Profiles & recipes",
-    "Background jobs": "Background jobs", "Finance": "Finance", "Settings": "Settings"
+    "Print": "Print",
+    "Library": "Library",
+    "Inventory": "Inventory",
+    "Links": "Links",
+    "Categories": "Categories",
+    "Dashboard": "Dashboard",
+    "Queue": "Queue",
+    "History": "History",
+    "Stats": "Stats",
+    "Models": "Models",
+    "Collections": "Collections",
+    "Add": "Add",
+    "Duplicates": "Duplicates",
+    "Spools": "Spools",
+    "Materials": "Materials",
+    "Profiles & recipes": "Profiles & recipes",
+    "Background jobs": "Background jobs",
+    "Finance": "Finance",
+    "Settings": "Settings"
   },
   "shell": {
-    "expandSidebar": "Expand sidebar", "collapseSidebar": "Collapse sidebar",
-    "shortcuts": "Keyboard shortcuts", "logout": "Log out",
-    "openMenu": "Open menu", "back": "Back", "search": "Search"
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "shortcuts": "Keyboard shortcuts",
+    "logout": "Log out",
+    "openMenu": "Open menu",
+    "back": "Back",
+    "search": "Search"
   },
   "settings": {
     "title": "Settings",
     "subtitle": "Automation, storage backends, printer, and connected accounts.",
-    "loadError": "Couldn't load settings", "retry": "Retry",
-    "tabs": { "general": "General", "storage": "Storage", "printer": "Printer", "notifications": "Notifications", "accounts": "Accounts", "access": "Access", "server": "Server" },
+    "loadError": "Couldn't load settings",
+    "retry": "Retry",
+    "tabs": {
+      "general": "General",
+      "storage": "Storage",
+      "printer": "Printer",
+      "notifications": "Notifications",
+      "accounts": "Accounts",
+      "access": "Access",
+      "server": "Server"
+    },
     "server": {
       "loadError": "Couldn't load server settings",
       "saved": "Server settings saved",
@@ -76,7 +103,9 @@
         "failed": "Failed ({{detail}})",
         "healthy": "Healthy",
         "unreachable": "Unreachable",
-        "link": "Settings, Server tab", "detectionDescPlain": "Spaghetti detection via a self-hosted Obico ML sidecar. Enable it per printer in Printer setup.", "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in <1>Settings, Server tab</1>). Enable it per printer in Printer setup."
+        "link": "Settings, Server tab",
+        "detectionDescPlain": "Spaghetti detection via a self-hosted Obico ML sidecar. Enable it per printer in Printer setup.",
+        "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in <1>Settings, Server tab</1>). Enable it per printer in Printer setup."
       },
       "vp": {
         "title": "Virtual printer network",
@@ -98,71 +127,283 @@
           "idle": "Idle",
           "running": "Running",
           "error": "Error",
-          "offline": "Offline", "loading": "Checking"
+          "offline": "Offline",
+          "loading": "Checking"
         }
       }
     },
     "appearance": {
-      "title": "Appearance", "desc": "Applies to this browser only.",
-      "mode": "Mode", "style": "Style", "accent": "Accent",
+      "title": "Appearance",
+      "desc": "Applies to this browser only.",
+      "mode": "Mode",
+      "style": "Style",
+      "accent": "Accent",
       "language": "Language",
       "contribute": "Want another language? Add locales/<code>.json under web/src/i18n and open a pull request."
     }
   },
   "stats": {
-    "title": "Stats", "subtitle": "Print performance across your printers.",
-    "range": "Range", "days": "{{count}} days", "reset": "Reset layout",
-    "loadError": "Couldn't load stats", "empty": "No data in this range.",
-    "drag": "Drag to reorder {{name}}", "size": "Resize {{name}} (currently {{size}})",
-    "sizes": { "1": "small", "2": "medium", "3": "large" },
-    "w": {
-      "quick": "Quick stats", "success": "Success rate", "accuracy": "Time accuracy",
-      "failures": "Failure analysis", "heatmap": "Print activity", "records": "Records",
-      "printers": "Per-printer", "filament": "Filament trends"
+    "title": "Stats",
+    "subtitle": "Print performance across your printers.",
+    "range": "Range",
+    "days": "{{count}} days",
+    "reset": "Reset layout",
+    "loadError": "Couldn't load stats",
+    "empty": "No data in this range.",
+    "drag": "Drag to reorder {{name}}",
+    "size": "Resize {{name}} (currently {{size}})",
+    "sizes": {
+      "1": "small",
+      "2": "medium",
+      "3": "large"
     },
-    "total": "Total prints", "completed": "Completed", "failed": "Failed", "canceled": "Canceled",
-    "hours": "Print hours", "filamentG": "Filament (g)",
-    "meanDelta": "Mean delta", "meanAbs": "Mean absolute error", "samples": "{{count}} timed prints",
-    "byErrorCode": "By error code", "byPrinter": "By printer", "byMaterial": "By material",
-    "longest": "Longest print", "mostFilament": "Most filament", "busiest": "Busiest day",
-    "prints": "{{count}} prints", "jobs": "Jobs", "successShort": "Success",
-    "tableView": "Table view", "chartView": "Chart view"
+    "w": {
+      "quick": "Quick stats",
+      "success": "Success rate",
+      "accuracy": "Time accuracy",
+      "failures": "Failure analysis",
+      "heatmap": "Print activity",
+      "records": "Records",
+      "printers": "Per-printer",
+      "filament": "Filament trends"
+    },
+    "total": "Total prints",
+    "completed": "Completed",
+    "failed": "Failed",
+    "canceled": "Canceled",
+    "hours": "Print hours",
+    "filamentG": "Filament (g)",
+    "meanDelta": "Mean delta",
+    "meanAbs": "Mean absolute error",
+    "samples": "{{count}} timed prints",
+    "byErrorCode": "By error code",
+    "byPrinter": "By printer",
+    "byMaterial": "By material",
+    "longest": "Longest print",
+    "mostFilament": "Most filament",
+    "busiest": "Busiest day",
+    "prints": "{{count}} prints",
+    "jobs": "Jobs",
+    "successShort": "Success",
+    "tableView": "Table view",
+    "chartView": "Chart view"
   },
   "history": {
-    "heater": "Temperature history", "ams": "AMS humidity and temperature",
-    "heaterBtn": "Temperature history", "amsBtn": "AMS history",
-    "range": "Range", "h1": "1 hour", "h6": "6 hours", "h24": "24 hours", "h168": "7 days",
-    "nozzle": "Nozzle", "bed": "Bed", "chamber": "Chamber",
-    "humidity": "Humidity (%)", "temp": "Temperature (°C)", "unit": "AMS unit {{n}}",
-    "empty": "No samples in this range.", "loadError": "Couldn't load history"
+    "heater": "Temperature history",
+    "ams": "AMS humidity and temperature",
+    "heaterBtn": "Temperature history",
+    "amsBtn": "AMS history",
+    "range": "Range",
+    "h1": "1 hour",
+    "h6": "6 hours",
+    "h24": "24 hours",
+    "h168": "7 days",
+    "nozzle": "Nozzle",
+    "bed": "Bed",
+    "chamber": "Chamber",
+    "humidity": "Humidity (%)",
+    "temp": "Temperature (°C)",
+    "unit": "AMS unit {{n}}",
+    "empty": "No samples in this range.",
+    "loadError": "Couldn't load history"
   },
   "card": {
     "select": "Select {{name}}",
     "expand": "Expand {{name}}",
     "back": "Back",
     "untested": "Untested on this model",
-    "badge": {"connected": "Connected", "offline": "Offline", "loading": "Checking", "network": "Network", "ethernet": "Ethernet", "hms": "HMS {{n}}", "queued": "{{n}} queued", "fw": "FW {{v}}", "door": "Door", "doorOpen": "Door open", "doorClosed": "Door closed", "doorTitle": "Door sensor", "devModeOff": "Dev Mode off", "devModeTip": "Developer LAN mode is off"},
-    "header": {"menu": "Printer menu", "edit": "Edit", "info": "Info", "reconnect": "Reconnect", "forceRefresh": "Force refresh", "diagnose": "Diagnose", "delete": "Delete", "reachable": "Printer reachable", "reconnectFailed": "Reconnect failed", "hours": "{{n}} h printed", "deleteTitle": "Delete {{name}}?", "deleteDesc": "The printer and its connection settings are removed. Print history is kept."},
-    "footer": {"print": "Print", "firmware": "Firmware"},
-    "status": {"offline": "Offline", "loading": "Checking", "offlineLast": "Offline — last: {{name}}", "idle": "Idle", "last": "Last: {{name}} · {{result}}", "nothing": "Nothing printed yet", "print": "Print", "skip": "Skip objects", "left": "{{t}} left", "eta": "ETA {{t}}", "layer": "Layer {{n}}/{{total}}", "startedApp": "Started from the app", "startedPrinter": "Started on the printer"},
-    "controls": {"silent": "Silent", "standard": "Standard", "sport": "Sport", "ludicrous": "Ludicrous", "movement": "Movement", "move": "Move", "jogStep": "Jog step", "mm": "{{n}} mm", "home": "Home", "extrude": "Extrude", "retract": "Retract", "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.", "lightLabel": "Chamber light", "light": "Light", "speed": "Print speed", "airduct": "Airduct", "cooling": "cooling", "heating": "heating", "calibration": "Calibration", "calibrate": "Calibrate", "calibrateTitle": "Run calibration?", "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.", "resume": "Resume", "pause": "Pause", "resumeTitle": "Resume this print?", "pauseTitle": "Pause this print?", "stop": "Stop", "stopTitle": "Stop this print?", "stopDesc": "The printer will cancel the job in progress. This can't be undone."},
-    "temps": {"set": "Set {{label}}", "target": "{{label}} target ({{unit}})", "apply": "Set", "off": "Off", "nozzle": "Nozzle", "nozzleL": "Nozzle L", "nozzleR": "Nozzle R", "bed": "Bed", "chamber": "Chamber", "chamberReadonly": "Chamber temperature is read-only on this model.", "partFan": "Part fan", "auxFan": "Aux fan", "chamberFan": "Chamber fan"},
-    "filaments": {"emptyLower": "empty", "empty": "Empty", "loaded": "Loaded", "slotMenu": "{{label}} menu", "unitMenu": "{{label}} menu", "load": "Load", "unload": "Unload", "remaining": "Remaining", "low": "Low", "humidity": "Humidity: {{v}}", "temp": "Temp: {{v}}", "serial": "Serial: {{v}}", "firmware": "Firmware: {{v}}", "dry": "Dry", "backup": "AMS backup", "backupTip": "Two slots hold the same filament", "external": "External", "externalSpool": "External spool", "slot": "Slot {{n}}"},
-    "skip": {"title": "Skip objects", "desc": "Skipped objects are not printed from the next layer on. This can't be undone.", "submit": "Skip {{n}} selected"},
-    "devBanner": {"off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.", "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.", "how": "How to enable it", "dismiss": "Dismiss"}
+    "badge": {
+      "connected": "Connected",
+      "offline": "Offline",
+      "loading": "Checking",
+      "network": "Network",
+      "ethernet": "Ethernet",
+      "hms": "HMS {{n}}",
+      "queued": "{{n}} queued",
+      "fw": "FW {{v}}",
+      "door": "Door",
+      "doorOpen": "Door open",
+      "doorClosed": "Door closed",
+      "doorTitle": "Door sensor",
+      "devModeOff": "Dev Mode off",
+      "devModeTip": "Developer LAN mode is off"
+    },
+    "header": {
+      "menu": "Printer menu",
+      "edit": "Edit",
+      "info": "Info",
+      "reconnect": "Reconnect",
+      "forceRefresh": "Force refresh",
+      "diagnose": "Diagnose",
+      "delete": "Delete",
+      "reachable": "Printer reachable",
+      "reconnectFailed": "Reconnect failed",
+      "hours": "{{n}} h printed",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDesc": "The printer and its connection settings are removed. Print history is kept."
+    },
+    "footer": {
+      "print": "Print",
+      "firmware": "Firmware"
+    },
+    "status": {
+      "offline": "Offline",
+      "loading": "Checking",
+      "offlineLast": "Offline — last: {{name}}",
+      "idle": "Idle",
+      "last": "Last: {{name}} · {{result}}",
+      "nothing": "Nothing printed yet",
+      "print": "Print",
+      "skip": "Skip objects",
+      "left": "{{t}} left",
+      "eta": "ETA {{t}}",
+      "layer": "Layer {{n}}/{{total}}",
+      "startedApp": "Started from the app",
+      "startedPrinter": "Started on the printer"
+    },
+    "controls": {
+      "silent": "Silent",
+      "standard": "Standard",
+      "sport": "Sport",
+      "ludicrous": "Ludicrous",
+      "movement": "Movement",
+      "move": "Move",
+      "jogStep": "Jog step",
+      "mm": "{{n}} mm",
+      "home": "Home",
+      "extrude": "Extrude",
+      "retract": "Retract",
+      "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.",
+      "lightLabel": "Chamber light",
+      "light": "Light",
+      "speed": "Print speed",
+      "airduct": "Airduct",
+      "cooling": "cooling",
+      "heating": "heating",
+      "calibration": "Calibration",
+      "calibrate": "Calibrate",
+      "calibrateTitle": "Run calibration?",
+      "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.",
+      "resume": "Resume",
+      "pause": "Pause",
+      "resumeTitle": "Resume this print?",
+      "pauseTitle": "Pause this print?",
+      "stop": "Stop",
+      "stopTitle": "Stop this print?",
+      "stopDesc": "The printer will cancel the job in progress. This can't be undone."
+    },
+    "temps": {
+      "set": "Set {{label}}",
+      "target": "{{label}} target ({{unit}})",
+      "apply": "Set",
+      "off": "Off",
+      "nozzle": "Nozzle",
+      "nozzleL": "Nozzle L",
+      "nozzleR": "Nozzle R",
+      "bed": "Bed",
+      "chamber": "Chamber",
+      "chamberReadonly": "Chamber temperature is read-only on this model.",
+      "partFan": "Part fan",
+      "auxFan": "Aux fan",
+      "chamberFan": "Chamber fan"
+    },
+    "filaments": {
+      "emptyLower": "empty",
+      "empty": "Empty",
+      "loaded": "Loaded",
+      "slotMenu": "{{label}} menu",
+      "unitMenu": "{{label}} menu",
+      "load": "Load",
+      "unload": "Unload",
+      "remaining": "Remaining",
+      "low": "Low",
+      "humidity": "Humidity: {{v}}",
+      "temp": "Temp: {{v}}",
+      "serial": "Serial: {{v}}",
+      "firmware": "Firmware: {{v}}",
+      "dry": "Dry",
+      "backup": "AMS backup",
+      "backupTip": "Two slots hold the same filament",
+      "external": "External",
+      "externalSpool": "External spool",
+      "slot": "Slot {{n}}"
+    },
+    "skip": {
+      "title": "Skip objects",
+      "desc": "Skipped objects are not printed from the next layer on. This can't be undone.",
+      "submit": "Skip {{n}} selected"
+    },
+    "devBanner": {
+      "off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.",
+      "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.",
+      "how": "How to enable it",
+      "dismiss": "Dismiss"
+    }
   },
   "dash": {
-    "status": {"printing": "printing", "paused": "paused", "finished": "finished", "available": "available", "problem": "problem", "offline": "offline"},
+    "status": {
+      "printing": "printing",
+      "paused": "paused",
+      "finished": "finished",
+      "available": "available",
+      "problem": "problem",
+      "offline": "offline"
+    },
     "nextFree": "Next free: {{name}} in {{eta}}",
-    "bulk": {"selected": "{{n}} selected", "pauseBtn": "Pause selected ({{n}})", "stopBtn": "Stop selected ({{n}})", "pause": "Pause", "stop": "Stop", "clear": "Clear", "pauseTitle": "Pause {{count}} prints?", "pauseTitle_one": "Pause {{count}} print?", "pauseTitle_other": "Pause {{count}} prints?", "stopTitle": "Stop {{count}} prints?", "stopTitle_one": "Stop {{count}} print?", "stopTitle_other": "Stop {{count}} prints?", "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.", "paused_one": "Paused {{count}} printer", "paused_other": "Paused {{count}} printers", "stopped_one": "Stopped {{count}} printer", "stopped_other": "Stopped {{count}} printers", "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}", "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"}
+    "bulk": {
+      "selected": "{{n}} selected",
+      "pauseBtn": "Pause selected ({{n}})",
+      "stopBtn": "Stop selected ({{n}})",
+      "pause": "Pause",
+      "stop": "Stop",
+      "clear": "Clear",
+      "pauseTitle": "Pause {{count}} prints?",
+      "pauseTitle_one": "Pause {{count}} print?",
+      "pauseTitle_other": "Pause {{count}} prints?",
+      "stopTitle": "Stop {{count}} prints?",
+      "stopTitle_one": "Stop {{count}} print?",
+      "stopTitle_other": "Stop {{count}} prints?",
+      "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.",
+      "paused_one": "Paused {{count}} printer",
+      "paused_other": "Paused {{count}} printers",
+      "stopped_one": "Stopped {{count}} printer",
+      "stopped_other": "Stopped {{count}} printers",
+      "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}",
+      "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"
+    }
   },
   "gcodeViewer": {
-    "loading": "Reading toolpath…", "empty": "No G-code available for this item.", "loadFailed": "Could not load the G-code.", "retry": "Retry",
-    "colorMode": "Colour by", "legend": "Legend", "topLayer": "Top layer", "bottomLayer": "Bottom layer",
-    "mode": {"feature": "Feature", "tool": "Tool", "speed": "Speed", "layer": "Layer"},
-    "feature": {"wall": "Walls", "infill": "Infill", "support": "Support", "bridge": "Bridge / overhang", "skirt": "Skirt / brim", "travel": "Travel moves"},
-    "tool": "Tool {{n}}", "speedUnit": "mm/s", "layerWord": "layer",
-    "stats": {"layers": "{{count}} layers", "moves": "{{count}} moves", "extrusion": "{{m}} m filament", "time": "Est. {{time}}"}
+    "loading": "Reading toolpath…",
+    "empty": "No G-code available for this item.",
+    "loadFailed": "Could not load the G-code.",
+    "retry": "Retry",
+    "colorMode": "Colour by",
+    "legend": "Legend",
+    "topLayer": "Top layer",
+    "bottomLayer": "Bottom layer",
+    "mode": {
+      "feature": "Feature",
+      "tool": "Tool",
+      "speed": "Speed",
+      "layer": "Layer"
+    },
+    "feature": {
+      "wall": "Walls",
+      "infill": "Infill",
+      "support": "Support",
+      "bridge": "Bridge / overhang",
+      "skirt": "Skirt / brim",
+      "travel": "Travel moves"
+    },
+    "tool": "Tool {{n}}",
+    "speedUnit": "mm/s",
+    "layerWord": "layer",
+    "stats": {
+      "layers": "{{count}} layers",
+      "moves": "{{count}} moves",
+      "extrusion": "{{m}} m filament",
+      "time": "Est. {{time}}"
+    }
   },
   "archiveX": {
     "toolpath": {
@@ -214,12 +455,12 @@
       "override": "Result override",
       "overrideNone": "Recorded ({{result}})",
       "reset": "Reset",
-    "results": {
-      "completed": "Completed",
-      "failed": "Failed",
-      "canceled": "Canceled",
-      "stopped": "Stopped"
-    },
+      "results": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "canceled": "Canceled",
+        "stopped": "Stopped"
+      },
       "delete": "Delete run",
       "deleteTitle": "Delete this archived run?",
       "deleteDesc": "Removes the archive and its stored files. The print job record is kept."
@@ -231,13 +472,13 @@
       "good": "Marked good",
       "bad": "Marked bad",
       "via": "via {{source}}",
-    "sources": {
-      "dialog": "dialog",
-      "link": "notification link",
-      "plate_clear": "plate cleared",
-      "card": "run card",
-      "api": "API"
-    },
+      "sources": {
+        "dialog": "dialog",
+        "link": "notification link",
+        "plate_clear": "plate cleared",
+        "card": "run card",
+        "api": "API"
+      },
       "failed": "Couldn't record the verdict",
       "later": "Later",
       "dialogDesc": "{{name}} on {{printer}} has finished."
@@ -337,7 +578,9 @@
       "reset": "Reset slot",
       "resetTitle": "Reset this slot?",
       "resetDesc": "The printer will forget the filament in this slot.",
-      "saved": "Slot saved", "deviceFailed": "Saved, but the printer rejected the change", "deviceSkipped": "Saved, but the printer was not updated (offline)",
+      "saved": "Slot saved",
+      "deviceFailed": "Saved, but the printer rejected the change",
+      "deviceSkipped": "Saved, but the printer was not updated (offline)",
       "resetDone": "Slot reset"
     },
     "ams": {
@@ -370,5 +613,15 @@
       "storage": "{{used}} used of {{total}}",
       "storageFree": "{{free}} free"
     }
+  },
+  "emailPrefs": {
+    "title": "Email notifications",
+    "description": "Get an email about prints you start. Sent to the address on your account.",
+    "noEmail": "Your account has no email address, so nothing can be sent. Add one to your profile first.",
+    "start": "Print started",
+    "complete": "Print finished",
+    "failed": "Print failed",
+    "stopped": "Print paused or stopped",
+    "saveFailed": "Could not save your email preferences."
   }
 }

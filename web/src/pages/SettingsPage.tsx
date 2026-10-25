@@ -18,6 +18,7 @@ import { FailureDetectionCard } from "@/components/settings/FailureDetectionCard
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
 import { GroupsCard } from "@/components/settings/GroupsCard";
 import { HomeAssistantCard } from "@/components/settings/HomeAssistantCard";
+import { EmailPrefsCard } from "@/components/settings/EmailPrefsCard";
 import { NotificationsPanel } from "@/components/settings/notifications";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { VirtualPrinterCard } from "@/components/settings/VirtualPrinterCard";
@@ -96,6 +97,7 @@ export function SettingsPage() {
             {canSettings && <ExternalLinksCard />}
             {canSettings && <UpdatesCard />}
             <AutomationCard />
+            <EmailPrefsCard />
             <CategoriesSection />
             <PrintCostCard />
             {auth.can("inventory:write") && <SpoolmanCard />}
