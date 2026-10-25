@@ -16,6 +16,8 @@ import { SharedPlugRow } from "@/components/print/PlugRow";
 import { usePrinterModals } from "@/components/print/modals";
 import type { CardSlot } from "@/components/print/PrinterCard";
 import { SharedDetectionBadge } from "@/components/printer/DetectionBadge";
+import { capsOf } from "@/components/print/card/caps";
+import { UntestedTip } from "@/components/print/card/UntestedTip";
 import { Button } from "@/components/ui/button";
 
 export interface CardPerms {
@@ -54,6 +56,18 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
       <>
         {perms.canPrint ? <CameraSplitButton printerId={printer.id} onInline={goDetail} /> : null}
         <SharedPlugRow printerId={printer.id} canControl={ctx.canControl} />
+        {ctx.canControl ? (
+          <UntestedTip show={capsOf(printer).verified === false}>
+            <Button variant="outline" size="sm" onClick={() => modals.open("printOptions")}>
+              {t("printerOps.printOptions.menu")}
+            </Button>
+          </UntestedTip>
+        ) : null}
+        {perms.canPrint && capsOf(printer).sd_browser ? (
+          <Button variant="outline" size="sm" onClick={() => modals.open("files")}>
+            {t("printerOps.files.button")}
+          </Button>
+        ) : null}
         <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
           {t("card.footer.firmware")}
         </Button>

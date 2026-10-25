@@ -6,9 +6,11 @@
  */
 import { ListXIcon, PrinterIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { usePrinterObjects } from "@/api/printerControl";
+import { useClearPlate } from "@/api/printerOps";
 import type { ActiveJobOut, ArchiveOut, PrinterStatusOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +58,7 @@ export function StatusSection({
   const objects = usePrinterObjects(printerId, active && canControl);
   const skippable = objects.data?.objects ?? [];
   const last = lastRuns[0];
+  const clearPlate = useClearPlate(printerId);
 
   if (!status.online) {
     return (
@@ -80,7 +83,22 @@ export function StatusSection({
           ) : (
             <p className="pc-t11 text-muted-foreground">{t("card.status.nothing")}</p>
           )}
-          {status.gcode_state === "FINISH" ? <Badge variant="secondary">{t("card.status.clearPlate")}</Badge> : null}
+          {status.awaiting_plate_clear ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{t("printerOps.plateNeedsClearing")}</Badge>
+              {canControl ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  disabled={clearPlate.isPending}
+                  onClick={() => void clearPlate.mutateAsync().then(() => toast.success(t("printerOps.plateCleared")), () => undefined)}
+                >
+                  {t("printerOps.markCleared")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     );

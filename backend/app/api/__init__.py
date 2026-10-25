@@ -41,6 +41,7 @@ from app.api import (
     admin,
     admin_oidc,
     admin_ops,
+    archive_gcode,
     archives,
     archives_extras,
     auth,
@@ -153,6 +154,7 @@ protected_router.include_router(prints.router)
 protected_router.include_router(archives_extras.router)
 protected_router.include_router(archives_extras.settings_router)
 protected_router.include_router(archives.router)
+protected_router.include_router(archive_gcode.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)

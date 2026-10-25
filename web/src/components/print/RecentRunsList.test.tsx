@@ -34,6 +34,7 @@ vi.mock("@/components/print/ArchiveExtras", () => ({
   ),
   PhotoGallery: () => null,
 }));
+vi.mock("@/components/print/ArchiveToolpath", () => ({ ArchiveToolpath: () => null }));
 vi.mock("@/components/print/TimelapseEditorDialog", () => ({ TimelapseEditorDialog: () => null }));
 vi.mock("@/components/print/PrintDialog", () => ({ PrintDialog: () => null }));
 

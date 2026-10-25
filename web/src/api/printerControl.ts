@@ -21,7 +21,9 @@ export type ControlPath =
   | "airduct"
   | "calibrate"
   | "hms/clear"
-  | "filament";
+  | "filament"
+  | "xcam"
+  | "print-option";
 
 const MESSAGES: Record<string, string> = {
   dev_mode_off: "Developer LAN mode is off on this printer, so it rejects commands. Enable it on the printer.",
@@ -30,6 +32,7 @@ const MESSAGES: Record<string, string> = {
   printing: "Not available while printing.",
   not_printing: "Only available during a print.",
   unsupported: "This printer model does not support that.",
+  not_awaiting: "The plate is not marked as needing to be cleared.",
   objects_unknown: "No object list is stored for this print.",
 };
 

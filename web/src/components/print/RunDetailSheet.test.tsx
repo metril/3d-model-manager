@@ -30,6 +30,9 @@ vi.mock("@/components/print/ArchiveExtras", () => ({
   ),
   PhotoGallery: () => null,
 }));
+vi.mock("@/components/print/ArchiveToolpath", () => ({
+  ArchiveToolpath: ({ archiveId }: { archiveId: number }) => <div data-testid="toolpath">{archiveId}</div>,
+}));
 vi.mock("@/components/print/TimelapseEditorDialog", () => ({ TimelapseEditorDialog: () => null }));
 vi.mock("@/components/print/PrintDialog", () => ({
   PrintDialog: ({ open, source }: { open: boolean; source: { kind: string; archiveId?: number } }) =>
@@ -88,6 +91,14 @@ beforeEach(() => {
 });
 
 describe("RunDetailSheet", () => {
+  it("mounts the toolpath section only when the archive has a file", () => {
+    renderSheet();
+    expect(screen.getByTestId("toolpath")).toHaveTextContent("3");
+    archiveMock.mockReturnValue({ ...archive, has_file: false });
+    renderSheet();
+    expect(screen.getAllByTestId("toolpath")).toHaveLength(1);
+  });
+
   it("shows cost rows", () => {
     renderSheet();
     expect(screen.getByText("Filament").nextSibling).toHaveTextContent("5.00");
