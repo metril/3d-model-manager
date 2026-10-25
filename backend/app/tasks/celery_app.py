@@ -117,6 +117,13 @@ celery_app.conf.beat_schedule["dispatch-queue"] = {
     "schedule": dispatch.DISPATCH_INTERVAL_S,
 }
 
+from app.tasks import slicing as _slicing  # noqa: E402
+
+celery_app.conf.beat_schedule["slice-job-sweep"] = {
+    "task": "app.tasks.slicing.sweep_stuck_slice_jobs",
+    "schedule": _slicing.SLICE_SWEEP_INTERVAL_S,
+}
+
 # Additive: P7 Task 7's nightly balance recompute -- reconciles
 # cost_centers.balance against the ledger and retries any over_budget
 # hold (the monthly-cap rollover unhold).
