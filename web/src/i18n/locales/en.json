@@ -94,7 +94,8 @@
         "errDistinct": "SSDP, MQTT and FTP ports must be different.",
         "errRange": "Passive min must not exceed max.",
         "errOverlap": "The passive range must not include the SSDP, MQTT or FTP port.",
-        "state": {
+        "failure": {"screen_only": "Screen-only printer", "unsupported": "Not supported", "did_not_start": "Did not start", "blocked": "AMS blocked"},
+    "state": {
           "idle": "Idle",
           "running": "Running",
           "error": "Error",

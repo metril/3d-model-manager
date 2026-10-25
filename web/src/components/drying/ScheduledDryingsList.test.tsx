@@ -23,7 +23,7 @@ beforeEach(() => {
   getMock.mockReset().mockImplementation(async (path: string) => {
     if (path === "/printers") return [a1Mini().printer];
     if (path === "/printers/1/drying/schedules")
-      return [sched({}), sched({ id: 2, status: "waiting", waiting_reason: "ams_power_required" }), sched({ id: 3, status: "running" }), sched({ id: 4, status: "done" })];
+      return [sched({}), sched({ id: 2, status: "waiting", waiting_reason: "ams_power_required" }), sched({ id: 3, status: "running" }), sched({ id: 4, status: "done" }), sched({ id: 5, status: "failed", error_code: "ams_power_required" })];
     return [];
   });
   deleteMock.mockReset().mockResolvedValue({});
@@ -37,8 +37,8 @@ describe("ScheduledDryingsList", () => {
       </QueryClientProvider>,
     );
     const rows = await screen.findAllByTestId("dry-schedule");
-    expect(rows).toHaveLength(3);
-    expect(screen.getByText("Waiting for AMS power")).toBeInTheDocument();
+    expect(rows).toHaveLength(4);
+        expect(screen.getAllByText("Waiting for AMS power")).toHaveLength(2);
     const cancels = screen.getAllByRole("button", { name: "Cancel" });
     expect(cancels).toHaveLength(2);
     fireEvent.click(cancels[0]);

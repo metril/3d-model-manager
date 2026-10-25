@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-const LIVE = new Set(["pending", "waiting", "running"]);
+const LIVE = new Set(["pending", "waiting", "running", "failed"]);
 
 function Row({ s, printerName, showPrinter }: { s: ScheduledDrying; printerName: string; showPrinter: boolean }) {
   const { t } = useTranslation();
@@ -18,6 +18,10 @@ function Row({ s, printerName, showPrinter }: { s: ScheduledDrying; printerName:
   const cancel = useCancelSchedule();
   const when = s.start_after ? new Date(s.start_after).toLocaleString() : t("drying.asap");
   const reason = s.status === "waiting" && s.waiting_reason ? t(`drying.waiting.${s.waiting_reason}`, { defaultValue: s.waiting_reason }) : null;
+  const failure =
+    s.status === "failed" && s.error_code
+      ? t(`drying.waiting.${s.error_code}`, { defaultValue: t(`drying.failure.${s.error_code}`, { defaultValue: s.error_code }) })
+      : null;
   return (
     <li className="flex flex-wrap items-center gap-2 text-sm" data-testid="dry-schedule">
       {showPrinter ? <span className="font-medium">{printerName}</span> : null}
@@ -29,7 +33,8 @@ function Row({ s, printerName, showPrinter }: { s: ScheduledDrying; printerName:
       <Badge variant="secondary">{t(`drying.state.${s.status}`)}</Badge>
       {s.source !== "manual" ? <Badge variant="outline">{t(`drying.list.source.${s.source}`)}</Badge> : null}
       {reason ? <span className="text-xs text-muted-foreground">{reason}</span> : null}
-      {s.status !== "running" && canPrinter(s.printer_id, "control") ? (
+      {failure ? <span className="text-xs text-destructive">{failure}</span> : null}
+      {(s.status === "pending" || s.status === "waiting") && canPrinter(s.printer_id, "control") ? (
         <Button type="button" size="xs" variant="ghost" className="ml-auto" disabled={cancel.isPending} onClick={() => cancel.mutate(s)}>
           {t("drying.cancel")}
         </Button>
