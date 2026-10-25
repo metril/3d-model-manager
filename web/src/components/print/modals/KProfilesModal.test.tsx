@@ -292,7 +292,7 @@ describe("SlotConfigDialog K-profile picker", () => {
 
 describe("selectIds", () => {
   it("maps external spools to tray 0/1 and AMS trays to local ids", async () => {
-    const { selectIds } = await import("./KProfilesModal");
+    const { selectIds } = await import("./kprofileUtils");
     expect(selectIds(tray({ ams_unit: 255, tray: 254, slot: 254 }))).toEqual({ ams_id: 255, tray_id: 0 });
     expect(selectIds(tray({ ams_unit: 255, tray: 255, slot: 255 }))).toEqual({ ams_id: 255, tray_id: 1 });
     expect(selectIds(tray({ ams_unit: 1, tray: 2, slot: 6 }))).toEqual({ ams_id: 1, tray_id: 2 });

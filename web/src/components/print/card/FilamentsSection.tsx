@@ -18,7 +18,8 @@ import { normalizeHex } from "@/components/ui/filament-chip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { AmsRenameDialog } from "./AmsRenameDialog";
-import { KProfilesModal, printerNozzle } from "@/components/print/modals/KProfilesModal";
+import { KProfilesModal } from "@/components/print/modals/KProfilesModal";
+import { printerNozzle } from "@/components/print/modals/kprofileUtils";
 import { SlotConfigDialog } from "./SlotConfigDialog";
 import { hasBackup, unitLabel } from "./ams";
 import { DryChip } from "./DryChip";

@@ -7,7 +7,7 @@ import { useKProfiles, useSelectKProfile } from "@/api/kprofiles";
 import { useConfigureSlot, useResetSlotDevice } from "@/api/printerOps";
 import type { AmsTray } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { selectIds } from "@/components/print/modals/KProfilesModal";
+import { selectIds } from "@/components/print/modals/kprofileUtils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
