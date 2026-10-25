@@ -101,7 +101,9 @@ LAN Bambu printer), `db` (Postgres 16), and `redis`. `beat`, `printerd`,
 `virtual-printer` and the sidecars idle harmlessly when their features are off
 in Settings — see "Scheduled scan" and "Printer integration" below. The
 sidecars are **always-on**: they cost RAM (the slicer is capped at 4 GiB) and
-disk (the obico-ml image is large). Turning one off in **Settings → Server**
+disk (the obico-ml image is large; Obico ships no ready image, so the release
+workflow builds upstream's `ml_api` from a pinned commit in `compose.obico.yaml`
+and publishes `ghcr.io/metril/3d-model-manager-obico-ml`). Turning one off in **Settings → Server**
 stops the app using it, not the container; run `docker compose stop slicer
 obico-ml` to reclaim the resources.
 
