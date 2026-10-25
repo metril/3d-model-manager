@@ -36,6 +36,7 @@ async def _out(db: AsyncSession, request: Request, p: OidcProvider) -> OidcProvi
         auto_create_users=p.auto_create_users,
         link_by_email=p.link_by_email,
         enabled=p.enabled,
+        trusts_idp_mfa=p.trusts_idp_mfa,
         callback_url=f"{base}/api/auth/oidc/{p.slug}/callback",
     )
 

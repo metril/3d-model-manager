@@ -3,7 +3,7 @@
 import secrets
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import APIRouter, Cookie, Depends, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import OidcProvider
 from app.services import oidc as svc
+from app.services import two_factor
 from app.services.server_config import cookie_secure, get_server_config, public_origin
 
 BIND_COOKIE = "tdmm_oidc"
@@ -119,6 +120,26 @@ async def callback(
         return failure
     finally:
         await redis.aclose()
+    if not provider.trusts_idp_mfa:
+        st = await two_factor.status_for(db, user)
+        if st.enabled:
+            try:
+                await two_factor.guard(user.id)
+            except HTTPException:
+                return _fail("2fa_locked")
+            token = await two_factor.issue_token(
+                db,
+                two_factor.OIDC_2FA,
+                user.id,
+                two_factor.PRE_AUTH_TTL,
+                {"return_to": return_to},
+            )
+            await db.commit()
+            step = RedirectResponse(
+                f"/login#step=2fa&token={token}&methods={','.join(st.methods)}", status_code=302
+            )
+            step.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
+            return step
     response = RedirectResponse(return_to, status_code=302)
     response.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
     await start_session(db, response, user, request)

@@ -112,6 +112,7 @@ class OidcProviderOut(BaseModel):
     auto_create_users: bool
     link_by_email: bool
     enabled: bool
+    trusts_idp_mfa: bool
     callback_url: str
 
 
@@ -128,6 +129,7 @@ class OidcProviderCreateIn(BaseModel):
     auto_create_users: bool = False
     link_by_email: bool = False
     enabled: bool = True
+    trusts_idp_mfa: bool = False
 
     _v_url = field_validator("discovery_url")(_https)
 
@@ -145,6 +147,7 @@ class OidcProviderPatchIn(BaseModel):
     auto_create_users: bool | None = None
     link_by_email: bool | None = None
     enabled: bool | None = None
+    trusts_idp_mfa: bool | None = None
 
     @field_validator("discovery_url")
     @classmethod

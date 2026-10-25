@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm, require_session
 from app.db import get_db
-from app.models import Group, GroupMember, Printer, PrinterAccess, User
+from app.models import AuditLog, Group, GroupMember, Printer, PrinterAccess, User
 from app.models import Session as SessionModel
 from app.models.enums import MembershipSource
 from app.schemas.admin import (
@@ -24,6 +24,7 @@ from app.schemas.admin import (
     UserPatchIn,
 )
 from app.security import hash_password
+from app.services import two_factor
 from app.services.permissions import load_grants
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_perm("admin"))])
@@ -308,3 +309,28 @@ async def put_printer_access(
         db.add(PrinterAccess(group_id=group.id, **r.model_dump()))
     await db.commit()
     return await _group_out(db, group)
+
+
+@router.post("/users/{user_id}/2fa/reset", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_user_2fa(
+    user_id: int,
+    ctx: AuthContext = Depends(require_session),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Remove every second factor for ``user_id`` (lost device). Another admin
+    must do it: an admin cannot reset their own."""
+    if user_id == ctx.user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ask another admin to reset your 2FA")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+    await two_factor.wipe_user_2fa(db, user)
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            action="user.2fa_reset",
+            payload={"target_user_id": user_id},
+        )
+    )
+    await db.commit()

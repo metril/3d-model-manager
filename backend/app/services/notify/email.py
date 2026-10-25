@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import smtplib
-import ssl
 from email.message import EmailMessage
 
 import httpx
 
+from app.services.mailer import MailError, from_header, smtp_deliver
 from app.services.notify.base import Message, ProviderError, field, need
 
 
@@ -14,7 +13,14 @@ class Email:
     label = "Email (SMTP)"
     supports_photo = True
     fields = [
-        field("host", "SMTP host", required=True),
+        field(
+            "use_server_smtp",
+            "Use server SMTP (Settings -> Server)",
+            type="select",
+            options=["false", "true"],
+            default="false",
+        ),
+        field("host", "SMTP host"),
         field("port", "Port", type="number", default="587"),
         field(
             "security",
@@ -25,36 +31,60 @@ class Email:
         ),
         field("username", "Username"),
         field("password", "Password", secret=True),
-        field("from_addr", "From", required=True),
+        field("from_addr", "From"),
         field("to_addr", "To (comma separated)", required=True),
     ]
 
     def send(self, config: dict, msg: Message, client: httpx.Client | None = None) -> None:
+        if str(config.get("use_server_smtp") or "").lower() in ("true", "1", "yes"):
+            self._send_server(config, msg)
+            return
         host, from_addr, to_addr = need(config, "host", "from_addr", "to_addr")
         try:
             port = int(str(config.get("port") or 587))
         except ValueError as exc:
             raise ProviderError("port must be a number") from exc
-        security = str(config.get("security") or "starttls")
-        mail = EmailMessage()
-        mail["Subject"] = msg.title
-        mail["From"] = from_addr
-        mail["To"] = to_addr
-        mail.set_content(msg.body)
-        if msg.photo:
-            mail.add_attachment(msg.photo, maintype="image", subtype="jpeg", filename="photo.jpg")
+        mail = _compose(msg, from_addr, to_addr)
         try:
-            if security == "ssl":
-                smtp = smtplib.SMTP_SSL(
-                    host, port, timeout=15, context=ssl.create_default_context()
-                )
-            else:
-                smtp = smtplib.SMTP(host, port, timeout=15)
-            with smtp:
-                if security == "starttls":
-                    smtp.starttls(context=ssl.create_default_context())
-                if config.get("username"):
-                    smtp.login(str(config["username"]), str(config.get("password") or ""))
-                smtp.send_message(mail)
-        except (smtplib.SMTPException, OSError) as exc:
-            raise ProviderError(f"SMTP failed: {type(exc).__name__}") from exc
+            smtp_deliver(
+                mail,
+                host=host,
+                port=port,
+                security=str(config.get("security") or "starttls"),
+                username=str(config["username"]) if config.get("username") else None,
+                password=str(config.get("password") or ""),
+            )
+        except MailError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    @staticmethod
+    def _send_server(config: dict, msg: Message) -> None:
+        from app.services.server_config import current_sync
+
+        (to_addr,) = need(config, "to_addr")
+        cfg = current_sync().smtp
+        if not cfg.configured:
+            raise ProviderError("server SMTP is not configured")
+        mail = _compose(msg, from_header(cfg), to_addr)
+        try:
+            smtp_deliver(
+                mail,
+                host=cfg.host,
+                port=cfg.port,
+                security=cfg.security,
+                username=cfg.username or None,
+                password=cfg.password.get_secret_value() if cfg.password else None,
+            )
+        except MailError as exc:
+            raise ProviderError(str(exc)) from exc
+
+
+def _compose(msg: Message, from_addr: str, to_addr: str) -> EmailMessage:
+    mail = EmailMessage()
+    mail["Subject"] = msg.title
+    mail["From"] = from_addr
+    mail["To"] = to_addr
+    mail.set_content(msg.body)
+    if msg.photo:
+        mail.add_attachment(msg.photo, maintype="image", subtype="jpeg", filename="photo.jpg")
+    return mail

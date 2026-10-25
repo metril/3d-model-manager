@@ -8,9 +8,11 @@ import contextlib
 import json
 import time
 
+import anyio
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm
@@ -28,11 +30,13 @@ from app.schemas.settings import (
     SlicerTestOut,
     VpStatusOut,
 )
-from app.services import obico
+from app.services import mailer, obico
 from app.services.server_config import (
     ENV_SEED,
+    SECRET_MASK,
     ServerConfig,
     cookie_secure,
+    flat,
     get_server_config,
     ignored_env,
     migrate_legacy_slicer,
@@ -86,13 +90,15 @@ async def put_server_settings(
 ) -> ServerSettingsOut:
     await migrate_legacy_slicer(db)
     old = await get_server_config(db)
-    new = await set_server_config(
-        db, ServerConfig.model_validate(payload.model_dump()), commit=False
-    )
+    incoming = ServerConfig.model_validate(payload.model_dump())
+    pw = incoming.smtp.password
+    if pw is not None and pw.get_secret_value() == SECRET_MASK:
+        incoming.smtp.password = old.smtp.password  # "***" = keep the stored secret
+    new = await set_server_config(db, incoming, commit=False)
+    fo, fn = flat(old), flat(new)
+    # The SMTP password never enters the audit diff -- only that it changed.
     changed = {
-        f: [getattr(old, f), getattr(new, f)]
-        for f in ServerConfig.model_fields
-        if getattr(old, f) != getattr(new, f)
+        f: ([None, None] if f == "smtp.password" else [fo[f], fn[f]]) for f in fn if fo[f] != fn[f]
     }
     db.add(
         AuditLog(
@@ -105,6 +111,34 @@ async def put_server_settings(
     await db.commit()
     apply_level(new.log_level)
     return await _out(db, request)
+
+
+class SmtpTestIn(BaseModel):
+    to: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
+
+
+class SmtpTestOut(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+@router.post("/smtp/test", response_model=SmtpTestOut)
+async def test_smtp(payload: SmtpTestIn, db: AsyncSession = Depends(get_db)) -> SmtpTestOut:
+    """Send a test message synchronously through the SAVED server SMTP."""
+    cfg = (await get_server_config(db)).smtp
+    if not cfg.configured:
+        return SmtpTestOut(ok=False, error="not_configured")
+    try:
+        await anyio.to_thread.run_sync(
+            mailer.deliver,
+            cfg,
+            payload.to,
+            "SMTP test",
+            "This is a test message from your server. SMTP is working.",
+        )
+    except mailer.MailError as exc:
+        return SmtpTestOut(ok=False, error=str(exc))
+    return SmtpTestOut(ok=True)
 
 
 async def _probe(url: str, timeout: float) -> tuple[bool, str, int | None]:

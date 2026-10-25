@@ -7,8 +7,10 @@ from sqlalchemy import (
     ARRAY,
     BigInteger,
     Boolean,
+    CheckConstraint,
     ForeignKey,
     Identity,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -48,6 +50,7 @@ class User(Base):
     oidc_issuer: Mapped[str | None] = mapped_column(String, nullable=True)
     oidc_subject: Mapped[str | None] = mapped_column(String, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    email_otp_enabled: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
 
 
 class Session(Base):
@@ -155,4 +158,74 @@ class OidcProvider(Base):
     auto_create_users: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
     link_by_email: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default=true(), nullable=False)
+    # T6: the IdP enforces its own MFA, so skip our second factor for this provider.
+    trusts_idp_mfa: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class UserTotp(Base):
+    """A user's authenticator-app (TOTP) enrolment plus single-use backup codes."""
+
+    __tablename__ = "user_totp"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    secret_enc: Mapped[str] = mapped_column(String, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
+    # argon2 hashes of the unused backup codes.
+    backup_codes_json: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    # Highest TOTP time-step already accepted (replay guard).
+    last_totp_counter: Mapped[int] = mapped_column(
+        BigInteger, server_default=text("0"), nullable=False
+    )
+    enabled_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class UserOtpCode(Base):
+    """An emailed one-time code (argon2-hashed)."""
+
+    __tablename__ = "user_otp_codes"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"), nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, server_default=false(), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class AuthEphemeralToken(Base):
+    """Short-lived opaque token (sha256-hashed): pre-auth, TOTP setup, OIDC 2FA."""
+
+    __tablename__ = "auth_ephemeral_tokens"
+    __table_args__ = (
+        CheckConstraint("token_type IN ('pre_auth', 'totp_setup', 'oidc_2fa')", name="token_type"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    token_type: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    payload: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

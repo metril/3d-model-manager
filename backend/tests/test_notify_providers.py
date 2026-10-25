@@ -94,7 +94,7 @@ def test_callmebot_and_bark():
 def test_email_sends_with_attachment(monkeypatch):
     smtp = MagicMock()
     smtp.__enter__.return_value = smtp
-    monkeypatch.setattr("app.services.notify.email.smtplib.SMTP", MagicMock(return_value=smtp))
+    monkeypatch.setattr("app.services.mailer.smtplib.SMTP", MagicMock(return_value=smtp))
     cfg = {
         "host": "mx",
         "port": "587",
@@ -114,7 +114,7 @@ def test_email_failure_is_provider_error(monkeypatch):
     import smtplib
 
     monkeypatch.setattr(
-        "app.services.notify.email.smtplib.SMTP", MagicMock(side_effect=smtplib.SMTPException("x"))
+        "app.services.mailer.smtplib.SMTP", MagicMock(side_effect=smtplib.SMTPException("x"))
     )
     with pytest.raises(ProviderError, match="SMTP"):
         PROVIDERS["email"].send({"host": "h", "from_addr": "a", "to_addr": "b"}, MSG, None)
