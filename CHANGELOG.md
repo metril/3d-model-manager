@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/metril/3d-model-manager/compare/v0.5.0...v0.6.0) (2026-10-25)
+
+
+### Features
+
+* **status:** Obico server card, 3-stage test, unified service status ([edbfc96](https://github.com/metril/3d-model-manager/commit/edbfc960601e43e72830ca57cfad217a2c1a0d36))
+
+
+### Bug Fixes
+
+* **compose:** build and publish the Obico ML sidecar from upstream ([60451bf](https://github.com/metril/3d-model-manager/commit/60451bf6bee38fbcc011b4b43d9b0edf6c80a9fc))
+* **compose:** build and publish the Obico ML sidecar from upstream ([0d81a6f](https://github.com/metril/3d-model-manager/commit/0d81a6f6dba1418b721e01f1f6e5052ebbe50b69))
+* **web:** provide TooltipProvider app-wide ([e722c3f](https://github.com/metril/3d-model-manager/commit/e722c3f69da363482b093610e9f49ffd78e98715))
+* **web:** provide TooltipProvider app-wide so Settings Server tab renders ([85ab6e3](https://github.com/metril/3d-model-manager/commit/85ab6e372260ae6607eb82ed520ab1f3c9030f7f))
+
 ## [0.5.0](https://github.com/metril/3d-model-manager/compare/v0.4.0...v0.5.0) (2026-10-25)
 
 
