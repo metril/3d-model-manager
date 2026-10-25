@@ -650,6 +650,10 @@ export interface PrinterCapabilities {
   max_nozzle?: number | null;
   ams_drying: boolean;
   verified: boolean;
+  /** T3: xcam modules this model reports (print-option rows). */
+  xcam_modules?: string[];
+  sd_browser?: boolean;
+  sd_print?: boolean;
 }
 
 export interface PrinterCreate {
@@ -851,10 +855,13 @@ export interface PrinterStatusOut {
   dev_mode?: boolean | null;
   dev_mode_reason?: string | null;
   last_report_at?: string | null;
+  awaiting_plate_clear?: boolean;
+  print_options?: PrintOptions | null;
 }
 
 export interface AmsUnit {
   id: number;
+  label?: string | null;
   humidity: number | null;
   temp: number | null;
   serial: string | null;
@@ -2166,4 +2173,51 @@ export interface TimelapseJobState {
   state: "pending" | "running" | "done" | "error";
   error: string | null;
   filename: string | null;
+}
+
+// ---- T3 printer ops ----
+export type XcamSensitivity = "low" | "medium" | "high" | "never_halt";
+export interface XcamState {
+  enable: boolean | null;
+  /** The printer reports only low|medium|high; `never_halt` is local-only. */
+  sensitivity?: XcamSensitivity | null;
+}
+export interface PrintOptions {
+  xcam?: Record<string, XcamState>;
+  print_halt?: boolean | null;
+  auto_recovery?: boolean | null;
+  auto_switch_filament?: boolean | null;
+}
+export type PrintOptionKey = "auto_recovery" | "auto_switch_filament";
+
+export interface SlotConfigIn {
+  tray_info_idx: string;
+  tray_type: string;
+  sub_brand: string;
+  /** RRGGBB[AA] without "#". */
+  color: string;
+  nozzle_min: number;
+  nozzle_max: number;
+  apply_device: boolean;
+}
+
+export interface RemoteFile {
+  name: string;
+  /** Full path on the SD card, e.g. "/model/a.3mf". */
+  path: string;
+  size: number | null;
+  mtime: string | null;
+  is_dir: boolean;
+}
+export interface FileStorage {
+  total?: number | null;
+  used?: number | null;
+  free?: number | null;
+  source?: string | null;
+  present?: boolean | null;
+}
+export type SlotDeviceStatus = "applied" | "pending" | "skipped" | "failed";
+export interface SlotConfigOut {
+  trays: unknown[];
+  device: { status: SlotDeviceStatus; [k: string]: unknown };
 }

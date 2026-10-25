@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { archiveFileUrl, archiveSnapshotUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
+import { ArchiveToolpath } from "@/components/print/ArchiveToolpath";
 import { ArchiveEditor, PhotoGallery, VerdictCard } from "@/components/print/ArchiveExtras";
 import { TimelapseEditorDialog } from "@/components/print/TimelapseEditorDialog";
 import { PrintDialog } from "@/components/print/PrintDialog";
@@ -207,7 +208,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
           <TimelapseEditorDialog archive={archive} open={tlOpen} onOpenChange={setTlOpen} />
         </>
       ) : null}
-      {/* toolpathSlot: the G-code toolpath viewer mounts here (T8 follow-up). */}
+      {archive.has_file ? <ArchiveToolpath archiveId={archive.id} archivePlate={archive.plate} /> : null}
       {archive.has_file ? (
         <Button asChild variant="outline" size="sm">
           <a href={archiveFileUrl(archive.id)} download>
