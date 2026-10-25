@@ -208,7 +208,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
           <TimelapseEditorDialog archive={archive} open={tlOpen} onOpenChange={setTlOpen} />
         </>
       ) : null}
-      {archive.has_file ? <ArchiveToolpath archiveId={archive.id} /> : null}
+      {archive.has_file ? <ArchiveToolpath archiveId={archive.id} archivePlate={archive.plate} /> : null}
       {archive.has_file ? (
         <Button asChild variant="outline" size="sm">
           <a href={archiveFileUrl(archive.id)} download>

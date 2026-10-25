@@ -179,3 +179,24 @@ async def test_printer_side_visibility(
     r = await member_client.get(f"/api/printers/{p.id}/files/gcode", params={"path": "/a.3mf"})
     assert r.status_code in (403, 404)
     assert fake_adapter.downloads == []
+
+
+def test_accepts_gzip_qvalues():
+    from app.api.archive_gcode import _accepts_gzip
+
+    assert _accepts_gzip("gzip, deflate")
+    assert _accepts_gzip("br;q=1, gzip;q=0.5")
+    assert not _accepts_gzip("gzip;q=0")
+    assert not _accepts_gzip("identity")
+
+
+def test_chunks_on_close_runs_when_abandoned(tmp_path):
+    from app.api.archive_gcode import _chunks
+
+    f = tmp_path / "a.3mf"
+    f.write_bytes(_3mf({1: G1 * 10000}))
+    called = []
+    gen = _chunks(f, "Metadata/plate_1.gcode", False, lambda: called.append(1))
+    next(gen)
+    gen.close()  # client disconnect
+    assert called == [1]

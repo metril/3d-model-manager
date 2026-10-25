@@ -6,13 +6,13 @@ import { archiveGcodeUrl, useArchiveGcodePlates } from "@/api/archives";
 import { LazyGcodeToolpathViewer } from "@/components/gcode";
 import { Button } from "@/components/ui/button";
 
-export function ArchiveToolpath({ archiveId }: { archiveId: number }) {
+export function ArchiveToolpath({ archiveId, archivePlate }: { archiveId: number; archivePlate?: number | null }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [plate, setPlate] = useState<number | null>(null);
   const plates = useArchiveGcodePlates(archiveId, open);
   const list = plates.data ?? [];
-  const current = plate ?? list[0]?.plate;
+  const current = plate ?? list.find((p) => p.plate === archivePlate)?.plate ?? list[0]?.plate;
 
   return (
     <section className="space-y-2" data-testid="archive-toolpath">

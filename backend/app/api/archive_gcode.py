@@ -10,10 +10,11 @@ when the client accepts it.
 from __future__ import annotations
 
 import re
+import shutil
 import tempfile
 import zipfile
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 
 import anyio
@@ -62,7 +63,9 @@ def _plates(path: Path) -> dict[int, int]:
         return {}
 
 
-def _chunks(path: Path, member: str | None, gzip: bool) -> Iterator[bytes]:
+def _chunks(
+    path: Path, member: str | None, gzip: bool, on_close: Callable[[], None] | None = None
+) -> Iterator[bytes]:
     comp = zlib.compressobj(6, zlib.DEFLATED, 31) if gzip else None
     zf = zipfile.ZipFile(path) if member else None
     fh = zf.open(member) if zf and member else path.open("rb")
@@ -77,17 +80,43 @@ def _chunks(path: Path, member: str | None, gzip: bool) -> Iterator[bytes]:
         fh.close()
         if zf:
             zf.close()
+        if on_close:
+            on_close()
+
+
+def _accepts_gzip(header: str) -> bool:
+    for part in header.lower().split(","):
+        coding, _, params = part.partition(";")
+        if coding.strip() not in ("gzip", "*"):
+            continue
+        q = 1.0
+        for param in params.split(";"):
+            k, _, v = param.partition("=")
+            if k.strip() == "q":
+                try:
+                    q = float(v)
+                except ValueError:
+                    q = 0.0
+        if q > 0:
+            return True
+    return False
 
 
 def _stream(
-    request: Request, path: Path, member: str | None, background: BackgroundTask | None = None
+    request: Request,
+    path: Path,
+    member: str | None,
+    cleanup: Callable[[], None] | None = None,
 ) -> StreamingResponse:
-    gzip = "gzip" in request.headers.get("accept-encoding", "").lower()
+    gzip = _accepts_gzip(request.headers.get("accept-encoding", ""))
     headers = {"Vary": "Accept-Encoding", "Cache-Control": "private, max-age=300"}
     if gzip:
         headers["Content-Encoding"] = "gzip"
     return StreamingResponse(
-        _chunks(path, member, gzip), media_type=_MEDIA, headers=headers, background=background
+        _chunks(path, member, gzip, cleanup),
+        media_type=_MEDIA,
+        headers=headers,
+        background=BackgroundTask(cleanup) if cleanup else None,
     )
 
 
@@ -165,23 +194,24 @@ async def printer_file_gcode(
     local = tmp / "file"
 
     def cleanup() -> None:
-        local.unlink(missing_ok=True)
-        tmp.rmdir()
+        shutil.rmtree(tmp, ignore_errors=True)
 
     try:
         try:
             await anyio.to_thread.run_sync(adapter.download_file, remote, local)
         except FileNotFoundError as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found on printer") from e
+        except NotImplementedError as e:
+            raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "unsupported") from e
         except OSError as e:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, "printer download failed") from e
         if remote.lower().endswith(".gcode"):
-            return _stream(request, local, None, BackgroundTask(cleanup))
+            return _stream(request, local, None, cleanup)
         plates = await anyio.to_thread.run_sync(_plates, local)
         n = plate or (min(plates) if plates else 1)
         if n not in plates:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"no gcode for plate {n}")
-        return _stream(request, local, f"Metadata/plate_{n}.gcode", BackgroundTask(cleanup))
+        return _stream(request, local, f"Metadata/plate_{n}.gcode", cleanup)
     except BaseException:
         cleanup()
         raise

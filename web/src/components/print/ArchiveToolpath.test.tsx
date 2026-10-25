@@ -46,4 +46,17 @@ describe("ArchiveToolpath", () => {
     expect(screen.getByText(/no g-code toolpath/i)).toBeTruthy();
     expect(screen.queryByTestId("viewer")).toBeNull();
   });
+
+  it("defaults to the archive's printed plate", () => {
+    platesMock.mockReturnValue({
+      isPending: false,
+      data: [
+        { plate: 1, bytes: 10 },
+        { plate: 2, bytes: 20 },
+      ],
+    });
+    render(<ArchiveToolpath archiveId={3} archivePlate={2} />);
+    fireEvent.click(screen.getByRole("button", { name: /show toolpath/i }));
+    expect(screen.getByTestId("viewer").textContent).toBe("/g/3?plate=2");
+  });
 });
