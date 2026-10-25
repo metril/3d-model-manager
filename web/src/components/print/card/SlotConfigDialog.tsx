@@ -7,6 +7,7 @@ import { useKProfiles, useSelectKProfile } from "@/api/kprofiles";
 import { useConfigureSlot, useResetSlotDevice } from "@/api/printerOps";
 import type { AmsTray } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { selectIds } from "@/components/print/modals/KProfilesModal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -86,8 +87,7 @@ export function SlotConfigDialog({
       if (kprofiles && kChoice !== "keep") {
         const p = kList.data?.profiles.find((x) => String(x.cali_idx) === kChoice);
         await selectK.mutateAsync({
-          ams_id: unit,
-          tray_id: tray.tray ?? tray.slot,
+          ...selectIds(tray),
           cali_idx: kChoice === "default" ? -1 : (p?.cali_idx ?? -1),
           filament_id: p?.filament_id ?? MATERIALS[material].idx,
           nozzle_diameter: nozzle,

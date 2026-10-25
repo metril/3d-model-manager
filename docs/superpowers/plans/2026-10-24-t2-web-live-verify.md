@@ -10,3 +10,4 @@
 8. Configure slot with a K-profile chosen: slot saved, then profile selected. With a spool-stored profile, backend chains it (hint shown).
 9. Power-cycle the printer: `cali_idx` restored on first idle push (T2-be drift fixer).
 10. H2D: extruder tabs appear (dual_nozzle); fixture-only.
+11. External spool select: single-nozzle sends ams 255/tray 0 (wire 254); dual sends tray 0/1 (wire 254/255). Verify on H2D fixture.
