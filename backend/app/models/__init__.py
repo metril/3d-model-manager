@@ -42,7 +42,7 @@ from app.models.library import (
 from app.models.notify import NotificationChannel, NotificationLog, NotificationTemplate
 from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.overlay_token import OverlayToken
-from app.models.printing import PrintArchive, Printer, PrintJob
+from app.models.printing import AmsLabel, PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.sensors import PrinterSensorSample
 from app.models.slicing import PrintRecipe, SlicerProfile
@@ -84,6 +84,7 @@ __all__ = [
     "OidcProvider",
     "PendingImport",
     "Print",
+    "AmsLabel",
     "Printer",
     "PrinterAccess",
     "FailureDetection",

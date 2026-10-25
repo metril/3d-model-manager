@@ -72,6 +72,7 @@ class RemoteFile:
     name: str
     size: int | None
     mtime: datetime | None
+    is_dir: bool = False
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,10 @@ class PrinterPublicState:
     # and the enclosure door (only on models whose capabilities have a door).
     tray_now: int | None = None
     door_open: bool | None = None
+    # T3: xcam/print-option state, `{"xcam": {module: {"enable": bool,
+    # "sensitivity": str|None}}, "print_halt": bool|None,
+    # "auto_recovery": bool|None, "auto_switch_filament": bool|None}`.
+    print_options: dict = field(default_factory=dict)
 
 
 def public_state_from(merged: dict) -> PrinterPublicState:
@@ -284,4 +289,43 @@ class PrinterAdapter(ABC):
 
     def upload_file(self, remote: str, local: Path) -> None:
         """FTPS-upload ``local`` to ``remote`` on the printer's SD card (Q5)."""
+        raise NotImplementedError
+
+    # T3 printer ops.
+    def set_xcam(self, module: str, enable: bool, sensitivity: str) -> None:
+        """AI-detection module toggle; ``sensitivity`` low|medium|high|never_halt."""
+        raise NotImplementedError
+
+    def set_print_option(self, option: str, value: bool) -> None:
+        """``option`` is auto_recovery | auto_switch_filament."""
+        raise NotImplementedError
+
+    def ams_slot_configure(
+        self,
+        ams_id: int,
+        tray_id: int,
+        tray_info_idx: str,
+        tray_type: str,
+        sub_brand: str,
+        color: str,
+        nozzle_min: int,
+        nozzle_max: int,
+    ) -> None:
+        """Write filament settings into an AMS/external slot; ``color`` RRGGBBAA."""
+        raise NotImplementedError
+
+    def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
+        raise NotImplementedError
+
+    def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
+        """Start a print of a file already on the printer's SD card."""
+        raise NotImplementedError
+
+    def delete_file(self, path: str) -> None:
+        """Delete a file on the printer's SD card; raises ``OSError``."""
+        raise NotImplementedError
+
+    def storage_info(self) -> dict | None:
+        """``{"total": int|None, "free": int|None, "used": int|None, "source": str}``
+        or ``None`` when the printer can't tell."""
         raise NotImplementedError

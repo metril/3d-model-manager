@@ -12,9 +12,11 @@ the bambulabs_api client above -- see that module's docstring."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
@@ -178,6 +180,227 @@ def hms_action_payload(print_error: str, action: str, job_id: str | None) -> lis
     return None
 
 
+# -- T3 print options / AMS slot / SD helpers ---------------------------------
+ECHO_HOLD_S = 3.0  # ignore printer echoes of a value we just set (Studio's pattern)
+_CFG_SENS = {0: "low", 1: "medium", 2: "high"}
+# xcam `cfg` bitmask: [sens(2 bits), enabled(1 bit)] per detector, by start bit.
+_CFG_DETECTORS = {
+    "spaghetti_detector": 5,
+    "pileup_detector": 8,
+    "clump_detector": 11,
+    "airprint_detector": 14,
+}
+_XCAM_BOOLS = (
+    "first_layer_inspector",
+    "printing_monitor",
+    "buildplate_marker_detector",
+    "allow_skip_parts",
+)
+
+
+def xcam_payload(module: str, enable: bool, sensitivity: str) -> dict:
+    """OrcaSlicer ``xcam_control_set`` shape; ``print_halt`` is always true and
+    ``halt_print_sensitivity`` is omitted for ``never_halt``."""
+    body = {
+        "command": "xcam_control_set",
+        "sequence_id": "0",
+        "module_name": module,
+        "control": enable,
+        "enable": enable,
+        "print_halt": True,
+    }
+    if sensitivity and sensitivity != "never_halt":
+        body["halt_print_sensitivity"] = sensitivity
+    return {"xcam": body}
+
+
+def print_option_payload(option: str, value: bool) -> dict:
+    """``print.print_option`` (auto_recovery | auto_switch_filament)."""
+    return {"print": {"command": "print_option", "sequence_id": "0", option: value}}
+
+
+def parse_print_options(dump: dict) -> dict:
+    """Decode xcam (top-level or under ``print``) + print_option flags."""
+    xcam = dump.get("xcam")
+    if not isinstance(xcam, dict):
+        nested = dump.get("print")
+        xcam = nested.get("xcam") if isinstance(nested, dict) else None
+    modules: dict[str, dict] = {}
+    out: dict = {"xcam": modules, "print_halt": None, "auto_recovery": None,
+                 "auto_switch_filament": None}  # fmt: skip
+    if isinstance(xcam, dict):
+        cfg = xcam.get("cfg")
+        if isinstance(cfg, int) and not isinstance(cfg, bool):
+            for name, bit in _CFG_DETECTORS.items():
+                modules[name] = {
+                    "enable": bool((cfg >> (bit + 2)) & 1),
+                    "sensitivity": _CFG_SENS.get((cfg >> bit) & 0x3, "medium"),
+                }
+        for name in _XCAM_BOOLS:
+            if name in xcam:
+                modules[name] = {"enable": bool(xcam[name]), "sensitivity": None}
+        if "print_halt" in xcam:
+            out["print_halt"] = bool(xcam["print_halt"])
+        if "auto_recovery_step_loss" in xcam:
+            out["auto_recovery"] = bool(xcam["auto_recovery_step_loss"])
+    # AMS filament backup lives in bit 18 of the hex `print.cfg` string.
+    raw_cfg = _dump_get(dump, "cfg")
+    if isinstance(raw_cfg, str) and raw_cfg:
+        with contextlib.suppress(ValueError):
+            out["auto_switch_filament"] = bool((int(raw_cfg, 16) >> 18) & 1)
+    return out
+
+
+def apply_option_holds(parsed: dict, holds: dict, now: float) -> dict:
+    """Overlay still-fresh optimistic values (``holds``) over ``parsed``;
+    expired holds are dropped. ``holds`` keys: ``("xcam", module)`` ->
+    ``{"enable","sensitivity"}``, ``("opt", name)`` -> bool; values are
+    ``(payload, set_at)``."""
+    for key in [k for k, (_, at) in holds.items() if now - at > ECHO_HOLD_S]:
+        del holds[key]
+    for (kind, name), (val, _) in holds.items():
+        if kind == "xcam":
+            cur = parsed["xcam"].get(name) or {"enable": False, "sensitivity": None}
+            parsed["xcam"][name] = {
+                "enable": val["enable"],
+                "sensitivity": val["sensitivity"] or cur.get("sensitivity"),
+            }
+        else:
+            parsed[name] = val
+    return parsed
+
+
+def slot_wire_ids(ams_id: int, tray_id: int) -> tuple[int, int, int]:
+    """``(ams_id, tray_id, slot_id)`` as the printer expects them in
+    ``ams_filament_setting``: regular AMS = local tray, AMS-HT = single tray
+    (slot 0), external spool = global tray 254 on unit 255."""
+    if ams_id == 255:
+        return 255, 254, 0
+    if ams_id <= 3:
+        return ams_id, tray_id, tray_id
+    return ams_id, tray_id, 0
+
+
+def slot_configure_payload(
+    ams_id: int,
+    tray_id: int,
+    tray_info_idx: str,
+    tray_type: str,
+    sub_brand: str,
+    color: str,
+    nozzle_min: int,
+    nozzle_max: int,
+) -> dict:
+    a, t, slot = slot_wire_ids(ams_id, tray_id)
+    return {
+        "print": {
+            "command": "ams_filament_setting",
+            "ams_id": a,
+            "tray_id": t,
+            "slot_id": slot,
+            "tray_info_idx": tray_info_idx,
+            "tray_type": tray_type,
+            "tray_sub_brands": sub_brand,
+            "tray_color": color,
+            "nozzle_temp_min": nozzle_min,
+            "nozzle_temp_max": nozzle_max,
+            "sequence_id": "0",
+        }
+    }
+
+
+def slot_reset_payload(ams_id: int, tray_id: int) -> dict:
+    return slot_configure_payload(ams_id, tray_id, "", "", "", "00000000", 0, 0)
+
+
+def sd_project_file_payload(path: str, plate: int | None, use_ams: bool) -> dict:
+    """``project_file`` for a file already on the SD card (``path`` is the
+    normalised absolute path under the card root)."""
+    name = path.rsplit("/", 1)[-1]
+    stem = name[: -len(".gcode.3mf")] if name.lower().endswith(".gcode.3mf") else name[:-4]
+    return {
+        "print": {
+            "command": "project_file",
+            "param": f"Metadata/plate_{plate or 1}.gcode",
+            "file": name,
+            "url": f"file:///sdcard{path}",
+            "subtask_name": stem,
+            "md5": "",
+            "bed_type": "auto",
+            "timelapse": False,
+            # Calibrations follow BambuStudio's "auto" contract (not forced on).
+            "bed_leveling": False,
+            "auto_bed_leveling": 2,
+            "flow_cali": False,
+            "extrude_cali_flag": 2,
+            "extrude_cali_manual_mode": 0,
+            "nozzle_offset_cali": 0,
+            "vibration_cali": True,
+            "layer_inspect": False,
+            "use_ams": use_ams,
+            # No ams_mapping: the printer resolves the file's own mapping.
+            "sequence_id": "20000",
+        }
+    }
+
+
+_FREE_RE = re.compile(r"(\d+)\s*(?:bytes?\s*)?(?:free|available)", re.I)
+
+
+def _ftp_run(client, fn):
+    """Connect + login + PROT P on ``client.ftps``, run ``fn(ftps)``, always
+    close the socket. FTP 550 -> ``FileNotFoundError``; other FTP errors ->
+    ``OSError`` (type only: never echoes the access code). Tests monkeypatch
+    ``_build_ftp``."""
+    import ftplib
+
+    ftps = client.ftps
+    try:
+        ftps.connect(host=client.server_ip, port=client.port)
+        ftps.login(client.user, client.access_code)
+        ftps.prot_p()
+        return fn(ftps)
+    except ftplib.error_perm as e:
+        if str(e).startswith("550"):
+            raise FileNotFoundError("not found") from None
+        raise OSError("FTPS permission error") from None
+    except ftplib.Error as e:
+        raise OSError(f"FTPS {type(e).__name__}") from None
+    finally:
+        with contextlib.suppress(Exception):
+            ftps.close()
+
+
+def _ftp_commands(client, cmds: list[str]) -> list[str | None]:
+    """Run raw FTP control commands on one FTPS session (``None`` per command
+    that errored). Tests monkeypatch this."""
+    import ftplib
+
+    def run(ftps) -> list[str | None]:
+        out: list[str | None] = []
+        for c in cmds:
+            try:
+                out.append(ftps.sendcmd(c))
+            except (OSError, ftplib.Error):
+                out.append(None)
+        return out
+
+    return _ftp_run(client, run)
+
+
+def parse_storage(avbl: str | None, stat: str | None) -> dict | None:
+    """``AVBL`` -> ``213 <free bytes>``; ``STAT`` is free text (best effort)."""
+    if avbl and avbl.startswith("213"):
+        parts = avbl.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            return {"total": None, "used": None, "free": int(parts[1]), "source": "avbl"}
+    if stat:
+        m = _FREE_RE.search(stat)
+        if m:
+            return {"total": None, "used": None, "free": int(m.group(1)), "source": "stat"}
+    return None
+
+
 FTP_TIMEOUT_S = 30
 
 
@@ -253,7 +476,7 @@ def parse_list_line(line: str, now: datetime) -> RemoteFile | None:
                 mtime = datetime(y, mo, d, h, mi, s, tzinfo=UTC)
             except ValueError:
                 mtime = None
-    return RemoteFile(name=name, size=size, mtime=mtime)
+    return RemoteFile(name=name, size=size, mtime=mtime, is_dir=parts[0].startswith("d"))
 
 
 def _state_token(state) -> str | None:
@@ -565,6 +788,7 @@ class BambuLanAdapter(PrinterAdapter):
         self._handler: ReportHandler | None = None
         self._dump_sig: str | None = None
         self._report_at: str | None = None
+        self._opt_holds: dict[tuple[str, str], tuple[object, float]] = {}
 
     def _report_time(self, dump: dict) -> str:
         """ISO time the printer last REPORTED something: bumped only when the
@@ -635,6 +859,9 @@ class BambuLanAdapter(PrinterAdapter):
             "nozzle_mm": _nozzle_mm(dump),
             "tray_now": _tray_now(dump),
             "door_open": _door_open(dump, self.conn.model, self.conn.serial),
+            "print_options": apply_option_holds(
+                parse_print_options(dump), self._opt_holds, time.monotonic()
+            ),
         }
 
     def merge_report(self, prev: dict | None, report: dict) -> dict:
@@ -859,6 +1086,50 @@ class BambuLanAdapter(PrinterAdapter):
         # command ourselves (project_file_payload) to carry both from spec.
         _publish_raw(p, project_file_payload(spec))
 
+    # -- T3 print options / slots / SD ---------------------------------
+    def set_xcam(self, module: str, enable: bool, sensitivity: str) -> None:
+        _publish_raw(self._client(), xcam_payload(module, enable, sensitivity))
+        sens = None if sensitivity == "never_halt" else sensitivity
+        self._opt_holds[("xcam", module)] = (
+            {"enable": enable, "sensitivity": sens},
+            time.monotonic(),
+        )
+
+    def set_print_option(self, option: str, value: bool) -> None:
+        _publish_raw(self._client(), print_option_payload(option, value))
+        self._opt_holds[("opt", option)] = (value, time.monotonic())
+
+    def ams_slot_configure(
+        self,
+        ams_id: int,
+        tray_id: int,
+        tray_info_idx: str,
+        tray_type: str,
+        sub_brand: str,
+        color: str,
+        nozzle_min: int,
+        nozzle_max: int,
+    ) -> None:
+        _publish_raw(
+            self._client(),
+            slot_configure_payload(
+                ams_id, tray_id, tray_info_idx, tray_type, sub_brand, color, nozzle_min, nozzle_max
+            ),
+        )
+
+    def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
+        _publish_raw(self._client(), slot_reset_payload(ams_id, tray_id))
+
+    def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
+        _publish_raw(self._client(), sd_project_file_payload(path, plate, use_ams))
+
+    def delete_file(self, path: str) -> None:
+        _ftp_run(_build_ftp(self.conn), lambda ftps: ftps.delete(path))
+
+    def storage_info(self) -> dict | None:
+        res = _ftp_commands(_build_ftp(self.conn), ["AVBL", "STAT"])
+        return parse_storage(res[0], res[1] if len(res) > 1 else None)
+
     # -- files (FTPS) --------------------------------------------------
     # The vendored client's connect_and_run swallows exceptions and returns
     # None, so None means failure. Messages never include the access code.
@@ -874,10 +1145,11 @@ class BambuLanAdapter(PrinterAdapter):
         return names
 
     def download_file(self, remote: str, dest: Path) -> None:
-        buf = _build_ftp(self.conn).download_file(remote)
-        if buf is None:
-            raise OSError(f"FTPS download {remote} failed")
-        Path(dest).write_bytes(buf.getvalue())
+        with Path(dest).open("wb") as fh:
+            _ftp_run(
+                _build_ftp(self.conn),
+                lambda ftps: ftps.retrbinary(f"RETR {remote}", fh.write, blocksize=524288),
+            )
 
     def list_files(self, path: str) -> list[RemoteFile]:
         res = _build_ftp(self.conn).list_directory(path)

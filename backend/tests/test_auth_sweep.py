@@ -96,6 +96,7 @@ _PATH_PARAM_VALUES = {
     # P5 spool tray plan: spools CRUD + AMS slot assignment.
     "spool_id": "1",
     "unit": "0",
+    "ams_id": "0",
     "slot": "0",
     # P8 Task 7: Home Assistant entity links.
     "link_id": "1",

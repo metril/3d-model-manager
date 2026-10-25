@@ -157,6 +157,116 @@ def _v_load(args: dict) -> dict:
     return {"tray": _num(args, "tray", 0, 255, integer=True)}
 
 
+XCAM_MODULES = (
+    "spaghetti_detector",
+    "first_layer_inspector",
+    "printing_monitor",
+    "buildplate_marker_detector",
+    "allow_skip_parts",
+    "pileup_detector",
+    "clump_detector",
+    "airprint_detector",
+)
+XCAM_SENSITIVITIES = ("low", "medium", "high", "never_halt")
+PRINT_OPTIONS = ("auto_recovery", "auto_switch_filament")
+_HEX = re.compile(r"[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?")
+
+
+def _v_xcam(args: dict) -> dict:
+    return {
+        "module": _choice(args, "module", XCAM_MODULES),
+        "enable": _bool(args, "enable"),
+        "sensitivity": _choice({"s": args.get("sensitivity", "medium")}, "s", XCAM_SENSITIVITIES),
+    }
+
+
+def _v_print_option(args: dict) -> dict:
+    return {"option": _choice(args, "option", PRINT_OPTIONS), "value": _bool(args, "value")}
+
+
+def _ams_id(args: dict) -> int:
+    ams_id = _num(args, "ams_id", 0, 255, integer=True)
+    if not (ams_id <= 3 or 128 <= ams_id <= 135 or ams_id == 255):
+        raise CommandError("invalid", "ams_id must be 0-3, 128-135 or 255")
+    return ams_id
+
+
+def _tray_id(args: dict, ams_id: int) -> int:
+    if ams_id == 255:
+        return _num(args, "tray_id", 254, 254, integer=True)
+    return _num(args, "tray_id", 0, 3, integer=True)
+
+
+def normalize_color(color: object) -> str:
+    """``RRGGBB[AA]`` (optional ``#``) -> UPPERCASE ``RRGGBBAA`` (P1S firmware
+    reads lowercase hex as zeros)."""
+    c = str(color or "").strip().lstrip("#")
+    if not _HEX.fullmatch(c):
+        raise CommandError("invalid", "color must be RRGGBB or RRGGBBAA hex")
+    return (c + "FF" if len(c) == 6 else c).upper()
+
+
+def _short_str(args: dict, key: str, limit: int) -> str:
+    v = args.get(key, "")
+    if not isinstance(v, str) or len(v) > limit:
+        raise CommandError("invalid", f"{key} must be a string of at most {limit} chars")
+    return v
+
+
+def _v_slot_configure(args: dict) -> dict:
+    ams_id = _ams_id(args)
+    lo = _num(args, "nozzle_min", 0, 350, integer=True)
+    hi = _num(args, "nozzle_max", 0, 350, integer=True)
+    if lo > hi:
+        raise CommandError("invalid", "nozzle_min must not exceed nozzle_max")
+    tray_type = _short_str(args, "tray_type", 32).strip()
+    if not tray_type:
+        raise CommandError("invalid", "tray_type is required")
+    return {
+        "ams_id": ams_id,
+        "tray_id": _tray_id(args, ams_id),
+        "tray_info_idx": _short_str(args, "tray_info_idx", 32),
+        "tray_type": tray_type,
+        "sub_brand": _short_str(args, "sub_brand", 64),
+        "color": normalize_color(args.get("color")),
+        "nozzle_min": lo,
+        "nozzle_max": hi,
+    }
+
+
+def _v_slot_reset(args: dict) -> dict:
+    ams_id = _ams_id(args)
+    return {"ams_id": ams_id, "tray_id": _tray_id(args, ams_id)}
+
+
+def normalize_sd_path(path: object) -> str:
+    """Printer-SD path: absolute, no ``..``/NUL/backslash segments, collapsed
+    slashes. Raises ``CommandError('invalid')``."""
+    if not isinstance(path, str) or not path.startswith("/") or len(path) > 512:
+        raise CommandError("invalid", "path must be absolute")
+    if "\x00" in path or "\\" in path:
+        raise CommandError("invalid", "path contains illegal characters")
+    parts = [p for p in path.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        raise CommandError("invalid", "path must not contain '..'")
+    return "/" + "/".join(parts)
+
+
+def is_sd_printable(path: str) -> bool:
+    low = path.lower()
+    return low.endswith(".3mf") or low.endswith(".gcode.3mf")
+
+
+def _v_sd_print(args: dict) -> dict:
+    path = normalize_sd_path(args.get("path"))
+    if path == "/" or not is_sd_printable(path):
+        raise CommandError("invalid", "only .3mf / .gcode.3mf files can be printed from the SD")
+    plate = args.get("plate")
+    if plate is not None:
+        plate = _num({"plate": plate}, "plate", 1, 99, integer=True)
+    return {"path": path, "plate": plate, "use_ams": _bool(args, "use_ams", True)}
+
+
 @dataclass(frozen=True)
 class Spec:
     validate: Callable[[dict], dict]
@@ -198,6 +308,29 @@ DISPATCH: dict[str, Spec] = {
     ),
     "load_filament": Spec(_v_load, lambda a, x: a.load_filament(x["tray"]), refuse_printing=True),
     "unload_filament": Spec(_v_none, lambda a, _: a.unload_filament(), refuse_printing=True),
+    "set_xcam": Spec(_v_xcam, lambda a, x: a.set_xcam(x["module"], x["enable"], x["sensitivity"])),
+    "set_print_option": Spec(
+        _v_print_option, lambda a, x: a.set_print_option(x["option"], x["value"])
+    ),
+    "ams_slot_configure": Spec(
+        _v_slot_configure,
+        lambda a, x: a.ams_slot_configure(
+            x["ams_id"],
+            x["tray_id"],
+            x["tray_info_idx"],
+            x["tray_type"],
+            x["sub_brand"],
+            x["color"],
+            x["nozzle_min"],
+            x["nozzle_max"],
+        ),
+    ),
+    "ams_slot_reset": Spec(_v_slot_reset, lambda a, x: a.ams_slot_reset(x["ams_id"], x["tray_id"])),
+    "sd_print": Spec(
+        _v_sd_print,
+        lambda a, x: a.start_sd_print(x["path"], x["plate"], x["use_ams"]),
+        refuse_printing=True,
+    ),
 }
 ALWAYS_ALLOWED = frozenset({"pause", "resume", "stop"})  # attempted even if dev mode is off
 

@@ -27,10 +27,27 @@ class Capabilities:
     max_bed: int | None = None
     max_nozzle: int | None = None
     ams_drying: bool = False
+    # T3: xcam modules the model exposes; SD browser / print-from-SD.
+    xcam_modules: tuple[str, ...] = ()
+    sd_browser: bool = False
+    sd_print: bool = False
     verified: bool = False
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["xcam_modules"] = list(self.xcam_modules)
+        return d
+
+
+_XCAM_BASIC = ("spaghetti_detector", "first_layer_inspector", "allow_skip_parts")
+_XCAM_X1 = (
+    "spaghetti_detector",
+    "first_layer_inspector",
+    "printing_monitor",
+    "buildplate_marker_detector",
+    "allow_skip_parts",
+)
+_XCAM_ALL = (*_XCAM_X1, "pileup_detector", "clump_detector", "airprint_detector")
 
 
 def _caps(key: str, **kw) -> Capabilities:
@@ -38,10 +55,47 @@ def _caps(key: str, **kw) -> Capabilities:
 
 
 CAPABILITIES: dict[str, Capabilities] = {
-    "a1mini": _caps("a1mini", camera="a1", max_bed=80, max_nozzle=300, verified=True),
-    "a1": _caps("a1", aux_fan=True, camera="a1", max_bed=100, max_nozzle=300),
-    "p1p": _caps("p1p", aux_fan=True, camera="a1", max_bed=100, max_nozzle=300),
-    "p1s": _caps("p1s", aux_fan=True, chamber_fan=True, camera="a1", max_bed=100, max_nozzle=300),
+    "a1mini": _caps(
+        "a1mini",
+        camera="a1",
+        max_bed=80,
+        max_nozzle=300,
+        xcam_modules=_XCAM_BASIC,
+        sd_browser=True,
+        sd_print=True,
+        verified=True,
+    ),
+    "a1": _caps(
+        "a1",
+        aux_fan=True,
+        camera="a1",
+        max_bed=100,
+        max_nozzle=300,
+        xcam_modules=_XCAM_BASIC,
+        sd_browser=True,
+        sd_print=True,
+    ),
+    "p1p": _caps(
+        "p1p",
+        aux_fan=True,
+        camera="a1",
+        max_bed=100,
+        max_nozzle=300,
+        xcam_modules=_XCAM_BASIC,
+        sd_browser=True,
+        sd_print=True,
+    ),
+    "p1s": _caps(
+        "p1s",
+        aux_fan=True,
+        chamber_fan=True,
+        camera="a1",
+        max_bed=100,
+        max_nozzle=300,
+        xcam_modules=_XCAM_BASIC,
+        sd_browser=True,
+        sd_print=True,
+    ),
     "x1": _caps(
         "x1",
         chamber_temp=True,
@@ -52,6 +106,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         lidar=True,
         max_bed=120,
         max_nozzle=300,
+        xcam_modules=_XCAM_X1,
+        sd_browser=True,
+        sd_print=True,
     ),
     "x1c": _caps(
         "x1c",
@@ -63,6 +120,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         lidar=True,
         max_bed=120,
         max_nozzle=300,
+        xcam_modules=_XCAM_X1,
+        sd_browser=True,
+        sd_print=True,
     ),
     "x1e": _caps(
         "x1e",
@@ -75,6 +135,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         lidar=True,
         max_bed=120,
         max_nozzle=320,
+        xcam_modules=_XCAM_X1,
+        sd_browser=True,
+        sd_print=True,
     ),
     "p2s": _caps(
         "p2s",
@@ -87,6 +150,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         max_bed=100,
         max_nozzle=300,
         ams_drying=True,
+        xcam_modules=_XCAM_ALL,
+        sd_browser=True,
+        sd_print=True,
     ),
     "h2s": _caps(
         "h2s",
@@ -100,6 +166,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         max_bed=120,
         max_nozzle=350,
         ams_drying=True,
+        xcam_modules=_XCAM_ALL,
+        sd_browser=True,
+        sd_print=True,
     ),
     "h2d": _caps(
         "h2d",
@@ -114,6 +183,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         max_bed=120,
         max_nozzle=350,
         ams_drying=True,
+        xcam_modules=_XCAM_ALL,
+        sd_browser=True,
+        sd_print=True,
     ),
     "h2dpro": _caps(
         "h2dpro",
@@ -128,6 +200,9 @@ CAPABILITIES: dict[str, Capabilities] = {
         max_bed=120,
         max_nozzle=350,
         ams_drying=True,
+        xcam_modules=_XCAM_ALL,
+        sd_browser=True,
+        sd_print=True,
     ),
 }
 

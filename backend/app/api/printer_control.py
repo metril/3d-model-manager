@@ -36,6 +36,7 @@ from app.printers import commands as cmds
 from app.printers.base import cmd_result_key, command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.gcode3mf import printable_objects
+from app.services import hooks
 from app.services.printer_state import read_state_async
 from app.services.storage_backends import resolve_backend_for_file
 
@@ -48,7 +49,17 @@ router = APIRouter(
 RESULT_WAIT_S = 3.0
 _POLL_S = 0.05
 _BODY = Body(default_factory=dict)
-_AUDITED = {"gcode", "jog", "extrude", "skip_objects"}
+_AUDITED = {
+    "gcode",
+    "jog",
+    "extrude",
+    "skip_objects",
+    "set_xcam",
+    "set_print_option",
+    "ams_slot_configure",
+    "ams_slot_reset",
+    "sd_print",
+}
 _TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
 
 
@@ -66,6 +77,10 @@ def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONRespo
         or (command == "set_airduct" and not caps.airduct)
     )
     if unsupported:
+        return _err(422, "unsupported", f"{command} is not supported on this model")
+    if (command == "set_xcam" and clean["module"] not in caps.xcam_modules) or (
+        command == "sd_print" and not (caps.sd_print and caps.sd_browser)
+    ):
         return _err(422, "unsupported", f"{command} is not supported on this model")
     if command == "set_temperature":
         cap = {"nozzle": caps.max_nozzle, "bed": caps.max_bed}.get(clean["target"])
@@ -175,6 +190,8 @@ _ROUTES = (
     ("calibrate", "calibrate", False),
     ("hms/clear", "clear_hms", False),
     ("hms/action", "hms_action", False),
+    ("xcam", "set_xcam", False),
+    ("print-option", "set_print_option", False),
 )
 for _path, _command, _admin in _ROUTES:
     router.add_api_route(
@@ -209,6 +226,46 @@ async def control_filament(
     if action not in ("load", "unload"):
         return _err(422, "invalid", "action must be load or unload")
     return await run_command(db, settings, ctx, printer, f"{action}_filament", body)
+
+
+# -- clear plate (T3) -------------------------------------------------------
+
+
+@router.post(
+    "/{printer_id}/clear-plate",
+    dependencies=[Depends(require_printer_access("control"))],
+)
+async def clear_plate(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> JSONResponse:
+    """Confirm the build plate is empty again (clears ``awaiting_plate_clear``).
+    400 ``not_awaiting`` unless the flag is set or the printer sits in
+    FINISH/FAILED."""
+    printer = await _get_or_404(db, printer_id)
+    if not printer.awaiting_plate_clear:
+        client = aioredis.Redis.from_url(settings.redis_url)
+        try:
+            state = await read_state_async(client, printer_id)
+        finally:
+            await client.aclose()
+        if (state or {}).get("gcode_state") not in ("FINISH", "FAILED"):
+            return _err(400, "not_awaiting", "the printer is not awaiting a plate clear")
+    printer.awaiting_plate_clear = False
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer.id,
+            action="clear_plate",
+            payload={},
+        )
+    )
+    await db.commit()
+    hooks.plate_cleared(printer_id, ctx.user.id)
+    return JSONResponse(status_code=200, content={"awaiting_plate_clear": False})
 
 
 # -- objects / skip ----------------------------------------------------------

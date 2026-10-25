@@ -1,4 +1,3 @@
-import io
 from types import SimpleNamespace
 
 import pytest
@@ -39,13 +38,36 @@ def test_bambu_list_dir_none_raises(monkeypatch):
     assert "secret" not in str(ei.value)
 
 
+def _ftps_stub(payload: bytes | None):
+    """Raw ftplib-style session: ``retrbinary`` streams ``payload`` to the
+    callback, or raises FTP 550 when ``payload`` is None (missing file)."""
+    import ftplib
+
+    def retrbinary(cmd, cb, blocksize=8192):
+        if payload is None:
+            raise ftplib.error_perm("550 secret: No such file")
+        for i in range(0, len(payload), 2):
+            cb(payload[i : i + 2])
+        return "226"
+
+    ftps = SimpleNamespace(
+        connect=lambda host, port: None,
+        login=lambda user, pw: None,
+        prot_p=lambda: None,
+        close=lambda: None,
+        retrbinary=retrbinary,
+    )
+    return SimpleNamespace(
+        ftps=ftps, server_ip="1.2.3.4", port=990, user="bblp", access_code="secret"
+    )
+
+
 def test_bambu_download_writes_dest_and_raises_on_none(monkeypatch, tmp_path):
-    stub = SimpleNamespace(download_file=lambda p: io.BytesIO(b"3mf"))
-    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: stub)
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _ftps_stub(b"3mf"))
     _adapter().download_file("/cache/x.3mf", tmp_path / "x")
     assert (tmp_path / "x").read_bytes() == b"3mf"
-    stub.download_file = lambda p: None
-    with pytest.raises(OSError) as ei:
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _ftps_stub(None))
+    with pytest.raises(FileNotFoundError) as ei:
         _adapter().download_file("/cache/x.3mf", tmp_path / "y")
     assert "secret" not in str(ei.value)
 
