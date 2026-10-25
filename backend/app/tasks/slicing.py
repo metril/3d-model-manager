@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -30,17 +31,19 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.importers.download import StagedFile
-from app.models import PrintRecipe, SlicerProfile
+from app.models import PrintRecipe, SliceJob, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, QueueState
 from app.models.library import File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
-from app.services import billing, derivatives, library, spool
+from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
 from app.services.print_plan import estimate_item_sync
 from app.services.server_config import get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
+    SlicerBusy,
+    SlicerCancelled,
     SlicerClient,
     SlicerError,
     SlicerUnavailable,
@@ -56,8 +59,27 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = QUEUE_MAX_ATTEMPTS
 
 
-@celery_app.task(name="app.tasks.slicing.slice_file")
-def slice_file(queue_entry_id: int) -> None:
+def queue_job_id(entry_id: int) -> str:
+    """The sidecar job id of a queue entry's slice (see `DELETE /jobs/{id}`)."""
+    return f"q{entry_id}"
+
+
+def slice_job_sidecar_id(job_id: uuid.UUID | str) -> str:
+    return f"sj-{job_id}"
+
+
+def _notify(event: str, payload: dict) -> None:
+    from app.services.notify.events import emit
+
+    emit(event, None, payload)
+
+
+def _publish(settings, **kwargs) -> None:
+    events.publish_slice_event_sync(settings.redis_url, **kwargs)
+
+
+@celery_app.task(name="app.tasks.slicing.slice_file", bind=True)
+def slice_file(self, queue_entry_id: int) -> None:
     """Claims the row in a short transaction (CAS: still `slicing`, stamp
     `slicing_started_at`), commits to release the row lock, then runs the
     HTTP slice with NO lock held -- a long-running slice must never block
@@ -73,6 +95,8 @@ def slice_file(queue_entry_id: int) -> None:
         if entry is None or entry.state != QueueState.SLICING:
             return
         entry.slicing_started_at = datetime.now(UTC)
+        entry.slice_task_id = getattr(self.request, "id", None)
+        entry.last_log = None
         session.commit()
 
     with base.sync_session() as session:
@@ -97,6 +121,20 @@ def slice_file(queue_entry_id: int) -> None:
 
         try:
             new_file_id = _slice(session, settings, client, entry)
+        except SlicerCancelled:
+            # The user cancelled (the API already moved the entry on); only
+            # touch it if it somehow still claims to be this very slice.
+            current = session.get(PrintQueueEntry, queue_entry_id, populate_existing=True)
+            if (
+                current is not None
+                and current.state == QueueState.SLICING
+                and current.slicing_started_at == claimed_at
+            ):
+                current.state = QueueState.FAILED
+                current.last_error = "cancelled"
+                current.slicing_started_at = None
+                session.commit()
+            return
         except SlicerUnavailable as exc:
             # Doesn't consume an attempt -- see module docstring.
             entry.last_error = str(exc)
@@ -107,11 +145,26 @@ def slice_file(queue_entry_id: int) -> None:
         except (SlicerError, ValueError) as exc:
             entry.attempts += 1
             entry.last_error = str(exc)
+            entry.last_log = getattr(exc, "log_tail", None)
             entry.state = (
                 QueueState.FAILED if entry.attempts >= MAX_ATTEMPTS else QueueState.WAITING
             )
             entry.slicing_started_at = None
+            terminal = entry.state == QueueState.FAILED
+            name = _entry_name(session, entry)
+            file_id = entry.file_id
             session.commit()
+            _publish(
+                settings,
+                state="failed" if terminal else "waiting",
+                queue_id=queue_entry_id,
+                file_id=file_id,
+            )
+            if terminal:
+                _notify(
+                    "slice_failed",
+                    {"name": name, "error": str(exc)[:300], "queue_id": queue_entry_id},
+                )
             return
 
         # Re-fetch (bypassing the identity map) right before writing the
@@ -135,6 +188,8 @@ def slice_file(queue_entry_id: int) -> None:
         current.sliced_file_id = new_file_id
         current.state = QueueState.READY
         current.slicing_started_at = None
+        current.last_error = None
+        current.last_log = None
         if current.cost_center_id is not None:
             est = estimate_item_sync(session, settings, current)
             billing.reserve(
@@ -144,14 +199,48 @@ def slice_file(queue_entry_id: int) -> None:
                 Decimal(str(est)) if est is not None else None,
                 user_id=current.created_by_user_id,
             )
+        done_payload = _done_payload(session, current.file_id, new_file_id, current.recipe_id)
+        done_payload["queue_id"] = current.id
+        file_id = current.file_id
         session.commit()
+        _publish(
+            settings,
+            state="done",
+            queue_id=queue_entry_id,
+            file_id=file_id,
+            sliced_file_id=new_file_id,
+        )
+        _notify("slice_done", done_payload)
 
 
-def _sliced_rel_path(source_rel_path: str, recipe_name: str, entry_id: int, plate: int) -> str:
-    """Unique per queue entry + plate -- never collides across two queue
-    entries slicing the same source file with the same recipe (C1), so a
-    re-slice never needs to delete a prior sliced ``File`` someone else
-    (e.g. a ``PrintJob``) may already reference."""
+def _entry_name(session: Session, entry: PrintQueueEntry) -> str:
+    file = session.get(File, entry.file_id) if entry.file_id else None
+    return Path(file.rel_path).name if file is not None else f"queue #{entry.id}"
+
+
+def _done_payload(
+    session: Session, file_id: int, sliced_file_id: int, recipe_id: int | None
+) -> dict:
+    """Template context of the `slice_done` notification."""
+    from app.models.processing import BlobMeta
+
+    source = session.get(File, file_id)
+    sliced = session.get(File, sliced_file_id)
+    recipe = session.get(PrintRecipe, recipe_id) if recipe_id else None
+    meta = session.get(BlobMeta, sliced.blob_hash) if sliced is not None else None
+    return {
+        "name": Path(source.rel_path).name if source is not None else "file",
+        "recipe": recipe.name if recipe is not None else None,
+        "print_time_s": meta.print_time_s if meta is not None else None,
+        "filament_g": meta.filament_g if meta is not None else None,
+    }
+
+
+def _sliced_rel_path(source_rel_path: str, recipe_name: str, tag: str, plate: int) -> str:
+    """Unique per slice run (`tag`: `q<entry id>` or `s<job id>`) + plate --
+    never collides across two runs slicing the same source file with the same
+    recipe (C1), so a re-slice never needs to delete a prior sliced ``File``
+    someone else (e.g. a ``PrintJob``) may already reference."""
     stem = source_rel_path
     for suffix in (".gcode.3mf", ".3mf"):
         if source_rel_path.endswith(suffix):
@@ -159,14 +248,69 @@ def _sliced_rel_path(source_rel_path: str, recipe_name: str, entry_id: int, plat
             break
     else:
         stem = Path(source_rel_path).stem
-    return f"{stem} - {recipe_name} (q{entry_id} p{plate}).gcode.3mf"
+    return f"{stem} - {recipe_name} ({tag} p{plate}).gcode.3mf"
+
+
+@dataclass
+class SliceOutcome:
+    file_id: int
+    meta: dict
+
+
+def _meta_summary(meta: slicedmeta.SlicedMeta) -> dict:
+    return {
+        "print_time_s": meta.print_time_s,
+        "filament_g": meta.filament_g,
+        "filament_m": meta.filament_m,
+        "filament_types": list(meta.filament_types),
+        "layer_height": meta.layer_height,
+        "nozzle": meta.nozzle,
+        "printer_model": meta.printer_model,
+        "plate_count": meta.plate_count,
+        "plates": [
+            {
+                "index": p.get("index"),
+                "prediction_s": p.get("prediction_s"),
+                "weight_g": p.get("weight_g"),
+            }
+            for p in meta.plates
+        ],
+    }
 
 
 def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEntry) -> int:
-    """Slices ``entry``'s source file through ``client`` and stores the
-    result as a new ``File`` on the same revision, returning its id.
+    """Queue flavour of `slice_source`."""
+    if entry.file_id is None:
+        raise ValueError("queue entry has no source file")
+    return slice_source(
+        session,
+        settings,
+        client,
+        file_id=entry.file_id,
+        recipe_id=entry.recipe_id,
+        plate=entry.plate,
+        tag=f"q{entry.id}",
+        job_id=queue_job_id(entry.id),
+    ).file_id
+
+
+def slice_source(
+    session: Session,
+    settings,
+    client: SlicerClient,
+    *,
+    file_id: int,
+    recipe_id: int | None,
+    plate: int | None,
+    tag: str,
+    job_id: str | None = None,
+) -> SliceOutcome:
+    """The shared core of every slice (queue entry or standalone slice job):
+    slices ``file_id`` with ``recipe_id`` through ``client`` and stores the
+    result as a new ``File`` on the same revision. Raises ``SlicerError``
+    (incl. ``SlicerUnavailable``/``SlicerCancelled``) or ``ValueError``.
     """
-    file = session.get(File, entry.file_id)
+    file = session.get(File, file_id)
     if file is None:
         raise ValueError("queue entry has no source file")
     revision = session.get(Revision, file.revision_id)
@@ -176,7 +320,7 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
     if model is None:
         raise ValueError("source file's model is missing")
 
-    recipe = session.get(PrintRecipe, entry.recipe_id) if entry.recipe_id else None
+    recipe = session.get(PrintRecipe, recipe_id) if recipe_id else None
     if recipe is None:
         raise ValueError("queue entry has no recipe")
 
@@ -206,7 +350,7 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
         options = SliceOptions(
             auto_orient=bool((recipe.options or {}).get("auto_orient", False)),
             arrange=bool((recipe.options or {}).get("arrange", False)),
-            plate=entry.plate,
+            plate=plate,
         )
         out_bytes = client.slice(
             model=src_path,
@@ -216,13 +360,14 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
             filament_profiles=filament_profiles,
             bed_type=recipe.bed_type,
             options=options,
+            job_id=job_id,
         )
 
         out_path = tmp_path / "sliced.gcode.3mf"
         out_path.write_bytes(out_bytes)
         meta = slicedmeta.parse_gcode_3mf(out_path)
 
-        expected_plate = entry.plate if entry.plate is not None else 1
+        expected_plate = plate if plate is not None else 1
         plate_indexes = {p["index"] for p in meta.plates}
         if plate_indexes and expected_plate not in plate_indexes:
             raise ValueError(f"sliced output has no plate {expected_plate}")
@@ -237,7 +382,7 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
                 f"{printer_profile.printer_model!r}"
             )
 
-        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, entry.id, expected_plate)
+        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, tag, expected_plate)
         digest = blake3(out_bytes).hexdigest()
 
         # C1: never delete an existing sliced File -- a PrintJob (or
@@ -253,7 +398,7 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
             .first()
         )
         if existing is not None:
-            return existing.id
+            return SliceOutcome(existing.id, _meta_summary(meta))
 
         spool.ensure_spool_dir(settings)
         token = uuid.uuid4()
@@ -272,4 +417,117 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
         new_file = library.store_imported_file_sync(
             session, model=model, revision=revision, staged=staged
         )
-        return new_file.id
+        return SliceOutcome(new_file.id, _meta_summary(meta))
+
+
+# --- standalone slice jobs (`POST /files/{id}/slice`) ---------------------
+
+SLICE_JOB_BUSY_RETRIES = 40
+SLICE_JOB_BUSY_COUNTDOWN_S = 15
+
+
+def _finish_slice_job(
+    settings,
+    job_id: uuid.UUID,
+    *,
+    state: str,
+    error: str | None = None,
+    log_tail: str | None = None,
+    outcome: SliceOutcome | None = None,
+) -> None:
+    """Writes a terminal state unless the job was cancelled meanwhile (a
+    cancel wins: its result is discarded), then publishes + notifies."""
+    with base.sync_session() as session:
+        job = session.get(SliceJob, job_id, populate_existing=True)
+        if job is None or job.state == "cancelled":
+            return
+        job.state = state
+        job.error = error
+        job.log_tail = log_tail
+        file_id = job.file_id
+        payload: dict
+        if outcome is not None:
+            job.sliced_file_id = outcome.file_id
+            job.meta = outcome.meta
+            payload = _done_payload(session, file_id, outcome.file_id, job.recipe_id)
+        else:
+            source = session.get(File, file_id)
+            payload = {
+                "name": Path(source.rel_path).name if source is not None else "file",
+                "error": (error or "")[:300],
+            }
+        payload["slice_job_id"] = str(job_id)
+        sliced_file_id = job.sliced_file_id
+        session.commit()
+    _publish(
+        settings,
+        state=state,
+        slice_job_id=str(job_id),
+        file_id=file_id,
+        sliced_file_id=sliced_file_id,
+    )
+    _notify("slice_done" if state == "done" else "slice_failed", payload)
+
+
+@celery_app.task(name="app.tasks.slicing.slice_job", bind=True)
+def slice_job(self, job_id: str) -> None:
+    """Runs one `SliceJob`: the same `slice_source` core as the queue's
+    `slice_file`, with no queue entry, billing or printer involved."""
+    settings = get_settings()
+    jid = uuid.UUID(job_id)
+    with base.sync_session() as session:
+        job = session.execute(
+            select(SliceJob).where(SliceJob.id == jid).with_for_update()
+        ).scalar_one_or_none()
+        if job is None or job.state != "queued":
+            return
+        job.state = "running"
+        job.celery_id = getattr(self.request, "id", None) or job.celery_id
+        file_id, recipe_id, plate = job.file_id, job.recipe_id, job.plate
+        session.commit()
+    _publish(settings, state="running", slice_job_id=job_id, file_id=file_id)
+
+    with base.sync_session() as session:
+        server_cfg = get_server_config_sync(session, settings)
+        client = client_from_config(server_cfg)
+        if client is None:
+            err = (
+                "slicer_disabled"
+                if not server_cfg.slicer_enabled
+                else "slicer sidecar not configured"
+            )
+            _finish_slice_job(settings, jid, state="failed", error=err)
+            return
+        try:
+            outcome = slice_source(
+                session,
+                settings,
+                client,
+                file_id=file_id,
+                recipe_id=recipe_id,
+                plate=plate,
+                tag=f"s{jid.hex[:8]}",
+                job_id=slice_job_sidecar_id(jid),
+            )
+        except SlicerCancelled:
+            return  # the API already marked it cancelled
+        except SlicerBusy as exc:
+            if self.request.retries < SLICE_JOB_BUSY_RETRIES:
+                with base.sync_session() as s2:
+                    j = s2.get(SliceJob, jid, populate_existing=True)
+                    if j is not None and j.state == "running":
+                        j.state = "queued"
+                        s2.commit()
+                raise self.retry(countdown=SLICE_JOB_BUSY_COUNTDOWN_S, exc=exc) from None
+            _finish_slice_job(settings, jid, state="failed", error=str(exc))
+            return
+        except (SlicerError, ValueError) as exc:
+            _finish_slice_job(
+                settings,
+                jid,
+                state="failed",
+                error=str(exc),
+                log_tail=getattr(exc, "log_tail", None),
+            )
+            return
+    _finish_slice_job(settings, jid, state="done", outcome=outcome)

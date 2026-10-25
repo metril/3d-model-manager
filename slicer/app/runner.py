@@ -92,6 +92,24 @@ def _kill_group(proc: asyncio.subprocess.Process) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
 
 
+class SliceCancelled(SliceFailed):
+    pass
+
+
+class JobHandle:
+    """Cancellation handle for one running slice: `cancel()` kills the CLI's
+    process group (or, if it hasn't started yet, stops it from starting)."""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+        self.proc: asyncio.subprocess.Process | None = None
+
+    def cancel(self) -> None:
+        self.cancelled = True
+        if self.proc is not None:
+            _kill_group(self.proc)
+
+
 @dataclass
 class Job:
     dir: Path
@@ -118,10 +136,13 @@ async def run_slice(
     plate: int | None,
     timeout_s: float,
     use_xvfb: bool = False,
+    handle: JobHandle | None = None,
 ) -> bytes:
     """Runs the CLI in its own session; kills the whole process group on
     timeout. Returns the `.gcode.3mf` bytes. Does NOT delete `job.dir`."""
     (job.dir / "out").mkdir(exist_ok=True)
+    if handle is not None and handle.cancelled:
+        raise SliceCancelled("cancelled", None, "")
     argv = build_argv(
         cli=cli,
         work=job.dir,
@@ -142,6 +163,10 @@ async def run_slice(
         start_new_session=True,
         cwd=job.dir,
     )
+    if handle is not None:
+        handle.proc = proc
+        if handle.cancelled:
+            _kill_group(proc)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except asyncio.TimeoutError:
@@ -153,6 +178,8 @@ async def run_slice(
         _kill_group(proc)
         raise
     tail = _tail(out or b"")
+    if handle is not None and handle.cancelled:
+        raise SliceCancelled("cancelled", proc.returncode, tail)
     result = job.dir / "out" / OUT_NAME
     if proc.returncode != 0:
         raise SliceFailed(f"bambu-studio exited {proc.returncode}", proc.returncode, tail)

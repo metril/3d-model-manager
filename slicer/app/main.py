@@ -29,6 +29,19 @@ app = FastAPI(title="tdmm-slicer")
 app.state.index = ProfileIndex(PROFILES_DIR)
 app.state.sem = asyncio.Semaphore(MAX_JOBS)
 app.state.running = 0
+app.state.jobs = {}  # job_id -> runner.JobHandle, for DELETE /jobs/{id}
+
+
+def _mem_limit() -> int | None:
+    """Container memory cap in bytes (cgroup v2, then v1), None if unlimited."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < (1 << 50):
+            return int(raw)
+    return None
 
 
 def _err(status: int, error: str, message: str, exit_code=None, log_tail="", headers=None):
@@ -46,7 +59,22 @@ async def health():
         "version": VERSION,
         "busy": app.state.running >= MAX_JOBS,
         "max_concurrency": MAX_JOBS,
+        "running": app.state.running,
+        "job_timeout_s": JOB_TIMEOUT_S,
+        "mem_limit": _mem_limit(),
+        "bambu_version": VERSION,
     }
+
+
+@app.delete("/jobs/{job_id}")
+async def cancel_job(job_id: str):
+    """Kill the CLI subprocess of a running /slice job; its /slice request then
+    answers 499 `cancelled`. 404 when no such job is running."""
+    handle: runner.JobHandle | None = app.state.jobs.get(job_id)
+    if handle is None:
+        return _err(404, "not_found", f"no running job {job_id!r}")
+    handle.cancel()
+    return {"status": "cancelled", "job_id": job_id}
 
 
 @app.get("/profiles")
@@ -104,6 +132,10 @@ async def slice_(request: Request):
     await sem.acquire()
     app.state.running += 1
     job_dir = runner.new_job_dir()
+    job_id = (request.headers.get("x-job-id") or "").strip()[:128]
+    handle = runner.JobHandle()
+    if job_id:
+        app.state.jobs[job_id] = handle
     try:
         try:
             form = await request.form(max_part_size=MAX_UPLOAD)
@@ -184,13 +216,18 @@ async def slice_(request: Request):
                 plate=plate,
                 timeout_s=JOB_TIMEOUT_S,
                 use_xvfb=USE_XVFB,
+                handle=handle,
             )
+        except runner.SliceCancelled as exc:
+            return _err(499, "cancelled", "slice cancelled", None, exc.log_tail)
         except runner.SliceTimeout as exc:
             return _err(504, "timeout", exc.message, None, exc.log_tail)
         except runner.SliceFailed as exc:
             return _err(422, "slice_failed", exc.message, exc.exit_code, exc.log_tail)
         return Response(out, media_type="application/octet-stream")
     finally:
+        if job_id and app.state.jobs.get(job_id) is handle:
+            del app.state.jobs[job_id]
         runner.cleanup(job_dir)
         app.state.running -= 1
         sem.release()

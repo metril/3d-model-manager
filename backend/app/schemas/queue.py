@@ -104,6 +104,20 @@ class BatchRefOut(BaseModel):
     name: str
 
 
+class SlicedPlateOut(BaseModel):
+    index: int
+    prediction_s: int | None = None
+    weight_g: float | None = None
+
+
+class SlicedMetaOut(BaseModel):
+    print_time_s: int | None = None
+    filament_g: float | None = None
+    plate_count: int | None = None
+    plates: list[SlicedPlateOut] = []
+    file_name: str | None = None
+
+
 class QueueEntryOut(BaseModel):
     id: int
     model_id: int
@@ -133,6 +147,10 @@ class QueueEntryOut(BaseModel):
     print_job_id: int | None = None
     attempts: int = 0
     last_error: str | None = None
+    # Tail of the slicer CLI output from the last failed slice.
+    last_log: str | None = None
+    # Time/grams/plates of `sliced_file_id`, once its metadata is extracted.
+    sliced_meta: SlicedMetaOut | None = None
     # Display name of the requested ``file_id`` (its `rel_path`'s basename),
     # `None` for a bare entry.
     file_name: str | None = None

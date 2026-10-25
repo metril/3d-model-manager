@@ -5,6 +5,7 @@ slicer profiles and the recipes that combine them into a dispatchable print.
 (``app.models.library``), not here -- that table predates this plan.
 """
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -14,7 +15,9 @@ from sqlalchemy import (
     Identity,
     Integer,
     String,
+    Text,
     UniqueConstraint,
+    Uuid,
     func,
     text,
 )
@@ -98,3 +101,36 @@ class PrintRecipe(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class SliceJob(Base):
+    """A slice-only run (``POST /files/{id}/slice``): slices a file with a
+    recipe and stores the ``.gcode.3mf`` on the file's revision, with no
+    queue entry or printer involved. ``state`` is a plain string like
+    ``jobs.state``: queued | running | done | failed | cancelled."""
+
+    __tablename__ = "slice_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    file_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    recipe_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_recipes.id", ondelete="SET NULL"), nullable=True
+    )
+    plate: Mapped[int | None] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'queued'"))
+    celery_id: Mapped[str | None] = mapped_column(String)
+    error: Mapped[str | None] = mapped_column(Text)
+    log_tail: Mapped[str | None] = mapped_column(Text)
+    sliced_file_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True
+    )
+    meta: Mapped[dict | None] = mapped_column(JSONB)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )

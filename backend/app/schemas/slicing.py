@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -99,7 +101,36 @@ class RecipeOut(BaseModel):
 
 
 class SlicerHealthOut(BaseModel):
+    busy: bool | None = None
+    running: int | None = None
+    max_concurrency: int | None = None
+    job_timeout_s: float | None = None
+    mem_limit: int | None = None
+    bambu_version: str | None = None
     configured: bool
     ok: bool
     version: str | None = None
     error: str | None = None
+
+
+class SliceJobIn(BaseModel):
+    recipe_id: int
+    plate: int | None = None
+
+
+class SliceJobOut(BaseModel):
+    id: uuid.UUID
+    file_id: int
+    model_id: int | None = None
+    recipe_id: int | None = None
+    plate: int | None = None
+    state: Literal["queued", "running", "done", "failed", "cancelled"]
+    error: str | None = None
+    log_tail: str | None = None
+    sliced_file_id: int | None = None
+    # {print_time_s, filament_g, filament_m, filament_types, layer_height,
+    # nozzle, printer_model, plate_count, plates: [{index, prediction_s,
+    # weight_g}]} -- set once `done`.
+    meta: dict | None = None
+    created_at: datetime
+    updated_at: datetime

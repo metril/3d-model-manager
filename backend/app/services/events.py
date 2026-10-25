@@ -124,3 +124,35 @@ def publish_import_event_sync(redis_url: str, import_id: int, state: str) -> Non
         subject_type="import",
         subject_id=import_id,
     )
+
+
+def slice_event_payload(
+    *,
+    state: str,
+    slice_job_id: str | None = None,
+    queue_id: int | None = None,
+    file_id: int | None = None,
+    sliced_file_id: int | None = None,
+) -> dict:
+    """Slice lifecycle event (`slice.updated`): a standalone slice job
+    (``slice_job_id``) or a queue entry's slice (``queue_id``)."""
+    return {
+        "type": "slice.updated",
+        "state": state,
+        "slice_job_id": slice_job_id,
+        "queue_id": queue_id,
+        "file_id": file_id,
+        "sliced_file_id": sliced_file_id,
+    }
+
+
+def publish_slice_event_sync(redis_url: str, **kwargs: object) -> None:
+    """Best-effort: a Redis blip never fails the slice that was committed."""
+    try:
+        client = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        try:
+            client.publish(CHANNEL, json.dumps(slice_event_payload(**kwargs)))
+        finally:
+            client.close()
+    except redis.RedisError:
+        pass
