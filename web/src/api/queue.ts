@@ -7,26 +7,48 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { QueueEnqueueBody, QueueEntry, ReviewCountOut, ReviewIn } from "@/api/types";
+import type {
+  Batch,
+  BatchIn,
+  BatchPatch,
+  QueueEnqueueBody,
+  QueueEntry,
+  QueuePreheatSettings,
+  QueueSchedulingFields,
+  ReviewCountOut,
+  ReviewIn,
+} from "@/api/types";
 
 // The default (`includeDone: false`) case keeps the original bare `["queue"]`
 // key -- `PrintsTab.test.tsx` (and anything else reading the cache
 // directly rather than through `useQueue`) depends on that exact shape.
-function queueQueryKey(includeDone: boolean) {
+function queueQueryKey(includeDone: boolean, batchId?: number | null) {
+  if (batchId != null) return ["queue", "batch", batchId, includeDone] as const;
   return includeDone ? (["queue", "done"] as const) : (["queue"] as const);
 }
 
 /** The whole queue, ordered by position (1-based). `includeDone` also
  * returns terminal (`done`) entries, which the backend otherwise omits. */
-export function useQueue({ includeDone = false }: { includeDone?: boolean } = {}) {
+export function useQueue({
+  includeDone = false,
+  batchId,
+  enabled = true,
+}: { includeDone?: boolean; batchId?: number | null; enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: queueQueryKey(includeDone),
-    queryFn: () => api.get<QueueEntry[]>(`/queue${includeDone ? "?include_done=true" : ""}`),
+    queryKey: queueQueryKey(includeDone, batchId),
+    queryFn: () => {
+      const qs: string[] = [];
+      if (includeDone) qs.push("include_done=true");
+      if (batchId != null) qs.push(`batch_id=${batchId}`);
+      return api.get<QueueEntry[]>(`/queue${qs.length ? `?${qs.join("&")}` : ""}`);
+    },
+    enabled,
   });
 }
 
 function invalidateQueue(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: ["queue"] });
+  void queryClient.invalidateQueries({ queryKey: ["batches"] });
   // P3 Task 3: the overview's `up_next` is the queue's head -- keep it
   // in sync with every queue mutation, not just a manual overview poll.
   void queryClient.invalidateQueries({ queryKey: ["printers", "overview"] });
@@ -128,5 +150,129 @@ export function useReviewEntry() {
       invalidateQueue(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["queue", "review-inbox"] });
     },
+  });
+}
+
+// -- T4 scheduling ---------------------------------------------------------
+
+/** `PATCH /queue/{id}` with scheduling fields (only sent keys applied,
+ * `null` clears) -- returns the whole ordered queue. */
+export function usePatchQueueEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entryId, body }: { entryId: number; body: Omit<QueueSchedulingFields, "batch_id"> }) =>
+      api.patch<QueueEntry[]>(`/queue/${entryId}`, body),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /queue/{id}/start` (`queue:review`) -- releases a manual-start entry. */
+export function useStartQueueEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: number) => api.post<QueueEntry>(`/queue/${entryId}/start`),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /queue/{id}/cancel-schedule` -- clears `scheduled_at` (back to ASAP). */
+export function useCancelSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: number) => api.post<QueueEntry>(`/queue/${entryId}/cancel-schedule`),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /printers/{id}/queue/resume` (`queue:review`) -- SKIPPED -> WAITING. */
+export function useResumePrinterQueue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (printerId: number) =>
+      api.post<{ resumed: number }>(`/printers/${printerId}/queue/resume`),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+// -- batches (`queue:review`) ----------------------------------------------
+
+const BATCHES_KEY = ["batches"] as const;
+
+export function useBatches() {
+  return useQuery({ queryKey: BATCHES_KEY, queryFn: () => api.get<Batch[]>("/batches") });
+}
+
+export function useBatch(batchId: number | null) {
+  return useQuery({
+    queryKey: [...BATCHES_KEY, batchId] as const,
+    queryFn: () => api.get<Batch>(`/batches/${batchId}`),
+    enabled: batchId != null,
+  });
+}
+
+function invalidateBatches(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: BATCHES_KEY });
+  invalidateQueue(queryClient);
+}
+
+export function useCreateBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: BatchIn) => api.post<Batch>("/batches", body),
+    onSuccess: () => invalidateBatches(queryClient),
+  });
+}
+
+export function usePatchBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ batchId, body }: { batchId: number; body: BatchPatch }) =>
+      api.patch<Batch>(`/batches/${batchId}`, body),
+    onSuccess: () => invalidateBatches(queryClient),
+  });
+}
+
+/** First call cancels (row kept); a second call on a cancelled batch removes it. */
+export function useDeleteBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: number) => api.delete<void>(`/batches/${batchId}`),
+    onSuccess: () => invalidateBatches(queryClient),
+  });
+}
+
+/** 409 if the batch is not a draft. */
+export function useDispatchBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: number) => api.post<Batch>(`/batches/${batchId}/dispatch`),
+    onSuccess: () => invalidateBatches(queryClient),
+  });
+}
+
+export function useUngroupBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: number) => api.post<Batch>(`/batches/${batchId}/ungroup`),
+    onSuccess: () => invalidateBatches(queryClient),
+  });
+}
+
+// -- preheat settings (`settings:write` to PUT) ----------------------------
+
+const PREHEAT_KEY = ["settings", "queue-preheat"] as const;
+
+export function useQueuePreheatSettings() {
+  return useQuery({
+    queryKey: PREHEAT_KEY,
+    queryFn: () => api.get<QueuePreheatSettings>("/settings/queue-preheat"),
+  });
+}
+
+export function useUpdateQueuePreheatSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: QueuePreheatSettings) => api.put<QueuePreheatSettings>("/settings/queue-preheat", body),
+    onSuccess: (data) => queryClient.setQueryData(PREHEAT_KEY, data),
   });
 }

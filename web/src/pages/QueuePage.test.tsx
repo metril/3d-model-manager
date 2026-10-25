@@ -10,8 +10,15 @@ import { QueuePage } from "@/pages/QueuePage";
 // used) -- QueuePage's own logic (lane grouping, the chip, retry gating,
 // the include-done toggle) is what's under test, not the underlying fetch
 // plumbing (already covered by `api/queue.ts`'s own hook conventions).
-const { queueDataBox, moveMock, removeMock, retryMock, reviewMock, printersDataBox, includeDoneCalls, authCanBox } =
+const {
+  queueDataBox, moveMock, removeMock, retryMock, reviewMock, printersDataBox, includeDoneCalls, authCanBox,
+  startMock, cancelMock, resumeMock, patchMock,
+} =
   vi.hoisted(() => ({
+    startMock: vi.fn(),
+    cancelMock: vi.fn(),
+    resumeMock: vi.fn(),
+    patchMock: vi.fn(),
     queueDataBox: { current: [] as QueueEntry[] },
     moveMock: vi.fn(),
     removeMock: vi.fn(),
@@ -31,6 +38,11 @@ vi.mock("@/api/queue", () => ({
   useRemoveQueueEntry: () => ({ mutate: removeMock, isPending: false }),
   useRetryQueueEntry: () => ({ mutate: retryMock, isPending: false }),
   useReviewEntry: () => ({ mutate: reviewMock, isPending: false }),
+  useStartQueueEntry: () => ({ mutate: startMock, isPending: false }),
+  useCancelSchedule: () => ({ mutate: cancelMock, isPending: false }),
+  useResumePrinterQueue: () => ({ mutate: resumeMock, isPending: false }),
+  usePatchQueueEntry: () => ({ mutate: patchMock, isPending: false }),
+  useBatches: () => ({ data: [], isLoading: false }),
 }));
 
 vi.mock("@/api/printers", () => ({
@@ -123,6 +135,10 @@ beforeEach(() => {
   removeMock.mockClear();
   retryMock.mockClear();
   reviewMock.mockClear();
+  startMock.mockClear();
+  cancelMock.mockClear();
+  resumeMock.mockClear();
+  patchMock.mockClear();
   printersDataBox.current = [PRINTER];
   includeDoneCalls.length = 0;
   authCanBox.current = () => true;
@@ -305,5 +321,68 @@ describe("QueuePage include-done toggle", () => {
 
     fireEvent.click(screen.getByRole("switch", { name: "Show finished" }));
     await waitFor(() => expect(includeDoneCalls.at(-1)).toBe(true));
+  });
+});
+
+describe("QueuePage scheduling chips (T4)", () => {
+  it("shows a scheduled chip with a working cancel-schedule button", async () => {
+    queueDataBox.current = [entry({ id: 7, scheduled_at: "2026-10-25T14:30:00Z" })];
+    renderQueuePage();
+    expect(await screen.findByText(/^Scheduled /)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel schedule" }));
+    expect(cancelMock).toHaveBeenCalledWith(7);
+  });
+
+  it("manual-start entries get a Start button only for queue:review", async () => {
+    queueDataBox.current = [entry({ id: 8, manual_start: true, released_at: null })];
+    renderQueuePage();
+    expect(await screen.findByText("Manual start")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    expect(startMock).toHaveBeenCalledWith(8);
+  });
+
+  it("hides Start without queue:review", async () => {
+    authCanBox.current = () => false;
+    queueDataBox.current = [entry({ id: 8, manual_start: true })];
+    renderQueuePage();
+    expect(await screen.findByText("Manual start")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+  });
+
+  it("a skipped entry shows its reason, a row Resume and a lane Resume that call resume with the printer id", async () => {
+    queueDataBox.current = [
+      entry({ id: 9, state: "skipped", printer_id: 1, skipped_reason: "previous_failed", hold_reason: "previous_failed" }),
+    ];
+    renderQueuePage();
+    expect(await screen.findByText("Skipped: previous print failed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume printer" }));
+    expect(resumeMock).toHaveBeenCalledWith(1);
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(resumeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders stage, power-off and batch chips", async () => {
+    queueDataBox.current = [
+      entry({ id: 10, state: "ready", stage: "soaking", auto_off_after: true, batch: { id: 4, name: "Gears" }, batch_id: 4 }),
+    ];
+    renderQueuePage();
+    expect(await screen.findByText("Soaking")).toBeInTheDocument();
+    expect(screen.getByText("Power off after")).toBeInTheDocument();
+    expect(screen.getByText("Batch: Gears")).toBeInTheDocument();
+  });
+
+  it("the inline editor patches only the changed scheduling fields", async () => {
+    queueDataBox.current = [entry({ id: 11, manual_start: false })];
+    renderQueuePage();
+    fireEvent.click(await screen.findByRole("button", { name: "Schedule" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Manual start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(patchMock).toHaveBeenCalledWith(
+      {
+        entryId: 11,
+        body: { manual_start: true },
+      },
+      expect.anything(),
+    );
   });
 });

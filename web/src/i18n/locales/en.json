@@ -29,6 +29,37 @@
     "back": "Back",
     "search": "Search"
   },
+  "queueSched": {
+    "section": "Scheduling", "summaryNone": "ASAP",
+    "startAt": "Start at", "asap": "ASAP", "manualStart": "Manual start", "manualStartHint": "Waits until someone presses Start.",
+    "requirePrev": "Require previous print to succeed", "requirePrevHint": "Skipped if the previous print on this printer failed.",
+    "autoOff": "Power off after", "autoOffHint": "Smart plug turns the printer off when done (no more queued work).", "autoOffUnknown": "Only applies if this printer has a smart plug.",
+    "preheat": "Preheat", "inherit": "Inherit", "on": "On", "off": "Off", "chamberTarget": "Chamber target (C)", "bedSoak": "Bed soak target (C)",
+    "batch": "Batch", "noBatch": "No batch", "newBatch": "New batch...", "batchName": "Batch name", "batchQty": "Quantity",
+    "defaultBatchName": "Batch {{date}}", "batchDraftOnly": "Batch created as a draft; dispatch it from the Batches tab.", "viaQueue": "Scheduled prints go through the queue.",
+    "chip": {"scheduled": "Scheduled {{when}}", "cancelSchedule": "Cancel schedule", "manual": "Manual start", "start": "Start", "skipped": "Skipped", "skippedReason": "Skipped: {{reason}}", "resume": "Resume printer", "resumeLane": "Resume", "preheating": "Preheating", "soaking": "Soaking", "powerOff": "Power off after", "batch": "Batch: {{name}}", "edit": "Schedule", "previous_failed": "previous print failed"},
+    "edit": {"title": "Scheduling", "save": "Save", "cancel": "Cancel"},
+    "tabs": {"queue": "Queue", "batches": "Batches"},
+    "batches": {
+      "title": "Batches", "create": "Create batch", "empty": "No batches yet.", "edit": "Edit batch", "editTitle": "Edit batch", "createTitle": "Create batch",
+      "name": "Name", "source": "Model", "searchModel": "Search models...", "file": "File", "quantity": "Quantity", "printer": "Printer", "anyPrinter": "Any printer", "dueDate": "Due date", "notes": "Notes",
+      "plateTargets": "Plate targets", "plateTargetsHint": "Plate number and how many of each.", "addPlate": "Add plate", "plate": "Plate", "defaults": "Scheduling defaults",
+      "cols": {"name": "Name", "source": "Model / file", "qty": "Qty", "progress": "Progress", "due": "Due", "status": "Status", "actions": "Actions"},
+      "status": {"draft": "Draft", "active": "Active", "done": "Done", "cancelled": "Cancelled"},
+      "progress": "{{done}} done, {{failed}} failed, {{skipped}} skipped, {{waiting}} waiting of {{total}}",
+      "requestFailed": "Request failed", "modelId": "Model #{{id}}", "fileId": "File #{{id}}", "dispatch": "Dispatch", "ungroup": "Ungroup", "delete": "Delete", "details": "Details",
+      "dispatched": "Batch dispatched", "ungrouped": "Batch ungrouped", "saved": "Batch saved", "created": "Batch created", "deleted": "Batch removed",
+      "deleteTitle": "Delete batch?", "deleteBody": "Waiting entries of this batch are removed and the batch is cancelled. Deleting a cancelled batch removes it.", "ungroupTitle": "Ungroup batch?", "ungroupBody": "Entries stay in the queue but are no longer grouped.",
+      "entries": "Entries", "noEntries": "No entries yet.", "close": "Close", "save": "Save", "needSource": "Pick a model", "nameRequired": "Name is required", "qtyRange": "Quantity must be 1-500"
+    },
+    "preheat_card": {
+      "title": "Queue preheat and keep-warm", "description": "Heat the chamber (or soak the bed on printers without a heater) before a queued print starts.",
+      "enabled": "Preheat before queued prints", "chamberTargets": "Chamber targets (C)", "bedTargets": "Bed targets (C)", "filament": "Filament", "temp": "Temp", "add": "Add", "remove": "Remove",
+      "maxWait": "Max wait (s)", "soak": "Soak (s)", "keepWarm": "Keep warm between prints", "keepWarmBed": "Keep-warm bed (C)", "keepWarmMax": "Keep-warm max (min)",
+      "save": "Save", "saved": "Saved.", "loadError": "Couldn't load these settings.", "saveError": "Couldn't save.",
+      "errMaxWait": "Max wait must be 60-3600", "errSoak": "Soak must be 0-1800", "errBed": "Keep-warm bed must be 40-110", "errKeep": "Keep-warm max must be 5-480", "errTemp": "Temperatures must be 0-120", "errName": "Filament name required"
+    }
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Automation, storage backends, printer, and connected accounts.",

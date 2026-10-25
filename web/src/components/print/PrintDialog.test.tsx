@@ -640,3 +640,111 @@ describe("PrintDialog", () => {
     expect(await screen.findByLabelText("PLA fast")).toBeInTheDocument();
   });
 });
+
+describe("PrintDialog scheduling (T4)", () => {
+  async function openSend() {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  }
+
+  function queueBody() {
+    const call = postMock.mock.calls.find((c) => c[0] === "/queue");
+    return call?.[1] as Record<string, unknown> | undefined;
+  }
+
+  it("collapsed by default: the queue payload carries no scheduling fields", async () => {
+    await openSend();
+    expect(await screen.findByRole("button", { name: /^Scheduling/ })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(await screen.findByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(queueBody()).toBeDefined());
+    const body = queueBody()!;
+    for (const k of [
+      "scheduled_at",
+      "manual_start",
+      "require_previous_success",
+      "auto_off_after",
+      "preheat_override",
+      "preheat_chamber_target",
+      "batch_id",
+    ]) {
+      expect(body).not.toHaveProperty(k);
+    }
+  });
+
+  it("sends exactly the fields set (local time -> ISO UTC)", async () => {
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/printers/plugs/summary" ? Promise.resolve({ plugs: { "5": { id: 1 } } }) : base(path),
+    );
+    await openSend();
+    fireEvent.click(await screen.findByRole("button", { name: /^Scheduling/ }));
+    fireEvent.change(await screen.findByLabelText("Start at"), { target: { value: "2026-10-25T14:30" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Manual start" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Require previous print to succeed" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Power off after" }));
+    fireEvent.click(screen.getByRole("radio", { name: "On" }));
+    fireEvent.change(screen.getByLabelText(/Bed soak target|Chamber target/), { target: { value: "45" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+
+    await waitFor(() => expect(queueBody()).toBeDefined());
+    expect(queueBody()).toMatchObject({
+      scheduled_at: new Date("2026-10-25T14:30").toISOString(),
+      manual_start: true,
+      require_previous_success: true,
+      auto_off_after: true,
+      preheat_override: "on",
+      preheat_chamber_target: 45,
+    });
+  });
+
+  it("hides the power-off switch when the printer has no plug", async () => {
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/printers/plugs/summary" ? Promise.resolve({ plugs: {} }) : base(path),
+    );
+    await openSend();
+    fireEvent.click(await screen.findByRole("button", { name: /^Scheduling/ }));
+    await screen.findByLabelText("Start at");
+    await waitFor(() => expect(screen.queryByRole("switch", { name: "Power off after" })).not.toBeInTheDocument());
+  });
+
+  it("an existing batch id rides on the enqueue; a new batch is created then dispatched", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["queue:review"], printer_access: null };
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/batches"
+        ? Promise.resolve([{ id: 3, name: "Gears", status: "active" }])
+        : path === "/printers/plugs/summary"
+          ? Promise.resolve({ plugs: {} })
+          : base(path),
+    );
+    const basePost = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path === "/batches"
+        ? Promise.resolve({ id: 9 })
+        : path === "/batches/9/dispatch"
+          ? Promise.resolve({ id: 9 })
+          : basePost(path, body as never),
+    );
+    await openSend();
+    fireEvent.click(await screen.findByRole("button", { name: /^Scheduling/ }));
+    const picker = await screen.findByLabelText("Batch");
+    await screen.findByRole("option", { name: "Gears" });
+    fireEvent.change(picker, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(queueBody()).toMatchObject({ batch_id: 3 }));
+
+    postMock.mockClear();
+    fireEvent.change(picker, { target: { value: "new" } });
+    fireEvent.change(screen.getByLabelText("Batch name"), { target: { value: "Run A" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/batches/9/dispatch"));
+    expect(postMock).toHaveBeenCalledWith(
+      "/batches",
+      expect.objectContaining({ name: "Run A", quantity: 4, file_id: 10, plate_targets: { "1": 4 } }),
+    );
+    expect(queueBody()).toBeUndefined();
+  });
+});

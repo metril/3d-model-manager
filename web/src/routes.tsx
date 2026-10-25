@@ -33,6 +33,7 @@ import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
 import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
 import { parsePrintHistorySearch } from "@/pages/printHistorySearch";
+import { parseQueueSearch } from "@/pages/queueSearch";
 import { parsePrintDashSearch } from "@/pages/printerDashSearch";
 import { parseViewerWindowSearch } from "@/pages/viewerWindowSearch";
 
@@ -236,6 +237,7 @@ const statsRoute = createRoute({
 const printQueueRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/print/queue",
+  validateSearch: parseQueueSearch,
   component: QueuePage,
 });
 

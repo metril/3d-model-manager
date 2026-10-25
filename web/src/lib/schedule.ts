@@ -1,0 +1,133 @@
+/** T4 scheduling helpers: `datetime-local` <-> ISO UTC, and the draft shape
+ * the PrintDialog / batch dialog / inline popover share. */
+import type { PreheatOverride, QueueEntry, QueueSchedulingFields } from "@/api/types";
+
+export interface ScheduleDraft {
+  /** `datetime-local` value ("YYYY-MM-DDTHH:mm") in the viewer's zone; "" = ASAP. */
+  startAt: string;
+  manualStart: boolean;
+  requirePrev: boolean;
+  autoOff: boolean;
+  preheat: PreheatOverride | "inherit";
+  chamberTarget: string;
+}
+
+export const EMPTY_SCHEDULE: ScheduleDraft = {
+  startAt: "",
+  manualStart: false,
+  requirePrev: false,
+  autoOff: false,
+  preheat: "inherit",
+  chamberTarget: "",
+};
+
+/** "2026-10-24T14:30" (local) -> ISO UTC string, or null when blank/invalid. */
+export function localToIso(local: string): string | null {
+  if (!local) return null;
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** ISO (any zone) -> `datetime-local` value in the viewer's zone. */
+export function isoToLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function chamberTargetValue(draft: ScheduleDraft): number | null {
+  if (draft.preheat !== "on" || draft.chamberTarget.trim() === "") return null;
+  const n = Math.round(Number(draft.chamberTarget));
+  return Number.isFinite(n) ? Math.min(65, Math.max(0, n)) : null;
+}
+
+/** Only fields the person actually set -- an untouched draft yields `{}`. */
+export function draftToFields(draft: ScheduleDraft): QueueSchedulingFields {
+  const out: QueueSchedulingFields = {};
+  const iso = localToIso(draft.startAt);
+  if (iso) out.scheduled_at = iso;
+  if (draft.manualStart) out.manual_start = true;
+  if (draft.requirePrev) out.require_previous_success = true;
+  if (draft.autoOff) out.auto_off_after = true;
+  if (draft.preheat !== "inherit") {
+    out.preheat_override = draft.preheat;
+    const target = chamberTargetValue(draft);
+    if (target != null) out.preheat_chamber_target = target;
+  }
+  return out;
+}
+
+export function isScheduleSet(draft: ScheduleDraft): boolean {
+  return Object.keys(draftToFields(draft)).length > 0;
+}
+
+/** PATCH body with only the keys whose draft value differs from `base`
+ * (untouched `scheduled_at` keeps its original seconds server-side). */
+export function changedPatch(base: ScheduleDraft, draft: ScheduleDraft): Omit<QueueSchedulingFields, "batch_id"> {
+  const full = draftToPatch(draft);
+  const out: Omit<QueueSchedulingFields, "batch_id"> = {};
+  if (base.startAt !== draft.startAt) out.scheduled_at = full.scheduled_at;
+  if (base.manualStart !== draft.manualStart) out.manual_start = full.manual_start;
+  if (base.requirePrev !== draft.requirePrev) out.require_previous_success = full.require_previous_success;
+  if (base.autoOff !== draft.autoOff) out.auto_off_after = full.auto_off_after;
+  if (base.preheat !== draft.preheat) out.preheat_override = full.preheat_override;
+  if (base.preheat !== draft.preheat || base.chamberTarget !== draft.chamberTarget)
+    out.preheat_chamber_target = full.preheat_chamber_target;
+  return out;
+}
+
+/** Full PATCH body from a draft: unset fields are sent as explicit clears. */
+export function draftToPatch(draft: ScheduleDraft): Omit<QueueSchedulingFields, "batch_id"> {
+  return {
+    scheduled_at: localToIso(draft.startAt),
+    manual_start: draft.manualStart,
+    require_previous_success: draft.requirePrev,
+    auto_off_after: draft.autoOff,
+    preheat_override: draft.preheat === "inherit" ? null : draft.preheat,
+    preheat_chamber_target: chamberTargetValue(draft),
+  };
+}
+
+/** PrintDialog batch picker state. */
+export interface BatchChoice {
+  /** null = no batch, "new" = create inline, number = existing batch id. */
+  mode: null | "new" | number;
+  name: string;
+  quantity: number;
+}
+
+export const NO_BATCH: BatchChoice = { mode: null, name: "", quantity: 1 };
+
+
+/** A queue entry's current scheduling as an editable draft. */
+export function entryDraft(entry: QueueEntry): ScheduleDraft {
+  return {
+    startAt: isoToLocal(entry.scheduled_at),
+    manualStart: !!entry.manual_start,
+    requirePrev: !!entry.require_previous_success,
+    autoOff: !!entry.auto_off_after,
+    preheat: entry.preheat_override ?? "inherit",
+    chamberTarget: entry.preheat_chamber_target != null ? String(entry.preheat_chamber_target) : "",
+  };
+}
+
+
+export function schedulingSummary(
+  draft: ScheduleDraft,
+  batch: BatchChoice,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string {
+  const parts: string[] = [];
+  const iso = localToIso(draft.startAt);
+  if (iso) parts.push(new Date(iso).toLocaleString());
+  if (draft.manualStart) parts.push(t("queueSched.manualStart"));
+  if (draft.requirePrev) parts.push(t("queueSched.requirePrev"));
+  if (draft.autoOff) parts.push(t("queueSched.autoOff"));
+  if (draft.preheat !== "inherit") parts.push(`${t("queueSched.preheat")}: ${t(`queueSched.${draft.preheat}`)}`);
+  if (batch.mode !== null) parts.push(t("queueSched.batch"));
+  return parts.length > 0 ? parts.join(" · ") : t("queueSched.summaryNone");
+}
+
