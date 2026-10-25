@@ -26,7 +26,18 @@ from app.models.collections import (
 from app.models.detection import FailureDetection
 from app.models.external_link import ExternalLink
 from app.models.home_assistant import HaLink
-from app.models.inventory import Spool, SpoolmanPush, SpoolmanSyncState, SpoolSlot, SpoolUsage
+from app.models.inventory import (
+    ColorCatalogEntry,
+    LocationHaSensor,
+    Spool,
+    SpoolmanPush,
+    SpoolmanSyncState,
+    SpoolSlot,
+    SpoolSupplier,
+    SpoolUsage,
+    StorageLocation,
+    Supplier,
+)
 from app.models.library import (
     Blob,
     Category,
@@ -100,7 +111,12 @@ __all__ = [
     "Session",
     "Setting",
     "SlicerProfile",
+    "ColorCatalogEntry",
+    "LocationHaSensor",
     "Spool",
+    "SpoolSupplier",
+    "StorageLocation",
+    "Supplier",
     "SpoolSlot",
     "SpoolmanPush",
     "SpoolmanSyncState",

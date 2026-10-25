@@ -18,7 +18,7 @@ from app.api.deps import AuthContext, require_owner_or_admin, require_perm, requ
 from app.db import get_db
 from app.models import Model
 from app.models.enums import SpoolUsageSource
-from app.models.inventory import Spool, SpoolSlot, SpoolUsage
+from app.models.inventory import Spool, SpoolSlot, SpoolUsage, StorageLocation
 from app.models.printing import PrintArchive, PrintJob
 from app.schemas.inventory import (
     ManualUsageIn,
@@ -30,6 +30,7 @@ from app.schemas.inventory import (
     SpoolUpdate,
     UsageRowOut,
 )
+from app.services.housekeeping import spool_suppliers
 
 router = APIRouter(prefix="/spools", tags=["spools"])
 
@@ -50,6 +51,11 @@ async def _slot_for(db: AsyncSession, spool_id: int) -> SpoolSlotOut | None:
     if row is None:
         return None
     return SpoolSlotOut(printer_id=row.printer_id, ams_unit=row.ams_unit, slot=row.slot)
+
+
+async def _check_location(db: AsyncSession, location_id: int | None) -> None:
+    if location_id is not None and await db.get(StorageLocation, location_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "location not found")
 
 
 async def _out(db: AsyncSession, s: Spool) -> SpoolOut:
@@ -90,6 +96,7 @@ async def create_spool(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> SpoolOut:
+    await _check_location(db, payload.location_id)
     spool = Spool(**payload.model_dump(), created_by_user_id=ctx.user.id)
     db.add(spool)
     try:
@@ -144,7 +151,12 @@ async def get_spool(
         remaining = max(remaining - u.grams, 0.0)
         series.append(SeriesPoint(t=u.created_at, remaining_g=remaining))
     base = await _out(db, spool)
-    return SpoolDetailOut(**base.model_dump(), usage=usage, series=series)
+    return SpoolDetailOut(
+        **base.model_dump(),
+        suppliers=await spool_suppliers(db, spool_id),
+        usage=usage,
+        series=series,
+    )
 
 
 @router.patch(
@@ -160,6 +172,7 @@ async def update_spool(
     spool = await _get_or_404(db, spool_id)
     data = payload.model_dump(exclude_unset=True)
     archived = data.pop("archived", None)
+    await _check_location(db, data.get("location_id"))
     for key, value in data.items():
         setattr(spool, key, value)
     if archived is True and spool.archived_at is None:

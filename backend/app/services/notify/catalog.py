@@ -102,6 +102,23 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
             "bad_url": "https://tdmm.example/api/archives/confirm/TOKEN/bad?tap=1",
         },
     ),
+    "location_sensor_alert": (
+        "Storage sensor alert",
+        "A storage-location sensor (e.g. humidity) crossed its alert threshold.",
+        "{{ location|default('Storage') }}: {{ sensor|default('sensor') }} alert",
+        "{{ sensor|default('Sensor') }} at {{ location|default('a storage location') }} reads "
+        "{{ state }}{{ unit }} ({{ direction|default('out of range') }} "
+        "{{ threshold }}{{ unit }}).",
+        {
+            "location": "Dry cabinet",
+            "sensor": "Humidity",
+            "entity_id": "sensor.dry_cabinet_humidity",
+            "state": "62",
+            "unit": "%",
+            "direction": "above",
+            "threshold": 50,
+        },
+    ),
 }
 
 EVENT_IDS = tuple(_EVENTS)

@@ -55,6 +55,7 @@ from app.api import (
     files,
     finance,
     home_assistant,
+    housekeeping,
     imports,
     jobs,
     maintenance,
@@ -84,6 +85,7 @@ from app.api import (
     smart_plugs,
     spoolman,
     spools,
+    spools_bulk,
     stats,
     storage_tree,
     tags,
@@ -158,6 +160,12 @@ protected_router.include_router(stats.router)
 protected_router.include_router(categories.router)
 protected_router.include_router(materials.router)
 protected_router.include_router(storage_tree.router)
+# spools_bulk first: its literal /spools/export.csv, /spools/bulk-* etc. must
+# match before spools.router's /spools/{spool_id}.
+protected_router.include_router(spools_bulk.router)
+protected_router.include_router(housekeeping.suppliers_router)
+protected_router.include_router(housekeeping.locations_router)
+protected_router.include_router(housekeeping.catalog_router)
 protected_router.include_router(spools.router)
 protected_router.include_router(profiles.router)
 protected_router.include_router(profiles.slicer_status_router)
