@@ -104,7 +104,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libosmesa6 libgl1-mesa-dri libgl1
+            libosmesa6 libgl1-mesa-dri libgl1 ffmpeg
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.*"
@@ -130,6 +130,9 @@ jobs:
           docker pull bitnamilegacy/minio:2025.5.24
       - name: pytest
         working-directory: backend
+        env:
+          # ffmpeg-backed tests (camera rtsps, T7 timelapse editor) must fail, not skip.
+          TDMM_REQUIRE_FFMPEG_TESTS: "1"
         # See ci.yml for why the full `-m` expression is repeated verbatim.
         run: uv run pytest -q -m 'not e2e and not live_importer and not perf'
 
