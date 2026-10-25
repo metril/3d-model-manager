@@ -232,6 +232,19 @@ describe("KProfilesModal", () => {
   });
 });
 
+describe("refresh polling", () => {
+  it("only the first refresh request carries refresh=1", async () => {
+    let n = 0;
+    getMock.mockImplementation(async (url: string) =>
+      url.includes("/kprofiles") ? (++n < 3 ? { status: "pending" } : LIST) : [],
+    );
+    const { fetchKProfiles } = await import("@/api/kprofiles");
+    await fetchKProfiles(1, { nozzle: "0.4" }, true);
+    const urls = getMock.mock.calls.map((c) => c[0] as string);
+    expect(urls).toEqual(["/printers/1/kprofiles?nozzle=0.4&refresh=1", "/printers/1/kprofiles?nozzle=0.4", "/printers/1/kprofiles?nozzle=0.4"]);
+  });
+});
+
 describe("entry points", () => {
   function section(caps: Record<string, unknown>, canControl = true) {
     const it = a1Mini({}, { trays: [tray({ slot: 0, cali_idx: 3 })] });

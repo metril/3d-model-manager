@@ -50,7 +50,7 @@ export async function fetchKProfiles(
     await new Promise((r) => setTimeout(r, kprofileTiming.pollMs));
     if (signal?.aborted) throw new DOMException("aborted", "AbortError");
     res = await api.get<KProfileList | KProfilePending>(
-      `${base(printerId)}${qs(scope, res.request_id ? { request_id: res.request_id } : refresh ? { refresh: "1" } : {})}`,
+      `${base(printerId)}${qs(scope, res.request_id ? { request_id: res.request_id } : {})}`,
     );
   }
   return res;
