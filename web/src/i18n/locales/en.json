@@ -165,6 +165,12 @@
     "stats": {"layers": "{{count}} layers", "moves": "{{count}} moves", "extrusion": "{{m}} m filament", "time": "Est. {{time}}"}
   },
   "archiveX": {
+    "toolpath": {
+      "show": "Show toolpath",
+      "hide": "Hide toolpath",
+      "plate": "Plate",
+      "empty": "No G-code toolpath available for this run."
+    },
     "saved": "Saved",
     "saveFailed": "Couldn't save",
     "save": "Save",
