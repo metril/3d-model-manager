@@ -6,12 +6,16 @@
  * stayed there, P3). `?low=1` lands with the table's Low stock filter
  * already on, e.g. from a dashboard low-stock badge (Task 10).
  */
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import type { SpoolOut } from "@/api/types";
 import { SpoolForm } from "@/components/inventory/SpoolForm";
+import { ColorCatalogPanel } from "@/components/inventory/admin/ColorCatalogPanel";
+import { LocationsPanel } from "@/components/inventory/admin/LocationsPanel";
+import { SuppliersPanel } from "@/components/inventory/admin/SuppliersPanel";
 import { SpoolTable } from "@/components/inventory/SpoolTable";
 import { SpoolmanLink } from "@/components/inventory/SpoolmanLink";
 import { SpoolUsageHistory } from "@/components/inventory/SpoolUsageHistory";
@@ -20,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/ui/page-container";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const routeApi = getRouteApi("/authenticated/inventory/spools");
 
@@ -60,8 +65,14 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
   );
 }
 
+const TABS = ["spools", "suppliers", "locations", "colors"] as const;
+export type SpoolsTab = (typeof TABS)[number];
+
 export function SpoolsPage() {
-  const { low } = routeApi.useSearch();
+  const { low, tab: tabParam } = routeApi.useSearch();
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const tab: SpoolsTab = TABS.find((x) => x === tabParam) ?? "spools";
   const { can } = useAuth();
   const [openId, setOpenId] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -77,7 +88,7 @@ export function SpoolsPage() {
           <Link to="/inventory/materials" className="text-sm text-muted-foreground hover:underline">
             Materials
           </Link>
-          {can("inventory:write") ? (
+          {tab === "spools" && can("inventory:write") ? (
             <Button type="button" onClick={() => setAddOpen(true)}>
               Add spool
             </Button>
@@ -85,7 +96,28 @@ export function SpoolsPage() {
         </div>
       </div>
 
-      <SpoolTable onOpen={(spool: SpoolOut) => setOpenId(spool.id)} initialLowStock={low === "1"} />
+      <Tabs
+        value={tab}
+        onValueChange={(v) => void navigate({ to: "/inventory/spools", search: (prev) => ({ ...prev, tab: v === "spools" ? undefined : v }) })}
+      >
+        <TabsList aria-label={t("spoolAdmin.tabs.label")}>
+          {TABS.map((x) => (
+            <TabsTrigger key={x} value={x}>
+              {t(`spoolAdmin.tabs.${x}`)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      {tab === "spools" ? (
+        <SpoolTable onOpen={(spool: SpoolOut) => setOpenId(spool.id)} initialLowStock={low === "1"} />
+      ) : tab === "suppliers" ? (
+        <SuppliersPanel />
+      ) : tab === "locations" ? (
+        <LocationsPanel />
+      ) : (
+        <ColorCatalogPanel />
+      )}
 
       <SpoolDetailSheet spoolId={openId} onOpenChange={(open) => !open && setOpenId(null)} />
       <SpoolForm open={addOpen} onOpenChange={setAddOpen} />
