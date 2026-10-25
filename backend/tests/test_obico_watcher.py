@@ -124,6 +124,35 @@ def test_three_errors_set_paused_flag(rds):
     assert w.feed(now=1e6) is False  # paused: no more frames queued
 
 
+def test_error_is_published_with_heartbeat_then_cleared(rds):
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        return httpx.Response(500 if calls["n"] == 1 else 200, json={"detections": []})
+
+    w = _watcher(rds, httpx.MockTransport(handler))
+    w.process(JPEG)
+    body = json.loads(rds.get(obico.status_key(PID)))
+    assert body["last_error"] == "HTTPStatusError" and body["errors"] == 1
+    assert body["paused"] is False and body["heartbeat"] > 0
+    w.process(JPEG)
+    assert json.loads(rds.get(obico.status_key(PID)))["last_error"] is None
+
+
+def test_feed_heartbeats_status_between_slow_scores(rds):
+    w = _watcher(rds, _transport())
+    assert rds.get(obico.status_key(PID)) is None
+    w.feed(now=100.0)
+    first = json.loads(rds.get(obico.status_key(PID)))
+    assert first["state"] == "safe" and first["last_error"] is None
+    rds.delete(obico.status_key(PID))
+    w.feed(now=102.0)  # inside HEARTBEAT_S: not rewritten
+    assert rds.get(obico.status_key(PID)) is None
+    w.feed(now=106.0)
+    assert rds.get(obico.status_key(PID)) is not None
+
+
 def test_error_counter_resets_on_success(rds):
     calls = {"n": 0}
 

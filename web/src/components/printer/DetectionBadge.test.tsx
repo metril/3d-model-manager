@@ -28,7 +28,19 @@ describe("DetectionBadgeView", () => {
     render(<DetectionBadgeView status={status({ active: false, detection_paused: true })} />);
     expect(screen.getByText("detection paused")).toBeInTheDocument();
   });
-  it("renders nothing when idle", () => {
+  it("shows watching during warmup, idle when enabled, error with the cause", () => {
+    const { rerender } = render(
+      <DetectionBadgeView status={status({ phase: "watching", smoothed: null })} />,
+    );
+    expect(screen.getByText("AI watching")).toBeInTheDocument();
+    rerender(<DetectionBadgeView status={status({ phase: "idle", active: false, smoothed: null, enabled: true })} />);
+    expect(screen.getByText("detection idle")).toBeInTheDocument();
+    rerender(<DetectionBadgeView status={status({ phase: "error", last_error: "ReadTimeout" })} />);
+    expect(screen.getByText("detection error")).toHaveAttribute("title", "Last ML error: ReadTimeout");
+    rerender(<DetectionBadgeView status={status({ phase: "paused", detection_paused: true })} />);
+    expect(screen.getByText("detection paused")).toBeInTheDocument();
+  });
+  it("renders nothing when idle and detection is off", () => {
     const { container } = render(<DetectionBadgeView status={status({ active: false, smoothed: null })} />);
     expect(container).toBeEmptyDOMElement();
   });

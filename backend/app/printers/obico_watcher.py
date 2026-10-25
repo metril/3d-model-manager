@@ -45,6 +45,7 @@ WARN_COOLDOWN_S = 300.0
 TICK_INTERVAL_S = 1.0
 CONFIG_TTL_S = 5.0
 JOIN_TIMEOUT_S = 2.0
+HEARTBEAT_S = 5.0  # status refresh cadence, well inside obico.STATUS_TTL_S
 _TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
 
 
@@ -155,6 +156,10 @@ class ObicoWatcher:
         self.fired = False
         self.warn_recorded = False
         self._next_feed = 0.0
+        self._hb_at = -1e9
+        self._score: float | None = None
+        self._smoothed: float | None = None
+        self.last_error: str | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -168,6 +173,9 @@ class ObicoWatcher:
         queue. Returns True when a frame was queued."""
         now = self.clock() if now is None else now
         camera_state.add_viewer(self.redis, self.printer_id, self.viewer_id)
+        if not self.paused and now - self._hb_at >= HEARTBEAT_S:
+            self._hb_at = now
+            self._publish(self._score, self._smoothed)  # heartbeat: alive between slow scores
         if self.paused or now < self._next_feed or not self.queue.empty():
             return False
         jpeg = camera_state.get_frame(self.redis, self.printer_id)
@@ -207,13 +215,17 @@ class ObicoWatcher:
                 log.exception("obico: process failed for printer %s", self.printer_id)
 
     def _publish(self, score: float | None, smoothed: float | None) -> None:
+        self._score, self._smoothed = score, smoothed
         body = {
+            "errors": self.errors,
+            "last_error": self.last_error,
             "state": self.state,
             "score": score,
             "smoothed": smoothed,
             "paused": self.paused,
             "job_id": self.job_id,
             "ts": time.time(),
+            "heartbeat": time.time(),
         }
         with contextlib.suppress(Exception):
             self.redis.set(
@@ -229,14 +241,18 @@ class ObicoWatcher:
             if self._stop.is_set():
                 return
             self.errors += 1
+            self.last_error = str(exc) or type(exc).__name__
             log.warning("obico: printer %s ML error (%s) #%d", self.printer_id, exc, self.errors)
             if self.errors >= MAX_ERRORS:
                 self.paused = True
-                self._publish(None, None)
+            self._publish(
+                None if self.paused else self._score, None if self.paused else self._smoothed
+            )
             return
         if self._stop.is_set():
             return  # a slow ML call returned after stop(): drop it
         self.errors = 0
+        self.last_error = None
         smoothed = self.smoother.update(current)
         new_state = classify(smoothed, self.cfg.warn, self.cfg.pause)
         self.state = new_state

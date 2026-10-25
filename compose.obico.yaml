@@ -17,11 +17,17 @@ services:
   obico-ml:
     build:
       context: https://github.com/TheSpaghettiDetective/obico-server.git#6f938964c63892df2b6d5b68d99ea783fc1a7c78:ml_api
+      labels:
+        org.opencontainers.image.revision: 6f938964c63892df2b6d5b68d99ea783fc1a7c78
+        org.opencontainers.image.source: https://github.com/TheSpaghettiDetective/obico-server
     image: ${OBICO_ML_IMAGE:-tdmm-obico-ml:local}
     platform: linux/amd64
     command: ["bash", "-c", "gunicorn --bind 0.0.0.0:3333 --workers 1 --timeout 120 wsgi"]
     environment:
       DEBUG: "False"
+      # The ML API has no version endpoint: the api container carries the same
+      # pin as OBICO_ML_VERSION (compose.yaml) and shows it in Settings -> Server.
+      OBICO_ML_VERSION: 6f938964c63892df2b6d5b68d99ea783fc1a7c78
     expose:
       - "3333"
     healthcheck:

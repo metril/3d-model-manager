@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ServiceStatusDot } from "@/components/shell/ServiceStatusDot";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
 import { useNavLabel } from "@/components/shell/useNavLabel";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
@@ -370,6 +371,7 @@ export function AppSidebar({
           <NavLink key={item.to as string} item={item} collapsed={collapsed} />
         ))}
       </div>
+      <ServiceStatusDot collapsed={collapsed} />
       <SidebarPrinterWidget collapsed={collapsed} />
       <div
         className={cn(

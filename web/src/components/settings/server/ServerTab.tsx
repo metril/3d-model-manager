@@ -5,6 +5,7 @@ import { useServerSettings } from "@/api/serverSettings";
 import { LimitsCard } from "@/components/settings/server/LimitsCard";
 import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
 import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
+import { ServicesCard } from "@/components/settings/server/ServicesCard";
 import { SmtpCard } from "@/components/settings/server/SmtpCard";
 import { SlicerServerCard } from "@/components/settings/server/SlicerServerCard";
 import { VpNetworkCard } from "@/components/settings/server/VpNetworkCard";
@@ -31,6 +32,7 @@ export function ServerTab() {
   const data = q.data;
   return (
     <>
+      <ServicesCard />
       {data.ignored_env.length ? (
         <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
           {t("settings.server.ignoredEnv", { names: data.ignored_env.join(", ") })}
