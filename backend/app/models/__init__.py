@@ -64,7 +64,7 @@ from app.models.notify import (
 )
 from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.overlay_token import OverlayToken
-from app.models.printing import AmsLabel, PrintArchive, Printer, PrintJob
+from app.models.printing import AmsLabel, PlateReference, PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.projects import Project, ProjectAttachment, ProjectEvent, ProjectItem
 from app.models.sensors import PrinterSensorSample
@@ -112,6 +112,7 @@ __all__ = [
     "PendingImport",
     "Print",
     "AmsLabel",
+    "PlateReference",
     "ScheduledDrying",
     "KProfileNote",
     "SpoolKProfile",

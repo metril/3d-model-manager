@@ -71,6 +71,7 @@ from app.api import (
     notifications,
     obico,
     oidc,
+    plate_check,
     print_flow,
     print_jobs,
     printer_control,
@@ -157,6 +158,7 @@ protected_router.include_router(printer_control.router)
 protected_router.include_router(kprofiles.router)
 protected_router.include_router(kprofiles.spool_router)
 protected_router.include_router(printer_ops.router)
+protected_router.include_router(plate_check.router)
 protected_router.include_router(smart_plugs.summary_router)
 protected_router.include_router(obico.router)
 protected_router.include_router(printers.router)
