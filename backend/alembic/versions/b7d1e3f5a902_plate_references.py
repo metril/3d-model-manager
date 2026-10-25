@@ -1,7 +1,7 @@
 """v4 plate-empty detection references
 
 Revision ID: b7d1e3f5a902
-Revises: a4c6e8b1d3f5
+Revises: f5a7c1e3b9d2
 Create Date: 2026-10-25 12:00:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b7d1e3f5a902"
-down_revision: str | Sequence[str] | None = "a4c6e8b1d3f5"
+down_revision: str | Sequence[str] | None = "f5a7c1e3b9d2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
