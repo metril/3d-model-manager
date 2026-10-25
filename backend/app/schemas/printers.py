@@ -177,7 +177,7 @@ class PrinterOut(BaseModel):
             serial=p.serial,
             model=p.model,
             enabled=p.enabled,
-            power_off_when_drained=bool(p.power_off_when_drained),
+            power_off_when_drained=bool(getattr(p, "power_off_when_drained", False)),
             maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
             awaiting_plate_clear=bool(getattr(p, "awaiting_plate_clear", False)),
             options=redact_options(p.options),
