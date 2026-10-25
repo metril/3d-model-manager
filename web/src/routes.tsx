@@ -47,8 +47,13 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (search: Record<string, unknown>): { error?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { error?: string; step?: string; token?: string; methods?: string } => ({
     error: typeof search.error === "string" ? search.error : undefined,
+    step: typeof search.step === "string" ? search.step : undefined,
+    token: typeof search.token === "string" ? search.token : undefined,
+    methods: typeof search.methods === "string" ? search.methods : undefined,
   }),
   component: LoginPage,
 });
@@ -75,13 +80,7 @@ const authenticatedRoute = createRoute({
 const viewerWindowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/viewer/$slug",
-  beforeLoad: async ({ context }) => {
-    try {
-      await context.queryClient.ensureQueryData(authQueryOptions);
-    } catch {
-      throw redirect({ to: "/login" });
-    }
-  },
+  beforeLoad: (args) => sessionGuard(args),
   validateSearch: parseViewerWindowSearch,
   component: ViewerWindowPage,
 });
@@ -89,13 +88,16 @@ const viewerWindowRoute = createRoute({
 // Q4 camera surfaces, all OUTSIDE the AppShell layout. `/camera/$id` and
 // `/camwall` are session-guarded; `/overlay/$id?token=` is public (OBS
 // browser source) and authenticates by its read-only overlay token only.
-const sessionGuard = async ({ context }: { context: RouterContext }) => {
+// Users who still must enrol in 2FA are sent to `/`, where AppShell shows the gate.
+async function sessionGuard({ context }: { context: RouterContext }) {
+  let me;
   try {
-    await context.queryClient.ensureQueryData(authQueryOptions);
+    me = await context.queryClient.ensureQueryData(authQueryOptions);
   } catch {
     throw redirect({ to: "/login" });
   }
-};
+  if (me.must_enroll_2fa) throw redirect({ to: "/" });
+}
 
 const cameraWindowRoute = createRoute({
   getParentRoute: () => rootRoute,

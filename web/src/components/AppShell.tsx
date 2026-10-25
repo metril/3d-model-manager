@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate } from "@tanstack/react-router";
 
 import { PostPrintConfirmDialog } from "@/components/print/PostPrintConfirmDialog";
+import { authQueryOptions, useAuth } from "@/api/auth";
+import { ENROLL_2FA_EVENT } from "@/api/client";
+import { EnrollTwoFactorPage } from "@/pages/EnrollTwoFactorPage";
 import { DevModeBanner } from "@/components/shell/DevModeBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { CommandPalette } from "@/components/shell/CommandPalette";
@@ -19,6 +23,28 @@ import { useHotkeys } from "@/hooks/useHotkeys";
  * now lives in `components/shell/*`; this file only wires the two
  * dialogs (shortcuts, command palette) that any of those pieces can open. */
 export function AppShell() {
+  // T6 enrolment gate. `sticky` keeps the gate (and its one-time backup codes)
+  // mounted after `me` flips, until the user presses Continue.
+  const { data: me } = useAuth();
+  const queryClient = useQueryClient();
+  const [sticky, setSticky] = useState(false);
+  const mustEnroll = me?.must_enroll_2fa === true;
+  useEffect(() => {
+    if (mustEnroll) setSticky(true);
+    // Admin turned require_2fa off mid-session: nothing left to enrol in.
+    else if (me && !me.two_factor_enabled) setSticky(false);
+  }, [mustEnroll, me]);
+  // A 403 `2fa_enrollment_required` from any call means our cached `me` is stale: refetch once
+  // (no-op when the gate is already showing, so it can't loop).
+  useEffect(() => {
+    const onEnroll = () => {
+      if (!queryClient.getQueryData<{ must_enroll_2fa?: boolean }>(authQueryOptions.queryKey)?.must_enroll_2fa) {
+        void queryClient.invalidateQueries({ queryKey: authQueryOptions.queryKey });
+      }
+    };
+    window.addEventListener(ENROLL_2FA_EVENT, onEnroll);
+    return () => window.removeEventListener(ENROLL_2FA_EVENT, onEnroll);
+  }, [queryClient]);
   // R9-C item 5: `?` opens the shortcuts dialog from anywhere in the app --
   // AppShell is mounted on every authenticated route.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -46,6 +72,8 @@ export function AppShell() {
     // its own `/` for the library search input).
     "/": () => document.querySelector<HTMLElement>("[data-global-search]")?.focus(),
   });
+
+  if (mustEnroll || sticky) return <EnrollTwoFactorPage onFinished={() => setSticky(false)} />;
 
   return (
     <EventsProvider>

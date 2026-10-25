@@ -1,6 +1,11 @@
 /** Admin: list, create, edit, reset password for, and deactivate users. */
 import { useState } from "react";
 
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+
+import { useAdminReset2fa, useAuth } from "@/api/auth";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   useAdminUsers,
   useCreateUser,
@@ -118,7 +123,11 @@ function UserRow({
   const [pw, setPw] = useState("");
   const [open, setOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirm2fa, setConfirm2fa] = useState(false);
   const reset = useResetUserPassword();
+  const reset2fa = useAdminReset2fa();
+  const { t } = useTranslation();
+  const isSelf = useAuth().data?.id === user.id;
 
   function submitReset() {
     onError(null);
@@ -146,6 +155,11 @@ function UserRow({
           <Button type="button" size="sm" variant="outline" onClick={() => setOpen((o) => !o)}>
             Reset password
           </Button>
+          {!isSelf && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfirm2fa(true)}>
+              {t("twofa.admin.reset")}
+            </Button>
+          )}
           <Button type="button" size="sm" variant="outline" onClick={() => onActive(!user.is_active)}>
             {user.is_active ? "Deactivate" : "Activate"}
           </Button>
@@ -165,6 +179,21 @@ function UserRow({
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirm2fa}
+        onOpenChange={setConfirm2fa}
+        title={t("twofa.admin.title", { user: user.username })}
+        description={t("twofa.admin.desc")}
+        confirmLabel={t("twofa.admin.reset")}
+        destructive
+        onConfirm={() => {
+          onError(null);
+          reset2fa.mutate(user.id, {
+            onSuccess: () => toast.success(t("twofa.admin.done", { user: user.username })),
+            onError: (e) => onError(errText(e, t("twofa.admin.failed"))),
+          });
+        }}
+      />
       {open && (
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">

@@ -41,23 +41,29 @@ function isUnauthenticatedRedirectExempt(): boolean {
 async function extractError(response: Response): Promise<{ detail: string; code?: string }> {
   try {
     const data: unknown = await response.json();
-    if (
-      data !== null &&
-      typeof data === "object" &&
-      "detail" in data &&
-      typeof (data as { detail: unknown }).detail === "string"
-    ) {
-      const code = (data as { code?: unknown }).code;
-      return {
-        detail: (data as { detail: string }).detail,
-        code: typeof code === "string" ? code : undefined,
-      };
+    if (data !== null && typeof data === "object" && "detail" in data) {
+      const { detail, code } = data as { detail: unknown; code?: unknown };
+      if (typeof detail === "string") {
+        return { detail, code: typeof code === "string" ? code : undefined };
+      }
+      // Coded errors from the 2FA routes: `detail: {code, message}`.
+      if (detail !== null && typeof detail === "object") {
+        const d = detail as { code?: unknown; message?: unknown };
+        return {
+          detail: typeof d.message === "string" ? d.message : response.statusText || `Request failed with status ${response.status}`,
+          code: typeof d.code === "string" ? d.code : undefined,
+        };
+      }
     }
   } catch {
     // Response body wasn't JSON (or was empty) — fall through to statusText.
   }
   return { detail: response.statusText || `Request failed with status ${response.status}` };
 }
+
+/** Fired on a 403 `2fa_enrollment_required`; AppShell refreshes `me` so the
+ * enrolment gate renders (it ignores the event once the gate is already up). */
+export const ENROLL_2FA_EVENT = "tdmm:2fa-enrollment-required";
 
 /** Shared 401/error/empty-body handling for both the JSON path (`request`)
  * and the raw-body path (`requestRaw`, e.g. the cover-snapshot upload) --
@@ -70,6 +76,9 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
   if (!response.ok) {
     const { detail, code } = await extractError(response);
+    if (response.status === 403 && code === "2fa_enrollment_required") {
+      window.dispatchEvent(new Event(ENROLL_2FA_EVENT));
+    }
     throw new ApiError(response.status, detail, code);
   }
 
