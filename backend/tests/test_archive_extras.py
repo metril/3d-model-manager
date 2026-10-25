@@ -3,6 +3,8 @@ timelapse editor and photos."""
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
@@ -510,6 +512,10 @@ def test_hooks_registration_is_guarded():
 
 
 def _make_video(path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        if os.environ.get("TDMM_REQUIRE_FFMPEG_TESTS") == "1":
+            pytest.fail("ffmpeg missing but TDMM_REQUIRE_FFMPEG_TESTS=1")
+        pytest.skip("ffmpeg not installed")
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["ffmpeg", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x64:rate=10",
