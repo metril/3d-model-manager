@@ -566,6 +566,29 @@ export interface AppSettings {
   // P8 Task 7: prices a run's logged `energy_kwh` into `energy_cost` --
   // same currency-agnostic convention as the two rates above.
   energy_cost_per_kwh: number;
+  // Library trash: days a trashed model is kept before auto-purge (0 = never).
+  trash_retention_days: number;
+}
+
+export interface TrashItem {
+  id: number;
+  slug: string;
+  name: string;
+  created_by_user_id: number | null;
+  deleted_at: string;
+  deleted_by: string | null;
+  purge_at: string | null;
+  file_count: number;
+  size_bytes: number;
+}
+
+export interface TrashList {
+  items: TrashItem[];
+  retention_days: number;
+}
+
+export interface TrashCount {
+  count: number;
 }
 
 // `GET /api/stats` (backend/app/schemas/stats.py, R11-B item 13): cheap

@@ -39,6 +39,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { PrinterDetectionSection } from "@/components/settings/PrinterDetectionSection";
 import { PrinterCameraSection } from "@/components/settings/PrinterCameraSection";
+import { PrinterPlateCheckSection } from "@/components/settings/PrinterPlateCheckSection";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PRINTER_MODELS } from "@/lib/printerState";
@@ -498,6 +499,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
       </div>
 
       {printer ? <PrinterCameraSection printer={printer} /> : null}
+      {printer ? <PrinterPlateCheckSection printer={printer} /> : null}
       {printer ? <PrinterDetectionSection printer={printer} /> : null}
 
       <div className="flex flex-wrap items-center gap-2">

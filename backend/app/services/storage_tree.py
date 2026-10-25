@@ -100,7 +100,7 @@ async def get_storage_tree(db: AsyncSession, settings: Settings, path: str) -> S
         model_row = (
             await db.execute(
                 select(Model)
-                .where(Model.slug == first_segment)
+                .where(Model.slug == first_segment, Model.deleted_at.is_(None))
                 .options(selectinload(Model.tags), selectinload(Model.category))
             )
         ).scalar_one_or_none()

@@ -6,6 +6,7 @@ import {
   EllipsisIcon,
   FileArchiveIcon,
   FolderInputIcon,
+  FolderKanbanIcon,
   ListPlusIcon,
   PencilIcon,
   StarIcon,
@@ -16,10 +17,12 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
+import { useRestoreTrash } from "@/api/trash";
 import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
@@ -144,9 +147,11 @@ export function ModelHeader({
   const patchModel = usePatchModel(model.slug);
   const archiveModel = useArchiveModel(model.slug);
   const deleteModel = useDeleteModel(model.slug);
+  const restoreTrash = useRestoreTrash();
   const enqueueModel = useEnqueueModel();
 
   const [redownloadOpen, setRedownloadOpen] = useState(false);
+  const [projectOpen, setProjectOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -305,6 +310,12 @@ export function ModelHeader({
                   Download ZIP
                 </a>
               </DropdownMenuItem>
+              {can("library:write") ? (
+                <DropdownMenuItem onSelect={() => setProjectOpen(true)}>
+                  <FolderKanbanIcon />
+                  Add to project…
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem onSelect={onOpenRelocate}>
                 <FolderInputIcon />
                 Move / copy…
@@ -317,11 +328,12 @@ export function ModelHeader({
               {canDelete ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
                   <Trash2Icon />
-                  Delete…
+                  Move to trash…
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+          <AddToProjectDialog open={projectOpen} onOpenChange={setProjectOpen} modelIds={[model.id]} />
           <RedownloadDialog model={model} open={redownloadOpen} onOpenChange={setRedownloadOpen} />
           <ConfirmDialog
             open={archiveOpen}
@@ -335,13 +347,24 @@ export function ModelHeader({
           <ConfirmDialog
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
-            title="Delete this model?"
-            description="Permanently deletes the model and every file from storage. This cannot be undone."
-            confirmLabel="Delete"
+            title="Move this model to trash?"
+            description="The model is hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
+            confirmLabel="Move to trash"
             destructive
             onConfirm={() =>
               deleteModel.mutate(undefined, {
-                onSuccess: () => void navigate({ to: "/library" }),
+                onSuccess: () => {
+                  toast.success("Moved to trash", {
+                    action: {
+                      label: "Undo",
+                      onClick: () =>
+                        restoreTrash.mutate([model.id], {
+                          onSuccess: () => toast.success("Restored"),
+                        }),
+                    },
+                  });
+                  void navigate({ to: "/library" });
+                },
               })
             }
           />

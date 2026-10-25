@@ -9,10 +9,12 @@ import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
+import { TrashRetentionCard } from "@/components/settings/TrashRetentionCard";
 import { ArchivePurgeCard } from "@/components/settings/ArchivePurgeCard";
 import { ConfirmOutcomeCard } from "@/components/settings/ConfirmOutcomeCard";
 import { BackupsCard } from "@/components/settings/BackupsCard";
 import { UpdatesCard } from "@/components/settings/UpdatesCard";
+import { ApiKeysCard } from "@/components/settings/ApiKeysCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
@@ -114,6 +116,7 @@ export function SettingsPage() {
               <StorageBackendsCard />
               <BackupsCard />
               <ArchivePurgeCard />
+              <TrashRetentionCard />
               <ScanReport />
             </TabsContent>
           )}
@@ -167,6 +170,7 @@ export function SettingsPage() {
               <BrowserExtensionCard />
               <SlicerIntegrationCard />
             </div>
+            <ApiKeysCard />
           </TabsContent>
           {isAdmin && (
             <TabsContent value="access" className="space-y-6">

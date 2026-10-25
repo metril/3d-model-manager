@@ -1,7 +1,7 @@
 """v4 standalone smart plugs + power-off-when-drained
 
 Revision ID: c5d7f9a1b3e8
-Revises: a4c6e8b1d3f5
+Revises: b7d3e1a9c4f2
 Create Date: 2026-10-25 12:00:00.000000
 
 Plugs become standalone (name, optional printer link, many per printer);
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c5d7f9a1b3e8"
-down_revision: str | Sequence[str] | None = "a4c6e8b1d3f5"
+down_revision: str | Sequence[str] | None = "b7d3e1a9c4f2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -58,8 +58,7 @@ def upgrade() -> None:
     )
     op.add_column(_T, sa.Column("energy_kwh", sa.Float(), server_default="0", nullable=False))
     op.execute(
-        "UPDATE smart_plugs SET auto_off = (auto_off_after_min IS NOT NULL), "
-        "name = 'Plug ' || id"
+        "UPDATE smart_plugs SET auto_off = (auto_off_after_min IS NOT NULL), name = 'Plug ' || id"
     )
     op.drop_constraint("uq_smart_plugs_printer_id", _T, type_="unique")
     op.drop_constraint("fk_smart_plugs_printer_id_printers", _T, type_="foreignkey")

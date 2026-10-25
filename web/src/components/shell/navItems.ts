@@ -17,6 +17,7 @@ import {
   Link2,
   Bookmark,
   CopyCheck,
+  FolderKanban,
   LayoutDashboard,
   ListChecks,
   ListOrdered,
@@ -26,6 +27,7 @@ import {
   Printer,
   Settings,
   SquareLibrary,
+  Trash2,
   Wallet,
   Wrench,
 } from "lucide-react";
@@ -89,8 +91,10 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/library", label: "Models", icon: SquareLibrary },
       { to: "/collections", label: "Collections", icon: Bookmark },
+      { to: "/projects", label: "Projects", icon: FolderKanban },
       { to: "/add", label: "Add", icon: Plus, perm: "library:write" },
       { to: "/duplicates", label: "Duplicates", icon: CopyCheck, perm: "library:write" },
+      { to: "/trash", label: "Trash", icon: Trash2 },
     ],
   },
   {

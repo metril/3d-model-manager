@@ -298,13 +298,14 @@ async function openMoreActions() {
 }
 
 describe("ModelHeader -- More actions overflow menu", () => {
-  it("opens from 'More actions' and lists all five items in order, with a separator before Archive", async () => {
+  it("opens from 'More actions' and lists all six items in order, with a separator before Archive", async () => {
     renderHeader(false, vi.fn(), MODEL_WITH_SOURCE);
 
     const menu = await openMoreActions();
 
     const nodes = Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]'));
     expect(nodes.map((node) => node.getAttribute("role"))).toEqual([
+      "menuitem",
       "menuitem",
       "menuitem",
       "menuitem",
@@ -315,10 +316,11 @@ describe("ModelHeader -- More actions overflow menu", () => {
     expect(nodes.map((node) => node.textContent)).toEqual([
       "Re-download…",
       "Download ZIP",
+      "Add to project…",
       "Move / copy…",
       "",
       "Archive…",
-      "Delete…",
+      "Move to trash…",
     ]);
   });
 
@@ -338,7 +340,7 @@ describe("ModelHeader -- More actions overflow menu", () => {
 
     const menu = await openMoreActions();
 
-    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).toHaveAttribute(
+    expect(within(menu).getByRole("menuitem", { name: "Move to trash…" })).toHaveAttribute(
       "data-variant",
       "destructive",
     );
@@ -390,17 +392,17 @@ describe("ModelHeader -- archive & delete via the overflow menu (feat/import-fid
     const { router } = renderHeader(false);
 
     await openMoreActions();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to trash…" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Delete this model?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Move this model to trash?")).toBeInTheDocument();
     expect(
       within(dialog).getByText(
-        "Permanently deletes the model and every file from storage. This cannot be undone.",
+        "The model is hidden from the library and can be restored from the trash until it is emptied or the retention period ends.",
       ),
     ).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledExactlyOnceWith("/models/articulated-dragon"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/library"));

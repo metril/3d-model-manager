@@ -90,6 +90,15 @@ class ApiToken(Base):
     label: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # v4 scoped API keys. ``scopes IS NULL`` marks a legacy browser-extension
+    # token (``/ext`` v1 only); a non-NULL list is a scoped key usable on
+    # ``/ext/v2`` only.
+    scopes: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+    # Optional printer allowlist (NULL = every printer the owner may reach).
+    printer_ids: Mapped[list[int] | None] = mapped_column(ARRAY(BigInteger), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    rate_limit_per_min: Mapped[int | None] = mapped_column(nullable=True)
+    key_prefix: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Group(Base):

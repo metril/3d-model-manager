@@ -635,7 +635,9 @@ async def create_api_token(
 async def list_api_tokens(
     db: AsyncSession = Depends(get_db), auth: AuthContext = Depends(require_session)
 ) -> list[ApiTokenOut]:
-    rows = await api_tokens.list_tokens(db, user_id=None if auth.is_admin else auth.user.id)
+    rows = await api_tokens.list_tokens(
+        db, user_id=None if auth.is_admin else auth.user.id, keys=False
+    )
     names = dict(
         (
             await db.execute(
@@ -654,6 +656,8 @@ async def delete_api_token(
     db: AsyncSession = Depends(get_db),
     auth: AuthContext = Depends(require_session),
 ) -> None:
-    deleted = await api_tokens.revoke(db, token_id, user_id=None if auth.is_admin else auth.user.id)
+    deleted = await api_tokens.revoke(
+        db, token_id, user_id=None if auth.is_admin else auth.user.id, keys=False
+    )
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"api token {token_id} not found")

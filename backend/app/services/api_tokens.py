@@ -46,9 +46,60 @@ async def mint(db: AsyncSession, *, user_id: int, label: str) -> tuple[str, ApiT
     return token, row
 
 
+# Scoped API keys (v4). scope -> the owner permissions it exercises. A key's
+# effective perms are owner-perms & the union of its scopes' perms, so a key
+# can never exceed its creator, and never carries ``admin``/``settings:write``.
+KEY_PREFIX = "tdmm_"
+SCOPE_PERMS: dict[str, frozenset[str]] = {
+    "read": frozenset(),
+    "control": frozenset({"printers:control"}),
+    "queue": frozenset({"printers:print"}),
+    "upload": frozenset({"library:write"}),
+}
+SCOPES = tuple(SCOPE_PERMS)
+DEFAULT_RATE_LIMIT = 120  # requests / minute / key
+MAX_RATE_LIMIT = 6000
+
+
+def scope_perms(scopes: list[str] | None) -> frozenset[str]:
+    out: set[str] = set()
+    for sc in scopes or []:
+        out |= SCOPE_PERMS.get(sc, frozenset())
+    return frozenset(out)
+
+
+async def mint_key(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    label: str,
+    scopes: list[str],
+    printer_ids: list[int] | None = None,
+    expires_at: datetime | None = None,
+    rate_limit_per_min: int | None = None,
+) -> tuple[str, ApiToken]:
+    """Mint a scoped API key. Plaintext is returned once; only the hash and a
+    short display prefix are stored."""
+    key = KEY_PREFIX + secrets.token_urlsafe(TOKEN_BYTES)
+    row = ApiToken(
+        token_hash=_hash(key),
+        user_id=user_id,
+        label=label,
+        scopes=sorted(set(scopes)),
+        printer_ids=sorted(set(printer_ids)) if printer_ids else None,
+        expires_at=expires_at,
+        rate_limit_per_min=rate_limit_per_min,
+        key_prefix=key[:10],
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return key, row
+
+
 async def verify(db: AsyncSession, token: str) -> ApiToken | None:
     """Look up the row for ``token`` by hash, throttled-bump ``last_used_at``
-    on a hit, and return the row (or ``None`` for an unknown/revoked
+    on a hit, and return the row (or ``None`` for an unknown/revoked/expired
     token)."""
     row = (
         await db.execute(select(ApiToken).where(ApiToken.token_hash == _hash(token)))
@@ -57,6 +108,8 @@ async def verify(db: AsyncSession, token: str) -> ApiToken | None:
         return None
 
     now = datetime.now(UTC)
+    if row.expires_at is not None and row.expires_at <= now:
+        return None
     if row.last_used_at is None or now - row.last_used_at > LAST_USED_THROTTLE:
         row.last_used_at = now
         await db.commit()
@@ -64,21 +117,34 @@ async def verify(db: AsyncSession, token: str) -> ApiToken | None:
     return row
 
 
-async def list_tokens(db: AsyncSession, *, user_id: int | None = None) -> list[ApiToken]:
-    """``user_id=None`` lists every user's tokens (admin view)."""
+async def list_tokens(
+    db: AsyncSession, *, user_id: int | None = None, keys: bool | None = None
+) -> list[ApiToken]:
+    """``user_id=None`` lists every user's tokens (admin view). ``keys``:
+    ``True`` = scoped API keys only, ``False`` = legacy extension tokens only."""
     stmt = select(ApiToken).order_by(ApiToken.created_at.desc())
     if user_id is not None:
         stmt = stmt.where(ApiToken.user_id == user_id)
+    if keys is True:
+        stmt = stmt.where(ApiToken.scopes.is_not(None))
+    elif keys is False:
+        stmt = stmt.where(ApiToken.scopes.is_(None))
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def revoke(db: AsyncSession, token_id: int, *, user_id: int | None = None) -> bool:
+async def revoke(
+    db: AsyncSession, token_id: int, *, user_id: int | None = None, keys: bool | None = None
+) -> bool:
     """Delete the token row by id (scoped to ``user_id`` unless ``None``).
     Returns whether a row was actually deleted (``False`` for an unknown or
     not-owned id, so the caller can 404)."""
     stmt = delete(ApiToken).where(ApiToken.id == token_id)
     if user_id is not None:
         stmt = stmt.where(ApiToken.user_id == user_id)
+    if keys is True:
+        stmt = stmt.where(ApiToken.scopes.is_not(None))
+    elif keys is False:
+        stmt = stmt.where(ApiToken.scopes.is_(None))
     result = await db.execute(stmt)
     await db.commit()
     return result.rowcount > 0

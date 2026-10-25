@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { AddPage } from "@/pages/AddPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
 import { DuplicatesPage } from "@/pages/DuplicatesPage";
+import { TrashPage } from "@/pages/TrashPage";
 import { CameraPage } from "@/pages/CameraPage";
 import { CamWallPage } from "@/pages/CamWallPage";
 import { OverlayPage } from "@/pages/OverlayPage";
@@ -26,6 +27,8 @@ import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
 import { PlugsPage } from "@/pages/PlugsPage";
+import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
+import { ProjectsPage } from "@/pages/ProjectsPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { StatsPage } from "@/pages/StatsPage";
@@ -212,6 +215,18 @@ const collectionsRoute = createRoute({
   component: CollectionsPage,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects",
+  component: ProjectsPage,
+});
+
+const projectDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects/$id",
+  component: ProjectDetailPage,
+});
+
 // /dashboard (library stats) folded into /print/history?tab=stats (P3 Task 5).
 const dashboardRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -295,6 +310,12 @@ const duplicatesRoute = createRoute({
   component: DuplicatesPage,
 });
 
+const trashRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/trash",
+  component: TrashPage,
+});
+
 const inventorySpoolsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/spools",
@@ -368,6 +389,8 @@ export const routeTree = rootRoute.addChildren([
     uploadRedirectRoute,
     importRedirectRoute,
     collectionsRoute,
+    projectsRoute,
+    projectDetailRoute,
     dashboardRedirectRoute,
     printHistoryRoute,
     printQueueRoute,
@@ -376,6 +399,7 @@ export const routeTree = rootRoute.addChildren([
     printerRedirectRoute,
     printerDetailRoute,
     duplicatesRoute,
+    trashRoute,
     inventorySpoolsRoute,
     inventoryMaterialsRoute,
     inventoryProfilesRoute,

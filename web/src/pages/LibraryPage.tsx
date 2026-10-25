@@ -4,6 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   ArchiveIcon,
   BookmarkIcon,
+  FolderKanbanIcon,
   FolderTreeIcon,
   LayoutGridIcon,
   ListIcon,
@@ -19,8 +20,10 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
+import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
+import { useRestoreTrash } from "@/api/trash";
 import { useBulkDeleteModels, useBulkUpdateModels, useModelsQuery, useTags } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { useTriggerScan } from "@/api/scan";
@@ -706,9 +709,11 @@ function SelectionActionBar({
   const [addTagOpen, setAddTagOpen] = useState(false);
   const [removeTagOpen, setRemoveTagOpen] = useState(false);
   const [queueing, setQueueing] = useState(false);
+  const [projectOpen, setProjectOpen] = useState(false);
 
   const bulkUpdate = useBulkUpdateModels();
   const bulkDelete = useBulkDeleteModels();
+  const restoreTrash = useRestoreTrash();
   // `silentError`: this loops one enqueue mutation per selected model and
   // toasts a single summary below -- the global per-mutation error toast
   // would otherwise fire once per failed model on top of it.
@@ -815,7 +820,18 @@ function SelectionActionBar({
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`Deleted ${result.deleted} model${result.deleted === 1 ? "" : "s"}`);
+          toast.success(
+            `Moved ${result.deleted} model${result.deleted === 1 ? "" : "s"} to trash`,
+            {
+              action: {
+                label: "Undo",
+                onClick: () =>
+                  restoreTrash.mutate(ids, {
+                    onSuccess: () => toast.success("Restored"),
+                  }),
+              },
+            },
+          );
           onDone();
         },
       },
@@ -891,6 +907,16 @@ function SelectionActionBar({
         <ListPlusIcon /> Add to queue
       </Button>
 
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setProjectOpen(true)}>
+        <FolderKanbanIcon /> Add to project
+      </Button>
+      <AddToProjectDialog
+        open={projectOpen}
+        onOpenChange={setProjectOpen}
+        modelIds={ids}
+        onDone={onDone}
+      />
+
       <ConfirmDialog
         trigger={
           <Button type="button" variant="destructive" size="sm" disabled={busy}>
@@ -899,9 +925,9 @@ function SelectionActionBar({
         }
         open={deleteConfirmOpen}
         onOpenChange={onDeleteConfirmOpenChange}
-        title={`Delete ${ids.length} model${ids.length === 1 ? "" : "s"}?`}
-        description="Permanently deletes the selected models and every file they store. This cannot be undone."
-        confirmLabel="Delete"
+        title={`Move ${ids.length} model${ids.length === 1 ? "" : "s"} to trash?`}
+        description="The selected models are hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
+        confirmLabel="Move to trash"
         destructive
         onConfirm={deleteSelection}
       />
