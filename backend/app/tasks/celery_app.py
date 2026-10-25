@@ -174,6 +174,10 @@ celery_app.conf.beat_schedule["notify-digest"] = {
 # re-reads settings each tick), daily update check.
 from app.tasks import ops as _ops  # noqa: E402
 
+celery_app.conf.beat_schedule["beat-tick"] = {
+    "task": _ops.BEAT_TICK_TASK,
+    "schedule": _ops.BEAT_TICK_INTERVAL_S,
+}
 celery_app.conf.beat_schedule["plugs-tick"] = {
     "task": "app.tasks.plugs.tick",
     "schedule": _ops.PLUG_INTERVAL_S,

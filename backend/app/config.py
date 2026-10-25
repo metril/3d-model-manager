@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # endpoint an operator can hit to answer "what is actually running?"
     # without a session.
     app_version: str = "dev"
+    # Pinned upstream commit the obico-ml sidecar is built from (compose.yaml
+    # sets it from the same pin as compose.obico.yaml). The ML API exposes no
+    # version endpoint, so this is the "configured" version shown in Settings.
+    obico_ml_version: str = ""
     database_url: str = "postgresql+asyncpg://tdmm:tdmm@localhost:5432/tdmm"
     redis_url: str = "redis://localhost:6379/0"
     data_dir: Path = Path("./data")

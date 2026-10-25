@@ -12,6 +12,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from importlib import metadata
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text, update
@@ -30,7 +31,9 @@ from app.schemas.ops import (
     UpdateOut,
 )
 from app.services import backup as backup_svc
+from app.services import service_status
 from app.services.ops_settings import get_ops_config, get_update_cache, set_ops_config
+from app.services.service_status import AdminStatusOut
 from app.tasks import base
 from app.tasks.ops import backup_run
 
@@ -209,3 +212,17 @@ async def get_update(
         checked_at=cache.get("checked_at"),
         error=cache.get("error"),
     )
+
+
+@router.get("/status", response_model=AdminStatusOut)
+async def admin_status(
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AdminStatusOut:
+    """Health of every backing service and sidecar (admin only, cached ~15 s)."""
+    r = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await service_status.cached_collect(db, r, settings, refresh=refresh)
+    finally:
+        await r.aclose()

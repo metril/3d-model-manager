@@ -26,6 +26,11 @@
     "shortcuts": "Keyboard shortcuts",
     "logout": "Log out",
     "openMenu": "Open menu",
+    "serviceStatus": {
+      "ok": "All services healthy",
+      "warn": "Some services need attention - open Settings, Server",
+      "down": "A service is down - open Settings, Server"
+    },
     "back": "Back",
     "search": "Search"
   },
@@ -241,19 +246,77 @@
         "timeoutWarn": "The sidecar kills jobs after {{sidecar}}s, before the {{app}}s slice timeout set here, so long slices will fail. Raise SLICER_JOB_TIMEOUT_S on the sidecar or lower the timeout."
       },
       "obico": {
-        "title": "Failure detection server",
-        "desc": "Obico ML sidecar addresses. Detection is switched on under Printer.",
+        "title": "Failure detection",
+        "desc": "Obico ML sidecar: addresses, the global on/off switch, thresholds and default action. Per-printer overrides stay in Printer setup.",
+        "enable": "Enable failure detection",
         "url": "ML API URL",
         "callback": "Callback URL",
+        "interval": "Check every (seconds)",
+        "action": "Default action",
+        "actionNone": "Record only",
+        "actionNotify": "Notify",
+        "actionPause": "Pause the print",
+        "warn": "Warn threshold",
+        "pause": "Pause threshold",
+        "errInterval": "The check interval must be a whole number from 2 to 300 seconds.",
+        "errRange": "Thresholds must be between 0 and 5.",
+        "errOrder": "The pause threshold must be at least the warn threshold.",
+        "errUrl": "The ML API URL is required while detection is enabled.",
+        "mlVersion": "ML sidecar version",
+        "mlVersionUnknown": "unknown",
+        "src_configured": "pinned commit",
         "test": "Test connection",
+        "testing": "Testing...",
+        "testHint": "Runs a real detection on a test image through the callback URL.",
+        "testError": "Could not run the connection test",
+        "checks": "Connection checks",
+        "pass": "Pass",
+        "fail": "Fail",
+        "check_sidecar": "Sidecar health.",
+        "check_callback": "Callback reachability.",
+        "check_inference": "Inference result.",
         "needUrl": "Enter a URL to test",
         "connected": "Connected",
         "failed": "Failed ({{detail}})",
         "healthy": "Healthy",
         "unreachable": "Unreachable",
         "link": "Settings, Server tab",
+        "detectionTitle": "Failure detection",
+        "on": "On",
+        "off": "Off",
+        "summary": "Default action: {{action}}. Warn at {{warn}}, pause at {{pause}}, checked every {{interval}} s.",
         "detectionDescPlain": "Spaghetti detection via a self-hosted Obico ML sidecar. Enable it per printer in Printer setup.",
-        "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in <1>Settings, Server tab</1>). Enable it per printer in Printer setup."
+        "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar. The switch, thresholds and sidecar URL are in <1>Settings, Server tab</1>. Enable it per printer in Printer setup."
+      },
+      "services": {
+        "title": "Services",
+        "desc": "Live health of every backing service and sidecar. Refreshes every 15 seconds.",
+        "loadError": "Couldn't load service status",
+        "overall": {
+          "ok": "All services healthy",
+          "warn": "Some services need attention",
+          "down": "A service is down"
+        },
+        "state": {
+          "ok": "OK",
+          "warn": "Warning",
+          "down": "Down",
+          "off": "Not in use"
+        },
+        "names": {
+          "db": "Database",
+          "redis": "Redis",
+          "worker_io": "Worker (io)",
+          "worker_cpu": "Worker (cpu)",
+          "beat": "Scheduler (beat)",
+          "printerd": "Printer daemon",
+          "slicer": "Slicer",
+          "obico": "Failure detection (Obico)",
+          "virtual_printer": "Virtual printer",
+          "spoolman": "Spoolman",
+          "home_assistant": "Home Assistant",
+          "smtp": "Email (SMTP)"
+        }
       },
       "vp": {
         "title": "Virtual printer network",

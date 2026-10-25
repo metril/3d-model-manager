@@ -12,7 +12,6 @@ import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { TopBar } from "@/components/shell/TopBar";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { SliceJobsHost } from "@/components/slice/SliceJobsHost";
 import { EventsProvider } from "@/hooks/useEvents";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -79,14 +78,11 @@ export function AppShell() {
   return (
     <EventsProvider>
       <div className="flex min-h-svh">
-        {/* Collapsed icon-rail nav renders Tooltips; Radix throws without a provider. */}
-        <TooltipProvider delayDuration={200}>
-          <AppSidebar
-            onOpenShortcuts={() => setShortcutsOpen(true)}
-            mobileOpen={mobileNavOpen}
-            onCloseMobile={() => setMobileNavOpen(false)}
-          />
-        </TooltipProvider>
+        <AppSidebar
+          onOpenShortcuts={() => setShortcutsOpen(true)}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+        />
         {/* `min-w-0` keeps this column (and its content) from being forced
             wider by the sidebar's own width -- the brief's "main content
             should not be constrained by the sidebar width when collapsed"

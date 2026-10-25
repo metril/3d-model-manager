@@ -10,6 +10,7 @@ import { LimitsCard } from "@/components/settings/server/LimitsCard";
 import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
 import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
 import { ServerTab } from "@/components/settings/server/ServerTab";
+import { ServicesCard } from "@/components/settings/server/ServicesCard";
 import { SlicerServerCard } from "@/components/settings/server/SlicerServerCard";
 import { VpNetworkCard } from "@/components/settings/server/VpNetworkCard";
 
@@ -26,6 +27,15 @@ vi.mock("@/api/client", async (importOriginal) => {
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 let status: ServerStatusOut;
+const ADMIN_STATUS = {
+  overall: "warn",
+  checked_at: 1,
+  services: {
+    db: { ok: true, state: "ok", detail: "ok", version: "16.4", checked_at: 1 },
+    beat: { ok: false, state: "down", detail: "no heartbeat recorded", version: null, checked_at: 1 },
+    smtp: { ok: false, state: "off", detail: "not configured", version: null, checked_at: 1 },
+  },
+};
 const OBICO = { url: "http://obico-ml:3333", enabled: false, interval_s: 10, warn: 0.38, pause: 0.78, action: "notify", callback_url: "http://api:8080" };
 
 // Saves merge onto the cached config, so seed the cache with the card's data.
@@ -50,6 +60,7 @@ beforeEach(() => {
     if (path === "/settings/server/status") return Promise.resolve(status);
     if (path === "/settings/server") return Promise.resolve(current);
     if (path === "/settings/obico") return Promise.resolve(OBICO);
+    if (path === "/admin/status") return Promise.resolve(ADMIN_STATUS);
     return Promise.resolve(null);
   });
   putMock.mockImplementation((path: string, body: unknown) =>
@@ -213,6 +224,69 @@ describe("ObicoServerCard", () => {
       expect(putMock).toHaveBeenCalledWith("/settings/obico", { ...OBICO, url: "http://ml:3333" }),
     );
   });
+
+  it("edits enable, thresholds and default action, and blocks pause < warn", async () => {
+    ui(<ObicoServerCard />);
+    fireEvent.click(await screen.findByLabelText("Enable failure detection"));
+    fireEvent.change(screen.getByLabelText("Default action"), { target: { value: "pause" } });
+    fireEvent.change(screen.getByLabelText("Pause threshold"), { target: { value: "0.1" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("at least the warn threshold");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Pause threshold"), { target: { value: "0.6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith("/settings/obico", { ...OBICO, enabled: true, action: "pause", pause: 0.6 }),
+    );
+  });
+
+  it("flags env-seeded values and shows the ML version", async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === "/settings/obico"
+          ? { ...OBICO, seeded_from_env: { url: "TDMM_OBICO_URL" }, ml_version: "6f938964c63892df", ml_version_source: "configured" }
+          : path === "/settings/server/status" ? status : null,
+      ),
+    );
+    ui(<ObicoServerCard />);
+    expect(await screen.findByText("Seeded from environment (TDMM_OBICO_URL)")).toBeInTheDocument();
+    expect(screen.getByText(/6f938964c638/)).toBeInTheDocument();
+  });
+
+  it("reports the three connection checks separately", async () => {
+    postMock.mockResolvedValue({
+      ok: false,
+      detail: "failed: callback, inference",
+      ml_version: null,
+      checks: [
+        { name: "sidecar", ok: true, detail: "HTTP 200 in 12 ms" },
+        { name: "callback", ok: false, detail: "sidecar did not fetch the frame; it cannot reach http://api:8080" },
+        { name: "inference", ok: false, detail: "skipped: no frame fetched" },
+      ],
+    });
+    ui(<ObicoServerCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Test connection" }));
+    const list = await screen.findByRole("list", { name: "Connection checks" });
+    expect(postMock).toHaveBeenCalledWith("/settings/obico/test", { url: "http://obico-ml:3333", callback_url: "http://api:8080" });
+    const rows = list.querySelectorAll("li");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Pass");
+    expect(rows[0]).toHaveTextContent("HTTP 200 in 12 ms");
+    expect(rows[1]).toHaveTextContent("Fail");
+    expect(rows[1]).toHaveTextContent("cannot reach http://api:8080");
+    expect(rows[2]).toHaveTextContent("skipped");
+  });
+});
+
+describe("ServicesCard", () => {
+  it("lists every service with its state", async () => {
+    ui(<ServicesCard />);
+    const beat = await screen.findByTestId("svc-beat");
+    expect(beat).toHaveTextContent("Scheduler (beat)");
+    expect(beat).toHaveTextContent("no heartbeat recorded");
+    expect(beat.querySelector("[aria-label=Down]")).not.toBeNull();
+    expect(screen.getByTestId("svc-db")).toHaveTextContent("16.4");
+    expect(screen.getByTestId("svc-smtp").querySelector("[aria-label='Not in use']")).not.toBeNull();
+  });
 });
 
 describe("VpNetworkCard", () => {
@@ -249,5 +323,6 @@ describe("ServerTab", () => {
     ui(<ServerTab />);
     expect(await screen.findByText(/TDMM_SLICER_URL, COOKIE_SECURE/)).toBeInTheDocument();
     expect(screen.getByText("Public URL", { selector: "[data-slot=card-title], div, h3" })).toBeInTheDocument();
+    expect(await screen.findByTestId("svc-db")).toBeInTheDocument();
   });
 });
