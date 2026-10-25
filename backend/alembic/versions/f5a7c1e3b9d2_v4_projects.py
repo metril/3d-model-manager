@@ -1,7 +1,7 @@
 """v4 projects: projects, project_items (BOM), events, attachments
 
 Revision ID: f5a7c1e3b9d2
-Revises: e5b8c3a91f47
+Revises: b7d3f1a9c2e4
 Create Date: 2026-10-25 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f5a7c1e3b9d2"
-down_revision: str | Sequence[str] | None = "a4c6e8b1d3f5"
+down_revision: str | Sequence[str] | None = "b7d3f1a9c2e4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
