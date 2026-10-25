@@ -264,6 +264,20 @@ class FakePrinterAdapter(PrinterAdapter):
     def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
         self._record("start_sd_print", path, plate, use_ams)
 
+    def kprofile_list(self, nozzle_diameter: str, extruder_id: int | None = None) -> None:
+        self._record("kprofile_list", nozzle_diameter, extruder_id)
+
+    def kprofile_set(self, entry: dict) -> None:
+        self._record("kprofile_set", entry)
+
+    def kprofile_delete(self, entry: dict) -> None:
+        self._record("kprofile_delete", entry)
+
+    def kprofile_select(
+        self, ams_id: int, tray_id: int, cali_idx: int, filament_id: str, nozzle_diameter: str
+    ) -> None:
+        self._record("kprofile_select", ams_id, tray_id, cali_idx, filament_id, nozzle_diameter)
+
     def delete_file(self, path: str) -> None:
         self.calls.append(("delete_file", path))
         if path not in self.files:

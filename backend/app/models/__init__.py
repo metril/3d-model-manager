@@ -42,6 +42,7 @@ from app.models.inventory import (
     StorageLocation,
     Supplier,
 )
+from app.models.kprofiles import KProfileNote, SpoolKProfile
 from app.models.library import (
     Blob,
     Category,
@@ -49,12 +50,18 @@ from app.models.library import (
     Model,
     Note,
     Print,
+    PrintBatch,
     PrintQueueEntry,
     Revision,
     Tag,
     model_tags,
 )
-from app.models.notify import NotificationChannel, NotificationLog, NotificationTemplate
+from app.models.notify import (
+    NotificationChannel,
+    NotificationLog,
+    NotificationTemplate,
+    UserEmailPreference,
+)
 from app.models.ops import BackupRun, MaintenanceLog, MaintenanceTask, SmartPlug
 from app.models.overlay_token import OverlayToken
 from app.models.printing import AmsLabel, PrintArchive, Printer, PrintJob
@@ -99,16 +106,20 @@ __all__ = [
     "AuthEphemeralToken",
     "OidcProvider",
     "UserOtpCode",
+    "UserEmailPreference",
     "UserTotp",
     "PendingImport",
     "Print",
     "AmsLabel",
     "ScheduledDrying",
+    "KProfileNote",
+    "SpoolKProfile",
     "Printer",
     "PrinterAccess",
     "FailureDetection",
     "PrinterSensorSample",
     "PrintArchive",
+    "PrintBatch",
     "PrintJob",
     "PrintQueueEntry",
     "PrintRecipe",

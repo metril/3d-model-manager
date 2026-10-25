@@ -26,6 +26,8 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     ("POST", "/api/auth/2fa/email/enable"),
     ("POST", "/api/auth/2fa/email/confirm"),
     ("POST", "/api/auth/2fa/email/disable"),
+    # T8a: each user manages their own emailed-print-event preferences.
+    ("PUT", "/api/user-notifications/preferences"),
     # Personal extension tokens: any user manages their own.
     ("POST", "/api/settings/api-tokens"),
     ("DELETE", "/api/settings/api-tokens/{token_id}"),

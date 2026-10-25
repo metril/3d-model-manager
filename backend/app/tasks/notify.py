@@ -13,8 +13,15 @@ import redis
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models.notify import NotificationChannel, NotificationLog, NotificationTemplate
-from app.models.printing import Printer
+from app.models.auth import User
+from app.models.notify import (
+    NotificationChannel,
+    NotificationLog,
+    NotificationTemplate,
+    UserEmailPreference,
+)
+from app.models.printing import Printer, PrintJob
+from app.services import mailer
 from app.services.notify import Message, ProviderError
 from app.services.notify.delivery import (
     cron_due,
@@ -24,6 +31,7 @@ from app.services.notify.delivery import (
 )
 from app.services.notify.events import QUEUE_KEY
 from app.services.notify.templates import base_context, render
+from app.services.server_config import get_server_config_sync
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -59,6 +67,47 @@ def _log(session, channel_id, event, printer_id, status, error=None, payload=Non
 
 PROCESSING_KEY = "notify:processing"
 
+# event -> user_email_preferences column
+EMAIL_PREF_BY_EVENT = {
+    "job_started": "notify_print_start",
+    "job_finished": "notify_print_complete",
+    "job_failed": "notify_print_failed",
+    "job_paused": "notify_print_stopped",
+}
+
+
+def email_job_owner(item: dict) -> bool:
+    """Email the job's starter when SMTP is set, they have an address and the
+    matching preference. Independent of channels; never raises."""
+    col = EMAIL_PREF_BY_EVENT.get(item.get("event", ""))
+    payload = item.get("payload") or {}
+    if item.get("event") == "job_failed" and payload.get("result") == "canceled":
+        col = "notify_print_stopped"  # a cancelled print is "stopped", not "failed"
+    if col is None or not payload.get("job_id"):
+        return False
+    try:
+        with base.sync_session() as s:
+            if not get_server_config_sync(s).smtp.configured:
+                return False
+            job = s.get(PrintJob, int(payload["job_id"]))
+            if job is None or job.created_by_user_id is None:
+                return False
+            user = s.get(User, job.created_by_user_id)
+            if user is None or not user.email:
+                return False
+            pref = s.scalar(
+                select(UserEmailPreference).where(UserEmailPreference.user_id == user.id)
+            )
+            if pref is None or not getattr(pref, col):
+                return False
+            title, body = build_message(s, item["event"], item.get("printer_id"), payload)
+            to = str(user.email)
+        mailer.send(to, title, body)
+        return True
+    except Exception as exc:
+        log.warning("notify: owner email failed: %s", type(exc).__name__)
+        return False
+
 
 @celery_app.task(name="app.tasks.notify.deliver_pending")
 def deliver_pending() -> int:
@@ -92,6 +141,7 @@ def deliver_pending() -> int:
                         args=[c.id, it["event"], it.get("printer_id"), it.get("payload") or {}]
                     )
                     dispatched += 1
+            email_job_owner(it)
             r.lrem(PROCESSING_KEY, 1, raw)
         return dispatched
     finally:

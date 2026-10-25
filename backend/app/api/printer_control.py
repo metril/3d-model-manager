@@ -61,6 +61,9 @@ _AUDITED = {
     "sd_print",
     "drying_start",
     "drying_stop",
+    "kprofile_set",
+    "kprofile_delete",
+    "kprofile_select",
 }
 _TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
 
@@ -111,7 +114,13 @@ def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONRespo
         cap = {"nozzle": caps.max_nozzle, "bed": caps.max_bed}.get(clean["target"])
         if cap is not None and clean["value"] > cap:
             return _err(422, "invalid", f"{clean['target']} target exceeds {cap} C")
-    if state.get("dev_mode") is False and command not in cmds.ALWAYS_ALLOWED:
+    if command.startswith("kprofile_") and not caps.kprofiles:
+        return _err(422, "unsupported", f"{command} is not supported on this model")
+    if (
+        state.get("dev_mode") is False
+        and command not in cmds.ALWAYS_ALLOWED
+        and command != "kprofile_list"
+    ):
         return _err(409, "dev_mode_off", "Developer Mode is off on this printer")
     spec = cmds.DISPATCH[command]
     printing = state.get("gcode_state") in cmds.PRINTING_STATES
@@ -176,7 +185,10 @@ async def run_command(
             if raw:
                 result = json.loads(raw)
                 if result.get("ok"):
-                    return JSONResponse(status_code=200, content={"ok": True})
+                    body = {"ok": True}
+                    if result.get("payload") is not None:
+                        body["payload"] = result["payload"]
+                    return JSONResponse(status_code=200, content=body)
                 code = result.get("code", "error")
                 extra = {k: v for k, v in result.items() if k in ("codes", "messages")}
                 return _err(cmds.HTTP_STATUS.get(code, 409), code, result.get("message", ""), extra)

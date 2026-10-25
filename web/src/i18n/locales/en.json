@@ -1,15 +1,33 @@
 {
   "nav": {
-    "Print": "Print", "Library": "Library", "Inventory": "Inventory", "Links": "Links", "Categories": "Categories",
-    "Dashboard": "Dashboard", "Queue": "Queue", "History": "History", "Stats": "Stats",
-    "Models": "Models", "Collections": "Collections", "Add": "Add", "Duplicates": "Duplicates",
-    "Spools": "Spools", "Materials": "Materials", "Profiles & recipes": "Profiles & recipes",
-    "Background jobs": "Background jobs", "Finance": "Finance", "Settings": "Settings"
+    "Print": "Print",
+    "Library": "Library",
+    "Inventory": "Inventory",
+    "Links": "Links",
+    "Categories": "Categories",
+    "Dashboard": "Dashboard",
+    "Queue": "Queue",
+    "History": "History",
+    "Stats": "Stats",
+    "Models": "Models",
+    "Collections": "Collections",
+    "Add": "Add",
+    "Duplicates": "Duplicates",
+    "Spools": "Spools",
+    "Materials": "Materials",
+    "Profiles & recipes": "Profiles & recipes",
+    "Background jobs": "Background jobs",
+    "Finance": "Finance",
+    "Settings": "Settings"
   },
   "shell": {
-    "expandSidebar": "Expand sidebar", "collapseSidebar": "Collapse sidebar",
-    "shortcuts": "Keyboard shortcuts", "logout": "Log out",
-    "openMenu": "Open menu", "back": "Back", "search": "Search"
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "shortcuts": "Keyboard shortcuts",
+    "logout": "Log out",
+    "openMenu": "Open menu",
+    "back": "Back",
+    "search": "Search"
   },
   "queueSched": {
     "section": "Scheduling", "summaryNone": "ASAP",
@@ -45,8 +63,17 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Automation, storage backends, printer, and connected accounts.",
-    "loadError": "Couldn't load settings", "retry": "Retry",
-    "tabs": { "general": "General", "storage": "Storage", "printer": "Printer", "notifications": "Notifications", "accounts": "Accounts", "access": "Access", "server": "Server" },
+    "loadError": "Couldn't load settings",
+    "retry": "Retry",
+    "tabs": {
+      "general": "General",
+      "storage": "Storage",
+      "printer": "Printer",
+      "notifications": "Notifications",
+      "accounts": "Accounts",
+      "access": "Access",
+      "server": "Server"
+    },
     "server": {
       "loadError": "Couldn't load server settings",
       "saved": "Server settings saved",
@@ -107,7 +134,9 @@
         "failed": "Failed ({{detail}})",
         "healthy": "Healthy",
         "unreachable": "Unreachable",
-        "link": "Settings, Server tab", "detectionDescPlain": "Spaghetti detection via a self-hosted Obico ML sidecar. Enable it per printer in Printer setup.", "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in <1>Settings, Server tab</1>). Enable it per printer in Printer setup."
+        "link": "Settings, Server tab",
+        "detectionDescPlain": "Spaghetti detection via a self-hosted Obico ML sidecar. Enable it per printer in Printer setup.",
+        "detectionDesc": "Spaghetti detection via a self-hosted Obico ML sidecar (the sidecar URL is set in <1>Settings, Server tab</1>). Enable it per printer in Printer setup."
       },
       "vp": {
         "title": "Virtual printer network",
@@ -125,48 +154,95 @@
         "errDistinct": "SSDP, MQTT and FTP ports must be different.",
         "errRange": "Passive min must not exceed max.",
         "errOverlap": "The passive range must not include the SSDP, MQTT or FTP port.",
-        "failure": {"screen_only": "Screen-only printer", "unsupported": "Not supported", "did_not_start": "Did not start", "blocked": "AMS blocked"},
-    "state": {
+        "failure": {
+          "screen_only": "Screen-only printer",
+          "unsupported": "Not supported",
+          "did_not_start": "Did not start",
+          "blocked": "AMS blocked"
+        },
+        "state": {
           "idle": "Idle",
           "running": "Running",
           "error": "Error",
-          "offline": "Offline", "loading": "Checking"
+          "offline": "Offline",
+          "loading": "Checking"
         }
       }
     },
     "appearance": {
-      "title": "Appearance", "desc": "Applies to this browser only.",
-      "mode": "Mode", "style": "Style", "accent": "Accent",
+      "title": "Appearance",
+      "desc": "Applies to this browser only.",
+      "mode": "Mode",
+      "style": "Style",
+      "accent": "Accent",
       "language": "Language",
       "contribute": "Want another language? Add locales/<code>.json under web/src/i18n and open a pull request."
     }
   },
   "stats": {
-    "title": "Stats", "subtitle": "Print performance across your printers.",
-    "range": "Range", "days": "{{count}} days", "reset": "Reset layout",
-    "loadError": "Couldn't load stats", "empty": "No data in this range.",
-    "drag": "Drag to reorder {{name}}", "size": "Resize {{name}} (currently {{size}})",
-    "sizes": { "1": "small", "2": "medium", "3": "large" },
-    "w": {
-      "quick": "Quick stats", "success": "Success rate", "accuracy": "Time accuracy",
-      "failures": "Failure analysis", "heatmap": "Print activity", "records": "Records",
-      "printers": "Per-printer", "filament": "Filament trends"
+    "title": "Stats",
+    "subtitle": "Print performance across your printers.",
+    "range": "Range",
+    "days": "{{count}} days",
+    "reset": "Reset layout",
+    "loadError": "Couldn't load stats",
+    "empty": "No data in this range.",
+    "drag": "Drag to reorder {{name}}",
+    "size": "Resize {{name}} (currently {{size}})",
+    "sizes": {
+      "1": "small",
+      "2": "medium",
+      "3": "large"
     },
-    "total": "Total prints", "completed": "Completed", "failed": "Failed", "canceled": "Canceled",
-    "hours": "Print hours", "filamentG": "Filament (g)",
-    "meanDelta": "Mean delta", "meanAbs": "Mean absolute error", "samples": "{{count}} timed prints",
-    "byErrorCode": "By error code", "byPrinter": "By printer", "byMaterial": "By material",
-    "longest": "Longest print", "mostFilament": "Most filament", "busiest": "Busiest day",
-    "prints": "{{count}} prints", "jobs": "Jobs", "successShort": "Success",
-    "tableView": "Table view", "chartView": "Chart view"
+    "w": {
+      "quick": "Quick stats",
+      "success": "Success rate",
+      "accuracy": "Time accuracy",
+      "failures": "Failure analysis",
+      "heatmap": "Print activity",
+      "records": "Records",
+      "printers": "Per-printer",
+      "filament": "Filament trends"
+    },
+    "total": "Total prints",
+    "completed": "Completed",
+    "failed": "Failed",
+    "canceled": "Canceled",
+    "hours": "Print hours",
+    "filamentG": "Filament (g)",
+    "meanDelta": "Mean delta",
+    "meanAbs": "Mean absolute error",
+    "samples": "{{count}} timed prints",
+    "byErrorCode": "By error code",
+    "byPrinter": "By printer",
+    "byMaterial": "By material",
+    "longest": "Longest print",
+    "mostFilament": "Most filament",
+    "busiest": "Busiest day",
+    "prints": "{{count}} prints",
+    "jobs": "Jobs",
+    "successShort": "Success",
+    "tableView": "Table view",
+    "chartView": "Chart view"
   },
   "history": {
-    "heater": "Temperature history", "ams": "AMS humidity and temperature",
-    "heaterBtn": "Temperature history", "amsBtn": "AMS history",
-    "range": "Range", "h1": "1 hour", "h6": "6 hours", "h24": "24 hours", "h168": "7 days",
-    "nozzle": "Nozzle", "bed": "Bed", "chamber": "Chamber",
-    "humidity": "Humidity (%)", "temp": "Temperature (°C)", "unit": "AMS unit {{n}}",
-    "empty": "No samples in this range.", "loadError": "Couldn't load history"
+    "heater": "Temperature history",
+    "ams": "AMS humidity and temperature",
+    "heaterBtn": "Temperature history",
+    "amsBtn": "AMS history",
+    "range": "Range",
+    "h1": "1 hour",
+    "h6": "6 hours",
+    "h24": "24 hours",
+    "h168": "7 days",
+    "nozzle": "Nozzle",
+    "bed": "Bed",
+    "chamber": "Chamber",
+    "humidity": "Humidity (%)",
+    "temp": "Temperature (°C)",
+    "unit": "AMS unit {{n}}",
+    "empty": "No samples in this range.",
+    "loadError": "Couldn't load history"
   },
   "drying": {
     "title": "Dry {{unit}}",
@@ -178,7 +254,11 @@
     "hours": "Duration (hours)",
     "rotate": "Rotate spools while drying",
     "startMode": "Start",
-    "mode": {"now": "Now", "at": "At time", "after": "After current print"},
+    "mode": {
+      "now": "Now",
+      "at": "At time",
+      "after": "After current print"
+    },
     "atTime": "Start at",
     "afterNote": "Starts when the printer is idle again.",
     "start": "Start drying",
@@ -201,8 +281,17 @@
       "7": "AMS firmware is upgrading",
       "8": "Plug in the external AMS power adapter to start drying"
     },
-    "status": {"1": "Checking", "2": "Drying", "3": "Cooling", "4": "Stopping", "5": "Error"},
-    "sub": {"1": "Heating", "2": "Dehumidifying"},
+    "status": {
+      "1": "Checking",
+      "2": "Drying",
+      "3": "Cooling",
+      "4": "Stopping",
+      "5": "Error"
+    },
+    "sub": {
+      "1": "Heating",
+      "2": "Dehumidifying"
+    },
     "left": "{{time}} left",
     "screenOnly": "Start from the printer screen",
     "error": {
@@ -222,7 +311,14 @@
       "printer_busy": "Waiting for the printer",
       "printer_offline": "Printer offline"
     },
-    "state": {"pending": "Pending", "waiting": "Waiting", "running": "Running", "done": "Done", "failed": "Failed", "cancelled": "Cancelled"},
+    "state": {
+      "pending": "Pending",
+      "waiting": "Waiting",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
     "settings": {
       "title": "AMS drying",
       "description": "Presets, humidity thresholds and automatic drying.",
@@ -257,35 +353,217 @@
         "name": "Names must be filled in and unique"
       }
     },
-    "list": {"title": "Scheduled drying", "description": "Upcoming and running drying schedules.", "printer": "Printer", "unit": "Unit", "when": "Start", "source": {"manual": "Manual", "ambient": "Auto (humidity)", "queue": "Auto (queue)"}}
+    "list": {
+      "title": "Scheduled drying",
+      "description": "Upcoming and running drying schedules.",
+      "printer": "Printer",
+      "unit": "Unit",
+      "when": "Start",
+      "source": {
+        "manual": "Manual",
+        "ambient": "Auto (humidity)",
+        "queue": "Auto (queue)"
+      }
+    }
   },
   "card": {
     "select": "Select {{name}}",
     "expand": "Expand {{name}}",
     "back": "Back",
     "untested": "Untested on this model",
-    "badge": {"connected": "Connected", "offline": "Offline", "loading": "Checking", "network": "Network", "ethernet": "Ethernet", "hms": "HMS {{n}}", "queued": "{{n}} queued", "fw": "FW {{v}}", "door": "Door", "doorOpen": "Door open", "doorClosed": "Door closed", "doorTitle": "Door sensor", "devModeOff": "Dev Mode off", "devModeTip": "Developer LAN mode is off"},
-    "header": {"menu": "Printer menu", "edit": "Edit", "info": "Info", "reconnect": "Reconnect", "forceRefresh": "Force refresh", "diagnose": "Diagnose", "delete": "Delete", "reachable": "Printer reachable", "reconnectFailed": "Reconnect failed", "hours": "{{n}} h printed", "deleteTitle": "Delete {{name}}?", "deleteDesc": "The printer and its connection settings are removed. Print history is kept."},
-    "footer": {"print": "Print", "firmware": "Firmware"},
-    "status": {"offline": "Offline", "loading": "Checking", "offlineLast": "Offline — last: {{name}}", "idle": "Idle", "last": "Last: {{name}} · {{result}}", "nothing": "Nothing printed yet", "print": "Print", "skip": "Skip objects", "left": "{{t}} left", "eta": "ETA {{t}}", "layer": "Layer {{n}}/{{total}}", "startedApp": "Started from the app", "startedPrinter": "Started on the printer"},
-    "controls": {"silent": "Silent", "standard": "Standard", "sport": "Sport", "ludicrous": "Ludicrous", "movement": "Movement", "move": "Move", "jogStep": "Jog step", "mm": "{{n}} mm", "home": "Home", "extrude": "Extrude", "retract": "Retract", "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.", "lightLabel": "Chamber light", "light": "Light", "speed": "Print speed", "airduct": "Airduct", "cooling": "cooling", "heating": "heating", "calibration": "Calibration", "calibrate": "Calibrate", "calibrateTitle": "Run calibration?", "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.", "resume": "Resume", "pause": "Pause", "resumeTitle": "Resume this print?", "pauseTitle": "Pause this print?", "stop": "Stop", "stopTitle": "Stop this print?", "stopDesc": "The printer will cancel the job in progress. This can't be undone."},
-    "temps": {"set": "Set {{label}}", "target": "{{label}} target ({{unit}})", "apply": "Set", "off": "Off", "nozzle": "Nozzle", "nozzleL": "Nozzle L", "nozzleR": "Nozzle R", "bed": "Bed", "chamber": "Chamber", "chamberReadonly": "Chamber temperature is read-only on this model.", "partFan": "Part fan", "auxFan": "Aux fan", "chamberFan": "Chamber fan"},
-    "filaments": {"emptyLower": "empty", "empty": "Empty", "loaded": "Loaded", "slotMenu": "{{label}} menu", "unitMenu": "{{label}} menu", "load": "Load", "unload": "Unload", "remaining": "Remaining", "low": "Low", "humidity": "Humidity: {{v}}", "temp": "Temp: {{v}}", "serial": "Serial: {{v}}", "firmware": "Firmware: {{v}}", "dry": "Dry", "dryingTip": "Drying: {{filament}} at {{temp}} °C", "backup": "AMS backup", "backupTip": "Two slots hold the same filament", "external": "External", "externalSpool": "External spool", "slot": "Slot {{n}}"},
-    "skip": {"title": "Skip objects", "desc": "Skipped objects are not printed from the next layer on. This can't be undone.", "submit": "Skip {{n}} selected"},
-    "devBanner": {"off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.", "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.", "how": "How to enable it", "dismiss": "Dismiss"}
+    "badge": {
+      "connected": "Connected",
+      "offline": "Offline",
+      "loading": "Checking",
+      "network": "Network",
+      "ethernet": "Ethernet",
+      "hms": "HMS {{n}}",
+      "queued": "{{n}} queued",
+      "fw": "FW {{v}}",
+      "door": "Door",
+      "doorOpen": "Door open",
+      "doorClosed": "Door closed",
+      "doorTitle": "Door sensor",
+      "devModeOff": "Dev Mode off",
+      "devModeTip": "Developer LAN mode is off"
+    },
+    "header": {
+      "menu": "Printer menu",
+      "edit": "Edit",
+      "info": "Info",
+      "reconnect": "Reconnect",
+      "forceRefresh": "Force refresh",
+      "diagnose": "Diagnose",
+      "delete": "Delete",
+      "reachable": "Printer reachable",
+      "reconnectFailed": "Reconnect failed",
+      "hours": "{{n}} h printed",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDesc": "The printer and its connection settings are removed. Print history is kept."
+    },
+    "footer": {
+      "print": "Print",
+      "firmware": "Firmware"
+    },
+    "status": {
+      "offline": "Offline",
+      "loading": "Checking",
+      "offlineLast": "Offline — last: {{name}}",
+      "idle": "Idle",
+      "last": "Last: {{name}} · {{result}}",
+      "nothing": "Nothing printed yet",
+      "print": "Print",
+      "skip": "Skip objects",
+      "left": "{{t}} left",
+      "eta": "ETA {{t}}",
+      "layer": "Layer {{n}}/{{total}}",
+      "startedApp": "Started from the app",
+      "startedPrinter": "Started on the printer"
+    },
+    "controls": {
+      "silent": "Silent",
+      "standard": "Standard",
+      "sport": "Sport",
+      "ludicrous": "Ludicrous",
+      "movement": "Movement",
+      "move": "Move",
+      "jogStep": "Jog step",
+      "mm": "{{n}} mm",
+      "home": "Home",
+      "extrude": "Extrude",
+      "retract": "Retract",
+      "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.",
+      "lightLabel": "Chamber light",
+      "light": "Light",
+      "speed": "Print speed",
+      "airduct": "Airduct",
+      "cooling": "cooling",
+      "heating": "heating",
+      "calibration": "Calibration",
+      "calibrate": "Calibrate",
+      "calibrateTitle": "Run calibration?",
+      "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.",
+      "resume": "Resume",
+      "pause": "Pause",
+      "resumeTitle": "Resume this print?",
+      "pauseTitle": "Pause this print?",
+      "stop": "Stop",
+      "stopTitle": "Stop this print?",
+      "stopDesc": "The printer will cancel the job in progress. This can't be undone."
+    },
+    "temps": {
+      "set": "Set {{label}}",
+      "target": "{{label}} target ({{unit}})",
+      "apply": "Set",
+      "off": "Off",
+      "nozzle": "Nozzle",
+      "nozzleL": "Nozzle L",
+      "nozzleR": "Nozzle R",
+      "bed": "Bed",
+      "chamber": "Chamber",
+      "chamberReadonly": "Chamber temperature is read-only on this model.",
+      "partFan": "Part fan",
+      "auxFan": "Aux fan",
+      "chamberFan": "Chamber fan"
+    },
+    "filaments": {
+      "emptyLower": "empty",
+      "empty": "Empty",
+      "loaded": "Loaded",
+      "slotMenu": "{{label}} menu",
+      "unitMenu": "{{label}} menu",
+      "load": "Load",
+      "unload": "Unload",
+      "remaining": "Remaining",
+      "low": "Low",
+      "humidity": "Humidity: {{v}}",
+      "temp": "Temp: {{v}}",
+      "serial": "Serial: {{v}}",
+      "firmware": "Firmware: {{v}}",
+      "dry": "Dry",
+      "dryingTip": "Drying: {{filament}} at {{temp}} °C",
+      "backup": "AMS backup",
+      "backupTip": "Two slots hold the same filament",
+      "external": "External",
+      "externalSpool": "External spool",
+      "slot": "Slot {{n}}"
+    },
+    "skip": {
+      "title": "Skip objects",
+      "desc": "Skipped objects are not printed from the next layer on. This can't be undone.",
+      "submit": "Skip {{n}} selected"
+    },
+    "devBanner": {
+      "off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.",
+      "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.",
+      "how": "How to enable it",
+      "dismiss": "Dismiss"
+    }
   },
   "dash": {
-    "status": {"printing": "printing", "paused": "paused", "finished": "finished", "available": "available", "problem": "problem", "offline": "offline"},
+    "status": {
+      "printing": "printing",
+      "paused": "paused",
+      "finished": "finished",
+      "available": "available",
+      "problem": "problem",
+      "offline": "offline"
+    },
     "nextFree": "Next free: {{name}} in {{eta}}",
-    "bulk": {"selected": "{{n}} selected", "pauseBtn": "Pause selected ({{n}})", "stopBtn": "Stop selected ({{n}})", "pause": "Pause", "stop": "Stop", "clear": "Clear", "pauseTitle": "Pause {{count}} prints?", "pauseTitle_one": "Pause {{count}} print?", "pauseTitle_other": "Pause {{count}} prints?", "stopTitle": "Stop {{count}} prints?", "stopTitle_one": "Stop {{count}} print?", "stopTitle_other": "Stop {{count}} prints?", "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.", "paused_one": "Paused {{count}} printer", "paused_other": "Paused {{count}} printers", "stopped_one": "Stopped {{count}} printer", "stopped_other": "Stopped {{count}} printers", "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}", "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"}
+    "bulk": {
+      "selected": "{{n}} selected",
+      "pauseBtn": "Pause selected ({{n}})",
+      "stopBtn": "Stop selected ({{n}})",
+      "pause": "Pause",
+      "stop": "Stop",
+      "clear": "Clear",
+      "pauseTitle": "Pause {{count}} prints?",
+      "pauseTitle_one": "Pause {{count}} print?",
+      "pauseTitle_other": "Pause {{count}} prints?",
+      "stopTitle": "Stop {{count}} prints?",
+      "stopTitle_one": "Stop {{count}} print?",
+      "stopTitle_other": "Stop {{count}} prints?",
+      "stopDesc": "The printers will cancel their jobs in progress. This can't be undone.",
+      "paused_one": "Paused {{count}} printer",
+      "paused_other": "Paused {{count}} printers",
+      "stopped_one": "Stopped {{count}} printer",
+      "stopped_other": "Stopped {{count}} printers",
+      "pausedPartial": "Paused {{ok}} of {{total}}: {{reason}}",
+      "stoppedPartial": "Stopped {{ok}} of {{total}}: {{reason}}"
+    }
   },
   "gcodeViewer": {
-    "loading": "Reading toolpath…", "empty": "No G-code available for this item.", "loadFailed": "Could not load the G-code.", "retry": "Retry",
-    "colorMode": "Colour by", "legend": "Legend", "topLayer": "Top layer", "bottomLayer": "Bottom layer",
-    "mode": {"feature": "Feature", "tool": "Tool", "speed": "Speed", "layer": "Layer"},
-    "feature": {"wall": "Walls", "infill": "Infill", "support": "Support", "bridge": "Bridge / overhang", "skirt": "Skirt / brim", "travel": "Travel moves"},
-    "tool": "Tool {{n}}", "speedUnit": "mm/s", "layerWord": "layer",
-    "stats": {"layers": "{{count}} layers", "moves": "{{count}} moves", "extrusion": "{{m}} m filament", "time": "Est. {{time}}"}
+    "loading": "Reading toolpath…",
+    "empty": "No G-code available for this item.",
+    "loadFailed": "Could not load the G-code.",
+    "retry": "Retry",
+    "colorMode": "Colour by",
+    "legend": "Legend",
+    "topLayer": "Top layer",
+    "bottomLayer": "Bottom layer",
+    "mode": {
+      "feature": "Feature",
+      "tool": "Tool",
+      "speed": "Speed",
+      "layer": "Layer"
+    },
+    "feature": {
+      "wall": "Walls",
+      "infill": "Infill",
+      "support": "Support",
+      "bridge": "Bridge / overhang",
+      "skirt": "Skirt / brim",
+      "travel": "Travel moves"
+    },
+    "tool": "Tool {{n}}",
+    "speedUnit": "mm/s",
+    "layerWord": "layer",
+    "stats": {
+      "layers": "{{count}} layers",
+      "moves": "{{count}} moves",
+      "extrusion": "{{m}} m filament",
+      "time": "Est. {{time}}"
+    }
   },
   "archiveX": {
     "toolpath": {
@@ -337,12 +615,12 @@
       "override": "Result override",
       "overrideNone": "Recorded ({{result}})",
       "reset": "Reset",
-    "results": {
-      "completed": "Completed",
-      "failed": "Failed",
-      "canceled": "Canceled",
-      "stopped": "Stopped"
-    },
+      "results": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "canceled": "Canceled",
+        "stopped": "Stopped"
+      },
       "delete": "Delete run",
       "deleteTitle": "Delete this archived run?",
       "deleteDesc": "Removes the archive and its stored files. The print job record is kept."
@@ -354,13 +632,13 @@
       "good": "Marked good",
       "bad": "Marked bad",
       "via": "via {{source}}",
-    "sources": {
-      "dialog": "dialog",
-      "link": "notification link",
-      "plate_clear": "plate cleared",
-      "card": "run card",
-      "api": "API"
-    },
+      "sources": {
+        "dialog": "dialog",
+        "link": "notification link",
+        "plate_clear": "plate cleared",
+        "card": "run card",
+        "api": "API"
+      },
       "failed": "Couldn't record the verdict",
       "later": "Later",
       "dialogDesc": "{{name}} on {{printer}} has finished."
@@ -460,7 +738,9 @@
       "reset": "Reset slot",
       "resetTitle": "Reset this slot?",
       "resetDesc": "The printer will forget the filament in this slot.",
-      "saved": "Slot saved", "deviceFailed": "Saved, but the printer rejected the change", "deviceSkipped": "Saved, but the printer was not updated (offline)",
+      "saved": "Slot saved",
+      "deviceFailed": "Saved, but the printer rejected the change",
+      "deviceSkipped": "Saved, but the printer was not updated (offline)",
       "resetDone": "Slot reset"
     },
     "ams": {
@@ -526,7 +806,9 @@
       "costPerKg": "Cost / kg",
       "lowStock": "Low-stock (g)"
     },
-    "toolbar": {"capBulk": "Bulk actions are limited to {{max}} spools.", "capLabels": "Labels are limited to {{max}} spools.", 
+    "toolbar": {
+      "capBulk": "Bulk actions are limited to {{max}} spools.",
+      "capLabels": "Labels are limited to {{max}} spools.",
       "label": "Spool bulk actions",
       "selected": "{{n}} selected",
       "bulkEdit": "Bulk edit",
@@ -540,25 +822,30 @@
       "selectAll": "Select all spools",
       "selectRow": "Select {{name}}",
       "allLocations": "All locations",
-      "deleteTitle": "Delete {{count}} spools?", "deleteTitle_one": "Delete {{count}} spool?",
+      "deleteTitle": "Delete {{count}} spools?",
+      "deleteTitle_one": "Delete {{count}} spool?",
       "deleteTitle_other": "Delete {{count}} spools?",
       "deleteDesc": "This permanently deletes the selected spools and their usage history.",
       "archived_one": "Archived {{count}} spool",
       "archived_other": "Archived {{count}} spools",
       "restored_one": "Restored {{count}} spool",
       "restored_other": "Restored {{count}} spools",
-      "deleted": "Deleted {{count}} spools", "deleted_one": "Deleted {{count}} spool",
+      "deleted": "Deleted {{count}} spools",
+      "deleted_one": "Deleted {{count}} spool",
       "deleted_other": "Deleted {{count}} spools",
       "actionFailed": "That action failed"
     },
     "bulk": {
-      "title": "Edit {{count}} spools", "title_one": "Edit {{count}} spool",
+      "title": "Edit {{count}} spools",
+      "title_one": "Edit {{count}} spool",
       "title_other": "Edit {{count}} spools",
       "desc": "Only the fields you tick are changed.",
       "apply": "Apply {{field}}",
-      "apply_btn": "Update {{count}} spools", "apply_btn_one": "Update {{count}} spool",
+      "apply_btn": "Update {{count}} spools",
+      "apply_btn_one": "Update {{count}} spool",
       "apply_btn_other": "Update {{count}} spools",
-      "updated": "Updated {{count}} spools", "updated_one": "Updated {{count}} spool",
+      "updated": "Updated {{count}} spools",
+      "updated_one": "Updated {{count}} spool",
       "updated_other": "Updated {{count}} spools",
       "failed": "Bulk update failed",
       "someFailed": "Some spools were not updated:",
@@ -587,7 +874,8 @@
       }
     },
     "labels": {
-      "title": "Labels for {{count}} spools", "title_one": "Labels for {{count}} spool",
+      "title": "Labels for {{count}} spools",
+      "title_one": "Labels for {{count}} spool",
       "title_other": "Labels for {{count}} spools",
       "desc": "Each label carries a QR code that opens the spool.",
       "template": "Template",
@@ -608,7 +896,9 @@
         "png": "PNG"
       }
     },
-    "loc": {"unassignedHint": "Not linked to a location. Pick or create one to assign.", "dialogDesc": "A storage place for spools.", 
+    "loc": {
+      "unassignedHint": "Not linked to a location. Pick or create one to assign.",
+      "dialogDesc": "A storage place for spools.",
       "placeholder": "Search or create a location",
       "create": "Create ‘{{name}}’",
       "empty": "No locations yet",
@@ -624,7 +914,8 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDesc": "Spools stored here become unassigned."
     },
-    "sensor": {"dialogDesc": "Link a Home Assistant sensor and set alert thresholds.", 
+    "sensor": {
+      "dialogDesc": "Link a Home Assistant sensor and set alert thresholds.",
       "title": "Sensors at {{name}}",
       "add": "Add sensor",
       "empty": "No sensors on this location.",
@@ -639,7 +930,9 @@
       "showOnCard": "Show on spool card",
       "notify": "Notify on alert"
     },
-    "sup": {"pricePlaceholder": "€/kg", "dialogDesc": "Supplier contact and account details.", 
+    "sup": {
+      "pricePlaceholder": "€/kg",
+      "dialogDesc": "Supplier contact and account details.",
       "title": "Suppliers",
       "supplier": "Supplier",
       "article": "Article no.",
@@ -660,7 +953,9 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDesc": "The supplier is removed from every spool that references it."
     },
-    "catalog": {"effectPlaceholder": "sparkle, matte…", "dialogDesc": "A named filament colour used for autocomplete.", 
+    "catalog": {
+      "effectPlaceholder": "sparkle, matte…",
+      "dialogDesc": "A named filament colour used for autocomplete.",
       "search": "Search colour catalog",
       "placeholder": "Search colour catalog (e.g. Bambu Jade)",
       "none": "No matching colours",
@@ -693,14 +988,92 @@
     "error": "Something went wrong. Try again.",
     "codeOrPassword": "Password or current code",
     "disableDesc": "Confirm with your password or a current code to turn this off.",
-    "method": {"totp": "Authenticator app", "email": "Email codes", "backup": "Backup code"},
-    "totp": {"rowDesc": "Time-based codes from an app such as Aegis, 1Password or Google Authenticator.", "setupTitle": "Set up authenticator app", "setupDesc": "Scan the QR code, then enter the 6-digit code it shows.", "qr": "Authenticator QR code", "manual": "Can't scan? Enter this key manually:", "copySecret": "Copy secret key", "codeLabel": "6-digit code", "enable": "Verify and enable", "restart": "Start over", "expired": "Setup expired. Start over.", "disableTitle": "Disable authenticator app?", "codesTitle": "Save your backup codes", "codesDesc": "Authenticator app enabled.", "saved": "I've saved these codes"},
-    "email": {"rowDesc": "A one-time code is emailed to you at sign-in.", "noSmtp": "Ask an admin to configure outgoing email first.", "noAddress": "Add an email address to your account first.", "confirmTitle": "Confirm email codes", "confirmDesc": "We emailed you a code. Enter it to turn on email codes.", "codeLabel": "Emailed code", "enable": "Enable", "disableTitle": "Disable email codes?", "sendMe": "Email me a code", "sent": "Code sent"},
-    "backup": {"title": "Backup codes", "remaining": "Codes remaining: {{count}}", "regenerate": "Regenerate", "regenTitle": "Regenerate backup codes", "regenDesc": "Enter a current authenticator code. Old backup codes stop working.", "regenDone": "Your old backup codes no longer work.", "once": "Store these somewhere safe. Each works once and they won't be shown again.", "list": "Backup codes", "copy": "Copy", "download": "Download .txt"},
-    "login": {"title": "Two-factor verification", "prompt": {"totp": "Enter the 6-digit code from your authenticator app.", "email": "We'll email you a code. Request it, then enter it below.", "backup": "Enter one of your backup codes."}, "codeLabel": "Code", "backupLabel": "Backup code", "verify": "Verify", "verifying": "Verifying…", "useBackup": "Use a backup code", "useApp": "Use another method", "back": "Back to sign in", "sendCode": "Send code", "resend": "Send a new code", "invalid": "That code isn't right. Try again.", "failed": "Couldn't verify the code.", "locked": "Too many failed attempts. Try again in 15 minutes.", "expired": "That verification expired. Please sign in again.", "rateLimited": "Too many codes requested. Wait a few minutes and try again.", "noSmtp": "Email codes aren't available right now.", "sendFailed": "Couldn't send the code."},
-    "admin": {"reset": "Reset 2FA", "title": "Reset two-factor for {{user}}?", "desc": "Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in.", "done": "Two-factor reset for {{user}}", "failed": "Could not reset 2FA."},
-    "enroll": {"title": "Set up two-factor authentication", "desc": "Your administrator requires two-factor authentication. Enable at least one method to continue.", "continue": "Continue"},
-    "security": {"title": "Security", "desc": "Sign-in requirements for all accounts.", "require": "Require two-factor for all users"}
+    "method": {
+      "totp": "Authenticator app",
+      "email": "Email codes",
+      "backup": "Backup code"
+    },
+    "totp": {
+      "rowDesc": "Time-based codes from an app such as Aegis, 1Password or Google Authenticator.",
+      "setupTitle": "Set up authenticator app",
+      "setupDesc": "Scan the QR code, then enter the 6-digit code it shows.",
+      "qr": "Authenticator QR code",
+      "manual": "Can't scan? Enter this key manually:",
+      "copySecret": "Copy secret key",
+      "codeLabel": "6-digit code",
+      "enable": "Verify and enable",
+      "restart": "Start over",
+      "expired": "Setup expired. Start over.",
+      "disableTitle": "Disable authenticator app?",
+      "codesTitle": "Save your backup codes",
+      "codesDesc": "Authenticator app enabled.",
+      "saved": "I've saved these codes"
+    },
+    "email": {
+      "rowDesc": "A one-time code is emailed to you at sign-in.",
+      "noSmtp": "Ask an admin to configure outgoing email first.",
+      "noAddress": "Add an email address to your account first.",
+      "confirmTitle": "Confirm email codes",
+      "confirmDesc": "We emailed you a code. Enter it to turn on email codes.",
+      "codeLabel": "Emailed code",
+      "enable": "Enable",
+      "disableTitle": "Disable email codes?",
+      "sendMe": "Email me a code",
+      "sent": "Code sent"
+    },
+    "backup": {
+      "title": "Backup codes",
+      "remaining": "Codes remaining: {{count}}",
+      "regenerate": "Regenerate",
+      "regenTitle": "Regenerate backup codes",
+      "regenDesc": "Enter a current authenticator code. Old backup codes stop working.",
+      "regenDone": "Your old backup codes no longer work.",
+      "once": "Store these somewhere safe. Each works once and they won't be shown again.",
+      "list": "Backup codes",
+      "copy": "Copy",
+      "download": "Download .txt"
+    },
+    "login": {
+      "title": "Two-factor verification",
+      "prompt": {
+        "totp": "Enter the 6-digit code from your authenticator app.",
+        "email": "We'll email you a code. Request it, then enter it below.",
+        "backup": "Enter one of your backup codes."
+      },
+      "codeLabel": "Code",
+      "backupLabel": "Backup code",
+      "verify": "Verify",
+      "verifying": "Verifying…",
+      "useBackup": "Use a backup code",
+      "useApp": "Use another method",
+      "back": "Back to sign in",
+      "sendCode": "Send code",
+      "resend": "Send a new code",
+      "invalid": "That code isn't right. Try again.",
+      "failed": "Couldn't verify the code.",
+      "locked": "Too many failed attempts. Try again in 15 minutes.",
+      "expired": "That verification expired. Please sign in again.",
+      "rateLimited": "Too many codes requested. Wait a few minutes and try again.",
+      "noSmtp": "Email codes aren't available right now.",
+      "sendFailed": "Couldn't send the code."
+    },
+    "admin": {
+      "reset": "Reset 2FA",
+      "title": "Reset two-factor for {{user}}?",
+      "desc": "Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in.",
+      "done": "Two-factor reset for {{user}}",
+      "failed": "Could not reset 2FA."
+    },
+    "enroll": {
+      "title": "Set up two-factor authentication",
+      "desc": "Your administrator requires two-factor authentication. Enable at least one method to continue.",
+      "continue": "Continue"
+    },
+    "security": {
+      "title": "Security",
+      "desc": "Sign-in requirements for all accounts.",
+      "require": "Require two-factor for all users"
+    }
   },
   "smtp": {
     "title": "Outgoing email (SMTP)",
@@ -708,11 +1081,18 @@
     "host": "Host",
     "port": "Port",
     "security": "Security",
-    "securityOpt": {"none": "None", "starttls": "STARTTLS", "tls": "TLS (SSL)"},
+    "securityOpt": {
+      "none": "None",
+      "starttls": "STARTTLS",
+      "tls": "TLS (SSL)"
+    },
     "username": "Username",
     "password": "Password",
     "passwordKeep": "Saved. Leave as is to keep it; clear to remove.",
-    "passwordUnset": "No password saved.", "passwordClearing": "The saved password will be removed when you save.", "passwordClear": "Clear password", "passwordKeepBtn": "Keep password",
+    "passwordUnset": "No password saved.",
+    "passwordClearing": "The saved password will be removed when you save.",
+    "passwordClear": "Clear password",
+    "passwordKeepBtn": "Keep password",
     "fromAddr": "From address",
     "fromName": "From name",
     "invalidPort": "Port must be between 1 and 65535.",
@@ -722,5 +1102,15 @@
     "testHint": "Uses the saved settings; save first.",
     "testOk": "Test email sent.",
     "testFailed": "Test failed: {{error}}"
+  },
+  "emailPrefs": {
+    "title": "Email notifications",
+    "description": "Get an email about prints you start. Sent to the address on your account.",
+    "noEmail": "Your account has no email address, so nothing can be sent. Add one to your profile first.",
+    "start": "Print started",
+    "complete": "Print finished",
+    "failed": "Print failed",
+    "stopped": "Print paused or stopped",
+    "saveFailed": "Could not save your email preferences."
   }
 }

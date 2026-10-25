@@ -334,6 +334,23 @@ class PrinterAdapter(ABC):
         """Delete a file on the printer's SD card; raises ``OSError``."""
         raise NotImplementedError
 
+    # -- T2 K-profiles (pressure advance) -------------------------------
+    def kprofile_list(self, nozzle_diameter: str, extruder_id: int | None = None) -> None:
+        """Request the printer's K-profile table (the reply arrives through the
+        reply handler as an ``extrusion_cali_get`` dict)."""
+        raise NotImplementedError
+
+    def kprofile_set(self, entry: dict) -> None:
+        raise NotImplementedError
+
+    def kprofile_delete(self, entry: dict) -> None:
+        raise NotImplementedError
+
+    def kprofile_select(
+        self, ams_id: int, tray_id: int, cali_idx: int, filament_id: str, nozzle_diameter: str
+    ) -> None:
+        raise NotImplementedError
+
     def storage_info(self) -> dict | None:
         """``{"total": int|None, "free": int|None, "used": int|None, "source": str}``
         or ``None`` when the printer can't tell."""

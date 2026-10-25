@@ -12,7 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
+const MASK = "********";
 const SELECT_CLASS = "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs disabled:opacity-50";
 
 interface Props {
@@ -38,9 +40,16 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
   const kindDef = catalog.kinds.find((k) => k.kind === kind);
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
-  const missing = (kindDef?.fields ?? []).some(
-    (f) => f.required && !(config[f.name] ?? f.default ?? "").toString().trim(),
-  );
+  // A saved secret multiline field is shown empty (never the mask as editable
+  // text); leaving it blank sends the mask back, which keeps the stored value.
+  const keepsSecret = (f: { name: string; multiline?: boolean; secret: boolean }) =>
+    !!channel && !!f.multiline && f.secret && channel.config[f.name] === MASK;
+  const effective = (f: { name: string; default: string | null; multiline?: boolean; secret: boolean }) => {
+    const v = config[f.name] ?? f.default ?? "";
+    if (keepsSecret(f) && (v === "" || v === MASK)) return MASK;
+    return v;
+  };
+  const missing = (kindDef?.fields ?? []).some((f) => f.required && !effective(f).toString().trim());
 
   function changeKind(k: string) {
     setKind(k);
@@ -55,7 +64,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
     if (!kindDef) return;
     const cfg: Record<string, string> = {};
     for (const f of kindDef.fields) {
-      const v = config[f.name] ?? f.default ?? "";
+      const v = effective(f);
       if (v !== "") cfg[f.name] = v;
     }
     const body = {
@@ -100,7 +109,8 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
           </div>
           {(kindDef?.fields ?? []).map((f) => {
             const id = `nc-f-${f.name}`;
-            const value = config[f.name] ?? f.default ?? "";
+            const value = effective(f) === MASK && keepsSecret(f) ? "" : (config[f.name] ?? f.default ?? "");
+            const keep = keepsSecret(f) && value === "";
             return (
               <div key={f.name} className="space-y-1">
                 <Label htmlFor={id}>{f.label}</Label>
@@ -117,6 +127,17 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
                       </option>
                     ))}
                   </select>
+                ) : f.multiline ? (
+                  <Textarea
+                    id={id}
+                    rows={4}
+                    value={value}
+                    placeholder={keep ? "leave blank to keep the saved URLs" : (f.placeholder ?? undefined)}
+                    required={f.required && !keep}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(e) => setConfig({ ...config, [f.name]: e.target.value })}
+                  />
                 ) : (
                   <Input
                     id={id}
@@ -128,6 +149,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
                     onChange={(e) => setConfig({ ...config, [f.name]: e.target.value })}
                   />
                 )}
+                {f.help && <p className="text-xs text-muted-foreground">{f.help}</p>}
               </div>
             );
           })}
