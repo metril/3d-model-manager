@@ -338,7 +338,7 @@ export function useBulkUpdateModels() {
   });
 }
 
-/** `POST /models/bulk-delete` (Round 11 T1/T3) -- hard-deletes every model in
+/** `POST /models/bulk-delete` (Round 11 T1/T3) -- moves every model in
  * `ids` in one call, used by the library's bulk select mode. Takes `slugs`
  * alongside `ids` (unused by the request body itself) so `onSuccess` can
  * drop each deleted model's own detail query the same way `useDeleteModel`
@@ -373,6 +373,7 @@ export function useBulkDeleteModels() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: LIST_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: ["storage"] });
+      void queryClient.invalidateQueries({ queryKey: ["trash"] });
     },
   });
 }
@@ -416,9 +417,8 @@ export function useArchiveModel(slug: string) {
   });
 }
 
-/** A REAL delete (feat/import-fidelity T3): `DELETE /models/{slug}` now
- * physically destroys every file, so there's nothing left to keep cached --
- * mirrors the old (soft-delete) `useArchiveModel`'s cache handling exactly. */
+/** `DELETE /models/{slug}` moves the model to the trash (restorable via
+ * `api/trash.ts`); the detail query is dropped since the slug now 404s. */
 export function useDeleteModel(slug: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -427,6 +427,7 @@ export function useDeleteModel(slug: string) {
       queryClient.removeQueries({ queryKey: modelQueryOptions(slug).queryKey });
       void queryClient.invalidateQueries({ queryKey: ["models", "list"] });
       void queryClient.invalidateQueries({ queryKey: ["storage"] });
+      void queryClient.invalidateQueries({ queryKey: ["trash"] });
     },
   });
 }

@@ -28,6 +28,7 @@ function fakeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     filament_cost_per_kg: 20,
     machine_cost_per_hour: 0,
     energy_cost_per_kwh: 0.3,
+    trash_retention_days: 30,
     ...overrides,
   };
 }
@@ -84,6 +85,7 @@ describe("PrintCostCard", () => {
         filament_cost_per_kg: 20,
         machine_cost_per_hour: 0,
         energy_cost_per_kwh: 0.5,
+        trash_retention_days: 30,
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
@@ -109,6 +111,7 @@ describe("PrintCostCard", () => {
         filament_cost_per_kg: 30,
         machine_cost_per_hour: 0,
         energy_cost_per_kwh: 0.3,
+        trash_retention_days: 30,
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();

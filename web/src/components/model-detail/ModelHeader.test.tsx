@@ -318,7 +318,7 @@ describe("ModelHeader -- More actions overflow menu", () => {
       "Move / copy…",
       "",
       "Archive…",
-      "Delete…",
+      "Move to trash…",
     ]);
   });
 
@@ -338,7 +338,7 @@ describe("ModelHeader -- More actions overflow menu", () => {
 
     const menu = await openMoreActions();
 
-    expect(within(menu).getByRole("menuitem", { name: "Delete…" })).toHaveAttribute(
+    expect(within(menu).getByRole("menuitem", { name: "Move to trash…" })).toHaveAttribute(
       "data-variant",
       "destructive",
     );
@@ -390,17 +390,17 @@ describe("ModelHeader -- archive & delete via the overflow menu (feat/import-fid
     const { router } = renderHeader(false);
 
     await openMoreActions();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move to trash…" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Delete this model?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Move this model to trash?")).toBeInTheDocument();
     expect(
       within(dialog).getByText(
-        "Permanently deletes the model and every file from storage. This cannot be undone.",
+        "The model is hidden from the library and can be restored from the trash until it is emptied or the retention period ends.",
       ),
     ).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledExactlyOnceWith("/models/articulated-dragon"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/library"));

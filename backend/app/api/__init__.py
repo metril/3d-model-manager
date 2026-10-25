@@ -94,6 +94,7 @@ from app.api import (
     stats,
     storage_tree,
     tags,
+    trash,
     two_factor,
     uploads,
     user_notifications,
@@ -128,6 +129,7 @@ protected_router.include_router(admin_ops.system_router)
 protected_router.include_router(maintenance.router)
 protected_router.include_router(smart_plugs.router)
 protected_router.include_router(models.router)
+protected_router.include_router(trash.router)
 protected_router.include_router(blobs.router)
 protected_router.include_router(revisions.router)
 protected_router.include_router(files.router)

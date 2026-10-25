@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/api/auth";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
+import { useRestoreTrash } from "@/api/trash";
 import { useBulkDeleteModels, useBulkUpdateModels, useModelsQuery, useTags } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { useTriggerScan } from "@/api/scan";
@@ -709,6 +710,7 @@ function SelectionActionBar({
 
   const bulkUpdate = useBulkUpdateModels();
   const bulkDelete = useBulkDeleteModels();
+  const restoreTrash = useRestoreTrash();
   // `silentError`: this loops one enqueue mutation per selected model and
   // toasts a single summary below -- the global per-mutation error toast
   // would otherwise fire once per failed model on top of it.
@@ -815,7 +817,18 @@ function SelectionActionBar({
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`Deleted ${result.deleted} model${result.deleted === 1 ? "" : "s"}`);
+          toast.success(
+            `Moved ${result.deleted} model${result.deleted === 1 ? "" : "s"} to trash`,
+            {
+              action: {
+                label: "Undo",
+                onClick: () =>
+                  restoreTrash.mutate(ids, {
+                    onSuccess: () => toast.success("Restored"),
+                  }),
+              },
+            },
+          );
           onDone();
         },
       },
@@ -899,9 +912,9 @@ function SelectionActionBar({
         }
         open={deleteConfirmOpen}
         onOpenChange={onDeleteConfirmOpenChange}
-        title={`Delete ${ids.length} model${ids.length === 1 ? "" : "s"}?`}
-        description="Permanently deletes the selected models and every file they store. This cannot be undone."
-        confirmLabel="Delete"
+        title={`Move ${ids.length} model${ids.length === 1 ? "" : "s"} to trash?`}
+        description="The selected models are hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
+        confirmLabel="Move to trash"
         destructive
         onConfirm={deleteSelection}
       />

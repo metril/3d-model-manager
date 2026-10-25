@@ -159,6 +159,12 @@ class Model(Base):
     # layer (`app.schemas.library.ModelPatch`), not here.
     metadata_json: Mapped[dict[str, str] | None] = mapped_column(JSONB)
     print_tips: Mapped[str | None] = mapped_column(Text)
+    # Trash / recycle bin: NULL = live; set = soft-deleted (hidden from every
+    # library query, purged after the retention window or on demand).
+    deleted_at: Mapped[datetime | None] = mapped_column(index=True)
+    deleted_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False

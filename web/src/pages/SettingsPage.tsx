@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
+import { TrashRetentionCard } from "@/components/settings/TrashRetentionCard";
 import { ArchivePurgeCard } from "@/components/settings/ArchivePurgeCard";
 import { ConfirmOutcomeCard } from "@/components/settings/ConfirmOutcomeCard";
 import { BackupsCard } from "@/components/settings/BackupsCard";
@@ -114,6 +115,7 @@ export function SettingsPage() {
               <StorageBackendsCard />
               <BackupsCard />
               <ArchivePurgeCard />
+              <TrashRetentionCard />
               <ScanReport />
             </TabsContent>
           )}

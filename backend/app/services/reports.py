@@ -54,7 +54,7 @@ async def duplicate_files_report(db: AsyncSession) -> DuplicatesReport:
         .join(Blob, Blob.hash == File.blob_hash)
         .join(Revision, Revision.id == File.revision_id)
         .join(Model, Model.id == Revision.model_id)
-        .where(File.blob_hash.is_not(None))
+        .where(File.blob_hash.is_not(None), Model.deleted_at.is_(None))
     )
     rows = (await db.execute(stmt)).all()
 

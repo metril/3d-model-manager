@@ -26,6 +26,7 @@ _DEFAULTS = {
     "machine_cost_per_hour": 0.0,
     "energy_cost_per_kwh": 0.0,
     "sensor_history_days": 30,
+    "trash_retention_days": 30,
 }
 
 

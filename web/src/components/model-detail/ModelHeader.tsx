@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
+import { useRestoreTrash } from "@/api/trash";
 import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
@@ -144,6 +145,7 @@ export function ModelHeader({
   const patchModel = usePatchModel(model.slug);
   const archiveModel = useArchiveModel(model.slug);
   const deleteModel = useDeleteModel(model.slug);
+  const restoreTrash = useRestoreTrash();
   const enqueueModel = useEnqueueModel();
 
   const [redownloadOpen, setRedownloadOpen] = useState(false);
@@ -317,7 +319,7 @@ export function ModelHeader({
               {canDelete ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
                   <Trash2Icon />
-                  Delete…
+                  Move to trash…
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -335,13 +337,24 @@ export function ModelHeader({
           <ConfirmDialog
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
-            title="Delete this model?"
-            description="Permanently deletes the model and every file from storage. This cannot be undone."
-            confirmLabel="Delete"
+            title="Move this model to trash?"
+            description="The model is hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
+            confirmLabel="Move to trash"
             destructive
             onConfirm={() =>
               deleteModel.mutate(undefined, {
-                onSuccess: () => void navigate({ to: "/library" }),
+                onSuccess: () => {
+                  toast.success("Moved to trash", {
+                    action: {
+                      label: "Undo",
+                      onClick: () =>
+                        restoreTrash.mutate([model.id], {
+                          onSuccess: () => toast.success("Restored"),
+                        }),
+                    },
+                  });
+                  void navigate({ to: "/library" });
+                },
               })
             }
           />

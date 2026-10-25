@@ -20,7 +20,7 @@ async def list_categories(db: AsyncSession) -> list[CategoryOut]:
     rows = (
         await db.execute(
             select(Category, func.count(Model.id))
-            .outerjoin(Model, Model.category_id == Category.id)
+            .outerjoin(Model, (Model.category_id == Category.id) & Model.deleted_at.is_(None))
             .group_by(Category.id)
             .order_by(Category.name)
         )
@@ -66,7 +66,11 @@ async def update_category(
             status.HTTP_409_CONFLICT, f"category {changes.get('name')!r} already exists"
         ) from exc
     model_count = (
-        await db.scalar(select(func.count(Model.id)).where(Model.category_id == category.id))
+        await db.scalar(
+            select(func.count(Model.id)).where(
+                Model.category_id == category.id, Model.deleted_at.is_(None)
+            )
+        )
     ) or 0
     return CategoryOut(
         id=category.id, name=category.name, color=category.color, model_count=model_count

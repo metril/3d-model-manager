@@ -37,11 +37,13 @@ from app.models.system import Import
 def _live_import_stmt(site: ImportSite, external_id: str):
     return (
         select(Import)
+        .join(Model, Model.id == Import.model_id)
         .where(
             Import.site == site,
             Import.external_id == external_id,
             Import.state == ImportState.DONE,
             Import.model_id.is_not(None),
+            Model.deleted_at.is_(None),
         )
         .order_by(Import.id)
         .limit(1)
@@ -122,7 +124,7 @@ async def find_model_by_blob_hash(
         select(Model)
         .join(Revision, Revision.model_id == Model.id)
         .join(File, File.revision_id == Revision.id)
-        .where(File.blob_hash == blob_hash)
+        .where(File.blob_hash == blob_hash, Model.deleted_at.is_(None))
         .order_by(Model.id)
         .limit(1)
     )
