@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.services.notify.apprise import Apprise
 from app.services.notify.bark import Bark
 from app.services.notify.base import MASK, Message, Provider, ProviderError
 from app.services.notify.callmebot import CallMeBot
@@ -25,6 +26,7 @@ PROVIDERS: dict[str, Provider] = {
         CallMeBot(),
         Bark(),
         HomeAssistant(),
+        Apprise(),
     )
 }
 

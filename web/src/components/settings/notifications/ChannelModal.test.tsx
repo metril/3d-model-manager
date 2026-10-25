@@ -66,4 +66,66 @@ describe("ChannelModal", () => {
       ),
     );
   });
+
+  it("renders a textarea for multiline fields and keeps the masked secret on edit", async () => {
+    patchMock.mockResolvedValue(fakeChannel({ kind: "apprise" }));
+    const cat = {
+      ...catalog,
+      kinds: [
+        ...catalog.kinds,
+        {
+          kind: "apprise",
+          label: "Apprise",
+          supports_photo: true,
+          fields: [
+            { name: "urls", label: "Apprise URLs", type: "password" as const, secret: true, required: true, placeholder: null, default: null, options: null, multiline: true, help: "One URL per line" },
+          ],
+        },
+      ],
+    };
+    renderWithQuery(
+      <ChannelModal catalog={cat} channel={fakeChannel({ kind: "apprise", config: { urls: "********" } })} onClose={vi.fn()} />,
+    );
+    const ta = screen.getByLabelText("Apprise URLs");
+    expect(ta.tagName).toBe("TEXTAREA");
+    expect(ta).toHaveValue("");
+    expect(ta).toHaveAttribute("placeholder", "leave blank to keep the saved URLs");
+    expect(screen.getByText("One URL per line")).toBeInTheDocument();
+    fireEvent.change(ta, { target: { value: "slack://a/b/c\njson://h" } });
+    expect(ta).toHaveValue("slack://a/b/c\njson://h");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith(
+        "/notifications/channels/1",
+        expect.objectContaining({ config: { urls: "slack://a/b/c\njson://h" } }),
+      ),
+    );
+  });
+
+  it("sends the mask when a saved secret multiline field is left blank", async () => {
+    patchMock.mockResolvedValue(fakeChannel({ kind: "apprise" }));
+    const cat = {
+      ...catalog,
+      kinds: [
+        {
+          kind: "apprise",
+          label: "Apprise",
+          supports_photo: true,
+          fields: [
+            { name: "urls", label: "Apprise URLs", type: "password" as const, secret: true, required: true, placeholder: null, default: null, options: null, multiline: true },
+          ],
+        },
+      ],
+    };
+    renderWithQuery(
+      <ChannelModal catalog={cat} channel={fakeChannel({ kind: "apprise", config: { urls: "********" } })} onClose={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith(
+        "/notifications/channels/1",
+        expect.objectContaining({ config: { urls: "********" } }),
+      ),
+    );
+  });
 });

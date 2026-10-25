@@ -250,6 +250,10 @@ class AmsTrayOut(BaseModel):
     tray_type: str | None = None
     tray_uuid: str | None = None
     remain_pct: int | None = None
+    # T2: the printer's selected K-profile (-1 = default) and its K value.
+    cali_idx: int | None = None
+    k_value: float | None = None
+    tray_info_idx: str | None = None
     spool: SpoolBriefOut | None = None
 
 
