@@ -7,12 +7,13 @@ import { DiagnosticModal } from "./DiagnosticModal";
 import { FirmwareModal } from "./FirmwareModal";
 import { FileManagerModal } from "./FileManagerModal";
 import { DryingDialog } from "./DryingDialog";
+import { KProfilesModal } from "./KProfilesModal";
 import { HmsModal } from "./HmsModal";
 import { PrinterInfoModal } from "./PrinterInfoModal";
 import { PrintOptionsModal } from "./PrintOptionsModal";
 import { capsOf } from "../card/caps";
 
-export type PrinterModalKind = "info" | "hms" | "firmware" | "diagnostic" | "printOptions" | "files" | "drying";
+export type PrinterModalKind = "info" | "hms" | "firmware" | "diagnostic" | "printOptions" | "files" | "drying" | "kprofiles";
 
 /** Shared by the detail page now and the Q3 card later: `open(kind)` + render `modals`. */
 export function usePrinterModals(
@@ -51,6 +52,9 @@ export function usePrinterModals(
       ) : null}
       {kind === "drying" && printer && state?.arg != null ? (
         <DryingDialog printer={printer} status={status.data} unitId={state.arg} canControl={canControl} open onOpenChange={close} />
+      ) : null}
+      {kind === "kprofiles" && printer ? (
+        <KProfilesModal printer={printer} status={status.data} canControl={canControl} open onOpenChange={close} />
       ) : null}
       {kind === "info" && printer ? (
         <PrinterInfoModal printer={printer} status={status.data} open onOpenChange={close} />

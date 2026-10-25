@@ -18,6 +18,8 @@ import { normalizeHex } from "@/components/ui/filament-chip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { AmsRenameDialog } from "./AmsRenameDialog";
+import { KProfilesModal } from "@/components/print/modals/KProfilesModal";
+import { printerNozzle } from "@/components/print/modals/kprofileUtils";
 import { SlotConfigDialog } from "./SlotConfigDialog";
 import { hasBackup, unitLabel } from "./ams";
 import { DryChip } from "./DryChip";
@@ -29,6 +31,8 @@ const EXTERNAL_UNIT = 255;
 function SlotCircle({
   printer,
   tray,
+  status,
+  kprofiles,
   canControl,
   loaded,
   mapping,
@@ -37,6 +41,8 @@ function SlotCircle({
 }: {
   printer: PrinterOut;
   tray: AmsTray;
+  status: PrinterStatusOut;
+  kprofiles: boolean;
   canControl: boolean;
   loaded: boolean;
   mapping?: string;
@@ -46,6 +52,7 @@ function SlotCircle({
   const { t } = useTranslation();
   const control = useControl(printer.id);
   const [configOpen, setConfigOpen] = useState(false);
+  const [kOpen, setKOpen] = useState(false);
   const color = normalizeHex(tray.color);
   const remain = tray.remain_pct != null && tray.remain_pct >= 0 ? Math.min(100, tray.remain_pct) : null;
   const material = tray.tray_type ?? tray.material;
@@ -89,10 +96,23 @@ function SlotCircle({
                 {t("card.filaments.unload")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setConfigOpen(true)}>{t("printerOps.slot.configure")}</DropdownMenuItem>
+              {kprofiles ? <DropdownMenuItem onSelect={() => setKOpen(true)}>{t("kprofile.menu")}</DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
-        {configOpen ? <SlotConfigDialog printerId={printer.id} tray={tray} open onOpenChange={setConfigOpen} /> : null}
+        {configOpen ? (
+          <SlotConfigDialog
+            printerId={printer.id}
+            tray={tray}
+            kprofiles={kprofiles}
+            nozzle={printerNozzle(printer)}
+            open
+            onOpenChange={setConfigOpen}
+          />
+        ) : null}
+        {kOpen ? (
+          <KProfilesModal printer={printer} status={status} canControl={canControl} tray={tray} open onOpenChange={setKOpen} />
+        ) : null}
       </div>
       <span className="pc-t10 max-w-full truncate">{material ?? t("card.filaments.empty")}</span>
       {remain != null ? (
@@ -251,6 +271,8 @@ export function FilamentsSection({
                   key={tr.slot}
                   printer={printer}
                   tray={tr}
+                  status={status}
+                  kprofiles={!!caps.kprofiles}
                   canControl={canControl}
                   loaded={loadedSlot === tr.slot}
                   mapping={mapping?.[tr.slot]}
@@ -267,6 +289,8 @@ export function FilamentsSection({
             <SlotCircle
               printer={printer}
               tray={ext}
+              status={status}
+              kprofiles={!!caps.kprofiles}
               canControl={canControl}
               loaded={loadedSlot === 254}
               busy={busy}
