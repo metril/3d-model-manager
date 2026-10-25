@@ -35,7 +35,7 @@ from app.printers import gcode3mf
 from app.printers.base import PrinterConnection, PrintSpec
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
-from app.services import derivatives
+from app.services import derivatives, kprofiles
 from app.services.events import publish_print_job_event_sync
 from app.services.printer_state import preflight_ok, read_state_sync
 from app.tasks import base
@@ -151,6 +151,9 @@ def _send_to_printer(
                 flow_cali=options["flow_cali"],
                 timelapse=options["timelapse"],
             )
+            # T2: put a lost K-profile selection back before the job starts.
+            if kprofiles.has_lost_trays((state or {}).get("trays") or []):
+                kprofiles.request_reapply_sync(client, printer_id)
             adapter = build_adapter(kind, conn)
             try:
                 adapter.upload_and_start(spec)

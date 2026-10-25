@@ -15,6 +15,7 @@ from app.api.deps import AuthContext, require_owner_or_admin, require_perm, requ
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.library import PrintQueueEntry
+from app.models.printing import Printer
 from app.schemas.queue import (
     QueueEnqueueIn,
     QueueEntryOut,
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/queue", tags=["queue"])
 @router.get("", response_model=list[QueueEntryOut])
 async def list_queue(
     include_done: bool = False,
+    batch_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
@@ -37,7 +39,7 @@ async def list_queue(
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
         return await queue_service.list_queue(
-            db, settings, ctx, include_done=include_done, redis=client
+            db, settings, ctx, include_done=include_done, redis=client, batch_id=batch_id
         )
     finally:
         await client.aclose()
@@ -178,10 +180,60 @@ async def move_entry(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> list[QueueEntryOut]:
-    """Reorder the queue, returning the whole updated (ordered) list -- the
-    UI re-renders the whole thing on any reorder.
+    """Reorder the queue and/or edit scheduling fields, returning the whole
+    updated (ordered) list -- the UI re-renders the whole thing on any change.
     """
     entry = await db.get(PrintQueueEntry, entry_id)
     if entry is not None:  # unknown id falls through to the service's 404
         require_owner_or_admin(ctx, entry.created_by_user_id)
-    return await queue_service.move_entry(db, settings, entry_id, payload.position, ctx)
+    return await queue_service.update_entry(db, settings, entry_id, payload, ctx)
+
+
+@router.post(
+    "/{entry_id}/start",
+    response_model=QueueEntryOut,
+    dependencies=[Depends(require_perm("queue:review"))],
+)
+async def start_entry(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> QueueEntryOut:
+    """Release a ``manual_start`` entry so the dispatcher may send it."""
+    return await queue_service.start_entry(db, settings, entry_id, ctx)
+
+
+@router.post(
+    "/{entry_id}/cancel-schedule",
+    response_model=QueueEntryOut,
+    dependencies=[Depends(require_perm("printers:print"))],
+)
+async def cancel_schedule(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> QueueEntryOut:
+    entry = await db.get(PrintQueueEntry, entry_id)
+    if entry is not None:
+        require_owner_or_admin(ctx, entry.created_by_user_id)
+    return await queue_service.cancel_schedule(db, settings, entry_id)
+
+
+printer_queue_router = APIRouter(prefix="/printers", tags=["queue"])
+
+
+@printer_queue_router.post(
+    "/{printer_id}/queue/resume",
+    dependencies=[Depends(require_perm("queue:review"))],
+)
+async def resume_printer_queue(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> dict[str, int]:
+    """Re-queue this printer's SKIPPED entries (after a failed print)."""
+    if await db.get(Printer, printer_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"printer {printer_id} not found")
+    return {"resumed": await queue_service.resume_printer_queue(db, printer_id, ctx)}

@@ -255,6 +255,7 @@ class QueueState(StrEnum):
     HELD = "held"
     FAILED = "failed"
     DONE = "done"
+    SKIPPED = "skipped"
 
 
 class LedgerKind(StrEnum):

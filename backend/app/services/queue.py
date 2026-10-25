@@ -24,14 +24,23 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
 from app.models import CostCenter, GroupMember, User
+from app.models.audit_log import AuditLog
 from app.models.enums import BlobFormat, QueueState, ReviewState
-from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
+from app.models.library import Blob, File, Model, PrintBatch, PrintQueueEntry, Revision
 from app.models.printing import Printer
 from app.models.slicing import PrintRecipe
-from app.schemas.queue import CreatedByOut, QueueEnqueueIn, QueueEntryOut, ReviewIn
+from app.schemas.queue import (
+    BatchRefOut,
+    CreatedByOut,
+    QueueEnqueueIn,
+    QueueEntryOut,
+    QueueReorderIn,
+    ReviewIn,
+)
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
+from app.services.queue_settings import get_queue_config
 from app.services.server_config import get_server_config
 
 # Formats the slicer sidecar can accept as input (mirrors
@@ -202,6 +211,27 @@ async def _to_out(
         if any(e.printer_id is None and e.assigned_printer_id is None for e in entries):
             all_held_reason = await _all_printers_held_reason(db, redis)
 
+    batch_ids = {e.batch_id for e in entries if e.batch_id is not None}
+    batches_by_id: dict[int, PrintBatch] = {}
+    if batch_ids:
+        batches_by_id = {
+            b.id: b
+            for b in (await db.execute(select(PrintBatch).where(PrintBatch.id.in_(batch_ids))))
+            .scalars()
+            .all()
+        }
+    plate_blocked: set[int] = set()
+    if (
+        any(e.state in (QueueState.WAITING, QueueState.READY) for e in entries)
+        and (await get_queue_config(db)).require_plate_clear
+    ):
+        plate_blocked = set(
+            (
+                await db.execute(select(Printer.id).where(Printer.awaiting_plate_clear.is_(True)))
+            ).scalars()
+        )
+    now = datetime.now(UTC)
+
     out = []
     for e in entries:
         file_row = files_by_id.get(e.file_id) if e.file_id is not None else None
@@ -245,9 +275,39 @@ async def _to_out(
                 created_by=CreatedByOut(id=creator.id, username=creator.username)
                 if creator is not None
                 else None,
+                scheduled_at=e.scheduled_at,
+                manual_start=e.manual_start,
+                require_previous_success=e.require_previous_success,
+                auto_off_after=e.auto_off_after,
+                preheat_override=e.preheat_override,
+                preheat_chamber_target=e.preheat_chamber_target,
+                released_at=e.released_at,
+                stage=e.stage,
+                skipped_reason=e.hold_reason if e.state == QueueState.SKIPPED else None,
+                waiting_reason=_waiting_reason(e, now, plate_blocked),
+                batch_id=e.batch_id,
+                batch=BatchRefOut(id=e.batch_id, name=batches_by_id[e.batch_id].name)
+                if e.batch_id in batches_by_id
+                else None,
             )
         )
     return out
+
+
+def _waiting_reason(e: PrintQueueEntry, now: datetime, plate_blocked: set[int]) -> str | None:
+    """Why a waiting/ready entry is not being dispatched right now."""
+    if e.state not in (QueueState.WAITING, QueueState.READY):
+        return None
+    if e.scheduled_at is not None and e.scheduled_at > now:
+        return "scheduled"
+    if e.manual_start and e.released_at is None:
+        return "manual"
+    if e.hold_reason:
+        return e.hold_reason
+    target = e.printer_id or e.assigned_printer_id
+    if target is not None and target in plate_blocked:
+        return "plate"
+    return None
 
 
 async def list_queue(
@@ -260,6 +320,7 @@ async def list_queue(
     printer_ids: list[int] | None = None,
     limit_per_printer: int | None = None,
     redis: Redis | None = None,
+    batch_id: int | None = None,
 ) -> list[QueueEntryOut]:
     """Visibility: a non-admin only sees entries with no specific printer
     target (``printer_id is None`` -- still eligible for any compatible
@@ -290,6 +351,8 @@ async def list_queue(
             ]
     if not include_done:
         entries = [e for e in entries if e.state != QueueState.DONE]
+    if batch_id is not None:
+        entries = [e for e in entries if e.batch_id == batch_id]
     return await _to_out(db, settings, entries, redis)
 
 
@@ -377,6 +440,9 @@ async def enqueue_file(
         state = QueueState.READY
         sliced_file_id = file.id  # already sliced -- nothing for slice_file to do
 
+    if payload.batch_id is not None and await db.get(PrintBatch, payload.batch_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"batch {payload.batch_id} not found")
+
     position = await _append_position(db, front=payload.front)
     entry = PrintQueueEntry(
         model_id=revision.model_id,
@@ -391,6 +457,13 @@ async def enqueue_file(
         ams_mapping=payload.ams_mapping,
         print_options=payload.options.model_dump() if payload.options is not None else None,
         created_by_user_id=ctx.user.id,
+        scheduled_at=payload.scheduled_at,
+        manual_start=payload.manual_start,
+        require_previous_success=payload.require_previous_success,
+        auto_off_after=payload.auto_off_after,
+        preheat_override=payload.preheat_override,
+        preheat_chamber_target=payload.preheat_chamber_target,
+        batch_id=payload.batch_id,
     )
     db.add(entry)
     await db.flush()
@@ -616,6 +689,100 @@ async def move_entry(
     await db.commit()
 
     return await list_queue(db, settings, ctx)
+
+
+_SCHEDULING_FIELDS = (
+    "scheduled_at",
+    "manual_start",
+    "require_previous_success",
+    "auto_off_after",
+    "preheat_override",
+    "preheat_chamber_target",
+)
+
+
+async def update_entry(
+    db: AsyncSession,
+    settings: Settings,
+    entry_id: int,
+    payload: QueueReorderIn,
+    ctx: AuthContext | None = None,
+) -> list[QueueEntryOut]:
+    """T4 ``PATCH``: apply the scheduling fields present in the body (an
+    explicit ``null`` clears), then reorder when ``position`` is given."""
+    entry = await _get_entry_or_404(db, entry_id)
+    sent = payload.model_fields_set
+    for name in _SCHEDULING_FIELDS:
+        if name not in sent:
+            continue
+        value = getattr(payload, name)
+        if value is None and name in ("manual_start", "require_previous_success", "auto_off_after"):
+            continue  # booleans cannot be null
+        setattr(entry, name, value)
+        if name == "manual_start" and not value:
+            entry.released_at = None
+            entry.released_by_user_id = None
+    if payload.position is not None:
+        return await move_entry(db, settings, entry_id, payload.position, ctx)
+    await db.commit()
+    return await list_queue(db, settings, ctx)
+
+
+async def start_entry(
+    db: AsyncSession, settings: Settings, entry_id: int, ctx: AuthContext
+) -> QueueEntryOut:
+    """Release a ``manual_start`` entry for dispatch."""
+    entry = await _get_entry_or_404(db, entry_id)
+    if entry.state not in (QueueState.WAITING, QueueState.READY, QueueState.HELD):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"cannot start a {entry.state.value} entry")
+    entry.released_at = datetime.now(UTC)
+    entry.released_by_user_id = ctx.user.id
+    await db.commit()
+    await db.refresh(entry)
+    return (await _to_out(db, settings, [entry]))[0]
+
+
+async def cancel_schedule(db: AsyncSession, settings: Settings, entry_id: int) -> QueueEntryOut:
+    entry = await _get_entry_or_404(db, entry_id)
+    entry.scheduled_at = None
+    await db.commit()
+    await db.refresh(entry)
+    return (await _to_out(db, settings, [entry]))[0]
+
+
+async def resume_printer_queue(db: AsyncSession, printer_id: int, ctx: AuthContext) -> int:
+    """Re-queue a printer's SKIPPED entries (``previous_failed`` skips).
+    Resuming acknowledges the earlier failure, so the entries stop requiring
+    a successful predecessor."""
+    rows = list(
+        (
+            await db.execute(
+                select(PrintQueueEntry).where(
+                    PrintQueueEntry.state == QueueState.SKIPPED,
+                    PrintQueueEntry.assigned_printer_id == printer_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for e in rows:
+        e.state = QueueState.WAITING if e.sliced_file_id is None else QueueState.READY
+        e.hold_reason = None
+        e.last_error = None
+        e.assigned_printer_id = None
+        e.require_previous_success = False
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer_id,
+            action="queue_resume",
+            payload={"entry_ids": [e.id for e in rows]},
+        )
+    )
+    await db.commit()
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------

@@ -105,7 +105,7 @@ async def test_events_catalog_is_session_only_and_management_is_gated(
     assert {e["id"] for e in cat["events"]} >= {"job_finished", "hms_error", "dev_mode_off"}
     assert {k["kind"] for k in cat["kinds"]} == {
         "ntfy", "pushover", "telegram", "discord", "webhook", "email", "callmebot", "bark",
-        "homeassistant",
+        "homeassistant", "apprise",
     }  # fmt: skip
     for path in ("channels", "templates", "log"):
         assert (await viewer_client.get(f"/api/notifications/{path}")).status_code == 403

@@ -30,7 +30,7 @@ class Message:
 
 def field(
     name: str,
-    label: str,
+    label: str = "",
     *,
     type: str = "text",
     secret: bool = False,
@@ -38,16 +38,20 @@ def field(
     placeholder: str | None = None,
     default: str | None = None,
     options: list[str] | None = None,
+    multiline: bool = False,
+    help: str | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
-        "label": label,
+        "label": label or name.replace("_", " ").capitalize(),
         "type": "password" if secret else type,
         "secret": secret,
         "required": required,
         "placeholder": placeholder,
         "default": default,
         "options": options,
+        "multiline": multiline,
+        "help": help,
     }
 
 

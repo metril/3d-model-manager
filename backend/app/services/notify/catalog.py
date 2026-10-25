@@ -76,6 +76,14 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{{ user|default('Someone') }} requested approval for {{ name|default('a print') }}.",
         {"name": "benchy.3mf", "user": "alice"},
     ),
+    "queue_item_skipped": (
+        "Queue item skipped",
+        "A queued print was skipped because the previous print on the printer failed.",
+        "Skipped: {{ name|default('print') }}",
+        "{{ name|default('A queued print') }} was skipped on {{ printer_name }}"
+        "{% if reason %}: {{ reason }}{% endif %}.",
+        {"name": "benchy.3mf", "reason": "Previous print failed or was aborted"},
+    ),
     "backup_failed": (
         "Backup failed",
         "A scheduled backup did not complete.",

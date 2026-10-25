@@ -45,6 +45,7 @@ from app.api import (
     archives,
     archives_extras,
     auth,
+    batches,
     blobs,
     categories,
     collections,
@@ -59,6 +60,7 @@ from app.api import (
     housekeeping,
     imports,
     jobs,
+    kprofiles,
     maintenance,
     materials,
     metrics,
@@ -93,6 +95,7 @@ from app.api import (
     tags,
     two_factor,
     uploads,
+    user_notifications,
     virtual_printers,
 )
 from app.api.deps import require_session
@@ -145,6 +148,8 @@ protected_router.include_router(features.router)
 # printer_control first: its literal /printers/developer-mode-warnings must
 # match before printers.router's /printers/{printer_id}.
 protected_router.include_router(printer_control.router)
+protected_router.include_router(kprofiles.router)
+protected_router.include_router(kprofiles.spool_router)
 protected_router.include_router(printer_ops.router)
 protected_router.include_router(smart_plugs.summary_router)
 protected_router.include_router(obico.router)
@@ -159,8 +164,11 @@ protected_router.include_router(archive_gcode.router)
 protected_router.include_router(imports.router)
 protected_router.include_router(collections.router)
 protected_router.include_router(queue.router)
+protected_router.include_router(queue.printer_queue_router)
 protected_router.include_router(queue_settings.router)
 protected_router.include_router(drying.router)
+protected_router.include_router(queue_settings.preheat_router)
+protected_router.include_router(batches.router)
 protected_router.include_router(finance.router)
 protected_router.include_router(reports.router)
 protected_router.include_router(stats.router)
@@ -179,5 +187,6 @@ protected_router.include_router(profiles.slicer_status_router)
 protected_router.include_router(virtual_printers.router)
 protected_router.include_router(notifications.public_router)
 protected_router.include_router(notifications.router)
+protected_router.include_router(user_notifications.router)
 
 api_router.include_router(protected_router)

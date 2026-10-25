@@ -14,6 +14,7 @@ function, when a probe actually runs with the flag on (see
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import ipaddress
@@ -423,6 +424,14 @@ async def set_slot(
             await anyio.to_thread.run_sync(_assign)
         except IntegrityError as e:
             raise HTTPException(status.HTTP_409_CONFLICT, "slot already assigned") from e
+        with contextlib.suppress(Exception):  # T2: fresh assignment -> fixer starts over
+            flags = aioredis.Redis.from_url(settings.redis_url)
+            try:
+                from app.services import kprofiles as _kp
+
+                await _kp.clear_tray_flags_async(flags, printer_id, unit, slot)
+            finally:
+                await flags.aclose()
 
     client = aioredis.Redis.from_url(settings.redis_url)
     try:
@@ -447,7 +456,14 @@ async def set_slot(
         if resp.status_code == 200:
             dev = {"status": "applied"}
             await kprofile_after_slot_configure(
-                db, settings, ctx, printer, unit, slot, payload.spool_id
+                db,
+                settings,
+                ctx,
+                printer,
+                unit,
+                slot,
+                payload.spool_id,
+                tray_info_idx=device.get("tray_info_idx"),
             )
         elif resp.status_code == 202:
             dev = {"status": "pending", "request_id": body.get("request_id")}
