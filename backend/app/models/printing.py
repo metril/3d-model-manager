@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Integer,
+    LargeBinary,
     String,
     Text,
     false,
@@ -65,6 +66,24 @@ class Printer(Base):
     awaiting_plate_clear: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+
+
+class PlateReference(Base):
+    """V4: one empty-plate reference frame for plate-empty detection, per
+    printer + plate type (``plate_type`` '' = unspecified). At most
+    ``plate_detection.MAX_REFERENCES`` per (printer, plate type); the oldest
+    is rotated out."""
+
+    __tablename__ = "plate_references"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    printer_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    plate_type: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    label: Mapped[str] = mapped_column(String(100), nullable=False, server_default="")
+    jpeg: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
 class AmsLabel(Base):

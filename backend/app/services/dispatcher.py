@@ -29,14 +29,17 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models.enums import Fanout, PrintJobState, QueueState, ReviewState
-from app.models.library import File, PrintQueueEntry
-from app.models.printing import Printer, PrintJob
+from app.models.library import File, Model, PrintQueueEntry
+from app.models.printing import PlateReference, Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
 from app.services import billing, drying_tick, ha_state, queue_schedule
+from app.services import camera_state as cs
+from app.services import plate_detection as pd
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
+from app.services.notify import events
 from app.services.permissions import can_print_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
@@ -137,6 +140,72 @@ def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
     if gate_on and printer.awaiting_plate_clear:
         return "awaiting_plate_clear"
     return None
+
+
+PLATE_FRAME_WAIT_S = 8.0
+
+
+def plate_gate(
+    session: Session,
+    client: Redis,
+    item: PrintQueueEntry,
+    printer: Printer,
+    cache: dict[int, pd.PlateResult | None],
+) -> bool:
+    """V4: ``True`` = the entry may dispatch. With ``options.plate_check``
+    enabled and references captured, a camera frame is compared to them; a
+    non-empty plate parks the entry in ``waiting`` with ``last_error='plate
+    not empty'`` (no attempt consumed; re-checked every tick) and emits
+    ``plate_not_empty`` once per hold. Fails OPEN on a missing camera
+    frame/analysis error -- a flaky camera must not stall the queue."""
+    cfg = pd.config_from_options(printer.options)
+    if not cfg.enabled:
+        return True
+    if printer.id not in cache:
+        cache[printer.id] = None
+        refs = list(
+            session.scalars(
+                select(PlateReference.jpeg).where(
+                    PlateReference.printer_id == printer.id,
+                    PlateReference.plate_type == cfg.plate_type,
+                )
+            )
+        )
+        if refs:
+            try:
+                frame = cs.wait_for_frame(
+                    client,
+                    printer.id,
+                    timeout=PLATE_FRAME_WAIT_S,
+                    viewer_id=f"plate:{printer.id}",
+                )
+                if frame is not None:
+                    cache[printer.id] = pd.analyze(frame, refs, cfg.threshold)
+            except Exception:  # noqa: BLE001 - fail open
+                cache[printer.id] = None
+    res = cache[printer.id]
+    if res is None or res.needs_calibration or res.empty:
+        if item.last_error == pd.PLATE_NOT_EMPTY:
+            item.last_error = None
+            session.commit()
+        return True
+    first = item.last_error != pd.PLATE_NOT_EMPTY
+    item.state = QueueState.WAITING
+    item.last_error = pd.PLATE_NOT_EMPTY
+    session.commit()
+    if first:
+        model = session.get(Model, item.model_id) if item.model_id is not None else None
+        events.emit(
+            "plate_not_empty",
+            printer.id,
+            {
+                "name": model.name if model is not None else "print",
+                "printer_name": printer.name,
+                "queue_id": item.id,
+                "score": res.score,
+            },
+        )
+    return False
 
 
 def eligible_queue_items(
@@ -620,8 +689,14 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
+    plate_cache: dict[int, pd.PlateResult | None] = {}
     for item in items:
-        if item.state == QueueState.WAITING:
+        plate_held = (
+            item.state == QueueState.WAITING
+            and item.last_error == pd.PLATE_NOT_EMPTY
+            and item.sliced_file_id is not None
+        )
+        if item.state == QueueState.WAITING and not plate_held:
             if (
                 item.recipe_id is not None
                 and item.sliced_file_id is None
@@ -636,7 +711,9 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
                 counts["sliced"] += 1
             continue
 
-        if item.state != QueueState.READY:
+        if plate_held:
+            item.state = QueueState.READY  # plate_gate re-parks it if still occupied
+        elif item.state != QueueState.READY:
             continue
 
         need = _needs_for_item(session, item)
@@ -673,6 +750,10 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
             session, client, preheat_cfg, item, printer, [f.type for f in need.filaments]
         ):
             used_this_tick.add(selected[0])  # one preheating entry per printer
+            continue
+
+        if printer is not None and not plate_gate(session, client, item, printer, plate_cache):
+            used_this_tick.add(selected[0])
             continue
 
         _dispatch(session, settings, client, item, selected, fanout, need)

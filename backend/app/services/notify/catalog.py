@@ -84,6 +84,15 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{% if reason %}: {{ reason }}{% endif %}.",
         {"name": "benchy.3mf", "reason": "Previous print failed or was aborted"},
     ),
+    "plate_not_empty": (
+        "Plate not empty",
+        "A queued print was held because the camera sees objects on the build plate.",
+        "Plate not empty: {{ printer_name }}",
+        "{{ name|default('A queued print') }} is held until the plate on "
+        "{{ printer_name }} is clear"
+        "{% if score %} (difference {{ score }}%){% endif %}.",
+        {"name": "benchy.3mf", "printer_name": "A1 Mini", "score": 4.2},
+    ),
     "slice_done": (
         "Slice finished",
         "A slice job (queued print or standalone) produced a sliced file.",
