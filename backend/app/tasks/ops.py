@@ -7,15 +7,45 @@ from __future__ import annotations
 PLUG_INTERVAL_S = 60
 BACKUP_GATE_INTERVAL_S = 600
 DRYING_INTERVAL_S = 60
+BEAT_TICK_INTERVAL_S = 30
+BEAT_TICK_TASK = "app.tasks.ops.beat_tick"
 
+import json  # noqa: E402
+import time  # noqa: E402
+
+from celery.signals import before_task_publish  # noqa: E402
 from redis import Redis  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services import backup as backup_svc  # noqa: E402
-from app.services import drying_tick, updates  # noqa: E402
+from app.services import (  # noqa: E402
+    drying_tick,
+    service_status,  # noqa: E402
+    updates,
+)
 from app.services.smart_plugs import manager  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
+
+
+@celery_app.task(name=BEAT_TICK_TASK, soft_time_limit=10, time_limit=15)
+def beat_tick() -> None:
+    """No-op: beat publishes it every ``BEAT_TICK_INTERVAL_S``; the heartbeat is
+    written by the publish hook below, in the beat process itself."""
+
+
+@before_task_publish.connect
+def _beat_heartbeat(sender: str | None = None, **_: object) -> None:
+    if sender != BEAT_TICK_TASK:
+        return
+    try:
+        r = Redis.from_url(get_settings().redis_url)
+        try:
+            r.set(service_status.BEAT_KEY, json.dumps({"ts": time.time()}), ex=300)
+        finally:
+            r.close()
+    except Exception:  # noqa: BLE001 -- a heartbeat must never break beat
+        pass
 
 
 @celery_app.task(name="app.tasks.plugs.tick", soft_time_limit=50, time_limit=55)

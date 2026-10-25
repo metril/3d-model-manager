@@ -13,9 +13,19 @@ export interface ObicoSettings {
   pause: number;
   action: DetectionAction;
   callback_url: string;
+  /** Read-only (server-supplied): fields still holding their env-seeded value -> env var name. */
+  seeded_from_env?: Record<string, string>;
+  ml_version?: string | null;
+  ml_version_source?: string | null;
 }
 
+export type DetectionPhase = "idle" | "watching" | "paused" | "error";
+
 export interface DetectionStatus {
+  phase?: DetectionPhase;
+  enabled?: boolean;
+  last_error?: string | null;
+  heartbeat?: number | null;
   active: boolean;
   state: "safe" | "warn" | "pause" | null;
   score: number | null;
@@ -56,10 +66,23 @@ export function useSaveObicoSettings() {
   });
 }
 
+export interface ObicoCheck {
+  name: "sidecar" | "callback" | "inference";
+  ok: boolean;
+  detail: string;
+}
+
+export interface ObicoTestOut {
+  ok: boolean;
+  detail: string;
+  checks: ObicoCheck[];
+  ml_version: string | null;
+}
+
 export function useTestObico() {
   return useMutation({
-    mutationFn: (url?: string) =>
-      api.post<{ ok: boolean; detail: string }>("/settings/obico/test", url ? { url } : {}),
+    mutationFn: (body: { url?: string; callback_url?: string } = {}) =>
+      api.post<ObicoTestOut>("/settings/obico/test", body),
   });
 }
 

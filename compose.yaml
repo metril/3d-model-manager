@@ -71,6 +71,9 @@ services:
       # GET /features (Settings "Slicer integration" card) -- it never reads
       # the folder, so no /watch volume here. Must match worker-io/beat.
       WATCH_DIR: /watch
+      # Shown in Settings -> Server (the ML API has no version endpoint). MUST
+      # equal the commit pinned in compose.obico.yaml; a test enforces it.
+      OBICO_ML_VERSION: 6f938964c63892df2b6d5b68d99ea783fc1a7c78
       PUID: ${PUID:-}
       PGID: ${PGID:-}
     env_file:

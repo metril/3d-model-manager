@@ -99,16 +99,20 @@ async def test_detection_status_from_redis(
     )
     try:
         out = await authenticated_client.get(f"/api/printers/{printer_row.id}/detections")
-        assert out.json()["status"] == {
-            "active": True,
-            "state": "warn",
-            "score": 0.5,
-            "smoothed": 0.45,
-            "detection_paused": False,
-        }
+        st = out.json()["status"]
+        assert (st["active"], st["state"], st["score"], st["smoothed"]) == (True, "warn", 0.5, 0.45)
+        assert st["phase"] == "watching" and st["last_error"] is None
+        r.set(
+            obico.status_key(printer_row.id),
+            '{"state":"safe","paused":false,"last_error":"ReadTimeout","heartbeat":1.5}',
+        )
+        out = await authenticated_client.get(f"/api/printers/{printer_row.id}/detections")
+        st = out.json()["status"]
+        assert (st["phase"], st["last_error"], st["heartbeat"]) == ("error", "ReadTimeout", 1.5)
         r.set(obico.status_key(printer_row.id), '{"paused":true}')
         out = await authenticated_client.get(f"/api/printers/{printer_row.id}/detections")
         assert out.json()["status"]["detection_paused"] is True
+        assert out.json()["status"]["phase"] == "paused"
     finally:
         r.delete(obico.status_key(printer_row.id))
         r.close()

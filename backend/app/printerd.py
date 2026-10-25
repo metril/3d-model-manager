@@ -54,6 +54,7 @@ from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
 from app.services.server_config import seed_all_sync_safe
+from app.services.service_status import PRINTERD_KEY as PRINTERD_HEARTBEAT_KEY
 from app.tasks import base
 
 log = logging.getLogger("printerd")
@@ -751,6 +752,12 @@ class PrinterDaemon:
         self.ha.start()
         level_poller = LevelPoller(ttl_s=30)
         while not self._stop.wait(_POLL_INTERVAL_S):
+            with contextlib.suppress(Exception):  # liveness for Settings -> Server status
+                self.redis.set(
+                    PRINTERD_HEARTBEAT_KEY,
+                    json.dumps({"ts": time.time(), "workers": len(self._workers)}),
+                    ex=60,
+                )
             level_poller.maybe_apply_sync(base.sync_session)
             try:
                 self.reconcile()

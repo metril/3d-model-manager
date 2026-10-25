@@ -18,6 +18,8 @@ from app.models import Setting
 
 Action = Literal["none", "notify", "pause"]
 GLOBAL_KEY = "obico"
+SEEDED_META = "_seeded_from_env"
+ENV_FIELDS = {"url": "TDMM_OBICO_URL", "callback_url": "TDMM_OBICO_CALLBACK"}
 STATUS_TTL_S = 60
 FRAME_NONCE_TTL_S = 30
 EVENT_FRAME_TTL_S = 7 * 86400
@@ -81,19 +83,35 @@ def _seed_values() -> tuple[str, str]:
     return url or DEFAULT_URL, cb or DEFAULT_CALLBACK
 
 
+def _env_set(field: str) -> bool:
+    return bool(os.environ.get(ENV_FIELDS[field], "").strip())
+
+
 def _seeded(raw: dict | None) -> dict | None:
     """The row value after seeding, or ``None`` when nothing needs writing:
     row absent -> full ObicoConfig; row present -> only a missing/empty
-    ``url``/``callback_url`` is filled (``enabled`` etc. never touched)."""
+    ``url``/``callback_url`` is filled (``enabled`` etc. never touched). Fields
+    taken from the environment are recorded under ``_seeded_from_env``."""
     url, cb = _seed_values()
     if raw is None:
-        return ObicoConfig(url=url, callback_url=cb).model_dump()
+        out = ObicoConfig(url=url, callback_url=cb).model_dump()
+        meta = {f: e for f, e in ENV_FIELDS.items() if _env_set(f)}
+        if meta:
+            out[SEEDED_META] = meta
+        return out
     out = dict(raw)
     changed = False
+    meta = dict(out.get(SEEDED_META) or {})
     if not str(out.get("url") or "").strip():
         out["url"], changed = url, True
+        if _env_set("url"):
+            meta["url"] = ENV_FIELDS["url"]
     if not str(out.get("callback_url") or "").strip():
         out["callback_url"], changed = cb, True
+        if _env_set("callback_url"):
+            meta["callback_url"] = ENV_FIELDS["callback_url"]
+    if meta:
+        out[SEEDED_META] = meta
     return out if changed else None
 
 
@@ -182,8 +200,25 @@ async def _put(db: AsyncSession, key: str, value: dict) -> None:
     await db.commit()
 
 
+def _meta(raw: dict | None) -> dict[str, str]:
+    m = (raw or {}).get(SEEDED_META)
+    return {k: v for k, v in m.items() if k in ENV_FIELDS} if isinstance(m, dict) else {}
+
+
+async def seeded_from_env(db: AsyncSession) -> dict[str, str]:
+    """{field: ENV_NAME} for fields still holding the env-seeded value."""
+    row = await db.get(Setting, GLOBAL_KEY)
+    return _meta(row.value if row else None)
+
+
 async def put_config(db: AsyncSession, cfg: ObicoConfig) -> None:
-    await _put(db, GLOBAL_KEY, cfg.model_dump())
+    row = await db.get(Setting, GLOBAL_KEY)
+    old = row.value if row else {}
+    keep = {f: e for f, e in _meta(old).items() if getattr(cfg, f) == old.get(f)}
+    value = cfg.model_dump()
+    if keep:
+        value[SEEDED_META] = keep
+    await _put(db, GLOBAL_KEY, value)
 
 
 async def put_printer(db: AsyncSession, printer_id: int, pc: PrinterDetection) -> None:
