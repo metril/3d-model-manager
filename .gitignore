@@ -35,9 +35,3 @@ slicer-watch/
 # Playwright MCP / ad-hoc screenshots
 .playwright-mcp/
 /*.png
-
-# local tooling artifacts (never commit)
-.venv/
-.pytest_cache/
-.ruff_cache/
-web/dist/
