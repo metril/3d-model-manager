@@ -26,6 +26,7 @@ import {
   Printer,
   Settings,
   SquareLibrary,
+  Trash2,
   Wallet,
   Wrench,
 } from "lucide-react";
@@ -91,6 +92,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/projects", label: "Projects", icon: FolderKanban },
       { to: "/add", label: "Add", icon: Plus, perm: "library:write" },
       { to: "/duplicates", label: "Duplicates", icon: CopyCheck, perm: "library:write" },
+      { to: "/trash", label: "Trash", icon: Trash2 },
     ],
   },
   {

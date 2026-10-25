@@ -8,20 +8,18 @@ from pathlib import Path
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     AuthContext,
     get_storage_backend,
-    require_owner_or_admin,
     require_perm,
     require_session,
 )
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind
-from app.models.library import Model, Revision
+from app.models.library import Revision
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
     GalleryPage,
@@ -38,6 +36,7 @@ from app.schemas.library import (
 from app.services import jobs as jobs_service
 from app.services import layout, library, spool, zip_export
 from app.services import storage_backends as storage_backends_service
+from app.services import trash as trash_service
 from app.services.http_names import content_disposition_attachment
 from app.storage.base import StorageBackend
 from app.tasks.importing import redownload_model as redownload_model_task
@@ -140,21 +139,15 @@ async def bulk_update_models(
 async def bulk_delete_models(
     payload: ModelBulkDeleteIn,
     db: AsyncSession = Depends(get_db),
-    backend: StorageBackend = Depends(get_storage_backend),
-    settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> ModelBulkDeleteOut:
     """Declared BEFORE ``/{slug}`` (same reasoning as ``/bulk`` above) --
     FastAPI matches routes in declaration order, so a literal ``/bulk-delete``
     segment must come before the ``{slug}`` path-param routes or it would be
-    parsed as a slug.
+    parsed as a slug. Moves the models to the trash (all-or-nothing: an
+    unknown id 404s, a model the caller may not delete 403s).
     """
-    owners = (
-        await db.execute(select(Model.created_by_user_id).where(Model.id.in_(set(payload.ids))))
-    ).scalars()
-    for owner in owners:  # whole request 403s if any model isn't deletable
-        require_owner_or_admin(ctx, owner)
-    deleted = await library.bulk_hard_delete_models(db, backend, settings, ids=payload.ids)
+    deleted = await trash_service.move_to_trash(db, ctx, payload.ids)
     return ModelBulkDeleteOut(deleted=deleted)
 
 
@@ -264,20 +257,13 @@ async def patch_model(
 async def delete_model(
     slug: str,
     db: AsyncSession = Depends(get_db),
-    backend: StorageBackend = Depends(get_storage_backend),
-    settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> None:
-    """A REAL delete (feat/import-fidelity T3) -- physically destroys every
-    revision's files (its primary backend AND every replica) plus the
-    model's ``.3dmm.json`` sidecar, then the ``Model`` row itself (DB
-    cascades take the rest). Soft-delete ("archive") moved to ``PATCH
-    {"is_archived": true}`` -- see ``patch_model``/``ModelPatch`` -- since
-    this endpoint no longer offers a reversible option.
-    """
+    """Moves the model to the trash (restorable; purged after the retention
+    window or on demand via ``/trash``). Distinct from archive
+    (``PATCH {"is_archived": true}``)."""
     model = await library.get_model_by_slug(db, slug)
-    require_owner_or_admin(ctx, model.created_by_user_id)
-    await library.hard_delete_model(db, backend, settings, model)
+    await trash_service.move_to_trash(db, ctx, [model.id])
 
 
 @router.post(

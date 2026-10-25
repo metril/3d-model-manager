@@ -238,6 +238,11 @@ async def test_delete_model_hard_deletes_files_sidecar_and_row(
 
     response = await authenticated_client.delete(f"/api/models/{created['slug']}")
     assert response.status_code == 204
+    # Trashed, not destroyed: blobs stay until purge.
+    assert backend.exists(storage_path)
+    assert (await authenticated_client.get(f"/api/models/{created['slug']}")).status_code == 404
+    purged = await authenticated_client.post("/api/trash/purge", json={"ids": [created["id"]]})
+    assert purged.status_code == 200, purged.text
 
     assert not backend.exists(storage_path)
     assert not backend.exists(sidecar_path)
@@ -278,6 +283,8 @@ async def test_delete_model_deletes_every_replica_location(
 
     response = await authenticated_client.delete(f"/api/models/{created['slug']}")
     assert response.status_code == 204
+    purged = await authenticated_client.post("/api/trash/purge", json={"ids": [created["id"]]})
+    assert purged.status_code == 200, purged.text
 
     assert not backend.exists(storage_path)
     assert not target_backend.exists(storage_path)
@@ -323,12 +330,13 @@ async def test_delete_model_409_with_pending_store_job(
     )
     await db_session.commit()
 
+    # Trashing is fine; purging is blocked while a file is still processing.
     response = await authenticated_client.delete(f"/api/models/{created['slug']}")
-    assert response.status_code == 409
-
-    # nothing was deleted
-    detail = await authenticated_client.get(f"/api/models/{created['slug']}")
-    assert detail.status_code == 200
+    assert response.status_code == 204
+    purged = await authenticated_client.post("/api/trash/purge", json={"ids": [created["id"]]})
+    assert purged.status_code == 409
+    listing = (await authenticated_client.get("/api/trash")).json()
+    assert [i["id"] for i in listing["items"]] == [created["id"]]
 
 
 async def test_delete_model_unknown_slug_is_404(authenticated_client: httpx.AsyncClient) -> None:
@@ -358,6 +366,8 @@ async def test_delete_model_frees_source_for_reimport(
 
     response = await authenticated_client.delete(f"/api/models/{created['slug']}")
     assert response.status_code == 204
+    purged = await authenticated_client.post("/api/trash/purge", json={"ids": [created["id"]]})
+    assert purged.status_code == 200, purged.text
 
     live = await import_dedup.find_live_import(db_session, ImportSite.THINGIVERSE, "99")
     assert live is None
@@ -1157,6 +1167,10 @@ async def test_bulk_delete_two_models_deletes_files_sidecars_and_rows(
 
     assert response.status_code == 200, response.text
     assert response.json() == {"deleted": 2}
+    purged = await authenticated_client.post(
+        "/api/trash/purge", json={"ids": [model_a["id"], model_b["id"]]}
+    )
+    assert purged.status_code == 200, purged.text
 
     for storage_path, sidecar_path in paths:
         assert not backend.exists(storage_path)
@@ -1259,13 +1273,15 @@ async def test_bulk_delete_409_when_any_model_has_pending_store_job_nothing_dele
         "/api/models/bulk-delete", json={"ids": [clean["id"], pending["id"]]}
     )
 
-    assert response.status_code == 409
-    assert str(pending["id"]) in response.json()["detail"]
+    assert response.status_code == 200
+    purged = await authenticated_client.post(
+        "/api/trash/purge", json={"ids": [clean["id"], pending["id"]]}
+    )
+    assert purged.status_code == 409
+    assert str(pending["id"]) in purged.json()["detail"]
 
-    detail_pending = await authenticated_client.get(f"/api/models/{pending['slug']}")
-    assert detail_pending.status_code == 200
-    detail_clean = await authenticated_client.get(f"/api/models/{clean['slug']}")
-    assert detail_clean.status_code == 200
+    listing = (await authenticated_client.get("/api/trash")).json()
+    assert {i["id"] for i in listing["items"]} == {clean["id"], pending["id"]}
     assert backend.exists(clean_storage_path)
     assert backend.exists(clean_sidecar_path)
 

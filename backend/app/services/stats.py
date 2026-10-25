@@ -73,7 +73,9 @@ async def _models_stats(db: AsyncSession) -> ModelsStats:
                 # as soon as one exists, so NULL here means "created but
                 # nothing attached yet".
                 func.count().filter(Model.current_revision_id.is_(None)),
-            ).select_from(Model)
+            )
+            .select_from(Model)
+            .where(Model.deleted_at.is_(None))
         )
     ).one()
     return ModelsStats(total=total, favorites=favorites, archived=archived, drafts=drafts)
@@ -149,7 +151,11 @@ async def _prints_stats(db: AsyncSession) -> PrintsStats:
 async def _recent_stats(db: AsyncSession) -> RecentStats:
     cutoff = datetime.now(UTC) - timedelta(days=7)
     models_added_7d = (
-        await db.execute(select(func.count()).select_from(Model).where(Model.created_at >= cutoff))
+        await db.execute(
+            select(func.count())
+            .select_from(Model)
+            .where(Model.created_at >= cutoff, Model.deleted_at.is_(None))
+        )
     ).scalar_one()
     prints_7d = (
         await db.execute(select(func.count()).select_from(Print).where(Print.printed_at >= cutoff))
@@ -177,6 +183,7 @@ async def _recent_models(db: AsyncSession, settings: Settings) -> list[ModelSumm
     uses -- not a hand-rolled second summary shape."""
     stmt = (
         select(Model)
+        .where(Model.deleted_at.is_(None))
         .options(selectinload(Model.tags), selectinload(Model.category))
         .order_by(Model.created_at.desc(), Model.id.desc())
         .limit(10)

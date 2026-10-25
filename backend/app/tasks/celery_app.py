@@ -157,6 +157,14 @@ celery_app.conf.beat_schedule["sensors-prune"] = {
     "schedule": crontab(hour=3, minute=15),
 }
 
+# Additive: library trash retention -- daily purge of expired trashed models.
+from app.tasks import trash as _trash  # noqa: E402,F401
+
+celery_app.conf.beat_schedule["trash-purge"] = {
+    "task": "app.tasks.trash.purge_expired",
+    "schedule": crontab(hour=3, minute=45),
+}
+
 # Additive: Q5 daily Bambu firmware feed refresh.
 from app.tasks import firmware as _firmware  # noqa: E402
 

@@ -194,7 +194,7 @@ def _safe_path_segment(name: str, *, fallback: str) -> str:
 async def _collection_models(db: AsyncSession, collection: FollowedCollection) -> Sequence[Model]:
     stmt = (
         select(Model)
-        .where(Model.source_collection_id == collection.id)
+        .where(Model.source_collection_id == collection.id, Model.deleted_at.is_(None))
         .order_by(Model.name, Model.id)
     )
     return (await db.execute(stmt)).scalars().all()

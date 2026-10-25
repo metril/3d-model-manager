@@ -15,7 +15,7 @@ const SHORTCUTS: Array<{ keys: string; description: string }> = [
   { keys: "Esc", description: "Clear selection / leave select mode" },
   { keys: "A", description: "Select all loaded models (in select mode)" },
   { keys: "Ctrl/Cmd + A", description: "Select all loaded models" },
-  { keys: "Delete", description: "Delete the selected models" },
+  { keys: "Delete", description: "Move the selected models to trash" },
   { keys: "F", description: "Toggle favorite (model page)" },
   { keys: "Shift + F", description: "Toggle fullscreen (3D viewer)" },
   { keys: "Ctrl/Cmd + K", description: "Open the command palette" },

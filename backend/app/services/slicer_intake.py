@@ -72,7 +72,7 @@ async def _find_model_by_name_ci(db: AsyncSession, name: str) -> Model | None:
     """
     stmt = (
         select(Model)
-        .where(func.lower(Model.name) == name.lower())
+        .where(func.lower(Model.name) == name.lower(), Model.deleted_at.is_(None))
         .order_by(Model.id.asc())
         .limit(1)
     )
@@ -82,7 +82,7 @@ async def _find_model_by_name_ci(db: AsyncSession, name: str) -> Model | None:
 def _find_model_by_name_ci_sync(session: SyncSession, name: str) -> Model | None:
     stmt = (
         select(Model)
-        .where(func.lower(Model.name) == name.lower())
+        .where(func.lower(Model.name) == name.lower(), Model.deleted_at.is_(None))
         .order_by(Model.id.asc())
         .limit(1)
     )

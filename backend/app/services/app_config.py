@@ -82,6 +82,9 @@ class AppConfig(BaseModel):
     energy_cost_per_kwh: float = 0.0
     # Q8b: how many days of printer_sensor_samples the daily prune keeps.
     sensor_history_days: int = 30
+    # Library trash: days a trashed model is kept before the daily purge
+    # removes it (and its blobs). 0 = never auto-purge.
+    trash_retention_days: int = 30
 
 
 def _env_config(settings: Settings) -> AppConfig:

@@ -429,7 +429,7 @@ def store_imported_file_sync(
 
 async def get_model_by_id(db: AsyncSession, model_id: int) -> Model:
     model = await db.get(Model, model_id)
-    if model is None:
+    if model is None or model.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {model_id} not found")
     return model
 
@@ -437,7 +437,7 @@ async def get_model_by_id(db: AsyncSession, model_id: int) -> Model:
 async def get_model_by_slug(db: AsyncSession, slug: str) -> Model:
     stmt = (
         select(Model)
-        .where(Model.slug == slug)
+        .where(Model.slug == slug, Model.deleted_at.is_(None))
         .options(selectinload(Model.tags), selectinload(Model.category))
     )
     model = (await db.execute(stmt)).scalar_one_or_none()
@@ -1200,7 +1200,11 @@ async def list_models(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"invalid sort field: {field_name!r}")
     sort_column, parse_cursor_value, extract_sort_value = sort_field
 
-    stmt = select(Model).options(selectinload(Model.tags), selectinload(Model.category))
+    stmt = (
+        select(Model)
+        .where(Model.deleted_at.is_(None))
+        .options(selectinload(Model.tags), selectinload(Model.category))
+    )
     if not archived:
         stmt = stmt.where(Model.is_archived.is_(False))
     if q:

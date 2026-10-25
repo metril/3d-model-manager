@@ -489,14 +489,14 @@ describe("LibraryPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Delete 2 models?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Move 2 models to trash?")).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
     await waitFor(() =>
       expect(lastBulkDeleteCall()).toEqual({ path: "/models/bulk-delete", body: { ids: [1, 2] } }),
     );
-    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledExactlyOnceWith("Deleted 2 models"));
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledExactlyOnceWith("Moved 2 models to trash", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
     await waitFor(() => expect(screen.queryByText(/selected/)).not.toBeInTheDocument());
   });
 
@@ -532,7 +532,7 @@ describe("LibraryPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
 
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledExactlyOnceWith("model(s) have files still processing: [1]"),
@@ -717,7 +717,7 @@ describe("LibraryPage -- keyboard shortcuts (R9-C item 5)", () => {
     fireEvent.keyDown(document.body, { key: "Delete" });
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Delete 1 model?")).toBeInTheDocument();
+    expect(within(dialog).getByText("Move 1 model to trash?")).toBeInTheDocument();
   });
 
   it("Delete does nothing when there is no selection", async () => {

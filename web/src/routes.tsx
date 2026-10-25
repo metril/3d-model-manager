@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { AddPage } from "@/pages/AddPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
 import { DuplicatesPage } from "@/pages/DuplicatesPage";
+import { TrashPage } from "@/pages/TrashPage";
 import { CameraPage } from "@/pages/CameraPage";
 import { CamWallPage } from "@/pages/CamWallPage";
 import { OverlayPage } from "@/pages/OverlayPage";
@@ -302,6 +303,12 @@ const duplicatesRoute = createRoute({
   component: DuplicatesPage,
 });
 
+const trashRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/trash",
+  component: TrashPage,
+});
+
 const inventorySpoolsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/spools",
@@ -384,6 +391,7 @@ export const routeTree = rootRoute.addChildren([
     printerRedirectRoute,
     printerDetailRoute,
     duplicatesRoute,
+    trashRoute,
     inventorySpoolsRoute,
     inventoryMaterialsRoute,
     inventoryProfilesRoute,
