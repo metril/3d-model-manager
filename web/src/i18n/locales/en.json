@@ -144,10 +144,10 @@
     "badge": {"connected": "Connected", "offline": "Offline", "loading": "Checking", "network": "Network", "ethernet": "Ethernet", "hms": "HMS {{n}}", "queued": "{{n}} queued", "fw": "FW {{v}}", "door": "Door", "doorOpen": "Door open", "doorClosed": "Door closed", "doorTitle": "Door sensor", "devModeOff": "Dev Mode off", "devModeTip": "Developer LAN mode is off"},
     "header": {"menu": "Printer menu", "edit": "Edit", "info": "Info", "reconnect": "Reconnect", "forceRefresh": "Force refresh", "diagnose": "Diagnose", "delete": "Delete", "reachable": "Printer reachable", "reconnectFailed": "Reconnect failed", "hours": "{{n}} h printed", "deleteTitle": "Delete {{name}}?", "deleteDesc": "The printer and its connection settings are removed. Print history is kept."},
     "footer": {"print": "Print", "firmware": "Firmware"},
-    "status": {"offline": "Offline", "loading": "Checking", "offlineLast": "Offline — last: {{name}}", "idle": "Idle", "last": "Last: {{name}} · {{result}}", "nothing": "Nothing printed yet", "clearPlate": "Clear plate", "print": "Print", "skip": "Skip objects", "left": "{{t}} left", "eta": "ETA {{t}}", "layer": "Layer {{n}}/{{total}}", "startedApp": "Started from the app", "startedPrinter": "Started on the printer"},
+    "status": {"offline": "Offline", "loading": "Checking", "offlineLast": "Offline — last: {{name}}", "idle": "Idle", "last": "Last: {{name}} · {{result}}", "nothing": "Nothing printed yet", "print": "Print", "skip": "Skip objects", "left": "{{t}} left", "eta": "ETA {{t}}", "layer": "Layer {{n}}/{{total}}", "startedApp": "Started from the app", "startedPrinter": "Started on the printer"},
     "controls": {"silent": "Silent", "standard": "Standard", "sport": "Sport", "ludicrous": "Ludicrous", "movement": "Movement", "move": "Move", "jogStep": "Jog step", "mm": "{{n}} mm", "home": "Home", "extrude": "Extrude", "retract": "Retract", "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.", "lightLabel": "Chamber light", "light": "Light", "speed": "Print speed", "airduct": "Airduct", "cooling": "cooling", "heating": "heating", "calibration": "Calibration", "calibrate": "Calibrate", "calibrateTitle": "Run calibration?", "calibrateDesc": "Bed levelling, vibration compensation and motor noise cancellation. The printer will move.", "resume": "Resume", "pause": "Pause", "resumeTitle": "Resume this print?", "pauseTitle": "Pause this print?", "stop": "Stop", "stopTitle": "Stop this print?", "stopDesc": "The printer will cancel the job in progress. This can't be undone."},
     "temps": {"set": "Set {{label}}", "target": "{{label}} target ({{unit}})", "apply": "Set", "off": "Off", "nozzle": "Nozzle", "nozzleL": "Nozzle L", "nozzleR": "Nozzle R", "bed": "Bed", "chamber": "Chamber", "chamberReadonly": "Chamber temperature is read-only on this model.", "partFan": "Part fan", "auxFan": "Aux fan", "chamberFan": "Chamber fan"},
-    "filaments": {"emptyLower": "empty", "empty": "Empty", "loaded": "Loaded", "slotMenu": "{{label}} menu", "load": "Load", "unload": "Unload", "remaining": "Remaining", "low": "Low", "humidity": "Humidity: {{v}}", "temp": "Temp: {{v}}", "serial": "Serial: {{v}}", "firmware": "Firmware: {{v}}", "dry": "Dry", "backup": "AMS backup", "backupTip": "Two slots hold the same filament", "external": "External", "externalSpool": "External spool", "slot": "Slot {{n}}"},
+    "filaments": {"emptyLower": "empty", "empty": "Empty", "loaded": "Loaded", "slotMenu": "{{label}} menu", "unitMenu": "{{label}} menu", "load": "Load", "unload": "Unload", "remaining": "Remaining", "low": "Low", "humidity": "Humidity: {{v}}", "temp": "Temp: {{v}}", "serial": "Serial: {{v}}", "firmware": "Firmware: {{v}}", "dry": "Dry", "backup": "AMS backup", "backupTip": "Two slots hold the same filament", "external": "External", "externalSpool": "External spool", "slot": "Slot {{n}}"},
     "skip": {"title": "Skip objects", "desc": "Skipped objects are not printed from the next layer on. This can't be undone.", "submit": "Skip {{n}} selected"},
     "devBanner": {"off": "Developer LAN mode is not enabled on: {{names}}. Some features may not work.", "unknown": "Developer LAN mode status is not known yet for: {{names}}. Controls may be rejected.", "how": "How to enable it", "dismiss": "Dismiss"}
   },
@@ -295,6 +295,80 @@
       "outcomeNone": "Leave unanswered",
       "afterH": "Apply default after (hours)",
       "goodOnPlateClear": "Mark good when the plate is cleared"
+    }
+  },
+  "printerOps": {
+    "plateNeedsClearing": "Plate needs clearing",
+    "markCleared": "Mark plate cleared",
+    "plateCleared": "Plate marked as cleared",
+    "printOptions": {
+      "title": "Print options",
+      "menu": "Print options",
+      "empty": "This printer reports no print options.",
+      "autoRecovery": "Auto-recovery",
+      "autoSwitch": "AMS backup (auto switch filament)",
+      "sensitivity": "Sensitivity",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "never_halt": "Never halt",
+      "enable": "Enable {{name}}",
+      "module": {
+        "spaghetti_detector": "Spaghetti detection",
+        "first_layer_inspector": "First layer inspection",
+        "printing_monitor": "Printing monitor",
+        "buildplate_marker_detector": "Build plate marker detection",
+        "allow_skip_parts": "Allow skipping parts",
+        "pileup_detector": "Pile-up detection",
+        "clump_detector": "Nozzle clump detection",
+        "airprint_detector": "Air printing detection"
+      }
+    },
+    "slot": {
+      "configure": "Configure slot…",
+      "title": "Configure slot",
+      "material": "Material",
+      "subBrand": "Sub-brand",
+      "color": "Colour",
+      "nozzleMin": "Nozzle min °C",
+      "nozzleMax": "Nozzle max °C",
+      "apply": "Apply to printer",
+      "save": "Save",
+      "reset": "Reset slot",
+      "resetTitle": "Reset this slot?",
+      "resetDesc": "The printer will forget the filament in this slot.",
+      "saved": "Slot saved", "deviceFailed": "Saved, but the printer rejected the change", "deviceSkipped": "Saved, but the printer was not updated (offline)",
+      "resetDone": "Slot reset"
+    },
+    "ams": {
+      "rename": "Rename AMS…",
+      "renameTitle": "Rename AMS",
+      "label": "Label",
+      "clear": "Clear label",
+      "saved": "AMS renamed"
+    },
+    "files": {
+      "button": "Files",
+      "title": "Printer files",
+      "root": "SD card",
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified",
+      "empty": "This folder is empty.",
+      "loading": "Loading…",
+      "error": "Could not read the printer's storage.",
+      "download": "Download",
+      "delete": "Delete",
+      "print": "Print",
+      "up": "Up",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDesc": "The file is removed from the printer's storage.",
+      "deleted": "File deleted",
+      "printTitle": "Print {{name}}?",
+      "printDesc": "Starts printing this file from the printer's storage now.",
+      "printStarted": "Print started",
+      "storage": "{{used}} used of {{total}}",
+      "storageFree": "{{free}} free"
     }
   }
 }
