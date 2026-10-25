@@ -64,6 +64,10 @@ class SmartPlug(Base):
     auto_on_before_print: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    # T1: power the plug off when an AMS drying cycle ends (printer idle).
+    auto_off_after_drying: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     last_state: Mapped[str | None] = mapped_column(Text)
     last_power_w: Mapped[float | None] = mapped_column(Float)
     last_polled_at: Mapped[datetime | None]

@@ -34,7 +34,7 @@ from app.models.printing import Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
-from app.services import billing, ha_state
+from app.services import billing, drying_tick, ha_state
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.permissions import can_print_sync
@@ -244,6 +244,7 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
             not p.enabled
             or p.maintenance_mode
             or printer_hold_reason(client, p.id) is not None
+            or drying_tick.hold_reason(client, p.id) is not None
             or plate_hold_reason(p, gate_plate) is not None
         ):
             busy.add(p.id)

@@ -178,6 +178,10 @@ celery_app.conf.beat_schedule["plugs-tick"] = {
     "task": "app.tasks.plugs.tick",
     "schedule": _ops.PLUG_INTERVAL_S,
 }
+celery_app.conf.beat_schedule["drying-tick"] = {
+    "task": "app.tasks.drying.tick",
+    "schedule": _ops.DRYING_INTERVAL_S,
+}
 celery_app.conf.beat_schedule["backup-scheduled"] = {
     "task": "app.tasks.backup.scheduled",
     "schedule": _ops.BACKUP_GATE_INTERVAL_S,

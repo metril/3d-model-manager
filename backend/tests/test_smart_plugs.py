@@ -187,6 +187,9 @@ def test_can_power_off_rule():
     assert not manager.can_power_off({"gcode_state": "RUNNING", "nozzle_temper": 20.0})
     assert not manager.can_power_off({"gcode_state": "IDLE"})  # unknown nozzle: fail safe
     assert not manager.can_power_off(None)
+    drying = {**COLD, "ams_units": [{"id": 0, "dry_status": 2}]}
+    assert not manager.can_power_off(drying)  # never kill a drying cycle
+    assert manager.can_power_off({**COLD, "ams_units": [{"id": 0, "dry_status": 0}]})
 
 
 @respx.mock

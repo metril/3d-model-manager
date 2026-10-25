@@ -83,6 +83,29 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "The backup failed{% if error %}: {{ error }}{% endif %}.",
         {"error": "disk full"},
     ),
+    "drying_started": (
+        "Drying started",
+        "An AMS unit started drying filament.",
+        "Drying started on {{ printer_name }}",
+        "AMS {{ ams_id }} on {{ printer_name }} started drying"
+        "{% if filament %} ({{ filament }}{% if temp %} @ {{ temp }} C{% endif %}){% endif %}.",
+        {"ams_id": 0, "filament": "PETG", "temp": 65},
+    ),
+    "drying_finished": (
+        "Drying finished",
+        "An AMS unit finished drying.",
+        "Drying finished on {{ printer_name }}",
+        "AMS {{ ams_id }} on {{ printer_name }} finished drying.",
+        {"ams_id": 0},
+    ),
+    "drying_failed": (
+        "Drying failed",
+        "A scheduled drying run could not start or never began.",
+        "Drying failed on {{ printer_name }}",
+        "Scheduled drying on AMS {{ ams_id }} of {{ printer_name }} failed"
+        "{% if error %} ({{ error }}){% endif %}.",
+        {"ams_id": 0, "error": "did_not_start", "filament": "PETG"},
+    ),
     "failure_suspected": (
         "Failure suspected",
         "Print-failure detection flagged a possible failure.",

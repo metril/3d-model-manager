@@ -317,6 +317,15 @@ class PrinterAdapter(ABC):
     def ams_slot_reset(self, ams_id: int, tray_id: int) -> None:
         raise NotImplementedError
 
+    def drying_start(
+        self, ams_id: int, temp: int, duration_hours: int, filament: str, rotate_tray: bool
+    ) -> None:
+        """Start an AMS drying cycle (``duration_hours`` is the wire unit)."""
+        raise NotImplementedError
+
+    def drying_stop(self, ams_id: int) -> None:
+        raise NotImplementedError
+
     def start_sd_print(self, path: str, plate: int | None, use_ams: bool) -> None:
         """Start a print of a file already on the printer's SD card."""
         raise NotImplementedError

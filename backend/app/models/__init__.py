@@ -27,6 +27,7 @@ from app.models.collections import (
     RemoteCollectionItem,
 )
 from app.models.detection import FailureDetection
+from app.models.drying import ScheduledDrying
 from app.models.external_link import ExternalLink
 from app.models.home_assistant import HaLink
 from app.models.inventory import (
@@ -102,6 +103,7 @@ __all__ = [
     "PendingImport",
     "Print",
     "AmsLabel",
+    "ScheduledDrying",
     "Printer",
     "PrinterAccess",
     "FailureDetection",
