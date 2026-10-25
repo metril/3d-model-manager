@@ -26,6 +26,7 @@ from app.schemas.settings import (
     ServerSettingsIn,
     ServerSettingsOut,
     ServerStatusOut,
+    SlicerProbeOut,
     SlicerTestIn,
     SlicerTestOut,
     VpStatusOut,
@@ -57,6 +58,15 @@ PROBE_TTL_S = 10
 SLICER_TEST_TIMEOUT_S = 5.0
 SLICER_PROBE_TIMEOUT_S = 3.0
 OBICO_PROBE_TIMEOUT_S = 2.0
+SLICER_INFO_KEYS = (
+    "version",
+    "bambu_version",
+    "busy",
+    "running",
+    "max_concurrency",
+    "job_timeout_s",
+    "mem_limit",
+)
 
 
 async def _out(db: AsyncSession, request: Request) -> ServerSettingsOut:
@@ -165,6 +175,27 @@ async def test_slicer(payload: SlicerTestIn, db: AsyncSession = Depends(get_db))
     return SlicerTestOut(ok=ok, latency_ms=ms, detail=detail)
 
 
+async def _probe_slicer(url: str) -> tuple[bool, str, dict | None]:
+    """`_probe` plus the sidecar's `/health` body (version, busy x/max, limits)."""
+    try:
+        async with httpx.AsyncClient(timeout=SLICER_PROBE_TIMEOUT_S) as client:
+            resp = await client.get(url)
+    except httpx.TimeoutException:
+        return False, "timed out", None
+    except httpx.HTTPError as exc:
+        return False, type(exc).__name__, None
+    if resp.status_code != 200:
+        return False, f"HTTP {resp.status_code}", None
+    info = None
+    try:
+        body = resp.json()
+        if isinstance(body, dict):
+            info = {k: body.get(k) for k in SLICER_INFO_KEYS if body.get(k) is not None}
+    except ValueError:
+        pass
+    return True, "ok", info
+
+
 async def _probes(r: aioredis.Redis, cfg: ServerConfig, obico_url: str) -> dict:
     ident = f"{cfg.slicer_enabled}|{cfg.slicer_url}|{obico_url}"
     try:
@@ -180,8 +211,8 @@ async def _probes(r: aioredis.Redis, cfg: ServerConfig, obico_url: str) -> dict:
     elif not cfg.slicer_url:
         slicer = {"ok": False, "detail": "not_configured"}
     else:
-        ok, detail, _ = await _probe(f"{cfg.slicer_url}/health", SLICER_PROBE_TIMEOUT_S)
-        slicer = {"ok": ok, "detail": detail}
+        ok, detail, info = await _probe_slicer(f"{cfg.slicer_url}/health")
+        slicer = {"ok": ok, "detail": detail, "info": info}
     ok, detail, _ = await _probe(f"{obico_url}/hc/", OBICO_PROBE_TIMEOUT_S)
     out = {"ident": ident, "slicer": slicer, "obico": {"ok": ok, "detail": detail}}
     with contextlib.suppress(aioredis.RedisError):
@@ -213,7 +244,7 @@ async def server_status(
         vp = await _vp_status(r)
     finally:
         await r.aclose()
-    slicer = ProbeOut(**probes["slicer"])
+    slicer = SlicerProbeOut(**probes["slicer"])
     live = cfg.slicer_enabled and bool(cfg.slicer_url)
     return ServerStatusOut(
         slicer=slicer,

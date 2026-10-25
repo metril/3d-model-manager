@@ -67,7 +67,7 @@ from app.models.overlay_token import OverlayToken
 from app.models.printing import AmsLabel, PrintArchive, Printer, PrintJob
 from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.sensors import PrinterSensorSample
-from app.models.slicing import PrintRecipe, SlicerProfile
+from app.models.slicing import PrintRecipe, SliceJob, SlicerProfile
 from app.models.storage import FileLocation, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
 from app.models.virtual_printer import VirtualPrinter
@@ -129,6 +129,7 @@ __all__ = [
     "ScanRun",
     "Session",
     "Setting",
+    "SliceJob",
     "SlicerProfile",
     "ColorCatalogEntry",
     "LocationHaSensor",

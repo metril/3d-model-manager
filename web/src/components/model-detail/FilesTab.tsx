@@ -7,6 +7,7 @@ import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
+import { SliceFileButton } from "@/components/slice/SliceFileButton";
 import { UploadDropzone, type UploadTarget } from "@/components/upload/UploadDropzone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,6 +142,7 @@ export function FilesTab({
               }
               actions={
                 <>
+                  <SliceFileButton file={file} />
                   <SendToPrinterButton file={file} />
                   {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
                   <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} />

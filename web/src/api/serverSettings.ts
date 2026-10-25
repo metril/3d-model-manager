@@ -53,8 +53,18 @@ export interface SlicerTestOut {
 
 export type VpState = "idle" | "running" | "error" | "offline";
 
+export interface SlicerProbeInfo {
+  version?: string;
+  bambu_version?: string;
+  busy?: boolean;
+  running?: number;
+  max_concurrency?: number;
+  job_timeout_s?: number;
+  mem_limit?: number;
+}
+
 export interface ServerStatusOut {
-  slicer: { ok: boolean; detail: string };
+  slicer: { ok: boolean; detail: string; info?: SlicerProbeInfo | null };
   slicer_healthy: boolean | null;
   obico: { ok: boolean; detail: string };
   virtual_printer: {

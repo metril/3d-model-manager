@@ -1,6 +1,8 @@
 """Client for our slicer sidecar (`slicer/`, compose profile `slicer`): a
 FastAPI wrapper around the Bambu Studio CLI. Endpoints: `GET /health`
-(`{status, version, busy, max_concurrency}`), `GET /profiles[?flatten=1]`
+(`{status, version, busy, max_concurrency, running, job_timeout_s,
+mem_limit, bambu_version}`), `DELETE /jobs/{id}` (kill a running slice; the
+job id is the `X-Job-Id` request header on `POST /slice`), `GET /profiles[?flatten=1]`
 (bundled Bambu presets) and `POST /slice` (multipart, built by
 `_build_slice_request`; responds with the `.gcode.3mf`). Errors are JSON
 `{error, message, exit_code, log_tail}`; 429 means the sidecar is busy.
@@ -51,9 +53,18 @@ class SlicerError(Exception):
     isn't the gcode.3mf archive it was supposed to be). `status` is the HTTP
     status when there was one."""
 
-    def __init__(self, message: str = "", status: int | None = None) -> None:
+    def __init__(
+        self, message: str = "", status: int | None = None, log_tail: str | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
+        # The sidecar's CLI output tail (bounded), persisted for the UI's
+        # "View log" -- never part of `str(exc)`.
+        self.log_tail = log_tail
+
+
+class SlicerCancelled(SlicerError):
+    """The sidecar killed the job on request (`DELETE /jobs/{id}`)."""
 
 
 class SlicerUnavailable(SlicerError):
@@ -93,6 +104,10 @@ def _parse_health(data: Any) -> dict:
         "ok": status == "ok",
         "busy": bool(data.get("busy", False)),
         "max_concurrency": data.get("max_concurrency"),
+        "running": data.get("running"),
+        "job_timeout_s": data.get("job_timeout_s"),
+        "mem_limit": data.get("mem_limit"),
+        "bambu_version": data.get("bambu_version"),
     }
 
 
@@ -107,6 +122,18 @@ def _error_detail(response: httpx.Response) -> str:
         return ""
     parts = [str(data[k]) for k in ("error", "message") if isinstance(data.get(k), str)]
     return ": ".join(parts)[:300]
+
+
+_MAX_LOG_TAIL = 8192
+
+
+def _error_log_tail(response: httpx.Response) -> str | None:
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    tail = data.get("log_tail") if isinstance(data, dict) else None
+    return tail[-_MAX_LOG_TAIL:] if isinstance(tail, str) and tail else None
 
 
 def _build_slice_request(
@@ -193,11 +220,14 @@ class SlicerClient:
             )
             if response.status_code == 429:
                 raise SlicerBusy(f"slicer is busy ({path!r})", 429)
+            if response.status_code == 499:
+                raise SlicerCancelled("slice cancelled", 499, _error_log_tail(response))
             detail = _error_detail(response)
             suffix = f": {detail}" if detail else ""
             raise SlicerError(
                 f"slicer returned {response.status_code} for {path!r}{suffix}",
                 response.status_code,
+                _error_log_tail(response),
             )
         return response
 
@@ -208,6 +238,17 @@ class SlicerClient:
         except ValueError as exc:
             raise SlicerError(f"slicer health returned non-JSON body: {exc}") from exc
         return _parse_health(data)
+
+    def cancel(self, job_id: str) -> bool:
+        """Ask the sidecar to kill job `job_id`. False when it isn't running
+        (already finished / unknown / sidecar predates the endpoint)."""
+        try:
+            self._request("DELETE", f"/jobs/{job_id}")
+        except SlicerError as exc:
+            if exc.status == 404:
+                return False
+            raise
+        return True
 
     def profiles(self, *, flatten: bool = False) -> list[dict] | None:
         """The sidecar's bundled Bambu presets (`flatten=True` includes each
@@ -238,6 +279,7 @@ class SlicerClient:
         filament_profiles: list[dict],
         bed_type: str,
         options: SliceOptions,
+        job_id: str | None = None,
     ) -> bytes:
         model_bytes = Path(model).read_bytes() if isinstance(model, Path) else model
         request_kwargs = _build_slice_request(
@@ -253,6 +295,7 @@ class SlicerClient:
             "POST",
             _ENDPOINTS["slice"],
             timeout=self._slice_timeout_s + _SLICE_TIMEOUT_GRACE_S,
+            headers={"X-Job-Id": job_id} if job_id else None,
             **request_kwargs,
         )
         content = response.content

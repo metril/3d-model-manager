@@ -37,6 +37,7 @@ vi.mock("@/api/queue", () => ({
   useMoveQueueEntry: () => ({ mutate: moveMock, isPending: false }),
   useRemoveQueueEntry: () => ({ mutate: removeMock, isPending: false }),
   useRetryQueueEntry: () => ({ mutate: retryMock, isPending: false }),
+  useCancelQueueSlice: () => ({ mutate: vi.fn(), isPending: false }),
   useReviewEntry: () => ({ mutate: reviewMock, isPending: false }),
   useStartQueueEntry: () => ({ mutate: startMock, isPending: false }),
   useCancelSchedule: () => ({ mutate: cancelMock, isPending: false }),

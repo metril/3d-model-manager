@@ -84,6 +84,23 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{% if reason %}: {{ reason }}{% endif %}.",
         {"name": "benchy.3mf", "reason": "Previous print failed or was aborted"},
     ),
+    "slice_done": (
+        "Slice finished",
+        "A slice job (queued print or standalone) produced a sliced file.",
+        "Sliced: {{ name|default('file') }}",
+        "{{ name|default('A file') }} was sliced"
+        "{% if recipe %} with {{ recipe }}{% endif %}"
+        "{% if print_time_s %} ({{ (print_time_s / 60)|round|int }} min"
+        "{% if filament_g %}, {{ filament_g|round(1) }} g{% endif %}){% endif %}.",
+        {"name": "benchy.3mf", "recipe": "A1 mini PLA", "print_time_s": 5400, "filament_g": 12.3},
+    ),
+    "slice_failed": (
+        "Slice failed",
+        "A slice job (queued print or standalone) failed or was cancelled.",
+        "Slice failed: {{ name|default('file') }}",
+        "Slicing {{ name|default('a file') }} failed{% if error %}: {{ error }}{% endif %}.",
+        {"name": "benchy.3mf", "error": "bambu-studio exited 3"},
+    ),
     "backup_failed": (
         "Backup failed",
         "A scheduled backup did not complete.",

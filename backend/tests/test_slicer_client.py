@@ -17,6 +17,7 @@ from app.services.server_config import ServerConfig
 from app.services.slicer_client import (
     SliceOptions,
     SlicerBusy,
+    SlicerCancelled,
     SlicerClient,
     SlicerError,
     SlicerProtocolError,
@@ -43,7 +44,73 @@ def test_health_contract():
     )
     client = SlicerClient(BASE_URL)
     result = client.health()
-    assert result == {"version": "v02.08", "ok": True, "busy": True, "max_concurrency": 1}
+    assert result == {
+        "version": "v02.08",
+        "ok": True,
+        "busy": True,
+        "max_concurrency": 1,
+        "running": None,
+        "job_timeout_s": None,
+        "mem_limit": None,
+        "bambu_version": None,
+    }
+
+
+@respx.mock
+def test_health_forwards_limits():
+    respx.get(f"{BASE_URL}/health").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "version": "v1",
+                "status": "ok",
+                "busy": False,
+                "max_concurrency": 2,
+                "running": 1,
+                "job_timeout_s": 600.0,
+                "mem_limit": 4294967296,
+                "bambu_version": "v02.08.02.61",
+            },
+        )
+    )
+    result = SlicerClient(BASE_URL).health()
+    assert result["running"] == 1 and result["job_timeout_s"] == 600.0
+    assert result["mem_limit"] == 4294967296 and result["bambu_version"] == "v02.08.02.61"
+
+
+@respx.mock
+def test_slice_error_carries_log_tail_but_not_in_message():
+    respx.post(f"{BASE_URL}/slice").mock(
+        return_value=httpx.Response(
+            422,
+            json={"error": "slice_failed", "message": "exited 3", "log_tail": "boom on stderr"},
+        )
+    )
+    with pytest.raises(SlicerError) as ei:
+        SlicerClient(BASE_URL).slice(
+            b"x", "a.stl", {}, {}, [], "textured_plate", SliceOptions(), job_id="q1"
+        )
+    assert ei.value.log_tail == "boom on stderr" and "boom" not in str(ei.value)
+    assert respx.calls.last.request.headers["x-job-id"] == "q1"
+
+
+@respx.mock
+def test_slice_499_is_cancelled():
+    respx.post(f"{BASE_URL}/slice").mock(
+        return_value=httpx.Response(499, json={"error": "cancelled", "log_tail": "tail"})
+    )
+    with pytest.raises(SlicerCancelled) as ei:
+        SlicerClient(BASE_URL).slice(b"x", "a.stl", {}, {}, [], "textured_plate", SliceOptions())
+    assert ei.value.log_tail == "tail"
+
+
+@respx.mock
+def test_cancel_job():
+    respx.delete(f"{BASE_URL}/jobs/q1").mock(return_value=httpx.Response(200, json={}))
+    respx.delete(f"{BASE_URL}/jobs/gone").mock(return_value=httpx.Response(404, json={}))
+    c = SlicerClient(BASE_URL)
+    assert c.cancel("q1") is True
+    assert c.cancel("gone") is False
 
 
 @respx.mock

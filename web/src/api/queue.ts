@@ -114,6 +114,16 @@ export function useRetryQueueEntry() {
   });
 }
 
+/** `POST /queue/{entry_id}/cancel-slice` -- kills an in-flight slice (the
+ * entry becomes `failed`/"cancelled" and can be retried). */
+export function useCancelQueueSlice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (entryId: number) => api.post<QueueEntry>(`/queue/${entryId}/cancel-slice`),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
 // -- review gate (P7 review/billing plan Task 6/9) -------------------------
 
 /** `GET /queue/review-inbox` -- pending items the caller may act on as a

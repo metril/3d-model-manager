@@ -28,6 +28,7 @@ from app.models.audit_log import AuditLog
 from app.models.enums import BlobFormat, QueueState, ReviewState
 from app.models.library import Blob, File, Model, PrintBatch, PrintQueueEntry, Revision
 from app.models.printing import Printer
+from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.queue import (
     BatchRefOut,
@@ -36,6 +37,8 @@ from app.schemas.queue import (
     QueueEntryOut,
     QueueReorderIn,
     ReviewIn,
+    SlicedMetaOut,
+    SlicedPlateOut,
 )
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
@@ -230,6 +233,7 @@ async def _to_out(
                 await db.execute(select(Printer.id).where(Printer.awaiting_plate_clear.is_(True)))
             ).scalars()
         )
+    sliced_meta_by_file = await _sliced_metas(db, entries)
     now = datetime.now(UTC)
 
     out = []
@@ -263,6 +267,8 @@ async def _to_out(
                 print_job_id=e.print_job_id,
                 attempts=e.attempts,
                 last_error=e.last_error,
+                last_log=e.last_log,
+                sliced_meta=sliced_meta_by_file.get(e.sliced_file_id),
                 file_name=Path(file_row.rel_path).name if file_row is not None else None,
                 cost_center_id=e.cost_center_id,
                 review_state=e.review_state,
@@ -290,6 +296,36 @@ async def _to_out(
                 if e.batch_id in batches_by_id
                 else None,
             )
+        )
+    return out
+
+
+async def _sliced_metas(db: AsyncSession, entries: list[PrintQueueEntry]) -> dict:
+    """`sliced_file_id` -> `SlicedMetaOut`, in two batched queries."""
+    ids = {e.sliced_file_id for e in entries if e.sliced_file_id is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(File.id, File.rel_path, BlobMeta)
+            .join(BlobMeta, BlobMeta.blob_hash == File.blob_hash, isouter=True)
+            .where(File.id.in_(ids))
+        )
+    ).all()
+    out = {}
+    for fid, rel_path, meta in rows:
+        plates = [
+            SlicedPlateOut(
+                index=p["index"], prediction_s=p.get("prediction_s"), weight_g=p.get("weight_g")
+            )
+            for p in ((meta.raw or {}).get("plates") or [] if meta is not None else [])
+        ]
+        out[fid] = SlicedMetaOut(
+            print_time_s=meta.print_time_s if meta is not None else None,
+            filament_g=meta.filament_g if meta is not None else None,
+            plate_count=meta.plate_count if meta is not None else None,
+            plates=plates,
+            file_name=Path(rel_path).name,
         )
     return out
 
@@ -625,12 +661,35 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     )
     entry.attempts = 0
     entry.last_error = None
+    entry.last_log = None
     entry.assigned_printer_id = None
     entry.print_job_id = None
     await db.commit()
     await db.refresh(entry)
     out = await _to_out(db, settings, [entry])
     return out[0]
+
+
+async def cancel_slicing(db: AsyncSession, settings: Settings, entry_id: int) -> QueueEntryOut:
+    """Cancel an in-flight slice: the entry goes `failed` (`last_error:
+    cancelled`, retryable), the sidecar kills its CLI and the Celery task is
+    revoked. 409 unless the entry is `slicing`."""
+    from app.services import slice_jobs
+    from app.tasks.slicing import queue_job_id
+
+    entry = await _get_entry_or_404(db, entry_id)
+    if entry.state != QueueState.SLICING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "entry is not slicing")
+    task_id = entry.slice_task_id
+    entry.state = QueueState.FAILED
+    entry.last_error = "cancelled"
+    entry.last_log = None
+    entry.slicing_started_at = None
+    entry.slice_task_id = None
+    await db.commit()
+    await slice_jobs.stop_slice(db, settings, queue_job_id(entry_id), task_id)
+    await db.refresh(entry)
+    return (await _to_out(db, settings, [entry]))[0]
 
 
 async def remove_entry(db: AsyncSession, entry_id: int) -> None:

@@ -145,6 +145,29 @@ def test_run_slice_timeout_kills(fake_cli):
     assert not job.dir.exists()
 
 
+def test_run_slice_cancel_kills(fake_cli):
+    job = _job(None, "hang")
+    handle = runner.JobHandle()
+
+    async def go():
+        task = asyncio.create_task(
+            runner.run_slice(
+                cli=str(fake_cli), job=job, bed_type="textured_plate", auto_orient=False,
+                arrange=False, plate=None, timeout_s=30, handle=handle,
+            )
+        )
+        while handle.proc is None:
+            await asyncio.sleep(0.05)
+        handle.cancel()
+        await task
+
+    try:
+        with pytest.raises(runner.SliceCancelled):
+            asyncio.run(go())
+    finally:
+        runner.cleanup(job.dir)
+
+
 # --- HTTP ------------------------------------------------------------------
 
 
@@ -241,3 +264,35 @@ def test_slice_bad_options_400(api):
     req["data"].pop("options")
     req["files"].append(("options", ("options", b"{}", "application/json")))
     assert api.post("/slice", **req).status_code == 400
+
+
+def test_health_reports_limits(api):
+    h = api.get("/health").json()
+    assert h["job_timeout_s"] == 3 and h["running"] == 0
+    assert "mem_limit" in h and "bambu_version" in h
+
+
+def test_delete_unknown_job_404(api):
+    assert api.delete("/jobs/nope").status_code == 404
+
+
+def test_delete_job_cancels_running_slice(api, monkeypatch):
+    import threading
+    import time
+
+    monkeypatch.setattr(main, "JOB_TIMEOUT_S", 30)
+    req = _body(model=b"hang")
+    req["headers"] = {"x-job-id": "j1"}
+    out = {}
+    t = threading.Thread(target=lambda: out.update(r=api.post("/slice", **req)))
+    t.start()
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        h = main.app.state.jobs.get("j1")
+        if h is not None and h.proc is not None:
+            break
+        time.sleep(0.05)
+    assert api.delete("/jobs/j1").json()["status"] == "cancelled"
+    t.join(10)
+    assert out["r"].status_code == 499 and out["r"].json()["error"] == "cancelled"
+    assert "j1" not in main.app.state.jobs
