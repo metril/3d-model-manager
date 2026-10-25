@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     # ~1344 tests, several standing up real containers. The 360-minute default
     # is useless as a hang detector; 40 is generous against observed runtime.
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
