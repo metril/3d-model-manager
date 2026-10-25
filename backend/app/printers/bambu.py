@@ -339,6 +339,24 @@ def slot_reset_payload(ams_id: int, tray_id: int) -> dict:
 # -- T2 K-profiles (pressure advance) -------------------------------------
 
 
+def _guard_cali_merge(mqtt) -> None:
+    """The lib merges EVERY message into its print dict, so an
+    ``extrusion_cali_*`` reply would overwrite ``nozzle_diameter`` with the
+    size we asked about (bambuddy #2663). Skip the merge for those; they are
+    still forwarded to our tap."""
+    orig = getattr(mqtt, "manual_update", None)
+    if orig is None:
+        return
+
+    def guarded(doc):
+        pr = doc.get("print") if isinstance(doc, dict) else None
+        if isinstance(pr, dict) and str(pr.get("command", "")).startswith("extrusion_cali"):
+            return None
+        return orig(doc)
+
+    mqtt.manual_update = guarded
+
+
 def kprofile_get_payload(nozzle_diameter: str) -> dict:
     return {
         "print": {
@@ -405,12 +423,19 @@ def kprofile_del_payload(entry: dict, dual: bool) -> dict:
 
 
 def kprofile_sel_payload(
-    ams_id: int, tray_id: int, cali_idx: int, filament_id: str, nozzle_diameter: str
+    ams_id: int,
+    tray_id: int,
+    cali_idx: int,
+    filament_id: str,
+    nozzle_diameter: str,
+    dual: bool = False,
 ) -> dict:
     """``extrusion_cali_sel`` uses the GLOBAL tray id (ams*4+slot), unlike
     ``ams_filament_setting``; never carries ``setting_id`` (mislinks on X1/P1S)."""
     if ams_id == 255:
-        wire_ams, wire_tray, slot = 254, 254, 0
+        # Dual-nozzle: each external spool is its own virtual unit (254 + 0/1).
+        ext = 254 + (tray_id if tray_id in (0, 1) else 0) if dual else 254
+        wire_ams, wire_tray, slot = ext, ext, 0
     elif ams_id <= 3:
         wire_ams, wire_tray, slot = ams_id, ams_id * 4 + tray_id, tray_id
     else:
@@ -1069,6 +1094,7 @@ class BambuLanAdapter(PrinterAdapter):
         mqtt = getattr(p, "mqtt_client", None)
         if mqtt is not None:
             mqtt.on_message_handler = self._tap_message
+            _guard_cali_merge(mqtt)
         p.mqtt_start()
 
     def _tap_message(self, _mqtt, _client, _userdata, msg) -> None:
@@ -1334,7 +1360,9 @@ class BambuLanAdapter(PrinterAdapter):
     ) -> None:
         _publish_raw(
             self._client(),
-            kprofile_sel_payload(ams_id, tray_id, cali_idx, filament_id, nozzle_diameter),
+            kprofile_sel_payload(
+                ams_id, tray_id, cali_idx, filament_id, nozzle_diameter, self._dual()
+            ),
         )
 
     def delete_file(self, path: str) -> None:

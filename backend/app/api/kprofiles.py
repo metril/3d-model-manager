@@ -3,8 +3,10 @@ v2 + Redis cache), profile notes, and per-spool stored profile links."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 from decimal import Decimal
 
 import redis.asyncio as aioredis
@@ -24,7 +26,7 @@ from app.api.printer_control import _err, run_command
 from app.api.printers import _get_enabled_or_404, _get_or_404, _require_visible
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Printer, Spool
+from app.models import AuditLog, Printer, Spool
 from app.models.kprofiles import KProfileNote, SpoolKProfile
 from app.printers import commands as cmds
 from app.printers.base import cmd_result_key
@@ -44,6 +46,8 @@ router = APIRouter(
 )
 spool_router = APIRouter(prefix="/spools", tags=["kprofiles"])
 
+LOCK_TTL_S = 5
+RESULT_WAIT_S = 3.0
 _REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 _CONTROL = Depends(require_printer_access("control"))
 
@@ -94,6 +98,8 @@ async def list_kprofiles(
     _require_cap(printer)
     nozzle = _nozzle_or_422(nozzle)
     client = aioredis.Redis.from_url(settings.redis_url)
+    lock = f"printer:{printer_id}:kprofiles_lock:{nozzle}"
+    held = False
     try:
         if request_id is not None:
             if not _REQUEST_ID.fullmatch(request_id):
@@ -112,15 +118,31 @@ async def list_kprofiles(
             entry = (
                 None if refresh else await kprofiles.read_cache_async(client, printer_id, nozzle)
             )
+            if entry is None:
+                # One in-flight list request per printer + nozzle; followers
+                # wait for the leader's table to land in the cache.
+                held = bool(await client.set(lock, "1", nx=True, ex=LOCK_TTL_S))
+                if not held:
+                    deadline = time.monotonic() + RESULT_WAIT_S
+                    while time.monotonic() < deadline:
+                        await asyncio.sleep(0.1)
+                        entry = await kprofiles.read_cache_async(client, printer_id, nozzle)
+                        if entry is not None:
+                            break
+                    if entry is None:
+                        return JSONResponse(status_code=202, content={"status": "pending"})
+        if entry is None:
+            resp = await run_command(
+                db, settings, ctx, printer, "kprofile_list", {"nozzle_diameter": nozzle}
+            )
+            if resp.status_code != 200:
+                if resp.status_code != 202:  # 202: printerd is still working; lock expires
+                    await client.delete(lock)
+                return resp
+            await client.delete(lock)
+            entry = json.loads(resp.body).get("payload")
     finally:
         await client.aclose()
-    if entry is None:
-        resp = await run_command(
-            db, settings, ctx, printer, "kprofile_list", {"nozzle_diameter": nozzle}
-        )
-        if resp.status_code != 200:
-            return resp
-        entry = json.loads(resp.body).get("payload")
     if not isinstance(entry, dict) or "profiles" not in entry:
         return _err(502, "error", "the printer returned no K-profile table")
     return JSONResponse(content=await _shape(db, printer_id, entry, extruder))
@@ -255,6 +277,15 @@ async def put_note(
         )
     else:
         row.note = body.note
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer_id,
+            action="kprofile_note_set",
+            payload={"setting_id": setting_id},
+        )
+    )
     await db.commit()
     return {"setting_id": setting_id, "note": body.note}
 
@@ -265,12 +296,24 @@ async def put_note(
     dependencies=[_CONTROL],
 )
 async def delete_note(
-    printer_id: int, setting_id: str, db: AsyncSession = Depends(get_db)
+    printer_id: int,
+    setting_id: str,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> Response:
     await _get_or_404(db, printer_id)
     await db.execute(
         delete(KProfileNote).where(
             KProfileNote.printer_id == printer_id, KProfileNote.setting_id == setting_id
+        )
+    )
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer_id,
+            action="kprofile_note_delete",
+            payload={"setting_id": setting_id},
         )
     )
     await db.commit()
@@ -360,6 +403,14 @@ async def put_spool_kprofiles(
             )
         )
     await db.commit()
+    flags = aioredis.Redis.from_url(get_settings().redis_url)
+    try:
+        for pid in {i.printer_id for i in body}:
+            await kprofiles.clear_printer_skips_async(flags, pid)
+    except Exception:  # noqa: BLE001 -- best effort
+        pass
+    finally:
+        await flags.aclose()
     return await get_spool_kprofiles(spool_id, db)
 
 
@@ -374,7 +425,9 @@ async def delete_spool_kprofile(
     extruder: int = Query(default=0, ge=0, le=1),
     nozzle: str = "0.4",
     db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> Response:
+    _require_visible(ctx, printer_id)
     await _spool_or_404(db, spool_id)
     await db.execute(
         delete(SpoolKProfile).where(

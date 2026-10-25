@@ -28,6 +28,14 @@ async def kprofile_after_slot_configure(
     """Chain a K-profile selection (``extrusion_cali_sel``) after a successful
     ``ams_slot_configure`` when the assigned spool has a stored profile for
     this printer and nozzle. Best effort: never fails the slot assignment."""
+    try:  # slot (re)configured: forget the negative cache / deliberate default
+        flags = aioredis.Redis.from_url(settings.redis_url)
+        try:
+            await kprofiles.clear_tray_flags_async(flags, printer.id, ams_id, tray_id)
+        finally:
+            await flags.aclose()
+    except Exception as e:  # noqa: BLE001
+        log.warning("kprofile flag reset failed: %s", type(e).__name__)
     if spool_id is None or not capabilities_for(printer.model, printer.serial).kprofiles:
         return
     try:

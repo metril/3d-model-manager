@@ -711,3 +711,133 @@ async def test_spool_kprofile_writes_need_inventory_write(
     assert (await viewer_client.get(f"/api/spools/{sp}/kprofiles")).status_code == 200
     assert (await viewer_client.put(f"/api/spools/{sp}/kprofiles", json=[])).status_code == 403
     assert (await viewer_client.delete(f"/api/spools/{sp}/kprofiles/1")).status_code == 403
+
+
+# -- review fixes ---------------------------------------------------------------
+
+
+def test_cali_replies_are_not_merged_into_the_lib_print_dict():
+    class FakeMqtt:
+        def __init__(self):
+            self.print = {"nozzle_diameter": 0.4}
+
+        def manual_update(self, doc):
+            self.print.update(doc.get("print", {}))
+
+    m = FakeMqtt()
+    bambu._guard_cali_merge(m)
+    m.manual_update({"print": {"command": "extrusion_cali_get", "nozzle_diameter": "0.6"}})
+    m.manual_update({"print": {"command": "extrusion_cali_set", "nozzle_diameter": "0.8"}})
+    assert bambu._nozzle_mm(m.print) == 0.4
+    m.manual_update({"print": {"command": "push_status", "nozzle_diameter": 0.6}})
+    assert bambu._nozzle_mm(m.print) == 0.6
+
+
+def test_negative_cache_means_second_idle_tick_does_no_db_work(worker, monkeypatch):
+    w, pid = worker
+    calls = []
+    real = w._reapply
+    monkeypatch.setattr(w, "_reapply", lambda *a, **k: calls.append(1) or real(*a, **k))
+    w._reapply_on_idle(_public(-1))  # no spool assigned: looked up once, then remembered
+    assert len(calls) == 1 and w.redis.exists(kprofiles.skip_key(pid, 0, 1))
+    w._reapply_on_idle(_public(-1))
+    assert len(calls) == 1
+    kprofiles.clear_tray_flags(w.redis, pid, 0, 1)  # slot (re)configured
+    w._reapply_on_idle(_public(-1))
+    assert len(calls) == 2
+
+
+def test_negative_cache_when_spool_has_no_stored_profile(worker):
+    w, pid = worker
+    _seed(pid, with_profile=False)
+    w._reapply_on_idle(_public(-1))
+    assert w.redis.exists(kprofiles.skip_key(pid, 0, 1))
+
+
+def test_explicit_default_select_is_respected_until_reselected(worker):
+    w, pid = worker
+    _seed(pid)
+    sel = {"ams_id": 0, "tray_id": 1, "filament_id": "GFA00", "nozzle_diameter": "0.4"}
+    assert w.handle_command("kprofile_select", {**sel, "cali_idx": -1})["ok"]
+    assert w.redis.exists(kprofiles.default_key(pid, 0, 1))
+    w._reapply_on_idle(_public(-1))
+    assert _sels(w) == [_sels(w)[0]] and _sels(w)[0][3] == -1  # only the user's own select
+    assert w.handle_command("kprofile_select", {**sel, "cali_idx": 5})["ok"]
+    assert not w.redis.exists(kprofiles.default_key(pid, 0, 1))
+    w._reapply_on_idle(_public(-1))
+    assert len(_sels(w)) == 3
+
+
+def test_list_request_is_resent_once(worker, monkeypatch):
+    import app.printerd as pd
+
+    monkeypatch.setattr(pd, "KPROFILE_WAIT_S", 0.8)
+    monkeypatch.setattr(pd, "KPROFILE_RETRY_S", 0.2)
+    w, _ = worker
+    assert w.handle_command("kprofile_list", {})["code"] == "timeout"
+    assert [c[0] for c in w.adapter.calls].count("kprofile_list") == 2
+
+
+def test_external_select_payload_dual_vs_single():
+    assert bambu.kprofile_sel_payload(255, 254, 1, "G", "0.4")["print"]["tray_id"] == 254
+    for tray, wire in ((0, 254), (1, 255)):
+        p = bambu.kprofile_sel_payload(255, tray, 1, "G", "0.4", dual=True)["print"]
+        assert (p["ams_id"], p["tray_id"], p["slot_id"]) == (wire, wire, 0)
+    assert (
+        cmds.validate(
+            "kprofile_select", {"ams_id": 255, "tray_id": 1, "cali_idx": 1, "filament_id": "G"}
+        )["tray_id"]
+        == 1
+    )
+
+
+def test_reapply_command_only_in_idle_states(worker):
+    w, pid = worker
+    _seed(pid)
+    for st in ("PREPARE", "SLICING", "RUNNING", "PAUSE"):
+        w._public = _public(-1, st)
+        assert w.handle_command("kprofile_reapply", {})["payload"]["reapplied"] == []
+    assert _sels(w) == []
+
+
+async def test_concurrent_list_requests_share_one_command(
+    authenticated_client, printer_enabled, set_state, printerd_stub, rds, monkeypatch
+):
+    import app.api.kprofiles as kp
+
+    monkeypatch.setattr(kp, "RESULT_WAIT_S", 0.6)
+    pid = await _printer(authenticated_client)
+    set_state(pid, **IDLE)
+    got = printerd_stub(pid, {"ok": True, "payload": ENTRY})
+    rds.set(f"printer:{pid}:kprofiles_lock:0.4", "1", ex=5)  # a leader is in flight
+    threading.Timer(0.2, kprofiles.store_cache, [rds, pid, "0.4", ENTRY["profiles"]]).start()
+    r = await authenticated_client.get(f"/api/printers/{pid}/kprofiles?nozzle=0.4")
+    assert r.status_code == 200 and got == []
+    rds.delete(kprofiles.cache_key(pid, "0.4"))
+    r = await authenticated_client.get(f"/api/printers/{pid}/kprofiles?nozzle=0.4")
+    assert r.status_code == 202 and got == []
+    rds.delete(f"printer:{pid}:kprofiles_lock:0.4")
+    r = await authenticated_client.get(f"/api/printers/{pid}/kprofiles?nozzle=0.4")
+    assert r.status_code == 200 and len(got) == 1
+    assert not rds.exists(f"printer:{pid}:kprofiles_lock:0.4")
+
+
+async def test_note_changes_are_audited(authenticated_client, printer_enabled):
+    pid = await _printer(authenticated_client)
+    url = f"/api/printers/{pid}/kprofiles/PF1/note"
+    await authenticated_client.put(url, json={"note": "a"})
+    await authenticated_client.delete(url)
+    with base.sync_session() as s:
+        actions = [a.action for a in s.scalars(select(AuditLog).order_by(AuditLog.id))]
+    assert "kprofile_note_set" in actions and "kprofile_note_delete" in actions
+
+
+async def test_spool_kprofile_delete_respects_printer_visibility(
+    member_client, authenticated_client, printer_enabled
+):
+    pid = await _printer(authenticated_client)
+    sp = (await authenticated_client.post("/api/spools", json={"material_type": "PLA"})).json()[
+        "id"
+    ]
+    r = await member_client.delete(f"/api/spools/{sp}/kprofiles/{pid}")
+    assert r.status_code == 404

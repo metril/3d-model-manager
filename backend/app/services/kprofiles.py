@@ -36,6 +36,56 @@ def debounce_key(printer_id: int, ams_unit: int, tray: int) -> str:
     return f"printer:{printer_id}:kprofile_reapply:{ams_unit}:{tray}"
 
 
+def skip_key(printer_id: int, ams_unit: int, tray: int) -> str:
+    """Negative cache: this tray has no spool / no stored profile (10 min)."""
+    return f"printer:{printer_id}:kprofile_skip:{ams_unit}:{tray}"
+
+
+def default_key(printer_id: int, ams_unit: int, tray: int) -> str:
+    """The user explicitly chose the default K (-1) for this tray."""
+    return f"printer:{printer_id}:kprofile_default:{ams_unit}:{tray}"
+
+
+DEFAULT_CHOSEN_TTL_S = 7 * 86400
+
+
+def clear_tray_flags(redis_client, printer_id: int, ams_unit: int, tray: int) -> None:
+    """Slot configured / re-assigned: forget the negative cache and the
+    deliberate-default choice."""
+    redis_client.delete(
+        skip_key(printer_id, ams_unit, tray), default_key(printer_id, ams_unit, tray)
+    )
+
+
+async def clear_tray_flags_async(redis_client, printer_id: int, ams_unit: int, tray: int) -> None:
+    await redis_client.delete(
+        skip_key(printer_id, ams_unit, tray), default_key(printer_id, ams_unit, tray)
+    )
+
+
+async def clear_printer_skips_async(redis_client, printer_id: int) -> None:
+    """A spool's stored profiles changed: drop this printer's negative cache."""
+    keys = [k async for k in redis_client.scan_iter(f"printer:{printer_id}:kprofile_skip:*")]
+    if keys:
+        await redis_client.delete(*keys)
+
+
+def candidate_trays(redis_client, printer_id: int, trays: list[dict]) -> list[dict]:
+    """Loaded trays that lost their selection and are worth a DB look: not
+    negatively cached, not a deliberate default pick."""
+    out = []
+    for t in trays or []:
+        if not (t.get("tray_type") and selection_lost(t.get("cali_idx"))):
+            continue
+        ams, tray = t.get("ams_unit"), t.get("tray")
+        if redis_client is not None and redis_client.exists(
+            skip_key(printer_id, ams, tray), default_key(printer_id, ams, tray)
+        ):
+            continue
+        out.append(t)
+    return out
+
+
 def norm_nozzle(value: object) -> str | None:
     try:
         return f"{float(value):.1f}"  # type: ignore[arg-type]
@@ -160,6 +210,16 @@ def resolve_cali_idx(redis_client, printer_id: int, row: SpoolKProfile) -> int |
     return row.cali_idx
 
 
+def _remember_skip(redis_client, printer_id: int, tray: dict) -> None:
+    if redis_client is not None:
+        redis_client.set(
+            skip_key(printer_id, tray["ams_unit"], tray["tray"]),
+            "1",
+            nx=True,
+            ex=REAPPLY_DEBOUNCE_S,
+        )
+
+
 SelectFn = Callable[[int, int, int, str, str], None]  # ams_id, tray_id, cali_idx, filament, nozzle
 
 
@@ -178,8 +238,8 @@ def reapply_lost_kprofiles(
     tray (10 min); each re-selection is audited as ``kprofile.reapply``."""
     trays = [
         t
-        for t in (state.get("trays") or [])
-        if t.get("tray_type") and selection_lost(t.get("cali_idx")) and t.get("tray_info_idx")
+        for t in candidate_trays(redis_client, printer_id, state.get("trays") or [])
+        if t.get("tray_info_idx")
     ]
     if not trays:
         return []
@@ -196,6 +256,7 @@ def reapply_lost_kprofiles(
     for tray in trays:
         spool_id = slots.get((tray.get("ams_unit"), tray.get("tray")))
         if spool_id is None:
+            _remember_skip(redis_client, printer_id, tray)
             continue
         rows = list(
             session.scalars(
@@ -206,6 +267,7 @@ def reapply_lost_kprofiles(
         )
         row = match_profile(rows, nozzle_mm, dual)
         if row is None:
+            _remember_skip(redis_client, printer_id, tray)
             continue
         cali = resolve_cali_idx(redis_client, printer_id, row)
         if cali is None or cali < 0:

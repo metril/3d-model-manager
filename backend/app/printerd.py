@@ -71,6 +71,8 @@ CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
 REPLY_WAIT_S = 1.5
 # T2: how long ``kprofile_list`` waits for the ``extrusion_cali_get`` table.
 KPROFILE_WAIT_S = 5.0
+# ...and when it re-sends the request once (firmware sometimes ignores the first).
+KPROFILE_RETRY_S = 2.5
 
 
 def terminal_result(
@@ -317,8 +319,14 @@ class PrinterWorker:
 
     def _finish_kprofile_list(self, clean: dict) -> dict:
         nozzle = clean["nozzle_diameter"]
-        deadline = time.monotonic() + KPROFILE_WAIT_S
+        start = time.monotonic()
+        deadline = start + KPROFILE_WAIT_S
+        resent = False
         while nozzle not in self._kp_results:
+            if not resent and time.monotonic() - start >= KPROFILE_RETRY_S:
+                resent = True
+                with contextlib.suppress(Exception):
+                    self.adapter.kprofile_list(nozzle, clean.get("extruder_id"))
             left = deadline - time.monotonic()
             if left <= 0:
                 return {
@@ -333,6 +341,18 @@ class PrinterWorker:
     def _kprofile_post(self, command: str, clean: dict) -> dict | None:
         """After a K-profile write: surface a printer-side rejection, drop the
         stale table cache, and hand the (minted) ``setting_id`` back."""
+        if command == "kprofile_select":
+            ams, tray = clean["ams_id"], clean["tray_id"]
+            with contextlib.suppress(Exception):
+                if clean["cali_idx"] < 0:  # deliberate default K: the fixer must leave it
+                    self.redis.set(
+                        kprofiles.default_key(self.printer_id, ams, tray),
+                        "1",
+                        ex=kprofiles.DEFAULT_CHOSEN_TTL_S,
+                    )
+                else:
+                    self.redis.delete(kprofiles.default_key(self.printer_id, ams, tray))
+            return None
         if command not in ("kprofile_set", "kprofile_delete"):
             return None
         reply = self._last_reply or {}
@@ -371,15 +391,16 @@ class PrinterWorker:
         tray whose selection the printer lost (cheap pre-check, no DB)."""
         if public.gcode_state not in kprofiles.IDLE_STATES:
             return
-        if not kprofiles.has_lost_trays(public.trays):
+        trays = kprofiles.candidate_trays(self.redis, self.printer_id, public.trays)
+        if not trays:  # nothing lost, or negatively cached: no DB work
             return
-        self._reapply({"trays": public.trays, "nozzle_mm": public.nozzle_mm}, debounce=True)
+        self._reapply({"trays": trays, "nozzle_mm": public.nozzle_mm}, debounce=True)
 
     def _reapply_command(self) -> dict:
         """Internal ``kprofile_reapply`` (not in DISPATCH, so never reachable
         from the API): run the fixer now, before a queued job is sent."""
         public = self._public
-        if public is None or public.gcode_state in cmds.PRINTING_STATES:
+        if public is None or public.gcode_state not in kprofiles.IDLE_STATES:
             return {"ok": True, "payload": {"reapplied": []}}
         done = self._reapply({"trays": public.trays, "nozzle_mm": public.nozzle_mm}, debounce=True)
         return {"ok": True, "payload": {"reapplied": done}}

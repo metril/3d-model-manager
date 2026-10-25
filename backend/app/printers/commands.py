@@ -396,9 +396,13 @@ def _v_kprofile_delete(args: dict) -> dict:
 
 def _v_kprofile_select(args: dict) -> dict:
     ams_id = _ams_id(args)
+    if ams_id == 255 and args.get("tray_id") in (0, 1):  # dual-nozzle external spools
+        tray_id = args["tray_id"]
+    else:
+        tray_id = _tray_id(args, ams_id)
     return {
         "ams_id": ams_id,
-        "tray_id": _tray_id(args, ams_id),
+        "tray_id": tray_id,
         "cali_idx": _num(args, "cali_idx", -1, 4095, integer=True),
         "filament_id": _filament_id(args),
         "nozzle_diameter": _nozzle_diameter(args),
