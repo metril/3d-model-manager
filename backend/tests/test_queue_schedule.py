@@ -323,7 +323,7 @@ def test_preheat_bed_path_reaches_target(redis_url: str, clock, sent):
     cfg = QueuePreheatConfig(enabled=True, bed_targets={"pla": 60}, soak_s=0)
     _seed_state(redis_url, pid, {**IDLE_STATE, "bed_temper": 30})
     assert _gate(redis_url, eid, pid, cfg) == (False, "preheating")
-    assert sent == [(pid, "temperature", {"target": "bed", "value": 60})]
+    assert sent == [(pid, "set_temperature", {"target": "bed", "value": 60})]
     clock.t += 20
     assert _gate(redis_url, eid, pid, cfg) == (False, "preheating")
     assert len(sent) == 1  # sent once
@@ -337,11 +337,15 @@ def test_preheat_chamber_path_and_explicit_target(redis_url: str, clock, sent):
     cfg = QueuePreheatConfig(enabled=True, chamber_targets={"ABS": 45, "ASA": 50})
     _seed_state(redis_url, pid, {**IDLE_STATE, "chamber_temper": 20})
     assert _gate(redis_url, eid, pid, cfg, types=("ABS", "ASA"))[0] is False
-    assert sent[0] == (pid, "temperature", {"target": "chamber", "value": 50})  # max over filaments
+    assert sent[0] == (
+        pid,
+        "set_temperature",
+        {"target": "chamber", "value": 50},
+    )  # max over filaments
 
     eid2, pid2 = _gate_setup(redis_url, "ph-chamber2", model="X1E", preheat_chamber_target=38)
     _gate(redis_url, eid2, pid2, cfg, types=("PLA",))
-    assert sent[-1] == (pid2, "temperature", {"target": "chamber", "value": 38})
+    assert sent[-1] == (pid2, "set_temperature", {"target": "chamber", "value": 38})
 
 
 def test_preheat_max_wait_timeout(redis_url: str, clock, sent):
@@ -419,11 +423,11 @@ def test_keep_warm_send_and_cancel(redis_url: str, clock, sent):
     run(set())
     assert sent == []  # nothing queued -> no warm
     run({pid})
-    assert sent == [(pid, "temperature", {"target": "bed", "value": 50})]
+    assert sent == [(pid, "set_temperature", {"target": "bed", "value": 50})]
     run({pid})
     assert len(sent) == 1
     run(set())  # queue emptied -> release
-    assert sent[-1] == (pid, "temperature", {"target": "bed", "value": 0})
+    assert sent[-1] == (pid, "set_temperature", {"target": "bed", "value": 0})
     run(set())
     assert len(sent) == 2
 
@@ -792,3 +796,79 @@ async def test_batch_carries_ams_mapping_options_and_names(authenticated_client:
         for e in rows:
             assert e.copies == 2 and e.ams_mapping == [0, 1]
             assert e.print_options == {"bed_levelling": False, "flow_cali": True, "timelapse": True}
+
+
+def test_queued_commands_pass_printerd_validation():
+    from app.printers import commands as cmds
+
+    spec = cmds.DISPATCH["set_temperature"]
+    for args in ({"target": "bed", "value": 60}, {"target": "chamber", "value": 45}):
+        assert spec.validate(args) == args
+
+
+def test_abandoned_preheat_releases_heater(redis_url: str, clock, sent):
+    eid, pid = _gate_setup(redis_url, "ph-abandon")
+    cfg = QueuePreheatConfig(enabled=True, bed_targets={"PLA": 60})
+    _seed_state(redis_url, pid, {**IDLE_STATE, "bed_temper": 30})
+    assert _gate(redis_url, eid, pid, cfg)[0] is False
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        # still eligible and still wanted: kept
+        assert queue_schedule.release_abandoned_preheats(s, client, cfg, {eid}) == 0
+        # no longer eligible (held/removed): released
+        assert queue_schedule.release_abandoned_preheats(s, client, cfg, set()) == 1
+        assert s.get(PrintQueueEntry, eid).stage is None
+    assert sent[-1] == (pid, "set_temperature", {"target": "bed", "value": 0})
+    assert client.get(queue_schedule.preheat_key(eid)) is None
+    client.close()
+
+
+def test_override_off_releases_and_printer_change_releases_old(redis_url: str, clock, sent):
+    eid, pid = _gate_setup(redis_url, "ph-abandon2")
+    cfg = QueuePreheatConfig(enabled=True, bed_targets={"PLA": 60})
+    _seed_state(redis_url, pid, {**IDLE_STATE, "bed_temper": 30})
+    _gate(redis_url, eid, pid, cfg)
+    with base.sync_session() as s:
+        s.get(PrintQueueEntry, eid).preheat_override = "off"
+        s.commit()
+        pid2 = _seed_printer(s, name="OtherP").id
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        assert queue_schedule.release_abandoned_preheats(s, client, cfg, {eid}) == 1
+    assert sent[-1] == (pid, "set_temperature", {"target": "bed", "value": 0})
+    with base.sync_session() as s:
+        s.get(PrintQueueEntry, eid).preheat_override = None
+        s.commit()
+    _gate(redis_url, eid, pid, cfg)
+    _gate(redis_url, eid, pid2, cfg)  # moved printers
+    assert (pid, "set_temperature", {"target": "bed", "value": 0}) == sent[-2]
+    assert sent[-1][0] == pid2
+    client.close()
+
+
+def test_keep_warm_disabled_releases_active(redis_url: str, clock, sent):
+    with base.sync_session() as s:
+        pid = _seed_printer(s, name="KWOffP").id
+    client = redis_lib.Redis.from_url(redis_url)
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "FINISH"})
+    on = QueuePreheatConfig(keep_warm_enabled=True)
+    with base.sync_session() as s:
+        queue_schedule.run_keep_warm(s, client, on, {pid})
+        queue_schedule.run_keep_warm(s, client, QueuePreheatConfig(), {pid})
+    assert sent[-1] == (pid, "set_temperature", {"target": "bed", "value": 0})
+    assert client.get(queue_schedule.keepwarm_key(pid)) is None
+    client.close()
+
+
+def test_chamber_target_capped_at_65():
+    with pytest.raises(ValueError):
+        QueuePreheatConfig(chamber_targets={"ABS": 66})
+    QueuePreheatConfig(chamber_targets={"ABS": 65}, bed_targets={"PETG": 120})
+
+
+async def test_ungrouped_active_batch_reports_done(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    b = await _new_batch(c, quantity=2)
+    await c.post(f"/api/batches/{b['id']}/dispatch")
+    r = await c.post(f"/api/batches/{b['id']}/ungroup")
+    assert r.json()["progress"]["total"] == 0 and r.json()["status"] == "done"

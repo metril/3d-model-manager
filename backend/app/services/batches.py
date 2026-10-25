@@ -82,8 +82,8 @@ async def to_out(db: AsyncSession, batches: list[PrintBatch]) -> list[BatchOut]:
         o = b.options or {}
         p = progress[b.id]
         st = b.status
-        if st == "active" and p.total > 0 and p.waiting == 0:
-            st = "done"
+        if st == "active" and p.waiting == 0:
+            st = "done"  # all terminal, or ungrouped (nothing left to track)
         result.append(
             BatchOut(
                 id=b.id,

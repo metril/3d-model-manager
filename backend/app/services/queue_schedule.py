@@ -41,11 +41,15 @@ def _now() -> float:
 
 
 def preheat_key(entry_id: int) -> str:
-    return f"queue:preheat:{entry_id}"
+    return f"{PREHEAT_PREFIX}{entry_id}"
+
+
+KEEPWARM_PREFIX = "queue:keepwarm:"
+PREHEAT_PREFIX = "queue:preheat:"
 
 
 def keepwarm_key(printer_id: int) -> str:
-    return f"queue:keepwarm:{printer_id}"
+    return f"{KEEPWARM_PREFIX}{printer_id}"
 
 
 def autooff_key(printer_id: int) -> str:
@@ -178,9 +182,21 @@ def preheat_gate(
     key = preheat_key(item.id)
     now = _now()
     rec = _load(client, key)
-    if rec is None or rec.get("printer_id") != printer.id:
-        send_command(client, printer.id, "temperature", {"target": kind, "value": value})
-        _save(client, key, {"printer_id": printer.id, "phase": "preheating", "started": now})
+    if rec is not None and rec.get("printer_id") != printer.id:
+        send_command(
+            client,
+            rec["printer_id"],
+            "set_temperature",
+            {"target": rec.get("kind", "bed"), "value": 0},
+        )
+        rec = None
+    if rec is None:
+        send_command(client, printer.id, "set_temperature", {"target": kind, "value": value})
+        _save(
+            client,
+            key,
+            {"printer_id": printer.id, "phase": "preheating", "started": now, "kind": kind},
+        )
         item.stage = "preheating"
         session.commit()
         return False
@@ -204,6 +220,49 @@ def preheat_gate(
     return True
 
 
+def release_abandoned_preheats(
+    session: Session, client: Redis, cfg: QueuePreheatConfig, eligible_ids: set[int]
+) -> int:
+    """Release the heater of any preheat whose entry is no longer eligible
+    (removed/held/cancelled) or no longer wants a preheat (override off)."""
+    n = 0
+    for raw in client.scan_iter(f"{PREHEAT_PREFIX}*"):
+        key = raw.decode() if isinstance(raw, bytes) else raw
+        entry_id = int(key.removeprefix(PREHEAT_PREFIX))
+        entry = session.get(PrintQueueEntry, entry_id) if entry_id in eligible_ids else None
+        rec = _load(client, key)
+        if rec is None:
+            client.delete(key)
+            continue
+        if entry is not None:
+            printer = session.get(Printer, rec["printer_id"])
+            if printer is not None and (
+                preheat_plan(cfg, entry, printer, _entry_types(session, entry)) is not None
+            ):
+                continue
+        send_command(
+            client,
+            rec["printer_id"],
+            "set_temperature",
+            {"target": rec.get("kind", "bed"), "value": 0},
+        )
+        client.delete(key)
+        stale = session.get(PrintQueueEntry, entry_id)
+        if stale is not None and stale.stage is not None:
+            stale.stage = None
+            session.commit()
+        n += 1
+    return n
+
+
+def _entry_types(session: Session, entry: PrintQueueEntry) -> list[str]:
+    """Filament types of the entry's sliced plate (for re-evaluating its plan)."""
+    from app.services import dispatcher
+
+    need = dispatcher._needs_for_item(session, entry)
+    return [f.type for f in need.filaments] if need is not None else []
+
+
 # -- keep-warm ---------------------------------------------------------------
 
 
@@ -214,6 +273,13 @@ def run_keep_warm(
     the bed at ``keep_warm_bed_c``; release it (``M140 S0``) when nothing is
     queued or ``keep_warm_max_min`` has passed."""
     if not cfg.keep_warm_enabled:
+        for raw in client.scan_iter(f"{KEEPWARM_PREFIX}*"):
+            key = raw.decode() if isinstance(raw, bytes) else raw
+            rec = _load(client, key)
+            if rec is not None and not rec.get("off"):
+                pid = int(key.removeprefix(KEEPWARM_PREFIX))
+                send_command(client, pid, "set_temperature", {"target": "bed", "value": 0})
+            client.delete(key)
         return
     for printer in session.scalars(select(Printer).where(Printer.enabled.is_(True))).all():
         key = keepwarm_key(printer.id)
@@ -229,7 +295,7 @@ def run_keep_warm(
                 send_command(
                     client,
                     printer.id,
-                    "temperature",
+                    "set_temperature",
                     {"target": "bed", "value": cfg.keep_warm_bed_c},
                 )
                 _save(client, key, {"since": now, "off": False}, ex=86400)
@@ -237,7 +303,7 @@ def run_keep_warm(
         if rec.get("off"):
             continue
         if printer.id not in pending_ids or now - rec["since"] > cfg.keep_warm_max_min * 60:
-            send_command(client, printer.id, "temperature", {"target": "bed", "value": 0})
+            send_command(client, printer.id, "set_temperature", {"target": "bed", "value": 0})
             rec["off"] = True
             _save(client, key, rec, ex=86400)
 

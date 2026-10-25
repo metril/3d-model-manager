@@ -594,7 +594,8 @@ def _housekeeping(session: Session, settings: Settings, client: Redis, cfg) -> N
     this printer?" over the deferred-inclusive queue; a failure here must
     never stall dispatch."""
     has_auto_off = next(client.scan_iter(f"{queue_schedule.AUTO_OFF_PREFIX}*", count=10), None)
-    if not (cfg.keep_warm_enabled or has_auto_off):
+    has_warm = next(client.scan_iter(f"{queue_schedule.KEEPWARM_PREFIX}*", count=10), None)
+    if not (cfg.keep_warm_enabled or has_auto_off or has_warm):
         return
     try:
         horizon = datetime.now(UTC) + timedelta(minutes=cfg.keep_warm_max_min)
@@ -614,6 +615,7 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
     items = eligible_queue_items(session)
     _wake_plugs(session, settings, client, items)
     preheat_cfg = get_preheat_config_sync(session)
+    queue_schedule.release_abandoned_preheats(session, client, preheat_cfg, {i.id for i in items})
     _housekeeping(session, settings, client, preheat_cfg)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()

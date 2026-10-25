@@ -23,15 +23,24 @@ class QueuePreheatConfig(BaseModel):
     keep_warm_bed_c: int = Field(45, ge=40, le=110)
     keep_warm_max_min: int = Field(30, ge=5, le=480)
 
-    @field_validator("chamber_targets", "bed_targets")
-    @classmethod
-    def _norm(cls, v: dict[str, int]) -> dict[str, int]:
+    @staticmethod
+    def _norm(v: dict[str, int], hi: int) -> dict[str, int]:
         out: dict[str, int] = {}
         for k, t in v.items():
-            if not 0 <= t <= 120:
+            if not 0 <= t <= hi:
                 raise ValueError(f"target for {k} out of range")
             out[k.strip().upper()] = t
         return out
+
+    @field_validator("chamber_targets")
+    @classmethod
+    def _chamber(cls, v: dict[str, int]) -> dict[str, int]:
+        return cls._norm(v, 65)  # printerd's chamber limit
+
+    @field_validator("bed_targets")
+    @classmethod
+    def _bed(cls, v: dict[str, int]) -> dict[str, int]:
+        return cls._norm(v, 120)
 
 
 def _cfg(value: dict | None) -> QueuePreheatConfig:
