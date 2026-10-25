@@ -5,7 +5,7 @@
  */
 import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "@/api/client";
+import { api, ApiError } from "@/api/client";
 import type {
   PrintRecipe,
   PrintRecipeIn,
@@ -127,8 +127,12 @@ export function useSliceJob(id: string | null) {
     queryKey: ["slice-job", id] as const,
     queryFn: () => api.get<SliceJob>(`/slice-jobs/${id}`),
     enabled: id != null,
-    refetchInterval: (query) =>
-      query.state.data && !ACTIVE_SLICE_STATES.includes(query.state.data.state) ? false : 2000,
+    // A 403/404 (job deleted with its file, or not ours) never recovers.
+    retry: (count, err) => !(err instanceof ApiError && (err.status === 403 || err.status === 404)) && count < 2,
+    refetchInterval: (query) => {
+      if (query.state.status === "error") return false;
+      return query.state.data && !ACTIVE_SLICE_STATES.includes(query.state.data.state) ? false : 2000;
+    },
   });
 }
 

@@ -105,7 +105,9 @@ function SliceWatcher({
   onSend: (job: SliceJob) => void;
 }) {
   const navigate = useNavigate();
-  const job = useSliceJob(item.id).data;
+  const query = useSliceJob(item.id);
+  const job = query.data;
+  const loadError = query.isError && !job ? query.error : null;
   const cancel = useCancelSliceJob();
   const toastId = `slice-${item.id}`;
   const state = job?.state ?? "queued";
@@ -115,7 +117,17 @@ function SliceWatcher({
   const latest = useRef({ job, cancel, navigate, onLog, onSend });
   latest.current = { job, cancel, navigate, onLog, onSend };
 
+  // The job can't be loaded (deleted with its file, no access): stop
+  // following it instead of showing "waiting…" forever.
   useEffect(() => {
+    if (!loadError) return;
+    toast.dismiss(toastId);
+    toast.error(`Slicing ${item.fileName}: ${loadError instanceof Error ? loadError.message : "job not found"}`);
+    untrackSlice(item.id);
+  }, [loadError, item.id, item.fileName, toastId]);
+
+  useEffect(() => {
+    if (loadError) return;
     const dismiss = () => {
       toast.dismiss(toastId);
       untrackSlice(item.id);
@@ -139,7 +151,7 @@ function SliceWatcher({
     );
     // `job` identity changes on every poll; the toast only depends on state
     // and the fields rendered from it.
-  }, [item, toastId, state, active, job?.sliced_file_id, job?.error, job?.meta]);
+  }, [item, toastId, state, active, loadError, job?.sliced_file_id, job?.error, job?.meta]);
 
   return null;
 }

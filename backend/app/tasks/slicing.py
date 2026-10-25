@@ -20,20 +20,21 @@ from __future__ import annotations
 import logging
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from blake3 import blake3
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.importers.download import StagedFile
 from app.models import PrintRecipe, SliceJob, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, QueueState
-from app.models.library import File, Model, PrintQueueEntry, Revision
+from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
 from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
@@ -78,6 +79,56 @@ def _publish(settings, **kwargs) -> None:
     events.publish_slice_event_sync(settings.redis_url, **kwargs)
 
 
+def _lock_claimed(session: Session, entry_id: int, claimed_at) -> PrintQueueEntry | None:
+    """Re-reads the entry under a row lock and returns it only if it's still
+    the very `slicing` attempt we claimed (else None: the result is stale)."""
+    current = session.execute(
+        select(PrintQueueEntry)
+        .where(PrintQueueEntry.id == entry_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if (
+        current is None
+        or current.state != QueueState.SLICING
+        or current.slicing_started_at != claimed_at
+    ):
+        session.rollback()
+        return None
+    return current
+
+
+def _discard_new_file(session: Session, settings, outcome: SliceOutcome | None) -> None:
+    """Best-effort removal of a sliced File this run just created but whose
+    owner (job/entry) was cancelled or deleted meanwhile. Reused existing
+    files (``created`` False) are never touched; a file whose store job is
+    still in flight is left alone (deleting it would race the ingest)."""
+    if outcome is None or not outcome.created:
+        return
+    try:
+        file = session.get(File, outcome.file_id)
+        if file is None or library.file_store_pending_sync(session, file):
+            return
+        from contextlib import suppress
+
+        from app.services.storage_config import resolve_backend_sync
+
+        blob_hash, key = file.blob_hash, file.storage_path
+        session.delete(file)
+        session.flush()
+        shared = session.scalar(select(File.id).where(File.blob_hash == blob_hash).limit(1))
+        if shared is None:
+            blob = session.get(Blob, blob_hash)
+            if blob is not None:
+                session.delete(blob)
+        session.commit()
+        with suppress(Exception):
+            resolve_backend_sync(session, settings).delete(key)
+    except Exception:  # noqa: BLE001 -- cleanup must never mask the real outcome
+        logger.warning("could not discard orphan sliced file %s", outcome.file_id, exc_info=True)
+        session.rollback()
+
+
 @celery_app.task(name="app.tasks.slicing.slice_file", bind=True)
 def slice_file(self, queue_entry_id: int) -> None:
     """Claims the row in a short transaction (CAS: still `slicing`, stamp
@@ -119,17 +170,22 @@ def slice_file(self, queue_entry_id: int) -> None:
             session.commit()
             return
 
+        def _still_ours() -> bool:
+            row = session.execute(
+                select(PrintQueueEntry.state, PrintQueueEntry.slicing_started_at)
+                .where(PrintQueueEntry.id == queue_entry_id)
+                .execution_options(populate_existing=True)
+            ).first()
+            session.rollback()
+            return row is not None and row[0] == QueueState.SLICING and row[1] == claimed_at
+
         try:
-            new_file_id = _slice(session, settings, client, entry)
+            outcome = _slice(session, settings, client, entry, keep=_still_ours)
         except SlicerCancelled:
             # The user cancelled (the API already moved the entry on); only
             # touch it if it somehow still claims to be this very slice.
-            current = session.get(PrintQueueEntry, queue_entry_id, populate_existing=True)
-            if (
-                current is not None
-                and current.state == QueueState.SLICING
-                and current.slicing_started_at == claimed_at
-            ):
+            current = _lock_claimed(session, queue_entry_id, claimed_at)
+            if current is not None:
                 current.state = QueueState.FAILED
                 current.last_error = "cancelled"
                 current.slicing_started_at = None
@@ -137,12 +193,21 @@ def slice_file(self, queue_entry_id: int) -> None:
             return
         except SlicerUnavailable as exc:
             # Doesn't consume an attempt -- see module docstring.
+            entry = _lock_claimed(session, queue_entry_id, claimed_at)
+            if entry is None:
+                return
             entry.last_error = str(exc)
             entry.state = QueueState.WAITING
             entry.slicing_started_at = None
             session.commit()
             return
-        except (SlicerError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001 -- never leave the row `slicing`
+            if not isinstance(exc, (SlicerError, ValueError)):
+                logger.exception("slice_file %s crashed", queue_entry_id)
+                session.rollback()
+            entry = _lock_claimed(session, queue_entry_id, claimed_at)
+            if entry is None:
+                return
             entry.attempts += 1
             entry.last_error = str(exc)
             entry.last_log = getattr(exc, "log_tail", None)
@@ -173,18 +238,16 @@ def slice_file(self, queue_entry_id: int) -> None:
         # this very row out from under us while it ran. If it's no longer
         # the same `slicing` attempt we claimed, the result is stale --
         # discard it rather than clobbering whatever state it's in now.
-        current = session.get(PrintQueueEntry, queue_entry_id, populate_existing=True)
-        if (
-            current is None
-            or current.state != QueueState.SLICING
-            or current.slicing_started_at != claimed_at
-        ):
+        current = _lock_claimed(session, queue_entry_id, claimed_at)
+        if current is None:
             logger.warning(
                 "slice result for queue entry %s discarded: entry changed during slicing",
                 queue_entry_id,
             )
+            _discard_new_file(session, settings, outcome)
             return
 
+        new_file_id = outcome.file_id
         current.sliced_file_id = new_file_id
         current.state = QueueState.READY
         current.slicing_started_at = None
@@ -255,6 +318,7 @@ def _sliced_rel_path(source_rel_path: str, recipe_name: str, tag: str, plate: in
 class SliceOutcome:
     file_id: int
     meta: dict
+    created: bool = False  # True: this run stored a brand-new File
 
 
 def _meta_summary(meta: slicedmeta.SlicedMeta) -> dict:
@@ -278,7 +342,13 @@ def _meta_summary(meta: slicedmeta.SlicedMeta) -> dict:
     }
 
 
-def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEntry) -> int:
+def _slice(
+    session: Session,
+    settings,
+    client: SlicerClient,
+    entry: PrintQueueEntry,
+    keep: Callable[[], bool] | None = None,
+) -> SliceOutcome:
     """Queue flavour of `slice_source`."""
     if entry.file_id is None:
         raise ValueError("queue entry has no source file")
@@ -291,7 +361,8 @@ def _slice(session: Session, settings, client: SlicerClient, entry: PrintQueueEn
         plate=entry.plate,
         tag=f"q{entry.id}",
         job_id=queue_job_id(entry.id),
-    ).file_id
+        keep=keep,
+    )
 
 
 def slice_source(
@@ -304,10 +375,13 @@ def slice_source(
     plate: int | None,
     tag: str,
     job_id: str | None = None,
+    keep: Callable[[], bool] | None = None,
 ) -> SliceOutcome:
     """The shared core of every slice (queue entry or standalone slice job):
     slices ``file_id`` with ``recipe_id`` through ``client`` and stores the
-    result as a new ``File`` on the same revision. Raises ``SlicerError``
+    result as a new ``File`` on the same revision. ``keep`` is polled right
+    before the result is stored; False (cancelled/deleted meanwhile) raises
+    ``SlicerCancelled`` so no orphan File is created. Raises ``SlicerError``
     (incl. ``SlicerUnavailable``/``SlicerCancelled``) or ``ValueError``.
     """
     file = session.get(File, file_id)
@@ -382,6 +456,9 @@ def slice_source(
                 f"{printer_profile.printer_model!r}"
             )
 
+        if keep is not None and not keep():
+            raise SlicerCancelled("slice cancelled before the result was stored")
+
         new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, tag, expected_plate)
         digest = blake3(out_bytes).hexdigest()
 
@@ -417,7 +494,7 @@ def slice_source(
         new_file = library.store_imported_file_sync(
             session, model=model, revision=revision, staged=staged
         )
-        return SliceOutcome(new_file.id, _meta_summary(meta))
+        return SliceOutcome(new_file.id, _meta_summary(meta), created=True)
 
 
 # --- standalone slice jobs (`POST /files/{id}/slice`) ---------------------
@@ -436,10 +513,18 @@ def _finish_slice_job(
     outcome: SliceOutcome | None = None,
 ) -> None:
     """Writes a terminal state unless the job was cancelled meanwhile (a
-    cancel wins: its result is discarded), then publishes + notifies."""
+    cancel wins: its result is discarded, and so is a freshly stored file),
+    then publishes + notifies."""
     with base.sync_session() as session:
-        job = session.get(SliceJob, job_id, populate_existing=True)
-        if job is None or job.state == "cancelled":
+        job = session.execute(
+            select(SliceJob)
+            .where(SliceJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if job is None or job.state not in ("queued", "running"):
+            session.rollback()
+            _discard_new_file(session, settings, outcome)
             return
         job.state = state
         job.error = error
@@ -485,6 +570,12 @@ def slice_job(self, job_id: str) -> None:
         job.celery_id = getattr(self.request, "id", None) or job.celery_id
         file_id, recipe_id, plate = job.file_id, job.recipe_id, job.plate
         session.commit()
+
+    def _active() -> bool:
+        with base.sync_session() as s3:
+            st = s3.scalar(select(SliceJob.state).where(SliceJob.id == jid))
+        return st == "running"
+
     _publish(settings, state="running", slice_job_id=job_id, file_id=file_id)
 
     with base.sync_session() as session:
@@ -508,17 +599,24 @@ def slice_job(self, job_id: str) -> None:
                 plate=plate,
                 tag=f"s{jid.hex[:8]}",
                 job_id=slice_job_sidecar_id(jid),
+                keep=_active,
             )
         except SlicerCancelled:
             return  # the API already marked it cancelled
         except SlicerBusy as exc:
             if self.request.retries < SLICE_JOB_BUSY_RETRIES:
                 with base.sync_session() as s2:
-                    j = s2.get(SliceJob, jid, populate_existing=True)
-                    if j is not None and j.state == "running":
-                        j.state = "queued"
-                        s2.commit()
-                raise self.retry(countdown=SLICE_JOB_BUSY_COUNTDOWN_S, exc=exc) from None
+                    s2.execute(
+                        update(SliceJob)
+                        .where(SliceJob.id == jid, SliceJob.state == "running")
+                        .values(state="queued")
+                    )
+                    s2.commit()
+                raise self.retry(
+                    countdown=SLICE_JOB_BUSY_COUNTDOWN_S,
+                    max_retries=SLICE_JOB_BUSY_RETRIES,
+                    exc=exc,
+                ) from None
             _finish_slice_job(settings, jid, state="failed", error=str(exc))
             return
         except (SlicerError, ValueError) as exc:
@@ -530,4 +628,39 @@ def slice_job(self, job_id: str) -> None:
                 log_tail=getattr(exc, "log_tail", None),
             )
             return
+        except Exception as exc:  # noqa: BLE001 -- never leave the row `running`
+            logger.exception("slice_job %s crashed", job_id)
+            session.rollback()
+            _finish_slice_job(
+                settings, jid, state="failed", error=f"internal error: {type(exc).__name__}"
+            )
+            return
     _finish_slice_job(settings, jid, state="done", outcome=outcome)
+
+
+SLICE_SWEEP_INTERVAL_S = 300
+SLICE_JOB_STALE_GRACE_S = 1800  # on top of the slice timeout + busy-retry window
+
+
+@celery_app.task(name="app.tasks.slicing.sweep_stuck_slice_jobs")
+def sweep_stuck_slice_jobs() -> int:
+    """Fails `SliceJob` rows stuck `queued`/`running` past the slice timeout
+    (+ busy-retry window + grace): a lost message, a killed worker or an
+    acks_late redelivery that found the row already claimed. Queue entries
+    stuck `slicing` are covered by the dispatcher's `_reconcile`."""
+    settings = get_settings()
+    with base.sync_session() as session:
+        timeout = get_server_config_sync(session, settings).slice_timeout_s
+        cutoff = datetime.now(UTC) - timedelta(
+            seconds=timeout
+            + SLICE_JOB_BUSY_RETRIES * SLICE_JOB_BUSY_COUNTDOWN_S
+            + SLICE_JOB_STALE_GRACE_S
+        )
+        ids = session.scalars(
+            select(SliceJob.id).where(
+                SliceJob.state.in_(("queued", "running")), SliceJob.updated_at < cutoff
+            )
+        ).all()
+    for jid in ids:
+        _finish_slice_job(settings, jid, state="failed", error="slice timed out")
+    return len(ids)
