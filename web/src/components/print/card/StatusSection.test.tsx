@@ -53,13 +53,13 @@ describe("StatusSection", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("idle: Last: ... with archive thumbnail, plate-clear pill after FINISH", async () => {
-    const it = a1Mini({}, { gcode_state: "FINISH" });
+  it("idle: Last: ... with archive thumbnail, plate-clear pill when awaiting", async () => {
+    const it = a1Mini({}, { gcode_state: "FINISH", awaiting_plate_clear: true });
     const { container } = renderCard(
       <StatusSection printerId={1} status={it.status} activeJob={null} lastRuns={[RUN]} canControl />,
     );
     expect(await screen.findByText(/Last: cube · completed/)).toBeInTheDocument();
-    expect(screen.getByText("Clear plate")).toBeInTheDocument();
+    expect(screen.getByText("Plate needs clearing")).toBeInTheDocument();
     expect(container.querySelector("img")).toHaveAttribute("src", "/api/archives/9/thumbnail");
   });
 

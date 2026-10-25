@@ -5,6 +5,7 @@
  * around each circle, the external spool card and an AMS-backup badge.
  */
 import { DropletsIcon, MoreVerticalIcon, ThermometerIcon } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useControl } from "@/api/printerControl";
@@ -16,6 +17,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { normalizeHex } from "@/components/ui/filament-chip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+import { AmsRenameDialog } from "./AmsRenameDialog";
+import { SlotConfigDialog } from "./SlotConfigDialog";
 import { hasBackup, unitLabel } from "./ams";
 import { capsOf, isBusy } from "./caps";
 
@@ -41,6 +44,7 @@ function SlotCircle({
 }) {
   const { t } = useTranslation();
   const control = useControl(printer.id);
+  const [configOpen, setConfigOpen] = useState(false);
   const color = normalizeHex(tray.color);
   const remain = tray.remain_pct != null && tray.remain_pct >= 0 ? Math.min(100, tray.remain_pct) : null;
   const material = tray.tray_type ?? tray.material;
@@ -83,9 +87,11 @@ function SlotCircle({
               <DropdownMenuItem disabled={busy} onSelect={() => void control.send("filament", { action: "unload" })}>
                 {t("card.filaments.unload")}
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setConfigOpen(true)}>{t("printerOps.slot.configure")}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
+        {configOpen ? <SlotConfigDialog printerId={printer.id} tray={tray} open onOpenChange={setConfigOpen} /> : null}
       </div>
       <span className="pc-t10 max-w-full truncate">{material ?? t("card.filaments.empty")}</span>
       {remain != null ? (
@@ -104,8 +110,21 @@ function SlotCircle({
   );
 }
 
-function UnitHeader({ id, unit, onDry }: { id: number; unit?: AmsUnit; onDry?: (unitId: number) => void }) {
+function UnitHeader({
+  printerId,
+  id,
+  unit,
+  onDry,
+  canRename,
+}: {
+  printerId: number;
+  id: number;
+  unit?: AmsUnit;
+  onDry?: (unitId: number) => void;
+  canRename?: boolean;
+}) {
   const { t } = useTranslation();
+  const [renameOpen, setRenameOpen] = useState(false);
   const detail = (
     <span className="pc-t10 flex items-center gap-2 font-mono tabular-nums text-muted-foreground">
       {unit?.humidity != null ? (
@@ -124,7 +143,24 @@ function UnitHeader({ id, unit, onDry }: { id: number; unit?: AmsUnit; onDry?: (
   );
   return (
     <div className="flex items-center gap-2">
-      <span className="pc-t10 font-medium">{unitLabel(id)}</span>
+      <span className="pc-t10 font-medium">{unit?.label || unitLabel(id)}</span>
+      {canRename && id < 254 ? (
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={t("card.filaments.unitMenu", { label: unit?.label || unitLabel(id) })}>
+                <MoreVerticalIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setRenameOpen(true)}>{t("printerOps.ams.rename")}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {renameOpen ? (
+            <AmsRenameDialog printerId={printerId} amsId={id} current={unit?.label ?? ""} open onOpenChange={setRenameOpen} />
+          ) : null}
+        </>
+      ) : null}
       {unit ? (
         <TooltipProvider delayDuration={150}>
           <Tooltip>
@@ -187,6 +223,8 @@ export function FilamentsSection({
         {[...byUnit.entries()].map(([unitId, trays]) => (
           <div key={unitId} className="flex min-w-0 flex-1 flex-col gap-1 rounded-md border p-2" data-slot="ams-unit">
             <UnitHeader
+              printerId={printer.id}
+              canRename={canControl}
               id={unitId}
               unit={status.ams_units?.find((u) => u.id === unitId)}
               onDry={caps.ams_drying && canControl ? onDry : undefined}

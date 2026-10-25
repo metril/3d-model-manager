@@ -78,6 +78,8 @@ export function usePatchRun() {
 }
 
 export const archiveThumbnailUrl = (id: number): string => `/api/archives/${id}/thumbnail`;
+export const archiveGcodeUrl = (id: number, plate?: number): string =>
+  `/api/archives/${id}/gcode${plate != null ? `?plate=${plate}` : ""}`;
 export const archiveFileUrl = (id: number): string => `/api/archives/${id}/file`;
 // P4 camera plan Task 9: the run's own captured snapshot/timelapse, as
 // distinct from `archiveThumbnailUrl` (the sliced-plate thumbnail).
@@ -255,5 +257,21 @@ export function useUpdateConfirmSettings() {
   return useMutation({
     mutationFn: (body: ConfirmSettings) => api.put<ConfirmSettings>("/settings/confirm", body),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["settings", "confirm"] }),
+  });
+}
+
+export interface GcodePlate {
+  plate: number;
+  bytes: number;
+}
+
+/** Plates with embedded G-code in the archived 3MF (empty / error = no toolpath). */
+export function useArchiveGcodePlates(id: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["archives", "gcode-plates", id] as const,
+    queryFn: () => api.get<GcodePlate[]>(`/archives/${id}/gcode/plates`),
+    enabled: enabled && id != null,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 }
