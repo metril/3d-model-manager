@@ -60,7 +60,7 @@ function section(canControl = true, label: string | null = null) {
 
 describe("slot configure + AMS rename", () => {
   it("configures a slot with device fields", async () => {
-    postMock.mockResolvedValue({});
+    putMock.mockResolvedValue({});
     section();
     fireEvent.pointerDown(await screen.findByRole("button", { name: /Slot 2 menu/ }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Configure slot…" }));
@@ -70,7 +70,7 @@ describe("slot configure + AMS rename", () => {
     expect(within(dlg).getByTestId("slot-swatch")).toHaveStyle({ backgroundColor: "#ff8800" });
     fireEvent.click(within(dlg).getByRole("button", { name: "Save" }));
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith("/printers/1/slots/0/1", {
+      expect(putMock).toHaveBeenCalledWith("/printers/1/slots/0/1", {
         tray_info_idx: "GFL99",
         tray_type: "PLA",
         sub_brand: "Basic",
@@ -83,13 +83,13 @@ describe("slot configure + AMS rename", () => {
   });
 
   it("uses unit and in-unit tray index in the URL for a second AMS", async () => {
-    postMock.mockResolvedValue({});
+    putMock.mockResolvedValue({});
     section();
     fireEvent.pointerDown(await screen.findByRole("button", { name: /Slot 5 menu/ }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Configure slot…" }));
     const dlg = await screen.findByRole("dialog", { name: "Configure slot" });
     fireEvent.click(within(dlg).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/slots/1/0", expect.objectContaining({ tray_type: "PETG" })));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/printers/1/slots/1/0", expect.objectContaining({ tray_type: "PETG" })));
   });
 
   it("empty AMS label clears via DELETE", async () => {

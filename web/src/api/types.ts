@@ -650,6 +650,10 @@ export interface PrinterCapabilities {
   max_nozzle?: number | null;
   ams_drying: boolean;
   verified: boolean;
+  /** T3: xcam modules this model reports (print-option rows). */
+  xcam_modules?: string[];
+  sd_browser?: boolean;
+  sd_print?: boolean;
 }
 
 export interface PrinterCreate {
@@ -851,10 +855,13 @@ export interface PrinterStatusOut {
   dev_mode?: boolean | null;
   dev_mode_reason?: string | null;
   last_report_at?: string | null;
+  awaiting_plate_clear?: boolean;
+  print_options?: PrintOptions | null;
 }
 
 export interface AmsUnit {
   id: number;
+  label?: string | null;
   humidity: number | null;
   temp: number | null;
   serial: string | null;
@@ -2171,11 +2178,13 @@ export interface TimelapseJobState {
 // ---- T3 printer ops ----
 export type XcamSensitivity = "low" | "medium" | "high" | "never_halt";
 export interface XcamState {
-  enable: boolean;
+  enable: boolean | null;
+  /** The printer reports only low|medium|high; `never_halt` is local-only. */
   sensitivity?: XcamSensitivity | null;
 }
 export interface PrintOptions {
   xcam?: Record<string, XcamState>;
+  print_halt?: boolean | null;
   auto_recovery?: boolean | null;
   auto_switch_filament?: boolean | null;
 }
@@ -2204,4 +2213,11 @@ export interface FileStorage {
   total?: number | null;
   used?: number | null;
   free?: number | null;
+  source?: string | null;
+  present?: boolean | null;
+}
+export type SlotDeviceStatus = "applied" | "pending" | "skipped" | "failed";
+export interface SlotConfigOut {
+  trays: unknown[];
+  device: { status: SlotDeviceStatus; [k: string]: unknown };
 }

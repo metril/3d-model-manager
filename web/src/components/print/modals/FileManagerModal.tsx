@@ -83,7 +83,7 @@ export function FileManagerModal({
             </span>
           ))}
         </nav>
-        {pct != null && st?.total ? (
+        {st?.present !== false && pct != null && st?.total ? (
           <div className="space-y-1" data-testid="storage-bar">
             <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-foreground/60" style={{ width: `${pct}%` }} />

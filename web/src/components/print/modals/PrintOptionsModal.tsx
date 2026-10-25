@@ -70,7 +70,7 @@ export function PrintOptionsModal({
             return (
               <div key={m} className="flex items-center gap-3" data-testid={`xcam-${m}`}>
                 <Switch
-                  checked={st.enable}
+                  checked={!!st.enable}
                   disabled={disabled}
                   aria-label={t("printerOps.printOptions.enable", { name })}
                   onCheckedChange={(v) => void setXcam(m, { ...st, enable: v })}

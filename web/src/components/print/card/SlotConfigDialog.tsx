@@ -61,7 +61,7 @@ export function SlotConfigDialog({
   async function save() {
     if (!valid || !swatch) return;
     try {
-      await configure.mutateAsync({
+      const res = await configure.mutateAsync({
         unit,
         slot: tray.tray ?? tray.slot,
         body: {
@@ -74,7 +74,10 @@ export function SlotConfigDialog({
           apply_device: apply,
         },
       });
-      toast.success(t("printerOps.slot.saved"));
+      const st = !Array.isArray(res) ? (res as { device?: { status?: string } } | undefined)?.device?.status : undefined;
+      if (st === "failed") toast.error(t("printerOps.slot.deviceFailed"));
+      else if (st === "skipped" && apply) toast.warning(t("printerOps.slot.deviceSkipped"));
+      else toast.success(t("printerOps.slot.saved"));
       onOpenChange(false);
     } catch {
       /* toasted by the hook */

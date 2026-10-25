@@ -12,6 +12,7 @@ import type {
   HmsFault,
   RemoteFile,
   SlotConfigIn,
+  SlotConfigOut,
 } from "@/api/types";
 
 export function useHms(printerId: number, enabled = true) {
@@ -91,7 +92,7 @@ export function useConfigureSlot(printerId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { unit: number; slot: number; body: SlotConfigIn }) =>
-      api.post<unknown>(`/printers/${printerId}/slots/${v.unit}/${v.slot}`, v.body),
+      api.put<SlotConfigOut | unknown[]>(`/printers/${printerId}/slots/${v.unit}/${v.slot}`, v.body),
     onSuccess: () => invalidateStatus(qc, printerId),
     onError: toastControlError,
   });
@@ -170,7 +171,7 @@ export function usePrintSdFile(printerId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { path: string; plate?: number; use_ams?: boolean }) =>
-      api.post<unknown>(`/printers/${printerId}/files/print`, { use_ams: true, ...v }),
+      api.post<{ ok: boolean; job_id: number }>(`/printers/${printerId}/files/print`, { use_ams: true, ...v }),
     onSuccess: () => {
       invalidateStatus(qc, printerId);
       void qc.invalidateQueries({ queryKey: ["printers", printerId, "active-job"] });
