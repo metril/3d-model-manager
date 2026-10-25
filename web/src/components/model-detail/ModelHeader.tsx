@@ -6,6 +6,7 @@ import {
   EllipsisIcon,
   FileArchiveIcon,
   FolderInputIcon,
+  FolderKanbanIcon,
   ListPlusIcon,
   PencilIcon,
   StarIcon,
@@ -21,6 +22,7 @@ import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } fr
 import { useEnqueueModel } from "@/api/queue";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
@@ -149,6 +151,7 @@ export function ModelHeader({
   const enqueueModel = useEnqueueModel();
 
   const [redownloadOpen, setRedownloadOpen] = useState(false);
+  const [projectOpen, setProjectOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -307,6 +310,12 @@ export function ModelHeader({
                   Download ZIP
                 </a>
               </DropdownMenuItem>
+              {can("library:write") ? (
+                <DropdownMenuItem onSelect={() => setProjectOpen(true)}>
+                  <FolderKanbanIcon />
+                  Add to project…
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem onSelect={onOpenRelocate}>
                 <FolderInputIcon />
                 Move / copy…
@@ -324,6 +333,7 @@ export function ModelHeader({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+          <AddToProjectDialog open={projectOpen} onOpenChange={setProjectOpen} modelIds={[model.id]} />
           <RedownloadDialog model={model} open={redownloadOpen} onOpenChange={setRedownloadOpen} />
           <ConfirmDialog
             open={archiveOpen}

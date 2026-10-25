@@ -4,6 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   ArchiveIcon,
   BookmarkIcon,
+  FolderKanbanIcon,
   FolderTreeIcon,
   LayoutGridIcon,
   ListIcon,
@@ -19,6 +20,7 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
+import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useRestoreTrash } from "@/api/trash";
@@ -707,6 +709,7 @@ function SelectionActionBar({
   const [addTagOpen, setAddTagOpen] = useState(false);
   const [removeTagOpen, setRemoveTagOpen] = useState(false);
   const [queueing, setQueueing] = useState(false);
+  const [projectOpen, setProjectOpen] = useState(false);
 
   const bulkUpdate = useBulkUpdateModels();
   const bulkDelete = useBulkDeleteModels();
@@ -903,6 +906,16 @@ function SelectionActionBar({
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void addToQueue()}>
         <ListPlusIcon /> Add to queue
       </Button>
+
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setProjectOpen(true)}>
+        <FolderKanbanIcon /> Add to project
+      </Button>
+      <AddToProjectDialog
+        open={projectOpen}
+        onOpenChange={setProjectOpen}
+        modelIds={ids}
+        onDone={onDone}
+      />
 
       <ConfirmDialog
         trigger={

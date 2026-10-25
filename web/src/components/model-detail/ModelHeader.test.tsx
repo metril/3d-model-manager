@@ -298,13 +298,14 @@ async function openMoreActions() {
 }
 
 describe("ModelHeader -- More actions overflow menu", () => {
-  it("opens from 'More actions' and lists all five items in order, with a separator before Archive", async () => {
+  it("opens from 'More actions' and lists all six items in order, with a separator before Archive", async () => {
     renderHeader(false, vi.fn(), MODEL_WITH_SOURCE);
 
     const menu = await openMoreActions();
 
     const nodes = Array.from(menu.querySelectorAll('[role="menuitem"], [role="separator"]'));
     expect(nodes.map((node) => node.getAttribute("role"))).toEqual([
+      "menuitem",
       "menuitem",
       "menuitem",
       "menuitem",
@@ -315,6 +316,7 @@ describe("ModelHeader -- More actions overflow menu", () => {
     expect(nodes.map((node) => node.textContent)).toEqual([
       "Re-download…",
       "Download ZIP",
+      "Add to project…",
       "Move / copy…",
       "",
       "Archive…",

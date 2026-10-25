@@ -55,6 +55,9 @@ def normalize_options(settings: Settings, new: dict, existing: dict | None) -> d
     rot = out.get("camera_rotation")
     if rot is not None and rot not in ROTATIONS:
         raise ValueError("camera_rotation must be 0, 90, 180 or 270")
+    from app.services.plate_detection import validate_options
+
+    validate_options(out)
     cam = out.get("camera")
     if cam is None:
         out.pop("camera", None)

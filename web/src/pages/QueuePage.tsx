@@ -24,6 +24,7 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, RotateCc
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
 import { useCancelQueueSlice, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
@@ -83,6 +84,14 @@ export function QueueStateChip({
   if (attempts != null) parts.push(`${attempts}/3 attempts`);
   if (lastError) parts.push(lastError);
   const title = parts.length > 0 ? parts.join(" — ") : undefined;
+
+  if (state === "waiting" && lastError === PLATE_NOT_EMPTY) {
+    return (
+      <Badge variant="outline" className={STATE_CLASSES.held} title={title} aria-label="Held: plate not empty">
+        Plate not empty
+      </Badge>
+    );
+  }
 
   return (
     <Badge variant="outline" className={STATE_CLASSES[state]} title={title}>

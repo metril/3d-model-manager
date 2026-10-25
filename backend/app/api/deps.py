@@ -206,6 +206,18 @@ def _unauthenticated_bearer() -> HTTPException:
     )
 
 
+def extract_credential(authorization: str | None, x_api_key: str | None) -> str:
+    """``X-API-Key: <key>`` or ``Authorization: Bearer <key>``; 401 otherwise."""
+    if x_api_key:
+        return x_api_key.strip()
+    if authorization is None:
+        raise _unauthenticated_bearer()
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise _unauthenticated_bearer()
+    return token
+
+
 async def require_api_token(
     authorization: str | None = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -226,6 +238,8 @@ async def require_api_token(
     row = await api_tokens.verify(db, token)
     if row is None:
         raise _unauthenticated_bearer()
+    if row.scopes is not None:  # scoped API keys live on /ext/v2 only
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "scoped API keys are only valid on /ext/v2")
     owner = await db.get(User, row.user_id)
     if owner is None or not owner.is_active:
         raise _unauthenticated_bearer()
