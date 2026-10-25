@@ -1,3 +1,5 @@
+import { DryingSettingsCard } from "@/components/settings/DryingSettingsCard";
+import { ScheduledDryingsList } from "@/components/drying/ScheduledDryingsList";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 
 import { useAuth } from "@/api/auth";
@@ -122,6 +124,8 @@ export function SettingsPage() {
               <ConfirmOutcomeCard />
               <HomeAssistantCard />
               <VirtualPrinterCard />
+              <DryingSettingsCard />
+              <ScheduledDryingsList />
             </TabsContent>
           )}
           {canSettings && (

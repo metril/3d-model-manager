@@ -6,12 +6,13 @@ import type { PrinterStatusOut } from "@/api/types";
 import { DiagnosticModal } from "./DiagnosticModal";
 import { FirmwareModal } from "./FirmwareModal";
 import { FileManagerModal } from "./FileManagerModal";
+import { DryingDialog } from "./DryingDialog";
 import { HmsModal } from "./HmsModal";
 import { PrinterInfoModal } from "./PrinterInfoModal";
 import { PrintOptionsModal } from "./PrintOptionsModal";
 import { capsOf } from "../card/caps";
 
-export type PrinterModalKind = "info" | "hms" | "firmware" | "diagnostic" | "printOptions" | "files";
+export type PrinterModalKind = "info" | "hms" | "firmware" | "diagnostic" | "printOptions" | "files" | "drying";
 
 /** Shared by the detail page now and the Q3 card later: `open(kind)` + render `modals`. */
 export function usePrinterModals(
@@ -19,10 +20,12 @@ export function usePrinterModals(
   /** The card's overview status; without it the Info modal polls `/status` itself (only while open). */
   liveStatus?: PrinterStatusOut,
 ): {
-  open: (kind: PrinterModalKind) => void;
+  /** `arg` carries the target id (the AMS unit id for `drying`). */
+  open: (kind: PrinterModalKind, arg?: number) => void;
   modals: ReactNode;
 } {
-  const [kind, setKind] = useState<PrinterModalKind | null>(null);
+  const [state, setState] = useState<{ kind: PrinterModalKind; arg?: number } | null>(null);
+  const kind = state?.kind ?? null;
   const printers = usePrinters();
   const polled = usePrinterStatus(printerId, { enabled: kind === "info" && !liveStatus });
   const status = { data: liveStatus ?? polled.data };
@@ -30,7 +33,7 @@ export function usePrinterModals(
   const canControl = canPrinter(printerId, "control");
   const printer = printers.data?.find((p) => p.id === printerId);
   const close = (o: boolean) => {
-    if (!o) setKind(null);
+    if (!o) setState(null);
   };
 
   const modals = (
@@ -46,10 +49,13 @@ export function usePrinterModals(
       {kind === "files" && printer ? (
         <FileManagerModal printerId={printerId} canControl={canControl} sdPrint={!!capsOf(printer).sd_print} open onOpenChange={close} />
       ) : null}
+      {kind === "drying" && printer && state?.arg != null ? (
+        <DryingDialog printer={printer} status={status.data} unitId={state.arg} canControl={canControl} open onOpenChange={close} />
+      ) : null}
       {kind === "info" && printer ? (
         <PrinterInfoModal printer={printer} status={status.data} open onOpenChange={close} />
       ) : null}
     </>
   );
-  return { open: setKind, modals };
+  return { open: (k, arg) => setState({ kind: k, arg }), modals };
 }

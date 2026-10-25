@@ -123,6 +123,12 @@
         "errDistinct": "SSDP, MQTT and FTP ports must be different.",
         "errRange": "Passive min must not exceed max.",
         "errOverlap": "The passive range must not include the SSDP, MQTT or FTP port.",
+        "failure": {
+          "screen_only": "Screen-only printer",
+          "unsupported": "Not supported",
+          "did_not_start": "Did not start",
+          "blocked": "AMS blocked"
+        },
         "state": {
           "idle": "Idle",
           "running": "Running",
@@ -206,6 +212,128 @@
     "unit": "AMS unit {{n}}",
     "empty": "No samples in this range.",
     "loadError": "Couldn't load history"
+  },
+  "drying": {
+    "title": "Dry {{unit}}",
+    "description": "Run the AMS heater to dry the loaded filament.",
+    "dry": "Dry",
+    "filament": "Filament",
+    "presets": "Presets",
+    "temp": "Temperature (°C)",
+    "hours": "Duration (hours)",
+    "rotate": "Rotate spools while drying",
+    "startMode": "Start",
+    "mode": {
+      "now": "Now",
+      "at": "At time",
+      "after": "After current print"
+    },
+    "atTime": "Start at",
+    "afterNote": "Starts when the printer is idle again.",
+    "start": "Start drying",
+    "schedule": "Schedule drying",
+    "stop": "Stop drying",
+    "stopUnit": "Stop drying {{unit}}",
+    "active": "This unit is drying now.",
+    "blocked": "Cannot start right now",
+    "blockedPower": "Power problem. Fix it and retry.",
+    "blockedRetract": "Retract the filament from the AMS outlet first.",
+    "blockedTransient": "Temporary. This clears on its own.",
+    "reason": {
+      "0": "Printer is busy",
+      "1": "Insufficient power: too many AMS drying or external PSU required",
+      "2": "AMS is busy",
+      "3": "Filament is at the AMS outlet, retract it first",
+      "4": "AMS is already starting a drying cycle",
+      "5": "Not supported in 2D mode",
+      "6": "AMS is already drying",
+      "7": "AMS firmware is upgrading",
+      "8": "Plug in the external AMS power adapter to start drying"
+    },
+    "status": {
+      "1": "Checking",
+      "2": "Drying",
+      "3": "Cooling",
+      "4": "Stopping",
+      "5": "Error"
+    },
+    "sub": {
+      "1": "Heating",
+      "2": "Dehumidifying"
+    },
+    "left": "{{time}} left",
+    "screenOnly": "Start from the printer screen",
+    "error": {
+      "screen_only": "This printer can only start drying from its own screen.",
+      "unsupported": "This printer or AMS does not support drying.",
+      "printing": "Drying cannot start while printing on this printer. Schedule it for after the print.",
+      "blocked": "The AMS is not ready to dry right now."
+    },
+    "scheduled": "Scheduled",
+    "noSchedules": "No scheduled drying.",
+    "cancel": "Cancel",
+    "asap": "As soon as possible",
+    "waiting": {
+      "ams_power_required": "Waiting for AMS power",
+      "ams_retract_filament": "Waiting for filament retract",
+      "ams_blocked": "AMS blocked",
+      "printer_busy": "Waiting for the printer",
+      "printer_offline": "Printer offline"
+    },
+    "state": {
+      "pending": "Pending",
+      "waiting": "Waiting",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "settings": {
+      "title": "AMS drying",
+      "description": "Presets, humidity thresholds and automatic drying.",
+      "presets": "Presets",
+      "filament": "Filament",
+      "n3f": "AMS 2 Pro",
+      "n3s": "AMS HT",
+      "tempShort": "°C",
+      "hoursShort": "h",
+      "addFilament": "Add filament",
+      "newFilament": "New filament",
+      "remove": "Remove {{name}}",
+      "good": "Humidity good below (%)",
+      "fair": "Humidity fair below (%)",
+      "perType": "Per-type humidity thresholds",
+      "typeName": "Type",
+      "threshold": "Threshold (%)",
+      "addType": "Add threshold",
+      "ambient": "Dry automatically when humidity stays high",
+      "sustained": "Sustained for (minutes)",
+      "queue": "Dry before queued prints",
+      "queueBlock": "Hold the printer while drying",
+      "print": "Allow drying while printing",
+      "save": "Save",
+      "saved": "Drying settings saved",
+      "invalid": {
+        "temp": "{{name}}: temperature must be 45-85 °C",
+        "hours": "{{name}}: hours must be 1-24",
+        "humidity": "Humidity thresholds must be 0-100 and good must not exceed fair",
+        "threshold": "{{name}}: threshold must be 0-100",
+        "sustained": "Sustained minutes must be 1-1440",
+        "name": "Names must be filled in and unique"
+      }
+    },
+    "list": {
+      "title": "Scheduled drying",
+      "description": "Upcoming and running drying schedules.",
+      "printer": "Printer",
+      "unit": "Unit",
+      "when": "Start",
+      "source": {
+        "manual": "Manual",
+        "ambient": "Auto (humidity)",
+        "queue": "Auto (queue)"
+      }
+    }
   },
   "card": {
     "select": "Select {{name}}",
@@ -322,6 +450,7 @@
       "serial": "Serial: {{v}}",
       "firmware": "Firmware: {{v}}",
       "dry": "Dry",
+      "dryingTip": "Drying: {{filament}} at {{temp}} °C",
       "backup": "AMS backup",
       "backupTip": "Two slots hold the same filament",
       "external": "External",
@@ -614,16 +743,6 @@
       "storageFree": "{{free}} free"
     }
   },
-  "emailPrefs": {
-    "title": "Email notifications",
-    "description": "Get an email about prints you start. Sent to the address on your account.",
-    "noEmail": "Your account has no email address, so nothing can be sent. Add one to your profile first.",
-    "start": "Print started",
-    "complete": "Print finished",
-    "failed": "Print failed",
-    "stopped": "Print paused or stopped",
-    "saveFailed": "Could not save your email preferences."
-  },
   "spoolAdmin": {
     "tabs": {
       "label": "Spool sections",
@@ -838,14 +957,92 @@
     "error": "Something went wrong. Try again.",
     "codeOrPassword": "Password or current code",
     "disableDesc": "Confirm with your password or a current code to turn this off.",
-    "method": {"totp": "Authenticator app", "email": "Email codes", "backup": "Backup code"},
-    "totp": {"rowDesc": "Time-based codes from an app such as Aegis, 1Password or Google Authenticator.", "setupTitle": "Set up authenticator app", "setupDesc": "Scan the QR code, then enter the 6-digit code it shows.", "qr": "Authenticator QR code", "manual": "Can't scan? Enter this key manually:", "copySecret": "Copy secret key", "codeLabel": "6-digit code", "enable": "Verify and enable", "restart": "Start over", "expired": "Setup expired. Start over.", "disableTitle": "Disable authenticator app?", "codesTitle": "Save your backup codes", "codesDesc": "Authenticator app enabled.", "saved": "I've saved these codes"},
-    "email": {"rowDesc": "A one-time code is emailed to you at sign-in.", "noSmtp": "Ask an admin to configure outgoing email first.", "noAddress": "Add an email address to your account first.", "confirmTitle": "Confirm email codes", "confirmDesc": "We emailed you a code. Enter it to turn on email codes.", "codeLabel": "Emailed code", "enable": "Enable", "disableTitle": "Disable email codes?", "sendMe": "Email me a code", "sent": "Code sent"},
-    "backup": {"title": "Backup codes", "remaining": "Codes remaining: {{count}}", "regenerate": "Regenerate", "regenTitle": "Regenerate backup codes", "regenDesc": "Enter a current authenticator code. Old backup codes stop working.", "regenDone": "Your old backup codes no longer work.", "once": "Store these somewhere safe. Each works once and they won't be shown again.", "list": "Backup codes", "copy": "Copy", "download": "Download .txt"},
-    "login": {"title": "Two-factor verification", "prompt": {"totp": "Enter the 6-digit code from your authenticator app.", "email": "We'll email you a code. Request it, then enter it below.", "backup": "Enter one of your backup codes."}, "codeLabel": "Code", "backupLabel": "Backup code", "verify": "Verify", "verifying": "Verifying…", "useBackup": "Use a backup code", "useApp": "Use another method", "back": "Back to sign in", "sendCode": "Send code", "resend": "Send a new code", "invalid": "That code isn't right. Try again.", "failed": "Couldn't verify the code.", "locked": "Too many failed attempts. Try again in 15 minutes.", "expired": "That verification expired. Please sign in again.", "rateLimited": "Too many codes requested. Wait a few minutes and try again.", "noSmtp": "Email codes aren't available right now.", "sendFailed": "Couldn't send the code."},
-    "admin": {"reset": "Reset 2FA", "title": "Reset two-factor for {{user}}?", "desc": "Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in.", "done": "Two-factor reset for {{user}}", "failed": "Could not reset 2FA."},
-    "enroll": {"title": "Set up two-factor authentication", "desc": "Your administrator requires two-factor authentication. Enable at least one method to continue.", "continue": "Continue"},
-    "security": {"title": "Security", "desc": "Sign-in requirements for all accounts.", "require": "Require two-factor for all users"}
+    "method": {
+      "totp": "Authenticator app",
+      "email": "Email codes",
+      "backup": "Backup code"
+    },
+    "totp": {
+      "rowDesc": "Time-based codes from an app such as Aegis, 1Password or Google Authenticator.",
+      "setupTitle": "Set up authenticator app",
+      "setupDesc": "Scan the QR code, then enter the 6-digit code it shows.",
+      "qr": "Authenticator QR code",
+      "manual": "Can't scan? Enter this key manually:",
+      "copySecret": "Copy secret key",
+      "codeLabel": "6-digit code",
+      "enable": "Verify and enable",
+      "restart": "Start over",
+      "expired": "Setup expired. Start over.",
+      "disableTitle": "Disable authenticator app?",
+      "codesTitle": "Save your backup codes",
+      "codesDesc": "Authenticator app enabled.",
+      "saved": "I've saved these codes"
+    },
+    "email": {
+      "rowDesc": "A one-time code is emailed to you at sign-in.",
+      "noSmtp": "Ask an admin to configure outgoing email first.",
+      "noAddress": "Add an email address to your account first.",
+      "confirmTitle": "Confirm email codes",
+      "confirmDesc": "We emailed you a code. Enter it to turn on email codes.",
+      "codeLabel": "Emailed code",
+      "enable": "Enable",
+      "disableTitle": "Disable email codes?",
+      "sendMe": "Email me a code",
+      "sent": "Code sent"
+    },
+    "backup": {
+      "title": "Backup codes",
+      "remaining": "Codes remaining: {{count}}",
+      "regenerate": "Regenerate",
+      "regenTitle": "Regenerate backup codes",
+      "regenDesc": "Enter a current authenticator code. Old backup codes stop working.",
+      "regenDone": "Your old backup codes no longer work.",
+      "once": "Store these somewhere safe. Each works once and they won't be shown again.",
+      "list": "Backup codes",
+      "copy": "Copy",
+      "download": "Download .txt"
+    },
+    "login": {
+      "title": "Two-factor verification",
+      "prompt": {
+        "totp": "Enter the 6-digit code from your authenticator app.",
+        "email": "We'll email you a code. Request it, then enter it below.",
+        "backup": "Enter one of your backup codes."
+      },
+      "codeLabel": "Code",
+      "backupLabel": "Backup code",
+      "verify": "Verify",
+      "verifying": "Verifying…",
+      "useBackup": "Use a backup code",
+      "useApp": "Use another method",
+      "back": "Back to sign in",
+      "sendCode": "Send code",
+      "resend": "Send a new code",
+      "invalid": "That code isn't right. Try again.",
+      "failed": "Couldn't verify the code.",
+      "locked": "Too many failed attempts. Try again in 15 minutes.",
+      "expired": "That verification expired. Please sign in again.",
+      "rateLimited": "Too many codes requested. Wait a few minutes and try again.",
+      "noSmtp": "Email codes aren't available right now.",
+      "sendFailed": "Couldn't send the code."
+    },
+    "admin": {
+      "reset": "Reset 2FA",
+      "title": "Reset two-factor for {{user}}?",
+      "desc": "Removes their authenticator app, email codes and backup codes. They can enrol again at next sign-in.",
+      "done": "Two-factor reset for {{user}}",
+      "failed": "Could not reset 2FA."
+    },
+    "enroll": {
+      "title": "Set up two-factor authentication",
+      "desc": "Your administrator requires two-factor authentication. Enable at least one method to continue.",
+      "continue": "Continue"
+    },
+    "security": {
+      "title": "Security",
+      "desc": "Sign-in requirements for all accounts.",
+      "require": "Require two-factor for all users"
+    }
   },
   "smtp": {
     "title": "Outgoing email (SMTP)",
@@ -853,11 +1050,18 @@
     "host": "Host",
     "port": "Port",
     "security": "Security",
-    "securityOpt": {"none": "None", "starttls": "STARTTLS", "tls": "TLS (SSL)"},
+    "securityOpt": {
+      "none": "None",
+      "starttls": "STARTTLS",
+      "tls": "TLS (SSL)"
+    },
     "username": "Username",
     "password": "Password",
     "passwordKeep": "Saved. Leave as is to keep it; clear to remove.",
-    "passwordUnset": "No password saved.", "passwordClearing": "The saved password will be removed when you save.", "passwordClear": "Clear password", "passwordKeepBtn": "Keep password",
+    "passwordUnset": "No password saved.",
+    "passwordClearing": "The saved password will be removed when you save.",
+    "passwordClear": "Clear password",
+    "passwordKeepBtn": "Keep password",
     "fromAddr": "From address",
     "fromName": "From name",
     "invalidPort": "Port must be between 1 and 65535.",
@@ -867,5 +1071,15 @@
     "testHint": "Uses the saved settings; save first.",
     "testOk": "Test email sent.",
     "testFailed": "Test failed: {{error}}"
+  },
+  "emailPrefs": {
+    "title": "Email notifications",
+    "description": "Get an email about prints you start. Sent to the address on your account.",
+    "noEmail": "Your account has no email address, so nothing can be sent. Add one to your profile first.",
+    "start": "Print started",
+    "complete": "Print finished",
+    "failed": "Print failed",
+    "stopped": "Print paused or stopped",
+    "saveFailed": "Could not save your email preferences."
   }
 }

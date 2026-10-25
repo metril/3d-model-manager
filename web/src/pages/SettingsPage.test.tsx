@@ -143,6 +143,8 @@ function mockGet(backends: StorageBackendOut[] = []) {
     if (path === "/settings/server") return Promise.resolve(fakeServer());
     if (path === "/settings/server/status") return Promise.resolve(fakeStatus());
     if (path === "/virtual-printers") return Promise.resolve([]);
+    if (path === "/settings/drying")
+      return Promise.resolve({ presets: {}, ams_humidity_good: 40, ams_humidity_fair: 60, per_type_thresholds: {}, ambient_drying_enabled: false, ambient_sustained_min: 30, queue_drying_enabled: false, queue_drying_block: false, print_drying_enabled: false });
     if (path === "/features") return Promise.resolve({ printer_enabled: false, watch_dir: null, watch_enabled: false });
     return Promise.resolve([]);
   });

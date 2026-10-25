@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -118,5 +118,44 @@ describe("FilamentsSection", () => {
     await screen.findByTestId("slot-0");
     expect(screen.queryByTestId("slot-assign-popover")).toBeNull();
     expect(screen.queryByRole("button", { name: "Slot 1 menu" })).toBeNull();
+  });
+
+  it("Dry button needs the control permission", async () => {
+    const it = x1e({}, { trays: TRAYS, ams_units: [{ id: 0, humidity: 41, temp: 27, serial: null, fw: null }] });
+    renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl={false} onDry={() => {}} />);
+    await screen.findByText("AMS 1");
+    expect(screen.queryByRole("button", { name: "Dry" })).toBeNull();
+  });
+
+  it("screen-only units show the chip with a tooltip but no Dry or Stop button", async () => {
+    const it = x1e({}, { trays: TRAYS, ams_units: [{ id: 0, humidity: 41, temp: 27, serial: null, fw: null, dry_status: 2, dry_time_min: 90 }] });
+    const printer = { ...it.printer, capabilities: { ...it.printer.capabilities!, drying_screen_only: true } };
+    renderCard(<FilamentsSection printer={printer} status={it.status} canControl onDry={() => {}} />);
+    expect(await screen.findByTestId("dry-chip")).toHaveTextContent("Drying");
+    expect(screen.queryByRole("button", { name: "Dry" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Stop drying/ })).toBeNull();
+  });
+
+  it("drying chip counts down, shows target + filament and stops the unit", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const unit = { id: 0, humidity: 41, temp: 45, serial: null, fw: null, dry_status: 2, dry_sub_status: 2, dry_time_min: 120, dry_target_temp: 65, dry_filament: "PETG" };
+      const it = x1e({}, { trays: TRAYS, ams_units: [unit] });
+      renderCard(<FilamentsSection printer={it.printer} status={it.status} canControl onDry={() => {}} />);
+      const chip = await screen.findByTestId("dry-chip");
+      expect(chip).toHaveTextContent("Drying");
+      expect(chip).toHaveTextContent("Dehumidifying");
+      expect(chip).toHaveTextContent("65°");
+      expect(chip).toHaveTextContent("PETG");
+      expect(screen.getByTestId("dry-left")).toHaveTextContent("2h 00m left");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31 * 60_000);
+      });
+      expect(screen.getByTestId("dry-left")).toHaveTextContent("1h 29m left");
+      fireEvent.click(screen.getByRole("button", { name: "Stop drying AMS 1" }));
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/3/drying/stop", { ams_id: 0 }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

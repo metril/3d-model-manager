@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { AmsRenameDialog } from "./AmsRenameDialog";
 import { SlotConfigDialog } from "./SlotConfigDialog";
 import { hasBackup, unitLabel } from "./ams";
+import { DryChip } from "./DryChip";
 import { capsOf, isBusy } from "./caps";
 
 const EXTERNAL_UNIT = 255;
@@ -116,12 +117,16 @@ function UnitHeader({
   unit,
   onDry,
   canRename,
+  canStop,
+  screenOnly,
 }: {
   printerId: number;
   id: number;
   unit?: AmsUnit;
   onDry?: (unitId: number) => void;
   canRename?: boolean;
+  canStop?: boolean;
+  screenOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -176,8 +181,17 @@ function UnitHeader({
           </Tooltip>
         </TooltipProvider>
       ) : null}
-      {onDry ? (
-        <Button type="button" variant="outline" size="xs" className="ml-auto" onClick={() => onDry(id)}>
+      {unit && (unit.dry_status ?? 0) > 0 ? (
+        <DryChip printerId={printerId} id={id} unit={unit} canStop={!!canStop} screenOnly={!!screenOnly} />
+      ) : null}
+      {onDry && !screenOnly ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className={(unit?.dry_status ?? 0) > 0 ? undefined : "ml-auto"}
+          onClick={() => onDry(id)}
+        >
           {t("card.filaments.dry")}
         </Button>
       ) : null}
@@ -201,7 +215,7 @@ export function FilamentsSection({
   onDry?: (unitId: number) => void;
 }) {
   const { t } = useTranslation();
-  const caps = capsOf(printer);
+  const caps = { ...capsOf(printer), ...(status.capabilities ?? {}) };
   const busy = isBusy(status.gcode_state);
   const ext = status.ext_tray ?? status.trays.find((x) => x.ams_unit === EXTERNAL_UNIT) ?? null;
   const ams = status.trays.filter((x) => x.ams_unit !== EXTERNAL_UNIT);
@@ -227,7 +241,9 @@ export function FilamentsSection({
               canRename={canControl}
               id={unitId}
               unit={status.ams_units?.find((u) => u.id === unitId)}
-              onDry={caps.ams_drying && canControl ? onDry : undefined}
+              onDry={caps.ams_drying && !caps.drying_screen_only && canControl ? onDry : undefined}
+              canStop={caps.ams_drying && canControl}
+              screenOnly={!!caps.drying_screen_only}
             />
             <div className="flex gap-1">
               {trays.map((tr) => (

@@ -33,6 +33,7 @@ export interface CardExtras {
   onInfo: () => void;
   onDiagnose?: () => void;
   onHms?: () => void;
+  onDry: (unitId: number) => void;
   modals: ReactNode;
 }
 
@@ -44,6 +45,7 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
   const goDetail = () => void navigate({ to: "/printers/$id", params: { id: String(printer.id) } });
   return {
     onInfo: () => modals.open("info"),
+    onDry: (unitId) => modals.open("drying", unitId),
     onDiagnose: perms.canAdmin ? () => modals.open("diagnostic") : undefined,
     onHms: perms.canPrint ? () => modals.open("hms") : undefined,
     badgeExtra: (

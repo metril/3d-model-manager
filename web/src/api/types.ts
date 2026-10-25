@@ -654,6 +654,10 @@ export interface PrinterCapabilities {
   xcam_modules?: string[];
   sd_browser?: boolean;
   sd_print?: boolean;
+  /** T1: drying can only be started from the printer screen (P1P/P1S). */
+  drying_screen_only?: boolean;
+  /** T1: drying may start while a print runs. */
+  ams_drying_while_printing?: boolean;
 }
 
 export interface PrinterCreate {
@@ -819,6 +823,8 @@ export interface SlotAssignIn {
 }
 
 export interface PrinterStatusOut {
+  /** T1: firmware-aware capabilities (preferred over `PrinterOut.capabilities` when present). */
+  capabilities?: PrinterCapabilities | null;
   online: boolean;
   gcode_state: string | null;
   mc_percent: number | null;
@@ -868,6 +874,15 @@ export interface AmsUnit {
   temp: number | null;
   serial: string | null;
   fw: string | null;
+  dry_time_min?: number | null;
+  /** 0 off, 1 checking, 2 drying, 3 cooling, 4 stopping, 5 error. */
+  dry_status?: number | null;
+  dry_sub_status?: number | null;
+  dry_sf_reason?: number[];
+  humidity_index?: number | null;
+  dry_target_temp?: number | null;
+  dry_filament?: string | null;
+  dry_started_at?: number | null;
 }
 
 export interface DevModeWarning {
@@ -2369,4 +2384,58 @@ export type SlotDeviceStatus = "applied" | "pending" | "skipped" | "failed";
 export interface SlotConfigOut {
   trays: unknown[];
   device: { status: SlotDeviceStatus; [k: string]: unknown };
+}
+
+// ---- T1 AMS drying ----
+
+export interface DryingStartIn {
+  ams_id: number;
+  temp: number;
+  duration_hours: number;
+  filament?: string;
+  rotate_tray?: boolean;
+}
+
+export type DryingScheduleStatus = "pending" | "waiting" | "running" | "done" | "failed" | "cancelled";
+
+export interface ScheduledDrying {
+  id: number;
+  printer_id: number;
+  ams_id: number;
+  temp: number;
+  duration_hours: number;
+  filament: string;
+  rotate_tray: boolean;
+  start_after: string | null;
+  status: DryingScheduleStatus;
+  waiting_reason: string | null;
+  error_code: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  source: "manual" | "ambient" | "queue";
+  created_by_user_id: number | null;
+  created_at: string;
+}
+
+export interface DryingScheduleIn extends DryingStartIn {
+  start_after?: string;
+}
+
+export interface DryingPreset {
+  n3f_temp: number;
+  n3s_temp: number;
+  n3f_hours: number;
+  n3s_hours: number;
+}
+
+export interface DryingSettings {
+  presets: Record<string, DryingPreset>;
+  ams_humidity_good: number;
+  ams_humidity_fair: number;
+  per_type_thresholds: Record<string, number>;
+  ambient_drying_enabled: boolean;
+  ambient_sustained_min: number;
+  queue_drying_enabled: boolean;
+  queue_drying_block: boolean;
+  print_drying_enabled: boolean;
 }
