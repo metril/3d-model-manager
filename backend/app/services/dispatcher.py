@@ -211,7 +211,7 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         if job.state == PrintJobState.FINISHED:
             item.state = QueueState.DONE
             counts["done"] += 1
-            queue_schedule.note_finished(client, item)
+            queue_schedule.note_finished(client, item, session)
         elif job.state == PrintJobState.CANCELED or (
             job.state == PrintJobState.FAILED and job.started_at is not None
         ):
@@ -219,7 +219,7 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
             item.last_error = job.printer_error or (
                 "canceled" if job.state == PrintJobState.CANCELED else "print failed"
             )
-            queue_schedule.note_finished(client, item)
+            queue_schedule.note_finished(client, item, session)
         elif job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
             counts["retried"] += 1

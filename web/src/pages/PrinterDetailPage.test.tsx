@@ -9,7 +9,6 @@ import {
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "@/api/client";
 import type { PrinterOut, PrinterStatusOut, PrintersOverviewOut } from "@/api/types";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 
@@ -98,7 +97,7 @@ function mockGet(options: { printers?: PrinterOut[]; features?: { printer_enable
     if (path === "/printers/1/status") return Promise.resolve(STATUS);
     if (path.startsWith("/archives")) return Promise.resolve([]);
     if (path === "/printers/1/maintenance") return Promise.resolve([]);
-    if (path === "/printers/1/plug") return Promise.reject(new ApiError(404, "no smart plug configured"));
+    if (path === "/printers/1/plugs") return Promise.resolve([]);
     return Promise.resolve({});
   });
 }

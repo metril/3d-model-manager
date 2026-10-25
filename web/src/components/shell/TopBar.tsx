@@ -5,6 +5,7 @@ import { ArrowLeftIcon, MenuIcon, SearchIcon } from "lucide-react";
 import { usePrinters } from "@/api/printers";
 import { Button } from "@/components/ui/button";
 import { useNavLabel } from "@/components/shell/useNavLabel";
+import { PlugSwitchbar } from "@/components/shell/PlugSwitchbar";
 import { UpdateBadge } from "@/components/shell/UpdateBadge";
 import { NAV_LABELS } from "@/components/shell/navItems";
 
@@ -62,6 +63,7 @@ export function TopBar({
         </Button>
       )}
       <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{crumb}</div>
+      <PlugSwitchbar />
       <UpdateBadge />
       <Button
         type="button"

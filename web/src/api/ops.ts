@@ -1,7 +1,7 @@
 /** Q7 hooks: per-printer maintenance + smart plug, backups/ops settings, update check. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, api } from "@/api/client";
+import { api } from "@/api/client";
 import type {
   BackupRun,
   MaintenanceLog,
@@ -15,7 +15,8 @@ import type {
 } from "@/api/types";
 
 const mKey = (pid: number) => ["printers", pid, "maintenance"] as const;
-const plugKey = (pid: number) => ["printers", pid, "plug"] as const;
+const plugsKey = ["plugs"] as const;
+const printerPlugsKey = (pid: number) => ["printers", pid, "plugs"] as const;
 const plugSummaryKey = ["printers", "plugs", "summary"] as const;
 const OPS = ["settings", "ops"] as const;
 const BACKUPS = ["admin", "backups"] as const;
@@ -83,23 +84,32 @@ export function dueCount(tasks: MaintenanceTask[] | undefined): number {
   return (tasks ?? []).filter((t) => t.status !== "ok").length;
 }
 
-/** 404 = no plug configured (a normal state), mapped to `null`. */
-export function usePlug(pid: number, poll = true) {
+function invalidatePlugs(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: plugsKey });
+  void qc.invalidateQueries({ queryKey: plugSummaryKey });
+  void qc.invalidateQueries({ queryKey: ["printers"], predicate: (q) => q.queryKey[2] === "plugs" });
+}
+
+/** Every visible plug (standalone + linked). */
+export function usePlugs(options?: { enabled?: boolean; poll?: boolean }) {
   return useQuery({
-    queryKey: plugKey(pid),
-    queryFn: async () => {
-      try {
-        return await api.get<PlugOut>(`/printers/${pid}/plug`);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
+    queryKey: plugsKey,
+    queryFn: () => api.get<PlugOut[]>("/plugs"),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.poll === false ? false : 15_000,
+  });
+}
+
+/** Plugs linked to one printer. */
+export function usePrinterPlugs(pid: number, poll = true) {
+  return useQuery({
+    queryKey: printerPlugsKey(pid),
+    queryFn: () => api.get<PlugOut[]>(`/printers/${pid}/plugs`),
     refetchInterval: poll ? 15_000 : false,
   });
 }
 
-/** Every visible printer's plug in ONE poll; absent id = no plug. */
+/** Every visible printer's main plug in ONE poll; absent id = no plug. */
 export function usePlugSummary() {
   return useQuery({
     queryKey: plugSummaryKey,
@@ -108,36 +118,30 @@ export function usePlugSummary() {
   });
 }
 
-export function usePlugToggle(pid: number) {
+export function usePlugToggle() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (on: boolean) => api.post<PlugOut>(`/printers/${pid}/plug/${on ? "on" : "off"}`),
-    onSuccess: (d) => {
-      qc.setQueryData(plugKey(pid), d);
-      void qc.invalidateQueries({ queryKey: plugSummaryKey });
-    },
+    mutationFn: ({ id, on }: { id: number; on: boolean }) =>
+      api.post<PlugOut>(`/plugs/${id}/${on ? "on" : "off"}`),
+    onSuccess: () => invalidatePlugs(qc),
   });
 }
 
-export function useSavePlug(pid: number) {
+/** Create (no `id`) or replace (`id`) a plug. */
+export function useSavePlug() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: PlugIn) => api.put<PlugOut>(`/printers/${pid}/plug`, body),
-    onSuccess: (d) => {
-      qc.setQueryData(plugKey(pid), d);
-      void qc.invalidateQueries({ queryKey: plugSummaryKey });
-    },
+    mutationFn: ({ id, body }: { id?: number; body: PlugIn }) =>
+      id == null ? api.post<PlugOut>("/plugs", body) : api.put<PlugOut>(`/plugs/${id}`, body),
+    onSuccess: () => invalidatePlugs(qc),
   });
 }
 
-export function useDeletePlug(pid: number) {
+export function useDeletePlug() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.delete<void>(`/printers/${pid}/plug`),
-    onSuccess: () => {
-      qc.setQueryData(plugKey(pid), null);
-      void qc.invalidateQueries({ queryKey: plugSummaryKey });
-    },
+    mutationFn: (id: number) => api.delete<void>(`/plugs/${id}`),
+    onSuccess: () => invalidatePlugs(qc),
   });
 }
 

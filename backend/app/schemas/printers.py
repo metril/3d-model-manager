@@ -106,6 +106,7 @@ class PrinterUpdate(BaseModel):
     access_code: str | None = None
     model: str | None = None
     enabled: bool | None = None
+    power_off_when_drained: bool | None = None
     options: dict | None = None
     build_volume_mm: BuildVolumeMm | None = None
 
@@ -153,6 +154,7 @@ class PrinterOut(BaseModel):
     serial: str
     model: str | None
     enabled: bool
+    power_off_when_drained: bool = False
     options: dict
     access_code_set: bool  # NEVER the code or ciphertext
     build_volume_mm: BuildVolumeMm | None = None
@@ -175,6 +177,7 @@ class PrinterOut(BaseModel):
             serial=p.serial,
             model=p.model,
             enabled=p.enabled,
+            power_off_when_drained=bool(p.power_off_when_drained),
             maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
             awaiting_plate_clear=bool(getattr(p, "awaiting_plate_clear", False)),
             options=redact_options(p.options),

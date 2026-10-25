@@ -25,6 +25,7 @@ import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
 import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
 import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
+import { PlugsPage } from "@/pages/PlugsPage";
 import { QueuePage } from "@/pages/QueuePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { StatsPage } from "@/pages/StatsPage";
@@ -241,6 +242,12 @@ const printQueueRoute = createRoute({
   component: QueuePage,
 });
 
+const printPlugsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/print/plugs",
+  component: PlugsPage,
+});
+
 // /queue moved under /print/queue (P3 Task 5).
 const queueRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -364,6 +371,7 @@ export const routeTree = rootRoute.addChildren([
     dashboardRedirectRoute,
     printHistoryRoute,
     printQueueRoute,
+    printPlugsRoute,
     queueRedirectRoute,
     printerRedirectRoute,
     printerDetailRoute,

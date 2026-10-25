@@ -67,6 +67,6 @@ describe("ManagedPrinterCard (usePrinterCardExtras)", () => {
     );
     await waitFor(() => expect(getCalls.filter((u) => u === "/printers/plugs/summary")).toHaveLength(1));
     await waitFor(() => expect(getCalls.filter((u) => u === "/printers/detections/summary")).toHaveLength(1));
-    expect(getCalls.filter((u) => /\/printers\/\d+\/(status|detection|plug)$/.test(u))).toHaveLength(0);
+    expect(getCalls.filter((u) => /\/printers\/\d+\/(status|detection|plugs?)$/.test(u))).toHaveLength(0);
   });
 });

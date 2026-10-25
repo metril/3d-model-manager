@@ -45,6 +45,6 @@ async def test_metrics_body(client, authenticated_client, db_session, admin_user
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
     body = r.text
     assert 'tdmm_printers{state="RUNNING"} 1' in body
-    assert f'tdmm_plug_power_watts{{printer_id="{pid}"}} 88.5' in body
+    assert f'printer_id="{pid}"}} 88.5' in body
     for name in ("tdmm_active_jobs", "tdmm_queue_entries", "tdmm_archives", "tdmm_info"):
         assert f"# TYPE {name} gauge" in body

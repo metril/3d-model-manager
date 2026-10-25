@@ -19,7 +19,6 @@ from app.config import Settings
 from app.models.audit_log import AuditLog
 from app.models.enums import ArchiveResult, PrintJobState, QueueState
 from app.models.library import Model, PrintQueueEntry
-from app.models.ops import SmartPlug
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.printers.base import command_channel
 from app.printers.capabilities import capabilities_for
@@ -311,11 +310,22 @@ def run_keep_warm(
 # -- auto power-off ----------------------------------------------------------
 
 
-def note_finished(client: Redis | None, item: PrintQueueEntry) -> None:
+def note_finished(
+    client: Redis | None, item: PrintQueueEntry, session: Session | None = None
+) -> None:
     """A print ended (done/failed): remember the power-off intent until the
-    printer is idle and cold."""
-    if client is not None and item.auto_off_after and item.assigned_printer_id is not None:
-        client.set(autooff_key(item.assigned_printer_id), item.id, ex=_STATE_TTL_S)
+    printer is idle and cold. The intent comes from the entry's own
+    ``auto_off_after`` or the printer's ``power_off_when_drained``; either way
+    ``process_auto_off`` cancels it while more work is queued for the printer."""
+    pid = item.assigned_printer_id
+    if client is None or pid is None:
+        return
+    drained = False
+    if session is not None:
+        printer = session.get(Printer, pid)
+        drained = bool(printer is not None and printer.power_off_when_drained)
+    if item.auto_off_after or drained:
+        client.set(autooff_key(pid), item.id, ex=_STATE_TTL_S)
 
 
 def process_auto_off(session: Session, settings: Settings, client: Redis, wanted: set[int]) -> int:
@@ -332,14 +342,16 @@ def process_auto_off(session: Session, settings: Settings, client: Redis, wanted
         if printer_id in wanted:
             client.delete(key)
             continue
-        plug = session.scalar(select(SmartPlug).where(SmartPlug.printer_id == printer_id))
-        if plug is None or plug.last_state == "off":
+        plugs = [p for p in manager.power_plugs(session, printer_id) if p.last_state != "off"]
+        if not plugs:
             client.delete(key)
             continue
         if not manager.can_power_off(read_state_sync(client, printer_id)):
             continue  # still hot / printing: re-check next tick
         try:
-            manager.command(session, settings, plug, "off")
+            for plug in plugs:
+                manager.command(session, settings, plug, "off")
+                manager.mark_offline(client, plug)
         except Exception:  # noqa: BLE001 -- retry next tick, never stall dispatch
             log.exception("queue auto-off failed for printer %s", printer_id)
             session.rollback()
