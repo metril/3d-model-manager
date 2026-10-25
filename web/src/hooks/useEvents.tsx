@@ -49,6 +49,20 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // A slice (queue entry or standalone job) changed state: refresh the
+      // queue and the followed job; a finished one also adds a file.
+      if (parsed.type === "slice.updated") {
+        void queryClient.invalidateQueries({ queryKey: ["queue"] });
+        if (parsed.slice_job_id) {
+          void queryClient.invalidateQueries({ queryKey: ["slice-job", parsed.slice_job_id] });
+        }
+        if (parsed.state === "done") {
+          void queryClient.invalidateQueries({ queryKey: ["models"] });
+          void queryClient.invalidateQueries({ queryKey: ["revisions"] });
+        }
+        return;
+      }
+
       if (parsed.type !== "job.updated") return;
 
       // The Jobs page (Task 9) lists every job type, live -- refresh it on

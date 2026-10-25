@@ -122,6 +122,8 @@ class SliceJobOut(BaseModel):
     id: uuid.UUID
     file_id: int
     model_id: int | None = None
+    model_slug: str | None = None
+    file_name: str | None = None
     recipe_id: int | None = None
     plate: int | None = None
     state: Literal["queued", "running", "done", "failed", "cancelled"]

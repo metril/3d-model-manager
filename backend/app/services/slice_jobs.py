@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.models import Blob, File, PrintRecipe, Revision, SliceJob
+from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
@@ -32,6 +32,9 @@ async def _out(db: AsyncSession, job: SliceJob) -> SliceJobOut:
     revision = await db.get(Revision, file.revision_id) if file is not None else None
     out = SliceJobOut.model_validate(job, from_attributes=True)
     out.model_id = revision.model_id if revision is not None else None
+    model = await db.get(Model, revision.model_id) if revision is not None else None
+    out.model_slug = model.slug if model is not None else None
+    out.file_name = file.rel_path.rsplit("/", 1)[-1] if file is not None else None
     return out
 
 

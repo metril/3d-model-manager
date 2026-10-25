@@ -1058,7 +1058,18 @@ export interface PrintJobUpdatedEvent {
   state: PrintJobState;
 }
 
-export type AppEvent = JobUpdatedEvent | PrintJobUpdatedEvent;
+/** `slice.updated`: a queue entry's slice (`queue_id`) or a standalone slice
+ * job (`slice_job_id`) changed state. */
+export interface SliceUpdatedEvent {
+  type: "slice.updated";
+  state: string;
+  slice_job_id: string | null;
+  queue_id: number | null;
+  file_id: number | null;
+  sliced_file_id: number | null;
+}
+
+export type AppEvent = JobUpdatedEvent | PrintJobUpdatedEvent | SliceUpdatedEvent;
 
 // -- imports (backend/app/schemas/imports.py, app/models/enums.py) --------
 
@@ -1470,6 +1481,10 @@ export interface QueueEntry {
   print_job_id?: number | null;
   attempts?: number;
   last_error?: string | null;
+  // Tail of the slicer CLI output from the last failed slice.
+  last_log?: string | null;
+  // Time/grams/plates of `sliced_file_id` once its metadata is extracted.
+  sliced_meta?: SlicedMeta | null;
   file_name?: string | null;
   // P7 review/billing plan (`backend/app/schemas/queue.py`'s
   // `QueueEntryOut`): review gate + billing columns.
@@ -1890,6 +1905,45 @@ export interface SlicerHealth {
   ok: boolean;
   version?: string | null;
   error?: string | null;
+  busy?: boolean | null;
+  running?: number | null;
+  max_concurrency?: number | null;
+  job_timeout_s?: number | null;
+  mem_limit?: number | null;
+  bambu_version?: string | null;
+}
+
+export interface SlicedMeta {
+  print_time_s: number | null;
+  filament_g: number | null;
+  plate_count: number | null;
+  plates: { index: number; prediction_s: number | null; weight_g: number | null }[];
+  file_name: string | null;
+}
+
+export type SliceJobState = "queued" | "running" | "done" | "failed" | "cancelled";
+
+/** `GET /slice-jobs/{id}` (backend `SliceJobOut`). */
+export interface SliceJob {
+  id: string;
+  file_id: number;
+  model_id: number | null;
+  model_slug: string | null;
+  file_name: string | null;
+  recipe_id: number | null;
+  plate: number | null;
+  state: SliceJobState;
+  error: string | null;
+  log_tail: string | null;
+  sliced_file_id: number | null;
+  meta: {
+    print_time_s: number | null;
+    filament_g: number | null;
+    plate_count: number | null;
+    plates: { index: number; prediction_s: number | null; weight_g: number | null }[];
+  } | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // -- Home Assistant settings (backend/app/schemas/home_assistant.py, P8

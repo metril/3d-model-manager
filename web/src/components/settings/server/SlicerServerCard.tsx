@@ -8,6 +8,7 @@ import {
   useTestSlicer,
   useUpdateServerSettings,
   type ServerSettingsOut,
+  type SlicerProbeInfo,
 } from "@/api/serverSettings";
 import { DisabledReason } from "@/components/settings/server/DisabledReason";
 import { Field } from "@/components/settings/server/Field";
@@ -17,6 +18,56 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { humanizeBytes } from "@/lib/format";
+
+function SlicerInfo({ info, appTimeoutS }: { info: SlicerProbeInfo | null | undefined; appTimeoutS: number }) {
+  const { t } = useTranslation();
+  if (!info) return null;
+  const max = info.max_concurrency;
+  const running = info.running ?? (info.busy ? (max ?? 1) : 0);
+  const tooShort = info.job_timeout_s != null && info.job_timeout_s < appTimeoutS;
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm" data-testid="slicer-info">
+      <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+        {info.version ? (
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted-foreground">{t("settings.server.slicer.version")}</dt>
+            <dd>{info.version}</dd>
+          </div>
+        ) : null}
+        {info.bambu_version ? (
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted-foreground">{t("settings.server.slicer.bambuVersion")}</dt>
+            <dd>{info.bambu_version}</dd>
+          </div>
+        ) : null}
+        {max != null ? (
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted-foreground">{t("settings.server.slicer.slots")}</dt>
+            <dd>
+              {running}/{max} {running >= max ? t("settings.server.slicer.busy") : t("settings.server.slicer.idle")}
+            </dd>
+          </div>
+        ) : null}
+        {info.job_timeout_s != null ? (
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted-foreground">{t("settings.server.slicer.jobTimeout")}</dt>
+            <dd>{info.job_timeout_s}s</dd>
+          </div>
+        ) : null}
+        <div className="flex justify-between gap-2">
+          <dt className="text-muted-foreground">{t("settings.server.slicer.memLimit")}</dt>
+          <dd>{info.mem_limit != null ? humanizeBytes(info.mem_limit) : t("settings.server.slicer.unlimited")}</dd>
+        </div>
+      </dl>
+      {tooShort ? (
+        <p role="alert" className="text-destructive">
+          {t("settings.server.slicer.timeoutWarn", { sidecar: info.job_timeout_s, app: appTimeoutS })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
   const { t } = useTranslation();
@@ -58,6 +109,7 @@ export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
         <CardDescription>{t("settings.server.slicer.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <SlicerInfo info={status.data?.slicer.info} appTimeoutS={valid ? tN : c.slice_timeout_s} />
         <div className="flex items-center gap-3">
           <Switch id="srv-slicer-enabled" checked={enabled} onCheckedChange={setEnabled} />
           <Label htmlFor="srv-slicer-enabled">{t("settings.server.slicer.enable")}</Label>

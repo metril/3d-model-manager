@@ -20,14 +20,15 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { ArrowDownIcon, ArrowUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
-import { useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
+import { useCancelQueueSlice, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
+import { QueueEntryDetail } from "@/components/print/QueueEntryDetail";
 import { LaneResumeButton, ScheduleChips } from "@/components/print/QueueScheduleChips";
 import { ReviewActions } from "@/components/print/ReviewActions";
 import { Badge } from "@/components/ui/badge";
@@ -284,6 +285,8 @@ function QueueRow({
   const moveEntry = useMoveQueueEntry();
   const removeEntry = useRemoveQueueEntry();
   const retryEntry = useRetryQueueEntry();
+  const cancelSlice = useCancelQueueSlice();
+  const [expanded, setExpanded] = useState(false);
   const { can } = useAuth();
   const model = entry.model;
   const state = entry.state ?? "waiting";
@@ -292,7 +295,17 @@ function QueueRow({
   const name = entry.file_name ?? model?.name ?? "—";
 
   return (
-    <li className="flex items-center gap-2 py-2.5">
+    <li className="py-2.5">
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Hide" : "Show"} details for ${name}`}
+        className="shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
+      </button>
       <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
         {model?.cover ? (
           <img src={model.cover} alt="" className="size-full object-cover" />
@@ -331,6 +344,18 @@ function QueueRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        {state === "slicing" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Cancel slicing ${name}`}
+            disabled={cancelSlice.isPending}
+            onClick={() => cancelSlice.mutate(entry.id)}
+          >
+            <XIcon className="size-4" />
+          </Button>
+        ) : null}
         {canRetry ? (
           <Button
             type="button"
@@ -374,6 +399,8 @@ function QueueRow({
           <Trash2Icon className="size-4" />
         </Button>
       </div>
+    </div>
+    {expanded ? <QueueEntryDetail entry={entry} /> : null}
     </li>
   );
 }

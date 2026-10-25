@@ -121,7 +121,8 @@ async def test_slice_job_success_roundtrip(
     body = (await authenticated_client.get(f"/api/slice-jobs/{job_id}")).json()
     assert body["state"] == "done", body
     assert body["sliced_file_id"] is not None and body["file_id"] == f.id
-    assert body["model_id"] is not None
+    assert body["model_id"] is not None and body["model_slug"] == "sj-ok"
+    assert body["file_name"] == "part.stl"
     assert body["meta"]["plate_count"] >= 1 and "plates" in body["meta"]
     assert fake.job_ids == [f"sj-{job_id}"]
 

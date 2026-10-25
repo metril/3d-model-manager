@@ -13,6 +13,7 @@ import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { TopBar } from "@/components/shell/TopBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SliceJobsHost } from "@/components/slice/SliceJobsHost";
 import { EventsProvider } from "@/hooks/useEvents";
 import { useHotkeys } from "@/hooks/useHotkeys";
 
@@ -100,6 +101,7 @@ export function AppShell() {
         </div>
       </div>
       <PostPrintConfirmDialog />
+      <SliceJobsHost />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </EventsProvider>
