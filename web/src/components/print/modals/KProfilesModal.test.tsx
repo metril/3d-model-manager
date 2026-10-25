@@ -81,6 +81,17 @@ describe("KProfilesModal", () => {
     ]);
   });
 
+  it("re-polls the same URL when a 202 has no request_id", async () => {
+    let n = 0;
+    getMock.mockImplementation(async (url: string) =>
+      url.includes("/kprofiles") ? (++n < 3 ? { status: "pending" } : LIST) : [],
+    );
+    setup();
+    expect(await screen.findByText("Silk PLA")).toBeInTheDocument();
+    const urls = getMock.mock.calls.map((c) => c[0] as string).filter((u) => u.includes("kprofiles"));
+    expect(urls).toEqual(Array(3).fill("/printers/1/kprofiles?nozzle=0.4"));
+  });
+
   it("shows the empty state", async () => {
     getMock.mockResolvedValue({ profiles: [], nozzle_diameter: "0.4" });
     setup();

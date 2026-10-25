@@ -2578,7 +2578,8 @@ export interface KProfileList {
 /** 202 body: the printer has not answered yet; poll with `request_id`. */
 export interface KProfilePending {
   status: "pending";
-  request_id: string;
+  /** Absent on a lock-follower 202: re-poll the same URL. */
+  request_id?: string;
 }
 
 export interface KProfileIn {
