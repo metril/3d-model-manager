@@ -90,6 +90,7 @@ _PATH_PARAM_VALUES = {
     "pending_id": "1",
     # M10 Workstream A: browser-extension API-token management.
     "token_id": "1",
+    "key_id": "1",
     # Branch 4 Task 1: print queue entries.
     "entry_id": "1",
     # Branch 5 Task 1: per-model print history.
