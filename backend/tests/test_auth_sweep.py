@@ -125,6 +125,8 @@ _PATH_PARAM_VALUES = {
     "location_id": "1",
     "sensor_id": "1",
     "material": "PLA",
+    # T4: print batches.
+    "batch_id": "1",
 }
 
 

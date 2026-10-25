@@ -4,7 +4,7 @@ Principle (SPEC "Data model"): ``blobs`` are content identity (blake3 hash
 PK); ``files`` are a path within a revision snapshot pointing at a blob.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -13,12 +13,14 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     Float,
     ForeignKey,
     Identity,
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -343,6 +345,63 @@ class PrintQueueEntry(Base):
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     reserved_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     hold_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # T4 scheduling columns. ``scheduled_at`` defers dispatch until then;
+    # ``manual_start`` holds it until ``released_at`` is set; the previous-success
+    # / auto-off / preheat flags are read by the dispatcher; ``stage`` is the
+    # preheat sub-status (preheating|soaking).
+    scheduled_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    manual_start: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    require_previous_success: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    auto_off_after: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    preheat_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preheat_chamber_target: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    batch_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_batches.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    released_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    released_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    stage: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PrintBatch(Base):
+    """T4: a named run of ``quantity`` queue entries (``copies=1`` each).
+    ``status`` is draft|active|done|cancelled; ``done`` is derived from the
+    entries (``app.services.batches``)."""
+
+    __tablename__ = "print_batches"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    model_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("models.id", ondelete="SET NULL"), nullable=True
+    )
+    file_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True
+    )
+    recipe_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_recipes.id", ondelete="SET NULL"), nullable=True
+    )
+    printer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    plate_targets: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    # Scheduling fields applied to every entry at dispatch.
+    options: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    cost_center_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("cost_centers.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
 class Print(Base):

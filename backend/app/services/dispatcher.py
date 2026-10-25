@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from redis import Redis
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -34,12 +34,13 @@ from app.models.printing import Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
-from app.services import billing, drying_tick, ha_state
+from app.services import billing, drying_tick, ha_state, queue_schedule
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.permissions import can_print_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
+from app.services.queue_preheat import get_preheat_config_sync
 from app.services.queue_settings import get_queue_config_sync
 
 # 3 attempts total (slicing + dispatch share the one `attempts` counter) --
@@ -138,13 +139,17 @@ def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
     return None
 
 
-def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:
+def eligible_queue_items(
+    session: Session, *, include_deferred: bool = False
+) -> list[PrintQueueEntry]:
     """THE single filter P7/P8 extend (module docstring). P6: a per-file
     entry (``file_id`` set -- bare legacy entries never dispatch),
     ``waiting``/``ready``, under the shared attempt cap, oldest position
     first. P7 adds ``review_state IN (none, approved) AND hold_reason IS
     NULL`` here ONLY; P8 consults ``printer_hold_reason`` per-printer
     below, not here (a hold can clear without touching the item itself).
+    T4: excludes ``scheduled_at`` in the future and unreleased ``manual_start``
+    entries unless ``include_deferred`` (used to ask "is more work queued?").
     """
     stmt = (
         select(PrintQueueEntry)
@@ -157,6 +162,14 @@ def eligible_queue_items(session: Session) -> list[PrintQueueEntry]:
         )
         .order_by(PrintQueueEntry.position)
     )
+    if not include_deferred:
+        stmt = stmt.where(
+            or_(PrintQueueEntry.scheduled_at.is_(None), PrintQueueEntry.scheduled_at <= func.now()),
+            or_(
+                PrintQueueEntry.manual_start.is_(False),
+                PrintQueueEntry.released_at.is_not(None),
+            ),
+        )
     return list(session.scalars(stmt).all())
 
 
@@ -168,7 +181,7 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
     item.state = QueueState.FAILED if item.attempts >= QUEUE_MAX_ATTEMPTS else QueueState.READY
 
 
-def _reconcile(session: Session, counts: dict) -> None:
+def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> None:
     """Step 1 (I5): a `dispatched` item's job now tells the whole story --
     FINISHED means the print actually completed (-> `done`, the item's
     terminal state, hidden from the default queue listing); CANCELED, or
@@ -198,6 +211,7 @@ def _reconcile(session: Session, counts: dict) -> None:
         if job.state == PrintJobState.FINISHED:
             item.state = QueueState.DONE
             counts["done"] += 1
+            queue_schedule.note_finished(client, item)
         elif job.state == PrintJobState.CANCELED or (
             job.state == PrintJobState.FAILED and job.started_at is not None
         ):
@@ -205,6 +219,7 @@ def _reconcile(session: Session, counts: dict) -> None:
             item.last_error = job.printer_error or (
                 "canceled" if job.state == PrintJobState.CANCELED else "print failed"
             )
+            queue_schedule.note_finished(client, item)
         elif job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
             counts["retried"] += 1
@@ -574,11 +589,34 @@ def _wake_plugs(
         session.rollback()
 
 
+def _housekeeping(session: Session, settings: Settings, client: Redis, cfg) -> None:
+    """T4: bed keep-warm + auto power-off. Both ask "is more work queued for
+    this printer?" over the deferred-inclusive queue; a failure here must
+    never stall dispatch."""
+    has_auto_off = next(client.scan_iter(f"{queue_schedule.AUTO_OFF_PREFIX}*", count=10), None)
+    has_warm = next(client.scan_iter(f"{queue_schedule.KEEPWARM_PREFIX}*", count=10), None)
+    if not (cfg.keep_warm_enabled or has_auto_off or has_warm):
+        return
+    try:
+        horizon = datetime.now(UTC) + timedelta(minutes=cfg.keep_warm_max_min)
+        queued = eligible_queue_items(session, include_deferred=True)
+        _, wanted = queue_target_ids(session, client, queued)
+        soon = [i for i in queued if i.scheduled_at is None or i.scheduled_at <= horizon]
+        _, pending = queue_target_ids(session, client, soon)
+        queue_schedule.run_keep_warm(session, client, cfg, pending)
+        queue_schedule.process_auto_off(session, settings, client, wanted)
+    except Exception:  # noqa: BLE001
+        session.rollback()
+
+
 def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
-    counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0}
-    _reconcile(session, counts)
+    counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0, "skipped": 0}
+    _reconcile(session, counts, client)
     items = eligible_queue_items(session)
     _wake_plugs(session, settings, client, items)
+    preheat_cfg = get_preheat_config_sync(session)
+    queue_schedule.release_abandoned_preheats(session, client, preheat_cfg, {i.id for i in items})
+    _housekeeping(session, settings, client, preheat_cfg)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
@@ -624,6 +662,17 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
         n = recipe.n if recipe is not None else None
         selected = select_printers(fanout, n, candidates, item.copies)
         if not selected:
+            continue
+
+        if queue_schedule.previous_failed(session, item, selected[0]):
+            queue_schedule.skip_previous_failed(session, item, selected[0])
+            counts["skipped"] += 1
+            continue
+        printer = session.get(Printer, selected[0])
+        if printer is not None and not queue_schedule.preheat_gate(
+            session, client, preheat_cfg, item, printer, [f.type for f in need.filaments]
+        ):
+            used_this_tick.add(selected[0])  # one preheating entry per printer
             continue
 
         _dispatch(session, settings, client, item, selected, fanout, need)

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import QueueState, ReviewState
 from app.schemas.library import FileOut, ModelSummary
@@ -55,6 +55,14 @@ class QueueEnqueueIn(BaseModel):
     # billing is on. ``None`` lazily resolves to the enqueuer's own private
     # center (``app.services.billing.ensure_private_center``).
     cost_center_id: int | None = None
+    # T4 scheduling (see ``app.services.dispatcher``).
+    scheduled_at: datetime | None = None
+    manual_start: bool = False
+    require_previous_success: bool = False
+    auto_off_after: bool = False
+    preheat_override: Literal["on", "off"] | None = None
+    preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
+    batch_id: int | None = None
 
 
 class ReviewIn(BaseModel):
@@ -74,7 +82,26 @@ class QueueReorderIn(BaseModel):
     position, clamped to ``[1, n]`` by the service layer.
     """
 
-    position: int
+    position: int | None = None
+    # T4: scheduling fields -- only keys present in the body are applied
+    # (an explicit ``null`` clears ``scheduled_at``/``preheat_*``).
+    scheduled_at: datetime | None = None
+    manual_start: bool | None = None
+    require_previous_success: bool | None = None
+    auto_off_after: bool | None = None
+    preheat_override: Literal["on", "off"] | None = None
+    preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
+
+    @model_validator(mode="after")
+    def _non_empty(self) -> QueueReorderIn:
+        if not self.model_fields_set:
+            raise ValueError("at least one field required")
+        return self
+
+
+class BatchRefOut(BaseModel):
+    id: int
+    name: str
 
 
 class QueueEntryOut(BaseModel):
@@ -128,3 +155,20 @@ class QueueEntryOut(BaseModel):
     # M6: who queued it, so the review inbox can show a name rather than
     # just a cost/plate. `None` for a legacy entry with no creator on file.
     created_by: CreatedByOut | None = None
+    # T4 scheduling.
+    scheduled_at: datetime | None = None
+    manual_start: bool = False
+    require_previous_success: bool = False
+    auto_off_after: bool = False
+    preheat_override: str | None = None
+    preheat_chamber_target: int | None = None
+    released_at: datetime | None = None
+    # preheating | soaking while the dispatcher stages a preheat.
+    stage: str | None = None
+    # ``hold_reason`` when ``state == skipped`` (e.g. "previous_failed").
+    skipped_reason: str | None = None
+    # Why a waiting/ready entry is not being dispatched:
+    # scheduled | manual | plate | <hold_reason> | None.
+    waiting_reason: str | None = None
+    batch_id: int | None = None
+    batch: BatchRefOut | None = None
