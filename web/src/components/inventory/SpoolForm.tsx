@@ -11,11 +11,16 @@
  * is meaningless without it.
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useMaterials } from "@/api/materials";
+import { usePutSpoolSuppliers } from "@/api/spoolAdmin";
 import { useCreateSpool, usePatchSpool } from "@/api/spools";
-import type { MaterialKind, SpoolCreate, SpoolOut } from "@/api/types";
+import type { ColorCatalogEntry, MaterialKind, SpoolCreate, SpoolOut, SpoolSupplierLink } from "@/api/types";
+import { ColorCatalogPicker } from "@/components/inventory/ColorCatalogPicker";
+import { LocationCombobox } from "@/components/inventory/LocationCombobox";
+import { SupplierListEditor } from "@/components/inventory/SupplierListEditor";
 import { useAuth } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,7 +55,7 @@ function fieldsFor(spool: SpoolOut | undefined, prefill: SpoolFormPrefill | unde
     emptyWeight: spool?.empty_weight_g != null ? String(spool.empty_weight_g) : "",
     usedWeight: String(spool?.weight_used_g ?? 0),
     costPerKg: spool?.cost_per_kg != null ? String(spool.cost_per_kg) : "",
-    location: spool?.location ?? "",
+    locationId: spool?.location_id ?? null,
     lowStockG: String(spool?.low_stock_g ?? 100),
     trayUuid: spool?.tray_uuid ?? prefill?.tray_uuid ?? "",
   };
@@ -79,11 +84,15 @@ export function SpoolForm({
 
   const [fields, setFields] = useState(() => fieldsFor(spool, prefill));
   const [grossWeight, setGrossWeight] = useState("");
+  const [suppliers, setSuppliers] = useState<SpoolSupplierLink[]>(spool?.suppliers ?? []);
+  const { t } = useTranslation();
+  const putSuppliers = usePutSpoolSuppliers();
 
   useEffect(() => {
     if (open) {
       setFields(fieldsFor(spool, prefill));
       setGrossWeight("");
+      setSuppliers(spool?.suppliers ?? []);
       createSpool.reset();
       patchSpool.reset();
     }
@@ -127,15 +136,36 @@ export function SpoolForm({
       empty_weight_g: fields.emptyWeight.trim() === "" ? null : Number(fields.emptyWeight),
       weight_used_g: Number(fields.usedWeight) || 0,
       cost_per_kg: fields.costPerKg.trim() === "" ? null : Number(fields.costPerKg),
-      location: fields.location.trim() || null,
+      location_id: fields.locationId,
       low_stock_g: Number(fields.lowStockG) || 0,
       tray_uuid: fields.trayUuid.trim() || null,
     };
+    const finish = async (saved: SpoolOut) => {
+      const before = JSON.stringify(spool?.suppliers ?? []);
+      if (JSON.stringify(suppliers) !== before) {
+        try {
+          await putSuppliers.mutateAsync({ id: saved.id, links: suppliers });
+        } catch {
+          return; // putSuppliers.isError renders below; keep the dialog open
+        }
+      }
+      onSaved?.(saved);
+      onOpenChange(false);
+    };
     if (isEdit) {
-      patchSpool.mutate({ id: spool.id, payload }, { onSuccess: (s) => { onSaved?.(s); onOpenChange(false); } });
+      patchSpool.mutate({ id: spool.id, payload }, { onSuccess: finish });
     } else {
-      createSpool.mutate(payload, { onSuccess: (s) => { onSaved?.(s); onOpenChange(false); } });
+      createSpool.mutate(payload, { onSuccess: finish });
     }
+  }
+
+  function applyCatalog(entry: ColorCatalogEntry) {
+    setFields((f) => ({
+      ...f,
+      colorHex: entry.hex,
+      colorName: entry.color_name,
+      brand: f.brand.trim() ? f.brand : entry.manufacturer,
+    }));
   }
 
   const swatch = normalizeHex(fields.colorHex);
@@ -143,7 +173,7 @@ export function SpoolForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit spool" : "New spool"}</DialogTitle>
@@ -209,6 +239,7 @@ export function SpoolForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="spool-color">Colour</Label>
+              <ColorCatalogPicker onPick={applyCatalog} disabled={!canWrite} />
               <div className="flex items-center gap-2">
                 <span
                   aria-hidden="true"
@@ -319,12 +350,16 @@ export function SpoolForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="spool-location">Location</Label>
-              <Input
-                id="spool-location"
-                value={fields.location}
-                onChange={(e) => setFields((f) => ({ ...f, location: e.target.value }))}
+              <LocationCombobox
+                initialName={spool?.location}
+                onChange={(locationId) => setFields((f) => ({ ...f, locationId }))}
                 disabled={!canWrite}
               />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>{t("spoolAdmin.sup.title")}</Label>
+              <SupplierListEditor value={suppliers} onChange={setSuppliers} disabled={!canWrite} />
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -338,6 +373,11 @@ export function SpoolForm({
               />
             </div>
 
+            {putSuppliers.isError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {putSuppliers.error instanceof ApiError ? putSuppliers.error.detail : t("spoolAdmin.sup.saveFailed")}
+              </p>
+            ) : null}
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
                 {mutation.error instanceof ApiError ? mutation.error.detail : "Could not save this spool"}
