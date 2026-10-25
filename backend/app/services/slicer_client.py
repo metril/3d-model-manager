@@ -239,11 +239,12 @@ class SlicerClient:
             raise SlicerError(f"slicer health returned non-JSON body: {exc}") from exc
         return _parse_health(data)
 
-    def cancel(self, job_id: str) -> bool:
+    def cancel(self, job_id: str, *, timeout: float = 5.0) -> bool:
         """Ask the sidecar to kill job `job_id`. False when it isn't running
-        (already finished / unknown / sidecar predates the endpoint)."""
+        (already finished / unknown / sidecar predates the endpoint). Short
+        timeout: a cancel must never hold an API request for the default 120s."""
         try:
-            self._request("DELETE", f"/jobs/{job_id}")
+            self._request("DELETE", f"/jobs/{job_id}", timeout=timeout)
         except SlicerError as exc:
             if exc.status == 404:
                 return False

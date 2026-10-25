@@ -13,6 +13,7 @@ import uuid
 
 import anyio
 from fastapi import HTTPException, status
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -20,7 +21,7 @@ from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
-from app.services.slicer_client import SlicerError, client_from_config
+from app.services.slicer_client import client_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,19 @@ async def create_job(
 
     # Explicit task id == job id (like `app.services.jobs.create_job`) so
     # cancel can revoke it without a post-dispatch write racing the worker.
-    slice_job.apply_async(args=[str(job_id)], task_id=str(job_id))
+    try:
+        slice_job.apply_async(args=[str(job_id)], task_id=str(job_id))
+    except Exception as exc:  # broker down: don't leave a row queued forever
+        logger.warning("could not enqueue slice job %s: %s", job_id, exc)
+        await db.execute(
+            update(SliceJob)
+            .where(SliceJob.id == job_id, SliceJob.state == "queued")
+            .values(state="failed", error="could not enqueue slice job")
+        )
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "could not enqueue slice job"
+        ) from exc
     return await _out(db, job)
 
 
@@ -98,7 +111,7 @@ async def stop_slice(
     if client is not None:
         try:
             killed = await anyio.to_thread.run_sync(client.cancel, sidecar_job_id)
-        except SlicerError as exc:
+        except Exception as exc:  # noqa: BLE001 -- DB state already wins; never 500
             logger.warning("sidecar cancel of %s failed: %s", sidecar_job_id, exc)
     if task_id:
         from app.tasks.celery_app import celery_app
@@ -116,10 +129,15 @@ async def cancel_job(db: AsyncSession, settings: Settings, job_id: uuid.UUID) ->
     from app.tasks.slicing import slice_job_sidecar_id
 
     job = await get_job(db, job_id)
-    if job.state in ACTIVE_STATES:
-        job.state = "cancelled"
-        job.error = "cancelled"
-        await db.commit()
+    # Conditional UPDATE: only the caller that actually flips an active row
+    # stops the slice; a worker finishing concurrently wins or loses cleanly.
+    res = await db.execute(
+        update(SliceJob)
+        .where(SliceJob.id == job_id, SliceJob.state.in_(ACTIVE_STATES))
+        .values(state="cancelled", error="cancelled")
+    )
+    await db.commit()
+    if res.rowcount:
         await stop_slice(db, settings, slice_job_sidecar_id(job.id), job.celery_id)
-        await db.refresh(job)
+    await db.refresh(job)
     return await _out(db, job)
