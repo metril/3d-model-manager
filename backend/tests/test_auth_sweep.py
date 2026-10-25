@@ -132,8 +132,6 @@ _PATH_PARAM_VALUES = {
     # V4: projects.
     "project_id": "1",
     "attachment_id": "1",
-    "template_id": "1",
-    "item_id": "1",
 }
 
 
