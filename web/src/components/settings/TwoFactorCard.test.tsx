@@ -6,7 +6,8 @@ import type { TwoFactorStatus } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { TwoFactorCard } from "@/components/settings/TwoFactorCard";
 
-const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
+const { getMock, postMock, toastError } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn(), toastError: vi.fn() }));
+vi.mock("sonner", () => ({ toast: { error: toastError, success: vi.fn() } }));
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return { ...actual, api: { ...actual.api, get: getMock, post: postMock } };
@@ -111,5 +112,17 @@ describe("TwoFactorCard", () => {
     renderCard();
     expect(await screen.findByText(/configure outgoing email/)).toBeInTheDocument();
     expect((await screen.findAllByRole("button", { name: "Set up" }))[1]).toBeDisabled();
+  });
+
+  it("toasts and closes the dialog on a 2fa_locked re-auth", async () => {
+    status = on;
+    postMock.mockRejectedValue(new ApiError(429, "locked", "2fa_locked"));
+    renderCard();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Disable" }))[0]);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Password or current code"), { target: { value: "x" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringContaining("15 minutes")));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });

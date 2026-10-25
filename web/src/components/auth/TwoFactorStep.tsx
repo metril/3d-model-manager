@@ -13,10 +13,12 @@ interface Props {
   onDone: (me: Verify2faResult) => void;
   /** Token is unknown / expired / used up (410): the caller returns to credentials. */
   onExpired: () => void;
+  /** Per-user lockout (429 `2fa_locked`): the caller returns to credentials, no retry. */
+  onLocked: () => void;
   onBack: () => void;
 }
 
-export function TwoFactorStep({ token, methods, onDone, onExpired, onBack }: Props) {
+export function TwoFactorStep({ token, methods, onDone, onExpired, onLocked, onBack }: Props) {
   const { t } = useTranslation();
   const primary = methods.filter((m) => m !== "backup");
   const hasBackup = methods.includes("backup");
@@ -49,6 +51,7 @@ export function TwoFactorStep({ token, methods, onDone, onExpired, onBack }: Pro
         onError: (e) => {
           verify.reset();
           if (e instanceof ApiError && e.status === 410) return onExpired();
+          if (e instanceof ApiError && e.code === "2fa_locked") return onLocked();
           setCode("");
           setError(
             e instanceof ApiError && e.status === 401 ? t("twofa.login.invalid") : e instanceof ApiError ? e.detail : t("twofa.login.failed"),
@@ -64,6 +67,7 @@ export function TwoFactorStep({ token, methods, onDone, onExpired, onBack }: Pro
       onSuccess: () => setSent(true),
       onError: (e) => {
         if (e instanceof ApiError && e.status === 410) return onExpired();
+        if (e instanceof ApiError && e.code === "2fa_locked") return onLocked();
         const code = e instanceof ApiError ? e.code : undefined;
         setError(
           code === "rate_limited"

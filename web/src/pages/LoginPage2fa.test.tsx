@@ -158,4 +158,28 @@ describe("LoginPage 2FA step", () => {
     );
     expect(window.location.hash).toBe("");
   });
+
+  it("429 2fa_locked on verify returns to credentials with lockout copy", async () => {
+    postMock.mockImplementation((path: string) =>
+      path === "/auth/login" ? Promise.resolve(need2fa) : Promise.reject(new ApiError(429, "locked", "2fa_locked")),
+    );
+    renderLogin();
+    await signIn();
+    fireEvent.change(await screen.findByLabelText("Code"), { target: { value: "123456" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 15 minutes");
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(postMock.mock.calls.filter((c) => c[0] === "/auth/2fa/verify")).toHaveLength(1);
+  });
+
+  it("429 2fa_locked on login shows lockout copy", async () => {
+    postMock.mockRejectedValue(new ApiError(429, "locked", "2fa_locked"));
+    renderLogin();
+    await signIn();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 15 minutes");
+  });
+
+  it("?error=2fa_locked shows the lockout banner", async () => {
+    renderLogin("/login?error=2fa_locked");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 15 minutes");
+  });
 });

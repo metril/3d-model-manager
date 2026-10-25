@@ -13,6 +13,7 @@ const ERROR_COPY: Record<string, string> = {
   not_provisioned: "Your account isn't set up here yet. Ask an admin to add you.",
   inactive: "This account has been deactivated.",
   invalid_state: "That sign-in link expired. Please try again.",
+  "2fa_locked": "Too many failed attempts. Try again in 15 minutes.",
   oidc_failed: "Single sign-on failed. Try again or use your password.",
 };
 
@@ -87,7 +88,10 @@ export function LoginPage() {
   }
 
   const errorMessage =
-    login.error instanceof ApiError ? login.error.detail : login.error ? "Login failed" : null;
+    login.error instanceof ApiError
+      ? login.error.code === "2fa_locked"
+        ? t("twofa.login.locked")
+        : login.error.detail : login.error ? "Login failed" : null;
 
   return (
     <div className="flex min-h-svh items-center justify-center p-4">
@@ -105,6 +109,10 @@ export function LoginPage() {
               onExpired={() => {
                 setPending(null);
                 setNotice(t("twofa.login.expired"));
+              }}
+              onLocked={() => {
+                setPending(null);
+                setNotice(t("twofa.login.locked"));
               }}
               onBack={() => setPending(null)}
             />

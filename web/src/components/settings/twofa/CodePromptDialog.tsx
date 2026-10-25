@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { toast } from "sonner";
+
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -51,6 +53,11 @@ export function CodePromptDialog({
       await onSubmit(value.trim());
       onOpenChange(false);
     } catch (e) {
+      if (e instanceof ApiError && e.code === "2fa_locked") {
+        toast.error(t("twofa.login.locked"));
+        onOpenChange(false);
+        return;
+      }
       setError(e instanceof ApiError ? (e.code === "invalid_code" ? t("twofa.login.invalid") : e.detail) : t("twofa.error"));
     } finally {
       setBusy(false);

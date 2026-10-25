@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useTotpEnable, useTotpSetup, type TotpSetup } from "@/api/auth";
+import { toast } from "sonner";
+
 import { ApiError } from "@/api/client";
 import { BackupCodes } from "@/components/settings/twofa/BackupCodes";
 import { Button } from "@/components/ui/button";
@@ -60,7 +62,10 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
           enable.reset(); // backup codes live in component state only
         },
         onError: (e) => {
-          if (e instanceof ApiError && e.status === 410) {
+          if (e instanceof ApiError && e.code === "2fa_locked") {
+            toast.error(t("twofa.login.locked"));
+            onOpenChange(false);
+          } else if (e instanceof ApiError && e.status === 410) {
             setError(t("twofa.totp.expired"));
             setData(null);
           } else setError(e instanceof ApiError ? (e.code === "invalid_code" ? t("twofa.login.invalid") : e.detail) : t("twofa.error"));
