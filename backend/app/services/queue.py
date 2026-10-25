@@ -17,7 +17,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
@@ -681,12 +681,20 @@ async def cancel_slicing(db: AsyncSession, settings: Settings, entry_id: int) ->
     if entry.state != QueueState.SLICING:
         raise HTTPException(status.HTTP_409_CONFLICT, "entry is not slicing")
     task_id = entry.slice_task_id
-    entry.state = QueueState.FAILED
-    entry.last_error = "cancelled"
-    entry.last_log = None
-    entry.slicing_started_at = None
-    entry.slice_task_id = None
+    res = await db.execute(
+        update(PrintQueueEntry)
+        .where(PrintQueueEntry.id == entry_id, PrintQueueEntry.state == QueueState.SLICING)
+        .values(
+            state=QueueState.FAILED,
+            last_error="cancelled",
+            last_log=None,
+            slicing_started_at=None,
+            slice_task_id=None,
+        )
+    )
     await db.commit()
+    if not res.rowcount:  # lost a race (finished/cancelled meanwhile)
+        raise HTTPException(status.HTTP_409_CONFLICT, "entry is not slicing")
     await slice_jobs.stop_slice(db, settings, queue_job_id(entry_id), task_id)
     await db.refresh(entry)
     return (await _to_out(db, settings, [entry]))[0]

@@ -189,12 +189,20 @@ async def _obico(
     ver = ml_version or None
     if not cfg.enabled:
         return {"obico": _st("off", "disabled", ver)}
+    t0 = time.monotonic()
     ok, detail, _ = await _http_ok(f"{cfg.url}/hc/")
     if not ok:
         return {"obico": _st("down", detail, ver)}
+    budget = max(0.3, PROBE_TIMEOUT_S - 0.3 - (time.monotonic() - t0))
+    # The service answered; a slow/failed watcher scan must not read as "down".
     bad = 0
-    async for key in r.scan_iter(match="printer:*:obico", count=100):
-        raw = await r.get(key)
+    try:
+        with anyio.fail_after(budget):
+            keys = [k async for k in r.scan_iter(match="printer:*:obico", count=500)]
+            raws = await r.mget(keys) if keys else []
+    except (TimeoutError, aioredis.RedisError):
+        return {"obico": _st("warn", "reachable; watcher status unavailable", ver)}
+    for raw in raws:
         try:
             body = json.loads(raw) if raw else {}
         except ValueError:
@@ -283,11 +291,18 @@ async def _guard(
 
 
 async def collect(db: AsyncSession, r: aioredis.Redis, settings: Settings) -> AdminStatusOut:
-    server = await get_server_config(db)
-    ocfg = await obico.get_config(db, settings)
-    sp = await spoolman.get_config(db)
-    ha = await get_ha_config(db, settings)
-    app_cfg = await get_app_config(db, settings)
+    try:
+        with anyio.fail_after(PROBE_TIMEOUT_S):
+            server = await get_server_config(db)
+            ocfg = await obico.get_config(db, settings)
+            sp = await spoolman.get_config(db)
+            ha = await get_ha_config(db, settings)
+            app_cfg = await get_app_config(db, settings)
+    except TimeoutError:
+        now = time.time()
+        down = _st("down", "config load timed out")
+        down.checked_at = now
+        return AdminStatusOut(overall="down", checked_at=now, services={"db": down})
     ml = settings.obico_ml_version.strip()
     jobs: list[tuple[tuple[str, ...], Callable[[], Awaitable[dict[str, ServiceStatus]]]]] = [
         (("db",), _db),
