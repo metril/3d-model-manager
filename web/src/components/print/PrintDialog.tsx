@@ -52,7 +52,7 @@ import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
-import { NO_BATCH, SchedulingSection, type BatchChoice } from "@/components/print/SchedulingSection";
+import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -62,7 +62,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SpecRow } from "@/components/ui/spec-row";
-import { draftToFields, EMPTY_SCHEDULE, isScheduleSet, type ScheduleDraft } from "@/lib/schedule";
+import { draftToFields, EMPTY_SCHEDULE, isScheduleSet, NO_BATCH, type BatchChoice, type ScheduleDraft } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { formatCost, humanizeDuration } from "@/lib/format";
 

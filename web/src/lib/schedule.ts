@@ -1,6 +1,6 @@
 /** T4 scheduling helpers: `datetime-local` <-> ISO UTC, and the draft shape
  * the PrintDialog / batch dialog / inline popover share. */
-import type { PreheatOverride, QueueSchedulingFields } from "@/api/types";
+import type { PreheatOverride, QueueEntry, QueueSchedulingFields } from "@/api/types";
 
 export interface ScheduleDraft {
   /** `datetime-local` value ("YYYY-MM-DDTHH:mm") in the viewer's zone; "" = ASAP. */
@@ -90,3 +90,44 @@ export function draftToPatch(draft: ScheduleDraft): Omit<QueueSchedulingFields, 
     preheat_chamber_target: chamberTargetValue(draft),
   };
 }
+
+/** PrintDialog batch picker state. */
+export interface BatchChoice {
+  /** null = no batch, "new" = create inline, number = existing batch id. */
+  mode: null | "new" | number;
+  name: string;
+  quantity: number;
+}
+
+export const NO_BATCH: BatchChoice = { mode: null, name: "", quantity: 1 };
+
+
+/** A queue entry's current scheduling as an editable draft. */
+export function entryDraft(entry: QueueEntry): ScheduleDraft {
+  return {
+    startAt: isoToLocal(entry.scheduled_at),
+    manualStart: !!entry.manual_start,
+    requirePrev: !!entry.require_previous_success,
+    autoOff: !!entry.auto_off_after,
+    preheat: entry.preheat_override ?? "inherit",
+    chamberTarget: entry.preheat_chamber_target != null ? String(entry.preheat_chamber_target) : "",
+  };
+}
+
+
+export function schedulingSummary(
+  draft: ScheduleDraft,
+  batch: BatchChoice,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string {
+  const parts: string[] = [];
+  const iso = localToIso(draft.startAt);
+  if (iso) parts.push(new Date(iso).toLocaleString());
+  if (draft.manualStart) parts.push(t("queueSched.manualStart"));
+  if (draft.requirePrev) parts.push(t("queueSched.requirePrev"));
+  if (draft.autoOff) parts.push(t("queueSched.autoOff"));
+  if (draft.preheat !== "inherit") parts.push(`${t("queueSched.preheat")}: ${t(`queueSched.${draft.preheat}`)}`);
+  if (batch.mode !== null) parts.push(t("queueSched.batch"));
+  return parts.length > 0 ? parts.join(" · ") : t("queueSched.summaryNone");
+}
+

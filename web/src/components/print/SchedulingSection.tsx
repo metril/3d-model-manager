@@ -16,16 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { isScheduleSet, localToIso, type ScheduleDraft } from "@/lib/schedule";
-
-export interface BatchChoice {
-  /** null = no batch, "new" = create inline, number = existing batch id. */
-  mode: null | "new" | number;
-  name: string;
-  quantity: number;
-}
-
-export const NO_BATCH: BatchChoice = { mode: null, name: "", quantity: 1 };
+import { isScheduleSet, schedulingSummary, type BatchChoice, type ScheduleDraft } from "@/lib/schedule";
 
 /** Segmented inherit | on | off preheat control + chamber target. */
 function PreheatField({
@@ -228,22 +219,6 @@ function SectionBody({
       {can("queue:review") ? <BatchPicker value={batch} onChange={onBatchChange} /> : null}
     </div>
   );
-}
-
-export function schedulingSummary(
-  draft: ScheduleDraft,
-  batch: BatchChoice,
-  t: (k: string, o?: Record<string, unknown>) => string,
-): string {
-  const parts: string[] = [];
-  const iso = localToIso(draft.startAt);
-  if (iso) parts.push(new Date(iso).toLocaleString());
-  if (draft.manualStart) parts.push(t("queueSched.manualStart"));
-  if (draft.requirePrev) parts.push(t("queueSched.requirePrev"));
-  if (draft.autoOff) parts.push(t("queueSched.autoOff"));
-  if (draft.preheat !== "inherit") parts.push(`${t("queueSched.preheat")}: ${t(`queueSched.${draft.preheat}`)}`);
-  if (batch.mode !== null) parts.push(t("queueSched.batch"));
-  return parts.length > 0 ? parts.join(" · ") : t("queueSched.summaryNone");
 }
 
 export function SchedulingSection({

@@ -15,20 +15,9 @@ import { SchedulingFields } from "@/components/print/SchedulingSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { changedPatch, isoToLocal, type ScheduleDraft } from "@/lib/schedule";
+import { changedPatch, entryDraft, type ScheduleDraft } from "@/lib/schedule";
 
 const EDITABLE = new Set(["waiting", "ready", "held", "slicing"]);
-
-export function entryDraft(entry: QueueEntry): ScheduleDraft {
-  return {
-    startAt: isoToLocal(entry.scheduled_at),
-    manualStart: !!entry.manual_start,
-    requirePrev: !!entry.require_previous_success,
-    autoOff: !!entry.auto_off_after,
-    preheat: entry.preheat_override ?? "inherit",
-    chamberTarget: entry.preheat_chamber_target != null ? String(entry.preheat_chamber_target) : "",
-  };
-}
 
 function SchedulePopover({ entry }: { entry: QueueEntry }) {
   const { t } = useTranslation();
