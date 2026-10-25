@@ -287,8 +287,9 @@ const duplicatesRoute = createRoute({
 const inventorySpoolsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/spools",
-  validateSearch: (search: Record<string, unknown>): { low?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { low?: string; tab?: string } => ({
     low: search.low != null ? String(search.low) : undefined,
+    tab: typeof search.tab === "string" ? search.tab : undefined,
   }),
   component: SpoolsPage,
 });
