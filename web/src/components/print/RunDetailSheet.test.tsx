@@ -10,6 +10,7 @@ const { archiveMock, patchMock, authMock } = vi.hoisted(() => ({
   patchMock: vi.fn(),
   authMock: vi.fn(),
 }));
+vi.mock("@/components/print/SourceFiles", () => ({ SourceFiles: () => null }));
 vi.mock("@/api/archives", () => ({
   useArchive: () => ({ data: archiveMock() }),
   usePatchRun: () => ({ mutate: patchMock, isPending: false }),

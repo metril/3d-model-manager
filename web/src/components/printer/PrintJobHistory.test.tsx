@@ -6,6 +6,7 @@ import type { ArchiveOut } from "@/api/types";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
 
 const { useArchivesMock } = vi.hoisted(() => ({ useArchivesMock: vi.fn() }));
+vi.mock("@/components/print/SourceFiles", () => ({ SourceFiles: () => null }));
 vi.mock("@/api/archives", () => ({
   useArchives: useArchivesMock,
   archiveThumbnailUrl: (id: number) => `/t/${id}`,
