@@ -91,6 +91,24 @@ def postgres_url() -> Iterator[str]:
     _reset_settings_and_engine_caches()
 
 
+_REDIS_URL_STARTED: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def _flush_redis() -> Iterator[None]:
+    """Redis state (e.g. printer status keyed by id, which restarts at 1 every
+    test) must not leak between tests: with xdist/sharding the preceding test
+    on a worker is arbitrary. Only flushes if this worker already started Redis.
+    """
+    yield
+    if _REDIS_URL_STARTED:
+        import redis as redis_lib
+
+        c = redis_lib.Redis.from_url(_REDIS_URL_STARTED[0])
+        c.flushall()
+        c.close()
+
+
 @pytest.fixture(scope="session")
 def redis_url() -> Iterator[str]:
     """Start one Redis container for the whole test session (Task 6: SSE +
@@ -100,8 +118,10 @@ def redis_url() -> Iterator[str]:
     with RedisContainer("redis:7-alpine") as container:
         url = f"redis://{container.get_container_host_ip()}:{container.get_exposed_port(container.port)}/0"
         os.environ["REDIS_URL"] = url
+        _REDIS_URL_STARTED.append(url)
         _reset_settings_and_engine_caches()
         yield url
+    _REDIS_URL_STARTED.clear()
     del os.environ["REDIS_URL"]
     _reset_settings_and_engine_caches()
 
