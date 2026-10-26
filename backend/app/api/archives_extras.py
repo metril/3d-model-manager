@@ -713,9 +713,7 @@ async def _stage_upload(file: UploadFile, settings: Settings) -> tuple[Path, str
     h = hashlib.sha256()
     size = 0
     stage = await anyio.to_thread.run_sync(archive_sources.stage_dir, settings)
-    fd, tmp_name = await anyio.to_thread.run_sync(
-        lambda: tempfile.mkstemp(dir=stage, prefix="up-")
-    )
+    fd, tmp_name = await anyio.to_thread.run_sync(lambda: tempfile.mkstemp(dir=stage, prefix="up-"))
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as fh:

@@ -21,9 +21,10 @@ from sqlalchemy import func, select
 from app.config import Settings
 from app.importers.download import stage_local_file
 from app.models.enums import BlobFormat, QueueState, ReviewState, VirtualPrinterMode
-from app.models.library import Blob, File, PrintQueueEntry
+from app.models.library import Blob, PrintQueueEntry
 from app.services import billing, slicer_intake
 from app.services.app_config import get_app_config_sync
+from app.services.library import get_live_file_sync
 from app.services.print_plan import estimate_item_sync
 from app.services.server_config import ServerConfig, get_server_config_sync
 from app.services.slicer_naming import _safe_basename
@@ -155,7 +156,9 @@ def _ingest(
 def _enqueue(
     s, settings: Settings, cfg: VpConfig, model_id: int, file_id: int, options: dict[str, Any]
 ) -> int | None:
-    file = s.get(File, file_id)
+    # get_live_file_sync: a file whose model is in the trash is never queued
+    # (the model can be trashed between attach and enqueue); library-only.
+    file = get_live_file_sync(s, file_id)
     blob = s.get(Blob, file.blob_hash) if file else None
     if blob is None or blob.format != BlobFormat.GCODE_3MF:
         return None  # not a sliced file: library only, nothing printable to queue

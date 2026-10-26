@@ -312,7 +312,9 @@ async def ensure_access_token(db: AsyncSession, settings: Settings) -> str:
         await db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _REFRESH_LOCK_KEY})
         row = (
             await db.execute(
-                select(Setting).where(Setting.key == SETTINGS_KEY).execution_options(populate_existing=True)
+                select(Setting)
+                .where(Setting.key == SETTINGS_KEY)
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         st = _state(settings, row.value if row else None)

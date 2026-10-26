@@ -27,19 +27,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import redis
+from sqlalchemy import select
 
 from app.config import Settings, get_settings
-from app.models import Blob, File, Printer, PrintJob
-from app.models.enums import PrintJobState
+from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
+from app.models.enums import PrintJobState, QueueState
 from app.printers import gcode3mf
 from app.printers.base import PrinterConnection, PrintSpec
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.services import derivatives, kprofiles
 from app.services.events import publish_print_job_event_sync
+from app.services.library import get_live_file_sync
 from app.services.printer_state import preflight_ok, read_state_sync
 from app.tasks import base
 from app.tasks.celery_app import celery_app
+
+TRASH_HOLD = "model_in_trash"
 
 
 class SendError(RuntimeError):
@@ -104,6 +108,18 @@ def _send_to_printer(
             _set_job_state(
                 settings, print_job_id, PrintJobState.FAILED, error="printer or file missing"
             )
+            return
+        if get_live_file_sync(s, file.id) is None:
+            # The model was trashed after this job was queued/dispatched:
+            # never send it. Hold the originating queue entry for the user.
+            for entry in s.scalars(
+                select(PrintQueueEntry).where(PrintQueueEntry.print_job_id == print_job_id)
+            ):
+                entry.state = QueueState.HELD
+                entry.hold_reason = TRASH_HOLD
+                entry.last_error = "model in trash"
+            s.commit()
+            _set_job_state(settings, print_job_id, PrintJobState.FAILED, error="model in trash")
             return
         blob = s.get(Blob, file.blob_hash)
         printer_id, kind = printer.id, printer.kind

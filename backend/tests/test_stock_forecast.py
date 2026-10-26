@@ -196,7 +196,12 @@ async def test_queued_demand_uses_per_plate_grams(db_session):
         s.add(Blob(hash=h, size=1, kind=BlobKind.SLICED, format=BlobFormat.GCODE_3MF))
         s.flush()
         s.add(
-            BlobMeta(blob_hash=h, filament_g=100.0, filament_types=["PLA", "PETG"], raw={"plates": plates})
+            BlobMeta(
+                blob_hash=h,
+                filament_g=100.0,
+                filament_types=["PLA", "PETG"],
+                raw={"plates": plates},
+            )
         )
         f = File(revision_id=rev.id, blob_hash=h, rel_path="mp.gcode.3mf", storage_path="x")
         s.add(f)

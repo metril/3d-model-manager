@@ -386,3 +386,73 @@ def test_task_scrubs_access_code_from_failure_message(
         assert "12345678" not in (job.printer_error or "")
         assert "***" in (job.printer_error or "")
         assert "ftps auth failed" in (job.printer_error or "")
+
+
+def _trash_model_of_job(job_id: int) -> int:
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        f = s.get(File, job.file_id)
+        rev = s.get(Revision, f.revision_id)
+        s.get(Model, rev.model_id).deleted_at = datetime.now(UTC)
+        s.commit()
+        return f.id
+
+
+def test_task_refuses_trashed_model_and_holds_entry(
+    printer_enabled, library_root, redis_url, fake_adapter
+):
+    from app.models import PrintQueueEntry
+    from app.models.enums import QueueState
+
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        f = s.get(File, job.file_id)
+        model_id = s.get(Revision, f.revision_id).model_id
+        entry = PrintQueueEntry(
+            model_id=model_id,
+            file_id=f.id,
+            sliced_file_id=f.id,
+            position=1,
+            copies=1,
+            state=QueueState.READY,
+            print_job_id=job_id,
+        )
+        s.add(entry)
+        s.commit()
+        entry_id = entry.id
+    _trash_model_of_job(job_id)
+
+    send_to_printer(job_id, DEFAULT_OPTS)  # refuses quietly (job FAILED), never raises
+
+    assert fake_adapter.uploaded == []
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == PrintJobState.FAILED.value and job.printer_error == "model in trash"
+        e = s.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.HELD and e.last_error == "model in trash"
+
+
+def test_vp_enqueue_skips_trashed_model(printer_enabled, library_root, redis_url):
+    from types import SimpleNamespace
+
+    from app.models import PrintQueueEntry
+    from app.models.enums import VirtualPrinterMode
+    from app.virtual_printer import intake
+
+    settings = get_settings()
+    _pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    fid = _trash_model_of_job(job_id)
+    cfg = SimpleNamespace(
+        mode=VirtualPrinterMode.REVIEW, target_printer_id=None, name="vp", created_by_user_id=None
+    )
+    with base.sync_session() as s:
+        model_id = s.get(Revision, s.get(File, fid).revision_id).model_id
+        assert intake._enqueue(s, settings, cfg, model_id, fid, {}) is None
+        assert s.scalar(select(PrintQueueEntry.id)) is None
