@@ -32,6 +32,7 @@ from app.schemas.ops import (
 )
 from app.services import backup as backup_svc
 from app.services import service_status
+from app.services.log_stream import redact_line
 from app.services.ops_settings import get_ops_config, get_update_cache, set_ops_config
 from app.services.service_status import AdminStatusOut
 from app.tasks import base
@@ -133,6 +134,21 @@ def _versions(settings: Settings, alembic_rev: str | None) -> dict:
     }
 
 
+async def _service_logs(settings: Settings) -> str:
+    """Last lines shipped by every service (api/workers/beat/printerd), redacted."""
+    from app.services import log_stream as ls
+
+    r = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        raw = await r.lrange(ls.LOG_LIST_KEY, 0, 1999)
+    except Exception:  # noqa: BLE001 - the bundle must still build without redis
+        return ""
+    finally:
+        await r.aclose()
+    entries = list(reversed(ls.parse_entries(raw)))
+    return "\n".join(ls.format_entry(e) for e in entries) + "\n"
+
+
 @router.get("/support-bundle")
 async def support_bundle(
     db: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
@@ -147,7 +163,8 @@ async def support_bundle(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("settings.json", json.dumps(redacted, indent=2, sort_keys=True))
         z.writestr("versions.json", json.dumps(_versions(settings, rev), indent=2))
-        z.writestr("logs.txt", "\n".join(list(RING.lines)[-1000:]) + "\n")
+        z.writestr("logs.txt", "\n".join(redact_line(x) for x in list(RING.lines)[-1000:]) + "\n")
+        z.writestr("logs-services.txt", await _service_logs(settings))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return Response(
         buf.getvalue(),

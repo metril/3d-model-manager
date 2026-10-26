@@ -179,7 +179,7 @@ def main() -> None:
     from app.logging_config import LevelPoller, configure_logging
     from app.services.server_config import seed_all_sync_safe
 
-    configure_logging()
+    configure_logging(service="virtual-printer")
     settings = get_settings()
     poller = LevelPoller(ttl_s=30)
     sys.exit(

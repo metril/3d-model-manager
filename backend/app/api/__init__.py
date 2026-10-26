@@ -39,6 +39,8 @@ from fastapi import APIRouter, Depends
 
 from app.api import (
     admin,
+    admin_logs,
+    admin_mqtt,
     admin_oidc,
     admin_ops,
     api_keys,
@@ -128,6 +130,9 @@ protected_router.include_router(two_factor.protected_router)
 protected_router.include_router(security_settings.router)
 protected_router.include_router(admin.router)
 protected_router.include_router(admin_oidc.router)
+protected_router.include_router(admin_logs.router)
+protected_router.include_router(admin_mqtt.router)
+protected_router.include_router(admin_mqtt.relay_router)
 protected_router.include_router(admin_ops.router)
 protected_router.include_router(admin_ops.settings_router)
 protected_router.include_router(admin_ops.system_router)

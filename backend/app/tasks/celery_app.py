@@ -241,9 +241,24 @@ celery_app.conf.beat_schedule["auth-sweep-ephemeral"] = {
 # the DB-backed `server` + `obico` rows at start (idempotent, ON CONFLICT DO
 # NOTHING) and follows `server.log_level` at runtime. Imports are lazy: this
 # module is imported by the api process too.
-from celery.signals import beat_init, task_prerun, worker_process_init  # noqa: E402
+from celery.signals import (  # noqa: E402
+    after_setup_logger,
+    after_setup_task_logger,
+    beat_init,
+    task_prerun,
+    worker_process_init,
+)
 
 _level_poller = None
+
+
+@after_setup_logger.connect
+@after_setup_task_logger.connect
+def _ship_logs(logger=None, **_: object) -> None:
+    """Celery resets the root handlers; re-attach the admin log-viewer feed."""
+    from app.logging_config import attach_redis_handler
+
+    attach_redis_handler(None, logger)
 
 
 def _apply_log_level_now() -> None:

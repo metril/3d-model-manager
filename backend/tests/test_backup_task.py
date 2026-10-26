@@ -161,7 +161,7 @@ async def test_support_bundle_redacts(authenticated_client):
     r = await authenticated_client.get("/api/admin/support-bundle")
     assert r.status_code == 200
     z = zipfile.ZipFile(io.BytesIO(r.content))
-    assert set(z.namelist()) == {"settings.json", "versions.json", "logs.txt"}
+    assert set(z.namelist()) == {"settings.json", "versions.json", "logs.txt", "logs-services.txt"}
     assert "super-secret" not in z.read("settings.json").decode()
     assert "app_version" in z.read("versions.json").decode()
 

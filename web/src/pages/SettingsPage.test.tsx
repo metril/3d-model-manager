@@ -143,6 +143,9 @@ function mockGet(backends: StorageBackendOut[] = []) {
     if (path === "/settings/server") return Promise.resolve(fakeServer());
     if (path === "/settings/server/status") return Promise.resolve(fakeStatus());
     if (path === "/virtual-printers") return Promise.resolve([]);
+    if (path === "/settings/mqtt-relay")
+      return Promise.resolve({ enabled: false, host: null, port: 1883, tls: false, tls_verify: true, username: null, has_password: false, topic_prefix: "tdmm", commands_enabled: false, actor_user_id: null, actor_username: null, actor_ok: true, actor_error: null, status: null });
+    if (path.startsWith("/admin/logs")) return Promise.resolve({ entries: [], last_id: 0, services: [], capacity: 5000 });
     if (path === "/settings/drying")
       return Promise.resolve({ presets: {}, ams_humidity_good: 40, ams_humidity_fair: 60, per_type_thresholds: {}, ambient_drying_enabled: false, ambient_sustained_min: 30, queue_drying_enabled: false, queue_drying_block: false, print_drying_enabled: false });
     if (path === "/features") return Promise.resolve({ printer_enabled: false, watch_dir: null, watch_enabled: false });
