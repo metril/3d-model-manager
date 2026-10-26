@@ -103,3 +103,37 @@ async def test_logs_api(authenticated_client: httpx.AsyncClient, r):
 async def test_logs_admin_only(viewer_client: httpx.AsyncClient):
     assert (await viewer_client.get("/api/admin/logs")).status_code == 403
     assert (await viewer_client.get("/api/admin/logs/download")).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "refresh_token=abc123xyz",
+        '{"access_token": "abc123xyz"}',
+        "GET /x?client_secret=abc123xyz&a=1",
+        "auth_token=abc123xyz",
+        "bambu_access_code=abc123xyz",
+        "x-api-key: abc123xyz",
+    ],
+)
+def test_redact_prefixed_keys(line):
+    assert "abc123xyz" not in ls.redact_line(line)
+
+
+def test_install_queue_nonblocking_and_drops():
+    import queue as q
+
+    lg = logging.getLogger("tdmm.test.install")
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    h = ls.install("redis://127.0.0.1:1/0", "api", lg)
+    qh = next(x for x in lg.handlers if isinstance(x, ls.DropQueueHandler))
+    try:
+        qh.listener.stop()
+        qh.queue = q.Queue(maxsize=1)
+        lg.info("a")
+        lg.info("b")  # full: dropped, no block/raise
+        assert qh.dropped == 1
+        assert ls.install("redis://x", "api", lg) is h
+    finally:
+        lg.removeHandler(qh)

@@ -14,9 +14,12 @@ when it is read (rules may be tightened after lines were stored).
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
+import logging.handlers
 import os
+import queue
 import re
 import sys
 import threading
@@ -32,8 +35,8 @@ SERVICES = ("api", "worker-io", "worker-cpu", "beat", "printerd", "virtual-print
 
 _URL_CREDS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^@\s/]+@")
 _KV_SECRET = re.compile(
-    r"(?i)\b(access[_-]?code|password|passwd|secret|token|api[_-]?key|apikey|authorization"
-    r"|private[_-]?key|credential|cookie)(\"?\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&\"')}\]]+)"
+    r"(?i)\b([\w-]*(?:access[_-]?code|password|passwd|secret|token|api[_-]?key|apikey|authorization"
+    r"|private[_-]?key|credential|cookie))(\"?\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&\"')}\]]+)"
 )
 _BEARER = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 
@@ -116,14 +119,45 @@ class RedisLogHandler(logging.Handler):
             self._local.busy = False
 
 
+QUEUE_SIZE = 2000
+
+
+class DropQueueHandler(logging.handlers.QueueHandler):
+    """QueueHandler on a bounded queue that drops (never blocks) when full."""
+
+    def __init__(self, q, target: RedisLogHandler) -> None:
+        super().__init__(q)
+        self.target = target
+        self.dropped = 0
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            self.dropped += 1
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return record  # keep exc_info/args; the listener thread formats
+
+
 def install(redis_url: str, service: str | None = None, logger: logging.Logger | None = None):
-    """Attach one ``RedisLogHandler`` to ``logger`` (root by default); idempotent."""
+    """Attach a non-blocking Redis log shipper to ``logger`` (root by default); idempotent.
+
+    Records go through a bounded queue drained by a listener thread, so the
+    calling thread never waits on Redis; a full queue drops records.
+    """
     target = logger or logging.getLogger()
     for h in target.handlers:
-        if isinstance(h, RedisLogHandler):
-            return h
+        if isinstance(h, DropQueueHandler):
+            return h.target
     handler = RedisLogHandler(redis_url, service or detect_service())
-    target.addHandler(handler)
+    q: queue.Queue = queue.Queue(maxsize=QUEUE_SIZE)
+    qh = DropQueueHandler(q, handler)
+    listener = logging.handlers.QueueListener(q, handler, respect_handler_level=True)
+    listener.start()
+    qh.listener = listener  # type: ignore[attr-defined]
+    atexit.register(lambda: listener._thread and listener.stop())
+    target.addHandler(qh)
     return handler
 
 
