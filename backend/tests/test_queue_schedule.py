@@ -445,7 +445,7 @@ def test_keep_warm_send_and_cancel(redis_url: str, clock, sent):
 # ---------------------------------------------------------------------------
 
 
-def _auto_off_setup(redis_url, slug, *, plug=True, other_queued=False, hot=False):
+def _auto_off_setup(redis_url, slug, *, plug=True, other_queued=False, hot=False, drain=False):
     from tests.test_dispatcher import _rest_plug
 
     with base.sync_session() as s:
@@ -455,7 +455,8 @@ def _auto_off_setup(redis_url, slug, *, plug=True, other_queued=False, hot=False
         s.add(job)
         s.flush()
         e = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
-        e.print_job_id, e.assigned_printer_id, e.auto_off_after = job.id, printer.id, True
+        e.print_job_id, e.assigned_printer_id, e.auto_off_after = job.id, printer.id, not drain
+        printer.power_off_when_drained = drain
         if other_queued:
             o = _seed_entry(
                 s, model=model, file=file, state=QueueState.READY, printer_id=printer.id
@@ -504,6 +505,18 @@ def test_auto_off_waits_for_cold_nozzle(redis_url: str, fake_adapter, plug_off):
     _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "FINISH", "nozzle_temper": 30.0})
     _tick(redis_url)
     assert plug_off == [pid]
+
+
+def test_power_off_when_drained_flag(redis_url: str, fake_adapter, plug_off):
+    pid = _auto_off_setup(redis_url, "ao-drain", drain=True)  # entry flag off, printer flag on
+    _tick(redis_url)
+    assert plug_off == [pid]
+
+
+def test_power_off_when_drained_waits_for_more_work(redis_url: str, fake_adapter, plug_off):
+    _auto_off_setup(redis_url, "ao-drain-q", drain=True, other_queued=True)
+    _tick(redis_url)
+    assert plug_off == []
 
 
 def test_auto_off_no_plug(redis_url: str, fake_adapter, plug_off):

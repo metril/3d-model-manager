@@ -1,24 +1,26 @@
 import { PlugIcon } from "lucide-react";
 
-import { usePlug, usePlugSummary, usePlugToggle } from "@/api/ops";
+import { usePlugSummary, usePlugToggle, usePrinterPlugs } from "@/api/ops";
 import type { PlugOut } from "@/api/types";
 import { Switch } from "@/components/ui/switch";
 
-/** Smart-plug state + toggle for a printer; renders nothing when no plug is configured.
+/** The printer's main smart plug (state + toggle); renders nothing when none is configured.
  * Exported for Q3's CardFooter. */
 export function PlugRow({ printerId, canControl = true }: { printerId: number; canControl?: boolean }) {
-  const plug = usePlug(printerId);
-  return <PlugRowView printerId={printerId} plug={plug.data} canControl={canControl} />;
+  const plugs = usePrinterPlugs(printerId);
+  const list = plugs.data ?? [];
+  const main = list.find((p) => p.controls_printer_power) ?? list[0];
+  return <PlugRowView plug={main} canControl={canControl} />;
 }
 
 /** Card variant: reads the shared summary poll instead of one query per printer. */
 export function SharedPlugRow({ printerId, canControl = true }: { printerId: number; canControl?: boolean }) {
   const summary = usePlugSummary();
-  return <PlugRowView printerId={printerId} plug={summary.data?.plugs?.[String(printerId)]} canControl={canControl} />;
+  return <PlugRowView plug={summary.data?.plugs?.[String(printerId)]} canControl={canControl} />;
 }
 
-function PlugRowView({ printerId, plug: p, canControl }: { printerId: number; plug: PlugOut | null | undefined; canControl: boolean }) {
-  const toggle = usePlugToggle(printerId);
+function PlugRowView({ plug: p, canControl }: { plug: PlugOut | null | undefined; canControl: boolean }) {
+  const toggle = usePlugToggle();
   if (!p) return null;
   const on = p.last_state === "on";
   return (
@@ -26,15 +28,18 @@ function PlugRowView({ printerId, plug: p, canControl }: { printerId: number; pl
       <PlugIcon className="size-4 text-muted-foreground" />
       <span className="font-medium">{p.last_state ? (on ? "On" : "Off") : "Unknown"}</span>
       {p.last_power_w != null ? <span className="text-muted-foreground">{p.last_power_w.toFixed(0)} W</span> : null}
-      {p.auto_off_after_min ? (
+      {p.auto_off && p.off_delay_mode === "time" && p.auto_off_after_min ? (
         <span className="text-xs text-muted-foreground">auto-off {p.auto_off_after_min} min after print</span>
+      ) : null}
+      {p.auto_off && p.off_delay_mode === "temperature" ? (
+        <span className="text-xs text-muted-foreground">auto-off when below {p.off_temp_threshold} C</span>
       ) : null}
       <Switch
         className="ml-auto"
         aria-label="Smart plug power"
         checked={on}
         disabled={!canControl || toggle.isPending}
-        onCheckedChange={(v) => toggle.mutate(v)}
+        onCheckedChange={(v) => toggle.mutate({ id: p.id, on: v })}
       />
       {p.last_error ? (
         <p role="alert" className="w-full text-xs text-destructive">

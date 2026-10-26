@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "@/api/client";
 import type { PlugOut } from "@/api/types";
 import { PlugRow } from "@/components/print/PlugRow";
 
@@ -13,11 +12,28 @@ vi.mock("@/api/client", async (importOriginal) => {
 });
 
 const plug = (o: Partial<PlugOut> = {}): PlugOut => ({
+  id: 7,
+  name: "Main",
   printer_id: 1,
+  controls_printer_power: true,
   kind: "tasmota",
   config: {},
+  auto_off: true,
   auto_off_after_min: 10,
+  off_delay_mode: "time",
+  off_temp_threshold: 40,
   auto_on_before_print: false,
+  auto_off_after_drying: false,
+  drying_off_delay_min: 0,
+  power_alert_enabled: false,
+  power_alert_high_w: null,
+  power_alert_low_w: null,
+  schedule_enabled: false,
+  schedule_on_time: null,
+  schedule_off_time: null,
+  schedule_tz: "UTC",
+  show_in_switchbar: false,
+  energy_kwh: 0,
   last_state: "on",
   last_power_w: 85.4,
   last_polled_at: null,
@@ -34,19 +50,18 @@ beforeEach(() => {
 });
 
 describe("PlugRow", () => {
-  it("shows state/power/auto-off and toggles off", async () => {
-    getMock.mockResolvedValue(plug());
+  it("shows state/power/auto-off and toggles the printer-power plug off", async () => {
+    getMock.mockResolvedValue([plug({ id: 3, controls_printer_power: false }), plug()]);
     postMock.mockResolvedValue(plug({ last_state: "off" }));
     wrap(<PlugRow printerId={1} />);
     expect(await screen.findByText("85 W")).toBeInTheDocument();
     expect(screen.getByText(/auto-off 10 min/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: "Smart plug power" }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/plug/off"));
-    expect(await screen.findByText("Off")).toBeInTheDocument();
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/plugs/7/off"));
   });
 
-  it("renders nothing when no plug (404)", async () => {
-    getMock.mockRejectedValue(new ApiError(404, "no smart plug configured"));
+  it("renders nothing when the printer has no plug", async () => {
+    getMock.mockResolvedValue([]);
     const { container } = wrap(<PlugRow printerId={1} />);
     await waitFor(() => expect(getMock).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();

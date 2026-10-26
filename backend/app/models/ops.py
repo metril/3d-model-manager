@@ -55,8 +55,16 @@ class SmartPlug(Base):
     __tablename__ = "smart_plugs"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    printer_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False, unique=True
+    name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    # v4: plugs are standalone; the printer link is optional and many plugs may
+    # share one printer (heater, fan, light ...).
+    printer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Only a plug that really cuts the printer's own power takes part in
+    # printer-power decisions (wake, queue auto-off, marking the printer offline).
+    controls_printer_power: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     config_enc: Mapped[str] = mapped_column(Text, nullable=False)
@@ -68,6 +76,24 @@ class SmartPlug(Base):
     auto_off_after_drying: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    auto_off: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # time: wait ``auto_off_after_min`` idle; temperature: wait until nozzle and
+    # bed are below ``off_temp_threshold`` C.
+    off_delay_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="time")
+    off_temp_threshold: Mapped[int] = mapped_column(Integer, nullable=False, server_default="40")
+    drying_off_delay_min: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    power_alert_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    power_alert_high_w: Mapped[float | None] = mapped_column(Float)
+    power_alert_low_w: Mapped[float | None] = mapped_column(Float)
+    power_alert_last_at: Mapped[datetime | None]
+    schedule_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    schedule_on_time: Mapped[str | None] = mapped_column(Text)  # "HH:MM"
+    schedule_off_time: Mapped[str | None] = mapped_column(Text)
+    schedule_tz: Mapped[str] = mapped_column(Text, nullable=False, server_default="UTC")
+    show_in_switchbar: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    energy_kwh: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     last_state: Mapped[str | None] = mapped_column(Text)
     last_power_w: Mapped[float | None] = mapped_column(Float)
     last_polled_at: Mapped[datetime | None]

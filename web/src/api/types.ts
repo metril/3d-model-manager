@@ -651,6 +651,7 @@ export interface PrinterOut {
   enabled: boolean;
   options: Record<string, unknown>;
   access_code_set: boolean;
+  power_off_when_drained?: boolean;
   build_volume_mm: { x: number; y: number; z: number } | null;
   // Q1: model capability table + lifetime print hours (optional: older payloads omit them).
   capabilities?: PrinterCapabilities;
@@ -704,6 +705,7 @@ export interface PrinterUpdate {
   access_code?: string;
   model?: string | null;
   enabled?: boolean;
+  power_off_when_drained?: boolean;
   options?: Record<string, unknown>;
   build_volume_mm?: { x: number; y: number; z: number } | null;
 }
@@ -2164,22 +2166,36 @@ export interface MaintenanceLog {
   created_by_user_id: number | null;
 }
 export type PlugKind = "tasmota" | "ha" | "mqtt" | "rest";
-export interface PlugOut {
-  printer_id: number;
+export type PlugDelayMode = "time" | "temperature";
+export interface PlugIn {
+  name: string;
+  printer_id: number | null;
+  controls_printer_power: boolean;
   kind: PlugKind;
   config: Record<string, unknown>;
+  auto_off: boolean;
   auto_off_after_min: number | null;
+  off_delay_mode: PlugDelayMode;
+  off_temp_threshold: number;
   auto_on_before_print: boolean;
+  auto_off_after_drying: boolean;
+  drying_off_delay_min: number;
+  power_alert_enabled: boolean;
+  power_alert_high_w: number | null;
+  power_alert_low_w: number | null;
+  schedule_enabled: boolean;
+  schedule_on_time: string | null;
+  schedule_off_time: string | null;
+  schedule_tz: string;
+  show_in_switchbar: boolean;
+}
+export interface PlugOut extends PlugIn {
+  id: number;
+  energy_kwh: number;
   last_state: string | null;
   last_power_w: number | null;
   last_polled_at: string | null;
   last_error: string | null;
-}
-export interface PlugIn {
-  kind: PlugKind;
-  config: Record<string, unknown>;
-  auto_off_after_min: number | null;
-  auto_on_before_print: boolean;
 }
 export interface BackupRun {
   id: number;

@@ -176,6 +176,14 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
             "threshold": 50,
         },
     ),
+    "plug_power_alert": (
+        "Smart plug power alert",
+        "A smart plug's power draw crossed its high or low alert threshold.",
+        "{{ plug_name|default('Plug') }}: {{ direction|default('power') }} power alert",
+        "{{ plug_name|default('A smart plug') }} draws {{ power_w }} W "
+        "({{ direction|default('out of range') }} {{ threshold }} W).",
+        {"plug_name": "Printer plug", "power_w": 2, "direction": "below", "threshold": 5},
+    ),
 }
 
 EVENT_IDS = tuple(_EVENTS)

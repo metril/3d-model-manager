@@ -75,7 +75,7 @@ async def metrics(
     ).all()
     plugs = (
         await db.execute(
-            select(SmartPlug.printer_id, SmartPlug.last_power_w).where(
+            select(SmartPlug.id, SmartPlug.printer_id, SmartPlug.last_power_w).where(
                 SmartPlug.last_power_w.is_not(None)
             )
         )
@@ -106,6 +106,6 @@ async def metrics(
         "tdmm_plug_power_watts",
         "Last polled smart plug power",
         "gauge",
-        [({"printer_id": pid}, w) for pid, w in plugs],
+        [({"plug_id": i, "printer_id": pid if pid is not None else ""}, w) for i, pid, w in plugs],
     )
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")

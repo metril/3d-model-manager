@@ -62,21 +62,56 @@ class MaintenanceModeOut(BaseModel):
     maintenance_mode: bool
 
 
+_HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
 class PlugIn(BaseModel):
+    name: str = Field(default="", max_length=100)
+    printer_id: int | None = None
+    controls_printer_power: bool = True
     kind: PlugKind
     config: dict = Field(default_factory=dict)
+    # ``None`` = infer from ``auto_off_after_min`` (pre-v4 clients).
+    auto_off: bool | None = None
     auto_off_after_min: int | None = Field(default=None, ge=1, le=1440)
+    off_delay_mode: Literal["time", "temperature"] = "time"
+    off_temp_threshold: int = Field(default=40, ge=20, le=150)
     auto_on_before_print: bool = False
     auto_off_after_drying: bool = False
+    drying_off_delay_min: int = Field(default=0, ge=0, le=1440)
+    power_alert_enabled: bool = False
+    power_alert_high_w: float | None = Field(default=None, ge=0)
+    power_alert_low_w: float | None = Field(default=None, ge=0)
+    schedule_enabled: bool = False
+    schedule_on_time: str | None = Field(default=None, pattern=_HHMM)
+    schedule_off_time: str | None = Field(default=None, pattern=_HHMM)
+    schedule_tz: str = "UTC"
+    show_in_switchbar: bool = False
 
 
 class PlugOut(BaseModel):
-    printer_id: int
+    id: int
+    name: str
+    printer_id: int | None
+    controls_printer_power: bool
     kind: str
     config: dict
+    auto_off: bool
     auto_off_after_min: int | None
+    off_delay_mode: str
+    off_temp_threshold: int
     auto_on_before_print: bool
     auto_off_after_drying: bool
+    drying_off_delay_min: int
+    power_alert_enabled: bool
+    power_alert_high_w: float | None
+    power_alert_low_w: float | None
+    schedule_enabled: bool
+    schedule_on_time: str | None
+    schedule_off_time: str | None
+    schedule_tz: str
+    show_in_switchbar: bool
+    energy_kwh: float
     last_state: str | None
     last_power_w: float | None
     last_polled_at: datetime | None

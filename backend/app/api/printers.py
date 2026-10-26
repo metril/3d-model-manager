@@ -269,6 +269,8 @@ async def update_printer(
                 'Cannot set access code to the placeholder "***"; enter the real code.',
             )
         # blank, or sentinel-with-a-stored-code -> keep the existing ciphertext
+    if data.get("power_off_when_drained", True) is None:
+        data.pop("power_off_when_drained")
     if data.get("options") is not None:
         try:
             data["options"] = normalize_options(settings, data["options"], printer.options)

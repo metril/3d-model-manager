@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 import { PlugConfig } from "@/components/settings/PlugConfig";
 
-const { getMock, putMock, canBox } = vi.hoisted(() => ({
+const { getMock, putMock, postMock, patchMock, canBox } = vi.hoisted(() => ({
   getMock: vi.fn(),
   putMock: vi.fn(),
+  postMock: vi.fn(),
+  patchMock: vi.fn(),
   canBox: { current: true },
 }));
 vi.mock("@/api/auth", async (importOriginal) => ({
@@ -16,8 +18,37 @@ vi.mock("@/api/auth", async (importOriginal) => ({
 }));
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock, put: putMock } };
+  return { ...actual, api: { ...actual.api, get: getMock, put: putMock, post: postMock, patch: patchMock } };
 });
+
+const stored = {
+  id: 7,
+  name: "Main",
+  printer_id: 1,
+  controls_printer_power: true,
+  kind: "tasmota",
+  config: { host: "10.0.0.5", password: "***" },
+  auto_off: true,
+  auto_off_after_min: 10,
+  off_delay_mode: "time",
+  off_temp_threshold: 40,
+  auto_on_before_print: false,
+  auto_off_after_drying: false,
+  drying_off_delay_min: 0,
+  power_alert_enabled: false,
+  power_alert_high_w: null,
+  power_alert_low_w: null,
+  schedule_enabled: false,
+  schedule_on_time: null,
+  schedule_off_time: null,
+  schedule_tz: "UTC",
+  show_in_switchbar: false,
+  energy_kwh: 0,
+  last_state: null,
+  last_power_w: null,
+  last_polled_at: null,
+  last_error: null,
+};
 
 function wrap() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -28,10 +59,11 @@ function wrap() {
   );
 }
 beforeEach(() => {
-  getMock.mockReset();
-  putMock.mockReset();
+  for (const m of [getMock, putMock, postMock, patchMock]) m.mockReset();
   canBox.current = true;
-  getMock.mockRejectedValue(new ApiError(404, "none"));
+  getMock.mockImplementation((path: string) =>
+    Promise.resolve(path === "/printers/1/plugs" ? [stored] : path === "/printers" ? [{ id: 1, name: "P1", power_off_when_drained: false }] : []),
+  );
 });
 
 describe("PlugConfig", () => {
@@ -41,62 +73,51 @@ describe("PlugConfig", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("loads a stored plug (masked secret) and saves changes", async () => {
-    getMock.mockResolvedValue({
-      printer_id: 1,
-      kind: "tasmota",
-      config: { host: "10.0.0.5", password: "***" },
-      auto_off_after_min: 10,
-      auto_on_before_print: false,
-      last_state: null,
-      last_power_w: null,
-      last_polled_at: null,
-      last_error: null,
-    });
-    putMock.mockResolvedValue({ printer_id: 1, kind: "tasmota", config: { host: "10.0.0.5", password: "***" }, auto_off_after_min: 20, auto_on_before_print: false, last_state: null, last_power_w: null, last_polled_at: null, last_error: null });
+  it("lists linked plugs and saves edits by id (masked secret kept)", async () => {
+    putMock.mockResolvedValue(stored);
     wrap();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     expect(await screen.findByDisplayValue("10.0.0.5")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Auto-off after print (minutes)"), { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "Save plug" }));
     await waitFor(() =>
-      expect(putMock).toHaveBeenCalledWith("/printers/1/plug", {
-        kind: "tasmota",
-        config: { host: "10.0.0.5", password: "***" },
-        auto_off_after_min: 20,
-        auto_on_before_print: false,
-      }),
+      expect(putMock).toHaveBeenCalledWith(
+        "/plugs/7",
+        expect.objectContaining({
+          name: "Main",
+          printer_id: 1,
+          kind: "tasmota",
+          config: { host: "10.0.0.5", password: "***" },
+          auto_off: true,
+          auto_off_after_min: 20,
+        }),
+      ),
     );
   });
 
   it("surfaces validation errors from save", async () => {
-    getMock.mockResolvedValue({
-      printer_id: 1, kind: "ha", config: { entity_id: "switch.x" }, auto_off_after_min: null,
-      auto_on_before_print: false, last_state: null, last_power_w: null, last_polled_at: null, last_error: null,
-    });
     putMock.mockRejectedValue(new ApiError(422, "entity not found"));
     wrap();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save plug" }));
     expect(await screen.findByText("entity not found")).toBeInTheDocument();
   });
-});
 
-describe("PlugConfig refetch", () => {
-  it("does not clobber in-progress edits when the plug query refetches", async () => {
-    const stored = {
-      printer_id: 1, kind: "tasmota", config: { host: "10.0.0.5" }, auto_off_after_min: 10,
-      auto_on_before_print: false, last_state: null, last_power_w: null, last_polled_at: null, last_error: null,
-    };
-    getMock.mockResolvedValue(stored);
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <PlugConfig printerId={1} />
-      </QueryClientProvider>,
+  it("creates a plug pre-linked to the printer", async () => {
+    postMock.mockResolvedValue(stored);
+    wrap();
+    fireEvent.click(await screen.findByRole("button", { name: "Add plug" }));
+    fireEvent.change(await screen.findByLabelText("Host"), { target: { value: "10.0.0.9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save plug" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/plugs", expect.objectContaining({ printer_id: 1, config: { host: "10.0.0.9" } })),
     );
-    const input = await screen.findByDisplayValue("10.0.0.5");
-    fireEvent.change(input, { target: { value: "edited" } });
-    getMock.mockResolvedValue({ ...stored, config: { host: "other" } });
-    await qc.refetchQueries({ queryKey: ["printers", 1, "plug"] });
-    expect(screen.getByDisplayValue("edited")).toBeInTheDocument();
+  });
+
+  it("toggles power-off-when-drained on the printer", async () => {
+    patchMock.mockResolvedValue({});
+    wrap();
+    fireEvent.click(await screen.findByRole("switch", { name: "Power off the printer when the queue drains" }));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/printers/1", { power_off_when_drained: true }));
   });
 });

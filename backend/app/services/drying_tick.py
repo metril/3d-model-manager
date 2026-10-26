@@ -143,21 +143,23 @@ def _edges(
             or state.get("gcode_state") in PRINTING_STATES
             or any(_is_active(u) for u in _units(state))
         )
-        plug = session.scalar(
+        if busy:
+            continue
+        plugs = session.scalars(
             select(SmartPlug).where(
                 SmartPlug.printer_id == pid, SmartPlug.auto_off_after_drying.is_(True)
             )
-        )
-        if plug is None or busy:
-            continue
-        try:
-            manager.command(session, settings, plug, "off")
-            counts["plug_off"] += 1
-        except PlugError as exc:
-            plug.last_error = str(exc)[:200]
-        except Exception:  # noqa: BLE001 -- one plug must not stop the tick
-            log.exception("drying: plug off failed for printer %s", pid)
-            session.rollback()
+        ).all()
+        for plug in plugs:
+            try:
+                if manager.request_dry_off(session, settings, r, plug):
+                    counts["plug_off"] += 1
+                session.commit()
+            except PlugError as exc:
+                plug.last_error = str(exc)[:200]
+            except Exception:  # noqa: BLE001 -- one plug must not stop the tick
+                log.exception("drying: plug off failed for printer %s", pid)
+                session.rollback()
 
 
 def _update_running(
