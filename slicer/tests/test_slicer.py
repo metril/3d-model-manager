@@ -296,3 +296,11 @@ def test_delete_job_cancels_running_slice(api, monkeypatch):
     t.join(10)
     assert out["r"].status_code == 499 and out["r"].json()["error"] == "cancelled"
     assert "j1" not in main.app.state.jobs
+
+
+def test_slice_success_returns_log_header(api):
+    r = api.post("/slice", **_body())
+    assert r.status_code == 200 and "x-slice-log" in r.headers
+    import base64
+
+    base64.b64decode(r.headers["x-slice-log"], validate=True)

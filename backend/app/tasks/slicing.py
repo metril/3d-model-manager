@@ -319,6 +319,7 @@ class SliceOutcome:
     file_id: int
     meta: dict
     created: bool = False  # True: this run stored a brand-new File
+    log_tail: str | None = None  # slicer CLI output of this run (when the sidecar sent it)
 
 
 def _meta_summary(meta: slicedmeta.SlicedMeta) -> dict:
@@ -440,6 +441,7 @@ def slice_source(
             job_id=job_id,
         )
 
+        run_log = getattr(client, "last_log_tail", None)
         out_path = tmp_path / "sliced.gcode.3mf"
         out_path.write_bytes(out_bytes)
         meta = slicedmeta.parse_gcode_3mf(out_path)
@@ -478,7 +480,7 @@ def slice_source(
             .first()
         )
         if existing is not None:
-            return SliceOutcome(existing.id, _meta_summary(meta))
+            return SliceOutcome(existing.id, _meta_summary(meta), log_tail=run_log)
 
         spool.ensure_spool_dir(settings)
         token = uuid.uuid4()
@@ -497,7 +499,7 @@ def slice_source(
         new_file = library.store_imported_file_sync(
             session, model=model, revision=revision, staged=staged
         )
-        return SliceOutcome(new_file.id, _meta_summary(meta), created=True)
+        return SliceOutcome(new_file.id, _meta_summary(meta), created=True, log_tail=run_log)
 
 
 # --- standalone slice jobs (`POST /files/{id}/slice`) ---------------------
@@ -531,7 +533,7 @@ def _finish_slice_job(
             return
         job.state = state
         job.error = error
-        job.log_tail = log_tail
+        job.log_tail = log_tail if log_tail is not None else (outcome.log_tail if outcome else None)
         file_id = job.file_id
         payload: dict
         if outcome is not None:

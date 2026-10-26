@@ -64,7 +64,7 @@ services:
       dockerfile: docker/Dockerfile
     image: tdmm:local
     ports:
-      - "8080:8080"
+      - "${TDMM_API_HOST_PORT:-8080}:8080"
     environment:
       ROLE: api
       # Round 8: the api only REPORTS the watched folder's container path via
@@ -117,6 +117,8 @@ services:
       - ./library:/library
       - ${WATCH_HOST_DIR:-./slicer-watch}:/watch
     depends_on:
+      api:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -151,6 +153,8 @@ services:
       - tdmm_data:/data
       - ./library:/library
     depends_on:
+      api:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -189,6 +193,8 @@ services:
     env_file:
       - .env
     depends_on:
+      api:
+        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -218,6 +224,8 @@ services:
     volumes:
       - tdmm_data:/data
     depends_on:
+      api:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:
@@ -250,6 +258,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tdmm}:${POSTGRES_PASSWORD:-tdmm}@127.0.0.1:${TDMM_DB_HOST_PORT:-15432}/${POSTGRES_DB:-tdmm}
       REDIS_URL: redis://127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}/0
     depends_on:
+      api:
+        condition: service_healthy
       db:
         condition: service_healthy
       redis:

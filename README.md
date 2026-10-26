@@ -107,6 +107,8 @@ and publishes `ghcr.io/metril/3d-model-manager-obico-ml`). Turning one off in **
 stops the app using it, not the container; run `docker compose stop slicer
 obico-ml` to reclaim the resources.
 
+**API port.** The web UI/API is published on host port `8080`; set `TDMM_API_HOST_PORT` in `.env` to move it on a clash. Every other app service waits for the `api` healthcheck, which only passes once its Alembic migrations have run.
+
 **Virtual printer.** The `virtual-printer` container is host-networked (so
 slicers on your LAN can discover it over SSDP) and therefore cannot resolve
 `db`/`redis` by name. Compose instead publishes Postgres and Redis on

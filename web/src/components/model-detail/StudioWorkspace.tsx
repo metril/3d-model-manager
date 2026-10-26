@@ -26,7 +26,7 @@ function StudioWorkspaceGeneration({
   /** Fill the host's height (dock panel) rather than the fixed inline stage. */
   fill?: boolean;
 }) {
-  const coverUrl = model.cover_blob_hash ? `/api/blobs/${model.cover_blob_hash}/thumb?size=512` : null;
+  const coverUrl = model.cover_blob_hash ? `/api/blobs/${model.cover_blob_hash}/thumb?size=1024` : null;
   const { stageProps } = useViewerScene({
     slug: model.slug,
     files: glbable,
