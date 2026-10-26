@@ -60,11 +60,17 @@ jobs:
         run: uv run ruff format --check .
 
   backend-test:
-    name: Backend tests (pytest + testcontainers)
+    name: Backend tests shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    # ~1344 tests, several standing up real containers. The 360-minute default
-    # is useless as a hang detector; 40 is generous against observed runtime.
-    timeout-minutes: 60
+    # ~3600 tests split across 4 shards, each running pytest-xdist `-n auto`
+    # (public-repo ubuntu-latest = 4 vCPU). Every xdist worker owns its own
+    # Postgres/Redis testcontainers (session fixtures are per worker process).
+    # The 360-minute default is useless as a hang detector.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -150,9 +156,32 @@ jobs:
         #
         # `not perf` is the CI-only addition: test_gallery_perf.py asserts a
         # 1.0s wall-clock budget and test_scanner.py's 50k-file harness a 30s
-        # one. Meaningful on a dev box, meaningless on a shared 2-vCPU runner.
+        # one. Meaningful on a dev box, meaningless on a shared 4-vCPU runner.
         # They still run, in the advisory backend-perf job below.
-        run: uv run pytest -q --durations=20 -m 'not e2e and not live_importer and not perf'
+        #
+        # Sharding: pytest-split divides the suite by the committed
+        # backend/.test_durations (least_duration balances shard wall time);
+        # `-n auto` then fans each shard over the runner's vCPUs. Regenerate
+        # durations after large suite changes with:
+        #   cd backend && uv run pytest -n 4 -m 'not e2e and not live_importer and not perf' \
+        #     --store-durations --durations-path=.test_durations
+        run: >
+          uv run pytest -q -n auto --durations=20
+          --splits 4 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --durations-path=.test_durations
+          -m 'not e2e and not live_importer and not perf'
+
+  backend-test-gate:
+    # Branch protection requires this exact name; it aggregates the shards.
+    name: Backend tests (pytest + testcontainers)
+    needs: backend-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All shards must succeed
+        run: |
+          echo "shards: ${{ needs.backend-test.result }}"
+          [ "${{ needs.backend-test.result }}" = "success" ]
 
   backend-perf:
     name: Backend perf harnesses (advisory)
