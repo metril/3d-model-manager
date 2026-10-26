@@ -21,6 +21,9 @@ class Capabilities:
     chamber_temp: bool = False
     airduct: bool = False
     door: bool = False
+    # Dual nozzle (H2D): per-nozzle temps, active-extruder switch and the
+    # ams_mapping2 dispatch. Ported from Bambuddy; UNVERIFIED on real hardware
+    # (``verified`` stays False for these models).
     dual_nozzle: bool = False
     aux_fan: bool = False
     chamber_fan: bool = False

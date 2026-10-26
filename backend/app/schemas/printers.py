@@ -293,6 +293,18 @@ class AmsUnitOut(BaseModel):
     dry_started_at: float | None = None
 
 
+class ExtruderOut(BaseModel):
+    """One nozzle of a dual-nozzle printer (id 0 = right, 1 = left)."""
+
+    id: int
+    side: str
+    temp: float | None = None
+    target: float | None = None
+    heating: bool = False
+    diameter: float | None = None
+    type: str | None = None
+
+
 class PrinterStatusOut(BaseModel):
     online: bool
     gcode_state: str | None = None
@@ -331,6 +343,10 @@ class PrinterStatusOut(BaseModel):
     tray_now: int | None = None
     door_open: bool | None = None
     print_options: dict = Field(default_factory=dict)
+    # Dual nozzle (H2D): empty / None on single-nozzle printers.
+    extruders: list[ExtruderOut] = Field(default_factory=list)
+    active_extruder: int | None = None
+    ams_extruder_map: dict[str, int] = Field(default_factory=dict)
     # T3: from the DB (printers.awaiting_plate_clear), overlaid by the status route.
     awaiting_plate_clear: bool = False
     # T1: firmware-aware capabilities (set by the status route; None offline).
@@ -349,9 +365,10 @@ def status_from_state(state: dict) -> PrinterStatusOut:
     """Online ``PrinterStatusOut`` from a printerd Redis state dict. Absent or
     null list fields (state written before they existed) become ``[]``."""
     data = {k: state.get(k) for k in STATE_FIELDS}
-    for k in ("hms", "ams_units"):
+    for k in ("hms", "ams_units", "extruders"):
         data[k] = data[k] or []
     data["print_options"] = data["print_options"] or {}
+    data["ams_extruder_map"] = data["ams_extruder_map"] or {}
     return PrinterStatusOut(online=True, trays=state.get("trays") or [], **data)
 
 

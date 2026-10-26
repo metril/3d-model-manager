@@ -155,8 +155,11 @@ function TempTile({
   disabled,
   untested,
   hint,
+  extruder,
 }: {
   printerId: number;
+  /** Dual nozzle: 0 = right, 1 = left extruder (nozzle tiles only). */
+  extruder?: 0 | 1;
   /** Locale-independent test id suffix. */
   tid: string;
   target: "nozzle" | "bed" | "chamber";
@@ -188,7 +191,7 @@ function TempTile({
       hint={hint}
       onSet={async (value) => {
         setPending(value);
-        const ok = await control.send("temperature", { target, value });
+        const ok = await control.send("temperature", extruder == null ? { target, value } : { target, value, extruder_id: extruder });
         if (!ok) setPending(null);
         return ok;
       }}
@@ -267,32 +270,42 @@ export function TempFanTiles({
   return (
     <div className="flex flex-col gap-1.5" data-slot="temp-fan-tiles">
       <div className="flex gap-1.5">
-        <TempTile
-          {...common}
-          tid={caps.dual_nozzle ? "nozzle-l" : "nozzle"}
-          target="nozzle"
-          label={caps.dual_nozzle ? t("card.temps.nozzleL") : t("card.temps.nozzle")}
-          icon={<ThermometerIcon className="pc-i" />}
-          current={status.nozzle_temper}
-          reportedTarget={status.nozzle_target}
-          max={maxNozzle}
-          presets={nozzlePresets}
-        />
         {caps.dual_nozzle ? (
-          // Per-nozzle readings are not in the status schema yet; the right tile stays read-only.
+          <>
+            {([1, 0] as const).map((id) => {
+              const ext = status.extruders?.find((e) => e.id === id);
+              const base = id === 1 ? t("card.temps.nozzleL") : t("card.temps.nozzleR");
+              return (
+                <TempTile
+                  key={id}
+                  {...common}
+                  tid={id === 1 ? "nozzle-l" : "nozzle-r"}
+                  target="nozzle"
+                  extruder={id}
+                  label={ext?.diameter ? `${base} ${ext.diameter}` : base}
+                  icon={<ThermometerIcon className="pc-i" />}
+                  current={ext ? ext.temp : id === 1 ? status.nozzle_temper : null}
+                  reportedTarget={ext ? ext.target : id === 1 ? status.nozzle_target : null}
+                  max={maxNozzle}
+                  presets={nozzlePresets}
+                  hint={ext?.type ? t("card.temps.nozzleType", { type: ext.type.replace(/_/g, " ") }) : undefined}
+                />
+              );
+            })}
+          </>
+        ) : (
           <TempTile
             {...common}
-            disabled
-            tid="nozzle-r"
+            tid="nozzle"
             target="nozzle"
-            label={t("card.temps.nozzleR")}
+            label={t("card.temps.nozzle")}
             icon={<ThermometerIcon className="pc-i" />}
-            current={null}
-            reportedTarget={null}
+            current={status.nozzle_temper}
+            reportedTarget={status.nozzle_target}
             max={maxNozzle}
             presets={nozzlePresets}
           />
-        ) : null}
+        )}
         <TempTile
           {...common}
           tid="bed"

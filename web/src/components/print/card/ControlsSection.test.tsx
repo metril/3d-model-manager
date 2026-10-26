@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ControlsSection } from "./ControlsSection";
-import { a1Mini, renderCard, x1c } from "./testUtils";
+import { a1Mini, h2d, renderCard, x1c } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -12,6 +12,22 @@ vi.mock("@/api/client", async (importOriginal) => {
 
 describe("ControlsSection", () => {
   beforeEach(() => postMock.mockReset().mockResolvedValue({ ok: true }));
+
+  it("H2D: active-nozzle toggle marks the active side and posts select; hidden on A1 Mini", async () => {
+    const it = h2d({}, { active_extruder: 0 });
+    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
+    expect(await screen.findByTestId("extruder-right")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("extruder-left")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByTestId("extruder-left"));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/4/control/extruder", { extruder_id: 1 }));
+  });
+
+  it("A1 Mini has no active-nozzle toggle", async () => {
+    const it = a1Mini();
+    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
+    await screen.findByRole("button", { name: "Chamber light" });
+    expect(screen.queryByTestId("extruder-left")).toBeNull();
+  });
 
   it("light toggle posts the inverse of the current state", async () => {
     const it = a1Mini({}, { light_on: false });
