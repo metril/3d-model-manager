@@ -123,6 +123,13 @@ jobs:
           ok=
           for attempt in 1 2 3 4 5; do
             echo "apt attempt $attempt/5"
+            if [ "$attempt" -ge 2 ]; then
+              # The runner's Azure mirror can crawl for minutes; fall back
+              # to the canonical archive for the remaining attempts.
+              sudo sed -i -E \
+                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)#http://archive.ubuntu.com/ubuntu/#' \
+                /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+            fi
             if sudo timeout 60 apt-get update \
               && sudo timeout 180 apt-get install -y --no-install-recommends \
                 libosmesa6 libgl1-mesa-dri libgl1 ffmpeg; then
