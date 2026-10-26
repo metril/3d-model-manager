@@ -60,6 +60,8 @@ dev = [
     "aiosmtpd>=1.4.6",
     "pytest",
     "pytest-asyncio",
+    "pytest-split",
+    "pytest-xdist",
     "respx>=0.23.1",
     "ruff",
     "testcontainers[postgres,redis,minio]",
