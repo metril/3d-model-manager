@@ -210,6 +210,39 @@ export function useDeletePhoto(id: number) {
   });
 }
 
+// -- source attachments (source project / Fusion F3D) --
+export type SourceSlot = "source" | "f3d";
+
+export const archiveSourceUrl = (id: number, slot: SourceSlot): string => `/api/archives/${id}/${slot}`;
+
+export function useAttachSource(id: number, slot: SourceSlot) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => {
+      const fd = new FormData();
+      fd.set("file", file);
+      return api.putForm<ArchiveOut>(`/archives/${id}/${slot}`, fd);
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["archives"] }),
+  });
+}
+
+export function useRemoveSource(id: number, slot: SourceSlot) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<ArchiveOut>(`/archives/${id}/${slot}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["archives"] }),
+  });
+}
+
+export function useLinkSources(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ArchiveOut>(`/archives/${id}/sources/link-model`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["archives"] }),
+  });
+}
+
 // -- purge + confirm settings --
 export function useArchivePurgeSettings() {
   return useQuery({

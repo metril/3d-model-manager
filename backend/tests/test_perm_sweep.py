@@ -44,6 +44,11 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     ("POST", "/api/archives/{archive_id}/verdict"),
     ("POST", "/api/archives/{archive_id}/photos"),
     ("DELETE", "/api/archives/{archive_id}/photos/{filename}"),
+    ("PUT", "/api/archives/{archive_id}/source"),
+    ("DELETE", "/api/archives/{archive_id}/source"),
+    ("PUT", "/api/archives/{archive_id}/f3d"),
+    ("DELETE", "/api/archives/{archive_id}/f3d"),
+    ("POST", "/api/archives/{archive_id}/sources/link-model"),
 }
 
 # Bearer-token planes carry their own auth, not the session permission model.

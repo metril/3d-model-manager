@@ -44,6 +44,7 @@ from app.models import AuditLog, PrintArchive, PrintJob
 from app.models.enums import ArchiveResult, ArchiveVerdict, BlobFormat, BlobKind, VerdictSource
 from app.models.library import Blob
 from app.schemas.archives import (
+    ArchiveOut,
     CalendarDayOut,
     CompareOut,
     CorrelationOut,
@@ -58,7 +59,7 @@ from app.schemas.archives import (
     TimelapseThumbsOut,
     TimeOut,
 )
-from app.services import archive_confirm, archive_purge, archive_settings
+from app.services import archive_confirm, archive_purge, archive_settings, archive_sources
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_blobs import blob_ext, release_blobs, unlink_all
 from app.services.derivatives import publish_bytes
@@ -696,3 +697,114 @@ async def delete_photo(
     await db.commit()
     await anyio.to_thread.run_sync(unlink_all, paths)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- source attachments (source project / Fusion F3D) -------------------------
+
+
+async def _read_capped(file: UploadFile) -> bytes:
+    limit = archive_sources.MAX_SOURCE_BYTES
+    data = bytearray()
+    while chunk := await file.read(1024 * 1024):
+        data += chunk
+        if len(data) > limit:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "source exceeds 256 MB")
+    if not data:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "empty file")
+    return bytes(data)
+
+
+def _slot_mutation(archive_id: int, slot: str, settings: Settings, data: bytes | None, name: str):
+    """Attach (data) or clear (None) a slot in a worker-thread session."""
+    with sync_session() as s:
+        arc = s.get(PrintArchive, archive_id)
+        if arc is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
+        if data is None:
+            paths = archive_sources.clear(s, settings, arc, slot)  # type: ignore[arg-type]
+        else:
+            paths = archive_sources.store(s, settings, arc, slot, data, name)  # type: ignore[arg-type]
+        s.commit()
+        for p in paths:
+            p.unlink(missing_ok=True)
+
+
+def _register_source_slot(slot: str) -> None:
+    @router.get(f"/{{archive_id}}/{slot}", name=f"download_{slot}")
+    async def download(
+        archive_id: int,
+        db: AsyncSession = Depends(get_db),
+        ctx: AuthContext = Depends(require_session),
+        settings: Settings = Depends(get_settings),
+    ) -> FileResponse:
+        arc = (await _get_visible(db, ctx, archive_id))[0]
+        sha, name = archive_sources.get(arc, slot)  # type: ignore[arg-type]
+        blob = await db.get(Blob, sha) if sha else None
+        if blob is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"no {slot} attached")
+        path = archive_path(settings, blob.hash, blob_ext(blob.format))
+        if not await anyio.to_thread.run_sync(path.exists):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"{slot} file missing")
+        return FileResponse(path, media_type="application/octet-stream", filename=name)
+
+    @router.put(f"/{{archive_id}}/{slot}", response_model=ArchiveOut, name=f"put_{slot}")
+    async def put(
+        archive_id: int,
+        file: Annotated[UploadFile, File()],
+        db: AsyncSession = Depends(get_db),
+        ctx: AuthContext = Depends(require_session),
+        settings: Settings = Depends(get_settings),
+    ) -> ArchiveOut:
+        _arc, job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
+        require_writer(ctx, job, printer)
+        data = await _read_capped(file)
+        await db.rollback()  # release the read tx before the worker-thread write
+        await anyio.to_thread.run_sync(
+            lambda: _slot_mutation(archive_id, slot, settings, data, file.filename or slot)
+        )
+        return archive_out(await _get_visible(db, ctx, archive_id))
+
+    @router.delete(f"/{{archive_id}}/{slot}", response_model=ArchiveOut, name=f"delete_{slot}")
+    async def delete(
+        archive_id: int,
+        db: AsyncSession = Depends(get_db),
+        ctx: AuthContext = Depends(require_session),
+        settings: Settings = Depends(get_settings),
+    ) -> ArchiveOut:
+        _arc, job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
+        require_writer(ctx, job, printer)
+        await db.rollback()
+        await anyio.to_thread.run_sync(lambda: _slot_mutation(archive_id, slot, settings, None, ""))
+        return archive_out(await _get_visible(db, ctx, archive_id))
+
+
+for _slot in archive_sources.SLOTS:
+    _register_source_slot(_slot)
+
+
+def _relink(archive_id: int, settings: Settings) -> list[str]:
+    with sync_session() as s:
+        arc = s.get(PrintArchive, archive_id)
+        if arc is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
+        filled = archive_sources.link_from_model(s, settings, arc)
+        s.commit()
+        return list(filled)
+
+
+@router.post("/{archive_id}/sources/link-model", response_model=ArchiveOut)
+async def link_sources_from_model(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
+) -> ArchiveOut:
+    """Fill empty source slots from the archive's library model (never from a
+    trashed one). 404 when nothing could be linked."""
+    arc, job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
+    require_writer(ctx, job, printer)
+    await db.rollback()
+    filled = await anyio.to_thread.run_sync(lambda: _relink(archive_id, settings))
+    if not filled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no source found on the library model")
+    return archive_out(await _get_visible(db, ctx, archive_id))

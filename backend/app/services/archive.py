@@ -247,6 +247,14 @@ def archive_job(
     model_id, revision_id = _resolve_model(session, job, sha)
     arc.model_id = model_id
     arc.revision_id = revision_id
+    if model_id is not None:
+        from app.services import archive_sources
+
+        try:
+            with session.begin_nested():
+                archive_sources.link_from_model(session, settings, arc)
+        except Exception:
+            logger.exception("source link failed for job %s", job.id)
     duration_s: int | None = None
     if job.started_at and job.finished_at:
         duration_s = int((job.finished_at - job.started_at).total_seconds())
