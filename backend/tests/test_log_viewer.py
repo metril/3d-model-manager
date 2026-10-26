@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import httpx
 import pytest
@@ -148,4 +149,8 @@ def test_reconfigure_does_not_leak_listener_threads(redis_url):
     before = threading.active_count()
     for _ in range(5):
         configure_logging("INFO", "api")  # dictConfig closes the replaced handler
+    for _ in range(40):  # retired drain threads exit once they read the sentinel
+        if threading.active_count() <= before + 1:
+            break
+        time.sleep(0.05)
     assert threading.active_count() <= before + 1

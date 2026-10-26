@@ -74,6 +74,7 @@ class RedisLogHandler(logging.Handler):
         self._pid = -1
         self._retry_at = 0.0
         self._local = threading.local()
+        self._closed = False
 
     def _redis(self):
         if self._client is None or self._pid != os.getpid():  # fork-safe (celery prefork)
@@ -86,8 +87,10 @@ class RedisLogHandler(logging.Handler):
         return self._client
 
     def emit(self, record: logging.LogRecord) -> None:
-        if getattr(self._local, "busy", False) or record.name.startswith(
-            ("redis", "urllib3", "asyncio")
+        if (
+            self._closed
+            or getattr(self._local, "busy", False)
+            or record.name.startswith(("redis", "urllib3", "asyncio"))
         ):
             return
         now = time.monotonic()
@@ -119,6 +122,7 @@ class RedisLogHandler(logging.Handler):
             self._local.busy = False
 
     def close(self) -> None:
+        self._closed = True
         client, self._client = self._client, None
         if client is not None:
             with contextlib.suppress(Exception):
@@ -147,14 +151,20 @@ class DropQueueHandler(logging.handlers.QueueHandler):
         return record  # keep exc_info/args; the listener thread formats
 
     def close(self) -> None:
-        """Stop the drain thread and free the Redis socket (``dictConfig`` /
-        ``logging.shutdown`` close replaced handlers; without this every
-        reconfigure would leak a thread and a connection)."""
-        listener = getattr(self, "listener", None)
-        if listener is not None and listener._thread is not None:
-            with contextlib.suppress(Exception):  # queue full: daemon thread dies with the process
-                listener.stop()
+        """Retire the drain thread and free the Redis socket (``dictConfig`` /
+        ``logging.shutdown`` close replaced handlers). Never joins the thread:
+        close runs under the logging module lock, which the drain thread may
+        itself be waiting for -- joining would deadlock."""
         self.target.close()
+        listener = getattr(self, "listener", None)
+        if listener is not None:
+            for _ in range(2):
+                try:
+                    self.queue.put_nowait(listener._sentinel)
+                    break
+                except queue.Full:
+                    with contextlib.suppress(queue.Empty):
+                        self.queue.get_nowait()  # make room for the sentinel
         super().close()
 
 
