@@ -107,11 +107,7 @@ class SkuForecast:
 
 def _utc(moment: datetime) -> datetime:
     """A naive timestamp is UTC: that is what the database stores."""
-    return (
-        moment.replace(tzinfo=UTC)
-        if moment.tzinfo is None
-        else moment.astimezone(UTC)
-    )
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 def history_rate(records: Sequence[UsageRecord], now: datetime) -> tuple[float, float] | None:
