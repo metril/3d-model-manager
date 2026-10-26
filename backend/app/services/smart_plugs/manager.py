@@ -141,7 +141,7 @@ def tick(
             if st.power_w is not None:
                 _integrate(session, r, plug, st.power_w, now.timestamp())
             _check_alert(plug, st, now)
-            if _run_schedule(r, plug, drv, now) or _run_dry_off(r, plug, drv, now):
+            if _run_schedule(r, plug, drv, now, wanted) or _run_dry_off(r, plug, drv, now):
                 continue
             if _maybe_auto_off(r, plug, drv, now, wanted):
                 counts["turned_off"] += 1
@@ -196,9 +196,26 @@ def _check_alert(plug: SmartPlug, st: PlugStatus, now: datetime) -> None:
     )
 
 
-def _run_schedule(r: Redis, plug: SmartPlug, drv, now: datetime) -> bool:
+SCHED_OFF_DEFER_MIN = 360  # a printer-power "off" waits this long for the printer to go idle
+
+
+def _schedule_off_blocked(r: Redis, plug: SmartPlug, wanted: set[int] | None) -> bool:
+    """A scheduled "off" on a plug that cuts a printer's power must not
+    kill a print, a hot nozzle, a drying cycle or queued work."""
+    if not plug.controls_printer_power or plug.printer_id is None:
+        return False
+    if wanted is not None and plug.printer_id in wanted:
+        return True
+    return not can_power_off(read_state_sync(r, plug.printer_id))
+
+
+def _run_schedule(
+    r: Redis, plug: SmartPlug, drv, now: datetime, wanted: set[int] | None = None
+) -> bool:
     """Daily on/off at ``HH:MM`` in the plug's timezone. Fires inside a 2-minute
-    window (a skipped beat still lands); a Redis key dedupes per day."""
+    window (a skipped beat still lands); a Redis key dedupes per day. A
+    printer-power "off" is deferred (window widened) while the printer is
+    busy / hot / wanted by the queue."""
     if not plug.schedule_enabled:
         return False
     try:
@@ -210,7 +227,10 @@ def _run_schedule(r: Redis, plug: SmartPlug, drv, now: datetime) -> bool:
         if not hhmm:
             continue
         h, m = hhmm.split(":")
-        if not 0 <= minute - (int(h) * 60 + int(m)) <= 1:
+        window = SCHED_OFF_DEFER_MIN if action == "off" and plug.controls_printer_power else 1
+        if not 0 <= minute - (int(h) * 60 + int(m)) <= window:
+            continue
+        if action == "off" and _schedule_off_blocked(r, plug, wanted):
             continue
         if not r.set(f"plug:sched:{plug.id}:{action}:{local.date()}", "1", nx=True, ex=7200):
             continue

@@ -60,7 +60,7 @@ class FileFormatOut(BaseModel):
 async def get_file_format(file_id: int, db: AsyncSession = Depends(get_db)) -> FileFormatOut:
     """Minimal file lookup (id, path, format) -- the print dialog needs a
     file's format to know whether it is already sliced."""
-    file = await db.get(File, file_id)
+    file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     blob = await db.get(Blob, file.blob_hash)
@@ -244,7 +244,7 @@ async def _download_file(
     else:
         await require_session(tdmm_session=tdmm_session, db=db)
 
-    file = await db.get(File, file_id)
+    file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {file_id} not found")
 
@@ -407,7 +407,7 @@ async def create_slicer_link(
     mint a link; the link itself is what carries the delegated, unauthenticated
     access to ``GET .../download``.
     """
-    file = await db.get(File, file_id)
+    file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {file_id} not found")
 
