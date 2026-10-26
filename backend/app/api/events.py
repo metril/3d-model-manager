@@ -59,9 +59,12 @@ async def _heartbeat_s(db: AsyncSession) -> float:
 async def sse_events(
     settings: Settings = Depends(get_settings), db: AsyncSession = Depends(get_db)
 ) -> StreamingResponse:
-    # Read once per stream open (the DB session is released with the request
-    # scope's dependency teardown, not held for the stream's lifetime).
+    # Read once per stream open (the session is closed below, not held for the stream's lifetime).
     heartbeat = await _heartbeat_s(db)
+    # FastAPI >= 0.118 runs yield-dependency teardown only after the response
+    # finishes -- for SSE that is the stream's lifetime -- so release the
+    # connection explicitly before streaming.
+    await db.close()
     return StreamingResponse(
         _event_stream(settings.redis_url, heartbeat),
         media_type="text/event-stream",

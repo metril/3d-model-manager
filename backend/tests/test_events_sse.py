@@ -196,3 +196,28 @@ async def test_sse_sends_heartbeat_when_idle(
         get_settings.cache_clear()
 
     assert line.startswith(":")
+
+
+async def test_sse_does_not_hold_db_connection(
+    live_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The yield-dependency session must be released before streaming starts."""
+    from sqlalchemy import select
+
+    from app.api import events
+    from app.db import get_engine
+
+    async def _query_then_fast(db):
+        await db.execute(select(1))  # opens a transaction / checks out a connection
+        return 0.05
+
+    monkeypatch.setattr(events, "_heartbeat_s", _query_then_fast)
+    try:
+        async with live_client.stream("GET", "/api/events") as response:
+            assert response.status_code == 200
+            async for line in response.aiter_lines():
+                if line.startswith(":"):
+                    break
+            assert get_engine().pool.checkedout() == 0
+    finally:
+        get_settings.cache_clear()
