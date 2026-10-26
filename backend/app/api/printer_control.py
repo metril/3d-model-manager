@@ -103,6 +103,12 @@ def _gate(command: str, clean: dict, printer: Printer, state: dict) -> JSONRespo
         or (command == "set_fan" and clean["fan"] == "aux" and not caps.aux_fan)
         or (command == "set_fan" and clean["fan"] == "chamber" and not caps.chamber_fan)
         or (command == "set_airduct" and not caps.airduct)
+        or (command == "select_extruder" and not caps.dual_nozzle)
+        or (
+            command == "set_temperature"
+            and clean.get("extruder_id") is not None
+            and not caps.dual_nozzle
+        )
     )
     if unsupported:
         return _err(422, "unsupported", f"{command} is not supported on this model")
@@ -227,6 +233,7 @@ _ROUTES = (
     ("extrude", "extrude", False),
     ("gcode", "gcode", True),
     ("airduct", "set_airduct", False),
+    ("extruder", "select_extruder", False),
     ("calibrate", "calibrate", False),
     ("hms/clear", "clear_hms", False),
     ("hms/action", "hms_action", False),

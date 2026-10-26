@@ -176,8 +176,14 @@ class FakePrinterAdapter(PrinterAdapter):
         self.stopped += 1
         self._record("stop")
 
-    def set_temperature(self, target: str, value: int) -> None:
-        self._record("set_temperature", target, value)
+    def set_temperature(self, target: str, value: int, extruder: int | None = None) -> None:
+        if extruder is None:
+            self._record("set_temperature", target, value)
+        else:
+            self._record("set_temperature", target, value, extruder)
+
+    def select_extruder(self, extruder: int) -> None:
+        self._record("select_extruder", extruder)
 
     def set_fan(self, fan: str, pct: int) -> None:
         self._record("set_fan", fan, pct)

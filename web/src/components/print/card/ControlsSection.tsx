@@ -177,6 +177,27 @@ export function ControlsSection({
             ))}
           </div>
         ) : null}
+        {caps.dual_nozzle ? (
+          <div role="group" aria-label={t("card.controls.extruder")} className="inline-flex overflow-hidden rounded-md border">
+            {([1, 0] as const).map((id) => (
+              <UntestedTip key={id} show={untested}>
+                <button
+                  type="button"
+                  aria-pressed={status.active_extruder === id}
+                  disabled={busy}
+                  data-testid={`extruder-${id === 1 ? "left" : "right"}`}
+                  className={cn(
+                    "pc-t11 px-2 py-1 hover:bg-muted disabled:opacity-50",
+                    status.active_extruder === id && "bg-muted font-medium",
+                  )}
+                  onClick={() => void control.send("extruder", { extruder_id: id })}
+                >
+                  {t(id === 1 ? "card.controls.extruderLeft" : "card.controls.extruderRight")}
+                </button>
+              </UntestedTip>
+            ))}
+          </div>
+        ) : null}
         <ConfirmDialog
           trigger={
             <Button type="button" size="sm" variant="outline" disabled={busy} aria-label={t("card.controls.calibration")}>
