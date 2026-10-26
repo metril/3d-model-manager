@@ -500,3 +500,25 @@ async def test_import_requires_upload_scope(authenticated_client, client, fake_i
         "/api/ext/v2/imports", json={"url": "https://fake.test/thing/42"}, headers=_h(k)
     )
     assert r.status_code == 201, r.text
+
+
+async def test_allowlisted_key_modifies_own_unassigned_entries(
+    authenticated_client, client, printer_enabled, make_user, login_as
+):
+    a = await _printer(authenticated_client)
+    model = (await authenticated_client.post("/api/models", json={"name": "A"})).json()
+    mine = (await authenticated_client.post("/api/queue", json={"model_id": model["id"]})).json()
+    member = await make_user("member")
+    mc = await login_as(member)
+    m2 = (await authenticated_client.post("/api/models", json={"name": "B"})).json()
+    theirs = (await mc.post("/api/queue", json={"model_id": m2["id"]})).json()
+    k = (await _mint(authenticated_client, scopes=["read", "queue"], printer_ids=[a]))["key"]
+
+    ids = [e["id"] for e in (await client.get("/api/ext/v2/queue", headers=_h(k))).json()]
+    assert mine["id"] in ids and theirs["id"] not in ids  # view == modify
+    r = await client.patch(f"/api/ext/v2/queue/{mine['id']}", json={"position": 1}, headers=_h(k))
+    assert r.status_code == 200, r.text
+    r = await client.delete(f"/api/ext/v2/queue/{theirs['id']}", headers=_h(k))
+    assert r.status_code == 404
+    r = await client.delete(f"/api/ext/v2/queue/{mine['id']}", headers=_h(k))
+    assert r.status_code == 204

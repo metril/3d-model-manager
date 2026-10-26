@@ -65,6 +65,23 @@ describe("PlugsPage", () => {
   });
 });
 
+describe("PlugsPage orphans", () => {
+  it("flags an orphaned plug and offers re-link", async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === "/plugs"
+          ? [{ ...plugs[0], orphaned: true }]
+          : path === "/features"
+            ? { printer_enabled: true }
+            : [],
+      ),
+    );
+    wrap(<PlugsPage />);
+    expect(await screen.findByText(/orphaned - printer deleted/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-link" })).toBeInTheDocument();
+  });
+});
+
 describe("PlugSwitchbar", () => {
   it("shows only plugs flagged for the switchbar", async () => {
     wrap(<PlugSwitchbar />);

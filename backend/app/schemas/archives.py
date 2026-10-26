@@ -63,6 +63,11 @@ class ArchiveOut(BaseModel):
     verdict_at: datetime | None = None
     verdict_by_user_id: int | None = None
     photos: list[PhotoOut] = Field(default_factory=list)
+    has_source: bool = False
+    source_name: str | None = None
+    source_linked: bool = False
+    has_f3d: bool = False
+    f3d_name: str | None = None
 
 
 class ArchivePatchIn(BaseModel):

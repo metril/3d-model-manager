@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import type { SpoolOut } from "@/api/types";
+import { ForecastPanel } from "@/components/inventory/ForecastPanel";
 import { SpoolForm } from "@/components/inventory/SpoolForm";
 import { ColorCatalogPanel } from "@/components/inventory/admin/ColorCatalogPanel";
 import { LocationsPanel } from "@/components/inventory/admin/LocationsPanel";
@@ -65,7 +66,7 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
   );
 }
 
-const TABS = ["spools", "suppliers", "locations", "colors"] as const;
+const TABS = ["spools", "forecast", "suppliers", "locations", "colors"] as const;
 export type SpoolsTab = (typeof TABS)[number];
 
 export function SpoolsPage() {
@@ -111,6 +112,8 @@ export function SpoolsPage() {
 
       {tab === "spools" ? (
         <SpoolTable onOpen={(spool: SpoolOut) => setOpenId(spool.id)} initialLowStock={low === "1"} />
+      ) : tab === "forecast" ? (
+        <ForecastPanel />
       ) : tab === "suppliers" ? (
         <SuppliersPanel />
       ) : tab === "locations" ? (

@@ -62,6 +62,29 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{{ spool_name|default('A spool') }} has {{ remaining_g|default('little') }} g left.",
         {"spool_name": "PLA Black", "remaining_g": 80},
     ),
+    "stock_reorder": (
+        "Reorder point reached",
+        "A filament SKU reached its reorder point (usage rate x lead time + safety stock).",
+        "Reorder filament: {{ sku|default('SKU') }}",
+        "{{ sku|default('A filament') }} is at {{ remaining_g|default('?') }} g"
+        "{% if days_remaining is not none %} (~{{ days_remaining }} days left){% endif %}; "
+        "reorder point is {{ reorder_point_g|default('?') }} g.",
+        {
+            "sku": "Bambu PLA Black",
+            "remaining_g": 640,
+            "days_remaining": 21,
+            "reorder_point_g": 700,
+        },
+    ),
+    "stock_break": (
+        "Stock break forecast",
+        "A filament SKU will run out before a replenishment can arrive.",
+        "Running out: {{ sku|default('SKU') }}",
+        "{{ sku|default('A filament') }} has {{ remaining_g|default('?') }} g"
+        "{% if days_remaining is not none %} (~{{ days_remaining }} days){% endif %}"
+        " but the lead time is {{ lead_time_days|default('?') }} days.",
+        {"sku": "Bambu PLA Black", "remaining_g": 200, "days_remaining": 6, "lead_time_days": 10},
+    ),
     "queue_item_added": (
         "Queue item added",
         "Someone added a print to the queue.",
@@ -92,6 +115,14 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{{ printer_name }} is clear"
         "{% if score %} (difference {{ score }}%){% endif %}.",
         {"name": "benchy.3mf", "printer_name": "A1 Mini", "score": 4.2},
+    ),
+    "plate_check_stalled": (
+        "Plate check stalled",
+        "A queued print has been held because the plate check gets no camera frame.",
+        "Plate check stalled: {{ printer_name }}",
+        "{{ name|default('A queued print') }} has waited over {{ minutes|default(10) }} min "
+        "for a camera frame on {{ printer_name }}. Check the camera.",
+        {"name": "benchy.3mf", "printer_name": "A1 Mini", "minutes": 10},
     ),
     "slice_done": (
         "Slice finished",

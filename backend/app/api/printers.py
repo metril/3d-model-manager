@@ -30,7 +30,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -312,6 +312,7 @@ async def delete_printer(printer_id: int, db: AsyncSession = Depends(get_db)) ->
             auto_on_before_print=False,
             auto_off_after_drying=False,
             controls_printer_power=False,
+            orphaned_at=func.now(),
         )
     )
     await db.delete(printer)

@@ -20,6 +20,7 @@ import type { PrinterOut, PrintersOverviewOut } from "@/api/types";
 import { MaintenanceSection } from "@/components/maintenance/MaintenanceSection";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
+import { PlateStallBadge } from "@/components/print/PlateStallBadge";
 import { HistoryStats } from "@/components/print/HistoryStats";
 import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
 import { UpNextList } from "@/components/print/UpNextList";
@@ -102,8 +103,13 @@ function PrinterDetailBody({
               )
             }
             badge={
-              overviewItem.ha_alert ? (
-                <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
+              overviewItem.ha_alert || overviewItem.plate_check_stalled ? (
+                <>
+                  {overviewItem.ha_alert ? (
+                    <HaAlertBadge reason={overviewItem.ha_alert} held={overviewItem.ha_held ?? false} />
+                  ) : null}
+                  {overviewItem.plate_check_stalled ? <PlateStallBadge /> : null}
+                </>
               ) : undefined
             }
           />

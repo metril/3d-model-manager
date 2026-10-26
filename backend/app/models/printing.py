@@ -233,3 +233,16 @@ class PrintArchive(Base):
     )
     # [{filename, blob, kind: photo|timelapse, uploaded_by, at}]
     photos: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Source attachments: the editable project behind the print. `source_*` is
+    # the slicer project / CAD export (3MF, STEP, STL ...), `f3d_*` the Fusion
+    # (or any other native CAD) file. Blobs live under the archive store.
+    source_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    source_name: Mapped[str | None] = mapped_column(Text)
+    f3d_blob: Mapped[str | None] = mapped_column(
+        CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
+    )
+    f3d_name: Mapped[str | None] = mapped_column(Text)
+    # True when the source was linked from the library model, not uploaded.
+    source_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())

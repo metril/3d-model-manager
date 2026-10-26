@@ -94,6 +94,7 @@ from app.api import (
     slice_jobs,
     slicer,
     smart_plugs,
+    spool_forecast,
     spoolman,
     spools,
     spools_bulk,
@@ -199,6 +200,7 @@ protected_router.include_router(spools_bulk.router)
 protected_router.include_router(housekeeping.suppliers_router)
 protected_router.include_router(housekeeping.locations_router)
 protected_router.include_router(housekeeping.catalog_router)
+protected_router.include_router(spool_forecast.router)
 protected_router.include_router(spools.router)
 protected_router.include_router(profiles.router)
 protected_router.include_router(profiles.slicer_status_router)

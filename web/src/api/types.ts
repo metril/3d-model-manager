@@ -1479,6 +1479,12 @@ export interface ArchiveOut {
   verdict_at?: string | null;
   verdict_by_user_id?: number | null;
   photos?: ArchivePhoto[];
+  // Source attachments (source project / Fusion F3D)
+  has_source?: boolean;
+  source_name?: string | null;
+  source_linked?: boolean;
+  has_f3d?: boolean;
+  f3d_name?: string | null;
 }
 
 // -- print queue (backend/app/schemas/queue.py, Branch 4 Task 1) -----------
@@ -1674,6 +1680,7 @@ export interface PrinterOverviewItem {
   // reported.
   ha_alert?: string | null;
   ha_held?: boolean;
+  plate_check_stalled?: boolean;
 }
 
 export interface PrintersOverviewOut {
@@ -2206,6 +2213,8 @@ export interface PlugIn {
   show_in_switchbar: boolean;
 }
 export interface PlugOut extends PlugIn {
+  /** Left behind by a printer delete; controlling it needs settings:write until re-linked. */
+  orphaned?: boolean;
   id: number;
   energy_kwh: number;
   last_state: string | null;

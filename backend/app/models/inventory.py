@@ -266,3 +266,32 @@ class ColorCatalogEntry(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class StockSkuSettings(Base):
+    """Per-SKU forecast overrides. A SKU is (material, brand, colour); empty
+    strings stand for "none" so the unique key needs no NULL handling."""
+
+    __tablename__ = "stock_sku_settings"
+    __table_args__ = (
+        UniqueConstraint("material_type", "brand", "color_key", name="uq_stock_sku_settings_sku"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    material_type: Mapped[str] = mapped_column(String, nullable=False)
+    brand: Mapped[str] = mapped_column(String, nullable=False, server_default=text("''"))
+    color_key: Mapped[str] = mapped_column(String, nullable=False, server_default=text("''"))
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    safety_margin_value: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default=text("14")
+    )
+    safety_margin_unit: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'days'")
+    )
+    alerts_snoozed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

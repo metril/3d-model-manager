@@ -149,6 +149,42 @@ PLATE_NO_FRAME = "plate check: waiting for camera frame"
 # with extra lifetime to keep the stream (and a cached frame) alive between ticks.
 PLATE_VIEWER_EXTRA_S = 20.0
 _NO_FRAME = object()
+# A fail-closed hold with no camera frame for this long is a stuck printer, not
+# a warm-up: notify once per entry and flag the printer (key lives 60 s, so it
+# lapses on its own once the hold clears).
+PLATE_STALL_S = 600.0
+
+
+def plate_stall_key(entry_id: int) -> str:
+    return f"plate:stall:{entry_id}"
+
+
+def plate_stalled_key(printer_id: int) -> str:
+    return f"plate:stalled:{printer_id}"
+
+
+def _plate_stall_check(
+    session: Session, client: Redis, item: PrintQueueEntry, printer: Printer
+) -> None:
+    now = time.time()
+    client.set(plate_stall_key(item.id), now, nx=True, ex=86400)
+    raw = client.get(plate_stall_key(item.id))
+    since = float(raw) if raw else now
+    if now - since < PLATE_STALL_S:
+        return
+    client.set(plate_stalled_key(printer.id), "1", ex=60)
+    if client.set(f"plate:stall:notified:{item.id}", "1", nx=True, ex=86400):
+        model = session.get(Model, item.model_id) if item.model_id is not None else None
+        events.emit(
+            "plate_check_stalled",
+            printer.id,
+            {
+                "name": model.name if model is not None else "print",
+                "printer_name": printer.name,
+                "queue_id": item.id,
+                "minutes": int(PLATE_STALL_S // 60),
+            },
+        )
 
 
 def plate_gate(
@@ -196,7 +232,9 @@ def plate_gate(
         if item.last_error != PLATE_NO_FRAME:
             item.last_error = PLATE_NO_FRAME
             session.commit()
+        _plate_stall_check(session, client, item, printer)
         return False
+    client.delete(plate_stall_key(item.id), f"plate:stall:notified:{item.id}")
     res = cache[printer.id]
     if res is None or res.needs_calibration or res.empty:
         if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME):

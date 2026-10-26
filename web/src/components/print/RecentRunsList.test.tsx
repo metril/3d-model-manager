@@ -5,6 +5,7 @@ import type { ArchiveOut } from "@/api/types";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { totalGrams } from "@/lib/totalGrams";
 
+vi.mock("@/components/print/SourceFiles", () => ({ SourceFiles: () => null }));
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
   useAuth: () => ({ data: { id: 1, username: "tester" }, can: canBox.current }),

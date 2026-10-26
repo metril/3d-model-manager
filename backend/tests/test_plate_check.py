@@ -172,3 +172,48 @@ def test_dispatch_gate_holds_then_releases(redis_url: str, fake_adapter, monkeyp
     assert counts["sent"] == 1
     with base.sync_session() as s:
         assert s.get(PrintQueueEntry, entry_id).state == QueueState.DISPATCHED
+
+
+@pytest.mark.usefixtures("data_dir", "printer_enabled", "library_root")
+def test_dispatch_gate_no_frame_stall_alert(redis_url: str, fake_adapter, monkeypatch) -> None:
+    import time
+
+    from app.models.printing import PlateReference
+
+    emitted: list[tuple] = []
+    monkeypatch.setattr(
+        dispatcher.events, "emit", lambda ev, pid=None, payload=None: emitted.append((ev, pid))
+    )
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="plate-stall")
+        printer = _seed_printer(s, name="StallP")
+        printer.options = {"plate_check": {"enabled": True, "threshold": 1.0}}
+        s.add(PlateReference(printer_id=printer.id, plate_type="", jpeg=EMPTY))
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+    client = redis_lib.Redis.from_url(redis_url)
+    client.delete(cs.frame_key(pid))
+
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    assert emitted == [] and not client.exists(dispatcher.plate_stalled_key(pid))
+
+    # backdate the first no-frame sighting past the threshold
+    client.set(dispatcher.plate_stall_key(entry_id), time.time() - 700)
+    for _ in range(2):  # notified once only
+        client.delete(cs.frame_key(pid))
+        with base.sync_session() as s:
+            dispatcher.dispatch_once(s, client, settings)
+    assert emitted == [("plate_check_stalled", pid)]
+    assert client.exists(dispatcher.plate_stalled_key(pid))
+
+    # a frame arrives: the stall bookkeeping resets
+    cs.put_frame(client, pid, EMPTY)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    assert not client.exists(dispatcher.plate_stall_key(entry_id))
+    client.close()

@@ -7,6 +7,7 @@ import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
 import { ArchiveToolpath } from "@/components/print/ArchiveToolpath";
 import { ArchiveEditor, PhotoGallery, VerdictCard } from "@/components/print/ArchiveExtras";
+import { SourceFiles } from "@/components/print/SourceFiles";
 import { TimelapseEditorDialog } from "@/components/print/TimelapseEditorDialog";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { TimelapsePlayer } from "@/components/print/TimelapsePlayer";
@@ -200,6 +201,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
         onDeleted={onDeleted}
       />
       <PhotoGallery archive={archive} canWrite={canWriteArchive} />
+      <SourceFiles archive={archive} canWrite={canWriteArchive} />
       {archive.has_timelapse && canWriteArchive && canPrint ? (
         <>
           <Button type="button" variant="outline" size="sm" onClick={() => setTlOpen(true)}>
