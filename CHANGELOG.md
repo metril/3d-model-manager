@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.7.0](https://github.com/metril/3d-model-manager/compare/v0.6.0...v0.7.0) (2026-10-26)
+
+
+### Features
+
+* **api:** scoped API keys and /ext/v2 remote-control API ([10ce40d](https://github.com/metril/3d-model-manager/commit/10ce40d3dedb2d6e43743335c71c3a1027b80f8d))
+* **library:** trash / recycle bin with restore, purge and retention auto-purge ([aaf3da8](https://github.com/metril/3d-model-manager/commit/aaf3da87afa1c98e5701ac3b3dc8ed2b4c10251e))
+* plate-empty detection (check plate before print) ([529c7dc](https://github.com/metril/3d-model-manager/commit/529c7dc4fe060bc8b23f80aa47e00f38fcc79998))
+* **plugs:** standalone multi-plug model, switchbar, plugs page, power-off when drained ([ba87234](https://github.com/metril/3d-model-manager/commit/ba87234984368fac433f1676e19a918e3724ced8))
+* **printers:** plate-empty detection with reference calibration, queue gate and camera diagnose ([17e02b0](https://github.com/metril/3d-model-manager/commit/17e02b066ad006eb7756a44c713282cfccc6265a))
+* Projects with BOM ([97a28f8](https://github.com/metril/3d-model-manager/commit/97a28f8c52c7ab30ac0960724e547e7b596f29bb))
+* **projects:** projects with BOM, progress/cost rollup, templates, export, queue remaining ([67b855d](https://github.com/metril/3d-model-manager/commit/67b855d38cf3d2e0e158d8c2ad3a3d66f1fe3007))
+* scoped API keys and /ext/v2 remote-control API ([3658399](https://github.com/metril/3d-model-manager/commit/3658399a4403e3e52499ff1458d781df0b647451))
+* **slicer:** pipelines and Orca/Bambu cloud preset sync ([6c34a33](https://github.com/metril/3d-model-manager/commit/6c34a336fa1ddf8debde1c667f1efa583cc255ee))
+* **slicer:** pipelines and Orca/Bambu cloud preset sync ([e0c855c](https://github.com/metril/3d-model-manager/commit/e0c855c77206c6efc509b6512ac6d34701c51242))
+
+
+### Bug Fixes
+
+* **archives:** stream source uploads and library links, reuse stored blobs ([3e1fcd5](https://github.com/metril/3d-model-manager/commit/3e1fcd563fc5145f8b1b16e5fa43366bc21f42ab))
+* **cloud-presets:** require inventory:write for list/diff; retry concurrent syncs ([2e840a6](https://github.com/metril/3d-model-manager/commit/2e840a66303f819f8e4be7eb3b797eeed72cb467))
+* **logs:** close queue listener and redis client when the handler is replaced ([fc622e7](https://github.com/metril/3d-model-manager/commit/fc622e7a4752b087783c8ca0499ada37d8672a69))
+* **logs:** emit to Redis without the handler lock (lock-order deadlock with logging.shutdown) ([a30dd5a](https://github.com/metril/3d-model-manager/commit/a30dd5a14c1b0fd31b1c42cbe1ec4ae7c4139f64))
+* **logs:** never join the drain thread under the logging lock (deadlock) ([cfa19a8](https://github.com/metril/3d-model-manager/commit/cfa19a87bf3275472397c7b5d0b48370d0478f33))
+* **logs:** rebuild the log queue and drain thread in forked children ([3a5ea53](https://github.com/metril/3d-model-manager/commit/3a5ea53c676cd5b96c813334a5d19134be56ae9c))
+* **logs:** redact prefixed secret keys; ship logs via bounded queue listener ([c74b3f2](https://github.com/metril/3d-model-manager/commit/c74b3f278e7952544b181b890e73508e24fe85a8))
+* **migrations:** single alembic head; re-point slicer pipelines migration ([23565d6](https://github.com/metril/3d-model-manager/commit/23565d6e3b439db6fa855bfe51e94c11572cd4e2))
+* **mqtt-debug:** tap raw MQTT only with a viewer; release DB session before SSE streams ([338058a](https://github.com/metril/3d-model-manager/commit/338058a74e3b83dc1573fec5344c13f7fc8f678c))
+* **mqtt-relay:** audit broker commands, per-printer rate limit ([052e0ba](https://github.com/metril/3d-model-manager/commit/052e0ba12ef28b45178b94c302fdd2b6a8a04b17))
+* **orca-cloud:** serialize token refresh, clear pairing only on invalid_grant, default token TTL ([de3761b](https://github.com/metril/3d-model-manager/commit/de3761b4db8d306f26f645bb5168abf7f37436b2))
+* **plugs:** backfill orphaned_at for pre-existing orphaned plugs ([7e54e3f](https://github.com/metril/3d-model-manager/commit/7e54e3f0ae6c1907b3594ce221028bce19f9d808))
+* **printers:** tolerate printer rows without power_off_when_drained in PrinterOut ([b563ecd](https://github.com/metril/3d-model-manager/commit/b563ecd74b78715fb21e0bb367beaba061c2dec8))
+* **projects:** lint and ModelHeader menu test ([df9ec03](https://github.com/metril/3d-model-manager/commit/df9ec0342cf0c03ffa711f5ae2973ea902f907f6))
+* **projects:** re-point migration to current head ([84602ce](https://github.com/metril/3d-model-manager/commit/84602ce407361521b84c4f43924a3a4d20267743))
+* **projects:** re-point migration to single alembic head ([d73676d](https://github.com/metril/3d-model-manager/commit/d73676d57edbeae8de68e896f94c5f6232e5ad9b))
+* single alembic head after projects merge ([bf48813](https://github.com/metril/3d-model-manager/commit/bf4881379671f96a88aa9c2c4006385d3d35bdd8))
+* **slicing:** harden slice jobs against stuck rows, races and orphan files ([65884ba](https://github.com/metril/3d-model-manager/commit/65884bacb30af0efd6940f11a4874ffc79928bef))
+* **stock:** per-plate queued demand, batch-load file metadata ([1d78c1f](https://github.com/metril/3d-model-manager/commit/1d78c1f155fc88f51616cd60019b8d1091279841))
+* **trash:** refuse trashed models in VP intake and send-to-printer ([e95391b](https://github.com/metril/3d-model-manager/commit/e95391baaff18350b9fd99e9914f3c9870af2ae4))
+* wave-1 review findings ([457b1f5](https://github.com/metril/3d-model-manager/commit/457b1f510abb299c15734a655024ba3a409ef3cd))
+* wave-1 review findings (trash reachability, queue hold, plugs, projects ACL, ext/v2 audit) ([07f716f](https://github.com/metril/3d-model-manager/commit/07f716f240b4e44d8489144228621889cebfb824))
+
 ## [0.6.0](https://github.com/metril/3d-model-manager/compare/v0.5.0...v0.6.0) (2026-10-25)
 
 
