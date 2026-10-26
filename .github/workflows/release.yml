@@ -81,12 +81,17 @@ jobs:
       - working-directory: backend
         run: uv run ruff format --check .
 
-  backend-test:
-    name: Backend tests
+  backend-test-shard:
+    name: Backend tests shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 60
+    # 4 shards x pytest-xdist `-n auto`, same as ci.yml.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -128,13 +133,31 @@ jobs:
           docker pull postgres:16-alpine
           docker pull redis:7-alpine
           docker pull bitnamilegacy/minio:2025.5.24
+          docker pull bluenviron/mediamtx:latest-ffmpeg
       - name: pytest
         working-directory: backend
         env:
           # ffmpeg-backed tests (camera rtsps, T7 timelapse editor) must fail, not skip.
           TDMM_REQUIRE_FFMPEG_TESTS: "1"
         # See ci.yml for why the full `-m` expression is repeated verbatim.
-        run: uv run pytest -q -n auto -m 'not e2e and not live_importer and not perf'
+        # Sharded via pytest-split on the committed backend/.test_durations.
+        run: >
+          uv run pytest -q -n auto --durations=20
+          --splits 4 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --durations-path=.test_durations
+          -m 'not e2e and not live_importer and not perf'
+
+  backend-test:
+    # Aggregator: downstream jobs `needs: backend-test`, so the id and name stay.
+    name: Backend tests
+    needs: backend-test-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All shards must succeed
+        run: |
+          echo "shards: ${{ needs.backend-test-shard.result }}"
+          [ "${{ needs.backend-test-shard.result }}" = "success" ]
 
   web:
     name: Web
