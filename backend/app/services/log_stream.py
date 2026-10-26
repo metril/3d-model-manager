@@ -140,8 +140,23 @@ class DropQueueHandler(logging.handlers.QueueHandler):
         super().__init__(q)
         self.target = target
         self.dropped = 0
+        self.listener: logging.handlers.QueueListener | None = None
+        self._pid = os.getpid()
+
+    def _restart_after_fork(self) -> None:
+        """A forked child inherits the queue (possibly with its mutex held by
+        the parent's drain thread, which does not exist here) but not the
+        thread: swap in a fresh queue + listener (celery prefork etc.)."""
+        self._pid = os.getpid()
+        self.queue = queue.Queue(maxsize=QUEUE_SIZE)
+        self.listener = logging.handlers.QueueListener(
+            self.queue, self.target, respect_handler_level=True
+        )
+        self.listener.start()
 
     def enqueue(self, record: logging.LogRecord) -> None:
+        if self._pid != os.getpid():
+            self._restart_after_fork()
         try:
             self.queue.put_nowait(record)
         except queue.Full:
@@ -156,8 +171,8 @@ class DropQueueHandler(logging.handlers.QueueHandler):
         close runs under the logging module lock, which the drain thread may
         itself be waiting for -- joining would deadlock."""
         self.target.close()
-        listener = getattr(self, "listener", None)
-        if listener is not None:
+        listener = self.listener
+        if listener is not None and self._pid == os.getpid():
             for _ in range(2):
                 try:
                     self.queue.put_nowait(listener._sentinel)
@@ -183,7 +198,7 @@ def install(redis_url: str, service: str | None = None, logger: logging.Logger |
     qh = DropQueueHandler(q, handler)
     listener = logging.handlers.QueueListener(q, handler, respect_handler_level=True)
     listener.start()
-    qh.listener = listener  # type: ignore[attr-defined]
+    qh.listener = listener
     target.addHandler(qh)
     return handler
 

@@ -154,3 +154,35 @@ def test_reconfigure_does_not_leak_listener_threads(redis_url):
             break
         time.sleep(0.05)
     assert threading.active_count() <= before + 1
+
+
+def test_forked_child_logs_without_hanging_on_inherited_queue_lock():
+    import os
+    import signal
+
+    lg = logging.getLogger("tdmm.test.fork")
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    ls.install("redis://127.0.0.1:1/0", "api", lg)
+    qh = next(x for x in lg.handlers if isinstance(x, ls.DropQueueHandler))
+    try:
+        with qh.queue.mutex:  # as if the parent's drain thread held it at fork time
+            pid = os.fork()
+            if pid == 0:  # child
+                try:
+                    lg.info("from child")
+                finally:
+                    os._exit(0)
+        for _ in range(100):
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            raise AssertionError("forked child hung logging through the inherited queue")
+        assert os.WEXITSTATUS(status) == 0
+    finally:
+        lg.removeHandler(qh)
+        qh.close()
