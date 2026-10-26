@@ -13,6 +13,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     String,
     Text,
@@ -35,7 +36,16 @@ class SlicerProfile(Base):
     """
 
     __tablename__ = "slicer_profiles"
-    __table_args__ = (UniqueConstraint("kind", "name", name="uq_slicer_profiles_kind_name"),)
+    __table_args__ = (
+        UniqueConstraint("kind", "name", name="uq_slicer_profiles_kind_name"),
+        Index(
+            "uq_slicer_profiles_cloud",
+            "cloud_source",
+            "cloud_id",
+            unique=True,
+            postgresql_where=text("cloud_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -48,6 +58,16 @@ class SlicerProfile(Base):
         nullable=False,
         server_default=text("'import'"),
     )
+    # Cloud preset sync (Orca Cloud / Bambu Cloud): where this row was pulled
+    # from, its id there, and two hashes taken at the last sync -- of the
+    # remote content and of the stored ``data`` -- so a resync can tell
+    # "changed upstream" from "edited locally" (see ``cloud_presets``).
+    cloud_source: Mapped[str | None] = mapped_column(String)
+    cloud_id: Mapped[str | None] = mapped_column(String)
+    cloud_hash: Mapped[str | None] = mapped_column(String)
+    cloud_updated: Mapped[str | None] = mapped_column(String)  # remote updated_time at last sync
+    data_hash: Mapped[str | None] = mapped_column(String)
+    cloud_synced_at: Mapped[datetime | None] = mapped_column()
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -127,6 +147,41 @@ class SliceJob(Base):
         BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True
     )
     meta: Mapped[dict | None] = mapped_column(JSONB)
+    # Set when started by ``POST /slicer-pipelines/{id}/run``: the pipeline
+    # whose post-steps run on completion, and the slice-option overrides its
+    # pre-steps (orient/arrange) apply on top of the recipe's own.
+    pipeline_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("slicer_pipelines.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    options: Mapped[dict | None] = mapped_column(JSONB)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class SlicerPipeline(Base):
+    """A named, ordered slice workflow: ``steps`` (pre-steps ``orient`` /
+    ``arrange``, then the slice with ``recipe_id``, then post-steps ``rename``
+    or ``queue``) run in one click on a file. See ``app.services.pipelines``."""
+
+    __tablename__ = "slicer_pipelines"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(String)
+    # RESTRICT: a recipe used by a pipeline can't be deleted out from under it.
+    recipe_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("print_recipes.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    plate: Mapped[int | None] = mapped_column(Integer)
+    steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

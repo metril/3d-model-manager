@@ -362,6 +362,7 @@ def _slice(
         tag=f"q{entry.id}",
         job_id=queue_job_id(entry.id),
         keep=keep,
+        option_overrides=entry.slice_options,
     )
 
 
@@ -376,6 +377,7 @@ def slice_source(
     tag: str,
     job_id: str | None = None,
     keep: Callable[[], bool] | None = None,
+    option_overrides: dict | None = None,
 ) -> SliceOutcome:
     """The shared core of every slice (queue entry or standalone slice job):
     slices ``file_id`` with ``recipe_id`` through ``client`` and stores the
@@ -421,9 +423,10 @@ def slice_source(
         except LookupError as exc:
             raise ValueError(str(exc)) from exc
 
+        merged_options = {**(recipe.options or {}), **(option_overrides or {})}
         options = SliceOptions(
-            auto_orient=bool((recipe.options or {}).get("auto_orient", False)),
-            arrange=bool((recipe.options or {}).get("arrange", False)),
+            auto_orient=bool(merged_options.get("auto_orient", False)),
+            arrange=bool(merged_options.get("arrange", False)),
             plate=plate,
         )
         out_bytes = client.slice(
@@ -534,6 +537,10 @@ def _finish_slice_job(
         if outcome is not None:
             job.sliced_file_id = outcome.file_id
             job.meta = outcome.meta
+            if job.pipeline_id is not None:
+                from app.services import pipelines
+
+                pipelines.apply_post_steps(session, job, outcome)
             payload = _done_payload(session, file_id, outcome.file_id, job.recipe_id)
         else:
             source = session.get(File, file_id)
@@ -569,6 +576,7 @@ def slice_job(self, job_id: str) -> None:
         job.state = "running"
         job.celery_id = getattr(self.request, "id", None) or job.celery_id
         file_id, recipe_id, plate = job.file_id, job.recipe_id, job.plate
+        option_overrides = job.options
         session.commit()
 
     def _active() -> bool:
@@ -600,6 +608,7 @@ def slice_job(self, job_id: str) -> None:
                 tag=f"s{jid.hex[:8]}",
                 job_id=slice_job_sidecar_id(jid),
                 keep=_active,
+                option_overrides=option_overrides,
             )
         except SlicerCancelled:
             return  # the API already marked it cancelled

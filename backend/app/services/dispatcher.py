@@ -487,6 +487,7 @@ def _clone_entry(
         printer_id=item.printer_id,
         recipe_id=item.recipe_id,
         plate=item.plate,
+        slice_options=item.slice_options,
         copies=copies,
         state=state,
         position=position,

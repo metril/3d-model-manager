@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # version endpoint, so this is the "configured" version shown in Settings.
     obico_ml_version: str = ""
     database_url: str = "postgresql+asyncpg://tdmm:tdmm@localhost:5432/tdmm"
+    # Orca Cloud (cloud preset sync): OAuth device-flow endpoints + the public
+    # client id registered for this app. Override ORCA_API_BASE to target
+    # Orca's staging API.
+    orca_api_base: str = "https://api.orcaslicer.com"
+    orca_client_id: str = "oc_app_e873d49ce7dbcc7dca8ba386"
     redis_url: str = "redis://localhost:6379/0"
     data_dir: Path = Path("./data")
     library_root: Path = Path("./library")
