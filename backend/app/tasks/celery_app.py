@@ -66,6 +66,7 @@ celery_app.conf.update(
         "app.tasks.billing",
         "app.tasks.home_assistant",
         "app.tasks.spoolman",
+        "app.tasks.stock_forecast",
         "app.tasks.sensors",
         "app.tasks.firmware",
         "app.tasks.ops",
@@ -155,6 +156,14 @@ from app.tasks import sensors as _sensors  # noqa: E402,F401
 celery_app.conf.beat_schedule["sensors-prune"] = {
     "task": "app.tasks.sensors.prune",
     "schedule": crontab(hour=3, minute=15),
+}
+
+# Additive: stock forecast reorder / stock-break alerts.
+from app.tasks import stock_forecast as _stock_forecast  # noqa: E402,F401
+
+celery_app.conf.beat_schedule["stock-forecast"] = {
+    "task": "app.tasks.stock_forecast.check_alerts",
+    "schedule": 6 * 3600,
 }
 
 # Additive: library trash retention -- daily purge of expired trashed models.

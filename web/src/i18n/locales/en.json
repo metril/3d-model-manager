@@ -384,7 +384,8 @@
       "heatmap": "Print activity",
       "records": "Records",
       "printers": "Per-printer",
-      "filament": "Filament trends"
+      "filament": "Filament trends",
+      "stock": "Stock forecast"
     },
     "total": "Total prints",
     "completed": "Completed",
@@ -825,6 +826,21 @@
       "later": "Later",
       "dialogDesc": "{{name}} on {{printer}} has finished."
     },
+    "sources": {
+      "title": "Source files",
+      "source": "Source project",
+      "f3d": "Fusion / CAD file",
+      "none": "Nothing attached",
+      "attach": "Attach",
+      "replace": "Replace",
+      "remove": "Remove",
+      "download": "Download",
+      "linked": "From library model",
+      "linkModel": "Link from library model",
+      "noModelSource": "The library model has no source file to link.",
+      "failed": "Upload failed",
+      "tooBig": "File must be 256 MB or smaller."
+    },
     "photos": {
       "title": "Photos",
       "upload": "Upload photo",
@@ -962,7 +978,8 @@
       "spools": "Spools",
       "suppliers": "Suppliers",
       "locations": "Locations",
-      "colors": "Colour catalog"
+      "colors": "Colour catalog",
+      "forecast": "Forecast"
     },
     "common": {
       "cancel": "Cancel",

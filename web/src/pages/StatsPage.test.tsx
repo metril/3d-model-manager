@@ -35,14 +35,16 @@ function renderPage() {
 beforeEach(() => {
   localStorage.clear();
   get.mockReset();
-  get.mockImplementation(async (url: string) => (url.startsWith("/auth/me") ? { id: 7 } : payload));
+  get.mockImplementation(async (url: string) =>
+    url.startsWith("/auth/me") ? { id: 7 } : url.startsWith("/spools/forecast") ? { skus: [], alert_count: 0 } : payload,
+  );
 });
 
 describe("StatsPage", () => {
   it("renders every widget from the dashboard payload", async () => {
     renderPage();
     expect(await screen.findByText("Benchy", { exact: false })).toBeInTheDocument();
-    for (const name of ["Quick stats", "Success rate", "Time accuracy", "Failure analysis", "Print activity", "Records", "Per-printer", "Filament trends"]) {
+    for (const name of ["Quick stats", "Success rate", "Time accuracy", "Failure analysis", "Print activity", "Records", "Per-printer", "Filament trends", "Stock forecast"]) {
       expect(screen.getAllByText(name).length).toBeGreaterThan(0);
     }
     expect(screen.getByText("A1 Mini")).toBeInTheDocument();

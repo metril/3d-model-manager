@@ -10,6 +10,7 @@ export const WIDGET_IDS = [
   "records",
   "printers",
   "filament",
+  "stock",
 ] as const;
 export type WidgetId = (typeof WIDGET_IDS)[number];
 export type WidgetSize = 1 | 2 | 3;
@@ -33,6 +34,7 @@ const DEFAULT_SIZE: Record<WidgetId, WidgetSize> = {
   records: 1,
   printers: 2,
   filament: 3,
+  stock: 2,
 };
 
 export const DEFAULT_PREFS: StatsPrefs = {

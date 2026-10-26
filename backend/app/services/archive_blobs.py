@@ -21,7 +21,14 @@ def blob_ext(fmt: BlobFormat) -> str:
 def blob_hashes(arc: PrintArchive) -> set[str]:
     out = {
         h
-        for h in (arc.archive_blob, arc.thumbnail_blob, arc.snapshot_blob, arc.timelapse_blob)
+        for h in (
+            arc.archive_blob,
+            arc.thumbnail_blob,
+            arc.snapshot_blob,
+            arc.timelapse_blob,
+            arc.source_blob,
+            arc.f3d_blob,
+        )
         if h
     }
     out.update(p["blob"] for p in (arc.photos or []) if p.get("blob"))
@@ -50,6 +57,8 @@ def release_blobs(session: Session, settings: Settings, hashes: set[str]) -> tup
                     PrintArchive.thumbnail_blob == h,
                     PrintArchive.snapshot_blob == h,
                     PrintArchive.timelapse_blob == h,
+                    PrintArchive.source_blob == h,
+                    PrintArchive.f3d_blob == h,
                     cast(PrintArchive.photos, String).like(f'%"{h}"%'),
                 )
             )

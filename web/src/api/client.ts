@@ -122,9 +122,9 @@ async function requestRaw<T>(path: string, method: string, body: BodyInit, conte
 /** POST a `FormData` body (e.g. a profile bundle zip) -- the browser sets
  * its own `multipart/form-data; boundary=...` header, so this must NOT
  * pass a `Content-Type` the way `requestRaw` does. */
-async function requestForm<T>(path: string, formData: FormData): Promise<T> {
+async function requestForm<T>(path: string, formData: FormData, method: "POST" | "PUT" = "POST"): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
+    method,
     credentials: "include",
     body: formData,
   });
@@ -141,4 +141,6 @@ export const api = {
   postRaw: <T>(path: string, body: BodyInit, contentType: string) => requestRaw<T>(path, "POST", body, contentType),
   /** POST a multipart `FormData` body. */
   postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData),
+  /** PUT a multipart `FormData` body. */
+  putForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData, "PUT"),
 };

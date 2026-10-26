@@ -39,6 +39,7 @@ from app.models.inventory import (
     SpoolSlot,
     SpoolSupplier,
     SpoolUsage,
+    StockSkuSettings,
     StorageLocation,
     Supplier,
 )
@@ -147,6 +148,7 @@ __all__ = [
     "SpoolmanPush",
     "SpoolmanSyncState",
     "SpoolUsage",
+    "StockSkuSettings",
     "StorageBackendRow",
     "Tag",
     "User",
