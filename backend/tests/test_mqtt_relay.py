@@ -177,11 +177,33 @@ def test_command_routing_and_denials(r, monkeypatch):
 
 
 class _NullSession:
+    added: list = []
+
     def __enter__(self):
-        return object()
+        return self
 
     def __exit__(self, *a):
         return False
+
+    def add(self, row):
+        _NullSession.added.append(row)
+
+    def commit(self):
+        pass
+
+
+def test_command_audited_and_rate_limited(r, monkeypatch):
+    relay = _relay(r, commands_enabled=True, actor_user_id=5)
+    monkeypatch.setattr("app.printers.mqtt_relay.can_control_sync", lambda s, u, p: u == 5)
+    monkeypatch.setattr("app.printers.mqtt_relay.base.sync_session", _NullSession)
+    _NullSession.added = []
+    for _ in range(5):
+        relay._on_message(None, None, Msg("x/y/SER1/command", "pause"))
+    assert len(_NullSession.added) == 3  # burst of 3 audited; the rest never hit the DB
+    row = _NullSession.added[0]
+    assert row.user_id == 5 and row.printer_id == 1 and row.payload["command"] == "pause"
+    last = json.loads(relay._client.published[-1][1])
+    assert last["ok"] is False and last["detail"] == "rate limited"
 
 
 # --- settings API + status -------------------------------------------------
