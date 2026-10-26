@@ -103,7 +103,17 @@ jobs:
       - run: pip install "uv==${{ env.UV_VERSION }}"
       - name: Fetch gltfpack
         run: scripts/fetch-gltfpack.sh
+      - name: Configure apt retries and timeouts
+        # A slow Azure mirror otherwise stalls apt-get for ~25 minutes and
+        # burns the whole job timeout. Fail fast per request and retry.
+        run: |
+          printf '%s\n' \
+            'Acquire::Retries "5";' \
+            'Acquire::http::Timeout "20";' \
+            'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
       - name: Install f3d's GL runtime (OSMesa software rendering)
+        timeout-minutes: 10
         # Without this, render.py's EGL fallback segfaults the pytest process
         # (exit 139) instead of failing a test -- see ci.yml for the full why.
         run: |

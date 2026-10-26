@@ -89,7 +89,17 @@ jobs:
         # See the setup-node comment. Without this the optimize_glb tests
         # silently degrade instead of exercising the real CLI.
         run: scripts/fetch-gltfpack.sh
+      - name: Configure apt retries and timeouts
+        # A slow Azure mirror otherwise stalls apt-get for ~25 minutes and
+        # burns the whole job timeout. Fail fast per request and retry.
+        run: |
+          printf '%s\n' \
+            'Acquire::Retries "5";' \
+            'Acquire::http::Timeout "20";' \
+            'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
       - name: Install f3d's GL runtime (OSMesa software rendering)
+        timeout-minutes: 10
         # app/pipeline/render.py builds its f3d engine with create_osmesa() and
         # falls back to create(True) (EGL offscreen) only if that RAISES. A bare
         # runner has neither path available, and the failure mode is brutal:
