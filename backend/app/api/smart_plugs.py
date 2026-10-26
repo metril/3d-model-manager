@@ -59,6 +59,7 @@ def _out(settings: Settings, p: SmartPlug) -> PlugOut:
         name=p.name,
         printer_id=p.printer_id,
         controls_printer_power=p.controls_printer_power,
+        orphaned=p.orphaned_at is not None and p.printer_id is None,
         kind=p.kind,
         config=_mask(cfg),
         auto_off=p.auto_off,
@@ -169,6 +170,8 @@ async def _apply(db: AsyncSession, row: SmartPlug, payload: PlugIn, settings: Se
     row.kind = payload.kind
     row.name = payload.name.strip()
     row.printer_id = payload.printer_id
+    if payload.printer_id is not None:
+        row.orphaned_at = None  # re-linked
     row.controls_printer_power = payload.controls_printer_power
     row.auto_off = (
         payload.auto_off if payload.auto_off is not None else payload.auto_off_after_min is not None
@@ -251,7 +254,7 @@ async def _act(
     p = await _plug(db, plug_id, ctx)
     if p.printer_id is not None:
         ctx.require_printer(p.printer_id, "control")
-    elif not ctx.can("settings:write"):  # unlinked plug: no printer ACL to gate on
+    elif p.orphaned_at is not None and not ctx.can("settings:write"):  # left by a printer delete
         raise HTTPException(status.HTTP_403_FORBIDDEN, "missing permission: settings:write")
     await run_in_threadpool(_command, plug_id, action, settings)
     db.expire_all()

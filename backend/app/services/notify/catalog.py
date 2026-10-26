@@ -93,6 +93,14 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{% if score %} (difference {{ score }}%){% endif %}.",
         {"name": "benchy.3mf", "printer_name": "A1 Mini", "score": 4.2},
     ),
+    "plate_check_stalled": (
+        "Plate check stalled",
+        "A queued print has been held because the plate check gets no camera frame.",
+        "Plate check stalled: {{ printer_name }}",
+        "{{ name|default('A queued print') }} has waited over {{ minutes|default(10) }} min "
+        "for a camera frame on {{ printer_name }}. Check the camera.",
+        {"name": "benchy.3mf", "printer_name": "A1 Mini", "minutes": 10},
+    ),
     "slice_done": (
         "Slice finished",
         "A slice job (queued print or standalone) produced a sliced file.",
