@@ -31,6 +31,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, 
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +47,7 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.crypto import encrypt_secret
 from app.db import get_db, get_sessionmaker
-from app.models import OverlayToken, Printer, PrintJob, Setting, User
+from app.models import OverlayToken, Printer, PrintJob, Setting, SmartPlug, User
 from app.models.inventory import Spool
 from app.printers import discovery, probe
 from app.printers.base import command_channel
@@ -300,6 +301,19 @@ async def delete_printer(printer_id: int, db: AsyncSession = Depends(get_db)) ->
     printer = await _get_or_404(db, printer_id)
     # print_jobs FK printers.id -- remove this printer's history first.
     await db.execute(sa_delete(PrintJob).where(PrintJob.printer_id == printer_id))
+    # Plugs survive (FK SET NULL) but must not keep acting on their own once
+    # unlinked: switch off every automation; control becomes admin-only.
+    await db.execute(
+        sa_update(SmartPlug)
+        .where(SmartPlug.printer_id == printer_id)
+        .values(
+            schedule_enabled=False,
+            auto_off=False,
+            auto_on_before_print=False,
+            auto_off_after_drying=False,
+            controls_printer_power=False,
+        )
+    )
     await db.delete(printer)
     await db.commit()
 

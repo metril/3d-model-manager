@@ -251,6 +251,8 @@ async def _act(
     p = await _plug(db, plug_id, ctx)
     if p.printer_id is not None:
         ctx.require_printer(p.printer_id, "control")
+    elif not ctx.can("settings:write"):  # unlinked plug: no printer ACL to gate on
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "missing permission: settings:write")
     await run_in_threadpool(_command, plug_id, action, settings)
     db.expire_all()
     return _out(settings, await _plug(db, plug_id))

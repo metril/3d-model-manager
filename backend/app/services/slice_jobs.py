@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
+from app.services import library
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
 from app.services.slicer_client import client_from_config
@@ -44,7 +45,7 @@ async def create_job(
 ) -> SliceJobOut:
     if not (await get_server_config(db, settings)).slicer_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "slicer_disabled")
-    file = await db.get(File, file_id)
+    file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {file_id} not found")
     if await db.get(PrintRecipe, payload.recipe_id) is None:

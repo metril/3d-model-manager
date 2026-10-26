@@ -19,6 +19,7 @@ duplicate its WHERE clause.
 from __future__ import annotations
 
 import contextlib
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -142,7 +143,12 @@ def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
     return None
 
 
-PLATE_FRAME_WAIT_S = 8.0
+PLATE_NO_FRAME = "plate check: waiting for camera frame"
+# The dispatcher ticks every 10 s while a camera viewer registration lasts
+# VIEWER_TTL_S (10 s) and a frame 5 s, so the plate-check viewer is renewed
+# with extra lifetime to keep the stream (and a cached frame) alive between ticks.
+PLATE_VIEWER_EXTRA_S = 20.0
+_NO_FRAME = object()
 
 
 def plate_gate(
@@ -150,14 +156,16 @@ def plate_gate(
     client: Redis,
     item: PrintQueueEntry,
     printer: Printer,
-    cache: dict[int, pd.PlateResult | None],
+    cache: dict,
 ) -> bool:
     """V4: ``True`` = the entry may dispatch. With ``options.plate_check``
-    enabled and references captured, a camera frame is compared to them; a
-    non-empty plate parks the entry in ``waiting`` with ``last_error='plate
-    not empty'`` (no attempt consumed; re-checked every tick) and emits
-    ``plate_not_empty`` once per hold. Fails OPEN on a missing camera
-    frame/analysis error -- a flaky camera must not stall the queue."""
+    enabled and references captured, the CACHED camera frame is compared to
+    them (never a blocking wait: one stalled camera must not freeze the
+    tick); a non-empty plate parks the entry in ``waiting`` with
+    ``last_error='plate not empty'`` (no attempt consumed; re-checked every
+    tick) and emits ``plate_not_empty`` once per hold. With no frame yet the
+    entry is held (fails closed -- never prints blind) with a reason while the
+    camera is warmed asynchronously by a renewed viewer registration."""
     cfg = pd.config_from_options(printer.options)
     if not cfg.enabled:
         return True
@@ -173,19 +181,25 @@ def plate_gate(
         )
         if refs:
             try:
-                frame = cs.wait_for_frame(
+                cs.add_viewer(
                     client,
                     printer.id,
-                    timeout=PLATE_FRAME_WAIT_S,
-                    viewer_id=f"plate:{printer.id}",
+                    f"plate:{printer.id}",
+                    now=time.time() + PLATE_VIEWER_EXTRA_S,
                 )
-                if frame is not None:
-                    cache[printer.id] = pd.analyze(frame, refs, cfg.threshold)
-            except Exception:  # noqa: BLE001 - fail open
-                cache[printer.id] = None
+                frame = cs.get_frame(client, printer.id)
+                cache[printer.id] = pd.analyze(frame, refs, cfg.threshold) if frame else _NO_FRAME
+            except Exception:  # noqa: BLE001 - analysis error: treat as no frame
+                cache[printer.id] = _NO_FRAME
+    res = cache[printer.id]
+    if res is _NO_FRAME:
+        if item.last_error != PLATE_NO_FRAME:
+            item.last_error = PLATE_NO_FRAME
+            session.commit()
+        return False
     res = cache[printer.id]
     if res is None or res.needs_calibration or res.empty:
-        if item.last_error == pd.PLATE_NOT_EMPTY:
+        if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME):
             item.last_error = None
             session.commit()
         return True
@@ -222,7 +236,9 @@ def eligible_queue_items(
     """
     stmt = (
         select(PrintQueueEntry)
+        .join(Model, Model.id == PrintQueueEntry.model_id)
         .where(
+            Model.deleted_at.is_(None),
             PrintQueueEntry.file_id.is_not(None),
             PrintQueueEntry.state.in_((QueueState.WAITING, QueueState.READY)),
             PrintQueueEntry.attempts < QUEUE_MAX_ATTEMPTS,
@@ -689,7 +705,7 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
-    plate_cache: dict[int, pd.PlateResult | None] = {}
+    plate_cache: dict = {}
     for item in items:
         plate_held = (
             item.state == QueueState.WAITING

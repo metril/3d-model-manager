@@ -434,6 +434,29 @@ async def get_model_by_id(db: AsyncSession, model_id: int) -> Model:
     return model
 
 
+async def get_live_file(db: AsyncSession, file_id: int) -> File | None:
+    """The file, or None if missing OR its model is in the trash. Every
+    fetch / queue / slice / print path must use this so a trashed model's
+    files stop being reachable."""
+    return (
+        await db.execute(
+            select(File)
+            .join(Revision, File.revision_id == Revision.id)
+            .join(Model, Revision.model_id == Model.id)
+            .where(File.id == file_id, Model.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+
+
+def get_live_file_sync(session: SyncSession, file_id: int) -> File | None:
+    return session.execute(
+        select(File)
+        .join(Revision, File.revision_id == Revision.id)
+        .join(Model, Revision.model_id == Model.id)
+        .where(File.id == file_id, Model.deleted_at.is_(None))
+    ).scalar_one_or_none()
+
+
 async def get_model_by_slug(db: AsyncSession, slug: str) -> Model:
     stmt = (
         select(Model)
@@ -1360,7 +1383,13 @@ async def newest_printable_files(
     stmt = (
         select(File)
         .join(Blob, Blob.hash == File.blob_hash)
-        .where(File.revision_id.in_(revision_ids), Blob.format == BlobFormat.GCODE_3MF)
+        .join(Revision, File.revision_id == Revision.id)
+        .join(Model, Revision.model_id == Model.id)
+        .where(
+            File.revision_id.in_(revision_ids),
+            Blob.format == BlobFormat.GCODE_3MF,
+            Model.deleted_at.is_(None),
+        )
         .options(
             selectinload(File.blob).selectinload(Blob.meta),
             selectinload(File.blob).selectinload(Blob.derivatives),
