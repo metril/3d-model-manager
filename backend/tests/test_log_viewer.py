@@ -63,18 +63,21 @@ def test_filter_entries():
     assert [e["id"] for e in ls.filter_entries(es, after=2)] == [3]
 
 
+BASE = 10**9  # ids far above anything the live handler emits during the test
+
+
 def _seed(r, n=5):
     for i in range(1, n + 1):
         r.lpush(
             ls.LOG_LIST_KEY,
             json.dumps(
                 {
-                    "id": i,
+                    "id": BASE + i,
                     "ts": 1700000000 + i,
                     "level": "ERROR" if i == 4 else "INFO",
                     "logger": "t",
-                    "service": "printerd" if i % 2 else "api",
-                    "msg": f"line {i} token=sekret",
+                    "service": "svc-a" if i % 2 else "svc-b",
+                    "msg": f"seeded line {i} token=sekret",
                 }
             ),
         )
@@ -82,17 +85,18 @@ def _seed(r, n=5):
 
 async def test_logs_api(authenticated_client: httpx.AsyncClient, r):
     _seed(r)
-    body = (await authenticated_client.get("/api/admin/logs")).json()
-    assert [e["id"] for e in body["entries"]] == [1, 2, 3, 4, 5]
-    assert body["last_id"] == 5 and "sekret" not in json.dumps(body)
-    body = (await authenticated_client.get("/api/admin/logs?level=ERROR")).json()
-    assert [e["id"] for e in body["entries"]] == [4]
-    body = (await authenticated_client.get("/api/admin/logs?service=printerd&after=1")).json()
-    assert [e["id"] for e in body["entries"]] == [3, 5]
-    body = (await authenticated_client.get("/api/admin/logs?q=line 2&limit=1")).json()
-    assert [e["id"] for e in body["entries"]] == [2]
-    dl = await authenticated_client.get("/api/admin/logs/download?level=ERROR")
-    assert dl.status_code == 200 and "line 4" in dl.text and "sekret" not in dl.text
+    base = "/api/admin/logs?q=seeded"
+    body = (await authenticated_client.get(base)).json()
+    assert [e["id"] - BASE for e in body["entries"]] == [1, 2, 3, 4, 5]
+    assert body["last_id"] == BASE + 5 and "sekret" not in json.dumps(body)
+    body = (await authenticated_client.get(f"{base}&level=ERROR")).json()
+    assert [e["id"] - BASE for e in body["entries"]] == [4]
+    body = (await authenticated_client.get(f"{base}&service=svc-a&after={BASE + 1}")).json()
+    assert [e["id"] - BASE for e in body["entries"]] == [3, 5]
+    body = (await authenticated_client.get("/api/admin/logs?q=seeded line 2&limit=1")).json()
+    assert [e["id"] - BASE for e in body["entries"]] == [2]
+    dl = await authenticated_client.get("/api/admin/logs/download?q=seeded&level=ERROR")
+    assert dl.status_code == 200 and "seeded line 4" in dl.text and "sekret" not in dl.text
     assert "attachment" in dl.headers["content-disposition"]
 
 
