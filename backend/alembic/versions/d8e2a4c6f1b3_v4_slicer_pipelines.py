@@ -1,7 +1,7 @@
 """v4 slicer pipelines and cloud preset sync
 
 Revision ID: d8e2a4c6f1b3
-Revises: c5d7f9a1b3e8
+Revises: a9c3e5b7d1f4
 Create Date: 2026-10-25 20:19:28.640013
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "d8e2a4c6f1b3"
-down_revision: str | Sequence[str] | None = "c5d7f9a1b3e8"
+down_revision: str | Sequence[str] | None = "a9c3e5b7d1f4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
