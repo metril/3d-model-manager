@@ -406,7 +406,10 @@ def _seed_printer(settings, *, name: str, enabled: bool) -> int:
         return printer.id
 
 
-def _wait_until(predicate, *, timeout: float = 2.0, interval: float = 0.02) -> bool:
+def _wait_until(predicate, *, timeout: float = 20.0, interval: float = 0.02) -> bool:
+    # Returns the instant the predicate holds, so a generous budget costs
+    # nothing when healthy; it only absorbs CPU starvation under xdist
+    # (reconcile does DB + Redis + adapter work per tick on a loaded runner).
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -415,7 +418,7 @@ def _wait_until(predicate, *, timeout: float = 2.0, interval: float = 0.02) -> b
     return predicate()
 
 
-def _find_thread(name: str, *, timeout: float = 2.0, interval: float = 0.02) -> threading.Thread:
+def _find_thread(name: str, *, timeout: float = 20.0, interval: float = 0.02) -> threading.Thread:
     """Poll ``threading.enumerate()`` for a thread by name.
 
     ``_workers[id]`` is set a couple of statements before the `cmd-{id}`
@@ -487,7 +490,7 @@ def test_reconcile_tears_down_disabled_printer_thread(
         )
         assert id1 in daemon._workers  # the still-enabled printer is untouched
 
-        cmd_thread.join(timeout=2.0)
+        cmd_thread.join(timeout=20.0)
         assert not cmd_thread.is_alive()
         assert not any(t.name == f"cmd-{id2}" for t in threading.enumerate())
 
@@ -694,7 +697,7 @@ def test_run_tears_down_and_restarts_all_workers_on_db_flag_flip(
         assert _wait_until(lambda: daemon._workers == {}), (
             f"workers not torn down after the DB flag flipped off: {daemon._workers!r}"
         )
-        cmd_thread.join(timeout=2.0)
+        cmd_thread.join(timeout=20.0)
         assert not cmd_thread.is_alive()
 
         _set_flag_in_db(True)

@@ -156,7 +156,13 @@ def test_watchdog_restart_carries_backoff(redis_url):
     clock = _FakeClock()
     sup = CameraSupervisor(r, clock=clock)
     pid = 16
-    sup.add(pid, _adapter(FakeCamera([], hang=True)))
+    adapter = _adapter()
+    # A fresh hanging camera per open. FakeCamera is closed (permanently) by
+    # the stall restart's worker.stop(); a shared instance would make the
+    # replacement worker's frames() return at once, take the "clean exit"
+    # path and reset backoff to BACKOFF_START_S before the assert reads it.
+    adapter.open_camera = lambda stop: FakeCamera([], hang=True)
+    sup.add(pid, adapter)
     cs.add_viewer(r, pid, "v1", now=time.time())
     sup.tick()
     worker1 = sup._workers[pid]
