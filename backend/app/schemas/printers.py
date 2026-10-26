@@ -454,6 +454,8 @@ class PrinterOverviewItem(BaseModel):
     # reported.
     ha_alert: str | None = None
     ha_held: bool = False
+    # A queue entry has been held >10 min by the plate check for lack of a camera frame.
+    plate_check_stalled: bool = False
 
 
 class PrintersOverviewOut(BaseModel):

@@ -342,7 +342,11 @@ async def _guard_entry(db: AsyncSession, auth: KeyAuth, entry_id: int) -> None:
     for pid in (entry.printer_id, entry.assigned_printer_id):
         if pid is not None and pid not in auth.ctx.printer_acl:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"queue entry {entry_id} not found")
-    if auth.key.printer_ids and entry.printer_id is None:
+    if (
+        auth.key.printer_ids
+        and entry.printer_id is None
+        and entry.created_by_user_id != auth.ctx.user.id  # same rule as list_queue
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"queue entry {entry_id} not found")
     _own_or_admin(auth, entry.created_by_user_id)
 

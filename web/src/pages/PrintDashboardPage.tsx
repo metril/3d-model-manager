@@ -21,6 +21,7 @@ import { usePrintersOverview } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
+import { PlateStallBadge } from "@/components/print/PlateStallBadge";
 import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
 import { CARD_SIZES, GRID_CLASS, useCardSize } from "@/components/print/card/cardSize";
 import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
@@ -211,7 +212,14 @@ export function PrintDashboardPage() {
                         <CameraTile printerId={item.printer.id} online={item.status.online} />
                       ) : undefined
                     }
-                    badge={item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : undefined}
+                    badge={
+                      item.ha_alert || item.plate_check_stalled ? (
+                        <>
+                          {item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : null}
+                          {item.plate_check_stalled ? <PlateStallBadge /> : null}
+                        </>
+                      ) : undefined
+                    }
                   />
                 ))}
               </div>

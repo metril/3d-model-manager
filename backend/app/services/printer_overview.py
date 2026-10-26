@@ -210,6 +210,19 @@ async def build_overview(
     active_jobs = await _active_jobs(db, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
     ha_alerts = await _ha_alerts(redis, printer_ids)
+    stalled = (
+        {
+            pid
+            for pid, v in zip(
+                printer_ids,
+                await redis.mget([f"plate:stalled:{pid}" for pid in printer_ids]),
+                strict=True,
+            )
+            if v
+        }
+        if printer_ids
+        else set()
+    )
     hours = await total_print_hours(db, printer_ids)
 
     # P6 Task 8: one batched windowed query (per-target ``row_number()``,
@@ -245,6 +258,7 @@ async def build_overview(
             up_next=up_next_by_printer.get(p.id, [])[:3],
             ha_alert=ha_alerts.get(p.id, (None, False))[0],
             ha_held=ha_alerts.get(p.id, (None, False))[1],
+            plate_check_stalled=p.id in stalled,
         )
         for p in printers
     ]
