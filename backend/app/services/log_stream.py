@@ -121,6 +121,16 @@ class RedisLogHandler(logging.Handler):
         finally:
             self._local.busy = False
 
+    def handle(self, record: logging.LogRecord) -> bool:
+        """Emit WITHOUT holding the handler lock. Redis connect calls
+        ``logging.getLogger`` (module lock) while ``logging.shutdown`` /
+        ``dictConfig`` hold the module lock and wait for this handler's lock:
+        holding it across the network call is a lock-order inversion that
+        deadlocks. Only the single drain thread calls this, and ``emit`` keeps
+        its state thread-local, so the lock buys nothing."""
+        self.emit(record)
+        return True
+
     def close(self) -> None:
         self._closed = True
         client, self._client = self._client, None

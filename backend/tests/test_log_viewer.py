@@ -186,3 +186,17 @@ def test_forked_child_logs_without_hanging_on_inherited_queue_lock():
     finally:
         lg.removeHandler(qh)
         qh.close()
+
+
+def test_redis_handler_does_not_hold_lock_during_emit():
+    """Regression: emit (Redis connect -> logging.getLogger) under the handler
+    lock deadlocked against logging.shutdown/dictConfig (module lock)."""
+    import logging
+
+    from app.services.log_stream import RedisLogHandler
+
+    h = RedisLogHandler("redis://127.0.0.1:1/0", "api")
+    seen = []
+    h.emit = lambda r: seen.append(h.lock._is_owned() if h.lock else False)  # type: ignore[method-assign]
+    h.handle(logging.LogRecord("x", logging.INFO, __file__, 1, "m", (), None))
+    assert seen == [False]
