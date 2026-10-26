@@ -121,24 +121,31 @@ async def require_key(
     perms = (owner_perms & api_tokens.scope_perms(key.scopes)) - {"admin"}
     ctx = AuthContext(user=owner, session=None, perms=perms, printer_acl=acl, groups=groups)
 
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        raw = request.path_params.get("printer_id")
-        pid = int(raw) if raw is not None and str(raw).isdigit() else None
-        db.add(
-            AuditLog(
-                user_id=owner.id,
-                created_by_user_id=owner.id,
-                printer_id=pid if pid in acl else None,
-                action=f"api_key:{request.method.lower()}",
-                payload={
-                    "key_id": key.id,
-                    "key_label": key.label,
-                    "path": request.url.path,
-                },
-            )
-        )
-        await db.commit()
     return KeyAuth(key=key, ctx=ctx, owner_admin=owner_admin)
+
+
+async def _audit(db: AsyncSession, request: Request, auth: KeyAuth, action: str, **extra) -> None:
+    """Audit a non-read call. Written AFTER the scope/permission check by
+    ``need`` so a rejected call is never recorded as an accepted one."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    raw = request.path_params.get("printer_id")
+    pid = int(raw) if raw is not None and str(raw).isdigit() else None
+    db.add(
+        AuditLog(
+            user_id=auth.ctx.user.id,
+            created_by_user_id=auth.ctx.user.id,
+            printer_id=pid if pid in auth.ctx.printer_acl else None,
+            action=action,
+            payload={
+                "key_id": auth.key.id,
+                "key_label": auth.key.label,
+                "path": request.url.path,
+                **extra,
+            },
+        )
+    )
+    await db.commit()
 
 
 def need(scope: Literal["read", "control", "queue", "upload"]):
@@ -146,11 +153,18 @@ def need(scope: Literal["read", "control", "queue", "upload"]):
     the permissions that scope exercises."""
     required = api_tokens.SCOPE_PERMS[scope]
 
-    async def dep(auth: KeyAuth = Depends(require_key)) -> KeyAuth:
+    async def dep(
+        request: Request,
+        auth: KeyAuth = Depends(require_key),
+        db: AsyncSession = Depends(get_db),
+    ) -> KeyAuth:
         if scope not in (auth.key.scopes or []):
+            await _audit(db, request, auth, "api_key:denied", reason=f"missing scope: {scope}")
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing scope: {scope}")
         if not required <= auth.ctx.perms:
+            await _audit(db, request, auth, "api_key:denied", reason="owner lacks permission")
             raise HTTPException(status.HTTP_403_FORBIDDEN, "key owner lacks the permission")
+        await _audit(db, request, auth, f"api_key:{request.method.lower()}")
         return auth
 
     return dep
@@ -290,7 +304,15 @@ async def list_queue(
     auth: KeyAuth = Depends(_READ),
 ):
 
-    return await queue_service.list_queue(db, settings, auth.ctx, include_done=include_done)
+    out = await queue_service.list_queue(db, settings, auth.ctx, include_done=include_done)
+    if auth.key.printer_ids:  # match _guard_entry: unassigned entries are not the key's
+        uid = auth.ctx.user.id
+        out = [
+            e
+            for e in out
+            if e.printer_id is not None or (e.created_by is not None and e.created_by.id == uid)
+        ]
+    return out
 
 
 @router.post("/queue", status_code=status.HTTP_201_CREATED)

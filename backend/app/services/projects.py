@@ -16,12 +16,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext
+from app.api.deps import AuthContext, require_owner_or_admin, visible_printer_ids
 from app.config import Settings
 from app.models.audit_log import AuditLog
 from app.models.enums import ArchiveResult, QueueState
 from app.models.library import File, Model, Print, PrintQueueEntry, Revision
-from app.models.printing import PrintArchive
+from app.models.printing import PrintArchive, PrintJob
 from app.models.projects import Project, ProjectAttachment, ProjectEvent, ProjectItem
 from app.schemas import projects as s
 from app.schemas.queue import QueueEnqueueIn
@@ -36,6 +36,13 @@ async def get_or_404(db: AsyncSession, project_id: int) -> Project:
     p = await db.get(Project, project_id)
     if p is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"project {project_id} not found")
+    return p
+
+
+async def get_owned(db: AsyncSession, ctx: AuthContext, project_id: int) -> Project:
+    """Project for a MUTATION: creator or admin only (like models)."""
+    p = await get_or_404(db, project_id)
+    require_owner_or_admin(ctx, p.created_by_user_id)
     return p
 
 
@@ -95,7 +102,7 @@ def _matches(item: ProjectItem, a: _Arc) -> bool:
 
 
 async def _completed_archives(
-    db: AsyncSession, project: Project, model_ids: set[int]
+    db: AsyncSession, project: Project, model_ids: set[int], ctx: AuthContext | None = None
 ) -> list[_Arc]:
     eff = func.coalesce(PrintArchive.result_override, PrintArchive.result)
     cond = PrintArchive.project_id == project.id
@@ -105,13 +112,19 @@ async def _completed_archives(
             & PrintArchive.model_id.in_(model_ids)
             & (PrintArchive.created_at >= project.created_at)
         )
-    rows = await db.execute(
+    stmt = (
         select(PrintArchive, Print.filament_g, Print.total_cost)
         .outerjoin(Print, Print.print_job_id == PrintArchive.print_job_id)
         .where(cond)
         .order_by(PrintArchive.created_at.desc(), PrintArchive.id.desc())
         .add_columns(eff.label("eff"))
     )
+    visible = visible_printer_ids(ctx) if ctx is not None else None
+    if visible is not None:
+        stmt = stmt.join(PrintJob, PrintJob.id == PrintArchive.print_job_id).where(
+            PrintJob.printer_id.in_(visible)
+        )
+    rows = await db.execute(stmt)
     return [
         _Arc(
             a.id,
@@ -129,7 +142,7 @@ async def _completed_archives(
     ]
 
 
-async def _rollup(db: AsyncSession, project: Project) -> _Rollup:
+async def _rollup(db: AsyncSession, project: Project, ctx: AuthContext | None = None) -> _Rollup:
     items = list(
         (
             await db.execute(
@@ -144,7 +157,14 @@ async def _rollup(db: AsyncSession, project: Project) -> _Rollup:
     parts = [i for i in items if i.kind == "part" and i.model_id is not None]
     mids = {i.model_id for i in parts if i.model_id is not None}
     models = (
-        {m.id: m for m in (await db.execute(select(Model).where(Model.id.in_(mids)))).scalars()}
+        {
+            m.id: m
+            for m in (
+                await db.execute(
+                    select(Model).where(Model.id.in_(mids), Model.deleted_at.is_(None))
+                )
+            ).scalars()
+        }
         if mids
         else {}
     )
@@ -155,7 +175,7 @@ async def _rollup(db: AsyncSession, project: Project) -> _Rollup:
         else {}
     )
     r = _Rollup(items, models, files)
-    for a in await _completed_archives(db, project, {m for m in mids if m is not None}):
+    for a in await _completed_archives(db, project, {m for m in mids if m is not None}, ctx):
         if a.result != ArchiveResult.COMPLETED.value:
             continue
         cands = [i for i in parts if _matches(i, a)]
@@ -309,13 +329,15 @@ async def _summary_fields(db: AsyncSession, p: Project, r: _Rollup) -> dict:
     }
 
 
-async def to_summary(db: AsyncSession, p: Project) -> s.ProjectSummary:
-    r = await _rollup(db, p)
+async def to_summary(
+    db: AsyncSession, p: Project, ctx: AuthContext | None = None
+) -> s.ProjectSummary:
+    r = await _rollup(db, p, ctx)
     return s.ProjectSummary(**await _summary_fields(db, p, r))
 
 
-async def to_out(db: AsyncSession, p: Project) -> s.ProjectOut:
-    r = await _rollup(db, p)
+async def to_out(db: AsyncSession, p: Project, ctx: AuthContext | None = None) -> s.ProjectOut:
+    r = await _rollup(db, p, ctx)
     return s.ProjectOut(
         **await _summary_fields(db, p, r),
         notes=p.notes,
@@ -328,7 +350,13 @@ async def to_out(db: AsyncSession, p: Project) -> s.ProjectOut:
 
 
 async def list_projects(
-    db: AsyncSession, *, status_: str | None, q: str | None, template: bool, tag: str | None
+    db: AsyncSession,
+    *,
+    status_: str | None,
+    q: str | None,
+    template: bool,
+    tag: str | None,
+    ctx: AuthContext | None = None,
 ) -> list[s.ProjectSummary]:
     stmt = select(Project).where(Project.is_template.is_(template))
     if status_:
@@ -341,12 +369,12 @@ async def list_projects(
     if tag:
         stmt = stmt.where(Project.tags.any(tag))
     stmt = stmt.order_by(Project.updated_at.desc(), Project.id.desc())
-    return [await to_summary(db, p) for p in (await db.execute(stmt)).scalars().all()]
+    return [await to_summary(db, p, ctx) for p in (await db.execute(stmt)).scalars().all()]
 
 
 async def _check_model(db: AsyncSession, model_id: int | None) -> None:
-    if model_id is not None and await db.get(Model, model_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {model_id} not found")
+    if model_id is not None:
+        await library.get_model_by_id(db, model_id)  # 404s on missing / trashed
 
 
 async def create_project(db: AsyncSession, ctx: AuthContext, payload: s.ProjectIn) -> Project:
@@ -373,7 +401,7 @@ async def create_project(db: AsyncSession, ctx: AuthContext, payload: s.ProjectI
 async def patch_project(
     db: AsyncSession, ctx: AuthContext, project_id: int, payload: s.ProjectPatch
 ) -> Project:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     sent = payload.model_fields_set
     changed: list[str] = []
     if "cover_model_id" in sent:
@@ -410,7 +438,7 @@ def _attachment_dir(settings: Settings, project_id: int) -> Path:
 async def delete_project(
     db: AsyncSession, settings: Settings, ctx: AuthContext, project_id: int
 ) -> None:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     db.add(
         AuditLog(
             user_id=ctx.user.id,
@@ -457,7 +485,7 @@ async def _validate_part(db: AsyncSession, model_id: int | None, file_id: int | 
 async def add_item(
     db: AsyncSession, ctx: AuthContext, project_id: int, payload: s.ItemIn
 ) -> ProjectItem:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     if payload.kind == "part":
         await _validate_part(db, payload.model_id, payload.file_id)
     elif not (payload.name or "").strip():
@@ -492,9 +520,13 @@ async def add_models(
 ) -> int:
     """Bulk "add to project": one whole-model part per model not already a
     whole-model line. Returns how many were added."""
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     ids = list(dict.fromkeys(payload.model_ids))
-    found = set((await db.execute(select(Model.id).where(Model.id.in_(ids)))).scalars())
+    found = set(
+        (
+            await db.execute(select(Model.id).where(Model.id.in_(ids), Model.deleted_at.is_(None)))
+        ).scalars()
+    )
     missing = [i for i in ids if i not in found]
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"models not found: {missing}")
@@ -539,7 +571,7 @@ async def _item_or_404(db: AsyncSession, project_id: int, item_id: int) -> Proje
 async def patch_item(
     db: AsyncSession, ctx: AuthContext, project_id: int, item_id: int, payload: s.ItemPatch
 ) -> ProjectItem:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     i = await _item_or_404(db, project_id, item_id)
     sent = payload.model_fields_set
     if "file_id" in sent and i.kind == "part":
@@ -565,7 +597,7 @@ async def patch_item(
 
 
 async def delete_item(db: AsyncSession, ctx: AuthContext, project_id: int, item_id: int) -> None:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     i = await _item_or_404(db, project_id, item_id)
     await log(
         db, ctx, p, "bom_remove", f"Removed BOM item {i.name or i.model_id}", {"item_id": i.id}
@@ -584,11 +616,13 @@ async def item_out(db: AsyncSession, project_id: int, item_id: int) -> s.ItemOut
 # ---------------------------------------------------------------- archives
 
 
-async def list_archives(db: AsyncSession, project_id: int) -> list[s.ProjectArchiveOut]:
+async def list_archives(
+    db: AsyncSession, project_id: int, ctx: AuthContext | None = None
+) -> list[s.ProjectArchiveOut]:
     p = await get_or_404(db, project_id)
-    r = await _rollup(db, p)
+    r = await _rollup(db, p, ctx)
     mids = {i.model_id for i in r.items if i.kind == "part" and i.model_id}
-    arcs = await _completed_archives(db, p, mids)
+    arcs = await _completed_archives(db, p, mids, ctx)
     names = (
         {
             m.id: m.name
@@ -621,8 +655,14 @@ async def list_archives(db: AsyncSession, project_id: int) -> list[s.ProjectArch
 async def link_archives(
     db: AsyncSession, ctx: AuthContext, project_id: int, ids: list[int], *, unlink: bool
 ) -> int:
-    p = await get_or_404(db, project_id)
-    arcs = (await db.execute(select(PrintArchive).where(PrintArchive.id.in_(ids)))).scalars().all()
+    p = await get_owned(db, ctx, project_id)
+    astmt = select(PrintArchive).where(PrintArchive.id.in_(ids))
+    visible = visible_printer_ids(ctx)
+    if visible is not None:
+        astmt = astmt.join(PrintJob, PrintJob.id == PrintArchive.print_job_id).where(
+            PrintJob.printer_id.in_(visible)
+        )
+    arcs = (await db.execute(astmt)).scalars().all()
     n = 0
     for a in arcs:
         if unlink:
@@ -646,7 +686,9 @@ async def link_archives(
     return n
 
 
-async def timeline(db: AsyncSession, project_id: int) -> list[s.TimelineEntry]:
+async def timeline(
+    db: AsyncSession, project_id: int, ctx: AuthContext | None = None
+) -> list[s.TimelineEntry]:
     p = await get_or_404(db, project_id)
     evs = (
         (
@@ -665,7 +707,7 @@ async def timeline(db: AsyncSession, project_id: int) -> list[s.TimelineEntry]:
         )
         for e in evs
     ]
-    for a in await list_archives(db, p.id):
+    for a in await list_archives(db, p.id, ctx):
         out.append(
             s.TimelineEntry(
                 at=a.created_at,
@@ -697,7 +739,7 @@ async def add_attachment(
     content_type: str | None,
     data: bytes,
 ) -> ProjectAttachment:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     name = _safe_filename(filename)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload body")
@@ -738,7 +780,7 @@ async def get_attachment(
 async def delete_attachment(
     db: AsyncSession, settings: Settings, ctx: AuthContext, project_id: int, attachment_id: int
 ) -> None:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     a = await db.get(ProjectAttachment, attachment_id)
     if a is None or a.project_id != p.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attachment not found")
@@ -842,12 +884,12 @@ async def queue_remaining(
     project_id: int,
     payload: s.QueueRemainingIn,
 ) -> s.QueueRemainingOut:
-    p = await get_or_404(db, project_id)
+    p = await get_owned(db, ctx, project_id)
     r = await _rollup(db, p)
     todo = [
         (i, max(0, i.quantity - r.done.get(i.id, 0) - r.queued.get(i.id, 0)))
         for i in r.items
-        if i.kind == "part" and i.model_id
+        if i.kind == "part" and i.model_id in r.models  # trashed models drop out
     ]
     todo = [(i, n) for i, n in todo if n > 0]
     # Whole-model lines pick the model's newest sliced file.

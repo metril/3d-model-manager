@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from zipstream import ZipStream
 
+from app.api.deps import AuthContext
 from app.config import Settings
 from app.models import Blob, File, Model
 from app.models.projects import Project, ProjectItem
@@ -18,9 +19,9 @@ from app.services import zip_export
 
 
 async def iter_project_zip(
-    db: AsyncSession, settings: Settings, project: Project
+    db: AsyncSession, settings: Settings, project: Project, ctx: AuthContext | None = None
 ) -> AsyncIterator[bytes]:
-    out = await svc.to_out(db, project)
+    out = await svc.to_out(db, project, ctx)
     zs = ZipStream()
     root = zip_export._safe_path_segment(project.name, fallback=f"project-{project.id}")
     zs.add(svc.bom_csv(out).encode(), f"{root}/bom.csv")
@@ -53,7 +54,7 @@ async def iter_project_zip(
     used: set[str] = set()
     for mid in dict.fromkeys(i.model_id for i in items if i.model_id is not None):
         model = await db.get(Model, mid)
-        if model is None:
+        if model is None or model.deleted_at is not None:
             continue
         files: list[tuple[File, Blob]]
         if whole.get(mid):
