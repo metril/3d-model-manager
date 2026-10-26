@@ -85,7 +85,16 @@ def _v_none(args: dict) -> dict:
 
 def _v_temperature(args: dict) -> dict:
     target = _choice(args, "target", tuple(_TEMP_MAX))
-    return {"target": target, "value": _num(args, "value", 0, _TEMP_MAX[target], integer=True)}
+    out = {"target": target, "value": _num(args, "value", 0, _TEMP_MAX[target], integer=True)}
+    if args.get("extruder_id") is not None:  # dual nozzle: 0 = right, 1 = left
+        if target != "nozzle":
+            raise CommandError("invalid", "extruder_id only applies to the nozzle target")
+        out["extruder_id"] = _extruder_id(args)
+    return out
+
+
+def _v_select_extruder(args: dict) -> dict:
+    return {"extruder_id": _num(args, "extruder_id", 0, 1, integer=True)}
 
 
 def _v_fan(args: dict) -> dict:
@@ -426,7 +435,11 @@ DISPATCH: dict[str, Spec] = {
     "resume": Spec(_v_none, lambda a, _: a.resume()),
     "stop": Spec(_v_none, lambda a, _: a.stop()),
     "set_temperature": Spec(
-        _v_temperature, lambda a, x: a.set_temperature(x["target"], x["value"])
+        _v_temperature,
+        lambda a, x: a.set_temperature(x["target"], x["value"], x.get("extruder_id")),
+    ),
+    "select_extruder": Spec(
+        _v_select_extruder, lambda a, x: a.select_extruder(x["extruder_id"]), refuse_printing=True
     ),
     "set_fan": Spec(_v_fan, lambda a, x: a.set_fan(x["fan"], x["pct"])),
     "set_light": Spec(_v_light, lambda a, x: a.set_light(x["on"])),

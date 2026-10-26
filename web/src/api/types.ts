@@ -896,6 +896,22 @@ export interface PrinterStatusOut {
   last_report_at?: string | null;
   awaiting_plate_clear?: boolean;
   print_options?: PrintOptions | null;
+  /** Dual nozzle (H2D): per-nozzle state; empty on single-nozzle printers. */
+  extruders?: ExtruderState[];
+  /** Active extruder: 0 = right, 1 = left. */
+  active_extruder?: number | null;
+  /** AMS unit id -> feeding extruder (0 = right, 1 = left). */
+  ams_extruder_map?: Record<string, number>;
+}
+
+export interface ExtruderState {
+  id: number;
+  side: "right" | "left";
+  temp: number | null;
+  target: number | null;
+  heating: boolean;
+  diameter: number | null;
+  type: string | null;
 }
 
 export interface AmsUnit {

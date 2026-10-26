@@ -104,6 +104,8 @@ async def test_ok_envelope_and_result(
         ("fan", {"fan": "aux", "pct": 50}),
         ("fan", {"fan": "chamber", "pct": 50}),
         ("airduct", {"mode": "heating"}),
+        ("extruder", {"extruder_id": 1}),
+        ("temperature", {"target": "nozzle", "value": 200, "extruder_id": 1}),
     ],
 )
 async def test_capability_gate_422(authenticated_client, printer_enabled, set_state, path, body):
@@ -335,3 +337,26 @@ async def test_developer_mode_warnings_respect_visibility(
     assert sorted(w["printer_id"] for w in admin) == sorted([a, b])
     mine = (await member_client.get("/api/printers/developer-mode-warnings")).json()
     assert mine == [{"printer_id": a, "name": "A", "reason": "fun_bit"}]
+
+
+async def test_dual_nozzle_extruder_commands_reach_printerd(
+    authenticated_client, printer_enabled, set_state, printerd_stub
+):
+    pid = await _printer(authenticated_client, name="H2D", model="H2D", serial="09400A123")
+    set_state(pid, **IDLE)
+    got = printerd_stub(pid, {"ok": True})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/control/extruder", json={"extruder_id": 1}
+    )
+    assert r.status_code == 200 and got[0]["command"] == "select_extruder"
+    assert got[0]["args"] == {"extruder_id": 1}
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/control/temperature",
+        json={"target": "nozzle", "value": 200, "extruder_id": 0},
+    )
+    assert r.status_code == 200 and got[1]["args"]["extruder_id"] == 0
+    set_state(pid, **{**IDLE, "gcode_state": "RUNNING"})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/control/extruder", json={"extruder_id": 0}
+    )
+    assert r.status_code == 409 and r.json()["code"] == "printing"
