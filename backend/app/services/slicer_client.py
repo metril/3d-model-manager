@@ -15,6 +15,7 @@ no sync step.
 
 from __future__ import annotations
 
+import base64
 import logging
 import zipfile
 from dataclasses import dataclass
@@ -136,6 +137,17 @@ def _error_log_tail(response: httpx.Response) -> str | None:
     return tail[-_MAX_LOG_TAIL:] if isinstance(tail, str) and tail else None
 
 
+def _success_log_tail(response: httpx.Response) -> str | None:
+    raw = response.headers.get("x-slice-log")
+    if not raw:
+        return None
+    try:
+        text = base64.b64decode(raw, validate=True).decode("utf-8", "replace")
+    except ValueError:
+        return None
+    return text[-_MAX_LOG_TAIL:] or None
+
+
 def _build_slice_request(
     *,
     model: bytes,
@@ -197,6 +209,9 @@ class SlicerClient:
         self._base_url = base_url.rstrip("/")
         self._http = http or httpx.Client(base_url=self._base_url, timeout=_DEFAULT_TIMEOUT)
         self._slice_timeout_s = slice_timeout_s
+        # CLI output of the last successful `slice()` (X-Slice-Log header);
+        # None when the sidecar predates the header.
+        self.last_log_tail: str | None = None
 
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
@@ -299,6 +314,7 @@ class SlicerClient:
             headers={"X-Job-Id": job_id} if job_id else None,
             **request_kwargs,
         )
+        self.last_log_tail = _success_log_tail(response)
         content = response.content
         if len(content) > _MAX_SLICE_RESPONSE_BYTES:
             raise SlicerError(

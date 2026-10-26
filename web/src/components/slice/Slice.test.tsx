@@ -255,6 +255,20 @@ describe("SliceJobsHost", () => {
     toastView.unmount();
   });
 
+  it("opens the log from a successful slice's toast", async () => {
+    jobState = { ...JOB, state: "done", sliced_file_id: 9, meta: null, log_tail: "slicer ok output" };
+    ui(<SliceJobsHost />);
+    act(() => trackSlice({ id: "job-1", fileName: "cube.stl" }));
+    await waitFor(() => expect(toastMock.custom.mock.calls.at(-1)?.[1].duration).toBe(60_000));
+    const body = toastMock.custom.mock.calls.at(-1)![0] as () => ReactElement;
+    const toastView = render(body());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "View log" }));
+    });
+    expect(await screen.findByText("slicer ok output")).toBeInTheDocument();
+    toastView.unmount();
+  });
+
   it("sends the sliced file to a printer from a finished toast", async () => {
     jobState = { ...JOB, state: "done", sliced_file_id: 9, meta: null };
     ui(<SliceJobsHost />);

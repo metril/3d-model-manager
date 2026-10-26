@@ -2,8 +2,8 @@
  * Follows the slice jobs started via `SliceDialog`: one watcher per tracked
  * job polls it (`useSliceJob`; SSE `slice.updated` refreshes it sooner) and
  * keeps a single sonner toast in sync -- progress with Cancel, then on
- * success the resulting file (open / download / send to printer), on failure
- * a "View log" dialog. Mounted once in the app shell so a toast outlives the
+ * success the resulting file (open / download / send to printer), and on
+ * success or failure a "View log" dialog. Mounted once in the app shell so a toast outlives the
  * dialog or page that started the slice.
  */
 import { useEffect, useRef, useState } from "react";
@@ -85,7 +85,7 @@ export function SliceToast({
             </Button>
           </>
         ) : null}
-        {state === "failed" ? (
+        {state === "failed" || state === "done" ? (
           <Button type="button" size="sm" variant="outline" onClick={onLog}>
             View log
           </Button>

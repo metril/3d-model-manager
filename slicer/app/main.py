@@ -4,6 +4,7 @@ defined by backend `slicer_client._build_slice_request`)."""
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -224,7 +225,12 @@ async def slice_(request: Request):
             return _err(504, "timeout", exc.message, None, exc.log_tail)
         except runner.SliceFailed as exc:
             return _err(422, "slice_failed", exc.message, exc.exit_code, exc.log_tail)
-        return Response(out, media_type="application/octet-stream")
+        # Header values can't hold newlines, so the log tail rides base64'd.
+        # Capped well under typical 8-64 KiB header limits.
+        log_b64 = base64.b64encode(handle.log_tail.encode()[-4096:]).decode()
+        return Response(
+            out, media_type="application/octet-stream", headers={"X-Slice-Log": log_b64}
+        )
     finally:
         if job_id and app.state.jobs.get(job_id) is handle:
             del app.state.jobs[job_id]

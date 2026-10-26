@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     # Pinned upstream commit the obico-ml sidecar is built from (compose.yaml
     # sets it from the same pin as compose.obico.yaml). The ML API exposes no
     # version endpoint, so this is the "configured" version shown in Settings.
-    obico_ml_version: str = ""
+    # Defaults to the same pin so the card never reads "unknown" when the env
+    # isn't forwarded (a test keeps all three in agreement).
+    obico_ml_version: str = "6f938964c63892df2b6d5b68d99ea783fc1a7c78"
     database_url: str = "postgresql+asyncpg://tdmm:tdmm@localhost:5432/tdmm"
     # Orca Cloud (cloud preset sync): OAuth device-flow endpoints + the public
     # client id registered for this app. Override ORCA_API_BASE to target

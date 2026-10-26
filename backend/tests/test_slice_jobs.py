@@ -27,12 +27,14 @@ class FakeClient:
         self.result = result
         self.error = error
         self.job_ids: list[str | None] = []
+        self.last_log_tail: str | None = None
 
     def slice(self, **kwargs) -> bytes:
         self.job_ids.append(kwargs.get("job_id"))
         if self.error is not None:
             raise self.error
         assert self.result is not None
+        self.last_log_tail = "slicer cli output\nall good"
         return self.result
 
 
@@ -125,6 +127,7 @@ async def test_slice_job_success_roundtrip(
     assert body["file_name"] == "part.stl"
     assert body["meta"]["plate_count"] >= 1 and "plates" in body["meta"]
     assert fake.job_ids == [f"sj-{job_id}"]
+    assert body["log_tail"] == "slicer cli output\nall good"
 
     sliced = await db_session.get(File, body["sliced_file_id"], populate_existing=True)
     assert sliced.rel_path.endswith(".gcode.3mf") and f"(s{job_id.replace('-', '')[:8]} p1)" in (

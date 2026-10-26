@@ -194,8 +194,26 @@ export function usePatchProject(id: number) {
   return useProjectMutation((body: ProjectBody) => api.patch<ProjectDetail>(`/projects/${id}`, body));
 }
 
+/**
+ * Drops the deleted project's detail/archives/timeline queries (cancelling any
+ * in flight) BEFORE the list is invalidated, so the still-mounted detail page
+ * never refetches a now-404 project while it navigates away.
+ */
 export function useDeleteProject() {
-  return useProjectMutation((id: number) => api.delete<void>(`/projects/${id}`));
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete<void>(`/projects/${id}`),
+    onSuccess: async (_data, id) => {
+      const keys = [
+        ["projects", "detail", id],
+        ["projects", "archives", id],
+        ["projects", "timeline", id],
+      ] as const;
+      await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey })));
+      keys.forEach((queryKey) => qc.removeQueries({ queryKey }));
+      void qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
 }
 
 export function useAddItem(id: number) {

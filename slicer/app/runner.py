@@ -103,6 +103,9 @@ class JobHandle:
     def __init__(self) -> None:
         self.cancelled = False
         self.proc: asyncio.subprocess.Process | None = None
+        # CLI output tail of the last finished run, so a *successful* slice
+        # can hand its log back too (main.py -> X-Slice-Log header).
+        self.log_tail = ""
 
     def cancel(self) -> None:
         self.cancelled = True
@@ -178,6 +181,8 @@ async def run_slice(
         _kill_group(proc)
         raise
     tail = _tail(out or b"")
+    if handle is not None:
+        handle.log_tail = tail
     if handle is not None and handle.cancelled:
         raise SliceCancelled("cancelled", proc.returncode, tail)
     result = job.dir / "out" / OUT_NAME
