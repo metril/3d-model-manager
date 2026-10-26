@@ -431,3 +431,36 @@ def test_energy_counter_standalone(redis_url):
     _tick(r, t0 + timedelta(seconds=60))
     with base.sync_session() as s:
         assert s.get(SmartPlug, plug_id).energy_kwh == pytest.approx(1000 * 60 / 3_600_000)
+
+
+async def test_orphaned_plug_control_needs_settings_write(
+    authenticated_client, make_user, make_group, login_as, monkeypatch
+):
+    from app.api import smart_plugs as sp_api
+
+    monkeypatch.setattr(sp_api, "_command", lambda *a, **k: None)
+    c = authenticated_client
+    pid = (await c.post("/api/printers", json=CREATE)).json()["id"]
+    cfg = {"on_url": "http://plug/on", "off_url": "http://plug/off"}
+    body = {"name": "Heater", "printer_id": pid, "kind": "rest", "config": cfg}
+    orphan = (await c.post("/api/plugs", json=body)).json()["id"]
+    free = (await c.post("/api/plugs", json={**body, "name": "Lamp", "printer_id": None})).json()[
+        "id"
+    ]
+    member = await make_user("member")
+    await make_group("ops", permissions=["printers:control"], members=[member])
+    mc = await login_as(member)
+
+    assert (await c.delete(f"/api/printers/{pid}")).status_code == 204
+    got = {p["id"]: p for p in (await c.get("/api/plugs")).json()}
+    assert got[orphan]["orphaned"] is True and got[free]["orphaned"] is False
+    assert (await mc.post(f"/api/plugs/{orphan}/on")).status_code == 403
+    assert (await mc.post(f"/api/plugs/{free}/on")).status_code == 200  # standalone: as before
+    assert (await c.post(f"/api/plugs/{orphan}/on")).status_code == 200  # admin
+
+    # manual unlink of an orphan leaves it orphaned; re-linking clears the flag
+    r = await c.put(f"/api/plugs/{orphan}", json={**body, "printer_id": None})
+    assert r.json()["orphaned"] is True
+    pid2 = (await c.post("/api/printers", json={**CREATE, "serial": "0309ABE"})).json()["id"]
+    r = await c.put(f"/api/plugs/{orphan}", json={**body, "printer_id": pid2})
+    assert r.json()["orphaned"] is False

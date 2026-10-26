@@ -7,6 +7,7 @@ import { useAuth } from "@/api/auth";
 import { usePlugs, usePlugToggle } from "@/api/ops";
 import { usePrinters } from "@/api/printers";
 import { PlugForm } from "@/components/plugs/PlugForm";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
@@ -66,6 +67,11 @@ export function PlugsPage() {
                       ? ` - ${printerName(p.printer_id) ?? `printer ${p.printer_id}`}${p.controls_printer_power ? "" : " (accessory)"}`
                       : " - standalone"}
                   </span>
+                  {p.orphaned ? (
+                    <Badge variant="outline" className="border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                      orphaned - printer deleted
+                    </Badge>
+                  ) : null}
                   <span className="font-medium">{p.last_state ? (on ? "On" : "Off") : "Unknown"}</span>
                   <span className="text-muted-foreground">
                     {p.last_power_w != null ? `${p.last_power_w.toFixed(0)} W - ` : ""}
@@ -74,13 +80,13 @@ export function PlugsPage() {
                   <div className="ml-auto flex items-center gap-2">
                     {canEdit ? (
                       <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(p.id)}>
-                        Edit
+                        {p.orphaned ? "Re-link" : "Edit"}
                       </Button>
                     ) : null}
                     <Switch
                       aria-label={`${label} power`}
                       checked={on}
-                      disabled={!canControl || toggle.isPending}
+                      disabled={!canControl || (p.orphaned && !canEdit) || toggle.isPending}
                       onCheckedChange={(v) => toggle.mutate({ id: p.id, on: v })}
                     />
                   </div>

@@ -66,6 +66,9 @@ class SmartPlug(Base):
     controls_printer_power: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
+    # Set when the linked printer was deleted; control then needs settings:write
+    # until the plug is re-linked. Manually unlinked plugs stay NULL.
+    orphaned_at: Mapped[datetime | None]
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     config_enc: Mapped[str] = mapped_column(Text, nullable=False)
     auto_off_after_min: Mapped[int | None] = mapped_column(Integer)

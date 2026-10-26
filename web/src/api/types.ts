@@ -1680,6 +1680,7 @@ export interface PrinterOverviewItem {
   // reported.
   ha_alert?: string | null;
   ha_held?: boolean;
+  plate_check_stalled?: boolean;
 }
 
 export interface PrintersOverviewOut {
@@ -2212,6 +2213,8 @@ export interface PlugIn {
   show_in_switchbar: boolean;
 }
 export interface PlugOut extends PlugIn {
+  /** Left behind by a printer delete; controlling it needs settings:write until re-linked. */
+  orphaned?: boolean;
   id: number;
   energy_kwh: number;
   last_state: string | null;

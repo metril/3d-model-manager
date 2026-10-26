@@ -94,6 +94,7 @@ class PlugOut(BaseModel):
     name: str
     printer_id: int | None
     controls_printer_power: bool
+    orphaned: bool = False
     kind: str
     config: dict
     auto_off: bool
