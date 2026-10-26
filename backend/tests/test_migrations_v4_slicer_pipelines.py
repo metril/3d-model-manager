@@ -51,7 +51,8 @@ async def test_v4_slicer_pipelines_upgrade_downgrade(scratch_db) -> None:
         cols = {
             r["column_name"]
             for r in await conn.fetch(
-                "SELECT column_name FROM information_schema.columns WHERE table_name='slicer_profiles'"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'slicer_profiles'"
             )
         }
         assert "cloud_id" not in cols
