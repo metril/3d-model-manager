@@ -277,6 +277,83 @@ async def test_orca_expired_token_refreshes_and_persists_rotation(
     assert st.refresh_token == "RT-new"
 
 
+async def _expire_orca(db_session) -> None:
+    settings = get_settings()
+    st = await orca_cloud.get_state(db_session, settings)
+    st.expires_at = time.time() - 10
+    await orca_cloud.save_state(db_session, settings, st)
+
+
+async def test_orca_concurrent_refresh_spends_token_once(
+    authenticated_client: httpx.AsyncClient, db_session, orca: OrcaServer, monkeypatch
+) -> None:
+    import asyncio
+
+    from app.db import get_sessionmaker
+
+    await _connect_orca(authenticated_client, orca)
+    await _expire_orca(db_session)
+    real = orca_cloud.refresh_tokens
+
+    def slow(settings, rt):
+        time.sleep(0.3)
+        return real(settings, rt)
+
+    monkeypatch.setattr(orca_cloud, "refresh_tokens", slow)
+    settings = get_settings()
+
+    async def one() -> str:
+        async with get_sessionmaker()() as s:
+            return await orca_cloud.ensure_access_token(s, settings)
+
+    out = await asyncio.gather(one(), one(), one())
+    assert out == ["AT-new"] * 3 and orca.refreshes == 1
+
+
+async def test_orca_refresh_clears_pairing_only_on_invalid_grant(
+    authenticated_client: httpx.AsyncClient, db_session, orca: OrcaServer, monkeypatch
+) -> None:
+    await _connect_orca(authenticated_client, orca)
+    await _expire_orca(db_session)
+    settings = get_settings()
+    resp = {"r": httpx.Response(403, text="<html>cloudflare</html>")}
+    real_handler = orca.handler
+
+    def handler(request):
+        if b"refresh_token" in request.content and b"grant_type=refresh_token" in request.content:
+            return resp["r"]
+        return real_handler(request)
+
+    monkeypatch.setattr(
+        orca_cloud, "_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(orca_cloud.OrcaCloudAuthError):
+        await orca_cloud.ensure_access_token(db_session, settings)
+    assert (await orca_cloud.get_state(db_session, settings)).connected  # kept
+
+    resp["r"] = httpx.Response(400, json={"error": "invalid_grant"})
+    with pytest.raises(orca_cloud.OrcaCloudAuthError):
+        await orca_cloud.ensure_access_token(db_session, settings)
+    assert not (await orca_cloud.get_state(db_session, settings)).connected  # wiped
+
+
+def test_apply_token_response_missing_expires_in_defaults_24h() -> None:
+    st = orca_cloud.OrcaAuthState()
+    orca_cloud.apply_token_response(st, {"access_token": "opaque", "refresh_token": "r"})
+    assert st.access_valid()
+    assert abs(st.expires_at - time.time() - 86400) < 5
+
+
+def test_apply_token_response_uses_jwt_exp() -> None:
+    import base64
+
+    exp = int(time.time()) + 7200
+    body = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=").decode()
+    st = orca_cloud.OrcaAuthState()
+    orca_cloud.apply_token_response(st, {"access_token": f"h.{body}.s"})
+    assert st.expires_at == exp
+
+
 # --- Bambu Cloud ------------------------------------------------------------
 
 
