@@ -8,7 +8,7 @@ import httpx
 import respx
 
 from app.config import Settings
-from app.services.slicer_client import SlicerClient, SliceOptions
+from app.services.slicer_client import SliceOptions, SlicerClient
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = "http://slicer.test"
