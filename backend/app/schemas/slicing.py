@@ -41,6 +41,8 @@ class ProfileOut(BaseModel):
     printer_model: str | None = None
     nozzle_mm: float | None = None
     source: ProfileSource
+    # "orca" / "bambu" for a profile synced from a cloud account, else None.
+    cloud_source: str | None = None
     created_by_user_id: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -125,6 +127,7 @@ class SliceJobOut(BaseModel):
     model_slug: str | None = None
     file_name: str | None = None
     recipe_id: int | None = None
+    pipeline_id: int | None = None
     plate: int | None = None
     state: Literal["queued", "running", "done", "failed", "cancelled"]
     error: str | None = None

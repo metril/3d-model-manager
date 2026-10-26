@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Printer, PrintRecipe, SlicerProfile
+from app.models import Printer, PrintRecipe, SlicerPipeline, SlicerProfile
 from app.models.enums import Fanout, ProfileKind, ProfileSource
 from app.schemas.slicing import (
     ProfileImportOut,
@@ -68,6 +68,7 @@ def _profile_out(profile: SlicerProfile, *, with_data: bool) -> ProfileOut:
         printer_model=profile.printer_model,
         nozzle_mm=profile.nozzle_mm,
         source=profile.source,
+        cloud_source=profile.cloud_source,
         created_by_user_id=profile.created_by_user_id,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
@@ -488,6 +489,11 @@ async def delete_recipe(
 ) -> None:
     recipe = await _get_recipe_or_404(db, recipe_id)
     require_owner_or_admin(ctx, recipe.created_by_user_id)
+    used_by = await db.scalar(
+        select(SlicerPipeline.name).where(SlicerPipeline.recipe_id == recipe_id).limit(1)
+    )
+    if used_by is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"recipe is used by pipeline {used_by!r}")
     await db.delete(recipe)
     await db.commit()
 

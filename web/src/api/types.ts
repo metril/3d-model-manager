@@ -1902,6 +1902,7 @@ export interface SlicerProfile {
   printer_model: string | null;
   nozzle_mm: number | null;
   source: ProfileSource;
+  cloud_source?: "orca" | "bambu" | null;
   created_by_user_id: number | null;
   created_at: string;
   updated_at: string;
@@ -1979,6 +1980,7 @@ export interface SliceJob {
   model_slug: string | null;
   file_name: string | null;
   recipe_id: number | null;
+  pipeline_id?: number | null;
   plate: number | null;
   state: SliceJobState;
   error: string | null;

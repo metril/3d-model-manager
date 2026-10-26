@@ -305,6 +305,10 @@ class PrintQueueEntry(Base):
         BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True
     )
     plate: Mapped[int | None] = mapped_column(Integer)
+    # Slice-option overrides (``auto_orient`` / ``arrange``) layered over the
+    # recipe's own by this entry's slice -- set by a pipeline's orient/arrange
+    # pre-steps (``app.services.pipelines``); NULL = the recipe's options as-is.
+    slice_options: Mapped[dict | None] = mapped_column(JSONB)
     copies: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     state: Mapped[QueueState] = mapped_column(
         str_enum(QueueState, "queue_state"),

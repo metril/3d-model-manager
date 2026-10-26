@@ -7,12 +7,15 @@
  * profile) are hidden without `inventory:write`.
  */
 import { useState } from "react";
-import { PlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
+import { CloudIcon, PlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { useDeletePipeline, usePipelines, type SlicerPipeline } from "@/api/pipelines";
 import { useDeleteRecipe, useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { PrintRecipe, ProfileKind } from "@/api/types";
+import { CloudPresetsDialog } from "@/components/inventory/CloudPresetsDialog";
+import { PipelineForm } from "@/components/inventory/PipelineForm";
 import { ProfileImportDialog } from "@/components/inventory/ProfileImportDialog";
 import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { RecipeForm } from "@/components/inventory/RecipeForm";
@@ -47,6 +50,7 @@ function ProfilesTab() {
   const canWrite = can("inventory:write");
   const [kindFilter, setKindFilter] = useState<ProfileKind | "all">("all");
   const [importOpen, setImportOpen] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(false);
   const profiles = useProfiles(kindFilter === "all" ? undefined : kindFilter);
   const health = useSlicerHealth();
 
@@ -69,6 +73,10 @@ function ProfilesTab() {
         </div>
         <div className="flex items-center gap-2">
           <SidecarHealthChip />
+          <Button type="button" size="sm" variant="outline" onClick={() => setCloudOpen(true)}>
+            <CloudIcon className="size-4" />
+            Cloud presets
+          </Button>
           {canWrite ? (
             <Button type="button" size="sm" variant="outline" onClick={() => setImportOpen(true)}>
               <UploadIcon className="size-4" />
@@ -109,7 +117,7 @@ function ProfilesTab() {
                       {p.nozzle_mm != null ? `${p.nozzle_mm} mm` : "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{p.source}</Badge>
+                      <Badge variant="outline">{p.cloud_source ? `${p.cloud_source} cloud` : p.source}</Badge>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -120,6 +128,12 @@ function ProfilesTab() {
       </Card>
 
       <ProfileImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <CloudPresetsDialog
+        open={cloudOpen}
+        onOpenChange={setCloudOpen}
+        canWrite={canWrite}
+        canAdmin={can("settings:write")}
+      />
     </div>
   );
 }
@@ -215,28 +229,147 @@ function RecipesTab() {
   );
 }
 
+const STEP_LABEL: Record<string, string> = { orient: "Orient", arrange: "Arrange", rename: "Rename", queue: "Queue" };
+
+function PipelinesTab() {
+  const { can } = useAuth();
+  const canWrite = can("inventory:write");
+  const pipelines = usePipelines();
+  const remove = useDeletePipeline();
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<SlicerPipeline | undefined>(undefined);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {canWrite ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              setEditing(undefined);
+              setFormOpen(true);
+            }}
+          >
+            <PlusIcon className="size-4" />
+            New pipeline
+          </Button>
+        </div>
+      ) : null}
+
+      <Card>
+        <CardContent>
+          {pipelines.isLoading ? (
+            <Skeleton className="h-32 w-full rounded-lg" />
+          ) : pipelines.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {pipelines.error instanceof ApiError ? pipelines.error.detail : "Couldn't load pipelines."}
+            </p>
+          ) : (pipelines.data ?? []).length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No pipelines yet. A pipeline runs a recipe with extra steps (orient, arrange, rename, queue) in one
+              click from a file&apos;s Slice dialog.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Recipe</TableHead>
+                  <TableHead>Steps</TableHead>
+                  {canWrite ? <TableHead /> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(pipelines.data ?? []).map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          className="hover:underline"
+                          onClick={() => {
+                            setEditing(p);
+                            setFormOpen(true);
+                          }}
+                        >
+                          {p.name}
+                        </button>
+                      ) : (
+                        p.name
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.recipe_name ?? "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {p.steps.length === 0 ? (
+                          <span className="text-muted-foreground">slice only</span>
+                        ) : (
+                          p.steps.map((s) => (
+                            <Badge key={s.kind} variant="outline">
+                              {STEP_LABEL[s.kind]}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </TableCell>
+                    {canWrite ? (
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${p.name}`}
+                          onClick={() => remove.mutate(p.id)}
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {remove.isError ? (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {remove.error instanceof ApiError ? remove.error.detail : "Couldn't delete the pipeline."}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <PipelineForm open={formOpen} onOpenChange={setFormOpen} pipeline={editing} />
+    </div>
+  );
+}
+
 export function ProfilesPage() {
-  const [tab, setTab] = useState<"profiles" | "recipes">("profiles");
+  const [tab, setTab] = useState<"profiles" | "recipes" | "pipelines">("profiles");
 
   return (
     <PageContainer width="default">
       <div>
         <h1 className="text-lg font-semibold text-foreground">Profiles & recipes</h1>
         <p className="text-sm text-muted-foreground">
-          Slicer profiles imported from a bundle or sidecar, and the recipes that combine them.
+          Slicer profiles imported from a bundle, the sidecar or your cloud accounts, the recipes that combine them, and the pipelines that run them.
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "profiles" | "recipes")}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "profiles" | "recipes" | "pipelines")}>
         <TabsList>
           <TabsTrigger value="profiles">Profiles</TabsTrigger>
           <TabsTrigger value="recipes">Recipes</TabsTrigger>
+          <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
         </TabsList>
         <TabsContent value="profiles">
           <ProfilesTab />
         </TabsContent>
         <TabsContent value="recipes">
           <RecipesTab />
+        </TabsContent>
+        <TabsContent value="pipelines">
+          <PipelinesTab />
         </TabsContent>
       </Tabs>
     </PageContainer>

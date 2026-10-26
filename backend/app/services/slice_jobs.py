@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATES = ("queued", "running")
 
 
-async def _out(db: AsyncSession, job: SliceJob) -> SliceJobOut:
+async def job_out(db: AsyncSession, job: SliceJob) -> SliceJobOut:
     file = await db.get(File, job.file_id)
     revision = await db.get(Revision, file.revision_id) if file is not None else None
     out = SliceJobOut.model_validate(job, from_attributes=True)
@@ -41,7 +41,14 @@ async def _out(db: AsyncSession, job: SliceJob) -> SliceJobOut:
 
 
 async def create_job(
-    db: AsyncSession, settings: Settings, file_id: int, payload: SliceJobIn, user_id: int
+    db: AsyncSession,
+    settings: Settings,
+    file_id: int,
+    payload: SliceJobIn,
+    user_id: int,
+    *,
+    pipeline_id: int | None = None,
+    options: dict | None = None,
 ) -> SliceJobOut:
     if not (await get_server_config(db, settings)).slicer_enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "slicer_disabled")
@@ -61,6 +68,8 @@ async def create_job(
         file_id=file_id,
         recipe_id=payload.recipe_id,
         plate=payload.plate,
+        pipeline_id=pipeline_id,
+        options=options or None,
         state="queued",
         celery_id=str(job_id),
         created_by_user_id=user_id,
@@ -86,7 +95,7 @@ async def create_job(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "could not enqueue slice job"
         ) from exc
-    return await _out(db, job)
+    return await job_out(db, job)
 
 
 async def get_job(db: AsyncSession, job_id: uuid.UUID) -> SliceJob:
@@ -98,7 +107,7 @@ async def get_job(db: AsyncSession, job_id: uuid.UUID) -> SliceJob:
 
 async def get_job_out(db: AsyncSession, job_id: uuid.UUID) -> SliceJobOut:
     job = await get_job(db, job_id)
-    return await _out(db, job)
+    return await job_out(db, job)
 
 
 async def stop_slice(
@@ -141,4 +150,4 @@ async def cancel_job(db: AsyncSession, settings: Settings, job_id: uuid.UUID) ->
     if res.rowcount:
         await stop_slice(db, settings, slice_job_sidecar_id(job.id), job.celery_id)
     await db.refresh(job)
-    return await _out(db, job)
+    return await job_out(db, job)

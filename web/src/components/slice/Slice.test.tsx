@@ -15,7 +15,7 @@ const { getMock, postMock, deleteMock, toastMock, navigateMock } = vi.hoisted(()
   getMock: vi.fn(),
   postMock: vi.fn(),
   deleteMock: vi.fn(),
-  toastMock: { custom: vi.fn(), dismiss: vi.fn(), error: vi.fn() },
+  toastMock: { custom: vi.fn(), dismiss: vi.fn(), error: vi.fn(), success: vi.fn() },
   navigateMock: vi.fn(),
 }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -61,7 +61,7 @@ function ui(node: ReactElement) {
 
 let jobState: SliceJob;
 beforeEach(() => {
-  [getMock, postMock, deleteMock, toastMock.custom, toastMock.dismiss, toastMock.error, navigateMock].forEach((m) =>
+  [getMock, postMock, deleteMock, toastMock.custom, toastMock.dismiss, toastMock.error, toastMock.success, navigateMock].forEach((m) =>
     m.mockReset(),
   );
   untrackSlice("job-1");
@@ -118,6 +118,49 @@ describe("SliceDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("timed out");
     fireEvent.click(await screen.findByLabelText("A1 PLA"));
     expect(screen.getByRole("button", { name: "Slice" })).toBeDisabled();
+  });
+
+  describe("pipelines", () => {
+    const withPipelines = () => {
+      const base = getMock.getMockImplementation()!;
+      getMock.mockImplementation((path: string) =>
+        path === "/slicer-pipelines"
+          ? Promise.resolve([
+              { id: 7, name: "Orient & rename", recipe_name: "A1 PLA", steps: [{ kind: "orient" }, { kind: "rename", template: "x" }] },
+              { id: 8, name: "Print it", recipe_name: "A1 PLA", steps: [{ kind: "queue" }] },
+            ])
+          : base(path),
+      );
+    };
+
+    it("is recipe-only when no pipelines exist", async () => {
+      ui(<SliceDialog open onOpenChange={() => {}} file={FILE} />);
+      await screen.findByLabelText("A1 PLA");
+      expect(screen.queryByRole("button", { name: "Pipeline" })).not.toBeInTheDocument();
+    });
+
+    it("runs a slice-only pipeline and tracks the job", async () => {
+      withPipelines();
+      postMock.mockResolvedValue({ kind: "slice", slice_job: { ...JOB, state: "queued" }, queue_entry: null });
+      const onOpenChange = vi.fn();
+      ui(<SliceDialog open onOpenChange={onOpenChange} file={FILE} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Pipeline" }));
+      fireEvent.click(await screen.findByLabelText(/Orient & rename/));
+      fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/slicer-pipelines/7/run", { file_id: 5, plate: null }));
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      untrackSlice("job-1");
+    });
+
+    it("toasts when a queue pipeline enqueues instead", async () => {
+      withPipelines();
+      postMock.mockResolvedValue({ kind: "queue", slice_job: null, queue_entry: { id: 3 } });
+      ui(<SliceDialog open onOpenChange={() => {}} file={FILE} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Pipeline" }));
+      fireEvent.click(await screen.findByLabelText(/Print it/));
+      fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
+      await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith(expect.stringContaining("Queued cube.stl")));
+    });
   });
 });
 

@@ -51,6 +51,7 @@ from app.api import (
     batches,
     blobs,
     categories,
+    cloud_presets,
     collections,
     drying,
     events,
@@ -73,6 +74,7 @@ from app.api import (
     notifications,
     obico,
     oidc,
+    pipelines,
     plate_check,
     print_flow,
     print_jobs,
@@ -203,6 +205,8 @@ protected_router.include_router(housekeeping.catalog_router)
 protected_router.include_router(spool_forecast.router)
 protected_router.include_router(spools.router)
 protected_router.include_router(profiles.router)
+protected_router.include_router(pipelines.router)
+protected_router.include_router(cloud_presets.router)
 protected_router.include_router(profiles.slicer_status_router)
 protected_router.include_router(virtual_printers.router)
 protected_router.include_router(notifications.public_router)

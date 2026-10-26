@@ -437,6 +437,7 @@ async def enqueue_file(
     settings: Settings,
     payload: QueueEnqueueIn,
     ctx: AuthContext,
+    slice_options: dict | None = None,
 ) -> QueueEntryOut:
     """Append a per-file queue entry (P6 Task 6). Never idempotent -- a
     model can be queued more than once as long as each extra entry names a
@@ -487,6 +488,7 @@ async def enqueue_file(
         printer_id=payload.printer_id,
         recipe_id=payload.recipe_id,
         plate=payload.plate,
+        slice_options=slice_options,
         copies=payload.copies,
         state=state,
         position=position,
@@ -621,6 +623,7 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
             printer_id=entry.printer_id,
             recipe_id=entry.recipe_id,
             plate=entry.plate,
+            slice_options=entry.slice_options,
             copies=entry.copies,
             state=new_state,
             position=position,
