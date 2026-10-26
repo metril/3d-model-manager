@@ -32,8 +32,9 @@ async def list_projects(
     q: str | None = None,
     tag: str | None = None,
     db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[s.ProjectSummary]:
-    return await svc.list_projects(db, status_=status_, q=q, template=False, tag=tag)
+    return await svc.list_projects(db, status_=status_, q=q, template=False, tag=tag, ctx=ctx)
 
 
 @router.post("", status_code=201, response_model=s.ProjectOut, dependencies=_W)
@@ -42,12 +43,14 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> s.ProjectOut:
-    return await svc.to_out(db, await svc.create_project(db, ctx, payload))
+    return await svc.to_out(db, await svc.create_project(db, ctx, payload), ctx)
 
 
 @router.get("/templates", response_model=list[s.ProjectSummary])
-async def list_templates(db: AsyncSession = Depends(get_db)) -> list[s.ProjectSummary]:
-    return await svc.list_projects(db, status_=None, q=None, template=True, tag=None)
+async def list_templates(
+    db: AsyncSession = Depends(get_db), ctx: AuthContext = Depends(require_session)
+) -> list[s.ProjectSummary]:
+    return await svc.list_projects(db, status_=None, q=None, template=True, tag=None, ctx=ctx)
 
 
 @router.post(
@@ -59,12 +62,16 @@ async def from_template(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> s.ProjectOut:
-    return await svc.to_out(db, await svc.from_template(db, ctx, template_id, payload))
+    return await svc.to_out(db, await svc.from_template(db, ctx, template_id, payload), ctx)
 
 
 @router.get("/{project_id}", response_model=s.ProjectOut)
-async def get_project(project_id: int, db: AsyncSession = Depends(get_db)) -> s.ProjectOut:
-    return await svc.to_out(db, await svc.get_or_404(db, project_id))
+async def get_project(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> s.ProjectOut:
+    return await svc.to_out(db, await svc.get_or_404(db, project_id), ctx)
 
 
 @router.patch("/{project_id}", response_model=s.ProjectOut, dependencies=_W)
@@ -74,7 +81,7 @@ async def patch_project(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> s.ProjectOut:
-    return await svc.to_out(db, await svc.patch_project(db, ctx, project_id, payload))
+    return await svc.to_out(db, await svc.patch_project(db, ctx, project_id, payload), ctx)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_W)
@@ -110,7 +117,7 @@ async def add_models(
 ) -> s.ProjectOut:
     """Library multi-select / model page "add to project"."""
     await svc.add_models(db, ctx, project_id, payload)
-    return await svc.to_out(db, await svc.get_or_404(db, project_id))
+    return await svc.to_out(db, await svc.get_or_404(db, project_id), ctx)
 
 
 @router.patch("/{project_id}/items/{item_id}", response_model=s.ItemOut, dependencies=_W)
@@ -142,9 +149,11 @@ async def delete_item(
 
 @router.get("/{project_id}/archives", response_model=list[s.ProjectArchiveOut])
 async def list_archives(
-    project_id: int, db: AsyncSession = Depends(get_db)
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[s.ProjectArchiveOut]:
-    return await svc.list_archives(db, project_id)
+    return await svc.list_archives(db, project_id, ctx)
 
 
 @router.post("/{project_id}/archives", dependencies=_W)
@@ -173,9 +182,11 @@ async def unlink_archives(
 
 @router.get("/{project_id}/timeline", response_model=list[s.TimelineEntry])
 async def get_timeline(
-    project_id: int, db: AsyncSession = Depends(get_db)
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[s.TimelineEntry]:
-    return await svc.timeline(db, project_id)
+    return await svc.timeline(db, project_id, ctx)
 
 
 # ---- attachments
@@ -255,7 +266,7 @@ async def create_template(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> s.ProjectOut:
-    return await svc.to_out(db, await svc.create_template(db, ctx, project_id, payload.name))
+    return await svc.to_out(db, await svc.create_template(db, ctx, project_id, payload.name), ctx)
 
 
 @router.post(
@@ -280,15 +291,16 @@ async def export_project(
     format: str = "json",
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> Response:
     p = await svc.get_or_404(db, project_id)
     base = zip_export._safe_path_segment(p.name, fallback=f"project-{p.id}")
     if format == "json":
-        body, media, ext = svc.export_json(await svc.to_out(db, p)), "application/json", "json"
+        body, media, ext = svc.export_json(await svc.to_out(db, p, ctx)), "application/json", "json"
     elif format == "csv":
-        body, media, ext = svc.bom_csv(await svc.to_out(db, p)), "text/csv", "csv"
+        body, media, ext = svc.bom_csv(await svc.to_out(db, p, ctx)), "text/csv", "csv"
     elif format == "zip":
-        gen = projects_export.iter_project_zip(db, settings, p)
+        gen = projects_export.iter_project_zip(db, settings, p, ctx)
         return StreamingResponse(
             gen,
             media_type="application/zip",
