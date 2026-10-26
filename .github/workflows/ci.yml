@@ -99,7 +99,7 @@ jobs:
             'Acquire::https::Timeout "20";' \
             | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
       - name: Install f3d's GL runtime (OSMesa software rendering)
-        timeout-minutes: 10
+        timeout-minutes: 12
         # app/pipeline/render.py builds its f3d engine with create_osmesa() and
         # falls back to create(True) (EGL offscreen) only if that RAISES. A bare
         # runner has neither path available, and the failure mode is brutal:
@@ -116,9 +116,21 @@ jobs:
         # Resolved via ldconfig rather than hardcoding the soname so a Mesa
         # major bump doesn't silently put us back on the segfaulting path.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libosmesa6 libgl1-mesa-dri libgl1 ffmpeg
+          # Mirror stalls hang apt rather than fail it, so bound each attempt
+          # and retry (re-running update first); healthy installs take ~10s.
+          ok=
+          for attempt in 1 2 3 4; do
+            echo "apt attempt $attempt/4"
+            if sudo timeout 120 apt-get update \
+              && sudo timeout 120 apt-get install -y --no-install-recommends \
+                libosmesa6 libgl1-mesa-dri libgl1 ffmpeg; then
+              ok=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed or timed out; retrying"
+            sleep 5
+          done
+          [ -n "$ok" ] || { echo "::error::apt failed after 4 attempts"; exit 1; }
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.* -- f3d will segfault in the EGL fallback"
