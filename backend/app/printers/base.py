@@ -141,6 +141,12 @@ class PrinterPublicState:
     # "sensitivity": str|None}}, "print_halt": bool|None,
     # "auto_recovery": bool|None, "auto_switch_filament": bool|None}`.
     print_options: dict = field(default_factory=dict)
+    # Dual nozzle (H2D): per-extruder state ``[{"id": 0|1, "side": "right"|"left",
+    # "temp", "target", "heating", "diameter", "type"}]`` (empty on single-nozzle),
+    # the active extruder (0 = right, 1 = left) and ``{ams_id: extruder}``.
+    extruders: list[dict] = field(default_factory=list)
+    active_extruder: int | None = None
+    ams_extruder_map: dict = field(default_factory=dict)
 
 
 def public_state_from(merged: dict) -> PrinterPublicState:
@@ -237,8 +243,13 @@ class PrinterAdapter(ABC):
 
     # Q2 controls: adapters without a given control inherit these and the
     # worker reports ``unsupported``.
-    def set_temperature(self, target: str, value: int) -> None:
-        """``target`` is nozzle | bed | chamber; ``value`` in deg C (0 = off)."""
+    def set_temperature(self, target: str, value: int, extruder: int | None = None) -> None:
+        """``target`` is nozzle | bed | chamber; ``value`` in deg C (0 = off).
+        ``extruder`` (dual nozzle only, nozzle target): 0 = right, 1 = left."""
+        raise NotImplementedError
+
+    def select_extruder(self, extruder: int) -> None:
+        """Dual-nozzle: make ``extruder`` (0 = right, 1 = left) the active one."""
         raise NotImplementedError
 
     def set_fan(self, fan: str, pct: int) -> None:

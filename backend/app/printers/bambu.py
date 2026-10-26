@@ -58,12 +58,37 @@ def _build_printer(conn: PrinterConnection):
     return bl.Printer(conn.host, conn.access_code, conn.serial)
 
 
-def project_file_payload(spec: PrintSpec) -> dict:
+def dual_ams_mapping(mapping) -> tuple[list[int], list[dict]]:
+    """Dual-nozzle (H2D) mapping pair, as BambuStudio sends it: virtual trays
+    (254 = left external, 255 = right external) and unmapped slots become -1 in
+    the flat array (raw 254/255 there makes the firmware fail with 0700_8012)
+    and are named in ``ams_mapping2`` as ``{ams_id, slot_id}``."""
+    flat: list[int] = []
+    detail: list[dict] = []
+    for raw in mapping:
+        t = int(raw) if raw is not None else -1
+        if t < 0:
+            flat.append(-1)
+            detail.append({"ams_id": 255, "slot_id": 255})
+        elif t >= 254:
+            flat.append(-1)
+            detail.append({"ams_id": t, "slot_id": 0})
+        elif t >= 128:  # AMS-HT: the global id is the unit id
+            flat.append(t)
+            detail.append({"ams_id": t, "slot_id": 0})
+        else:
+            flat.append(t)
+            detail.append({"ams_id": t // 4, "slot_id": t % 4})
+    return flat, detail
+
+
+def project_file_payload(spec: PrintSpec, dual: bool = False) -> dict:
     """Mirrors the vendored ``start_print_3mf`` payload (bambulabs_api
     v2.6.6, ``PrinterMQTTClient.start_print_3mf``) key-for-key, except
     ``bed_leveling``/``timelapse`` come from ``spec`` instead of the lib's
     hardcoded ``True``/missing value."""
-    return {
+    flat, detail = dual_ams_mapping(spec.ams_mapping) if dual else (list(spec.ams_mapping), None)
+    payload = {
         "print": {
             "command": "project_file",
             "param": f"Metadata/plate_{spec.plate}.gcode",
@@ -76,11 +101,114 @@ def project_file_payload(spec: PrintSpec) -> dict:
             "layer_inspect": False,
             "timelapse": spec.timelapse,
             "use_ams": spec.use_ams,
-            "ams_mapping": list(spec.ams_mapping),
+            "ams_mapping": flat,
             "sequence_id": "10000000",
             "skip_objects": None,
         }
     }
+    if detail is not None:
+        payload["print"]["ams_mapping2"] = detail
+    return payload
+
+
+def select_extruder_payload(extruder: int) -> dict:
+    """0 = right, 1 = left (captured from OrcaSlicer by Bambuddy)."""
+    return {"print": {"command": "select_extruder", "extruder_index": extruder, "sequence_id": "0"}}
+
+
+def nozzle_temp_gcode(extruder: int, value: int) -> str:
+    return f"M104 T{extruder} S{value}"
+
+
+def _decode_ext_temp(raw) -> tuple[float | None, float | None]:
+    """``device.extruder.info[].temp``: above 500 it is ``target * 65536 +
+    current`` (heater on), else the plain current temperature."""
+    v = _as_int(raw)
+    if v is None:
+        return None, None
+    if v > 500:
+        cur, tgt = v % 65536, v // 65536
+        return (float(cur) if -50 < cur < 500 else None, float(tgt) if 0 < tgt < 500 else 0.0)
+    return (float(v), 0.0) if -50 < v < 500 else (None, None)
+
+
+def _device_extruder(dump: dict) -> dict:
+    device = _dump_get(dump, "device")
+    ext = device.get("extruder") if isinstance(device, dict) else None
+    return ext if isinstance(ext, dict) else {}
+
+
+def _nozzle_hw(dump: dict) -> dict[int, dict]:
+    """Per-extruder ``{type, diameter}`` (id 0 = right, 1 = left) from
+    ``device.nozzle.info`` with the flat ``left_/right_nozzle_*`` fallbacks."""
+    hw: dict[int, dict] = {0: {}, 1: {}}
+    device = _dump_get(dump, "device")
+    nozzle = device.get("nozzle") if isinstance(device, dict) else None
+    info = nozzle.get("info") if isinstance(nozzle, dict) else None
+    for n in info if isinstance(info, list) else []:
+        i = _as_int(n.get("id")) if isinstance(n, dict) else None
+        if i in (0, 1):
+            hw[i] = {"type": n.get("type") or None, "diameter": _as_float(n.get("diameter"))}
+    for side, i in (("right", 0), ("left", 1)):
+        if not hw[i].get("diameter"):
+            d = _as_float(_dump_get(dump, f"{side}_nozzle_diameter"))
+            if d:
+                hw[i]["diameter"] = d
+        if not hw[i].get("type"):
+            t = _dump_get(dump, f"{side}_nozzle_type")
+            if t:
+                hw[i]["type"] = str(t)
+    return hw
+
+
+def _extruders(dump: dict) -> list[dict]:
+    """Per-nozzle state of a dual-nozzle printer (empty unless the report
+    carries >= 2 ``device.extruder.info`` entries). id 0 = right, 1 = left."""
+    info = _device_extruder(dump).get("info")
+    if not isinstance(info, list) or len(info) < 2:
+        return []
+    hw = _nozzle_hw(dump)
+    out: dict[int, dict] = {}
+    for e in info:
+        i = _as_int(e.get("id")) if isinstance(e, dict) else None
+        if i not in (0, 1):
+            continue
+        cur, tgt = _decode_ext_temp(e.get("temp"))
+        out[i] = {
+            "id": i,
+            "side": "right" if i == 0 else "left",
+            "temp": cur,
+            "target": tgt,
+            "heating": bool(tgt and cur is not None and cur < tgt),
+            "diameter": hw[i].get("diameter"),
+            "type": hw[i].get("type"),
+        }
+    return [out[i] for i in sorted(out)] if len(out) == 2 else []
+
+
+def _active_extruder(dump: dict) -> int | None:
+    """``device.extruder.state`` bit 8: 0 = right, 1 = left."""
+    state = _as_int(_device_extruder(dump).get("state"))
+    return None if state is None else (state >> 8) & 1
+
+
+def _ams_extruder_map(dump: dict) -> dict[str, int]:
+    """AMS unit -> feeding extruder from the hex ``info`` bits 8-11
+    (0 = right, 1 = left; 0xE = routed via a filament switch, omitted)."""
+    section = _dump_get(dump, "ams")
+    units = section.get("ams") if isinstance(section, dict) else None
+    out: dict[str, int] = {}
+    for u in units if isinstance(units, list) else []:
+        if not isinstance(u, dict) or u.get("info") is None:
+            continue
+        uid = _as_int(u.get("id"))
+        try:
+            ext = (int(str(u["info"]), 16) >> 8) & 0xF
+        except ValueError:
+            continue
+        if uid is not None and ext in (0, 1):
+            out[str(uid)] = ext
+    return out
 
 
 def _publish_raw(p, payload: dict) -> None:
@@ -1014,8 +1142,15 @@ class BambuLanAdapter(PrinterAdapter):
         # when unreported and raises on enum-unknown types.
         nozzle_type = _dump_get(dump, "nozzle_type") or None
         sdcard = _dump_get(dump, "sdcard")
+        extruders = _extruders(dump)
+        left = next((e for e in extruders if e["id"] == 1), None)
         return {
-            "nozzle_target": _as_float(_dump_get(dump, "nozzle_target_temper")),
+            "extruders": extruders,
+            "active_extruder": _active_extruder(dump) if extruders else None,
+            "ams_extruder_map": _ams_extruder_map(dump) if extruders else {},
+            "nozzle_target": left["target"]
+            if left
+            else _as_float(_dump_get(dump, "nozzle_target_temper")),
             "bed_target": _as_float(_dump_get(dump, "bed_target_temper")),
             "chamber_temper": _as_float(_dump_get(dump, "chamber_temper")),
             "chamber_target": _as_float(_dump_get(dump, "chamber_target_temper")),
@@ -1045,7 +1180,10 @@ class BambuLanAdapter(PrinterAdapter):
             "total_layer_num": _as_int(p.total_layer_num()),
             "mc_remaining_time": _as_int(p.get_time()),
             "print_error": _as_int(_dump_get(dump, "print_error")),
-            "nozzle_temper": p.get_nozzle_temperature(),
+            # Dual nozzle: the single-nozzle fields mirror the LEFT tile.
+            "nozzle_temper": left["temp"]
+            if left and left["temp"] is not None
+            else p.get_nozzle_temperature(),
             "bed_temper": p.get_bed_temperature(),
             "subtask_name": p.subtask_name() or p.get_file_name() or None,
             "wifi_signal": _dump_get(dump, "wifi_signal"),
@@ -1150,9 +1288,11 @@ class BambuLanAdapter(PrinterAdapter):
         if ok is False:
             raise OSError("command not sent (printer not connected?)")
 
-    def set_temperature(self, target: str, value: int) -> None:
+    def set_temperature(self, target: str, value: int, extruder: int | None = None) -> None:
         p = self._client()
-        if target == "nozzle":
+        if target == "nozzle" and extruder is not None:
+            self._sent(p.gcode(nozzle_temp_gcode(extruder, value), gcode_check=False))
+        elif target == "nozzle":
             # override=True: the lib otherwise silently drops targets < 40 C,
             # which is exactly how a user turns heating off.
             self._sent(p.mqtt_client.set_nozzle_temperature(value, override=True))
@@ -1162,6 +1302,9 @@ class BambuLanAdapter(PrinterAdapter):
             self._sent(p.gcode(f"M141 S{value}", gcode_check=False))
         else:
             raise ValueError(target)
+
+    def select_extruder(self, extruder: int) -> None:
+        _publish_raw(self._client(), select_extruder_payload(extruder))
 
     def set_fan(self, fan: str, pct: int) -> None:
         p = self._client()
@@ -1287,7 +1430,7 @@ class BambuLanAdapter(PrinterAdapter):
         # The lib's start_print/start_print_3mf hardcodes bed_leveling=True
         # and drops timelapse entirely, so we publish the raw project_file
         # command ourselves (project_file_payload) to carry both from spec.
-        _publish_raw(p, project_file_payload(spec))
+        _publish_raw(p, project_file_payload(spec, self._dual()))
 
     # -- T3 print options / slots / SD ---------------------------------
     def set_xcam(self, module: str, enable: bool, sensitivity: str) -> None:

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TempFanTiles } from "./TempFanTiles";
 import { REVERT_MS } from "./useOptimistic";
-import { a1Mini, renderCard, x1c, x1e } from "./testUtils";
+import { a1Mini, h2d, renderCard, x1c, x1e } from "./testUtils";
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -61,6 +61,18 @@ describe("TempFanTiles", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set Chamber" }));
     fireEvent.click(await screen.findByRole("button", { name: "Off" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/3/control/temperature", { target: "chamber", value: 0 }));
+  });
+
+  it("H2D: both nozzles show their own reading and each posts its extruder_id", async () => {
+    const it = h2d();
+    renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
+    expect(await screen.findByTestId("tile-nozzle-r")).toHaveTextContent("215 → 220");
+    expect(screen.getByTestId("tile-nozzle-l")).toHaveTextContent("31");
+    fireEvent.click(screen.getByRole("button", { name: "Set Nozzle L 0.6" }));
+    fireEvent.click(await screen.findByRole("button", { name: "PLA 220" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/printers/4/control/temperature", { target: "nozzle", value: 220, extruder_id: 1 }),
+    );
   });
 
   it("shows current -> target", async () => {

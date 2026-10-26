@@ -131,3 +131,22 @@ export function x1e(over: Partial<PrinterOverviewItem> = {}, st: Partial<Printer
     printer: { ...base.printer, id: 3, name: "X1E", model: "X1E", serial: "03W09A000000003", capabilities: X1E_CAPS },
   };
 }
+
+/** Mirrors backend capabilities.py: H2D is dual nozzle and (like all H2) unverified. */
+export const H2D_CAPS: PrinterCapabilities = { ...X1E_CAPS, model_key: "h2d", dual_nozzle: true, airduct: true, max_nozzle: 350 };
+
+export function h2d(over: Partial<PrinterOverviewItem> = {}, st: Partial<PrinterStatusOut> = {}): PrinterOverviewItem {
+  const base = x1c(over, st);
+  return {
+    ...base,
+    printer: { ...base.printer, id: 4, name: "H2D", model: "H2D", serial: "09400A000000004", capabilities: H2D_CAPS },
+    status: status({
+      active_extruder: 0,
+      extruders: [
+        { id: 0, side: "right", temp: 215, target: 220, heating: true, diameter: 0.4, type: "hardened_steel" },
+        { id: 1, side: "left", temp: 31, target: 0, heating: false, diameter: 0.6, type: "stainless_steel" },
+      ],
+      ...st,
+    }),
+  };
+}
