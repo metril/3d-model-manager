@@ -268,7 +268,7 @@ describe("SliceJobsHost", () => {
     expect(await screen.findByText("slicer ok output")).toBeInTheDocument();
     // Close it so Radix's focus-scope timer doesn't outlive the test.
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
     });
     await waitFor(() => expect(screen.queryByText("slicer ok output")).not.toBeInTheDocument());
     toastView.unmount();
