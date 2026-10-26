@@ -46,6 +46,28 @@ async def test_status_reflects_redis(authenticated_client, printer_enabled, redi
     assert body["mc_percent"] == 42 and body["layer_num"] == 10
 
 
+async def test_status_offline_when_connected_false(
+    authenticated_client, printer_enabled, redis_url
+):
+    pid = await _make_printer(authenticated_client)
+    c = redis_lib.Redis.from_url(redis_url)
+    c.set(
+        state_key(pid), json.dumps({"connected": False, "gcode_state": None, "nozzle_temper": None})
+    )
+    c.close()
+    body = (await authenticated_client.get(f"/api/printers/{pid}/status")).json()
+    assert body["online"] is False and body["gcode_state"] is None
+    assert body["nozzle_temper"] is None
+
+
+async def test_status_online_when_connected_true(authenticated_client, printer_enabled, redis_url):
+    pid = await _make_printer(authenticated_client)
+    c = redis_lib.Redis.from_url(redis_url)
+    c.set(state_key(pid), json.dumps({"connected": True, "gcode_state": "IDLE"}))
+    c.close()
+    assert (await authenticated_client.get(f"/api/printers/{pid}/status")).json()["online"] is True
+
+
 async def test_status_offline_when_state_corrupt(authenticated_client, printer_enabled, redis_url):
     pid = await _make_printer(authenticated_client)
     c = redis_lib.Redis.from_url(redis_url)

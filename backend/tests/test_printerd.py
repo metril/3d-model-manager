@@ -1099,3 +1099,25 @@ def test_raw_tap_only_while_viewer_flag_set(worker):
     w.handle_raw("device/S/report", b'{"print": {}}')
     assert client.llen(mqtt_debug.list_key(pid)) == 1
     client.delete(mqtt_debug.list_key(pid), mqtt_debug.viewer_key(pid))
+
+
+def test_write_public_marks_stale_report_disconnected(worker):
+    from datetime import UTC, datetime, timedelta
+
+    w, _adapter, pid, client = worker
+    old = (datetime.now(UTC) - timedelta(seconds=printerd_module.STALE_AFTER_S + 5)).isoformat()
+    w.handle_report({**cass.SNAPSHOT_IDLE, "last_report_at": old})
+    assert json.loads(client.get(state_key(pid)))["connected"] is False
+    fresh = datetime.now(UTC).isoformat()
+    w.handle_report({**cass.SNAPSHOT_IDLE, "last_report_at": fresh})
+    state = json.loads(client.get(state_key(pid)))
+    assert state["connected"] is True
+    assert 0 < client.ttl(state_key(pid)) <= printerd_module.STATE_TTL_S
+
+
+def test_write_public_publishes_no_data_snapshot_as_disconnected(worker):
+    w, _adapter, pid, client = worker
+    w.handle_report({"connected": False, "gcode_state": None})
+    state = json.loads(client.get(state_key(pid)))
+    assert state["connected"] is False and state["gcode_state"] is None
+    assert state["nozzle_temper"] is None
