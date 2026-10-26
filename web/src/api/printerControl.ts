@@ -19,6 +19,7 @@ export type ControlPath =
   | "jog"
   | "extrude"
   | "airduct"
+  | "extruder"
   | "calibrate"
   | "hms/clear"
   | "filament"
