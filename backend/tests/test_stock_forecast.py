@@ -173,3 +173,35 @@ async def test_queued_demand_counts_open_entries_not_trashed(db_session):
         mk(s, "live", False)
         mk(s, "gone", True)
         assert fdb.queued_demand(s) == {"pla": 150.0}
+
+
+async def test_queued_demand_uses_per_plate_grams(db_session):
+    from app.models import File, Model, PrintQueueEntry
+    from app.models.enums import BlobFormat, BlobKind
+    from app.models.library import Blob, Revision
+    from app.models.processing import BlobMeta
+
+    plates = [
+        {"index": 1, "weight_g": 10.0, "filaments": [{"type": "PLA", "used_g": 10.0}]},
+        {"index": 2, "weight_g": 90.0, "filaments": [{"type": "PETG", "used_g": 90.0}]},
+    ]
+    with sync_session() as s:
+        m = Model(slug="mp", name="mp")
+        s.add(m)
+        s.flush()
+        rev = Revision(model_id=m.id, number=1, dir_name="r1")
+        s.add(rev)
+        s.flush()
+        h = "9".ljust(64, "1")
+        s.add(Blob(hash=h, size=1, kind=BlobKind.SLICED, format=BlobFormat.GCODE_3MF))
+        s.flush()
+        s.add(
+            BlobMeta(blob_hash=h, filament_g=100.0, filament_types=["PLA", "PETG"], raw={"plates": plates})
+        )
+        f = File(revision_id=rev.id, blob_hash=h, rel_path="mp.gcode.3mf", storage_path="x")
+        s.add(f)
+        s.flush()
+        s.add(PrintQueueEntry(model_id=m.id, position=1, file_id=f.id, copies=2, plate=2))
+        s.commit()
+        # plate 2 only: 2 x 90 g PETG; not the 100 g whole-file figure
+        assert fdb.queued_demand(s) == {"petg": 180.0}

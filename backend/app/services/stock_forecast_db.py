@@ -67,23 +67,76 @@ def _stock_spool(s: Spool) -> sf.StockSpool:
     )
 
 
+def _plate_grams(meta: BlobMeta, plate_no: int | None) -> dict[str, float] | None:
+    """Per-material grams for ONE plate of a sliced file, or ``None`` when
+    ``meta`` has no per-plate data (caller then uses whole-file figures). A
+    plate-specific entry whose plate isn't in the metadata yields ``{}``."""
+    plates = (meta.raw or {}).get("plates") or []
+    if not plates:
+        return None
+    wanted = plate_no if plate_no is not None else plates[0].get("index")
+    plate = next((p for p in plates if p.get("index") == wanted), None)
+    if plate is None:
+        return {}
+    out: dict[str, float] = {}
+    fils = [f for f in plate.get("filaments") or [] if f.get("used_g")]
+    for f in fils:
+        t = (f.get("type") or "").lower()
+        if t:
+            out[t] = out.get(t, 0.0) + float(f["used_g"])
+    if out:
+        return out
+    grams = plate.get("weight_g")
+    types = [t.lower() for t in (meta.filament_types or []) if t]
+    if grams and types:
+        return {t: float(grams) / len(types) for t in types}
+    return {}
+
+
 def queued_demand(session: Session) -> dict[str, float]:
     """Grams of filament still to print by queued work, per lower-cased
     material type. Trashed models are ignored; entries without slice metadata
-    (nothing known about their filament) contribute nothing."""
+    (nothing known about their filament) contribute nothing. Plate-specific
+    entries count only their plate's grams. File/metadata lookups are batched."""
     q = (
-        select(PrintQueueEntry.copies, PrintQueueEntry.sliced_file_id, PrintQueueEntry.file_id)
+        select(
+            PrintQueueEntry.copies,
+            PrintQueueEntry.plate,
+            PrintQueueEntry.sliced_file_id,
+            PrintQueueEntry.file_id,
+        )
         .join(Model, Model.id == PrintQueueEntry.model_id)
         .where(PrintQueueEntry.state.in_(_OPEN_STATES), Model.deleted_at.is_(None))
     )
+    entries = list(session.execute(q))
+    fids = {fid for e in entries for fid in (e[2], e[3]) if fid is not None}
+    blob_of: dict[int, str] = {}
+    metas: dict[str, BlobMeta] = {}
+    if fids:
+        blob_of = {
+            fid: bh
+            for fid, bh in session.execute(select(File.id, File.blob_hash).where(File.id.in_(fids)))
+        }
+        metas = {
+            m.blob_hash: m
+            for m in session.scalars(
+                select(BlobMeta).where(BlobMeta.blob_hash.in_(set(blob_of.values())))
+            )
+        }
     out: dict[str, float] = {}
-    for copies, sliced_id, file_id in session.execute(q):
+    for copies, plate_no, sliced_id, file_id in entries:
         for fid in (sliced_id, file_id):
             if fid is None:
                 continue
-            f = session.get(File, fid)
-            meta = session.get(BlobMeta, f.blob_hash) if f is not None else None
-            if meta is None or not meta.filament_g:
+            meta = metas.get(blob_of.get(fid, ""))
+            if meta is None:
+                continue
+            per_plate = _plate_grams(meta, plate_no)
+            if per_plate is not None:
+                for t, g in per_plate.items():
+                    out[t] = out.get(t, 0.0) + g * max(copies, 1)
+                break
+            if not meta.filament_g:
                 continue
             types = [t.lower() for t in (meta.filament_types or []) if t]
             if types:
