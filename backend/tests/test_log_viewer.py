@@ -137,3 +137,15 @@ def test_install_queue_nonblocking_and_drops():
         assert ls.install("redis://x", "api", lg) is h
     finally:
         lg.removeHandler(qh)
+
+
+def test_reconfigure_does_not_leak_listener_threads(redis_url):
+    import threading
+
+    from app.logging_config import configure_logging
+
+    configure_logging("INFO", "api")
+    before = threading.active_count()
+    for _ in range(5):
+        configure_logging("INFO", "api")  # dictConfig closes the replaced handler
+    assert threading.active_count() <= before + 1

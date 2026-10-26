@@ -14,7 +14,7 @@ when it is read (rules may be tightened after lines were stored).
 
 from __future__ import annotations
 
-import atexit
+import contextlib
 import json
 import logging
 import logging.handlers
@@ -118,6 +118,13 @@ class RedisLogHandler(logging.Handler):
         finally:
             self._local.busy = False
 
+    def close(self) -> None:
+        client, self._client = self._client, None
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
+        super().close()
+
 
 QUEUE_SIZE = 2000
 
@@ -139,6 +146,17 @@ class DropQueueHandler(logging.handlers.QueueHandler):
     def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
         return record  # keep exc_info/args; the listener thread formats
 
+    def close(self) -> None:
+        """Stop the drain thread and free the Redis socket (``dictConfig`` /
+        ``logging.shutdown`` close replaced handlers; without this every
+        reconfigure would leak a thread and a connection)."""
+        listener = getattr(self, "listener", None)
+        if listener is not None and listener._thread is not None:
+            with contextlib.suppress(Exception):  # queue full: daemon thread dies with the process
+                listener.stop()
+        self.target.close()
+        super().close()
+
 
 def install(redis_url: str, service: str | None = None, logger: logging.Logger | None = None):
     """Attach a non-blocking Redis log shipper to ``logger`` (root by default); idempotent.
@@ -156,7 +174,6 @@ def install(redis_url: str, service: str | None = None, logger: logging.Logger |
     listener = logging.handlers.QueueListener(q, handler, respect_handler_level=True)
     listener.start()
     qh.listener = listener  # type: ignore[attr-defined]
-    atexit.register(lambda: listener._thread and listener.stop())
     target.addHandler(qh)
     return handler
 
