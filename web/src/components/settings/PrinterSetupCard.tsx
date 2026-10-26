@@ -32,6 +32,8 @@ import {
   useUpdatePrinter,
 } from "@/api/printers";
 import type { DiagnosticCheck, DiscoveredPrinter, PrinterOut, PrinterUpdate } from "@/api/types";
+import { useAuth } from "@/api/auth";
+import { MqttDebugModal } from "@/components/printer/MqttDebugModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DiagnosticChecks, DiagnosticModal } from "@/components/print/modals";
 import { Button } from "@/components/ui/button";
@@ -213,6 +215,8 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
   const [draft, setDraft] = useState<PrinterDraft>(() => (printer ? seedDraft(printer) : emptyDraft()));
   const [errors, setErrors] = useState<DraftErrors>({});
   const [diagOpen, setDiagOpen] = useState(false);
+  const [mqttOpen, setMqttOpen] = useState(false);
+  const isAdmin = useAuth().can("admin");
   const [failures, setFailures] = useState<DiagnosticCheck[] | null>(null);
   const preflight = useDiagnostic();
 
@@ -524,6 +528,14 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             >
               {testPrinter.isPending ? "Testing..." : "Test connection"}
             </Button>
+            {isAdmin ? (
+              <>
+                <Button type="button" variant="outline" disabled={busy} onClick={() => setMqttOpen(true)}>
+                  MQTT debug
+                </Button>
+                <MqttDebugModal printerId={printer.id} printerName={printer.name} open={mqttOpen} onOpenChange={setMqttOpen} />
+              </>
+            ) : null}
             <ConfirmDialog
               trigger={
                 <Button type="button" variant="destructive" size="sm" disabled={busy}>

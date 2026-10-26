@@ -56,12 +56,24 @@ RING = RingBufferHandler()
 RING.setFormatter(logging.Formatter(LOG_FORMAT))
 
 
-def configure_logging(level: str = "INFO") -> None:
+def configure_logging(level: str = "INFO", service: str | None = None) -> None:
     """Apply the structured logging configuration to the process."""
     logging.config.dictConfig(build_log_config(level))
     root = logging.getLogger()
     if RING not in root.handlers:
         root.addHandler(RING)
+    attach_redis_handler(service)
+
+
+def attach_redis_handler(service: str | None = None, logger: logging.Logger | None = None) -> None:
+    """Ship this process's records to the admin log viewer (best effort)."""
+    try:
+        from app.config import get_settings
+        from app.services import log_stream
+
+        log_stream.install(get_settings().redis_url, service, logger)
+    except Exception:  # noqa: BLE001 - never block startup over log shipping
+        logging.getLogger(__name__).debug("redis log handler not attached", exc_info=True)
 
 
 _LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}

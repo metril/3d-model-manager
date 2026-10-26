@@ -183,9 +183,14 @@ class PrinterAdapter(ABC):
     def __init__(self, conn: PrinterConnection) -> None:
         self.conn = conn
         self._reply_handler: ReplyHandler | None = None
+        self._raw_tap: Callable[[str, bytes], None] | None = None
 
     def set_reply_handler(self, handler: ReplyHandler) -> None:
         self._reply_handler = handler
+
+    def set_raw_tap(self, tap: Callable[[str, bytes], None]) -> None:
+        """Receive every raw MQTT message ``(topic, payload)`` (debug feed)."""
+        self._raw_tap = tap
 
     @abstractmethod
     def test_connection(self, *, timeout: float = 10.0) -> ProbeResult: ...

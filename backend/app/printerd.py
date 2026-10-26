@@ -47,9 +47,10 @@ from app.printers.camera_supervisor import CameraSupervisor
 from app.printers.connection import connection_from_printer
 from app.printers.devmode import DevModeTracker, is_verify_failed_reply
 from app.printers.ha_bridge import HaBridge
+from app.printers.mqtt_relay import MqttRelay
 from app.printers.obico_watcher import ObicoSupervisor
 from app.printers.registry import build_adapter
-from app.services import camera_state, ha_state, hms, kprofiles, spool_inventory
+from app.services import camera_state, ha_state, hms, kprofiles, mqtt_debug, spool_inventory
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
@@ -187,6 +188,7 @@ class PrinterWorker:
         self._kp_evt = threading.Event()
         self._kp_results: dict[str, dict] = {}
         adapter.set_reply_handler(self.handle_reply)
+        adapter.set_raw_tap(self.handle_raw)
 
         self._hms_seen: set[str] | None = None
         self._dev_mode_prev: bool | None = None
@@ -253,6 +255,23 @@ class PrinterWorker:
                 emit_bg("hms_error", self.printer_id, hms_payload(code))
         except Exception as exc:
             log.warning("printerd: notify diff failed: %s", type(exc).__name__)
+
+    def handle_raw(self, topic: str, payload: bytes) -> None:
+        """Raw MQTT message (adapter's MQTT thread) -> admin debug feed."""
+        with contextlib.suppress(Exception):
+            mqtt_debug.emit_sync(
+                self.redis, self.printer_id, mqtt_debug.build_entry("in", topic, payload)
+            )
+
+    def _echo_command(self, command: str, args: dict, result: dict) -> None:
+        with contextlib.suppress(Exception):
+            mqtt_debug.emit_sync(
+                self.redis,
+                self.printer_id,
+                mqtt_debug.build_entry(
+                    "cmd", command, {"command": command, "args": args, "result": result}
+                ),
+            )
 
     def handle_reply(self, reply: dict) -> None:
         """A printer command reply (adapter's MQTT thread): feeds lazy
@@ -549,6 +568,7 @@ class PrinterWorker:
         """Run one command from the dispatch table and (when the caller sent
         a ``request_id``) publish the result to ``cmd_result_key``."""
         result = self._execute(command, args or {})
+        self._echo_command(command, args or {}, result)
         if request_id:
             with contextlib.suppress(Exception):
                 self.redis.set(
@@ -629,6 +649,7 @@ class PrinterDaemon:
         self.camera = CameraSupervisor(self.redis)
         self.obico = ObicoSupervisor(self.redis, settings)
         self.ha = HaBridge(self.redis, self.settings, active_ids=lambda: set(self._workers))
+        self.relay = MqttRelay(self.redis, self.settings, active_ids=lambda: set(self._workers))
 
     def enabled_printers(self) -> list[Printer]:
         """Every `enabled` Printer row -- but only when the `printer_enabled`
@@ -750,6 +771,7 @@ class PrinterDaemon:
         self.camera.start()
         self.obico.start()
         self.ha.start()
+        self.relay.start()
         level_poller = LevelPoller(ttl_s=30)
         while not self._stop.wait(_POLL_INTERVAL_S):
             with contextlib.suppress(Exception):  # liveness for Settings -> Server status
@@ -789,6 +811,7 @@ class PrinterDaemon:
         self.camera.stop()
         self.obico.stop()
         self.ha.stop()
+        self.relay.stop()
 
 
 def main() -> None:
@@ -798,7 +821,7 @@ def main() -> None:
     daemon simply runs with zero workers instead of idling via
     `signal.pause()`, and picks printers up the moment the flag flips on
     without a restart."""
-    configure_logging()
+    configure_logging(service="printerd")
     seed_all_sync_safe()
     settings = get_settings()
     daemon = PrinterDaemon(settings)

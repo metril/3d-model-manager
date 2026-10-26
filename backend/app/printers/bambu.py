@@ -1238,6 +1238,10 @@ class BambuLanAdapter(PrinterAdapter):
     def _tap_message(self, _mqtt, _client, _userdata, msg) -> None:
         """Forward command replies (a ``print`` dict carrying ``result``) to
         printerd. Runs on the lib's paho thread; must never raise."""
+        tap = self._raw_tap
+        if tap is not None:
+            with contextlib.suppress(Exception):
+                tap(str(msg.topic), bytes(msg.payload))
         try:
             doc = json.loads(msg.payload)
             pr = doc.get("print") if isinstance(doc, dict) else None

@@ -317,7 +317,8 @@
           "virtual_printer": "Virtual printer",
           "spoolman": "Spoolman",
           "home_assistant": "Home Assistant",
-          "smtp": "Email (SMTP)"
+          "smtp": "Email (SMTP)",
+          "mqtt_relay": "MQTT relay"
         }
       },
       "vp": {
@@ -349,6 +350,44 @@
           "offline": "Offline",
           "loading": "Checking"
         }
+      },
+      "logs": {
+        "title": "Logs",
+        "desc": "Recent log lines from every service (API, workers, scheduler, printer daemon). Secrets are masked.",
+        "service": "Service",
+        "allServices": "All services",
+        "level": "Minimum level",
+        "allLevels": "All levels",
+        "search": "Search logs",
+        "follow": "Follow",
+        "download": "Download",
+        "empty": "No log lines match.",
+        "loadError": "Could not load logs."
+      },
+      "relay": {
+        "title": "MQTT relay",
+        "desc": "Publish printer status, print progress and events to an external MQTT broker, and optionally accept pause/resume/stop.",
+        "enable": "Enable relay",
+        "host": "Broker host",
+        "port": "Port",
+        "username": "Username",
+        "password": "Password",
+        "prefix": "Topic prefix",
+        "prefixHint": "Topics: {{prefix}}/<serial>/state, /progress, /event, /availability",
+        "tls": "Use TLS",
+        "tlsVerify": "Verify certificate",
+        "commands": "Accept commands",
+        "commandsHint": "Publish pause, resume or stop to {{prefix}}/<serial>/command. Runs as the service user below.",
+        "actor": "Service user",
+        "actorNone": "Select a user...",
+        "test": "Test connection",
+        "testing": "Testing...",
+        "testOk": "Connected.",
+        "testFailed": "Failed: {{error}}",
+        "statusOff": "Relay is off.",
+        "statusNone": "Waiting for the printer daemon to report.",
+        "statusOk": "Connected. {{n}} messages published.",
+        "statusDown": "Not connected. {{error}}"
       }
     },
     "appearance": {
@@ -1362,5 +1401,25 @@
     "failed": "Print failed",
     "stopped": "Print paused or stopped",
     "saveFailed": "Could not save your email preferences."
+  },
+  "printer": {
+    "mqttDebug": {
+      "title": "MQTT debug - {{name}}",
+      "desc": "Raw messages from the printer, plus commands sent to it. Newest first.",
+      "filter": "Filter by key or value",
+      "onlyCommands": "Commands only",
+      "pause": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "copyAll": "Copy JSON",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "copyFailed": "Could not copy.",
+      "paused": "Paused",
+      "live": "Live",
+      "empty": "No messages yet.",
+      "cmd": "command",
+      "in": "report"
+    }
   }
 }

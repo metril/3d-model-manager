@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { ApiError } from "@/api/client";
 import { useServerSettings } from "@/api/serverSettings";
 import { LimitsCard } from "@/components/settings/server/LimitsCard";
+import { LogsCard } from "@/components/settings/server/LogsCard";
+import { MqttRelayCard } from "@/components/settings/server/MqttRelayCard";
 import { ObicoServerCard } from "@/components/settings/server/ObicoServerCard";
 import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
 import { ServicesCard } from "@/components/settings/server/ServicesCard";
@@ -44,6 +46,8 @@ export function ServerTab() {
       <SmtpCard data={data} />
       <ObicoServerCard />
       <VpNetworkCard data={data} />
+      <MqttRelayCard />
+      <LogsCard />
     </>
   );
 }

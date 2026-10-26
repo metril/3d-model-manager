@@ -27,6 +27,8 @@ from app.db import get_sessionmaker
 from app.services import obico, spoolman
 from app.services.app_config import get_app_config
 from app.services.ha_config import get_ha_config, parse_mqtt_url
+from app.services.mqtt_relay_config import STATUS_KEY as RELAY_STATUS_KEY
+from app.services.mqtt_relay_config import get_relay_config
 from app.services.server_config import ServerConfig, get_server_config
 
 BEAT_KEY = "tdmm:hb:beat"
@@ -51,6 +53,7 @@ ORDER = (
     "virtual_printer",
     "spoolman",
     "home_assistant",
+    "mqtt_relay",
     "smtp",
 )
 
@@ -267,6 +270,23 @@ async def _ha(ha) -> dict[str, ServiceStatus]:  # noqa: ANN001
     return {"home_assistant": _st("off", "not configured")}
 
 
+async def _relay(r: aioredis.Redis, cfg) -> dict[str, ServiceStatus]:  # noqa: ANN001
+    if not cfg.active:
+        return {"mqtt_relay": _st("off", "not configured" if not cfg.host else "disabled")}
+    try:
+        body = json.loads(await r.get(RELAY_STATUS_KEY) or "null")
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return {"mqtt_relay": _st("down", "no status (printerd not running)")}
+    where = f"{cfg.host}:{cfg.port}"
+    if not body.get("connected"):
+        return {"mqtt_relay": _st("down", str(body.get("error") or "not connected"))}
+    if cfg.commands_enabled and not body.get("actor_ok", True):
+        return {"mqtt_relay": _st("warn", f"{where}; {body.get('actor_error') or 'service user'}")}
+    return {"mqtt_relay": _st("ok", f"connected to {where}")}
+
+
 async def _smtp(cfg: ServerConfig) -> dict[str, ServiceStatus]:
     smtp = cfg.smtp
     if not smtp.configured:
@@ -298,6 +318,7 @@ async def collect(db: AsyncSession, r: aioredis.Redis, settings: Settings) -> Ad
             sp = await spoolman.get_config(db)
             ha = await get_ha_config(db, settings)
             app_cfg = await get_app_config(db, settings)
+            relay_cfg = await get_relay_config(db, settings)
     except TimeoutError:
         now = time.time()
         down = _st("down", "config load timed out")
@@ -315,6 +336,7 @@ async def collect(db: AsyncSession, r: aioredis.Redis, settings: Settings) -> Ad
         (("virtual_printer",), lambda: _vp(r)),
         (("spoolman",), lambda: _spoolman(sp)),
         (("home_assistant",), lambda: _ha(ha)),
+        (("mqtt_relay",), lambda: _relay(r, relay_cfg)),
         (("smtp",), lambda: _smtp(server)),
     ]
     results = await asyncio.gather(*(_guard(n, f) for n, f in jobs))
