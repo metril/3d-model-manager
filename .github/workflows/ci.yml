@@ -99,7 +99,7 @@ jobs:
             'Acquire::https::Timeout "20";' \
             | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
       - name: Install f3d's GL runtime (OSMesa software rendering)
-        timeout-minutes: 10
+        timeout-minutes: 15
         # app/pipeline/render.py builds its f3d engine with create_osmesa() and
         # falls back to create(True) (EGL offscreen) only if that RAISES. A bare
         # runner has neither path available, and the failure mode is brutal:
@@ -116,9 +116,30 @@ jobs:
         # Resolved via ldconfig rather than hardcoding the soname so a Mesa
         # major bump doesn't silently put us back on the segfaulting path.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libosmesa6 libgl1-mesa-dri libgl1 ffmpeg
+          # Mirror stalls hang apt rather than fail it, so bound each attempt
+          # and retry (re-running update first); healthy installs take ~10s. A slow
+          # mirror (~300 kB/s) can need >120s for the ~66MB ffmpeg set, but apt
+          # keeps finished .debs so each attempt makes progress.
+          ok=
+          for attempt in 1 2 3 4 5; do
+            echo "apt attempt $attempt/5"
+            if [ "$attempt" -ge 2 ]; then
+              # The runner's Azure mirror can crawl for minutes; fall back
+              # to the canonical archive for the remaining attempts.
+              sudo sed -i -E \
+                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)#http://archive.ubuntu.com/ubuntu/#' \
+                /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
+            fi
+            if sudo timeout 60 apt-get update \
+              && sudo timeout 180 apt-get install -y --no-install-recommends \
+                libosmesa6 libgl1-mesa-dri libgl1 ffmpeg; then
+              ok=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed or timed out; retrying"
+            sleep 5
+          done
+          [ -n "$ok" ] || { echo "::error::apt failed after 5 attempts"; exit 1; }
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.* -- f3d will segfault in the EGL fallback"
