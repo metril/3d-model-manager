@@ -354,6 +354,44 @@ def test_apply_token_response_uses_jwt_exp() -> None:
     assert st.expires_at == exp
 
 
+async def test_cloud_list_and_diff_require_inventory_write(
+    make_user, login_as, orca: OrcaServer
+) -> None:
+    viewer = await make_user("viewer")
+    c = await login_as(viewer)
+    assert (await c.get("/api/cloud-presets/orca/presets")).status_code == 403
+    assert (await c.get("/api/cloud-presets/orca/presets/x/diff")).status_code == 403
+
+
+def test_upsert_remote_survives_concurrent_insert(_truncate_all_tables, monkeypatch) -> None:
+    from app.tasks import base
+
+    remote = cloud_presets.RemotePreset(
+        source="orca",
+        preset_id="p-race",
+        name="Race",
+        kind=cloud_presets.ProfileKind.PROCESS,
+        updated_time="t1",
+        content={"type": "process", "name": "Race"},
+    )
+    content = remote.content
+    with base.sync_session() as s:
+        assert cloud_presets.upsert_remote(s, remote, content, None) == "created"
+        s.commit()
+    real = cloud_presets.local_rows
+    calls = {"n": 0}
+
+    def stale(session, source):  # first read misses the row the "other sync" inserted
+        calls["n"] += 1
+        return {} if calls["n"] == 1 else real(session, source)
+
+    monkeypatch.setattr(cloud_presets, "local_rows", stale)
+    with base.sync_session() as s:
+        out = cloud_presets.upsert_remote(s, remote, content, None)
+        s.commit()
+    assert out == cloud_presets.UP_TO_DATE and calls["n"] >= 2
+
+
 # --- Bambu Cloud ------------------------------------------------------------
 
 
