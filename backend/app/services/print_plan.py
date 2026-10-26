@@ -34,7 +34,7 @@ from app.models.processing import BlobMeta
 from app.schemas.library import PlateOut
 from app.schemas.print_flow import PlanFilament, PlanIn, PlanOut, PlanPrinter
 from app.schemas.printers import PrintRequest, SpoolBriefOut
-from app.services import derivatives
+from app.services import derivatives, library
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
 from app.services.app_config import get_app_config, get_app_config_sync
@@ -205,7 +205,7 @@ async def build_plan(
 ) -> PlanOut:
     from app.api.deps import visible_printer_ids
 
-    file = await db.get(File, body.file_id)
+    file = await library.get_live_file(db, body.file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     blob = await db.get(Blob, file.blob_hash)
@@ -400,7 +400,7 @@ async def create_job(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
     if not printer.enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "printer is disabled")
-    file = await db.get(File, req.file_id)
+    file = await library.get_live_file(db, req.file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     blob = await db.get(Blob, file.blob_hash)
@@ -468,7 +468,7 @@ def create_job_sync(
         raise ValueError("printer not found")
     if not printer.enabled:
         raise ValueError("printer is disabled")
-    file = session.get(File, req.file_id)
+    file = library.get_live_file_sync(session, req.file_id)
     if file is None:
         raise ValueError("file not found")
     blob = session.get(Blob, file.blob_hash)

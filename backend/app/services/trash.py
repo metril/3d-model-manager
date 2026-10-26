@@ -14,14 +14,15 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
 from app.api.deps import AuthContext, require_owner_or_admin
 from app.config import Settings
 from app.models import AuditLog, User
-from app.models.library import Blob, File, Model, Revision
+from app.models.enums import QueueState
+from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.storage import FileLocation
 from app.schemas.trash import TrashItemOut, TrashListOut
 from app.services import layout, library
@@ -53,6 +54,38 @@ async def _load(db: AsyncSession, ids: list[int], *, trashed: bool) -> list[Mode
     return [rows[i] for i in unique]
 
 
+MODEL_IN_TRASH = "model in trash"
+_LIVE_QUEUE_STATES = (QueueState.WAITING, QueueState.SLICING, QueueState.READY)
+
+
+async def _hold_queue_entries(db: AsyncSession, model_ids: list[int]) -> None:
+    """Park non-terminal queue entries of trashed models so nothing prints
+    them; ``_release_queue_entries`` undoes it on restore."""
+    await db.execute(
+        update(PrintQueueEntry)
+        .where(
+            PrintQueueEntry.model_id.in_(model_ids), PrintQueueEntry.state.in_(_LIVE_QUEUE_STATES)
+        )
+        .values(state=QueueState.HELD, last_error=MODEL_IN_TRASH)
+    )
+
+
+async def _release_queue_entries(db: AsyncSession, model_ids: list[int]) -> None:
+    rows = (
+        await db.execute(
+            select(PrintQueueEntry).where(
+                PrintQueueEntry.model_id.in_(model_ids),
+                PrintQueueEntry.state.in_((QueueState.HELD, *_LIVE_QUEUE_STATES)),
+                PrintQueueEntry.last_error == MODEL_IN_TRASH,
+            )
+        )
+    ).scalars()
+    for e in rows:
+        needs_slice = e.file_id is None or (e.recipe_id is not None and e.sliced_file_id is None)
+        e.state = QueueState.WAITING if needs_slice else QueueState.READY
+        e.last_error = None
+
+
 async def move_to_trash(db: AsyncSession, ctx: AuthContext, ids: list[int]) -> int:
     models = await _load(db, ids, trashed=False)
     for m in models:
@@ -62,6 +95,7 @@ async def move_to_trash(db: AsyncSession, ctx: AuthContext, ids: list[int]) -> i
         m.deleted_at = now
         m.deleted_by_user_id = ctx.user.id
     if models:
+        await _hold_queue_entries(db, [m.id for m in models])
         _audit(
             db,
             ctx,
@@ -80,6 +114,7 @@ async def restore(db: AsyncSession, ctx: AuthContext, ids: list[int]) -> int:
         m.deleted_at = None
         m.deleted_by_user_id = None
     if models:
+        await _release_queue_entries(db, [m.id for m in models])
         _audit(db, ctx, "model.restore", {"model_ids": [m.id for m in models]})
     await db.commit()
     return len(models)
@@ -114,7 +149,10 @@ async def purge_all(
     return await purge(db, backend, settings, ctx, ids) if ids else 0
 
 
-async def list_trash(db: AsyncSession, settings: Settings) -> TrashListOut:
+async def list_trash(
+    db: AsyncSession, settings: Settings, ctx: AuthContext | None = None
+) -> TrashListOut:
+    """Admins see the whole trash; others only items they created or trashed."""
     cfg = await get_app_config(db, settings)
     days = cfg.trash_retention_days
     size_sq = (
@@ -129,15 +167,21 @@ async def list_trash(db: AsyncSession, settings: Settings) -> TrashListOut:
         .group_by(Revision.model_id)
         .subquery()
     )
-    rows = (
-        await db.execute(
-            select(Model, User.username, size_sq.c.n, size_sq.c.sz)
-            .outerjoin(User, User.id == Model.deleted_by_user_id)
-            .outerjoin(size_sq, size_sq.c.mid == Model.id)
-            .where(Model.deleted_at.is_not(None))
-            .order_by(Model.deleted_at.desc(), Model.id.desc())
+    stmt = (
+        select(Model, User.username, size_sq.c.n, size_sq.c.sz)
+        .outerjoin(User, User.id == Model.deleted_by_user_id)
+        .outerjoin(size_sq, size_sq.c.mid == Model.id)
+        .where(Model.deleted_at.is_not(None))
+        .order_by(Model.deleted_at.desc(), Model.id.desc())
+    )
+    if ctx is not None and not ctx.is_admin:
+        stmt = stmt.where(
+            or_(
+                Model.created_by_user_id == ctx.user.id,
+                Model.deleted_by_user_id == ctx.user.id,
+            )
         )
-    ).all()
+    rows = (await db.execute(stmt)).all()
     items = [
         TrashItemOut(
             id=m.id,
@@ -158,9 +202,12 @@ async def list_trash(db: AsyncSession, settings: Settings) -> TrashListOut:
 # -- worker side -------------------------------------------------------------
 
 
-def purge_model_sync(session: SyncSession, settings: Settings, model: Model) -> None:
+def purge_model_sync(session: SyncSession, settings: Settings, model: Model) -> bool:
     """Physically delete one trashed model: every file's object on its
-    primary backend and each replica, the sidecar, then the row."""
+    primary backend and each replica, the sidecar, then the row. Returns
+    False (nothing touched) while any file still has a ``store_to_backend``
+    job in flight -- same guard as ``library.bulk_hard_delete_models``; the
+    next auto-purge run retries."""
     files = list(
         session.execute(
             select(File)
@@ -168,6 +215,8 @@ def purge_model_sync(session: SyncSession, settings: Settings, model: Model) -> 
             .where(Revision.model_id == model.id)
         ).scalars()
     )
+    if any(library.file_store_pending_sync(session, f) for f in files):
+        return False
     paths = {f.id: f.storage_path for f in files}
     primary = {f.id: resolve_backend_for_file_sync(session, settings, f) for f in files}
     locs = (
@@ -194,6 +243,7 @@ def purge_model_sync(session: SyncSession, settings: Settings, model: Model) -> 
         default_backend.delete(layout.sidecar_key(model.slug))
     session.execute(sa_delete(Model).where(Model.id == model.id))
     session.commit()
+    return True
 
 
 def auto_purge_sync(session: SyncSession, settings: Settings) -> int:
@@ -211,8 +261,10 @@ def auto_purge_sync(session: SyncSession, settings: Settings) -> int:
     for m in models:
         mid, slug = m.id, m.slug
         try:
-            purge_model_sync(session, settings, m)
-            purged.append(mid)
+            if purge_model_sync(session, settings, m):
+                purged.append(mid)
+            else:
+                log.info("trash auto-purge deferred for model %s (%s): files processing", mid, slug)
         except Exception:
             session.rollback()
             log.exception("trash auto-purge failed for model %s (%s)", mid, slug)

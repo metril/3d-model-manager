@@ -446,7 +446,7 @@ async def enqueue_file(
     if payload.printer_id is not None:
         ctx.require_printer(payload.printer_id, "print")
 
-    file = await db.get(File, payload.file_id)
+    file = await library.get_live_file(db, payload.file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {payload.file_id} not found")
     revision = await db.get(Revision, file.revision_id)

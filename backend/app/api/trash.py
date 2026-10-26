@@ -16,11 +16,13 @@ router = APIRouter(prefix="/trash", tags=["trash"])
 _write = [Depends(require_perm("library:write"))]
 
 
-@router.get("", response_model=TrashListOut)
+@router.get("", response_model=TrashListOut, dependencies=_write)
 async def list_trash(
-    db: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> TrashListOut:
-    return await trash.list_trash(db, settings)
+    return await trash.list_trash(db, settings, ctx)
 
 
 @router.post("/restore", response_model=TrashCountOut, dependencies=_write)

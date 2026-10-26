@@ -130,12 +130,12 @@ async def create_batch(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "model_id or file_id required")
     model_id = payload.model_id
     if payload.file_id is not None:
-        file = await db.get(File, payload.file_id)
+        file = await library.get_live_file(db, payload.file_id)
         if file is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {payload.file_id} not found")
         rev = await db.get(Revision, file.revision_id)
         model_id = rev.model_id if rev is not None else model_id
-    elif await db.get(Model, payload.model_id) is None:
+    elif (m := await db.get(Model, payload.model_id)) is None or m.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {payload.model_id} not found")
     _check_plate_sum(payload.quantity, payload.plate_targets)
     batch = PrintBatch(
