@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import json
 import threading
+import time
 from collections.abc import AsyncIterator
 
 import anyio
@@ -63,6 +64,7 @@ async def mqtt_history(
     await _require_printer(db, printer_id)
     r = aioredis.Redis.from_url(settings.redis_url)
     try:
+        await mqtt_debug.mark_viewer(r, printer_id)  # start tapping for the modal
         raw = await r.lrange(mqtt_debug.list_key(printer_id), 0, limit - 1)
     finally:
         await r.aclose()
@@ -79,8 +81,13 @@ async def _stream(redis_url: str, printer_id: int, heartbeat: float = 15.0) -> A
     chan = mqtt_debug.channel(printer_id)
     await pubsub.subscribe(chan)
     try:
+        await mqtt_debug.mark_viewer(client, printer_id)
+        renewed = time.monotonic()
         while True:
             msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=heartbeat)
+            if time.monotonic() - renewed >= mqtt_debug.VIEWER_TTL_S / 3:
+                await mqtt_debug.mark_viewer(client, printer_id)  # renew while open
+                renewed = time.monotonic()
             if msg is None:
                 yield b": ping\n\n"
                 continue
@@ -102,6 +109,9 @@ async def mqtt_stream(
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     await _require_printer(db, printer_id)
+    # The yield-dependency session would otherwise stay checked out for the
+    # whole (unbounded) stream; release the connection now.
+    await db.close()
     return StreamingResponse(
         _stream(settings.redis_url, printer_id),
         media_type="text/event-stream",

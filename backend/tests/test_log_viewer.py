@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 
 import httpx
 import pytest
@@ -103,3 +104,99 @@ async def test_logs_api(authenticated_client: httpx.AsyncClient, r):
 async def test_logs_admin_only(viewer_client: httpx.AsyncClient):
     assert (await viewer_client.get("/api/admin/logs")).status_code == 403
     assert (await viewer_client.get("/api/admin/logs/download")).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "refresh_token=abc123xyz",
+        '{"access_token": "abc123xyz"}',
+        "GET /x?client_secret=abc123xyz&a=1",
+        "auth_token=abc123xyz",
+        "bambu_access_code=abc123xyz",
+        "x-api-key: abc123xyz",
+    ],
+)
+def test_redact_prefixed_keys(line):
+    assert "abc123xyz" not in ls.redact_line(line)
+
+
+def test_install_queue_nonblocking_and_drops():
+    import queue as q
+
+    lg = logging.getLogger("tdmm.test.install")
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    h = ls.install("redis://127.0.0.1:1/0", "api", lg)
+    qh = next(x for x in lg.handlers if isinstance(x, ls.DropQueueHandler))
+    try:
+        qh.listener.stop()
+        qh.queue = q.Queue(maxsize=1)
+        lg.info("a")
+        lg.info("b")  # full: dropped, no block/raise
+        assert qh.dropped == 1
+        assert ls.install("redis://x", "api", lg) is h
+    finally:
+        lg.removeHandler(qh)
+
+
+def test_reconfigure_does_not_leak_listener_threads(redis_url):
+    import threading
+
+    from app.logging_config import configure_logging
+
+    configure_logging("INFO", "api")
+    before = threading.active_count()
+    for _ in range(5):
+        configure_logging("INFO", "api")  # dictConfig closes the replaced handler
+    for _ in range(40):  # retired drain threads exit once they read the sentinel
+        if threading.active_count() <= before + 1:
+            break
+        time.sleep(0.05)
+    assert threading.active_count() <= before + 1
+
+
+def test_forked_child_logs_without_hanging_on_inherited_queue_lock():
+    import os
+    import signal
+
+    lg = logging.getLogger("tdmm.test.fork")
+    lg.propagate = False
+    lg.setLevel(logging.DEBUG)
+    ls.install("redis://127.0.0.1:1/0", "api", lg)
+    qh = next(x for x in lg.handlers if isinstance(x, ls.DropQueueHandler))
+    try:
+        with qh.queue.mutex:  # as if the parent's drain thread held it at fork time
+            pid = os.fork()
+            if pid == 0:  # child
+                try:
+                    lg.info("from child")
+                finally:
+                    os._exit(0)
+        for _ in range(100):
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            raise AssertionError("forked child hung logging through the inherited queue")
+        assert os.WEXITSTATUS(status) == 0
+    finally:
+        lg.removeHandler(qh)
+        qh.close()
+
+
+def test_redis_handler_does_not_hold_lock_during_emit():
+    """Regression: emit (Redis connect -> logging.getLogger) under the handler
+    lock deadlocked against logging.shutdown/dictConfig (module lock)."""
+    import logging
+
+    from app.services.log_stream import RedisLogHandler
+
+    h = RedisLogHandler("redis://127.0.0.1:1/0", "api")
+    seen = []
+    h.emit = lambda r: seen.append(h.lock._is_owned() if h.lock else False)  # type: ignore[method-assign]
+    h.handle(logging.LogRecord("x", logging.INFO, __file__, 1, "m", (), None))
+    assert seen == [False]

@@ -2,7 +2,8 @@
 account's presets with their sync status against the local ``slicer_profiles``,
 diff one, and import/resync. Bambu Cloud reuses the Bambu account connected in
 Settings (``/settings/bambu``). Connecting/disconnecting Orca needs
-``settings:write``; importing needs ``inventory:write``."""
+``settings:write``; listing/diffing/importing need ``inventory:write``
+(they spend the connected cloud account)."""
 
 from __future__ import annotations
 
@@ -277,7 +278,11 @@ def _classify(remote_list, rows) -> list[PresetOut]:
     return out
 
 
-@router.get("/{source}/presets", response_model=PresetListOut)
+@router.get(
+    "/{source}/presets",
+    response_model=PresetListOut,
+    dependencies=[Depends(require_perm("inventory:write"))],
+)
 async def list_presets(
     source: Source,
     db: AsyncSession = Depends(get_db),
@@ -318,7 +323,11 @@ async def _content_for(
         raise _http(exc) from None
 
 
-@router.get("/{source}/presets/{preset_id}/diff", response_model=DiffOut)
+@router.get(
+    "/{source}/presets/{preset_id}/diff",
+    response_model=DiffOut,
+    dependencies=[Depends(require_perm("inventory:write"))],
+)
 async def diff_preset(
     source: Source,
     preset_id: str,

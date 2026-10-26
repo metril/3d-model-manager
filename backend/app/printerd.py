@@ -176,6 +176,8 @@ class PrinterWorker:
         self.printer_id = printer_id
         self.adapter = adapter
         self.redis = redis_client
+        self._tap_until = 0.0
+        self._tap_on = False
         self._merged: dict | None = None
         self._stop_requested = False
         self._tray_sig: tuple | None = None
@@ -256,14 +258,30 @@ class PrinterWorker:
         except Exception as exc:
             log.warning("printerd: notify diff failed: %s", type(exc).__name__)
 
+    def _tap_wanted(self) -> bool:
+        """Is an admin debug-feed viewer open? (flag key, cached ~1s)"""
+        now = time.monotonic()
+        if now >= self._tap_until:
+            self._tap_until = now + 1.0
+            try:
+                self._tap_on = mqtt_debug.has_viewer_sync(self.redis, self.printer_id)
+            except Exception:  # noqa: BLE001
+                self._tap_on = False
+        return self._tap_on
+
     def handle_raw(self, topic: str, payload: bytes) -> None:
-        """Raw MQTT message (adapter's MQTT thread) -> admin debug feed."""
+        """Raw MQTT message (adapter's MQTT thread) -> admin debug feed, only
+        while a viewer is open."""
+        if not self._tap_wanted():
+            return
         with contextlib.suppress(Exception):
             mqtt_debug.emit_sync(
                 self.redis, self.printer_id, mqtt_debug.build_entry("in", topic, payload)
             )
 
     def _echo_command(self, command: str, args: dict, result: dict) -> None:
+        if not self._tap_wanted():
+            return
         with contextlib.suppress(Exception):
             mqtt_debug.emit_sync(
                 self.redis,

@@ -5,15 +5,19 @@ editor and photos. Registered BEFORE ``archives.router`` so the static paths
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
+import os
 import secrets
 import subprocess
+import tempfile
 import time
 import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import Annotated, Any
 
 import anyio
@@ -702,31 +706,64 @@ async def delete_photo(
 # --- source attachments (source project / Fusion F3D) -------------------------
 
 
-async def _read_capped(file: UploadFile) -> bytes:
+async def _stage_upload(file: UploadFile, settings: Settings) -> tuple[Path, str, int]:
+    """Stream the upload to a staged temp file, hashing and enforcing the size
+    cap as it goes (never buffers the body). Returns ``(path, sha256, size)``."""
     limit = archive_sources.MAX_SOURCE_BYTES
-    data = bytearray()
-    while chunk := await file.read(1024 * 1024):
-        data += chunk
-        if len(data) > limit:
-            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "source exceeds 256 MB")
-    if not data:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "empty file")
-    return bytes(data)
+    h = hashlib.sha256()
+    size = 0
+    stage = await anyio.to_thread.run_sync(archive_sources.stage_dir, settings)
+    fd, tmp_name = await anyio.to_thread.run_sync(lambda: tempfile.mkstemp(dir=stage, prefix="up-"))
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "source exceeds 256 MB")
+                h.update(chunk)
+                await anyio.to_thread.run_sync(fh.write, chunk)
+        if size == 0:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "empty file")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp, h.hexdigest(), size
 
 
-def _slot_mutation(archive_id: int, slot: str, settings: Settings, data: bytes | None, name: str):
-    """Attach (data) or clear (None) a slot in a worker-thread session."""
-    with sync_session() as s:
-        arc = s.get(PrintArchive, archive_id)
-        if arc is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
-        if data is None:
-            paths = archive_sources.clear(s, settings, arc, slot)  # type: ignore[arg-type]
-        else:
-            paths = archive_sources.store(s, settings, arc, slot, data, name)  # type: ignore[arg-type]
-        s.commit()
-        for p in paths:
-            p.unlink(missing_ok=True)
+def _slot_mutation(
+    archive_id: int,
+    slot: str,
+    settings: Settings,
+    staged: tuple[Path, str, int] | None,
+    name: str,
+):
+    """Attach (staged upload) or clear (None) a slot in a worker-thread session."""
+    try:
+        with sync_session() as s:
+            arc = s.get(PrintArchive, archive_id)
+            if arc is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
+            if staged is None:
+                paths = archive_sources.clear(s, settings, arc, slot)  # type: ignore[arg-type]
+            else:
+                tmp, sha, size = staged
+                paths = archive_sources.store_path(
+                    s,
+                    settings,
+                    arc,
+                    slot,  # type: ignore[arg-type]
+                    tmp,
+                    sha,
+                    size,
+                    name,
+                )
+            s.commit()
+            for p in paths:
+                p.unlink(missing_ok=True)
+    finally:
+        if staged is not None:
+            staged[0].unlink(missing_ok=True)
 
 
 def _register_source_slot(slot: str) -> None:
@@ -757,10 +794,10 @@ def _register_source_slot(slot: str) -> None:
     ) -> ArchiveOut:
         _arc, job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
         require_writer(ctx, job, printer)
-        data = await _read_capped(file)
+        staged = await _stage_upload(file, settings)
         await db.rollback()  # release the read tx before the worker-thread write
         await anyio.to_thread.run_sync(
-            lambda: _slot_mutation(archive_id, slot, settings, data, file.filename or slot)
+            lambda: _slot_mutation(archive_id, slot, settings, staged, file.filename or slot)
         )
         return archive_out(await _get_visible(db, ctx, archive_id))
 

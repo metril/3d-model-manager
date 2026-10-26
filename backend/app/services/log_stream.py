@@ -14,9 +14,12 @@ when it is read (rules may be tightened after lines were stored).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import logging.handlers
 import os
+import queue
 import re
 import sys
 import threading
@@ -32,8 +35,8 @@ SERVICES = ("api", "worker-io", "worker-cpu", "beat", "printerd", "virtual-print
 
 _URL_CREDS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^@\s/]+@")
 _KV_SECRET = re.compile(
-    r"(?i)\b(access[_-]?code|password|passwd|secret|token|api[_-]?key|apikey|authorization"
-    r"|private[_-]?key|credential|cookie)(\"?\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&\"')}\]]+)"
+    r"(?i)\b([\w-]*(?:access[_-]?code|password|passwd|secret|token|api[_-]?key|apikey|authorization"
+    r"|private[_-]?key|credential|cookie))(\"?\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&\"')}\]]+)"
 )
 _BEARER = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 
@@ -71,6 +74,7 @@ class RedisLogHandler(logging.Handler):
         self._pid = -1
         self._retry_at = 0.0
         self._local = threading.local()
+        self._closed = False
 
     def _redis(self):
         if self._client is None or self._pid != os.getpid():  # fork-safe (celery prefork)
@@ -83,8 +87,10 @@ class RedisLogHandler(logging.Handler):
         return self._client
 
     def emit(self, record: logging.LogRecord) -> None:
-        if getattr(self._local, "busy", False) or record.name.startswith(
-            ("redis", "urllib3", "asyncio")
+        if (
+            self._closed
+            or getattr(self._local, "busy", False)
+            or record.name.startswith(("redis", "urllib3", "asyncio"))
         ):
             return
         now = time.monotonic()
@@ -115,15 +121,95 @@ class RedisLogHandler(logging.Handler):
         finally:
             self._local.busy = False
 
+    def handle(self, record: logging.LogRecord) -> bool:
+        """Emit WITHOUT holding the handler lock. Redis connect calls
+        ``logging.getLogger`` (module lock) while ``logging.shutdown`` /
+        ``dictConfig`` hold the module lock and wait for this handler's lock:
+        holding it across the network call is a lock-order inversion that
+        deadlocks. Only the single drain thread calls this, and ``emit`` keeps
+        its state thread-local, so the lock buys nothing."""
+        self.emit(record)
+        return True
+
+    def close(self) -> None:
+        self._closed = True
+        client, self._client = self._client, None
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
+        super().close()
+
+
+QUEUE_SIZE = 2000
+
+
+class DropQueueHandler(logging.handlers.QueueHandler):
+    """QueueHandler on a bounded queue that drops (never blocks) when full."""
+
+    def __init__(self, q, target: RedisLogHandler) -> None:
+        super().__init__(q)
+        self.target = target
+        self.dropped = 0
+        self.listener: logging.handlers.QueueListener | None = None
+        self._pid = os.getpid()
+
+    def _restart_after_fork(self) -> None:
+        """A forked child inherits the queue (possibly with its mutex held by
+        the parent's drain thread, which does not exist here) but not the
+        thread: swap in a fresh queue + listener (celery prefork etc.)."""
+        self._pid = os.getpid()
+        self.queue = queue.Queue(maxsize=QUEUE_SIZE)
+        self.listener = logging.handlers.QueueListener(
+            self.queue, self.target, respect_handler_level=True
+        )
+        self.listener.start()
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        if self._pid != os.getpid():
+            self._restart_after_fork()
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            self.dropped += 1
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return record  # keep exc_info/args; the listener thread formats
+
+    def close(self) -> None:
+        """Retire the drain thread and free the Redis socket (``dictConfig`` /
+        ``logging.shutdown`` close replaced handlers). Never joins the thread:
+        close runs under the logging module lock, which the drain thread may
+        itself be waiting for -- joining would deadlock."""
+        self.target.close()
+        listener = self.listener
+        if listener is not None and self._pid == os.getpid():
+            for _ in range(2):
+                try:
+                    self.queue.put_nowait(listener._sentinel)
+                    break
+                except queue.Full:
+                    with contextlib.suppress(queue.Empty):
+                        self.queue.get_nowait()  # make room for the sentinel
+        super().close()
+
 
 def install(redis_url: str, service: str | None = None, logger: logging.Logger | None = None):
-    """Attach one ``RedisLogHandler`` to ``logger`` (root by default); idempotent."""
+    """Attach a non-blocking Redis log shipper to ``logger`` (root by default); idempotent.
+
+    Records go through a bounded queue drained by a listener thread, so the
+    calling thread never waits on Redis; a full queue drops records.
+    """
     target = logger or logging.getLogger()
     for h in target.handlers:
-        if isinstance(h, RedisLogHandler):
-            return h
+        if isinstance(h, DropQueueHandler):
+            return h.target
     handler = RedisLogHandler(redis_url, service or detect_service())
-    target.addHandler(handler)
+    q: queue.Queue = queue.Queue(maxsize=QUEUE_SIZE)
+    qh = DropQueueHandler(q, handler)
+    listener = logging.handlers.QueueListener(q, handler, respect_handler_level=True)
+    listener.start()
+    qh.listener = listener
+    target.addHandler(qh)
     return handler
 
 

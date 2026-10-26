@@ -3,6 +3,7 @@ auto-link from a library model (trash respected)."""
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 
 import pytest
@@ -79,9 +80,13 @@ def _library_model(s, name: str, trashed: bool) -> tuple[int, int]:
 
 
 async def test_link_from_model_and_trash(authenticated_client, db_session, monkeypatch):
-    monkeypatch.setattr(
-        archive_sources, "_read_library_file", lambda s, st, f: f"data:{f.rel_path}".encode()
-    )
+    def fake_stage(s, st, f):
+        data = f"data:{f.rel_path}".encode()
+        tmp = archive_sources.stage_dir(st) / f"t-{f.id}"
+        tmp.write_bytes(data)
+        return tmp, hashlib.sha256(data).hexdigest(), len(data)
+
+    monkeypatch.setattr(archive_sources, "_stage_library_file", fake_stage)
     p = await _printer(db_session)
     live = await _arc(db_session, p)
     trashed = await _arc(db_session, p)
@@ -110,3 +115,34 @@ async def test_link_from_model_and_trash(authenticated_client, db_session, monke
 def out_hash(archive_id: int) -> str:
     with sync_session() as s:
         return s.get(PrintArchive, archive_id).source_blob
+
+
+async def test_upload_cap_enforced_while_streaming(authenticated_client, db_session, monkeypatch):
+    monkeypatch.setattr(archive_sources, "MAX_SOURCE_BYTES", 10)
+    a = await _arc(db_session, await _printer(db_session))
+    r = await authenticated_client.put(
+        f"/api/archives/{a.id}/source", files={"file": ("big.3mf", b"x" * 11, "x/y")}
+    )
+    assert r.status_code == 413
+    staging = archive_sources.stage_dir(get_settings())
+    assert list(staging.iterdir()) == []  # nothing left behind
+
+
+def test_stage_library_file_reuses_stored_blob(monkeypatch):
+    settings = get_settings()
+    data = b"already-stored"
+    sha = hashlib.sha256(data).hexdigest()
+    with sync_session() as s:
+        s.add(Blob(hash=sha, size=len(data), kind=BlobKind.CAD, format=BlobFormat.THREEMF))
+        s.flush()
+        dest = archive_path(settings, sha, "3mf")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        f = File(revision_id=1, blob_hash=sha, rel_path="a.3mf", storage_path="a.3mf")
+
+        def boom(*a):
+            raise AssertionError("must not re-read the source")
+
+        monkeypatch.setattr(archive_sources, "resolve_backend_for_file_sync", boom)
+        assert archive_sources._stage_library_file(s, settings, f) == (None, sha, len(data))
+        s.rollback()

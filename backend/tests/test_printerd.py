@@ -1082,3 +1082,17 @@ def test_fun_bit_in_report_sets_dev_mode_without_probe(worker):
     state = json.loads(client.get(state_key(pid)))
     assert state["dev_mode"] is False and state["dev_mode_reason"] == "fun_bit"
     assert adapter.calls == []
+
+
+def test_raw_tap_only_while_viewer_flag_set(worker):
+    from app.services import mqtt_debug
+
+    w, _adapter, pid, client = worker
+    client.delete(mqtt_debug.list_key(pid), mqtt_debug.viewer_key(pid))
+    w.handle_raw("device/S/report", b'{"print": {}}')
+    assert client.llen(mqtt_debug.list_key(pid)) == 0  # no viewer -> no tap
+    mqtt_debug.mark_viewer_sync(client, pid)
+    w._tap_until = 0.0  # drop the 1s cache
+    w.handle_raw("device/S/report", b'{"print": {}}')
+    assert client.llen(mqtt_debug.list_key(pid)) == 1
+    client.delete(mqtt_debug.list_key(pid), mqtt_debug.viewer_key(pid))

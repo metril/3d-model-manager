@@ -26,6 +26,27 @@ def list_key(printer_id: int) -> str:
     return f"printer:{printer_id}:mqtt:log"
 
 
+def viewer_key(printer_id: int) -> str:
+    return f"printer:{printer_id}:mqtt:viewer"
+
+
+VIEWER_TTL_S = 30  # SSE renews well inside this (heartbeat 15s)
+
+
+def mark_viewer_sync(r, printer_id: int) -> None:
+    r.set(viewer_key(printer_id), "1", ex=VIEWER_TTL_S)
+
+
+async def mark_viewer(r, printer_id: int) -> None:
+    """A debug-feed viewer is open: printerd taps raw MQTT only while this
+    key lives, so an idle system pays nothing for the feed."""
+    await r.set(viewer_key(printer_id), "1", ex=VIEWER_TTL_S)
+
+
+def has_viewer_sync(r, printer_id: int) -> bool:
+    return bool(r.exists(viewer_key(printer_id)))
+
+
 def mask(value: object) -> object:
     if isinstance(value, dict):
         return {k: ("***" if _SECRET.search(str(k)) and v else mask(v)) for k, v in value.items()}

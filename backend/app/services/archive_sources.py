@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -24,8 +26,8 @@ from app.models import File, Model, PrintArchive
 from app.models.enums import BlobFormat, BlobKind
 from app.models.library import Blob, Revision
 from app.services.archive import _ensure_blob, archive_path
-from app.services.archive_blobs import blob_ext, release_blobs
-from app.services.derivatives import publish_bytes
+from app.services.archive_blobs import blob_ext, release_blobs, unlink_all
+from app.services.derivatives import publish_bytes, publish_file
 from app.services.storage_backends import resolve_backend_for_file_sync
 
 log = logging.getLogger(__name__)
@@ -72,6 +74,37 @@ def _set(arc: PrintArchive, slot: Slot, blob: str | None, name: str | None) -> s
     return old
 
 
+def _attach(
+    session: Session,
+    settings: Settings,
+    arc: PrintArchive,
+    slot: Slot,
+    sha: str,
+    size: int,
+    name: str,
+    linked: bool,
+    publish,
+) -> list[Path]:
+    """Attach blob ``sha`` to a slot. ``publish(dest)`` writes the bytes unless
+    the content-addressed file is already stored (then nothing is copied)."""
+    _ensure_blob(session, sha, size, BlobKind.CAD, _fmt_for(name))
+    blob = session.get(Blob, sha)
+    assert blob is not None
+    dest = archive_path(settings, sha, blob_ext(blob.format))
+    if not dest.exists():
+        if publish is None:
+            raise FileNotFoundError(dest)
+        publish(dest)
+    old = _set(arc, slot, sha, name)
+    if slot == "source":
+        arc.source_linked = linked
+    session.flush()
+    if old and old != sha:
+        _freed, paths = release_blobs(session, settings, {old})
+        return paths
+    return []
+
+
 def store(
     session: Session,
     settings: Settings,
@@ -84,20 +117,56 @@ def store(
 ) -> list[Path]:
     """Attach (or replace) a slot. Returns paths of replaced blobs to unlink
     after the caller commits."""
-    name = clean_name(name)
-    sha = hashlib.sha256(data).hexdigest()
-    _ensure_blob(session, sha, len(data), BlobKind.CAD, _fmt_for(name))
-    blob = session.get(Blob, sha)
-    assert blob is not None
-    publish_bytes(data, archive_path(settings, sha, blob_ext(blob.format)))
-    old = _set(arc, slot, sha, name)
-    if slot == "source":
-        arc.source_linked = linked
-    session.flush()
-    if old and old != sha:
-        _freed, paths = release_blobs(session, settings, {old})
-        return paths
-    return []
+    return _attach(
+        session,
+        settings,
+        arc,
+        slot,
+        hashlib.sha256(data).hexdigest(),
+        len(data),
+        clean_name(name),
+        linked,
+        lambda dest: publish_bytes(data, dest),
+    )
+
+
+def stage_dir(settings: Settings) -> Path:
+    """Where staged uploads live: inside the archive store so the final
+    ``os.replace`` never crosses a filesystem."""
+    d = settings.data_dir / "archives" / ".staging"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def store_path(
+    session: Session,
+    settings: Settings,
+    arc: PrintArchive,
+    slot: Slot,
+    staged: Path,
+    sha: str,
+    size: int,
+    name: str,
+    *,
+    linked: bool = False,
+) -> list[Path]:
+    """Like :func:`store` for a file already staged on disk (hashed while it
+    was written). The staged file is moved into place, or deleted when the
+    content is already stored."""
+    try:
+        return _attach(
+            session,
+            settings,
+            arc,
+            slot,
+            sha,
+            size,
+            clean_name(name),
+            linked,
+            lambda dest: publish_file(staged, dest),
+        )
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def clear(session: Session, settings: Settings, arc: PrintArchive, slot: Slot) -> list[Path]:
@@ -111,12 +180,35 @@ def clear(session: Session, settings: Settings, arc: PrintArchive, slot: Slot) -
     return []
 
 
-def _read_library_file(session: Session, settings: Settings, file: File) -> bytes | None:
+def _stage_library_file(
+    session: Session, settings: Settings, file: File
+) -> tuple[Path | None, str, int] | None:
+    """``(staged_path | None, sha, size)`` for a library file, or ``None`` to
+    skip. ``staged_path`` is ``None`` when the content is already in the
+    archive store (nothing to copy); otherwise the file is streamed to a temp
+    file in chunks (hashed on the way), never held in memory."""
     blob = session.get(Blob, file.blob_hash)
     if blob is None or blob.size > MAX_SOURCE_BYTES:
         return None
+    if archive_path(settings, blob.hash, blob_ext(blob.format)).exists():
+        return None, blob.hash, blob.size
     backend = resolve_backend_for_file_sync(session, settings, file)
-    return b"".join(backend.read(file.storage_path))
+    h = hashlib.sha256()
+    size = 0
+    fd, tmp_name = tempfile.mkstemp(dir=stage_dir(settings), prefix="link-")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            for chunk in backend.read(file.storage_path):
+                size += len(chunk)
+                if size > MAX_SOURCE_BYTES:
+                    raise ValueError("source exceeds limit")
+                h.update(chunk)
+                fh.write(chunk)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp, h.hexdigest(), size
 
 
 def link_from_model(session: Session, settings: Settings, arc: PrintArchive) -> list[Slot]:
@@ -155,10 +247,19 @@ def link_from_model(session: Session, settings: Settings, arc: PrintArchive) -> 
             f = wanted[slot]
             if f is None:
                 continue
-            data = _read_library_file(session, settings, f)
-            if data is None:
+            staged = _stage_library_file(session, settings, f)
+            if staged is None:
                 continue
-            store(session, settings, arc, slot, data, f.rel_path, linked=True)
+            tmp, sha, size = staged
+            if tmp is None:
+                paths = _attach(
+                    session, settings, arc, slot, sha, size, clean_name(f.rel_path), True, None
+                )
+            else:
+                paths = store_path(
+                    session, settings, arc, slot, tmp, sha, size, f.rel_path, linked=True
+                )
+            unlink_all(paths)  # replaced blobs (slot was empty, so normally none)
             filled.append(slot)
     except Exception:
         log.exception("source link failed for archive %s", arc.id)

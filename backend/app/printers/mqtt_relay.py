@@ -26,6 +26,7 @@ import time
 from collections.abc import Callable
 
 from app.config import Settings
+from app.models import AuditLog
 from app.printers import commands as cmds
 from app.printers.base import command_channel
 from app.printers.ha_bridge import JOIN_TIMEOUT_S, RateGate, _load_printers, paho_client
@@ -43,6 +44,9 @@ from app.services.printer_state import read_state_sync
 from app.tasks import base
 
 log = logging.getLogger("printerd.mqtt_relay")
+
+CMD_BURST = 3
+CMD_REFILL_S = 2.0
 
 _EVENTS = {
     ("*", "PAUSE"): "paused",
@@ -101,6 +105,7 @@ class MqttRelay:
         self._printers: list[dict] = []
         self._rate = RateGate(clock=clock)
         self._avail: dict[int, bool] = {}
+        self._tokens: dict[int, tuple[float, float]] = {}
         self._last_state: dict[int, str | None] = {}
         self._last_progress: dict[int, bytes] = {}
         self._connected = False
@@ -242,6 +247,18 @@ class MqttRelay:
         self._connected, self._error = False, f"disconnected: rc={rc!r}"
         self._avail = {}
 
+    def _bucket(self, pid: int) -> bool:
+        """Per-printer token bucket (broker clients are untrusted): bursts of
+        ``CMD_BURST`` then one command per ``CMD_REFILL_S``."""
+        now = self.clock()
+        tokens, last = self._tokens.get(pid, (float(CMD_BURST), now))
+        tokens = min(float(CMD_BURST), tokens + (now - last) / CMD_REFILL_S)
+        if tokens < 1.0:
+            self._tokens[pid] = (tokens, now)
+            return False
+        self._tokens[pid] = (tokens - 1.0, now)
+        return True
+
     def _reply(self, serial: str, ok: bool, detail: str, command: str | None) -> None:
         with contextlib.suppress(Exception):
             self._client.publish(
@@ -269,9 +286,22 @@ class MqttRelay:
             except cmds.CommandError as exc:
                 self._reply(serial, False, exc.message, command)
                 return
+            if not self._bucket(printer["id"]):
+                self._reply(serial, False, "rate limited", command)
+                return
             actor_id = self._config.actor_user_id
             with base.sync_session() as session:
                 allowed = can_control_sync(session, actor_id, printer["id"])
+                session.add(
+                    AuditLog(
+                        user_id=actor_id,
+                        created_by_user_id=actor_id,
+                        printer_id=printer["id"],
+                        action="mqtt_relay_command" if allowed else "mqtt_relay_command_denied",
+                        payload={"command": command, "via": "mqtt_relay"},
+                    )
+                )
+                session.commit()
             if not allowed:
                 log.warning("mqtt_relay: service user may not control printer %s", printer["id"])
                 self._reply(serial, False, "service user may not control this printer", command)

@@ -29,6 +29,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -250,6 +251,29 @@ def _inherited_model(
 
 
 def upsert_remote(
+    session: Session,
+    remote: RemotePreset,
+    content: dict,
+    user_id: int | None,
+    *,
+    overwrite_local: bool = False,
+) -> str:
+    """``_upsert_once`` that survives a concurrent sync inserting the same
+    preset (unique ``cloud_id`` / name): roll back the savepoint and retry,
+    which then sees the winner's row and takes the update path."""
+    for attempt in range(3):
+        try:
+            with session.begin_nested():
+                return _upsert_once(
+                    session, remote, content, user_id, overwrite_local=overwrite_local
+                )
+        except IntegrityError:
+            if attempt == 2:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _upsert_once(
     session: Session,
     remote: RemotePreset,
     content: dict,
