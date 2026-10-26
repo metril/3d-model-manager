@@ -642,3 +642,62 @@ def test_door_open_only_with_door_capability():
     assert bambu._door_open({"print": {"stat": "800000"}}, "H2D", None) is True
     assert bambu._door_open({"print": {"home_flag": 0x00800000}}, "H2D", None) is None
     assert bambu._door_open(set_bit, "A1 mini", None) is None
+
+
+class _Mqtt:
+    def __init__(self, connected: bool, ready: bool) -> None:
+        self._c, self._r = connected, ready
+
+    def is_connected(self):
+        return self._c
+
+    def ready(self):
+        return self._r
+
+
+class _ExplodingPrinter(StubPrinter):
+    """Any lib getter call fails the test (they log errors / return 0.0)."""
+
+    def __init__(self, mqtt: _Mqtt) -> None:
+        super().__init__()
+        self.mqtt_client = mqtt
+
+    def __getattribute__(self, name):
+        if name.startswith(("get_", "current_", "total_", "subtask", "mqtt_dump")):
+            raise AssertionError(f"getter {name} called while not ready")
+        return super().__getattribute__(name)
+
+
+@pytest.mark.parametrize("connected,ready", [(False, False), (True, False), (False, True)])
+def test_snapshot_no_data_when_not_connected_or_ready(monkeypatch, connected, ready):
+    stub = _ExplodingPrinter(_Mqtt(connected, ready))
+    monkeypatch.setattr(bambu, "_build_printer", lambda conn: stub)
+    s = BambuLanAdapter(CONN)._snapshot()
+    assert s["connected"] is False and s["gcode_state"] is None
+    for k in ("nozzle_temper", "bed_temper", "chamber_temper", "fan_part_pct", "fan_aux_pct"):
+        assert s[k] is None
+    ps = public_state_from_snapshot(s)
+    assert ps.connected is False and ps.last_report_at is None
+
+
+def public_state_from_snapshot(s):
+    return BambuLanAdapter(CONN).public_state(s)
+
+
+def test_snapshot_connected_when_ready(monkeypatch):
+    a, stub = _stub_adapter(monkeypatch)
+    stub.mqtt_client = _Mqtt(True, True)
+    assert a._snapshot()["connected"] is True
+
+
+def test_unreachable_logged_once_per_state_change(monkeypatch, caplog):
+    a, stub = _stub_adapter(monkeypatch)
+    stub.mqtt_client = mq = _Mqtt(False, False)
+    with caplog.at_level("INFO", logger="app.printers.bambu"):
+        for _ in range(5):
+            a._snapshot()
+        assert len(caplog.records) == 1
+        mq._c = mq._r = True
+        for _ in range(3):
+            a._snapshot()
+    assert [r.levelname for r in caplog.records] == ["WARNING", "INFO"]

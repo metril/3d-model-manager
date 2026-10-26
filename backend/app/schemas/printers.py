@@ -362,14 +362,17 @@ STATE_FIELDS: tuple[str, ...] = tuple(
 
 
 def status_from_state(state: dict) -> PrinterStatusOut:
-    """Online ``PrinterStatusOut`` from a printerd Redis state dict. Absent or
+    """``PrinterStatusOut`` from a printerd Redis state dict. Absent or
     null list fields (state written before they existed) become ``[]``."""
     data = {k: state.get(k) for k in STATE_FIELDS}
     for k in ("hms", "ams_units", "extruders"):
         data[k] = data[k] or []
     data["print_options"] = data["print_options"] or {}
     data["ams_extruder_map"] = data["ams_extruder_map"] or {}
-    return PrinterStatusOut(online=True, trays=state.get("trays") or [], **data)
+    # Older state (pre-`connected`) has no flag: treat as online.
+    return PrinterStatusOut(
+        online=state.get("connected") is not False, trays=state.get("trays") or [], **data
+    )
 
 
 class PrintRequest(BaseModel):

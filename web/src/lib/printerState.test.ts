@@ -35,10 +35,14 @@ describe("toneForGcode (overview state tone, Task 3)", () => {
     expect(label.length).toBeGreaterThan(0);
   });
 
-  it("falls back to idle for an unknown/empty online gcode_state", () => {
-    expect(toneForGcode(true, null).tone).toBe("idle");
-    expect(toneForGcode(true, "").tone).toBe("idle");
-    expect(toneForGcode(true, "UNKNOWN").tone).toBe("idle");
+  it("shows no data (not idle) for an unknown/empty gcode_state", () => {
+    for (const g of [null, "", "UNKNOWN"]) {
+      expect(toneForGcode(true, g)).toEqual({ tone: "offline", label: "No data" });
+    }
+  });
+
+  it("labels an offline printer Offline", () => {
+    expect(toneForGcode(false, null)).toEqual({ tone: "offline", label: "Offline" });
   });
 });
 

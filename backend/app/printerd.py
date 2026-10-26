@@ -63,6 +63,11 @@ _TERMINAL = {PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELE
 # The lib keeps its own state fresh from the MQTT stream; request_full_status()
 # is a cheap LOCAL read of the lib's accessors, so poll it every few seconds.
 _POLL_INTERVAL_S = 2.5
+# A report older than this no longer counts as "connected" (the adapter bumps
+# last_report_at on every MQTT message, so a healthy printer is far fresher).
+STALE_AFTER_S = 120.0
+# Redis state TTL: if printerd itself dies the key expires -> API says offline.
+STATE_TTL_S = 300
 # Q8b: sensor-history sampling cadence (no extra printer polling).
 SENSOR_INTERVAL_S = 60.0
 # Bambu print_error code the printer reports when a print is cancelled
@@ -152,6 +157,20 @@ def _tray_pcts(trays: list[dict]) -> list[int | None]:
     return out
 
 
+def _is_stale(last_report_at: str | None, now: datetime | None = None) -> bool:
+    """True when a report time exists but is older than ``STALE_AFTER_S``. A
+    missing time is not judged here (the adapter already says "no data")."""
+    if not last_report_at:
+        return False
+    try:
+        ts = datetime.fromisoformat(last_report_at)
+    except ValueError:
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ((now or datetime.now(UTC)) - ts).total_seconds() > STALE_AFTER_S
+
+
 def _signature(printer: Printer) -> tuple[str, str, str]:
     """The subset of a ``Printer`` row that a running worker's MQTT session
     is actually built from (Round 8 T2) -- ``connection_from_printer``'s
@@ -232,9 +251,14 @@ class PrinterWorker:
     def _write_public(self, public: PrinterPublicState) -> None:
         public.dev_mode = self.devmode.state
         public.dev_mode_reason = self.devmode.reason
+        public.connected = bool(public.connected) and not _is_stale(public.last_report_at)
         self._notify_changes(public)
         self._public = public
-        self.redis.set(state_key(self.printer_id), json.dumps(dataclasses.asdict(public)))
+        self.redis.set(
+            state_key(self.printer_id),
+            json.dumps(dataclasses.asdict(public)),
+            ex=STATE_TTL_S,
+        )
 
     def _notify_changes(self, public: PrinterPublicState) -> None:
         """Q6: dev mode flipped off, and HMS codes not in the previous report
