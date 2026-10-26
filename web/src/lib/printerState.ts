@@ -32,11 +32,13 @@ const GCODE_LABELS: Record<string, string> = {
 export function toneForGcode(online: boolean, gcode: string | null): { tone: StateTone; label: string } {
   if (!online) return { tone: "offline", label: "Offline" };
   const state = gcode ?? "";
+  // No report yet / unrecognised state is "no data", never a made-up "Idle".
+  if (!state || state === "UNKNOWN") return { tone: "offline", label: "No data" };
   if (PRINTING_GCODE.includes(state)) return { tone: "printing", label: GCODE_LABELS[state] };
   if (PAUSED_GCODE.includes(state)) return { tone: "paused", label: GCODE_LABELS[state] };
   if (FINISHED_GCODE.includes(state)) return { tone: "finished", label: GCODE_LABELS[state] };
   if (FAILED_GCODE.includes(state)) return { tone: "failed", label: GCODE_LABELS[state] };
-  return { tone: "idle", label: GCODE_LABELS[state] ?? "Idle" };
+  return { tone: "idle", label: GCODE_LABELS[state] ?? "No data" };
 }
 
 /** Tone for an archive's terminal `result` (P2's `ArchiveResult`) -- only

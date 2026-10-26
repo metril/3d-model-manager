@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import re
 import threading
 import time
@@ -39,6 +40,8 @@ from app.printers.registry import register_adapter
 from app.printers.stages import stage_name
 from app.services.drying import ACTIVE_DRY_STATUSES, ams_humidity_percent
 from app.services.spool_inventory import EXTERNAL_SLOT, EXTERNAL_UNIT, global_tray
+
+log = logging.getLogger(__name__)
 
 _GCODE_STATE_TO_JOB = {
     "PREPARE": PrintJobState.STARTING,
@@ -1094,6 +1097,8 @@ class BambuLanAdapter(PrinterAdapter):
         # T1: the printer never echoes a drying cycle's target, so cache what
         # we sent per AMS unit; dropped once the unit reports status 0 again.
         self._dry_targets: dict[int, dict] = {}
+        # Last logged link state, so unreachable/recovered is logged once per change.
+        self._link_ok: bool | None = None
 
     def _with_dry_targets(self, units: list[dict]) -> list[dict]:
         now = time.time()
@@ -1127,11 +1132,58 @@ class BambuLanAdapter(PrinterAdapter):
         return self._printer
 
     # -- normalization (the logic WE own; unit-tested) -----------------
+    def _link_ready(self, p) -> bool:
+        """Is the lib connected AND holding at least one report? (``ready()``
+        is ``bool(_data)``.) Stubs without an ``mqtt_client`` count as ready.
+        Logs once per change, not per poll."""
+        mqtt = getattr(p, "mqtt_client", None)
+        ok = True
+        if mqtt is not None:
+            try:
+                ok = bool(mqtt.is_connected()) and bool(mqtt.ready())
+            except Exception:  # noqa: BLE001
+                ok = False
+        if ok != self._link_ok:
+            if ok:
+                if self._link_ok is not None:
+                    log.info("printer %s: connected, reports flowing", self.conn.host)
+            else:
+                log.warning(
+                    "printer %s: unreachable or no report received yet; "
+                    "reporting no data until it connects",
+                    self.conn.host,
+                )
+            self._link_ok = ok
+        return ok
+
+    @staticmethod
+    def _no_data_snapshot() -> dict:
+        """What an unreachable / not-yet-reporting printer looks like: every
+        measurement None (never the lib's 0.0 defaults), ``connected`` False."""
+        return {
+            "connected": False,
+            "gcode_state": None,
+            "nozzle_temper": None,
+            "bed_temper": None,
+            "nozzle_target": None,
+            "bed_target": None,
+            "chamber_temper": None,
+            "chamber_target": None,
+            "fan_part_pct": None,
+            "fan_aux_pct": None,
+            "fan_chamber_pct": None,
+            "last_report_at": None,
+        }
+
     def _snapshot(self) -> dict:
         """Read the lib's current (already-merged) state into our normalized
         snapshot dict. Cheap LOCAL reads -- the lib's MQTT thread keeps its
-        state fresh, so there is no printer round-trip per call."""
+        state fresh, so there is no printer round-trip per call. Returns a
+        "no data" snapshot (and calls no lib getter, which would log errors
+        and return 0.0 defaults) while the lib isn't connected/ready."""
         p = self._client()
+        if not self._link_ready(p):
+            return self._no_data_snapshot()
         try:
             dump = p.mqtt_dump() or {}
         except Exception:  # noqa: BLE001 -- mqtt_dump is best-effort for the two extras
@@ -1145,6 +1197,7 @@ class BambuLanAdapter(PrinterAdapter):
         extruders = _extruders(dump)
         left = next((e for e in extruders if e["id"] == 1), None)
         return {
+            "connected": True,
             "extruders": extruders,
             "active_extruder": _active_extruder(dump) if extruders else None,
             "ams_extruder_map": _ams_extruder_map(dump) if extruders else {},
@@ -1238,6 +1291,7 @@ class BambuLanAdapter(PrinterAdapter):
     def _tap_message(self, _mqtt, _client, _userdata, msg) -> None:
         """Forward command replies (a ``print`` dict carrying ``result``) to
         printerd. Runs on the lib's paho thread; must never raise."""
+        self._report_at = datetime.now(UTC).isoformat()  # any message = fresh
         tap = self._raw_tap
         if tap is not None:
             with contextlib.suppress(Exception):
