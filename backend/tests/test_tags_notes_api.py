@@ -59,11 +59,11 @@ async def test_add_tag_with_valid_color(authenticated_client: httpx.AsyncClient)
     model = await _create_model(authenticated_client, "Colored Tag")
 
     response = await authenticated_client.post(
-        f"/api/models/{model['id']}/tags", json={"name": "urgent", "color": "red"}
+        f"/api/models/{model['id']}/tags", json={"name": "urgent", "color": "#ef4444"}
     )
 
     assert response.status_code == 201
-    assert response.json()["color"] == "red"
+    assert response.json()["color"] == "#ef4444"
 
 
 async def test_add_tag_with_invalid_color_is_422(authenticated_client: httpx.AsyncClient) -> None:
@@ -83,13 +83,13 @@ async def test_update_tag_color(authenticated_client: httpx.AsyncClient) -> None
     )
     tag_id = created.json()["id"]
 
-    response = await authenticated_client.patch(f"/api/tags/{tag_id}", json={"color": "teal"})
+    response = await authenticated_client.patch(f"/api/tags/{tag_id}", json={"color": "#14b8a6"})
 
     assert response.status_code == 200
-    assert response.json()["color"] == "teal"
+    assert response.json()["color"] == "#14b8a6"
 
     tags = await authenticated_client.get("/api/tags")
-    assert tags.json()[0]["color"] == "teal"
+    assert tags.json()[0]["color"] == "#14b8a6"
 
 
 async def test_update_tag_color_invalid_is_422(authenticated_client: httpx.AsyncClient) -> None:

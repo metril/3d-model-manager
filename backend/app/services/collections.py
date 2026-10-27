@@ -20,6 +20,7 @@ from sqlalchemy.orm import aliased
 from app.models.collections import FollowedCollection, PendingImport, RemoteCollectionItem
 from app.models.enums import CollectionSyncMode, ImportSite
 from app.models.library import Model
+from app.services import tags as tags_svc
 
 # -- followed collections -------------------------------------------------
 
@@ -27,8 +28,14 @@ from app.models.library import Model
 _PREVIEW_COUNT = 4
 
 
-async def list_followed(db: AsyncSession) -> list[FollowedCollection]:
+async def list_followed(
+    db: AsyncSession, *, tag_ids: Sequence[int] = (), tag_mode: tags_svc.TagMode = "any"
+) -> list[FollowedCollection]:
     stmt = select(FollowedCollection).order_by(FollowedCollection.id)
+    if tag_ids:
+        stmt = stmt.where(
+            tags_svc.tag_filter("collection", FollowedCollection.id, tag_ids, tag_mode)
+        )
     return list((await db.execute(stmt)).scalars().all())
 
 

@@ -41,6 +41,7 @@ VIEWER_ALLOWLIST: set[tuple[str, str]] = {
     ("POST", "/api/print/plan"),
     # T7: archive edits are gated in-handler (admin, job owner, or printers:print + ACL).
     ("PATCH", "/api/archives/{archive_id}"),
+    ("PUT", "/api/archives/{archive_id}/tags"),
     ("POST", "/api/archives/{archive_id}/verdict"),
     ("POST", "/api/archives/{archive_id}/photos"),
     ("DELETE", "/api/archives/{archive_id}/photos/{filename}"),

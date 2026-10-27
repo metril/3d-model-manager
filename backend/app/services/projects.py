@@ -8,6 +8,7 @@ import io
 import json
 import shutil
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from app.schemas import projects as s
 from app.schemas.queue import QueueEnqueueIn
 from app.services import library
 from app.services import queue as queue_service
+from app.services import tags as tags_svc
 
 _TERMINAL = (QueueState.DONE, QueueState.FAILED, QueueState.SKIPPED)
 MAX_ATTACHMENT = 50 * 1024 * 1024
@@ -287,6 +289,7 @@ async def _attachments(db: AsyncSession, project_id: int) -> list[s.AttachmentOu
         .scalars()
         .all()
     )
+    refs = await tags_svc.refs_for(db, "attachment", [a.id for a in rows])
     return [
         s.AttachmentOut(
             id=a.id,
@@ -294,6 +297,7 @@ async def _attachments(db: AsyncSession, project_id: int) -> list[s.AttachmentOu
             content_type=a.content_type,
             size=a.size,
             created_at=a.created_at,
+            tag_refs=refs.get(a.id, []),
         )
         for a in rows
     ]
@@ -319,6 +323,7 @@ async def _summary_fields(db: AsyncSession, p: Project, r: _Rollup) -> dict:
         "cover_model_id": cover_id,
         "cover_model_slug": slug,
         "tags": list(p.tags or []),
+        "tag_refs": (await tags_svc.refs_for(db, "project", [p.id])).get(p.id, []),
         "is_template": p.is_template,
         "completed_at": p.completed_at,
         "created_by_user_id": p.created_by_user_id,
@@ -357,6 +362,8 @@ async def list_projects(
     template: bool,
     tag: str | None,
     ctx: AuthContext | None = None,
+    tag_ids: Sequence[int] = (),
+    tag_mode: tags_svc.TagMode = "any",
 ) -> list[s.ProjectSummary]:
     stmt = select(Project).where(Project.is_template.is_(template))
     if status_:
@@ -368,6 +375,8 @@ async def list_projects(
         stmt = stmt.where(Project.name.ilike(like) | Project.description.ilike(like))
     if tag:
         stmt = stmt.where(Project.tags.any(tag))
+    if tag_ids:
+        stmt = stmt.where(tags_svc.tag_filter("project", Project.id, tag_ids, tag_mode))
     stmt = stmt.order_by(Project.updated_at.desc(), Project.id.desc())
     return [await to_summary(db, p, ctx) for p in (await db.execute(stmt)).scalars().all()]
 
