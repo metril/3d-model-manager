@@ -25,9 +25,11 @@ from app.models.enums import ArchiveResult, BlobFormat, VerdictSource
 from app.models.library import Blob, Print
 from app.models.printing import PrintArchive
 from app.schemas.archives import ArchiveOut, ArchivePatchIn, PhotoOut, VerdictIn
+from app.schemas.library import TagIdsIn, TagRef
 from app.schemas.print_flow import PlanIn, PlanOut
 from app.schemas.prints import PrintOut
 from app.services import archive_confirm
+from app.services import tags as tags_svc
 from app.services.archive import archive_path
 from app.services.archive_blobs import blob_hashes, release_blobs, unlink_all
 from app.services.print_plan import build_plan
@@ -117,6 +119,13 @@ async def _get_visible(db: AsyncSession, ctx: AuthContext, archive_id: int) -> A
     return row
 
 
+async def _with_tag_refs(db: AsyncSession, outs: list[ArchiveOut]) -> list[ArchiveOut]:
+    refs = await tags_svc.refs_for(db, "archive", [o.id for o in outs])
+    for o in outs:
+        o.tag_refs = refs.get(o.id, [])
+    return outs
+
+
 @router.get("", response_model=list[ArchiveOut])
 async def list_archives(
     printer: int | None = None,
@@ -126,6 +135,8 @@ async def list_archives(
     to: date | None = None,
     confirm_pending: bool = False,
     mine: bool = False,
+    tags: Annotated[list[int] | None, Query()] = None,
+    tag_mode: tags_svc.TagMode = "any",
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -156,9 +167,11 @@ async def list_archives(
         )
     if mine:
         stmt = stmt.where(PrintJob.created_by_user_id == ctx.user.id)
+    if tags:
+        stmt = stmt.where(tags_svc.tag_filter("archive", PrintArchive.id, tags, tag_mode))
     stmt = stmt.order_by(PrintArchive.created_at.desc(), PrintArchive.id.desc())
     rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
-    return [archive_out(r) for r in rows]
+    return await _with_tag_refs(db, [archive_out(r) for r in rows])
 
 
 def require_writer(ctx: AuthContext, job: PrintJob, printer: Printer) -> None:
@@ -212,7 +225,20 @@ async def patch_archive(
             arc.result_override = new
             archive_confirm.sync_run_result(arc, run)
     await db.commit()
-    return archive_out(await _get_visible(db, ctx, archive_id))
+    return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
+
+
+@router.put("/{archive_id}/tags", response_model=list[TagRef])
+async def set_archive_tags(
+    archive_id: int,
+    body: TagIdsIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> list[TagRef]:
+    """Replace the archive's relational tag set (same write rule as PATCH)."""
+    _arc, job, printer, _m, _run = await _get_visible(db, ctx, archive_id)
+    require_writer(ctx, job, printer)
+    return await tags_svc.set_entity_tags(db, "archive", archive_id, body.tag_ids)
 
 
 @router.delete(
@@ -260,7 +286,7 @@ async def post_verdict(
     require_writer(ctx, job, printer)
     archive_confirm.apply_verdict(arc, run, body.verdict, VerdictSource(body.source), ctx.user.id)
     await db.commit()
-    return archive_out(await _get_visible(db, ctx, archive_id))
+    return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
 
 
 @router.get("/{archive_id}", response_model=ArchiveOut)
@@ -269,7 +295,7 @@ async def get_archive(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> ArchiveOut:
-    return archive_out(await _get_visible(db, ctx, archive_id))
+    return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
 
 
 async def _serve(

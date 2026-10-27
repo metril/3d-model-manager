@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Annotated, Literal
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -22,6 +23,7 @@ from app.models.enums import BlobFormat, BlobKind
 from app.models.library import Revision
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
+    FileOut,
     GalleryPage,
     ModelBulkDeleteIn,
     ModelBulkDeleteOut,
@@ -36,6 +38,7 @@ from app.schemas.library import (
 from app.services import jobs as jobs_service
 from app.services import layout, library, spool, zip_export
 from app.services import storage_backends as storage_backends_service
+from app.services import tags as tags_svc
 from app.services import trash as trash_service
 from app.services.http_names import content_disposition_attachment
 from app.storage.base import StorageBackend
@@ -81,6 +84,9 @@ async def create_model(
 async def list_models(
     q: str | None = None,
     tag: str | None = None,
+    tags: Annotated[list[int] | None, Query()] = None,
+    tag_mode: Literal["any", "all"] = "any",
+    file_tags: Annotated[list[int] | None, Query()] = None,
     format: str | None = None,
     has_sliced: bool | None = None,
     collection: int | None = None,
@@ -107,6 +113,9 @@ async def list_models(
         archived=archived,
         limit=limit,
         cursor=cursor,
+        tag_ids=tags or (),
+        tag_mode=tag_mode,
+        file_tag_ids=file_tags or (),
     )
     return GalleryPage(items=items, next_cursor=next_cursor)
 
@@ -149,6 +158,29 @@ async def bulk_delete_models(
     """
     deleted = await trash_service.move_to_trash(db, ctx, payload.ids)
     return ModelBulkDeleteOut(deleted=deleted)
+
+
+@router.get("/{model_id}/files", response_model=list[FileOut])
+async def list_model_files(
+    model_id: int,
+    tags: Annotated[list[int] | None, Query()] = None,
+    tag_mode: Literal["any", "all"] = "any",
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[FileOut]:
+    """Current-revision files (with ``tag_refs``), optionally narrowed to
+    files tagged with any/all of ``tags`` (ids)."""
+    model = await library.get_model_by_id(db, model_id)
+    if model.current_revision_id is None:
+        return []
+    revision = await library.get_revision_or_404(db, model.current_revision_id)
+    files = (await library.build_revision_detail(db, revision, settings)).files
+    if tags:
+        paths = set(
+            (await db.execute(tags_svc.file_paths_with_tags(model_id, tags, tag_mode))).scalars()
+        )
+        files = [f for f in files if f.rel_path in paths]
+    return files
 
 
 @router.get("/{slug}", response_model=ModelDetail)

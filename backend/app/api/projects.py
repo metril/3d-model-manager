@@ -8,7 +8,7 @@ Literal segments (``/templates``, ``/from-template``) are declared BEFORE
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -31,10 +31,21 @@ async def list_projects(
     status_: Annotated[s.ProjectStatus | None, Query(alias="status")] = None,
     q: str | None = None,
     tag: str | None = None,
+    tags: Annotated[list[int] | None, Query()] = None,
+    tag_mode: Literal["any", "all"] = "any",
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[s.ProjectSummary]:
-    return await svc.list_projects(db, status_=status_, q=q, template=False, tag=tag, ctx=ctx)
+    return await svc.list_projects(
+        db,
+        status_=status_,
+        q=q,
+        template=False,
+        tag=tag,
+        ctx=ctx,
+        tag_ids=tags or (),
+        tag_mode=tag_mode,
+    )
 
 
 @router.post("", status_code=201, response_model=s.ProjectOut, dependencies=_W)

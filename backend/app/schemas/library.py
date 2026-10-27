@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.models.enums import BlobFormat, BlobKind
 from app.services.costing import price_run
@@ -158,6 +158,7 @@ class ModelSummary(BaseModel):
     name: str
     description: str | None
     tags: list[str]
+    tag_refs: list[TagRef] = []
     updated_at: datetime
     created_at: datetime
     file_count: int
@@ -311,6 +312,7 @@ class FileOut(BaseModel):
     thumb_ready: bool = False
     glb_status: GlbStatus | None = None
     glb_preview_ready: bool = False
+    tag_refs: list[TagRef] = []
 
     @classmethod
     def from_model(cls, file: File, enrichment: FileEnrichment | None = None) -> FileOut:
@@ -422,6 +424,7 @@ class ModelDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     tags: list[str]
+    tag_refs: list[TagRef] = []
     current_revision: RevisionDetail | None
     notes: list[NoteOut]
     review_state: str | None = None
@@ -471,16 +474,58 @@ TagColor = Literal[
 ]
 
 
+TagHexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
+TagIcon = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+
+
 class TagCreate(BaseModel):
     name: NonEmptyStr
-    color: TagColor | None = None
+    color: TagHexColor | None = None
+    icon: TagIcon | None = None
+    description: str | None = None
 
 
 class TagUpdate(BaseModel):
-    color: TagColor | None = None
+    """Only fields present in the body are applied (null clears color/icon/description)."""
+
+    name: NonEmptyStr | None = None
+    color: TagHexColor | None = None
+    icon: TagIcon | None = None
+    description: str | None = None
 
 
-class TagOut(BaseModel):
+class TagRef(BaseModel):
+    """Compact tag reference embedded in entity outputs (``tag_refs``)."""
+
     id: int
     name: str
-    color: TagColor | None = None
+    color: str | None = None
+    icon: str | None = None
+    description: str | None = None
+
+
+class TagCounts(BaseModel):
+    models: int = 0
+    model_files: int = 0
+    projects: int = 0
+    attachments: int = 0
+    archives: int = 0
+    collections: int = 0
+    total: int = 0
+
+
+class TagOut(TagRef):
+    # Only populated by ``GET /tags?with_counts=true``.
+    counts: TagCounts | None = None
+
+
+class TagIdsIn(BaseModel):
+    tag_ids: list[int] = Field(default_factory=list, max_length=100)
+
+
+class FileTagIdsIn(TagIdsIn):
+    rel_path: NonEmptyStr
+
+
+class TagMergeIn(BaseModel):
+    into_id: int

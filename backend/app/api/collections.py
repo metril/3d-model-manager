@@ -11,8 +11,9 @@ Literal segments (``/sync``, ``/pending``) are declared BEFORE
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,7 @@ from app.schemas.jobs import JobOut
 from app.services import collections as collections_svc
 from app.services import jobs as jobs_service
 from app.services import remote_collections as remote_collections_svc
+from app.services import tags as tags_svc
 from app.services import zip_export
 from app.services.http_names import content_disposition_attachment
 from app.services.imports import start_import
@@ -107,13 +109,25 @@ async def dismiss_pending_import(pending_id: int, db: AsyncSession = Depends(get
     await collections_svc.delete_pending(db, pending_id)
 
 
+async def _single(db: AsyncSession, row) -> FollowedCollectionOut:
+    out = FollowedCollectionOut.from_model(row)
+    out.tag_refs = (await tags_svc.refs_for(db, "collection", [row.id])).get(row.id, [])
+    return out
+
+
 @router.get("", response_model=list[FollowedCollectionOut])
 async def list_followed_collections(
+    tags: Annotated[list[int] | None, Query()] = None,
+    tag_mode: tags_svc.TagMode = "any",
     db: AsyncSession = Depends(get_db),
 ) -> list[FollowedCollectionOut]:
-    rows = await collections_svc.list_followed(db)
+    rows = await collections_svc.list_followed(db, tag_ids=tags or (), tag_mode=tag_mode)
     previews = await collections_svc.preview_thumbnails_by_collection(db, [row.id for row in rows])
-    return [FollowedCollectionOut.from_model(row, previews.get(row.id)) for row in rows]
+    refs = await tags_svc.refs_for(db, "collection", [row.id for row in rows])
+    out = [FollowedCollectionOut.from_model(row, previews.get(row.id)) for row in rows]
+    for o in out:
+        o.tag_refs = refs.get(o.id, [])
+    return out
 
 
 @router.post(
@@ -136,7 +150,7 @@ async def follow_collection(
         mode=payload.mode,
         created_by_user_id=ctx.user.id,
     )
-    return FollowedCollectionOut.from_model(row)
+    return await _single(db, row)
 
 
 @router.post(
@@ -180,7 +194,7 @@ async def follow_collection_from_url(
         mode=payload.mode,
         created_by_user_id=ctx.user.id,
     )
-    return FollowedCollectionOut.from_model(row)
+    return await _single(db, row)
 
 
 @router.patch(
@@ -197,7 +211,7 @@ async def set_collection_mode(
     existing = await collections_svc.get_followed(db, collection_id)
     require_owner_or_admin(ctx, existing.created_by_user_id)
     row = await collections_svc.set_mode(db, collection_id, payload.mode)
-    return FollowedCollectionOut.from_model(row)
+    return await _single(db, row)
 
 
 @router.delete(

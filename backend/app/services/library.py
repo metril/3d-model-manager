@@ -61,6 +61,7 @@ from app.schemas.library import (
 )
 from app.services import derivatives, layout
 from app.services import jobs as jobs_service
+from app.services import tags as tags_svc
 from app.services.app_config import get_app_config
 from app.services.costing import CostRates
 from app.services.cursor import decode_cursor, encode_cursor
@@ -731,13 +732,7 @@ async def _get_or_create_tag_id(db: AsyncSession, name: str) -> int:
     (below) needs the id only, and commits once for the whole batch rather
     than once per tag.
     """
-    tag_id = await db.scalar(select(Tag.id).where(Tag.name == name))
-    if tag_id is not None:
-        return tag_id
-    tag = Tag(name=name)
-    db.add(tag)
-    await db.flush()
-    return tag.id
+    return (await tags_svc.get_or_create_tag(db, name)).id
 
 
 async def bulk_update_models(
@@ -798,7 +793,11 @@ async def bulk_update_models(
 
     if remove_tags:
         remove_tag_ids = list(
-            (await db.execute(select(Tag.id).where(Tag.name.in_(remove_tags)))).scalars()
+            (
+                await db.execute(
+                    select(Tag.id).where(func.lower(Tag.name).in_([n.lower() for n in remove_tags]))
+                )
+            ).scalars()
         )
         if remove_tag_ids:
             result = await db.execute(
@@ -1164,6 +1163,7 @@ async def build_model_summaries(
                 name=m.name,
                 description=m.description,
                 tags=[t.name for t in m.tags],
+                tag_refs=[tags_svc.to_ref(t) for t in sorted(m.tags, key=lambda t: t.name.lower())],
                 updated_at=m.updated_at,
                 created_at=m.created_at,
                 file_count=agg.file_count if agg else 0,
@@ -1206,6 +1206,9 @@ async def list_models(
     archived: bool,
     limit: int,
     cursor: str | None,
+    tag_ids: Sequence[int] = (),
+    tag_mode: tags_svc.TagMode = "any",
+    file_tag_ids: Sequence[int] = (),
 ) -> tuple[list[ModelSummary], str | None]:
     """Gallery query: search/filter/sort + cursor pagination (Task 5
     interface decision; Task 7 adds the ``has_sliced`` filter; Branch 3 Task 1
@@ -1243,9 +1246,15 @@ async def list_models(
             Model.id.in_(
                 select(model_tags.c.model_id)
                 .join(Tag, Tag.id == model_tags.c.tag_id)
-                .where(Tag.name == tag)
+                .where(func.lower(Tag.name) == tag.lower())
             )
         )
+    if tag_ids:
+        stmt = stmt.where(tags_svc.tag_filter("model", Model.id, tag_ids, tag_mode))
+    if file_tag_ids:
+        # Any revision's file path counts (file tags key on rel_path, not a
+        # revision); with tag_mode=all one file path must carry every tag.
+        stmt = stmt.where(tags_svc.file_tag_filter(Model.id, file_tag_ids, tag_mode))
     if format_:
         stmt = stmt.where(
             Model.current_revision_id.in_(
@@ -1347,7 +1356,12 @@ async def build_revision_detail(
     enrichments = await _build_file_enrichments(
         settings, (f.blob for f in sorted_files), await _cost_rates(db, settings)
     )
-    files = [FileOut.from_model(f, enrichments.get(f.blob_hash)) for f in sorted_files]
+    file_refs = await tags_svc.file_refs_for(db, revision.model_id)
+    files = []
+    for f in sorted_files:
+        out = FileOut.from_model(f, enrichments.get(f.blob_hash))
+        out.tag_refs = file_refs.get(f.rel_path, [])
+        files.append(out)
     return RevisionDetail(
         id=revision.id,
         model_id=revision.model_id,
@@ -1490,6 +1504,7 @@ async def build_model_detail(db: AsyncSession, model: Model, settings: Settings)
         created_at=model.created_at,
         updated_at=model.updated_at,
         tags=[t.name for t in model.tags],
+        tag_refs=[tags_svc.to_ref(t) for t in sorted(model.tags, key=lambda t: t.name.lower())],
         current_revision=current_revision,
         notes=notes,
         review_state=model.review_state,
@@ -2016,22 +2031,12 @@ async def try_delete_duplicate_copy(
 # -- tags -------------------------------------------------------------
 
 
-async def list_tags(db: AsyncSession) -> list[TagOut]:
-    tags = (await db.execute(select(Tag).order_by(Tag.name))).scalars().all()
-    return [TagOut(id=t.id, name=t.name, color=t.color) for t in tags]
-
-
 async def add_tag_to_model(
     db: AsyncSession, model_id: int, name: str, color: str | None = None
 ) -> TagOut:
-    """Get-or-create the tag, then associate it with the model (idempotent)."""
+    """Get-or-create the tag (case-insensitive), then associate it with the model (idempotent)."""
     model = await get_model_by_id(db, model_id)
-
-    tag = (await db.execute(select(Tag).where(Tag.name == name))).scalar_one_or_none()
-    if tag is None:
-        tag = Tag(name=name, color=color)
-        db.add(tag)
-        await db.flush()
+    tag = await tags_svc.get_or_create_tag(db, name, color)
 
     already_linked = await db.scalar(
         select(model_tags.c.model_id).where(
@@ -2045,22 +2050,13 @@ async def add_tag_to_model(
         # actual new link, not the idempotent no-op re-tag.
         model.updated_at = func.now()
     await db.commit()
-    return TagOut(id=tag.id, name=tag.name, color=tag.color)
-
-
-async def set_tag_color(db: AsyncSession, tag_id: int, color: str | None) -> TagOut:
-    tag = await db.get(Tag, tag_id)
-    if tag is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"tag {tag_id} not found")
-    tag.color = color
-    await db.commit()
-    return TagOut(id=tag.id, name=tag.name, color=tag.color)
+    return TagOut(**tags_svc.to_ref(tag).model_dump())
 
 
 async def remove_tag_from_model(db: AsyncSession, model_id: int, name: str) -> None:
     model = await get_model_by_id(db, model_id)
 
-    tag = (await db.execute(select(Tag).where(Tag.name == name))).scalar_one_or_none()
+    tag = await tags_svc.find_by_name(db, name)
     if tag is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"tag {name!r} not found")
 
