@@ -7,6 +7,7 @@ import { PANEL_IDS, type PanelId } from "./panelMeta";
 type Call = { id: string; position?: { referencePanel: { id: string }; direction: string }; renderer?: string };
 
 function fakeApi(initial: PanelId[] = []) {
+  const active: string[] = [];
   const panels = new Map<string, { id: string; api: { setActive: () => void; setSize: () => void } }>();
   const calls: Call[] = [];
   const api = {
@@ -16,14 +17,14 @@ function fakeApi(initial: PanelId[] = []) {
     getPanel: (id: string) => panels.get(id),
     addPanel: (options: Call) => {
       calls.push(options);
-      const panel = { id: options.id, api: { setActive: () => {}, setSize: () => {} } };
+      const panel = { id: options.id, api: { setActive: () => void active.push(options.id), setSize: () => {} } };
       panels.set(options.id, panel);
       return panel;
     },
   };
   initial.forEach((id) => api.addPanel({ id }));
   calls.length = 0;
-  return { api: api as unknown as DockviewApi, calls };
+  return { api: api as unknown as DockviewApi, calls, active };
 }
 
 describe("defaultLayout", () => {
@@ -41,6 +42,17 @@ describe("defaultLayout", () => {
       referencePanel: { id: "gcodeProfiles" },
       direction: "below",
     });
+  });
+
+  it("activates Files by default, G-code profiles when the model has sliced files", () => {
+    const plain = fakeApi();
+    buildDefaultLayout(plain.api);
+    expect(plain.active).toContain("filesDocs");
+    expect(plain.active).not.toContain("gcodeProfiles");
+    const sliced = fakeApi();
+    buildDefaultLayout(sliced.api, { hasSliced: true });
+    expect(sliced.active).toContain("gcodeProfiles");
+    expect(sliced.active).not.toContain("filesDocs");
   });
 
   it("re-adds a closed right card as a tab of its default group", () => {
