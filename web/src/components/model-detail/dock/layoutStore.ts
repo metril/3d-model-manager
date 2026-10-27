@@ -2,8 +2,8 @@ import type { DockviewApi, SerializedDockview } from "dockview-react";
 
 import { PANEL_IDS, isPanelId, type PanelId } from "./panelMeta";
 
-export const LAYOUT_KEY = "tdmm.modelDetailLayout.v1";
-export const LAYOUT_VERSION = 1;
+export const LAYOUT_KEY = "tdmm.modelDetailLayout.v2";
+export const LAYOUT_VERSION = 2;
 const SAVE_DEBOUNCE_MS = 300;
 
 type Stored = { v: number; known: PanelId[]; layout: SerializedDockview };

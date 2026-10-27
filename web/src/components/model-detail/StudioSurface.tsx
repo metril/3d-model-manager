@@ -8,8 +8,8 @@ import type { FileOut } from "@/api/types";
 
 type StageProps = Omit<ViewerStageProps, "variant" | "showWindowButtons">;
 
-function FileState({ file }: { file: FileOut }) {
-  if (file.kind === "sliced") return <PlatePanel file={file} />;
+function FileState({ file, fill = false }: { file: FileOut; fill?: boolean }) {
+  if (file.kind === "sliced") return <PlatePanel file={file} fill={fill} autoPreview />;
 
   if (file.format === "gcode") {
     return (
@@ -107,7 +107,7 @@ export function StudioSurface({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className={fill ? "flex h-full min-h-0 min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}>
       {hasGlb && (
         <button
           type="button"
@@ -118,7 +118,9 @@ export function StudioSurface({
           Back to assembly
         </button>
       )}
-      <FileState file={file} />
+      <div className={fill ? "h-full min-h-0 flex-1" : undefined}>
+        <FileState file={file} fill={fill} />
+      </div>
     </div>
   );
 }

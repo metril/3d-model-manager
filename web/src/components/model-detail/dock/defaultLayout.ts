@@ -2,8 +2,8 @@ import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import { DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
 
-const LEFT_WIDTH = 0.62;
-const LEFT_TOP_HEIGHT = 0.62;
+const LEFT_WIDTH = 0.66;
+const LEFT_TOP_HEIGHT = 0.7;
 const RIGHT_TOP_HEIGHT = 0.5;
 
 type Direction = "above" | "below" | "left" | "right";
@@ -22,9 +22,9 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
 }
 
 /** Today's two-column arrangement as dock groups: the viewer over a tabbed
- * Description / Tags / Related group on the left (~62%); the seven cards in
+ * Description / Tags / Related group on the left (~66%); the seven cards in
  * two tabbed groups (kept in today's order) on the right. */
-export function buildDefaultLayout(api: DockviewApi): void {
+export function buildDefaultLayout(api: DockviewApi, opts: { hasSliced?: boolean } = {}): void {
   api.clear();
   const { leftTop, leftBottom, rightTop, rightBottom } = DEFAULT_GROUPS;
   const viewer = addPanel(api, leftTop[0]);
@@ -35,7 +35,8 @@ export function buildDefaultLayout(api: DockviewApi): void {
   const rightB = addPanel(api, rightBottom[0], { referencePanel: rightA, direction: "below" });
   for (const id of rightBottom.slice(1)) addPanel(api, id, { referencePanel: rightB, direction: "within" });
 
-  for (const group of Object.keys(DEFAULT_ACTIVE) as DefaultGroup[]) api.getPanel(DEFAULT_ACTIVE[group])?.api.setActive();
+  const active = { ...DEFAULT_ACTIVE, ...(opts.hasSliced ? { rightTop: "gcodeProfiles" as PanelId } : {}) };
+  for (const group of Object.keys(active) as DefaultGroup[]) api.getPanel(active[group])?.api.setActive();
 
   // Sizes are best-effort: a not-yet-measured (zero-sized) container skips them.
   const { width, height } = api;
