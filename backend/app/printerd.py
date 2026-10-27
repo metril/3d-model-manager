@@ -713,9 +713,11 @@ class PrinterDaemon:
         adapter.set_report_handler(worker.handle_report)
         adapter.connect()
         adapter.request_full_status()
+        # Publish to ``_workers`` only once the cmd thread is running, so
+        # observers (and stop_printer) never see a worker without its thread.
+        self._subscribe_commands(printer.id, worker)
         self._workers[printer.id] = worker
         self._signatures[printer.id] = _signature(printer)
-        self._subscribe_commands(printer.id, worker)
         self.camera.add(printer.id, adapter)
         self.obico.add(printer.id, worker.is_running)
         return worker
@@ -787,7 +789,7 @@ class PrinterDaemon:
             with contextlib.suppress(Exception):
                 worker.adapter.close()
         thread = self._threads.pop(printer_id, None)
-        if thread is not None:
+        if thread is not None and thread.ident is not None:
             thread.join(timeout=2.0)
 
     def reconcile(self) -> None:
