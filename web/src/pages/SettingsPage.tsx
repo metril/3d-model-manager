@@ -62,7 +62,7 @@ export function SettingsPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">{t("settings.title")}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("settings.title")}</h1>
         <p className="text-sm text-muted-foreground">
           {t("settings.subtitle")}
         </p>

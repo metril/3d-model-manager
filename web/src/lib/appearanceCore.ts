@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 export const STYLES = ["classic", "glow", "vibrant"] as const;
-export const ACCENTS = ["blue", "orange", "green", "teal", "purple", "red"] as const;
+export const ACCENTS = ["teal", "blue", "orange", "green", "purple", "red"] as const;
 export type ThemeStyle = (typeof STYLES)[number];
 export type ThemeAccent = (typeof ACCENTS)[number];
 

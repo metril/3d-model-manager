@@ -8,12 +8,14 @@
  * zero-printer render here shows the setup card rather than an empty state.
  *
  * Card size (S/M/L/XL) lives in localStorage (`useCardSize`) and drives the
- * grid columns (5/3/2/1). A live `CameraTile` is only mounted on L/XL cards
+ * grid min-width (`auto-fill minmax`; default L for 2 printers or fewer). A live `CameraTile` is only mounted on L/XL cards
  * for `can_print` items (the token mint requires that permission; smaller
  * cards link to the detail page's camera instead of streaming N feeds).
  */
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { PrinterIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -22,8 +24,9 @@ import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { PlateStallBadge } from "@/components/print/PlateStallBadge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
-import { CARD_SIZES, GRID_CLASS, useCardSize } from "@/components/print/card/cardSize";
+import { CARD_SIZES, gridStyle, useCardSize } from "@/components/print/card/cardSize";
 import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
@@ -38,10 +41,10 @@ import { cn } from "@/lib/utils";
 import { DASH_SORTS, parsePrintDashSearch, type PrintDashSearch } from "@/pages/printerDashSearch";
 
 export function PrintDashboardPage() {
+  const { t } = useTranslation();
   const overview = usePrintersOverview();
   const navigate = useNavigate();
   const search = parsePrintDashSearch(useSearch({ strict: false }) as Record<string, unknown>);
-  const [size, setSize] = useCardSize();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   function patchSearch(patch: Partial<PrintDashSearch>) {
@@ -55,6 +58,7 @@ export function PrintDashboardPage() {
   const canReview = auth.can("queue:review");
   const reviewCount = useReviewCount({ enabled: canReview });
   const printers = useMemo(() => overview.data?.printers ?? [], [overview.data]);
+  const [size, setSize] = useCardSize(printers.length > 0 && printers.length <= 2 ? "L" : "M");
   const summary = useMemo(() => summarize(printers), [printers]);
   const groups = useMemo(() => sortGroups(filterItems(printers, search), search.sort), [printers, search]);
   const upNext = overview.data?.up_next ?? [];
@@ -71,7 +75,7 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Print</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
         </div>
         <div className="space-y-2 py-8 text-center">
           <p role="alert" className="text-sm text-destructive">
@@ -89,7 +93,7 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Print</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
           <p className="text-sm text-muted-foreground">Add a printer to start printing from here.</p>
         </div>
         <PrinterSetupCard />
@@ -100,7 +104,7 @@ export function PrintDashboardPage() {
   return (
     <PageContainer width="fluid">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Print</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
         <p className="text-sm text-muted-foreground">A live overview of your printers.</p>
       </div>
 
@@ -180,7 +184,20 @@ export function PrintDashboardPage() {
           ) : null}
 
           {groups.every((g) => g.items.length === 0) ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No printers match these filters.</p>
+            <EmptyState
+              icon={PrinterIcon}
+              title={t("dash.empty.filters")}
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => patchSearch({ status: undefined, offline: undefined, q: undefined })}
+                >
+                  {t("dash.empty.clearFilters")}
+                </Button>
+              }
+            />
           ) : null}
           {groups.map((group) => (
             <section key={group.key} className="flex flex-col gap-2">
@@ -189,7 +206,7 @@ export function PrintDashboardPage() {
                   {group.label} <span className="font-mono">({group.items.length})</span>
                 </h2>
               ) : null}
-              <div className={cn("grid gap-4", size === "L" || size === "XL" ? "gap-6" : "", GRID_CLASS[size])}>
+              <div className={cn("grid gap-4", size === "L" || size === "XL" ? "gap-6" : "")} style={gridStyle(size)}>
                 {group.items.map((item) => (
                   <ManagedPrinterCard
                     key={item.printer.id}

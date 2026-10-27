@@ -228,7 +228,7 @@ describe("QueuePage lanes", () => {
     const bambuLane = (await screen.findByText("Bambu A1")).closest('[data-slot="card"]');
     expect(bambuLane).toHaveTextContent("Articulated Dragon");
     const anyLane = screen.getByText("Any printer").closest('[data-slot="card"]');
-    expect(anyLane).toHaveTextContent("Nothing here.");
+    expect(anyLane).toHaveTextContent("Nothing in the queue yet.");
   });
 
   it("groups a dispatched entry (assigned_printer_id, no printer_id) into that printer's lane", async () => {

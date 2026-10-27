@@ -5,11 +5,11 @@ import { BadgeRow } from "./BadgeRow";
 import { a1Mini, renderCard, x1c } from "./testUtils";
 
 describe("BadgeRow", () => {
-  it("A1 Mini: connected, wifi, firmware, queue; no door chip", async () => {
+  it("A1 Mini: wifi, firmware, queue; no Connected chip, no door chip", async () => {
     const it = a1Mini({}, { firmware: { ota: "01.07.00", ams: [] } });
     renderCard(<BadgeRow printer={it.printer} status={it.status} queueCount={2} />);
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("-48dBm")).toBeInTheDocument();
+    expect(await screen.findByText("-48dBm")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).toBeNull();
     expect(screen.getByText("FW 01.07.00")).toBeInTheDocument();
     expect(screen.getByText("2 queued")).toBeInTheDocument();
     expect(screen.queryByText("Door")).toBeNull();
@@ -22,11 +22,13 @@ describe("BadgeRow", () => {
     expect(await screen.findByText("Ethernet")).toBeInTheDocument();
   });
 
-  it("offline printer shows Offline only", async () => {
+  it("offline printer shows no status chip (the header pill owns the status)", async () => {
     const it = a1Mini({}, { online: false });
-    renderCard(<BadgeRow printer={it.printer} status={it.status} queueCount={0} />);
-    expect(await screen.findByText("Offline")).toBeInTheDocument();
+    const { container } = renderCard(<BadgeRow printer={it.printer} status={it.status} queueCount={0} />);
+    await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByText("Connected")).toBeNull();
+    expect(screen.queryByText("Offline")).toBeNull();
+    expect(container.querySelector('[data-slot="badge-row"]')).toBeEmptyDOMElement();
   });
 
   it("X1C: door chip; HMS count opens the slot; dev-mode-off chip", async () => {
@@ -51,7 +53,7 @@ describe("BadgeRow", () => {
     second.unmount();
     const a1 = a1Mini({}, { door_open: true });
     renderCard(<BadgeRow printer={a1.printer} status={a1.status} queueCount={0} />);
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(await screen.findByText("-48dBm")).toBeInTheDocument();
     expect(screen.queryByTestId("door-chip")).toBeNull(); // no door capability, no chip
   });
 });

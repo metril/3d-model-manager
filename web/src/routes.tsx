@@ -227,12 +227,12 @@ const projectDetailRoute = createRoute({
   component: ProjectDetailPage,
 });
 
-// /dashboard (library stats) folded into /print/history?tab=stats (P3 Task 5).
+// /dashboard redirects to /stats (library stats page).
 const dashboardRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/dashboard",
   beforeLoad: () => {
-    throw redirect({ to: "/print/history", search: { tab: "stats" } });
+    throw redirect({ to: "/stats" });
   },
   component: () => null,
 });

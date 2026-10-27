@@ -136,7 +136,7 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     printersBox.current = [];
   });
 
-  it("links to each configured printer's detail page when the feature is on", async () => {
+  it("does not add per-printer links to the nav", async () => {
     featuresBox.current = { printer_enabled: true };
     printersBox.current = [
       { id: 1, name: "Workshop A1" },
@@ -144,40 +144,9 @@ describe("AppSidebar -- Print group (P3 Task 6)", () => {
     ];
     renderSidebar();
 
-    const a1 = await screen.findByRole("link", { name: "Workshop A1" });
-    expect(a1).toHaveAttribute("href", "/printers/1");
-    expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
-  });
-
-  it("renders user-provided printer names verbatim (no i18n interpolation/translation)", async () => {
-    featuresBox.current = { printer_enabled: true };
-    printersBox.current = [
-      { id: 1, name: "Print {{x}}" },
-      { id: 2, name: "Queue" },
-    ];
-    renderSidebar();
-    expect(await screen.findByRole("link", { name: "Print {{x}}" })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Queue" }).map((a) => a.getAttribute("href"))).toContain("/printers/2");
-  });
-
-  // Fix-review finding 1: every per-printer item shares the same `to`
-  // (`/printers/$id`), so keying solely off `item.to` collided across
-  // printers -- React logs a duplicate-key warning and can misrender the
-  // list on reorder/update. Keying off `to` + the printer id must render
-  // two distinct links with no such warning.
-  it("renders two distinct printer links with no duplicate-key warning", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    featuresBox.current = { printer_enabled: true };
-    printersBox.current = [
-      { id: 1, name: "Workshop A1" },
-      { id: 2, name: "Garage X1" },
-    ];
-    renderSidebar();
-
-    expect(await screen.findByRole("link", { name: "Workshop A1" })).toHaveAttribute("href", "/printers/1");
-    expect(screen.getByRole("link", { name: "Garage X1" })).toHaveAttribute("href", "/printers/2");
-    expect(errorSpy.mock.calls.some((args) => String(args[0]).includes("same key"))).toBe(false);
-    errorSpy.mockRestore();
+    await screen.findByRole("link", { name: "Models" });
+    expect(screen.queryByRole("link", { name: "Workshop A1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Garage X1" })).not.toBeInTheDocument();
   });
 
   it("drops the whole Print group, including printer links, when the feature is off", async () => {

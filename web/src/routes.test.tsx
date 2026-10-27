@@ -113,12 +113,11 @@ describe("app routes", () => {
     expect(router.state.location.search).toMatchObject({ collection: 3 });
   });
 
-  it("redirects /dashboard to /print/history?tab=stats", async () => {
+  it("redirects /dashboard to /stats", async () => {
     mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: true }), printers: [] });
     const router = makeRouter("/dashboard");
     await router.load();
-    expect(router.state.location.pathname).toBe("/print/history");
-    expect(router.state.location.search).toMatchObject({ tab: "stats" });
+    expect(router.state.location.pathname).toBe("/stats");
   });
 
   it("redirects /queue to /print/queue", async () => {

@@ -47,7 +47,7 @@ export function SidebarPrinterWidget({ collapsed }: { collapsed: boolean }) {
       to="/printers/$id"
       params={{ id: String(printer.id) }}
       className={cn(
-        "mx-2 mb-2 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-2.5 py-2 text-xs hover:bg-muted",
+        "flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-2.5 py-2 text-xs hover:bg-muted",
         collapsed && "justify-center px-0",
       )}
       title={collapsed ? printer.name : undefined}

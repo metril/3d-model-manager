@@ -29,7 +29,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline">
+        <Button type="button" variant="ghost">
           <LayoutPanelLeftIcon />
           Panels
         </Button>

@@ -1197,7 +1197,7 @@ async def list_models(
     *,
     q: str | None,
     tag: str | None,
-    format_: str | None,
+    format_: list[BlobFormat] | None,
     has_sliced: bool | None,
     collection: int | None,
     favorite: bool | None,
@@ -1261,7 +1261,7 @@ async def list_models(
             Model.current_revision_id.in_(
                 select(File.revision_id)
                 .join(Blob, Blob.hash == File.blob_hash)
-                .where(Blob.format == format_)
+                .where(Blob.format.in_(format_))
             )
         )
     if has_sliced is not None:

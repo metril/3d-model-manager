@@ -8,7 +8,6 @@ import {
   SYSTEM_ITEMS,
   externalNavItems,
   filterNavGroups,
-  printerNavItems,
   type NavGroup,
   type NavItem,
 } from "@/components/shell/navItems";
@@ -33,15 +32,7 @@ export function useVisibleNav(): {
   const canSeeFinance = can("billing:manage") || !!financeConfig.data?.billing_enabled;
   const systemItems = SYSTEM_ITEMS.filter((item) => !item.billingGated || canSeeFinance);
 
-  // Per-printer links sit right after History in the Print group.
-  const groupsWithPrinters = NAV_GROUPS.map((group) => {
-    if (group.label !== "Print") return group;
-    const historyIndex = group.items.findIndex((item) => item.label === "History");
-    const items = [...group.items];
-    items.splice(historyIndex + 1, 0, ...printerNavItems(printers.data));
-    return { ...group, items };
-  });
-  const groups = filterNavGroups(groupsWithPrinters, {
+  const groups = filterNavGroups(NAV_GROUPS, {
     printerEnabled,
     can,
     hasPrinter: (printers.data?.length ?? 0) > 0,

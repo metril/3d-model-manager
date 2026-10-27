@@ -21,8 +21,8 @@ export function ServiceStatusDot({ collapsed }: { collapsed: boolean }) {
       search={{ tab: "server" }}
       aria-label={label}
       className={cn(
-        "mx-2 mb-2 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium hover:bg-muted",
-        collapsed && "mx-1.5 justify-center px-0",
+        "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium hover:bg-muted",
+        collapsed && "justify-center px-0",
       )}
     >
       <span className={cn("size-2.5 shrink-0 rounded-full", overall === "down" ? "bg-destructive" : "bg-warning")} />

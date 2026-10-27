@@ -19,7 +19,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, CopyCheckIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
@@ -30,6 +30,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ExpandCollapseAll } from "@/components/ExpandCollapseAll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { PageContainer } from "@/components/ui/page-container";
@@ -109,7 +110,7 @@ export function DuplicatesPage() {
     <PageContainer width="default">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Duplicate files</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Duplicate files</h1>
           <p className="text-sm text-muted-foreground">
             {reportQuery.data
               ? `Reclaimable: ${humanizeBytes(reportQuery.data.total_wasted_bytes)}`
@@ -157,11 +158,15 @@ export function DuplicatesPage() {
           {reportQuery.error instanceof ApiError ? reportQuery.error.detail : "Couldn't load the duplicates report."}
         </p>
       ) : groups.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No duplicate files found.
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={CopyCheckIcon}
+          title="No duplicate files found."
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link to="/library">Back to library</Link>
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (

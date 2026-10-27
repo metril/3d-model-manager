@@ -173,9 +173,9 @@ describe("PrintDashboardPage printer counts", () => {
     expect(await screen.findByText("Printer setup")).toBeInTheDocument();
   });
 
-  it("renders a card per printer in the size-driven grid (default M: 3 columns)", async () => {
+  it("renders a card per printer in an auto-fill grid (default M: minmax 340px for 3+ printers)", async () => {
     overviewBox.current = {
-      printers: [printerItem(1), printerItem(2, { status: status({ gcode_state: "IDLE" }) })],
+      printers: [printerItem(1), printerItem(2, { status: status({ gcode_state: "IDLE" }) }), printerItem(3)],
       up_next: [],
       recent_runs: [],
     };
@@ -183,8 +183,22 @@ describe("PrintDashboardPage printer counts", () => {
     renderPage();
 
     await screen.findByText("Printer 1");
-    expect(document.querySelectorAll('[data-slot="printer-card"]')).toHaveLength(2);
-    expect(document.querySelector(".xl\\:grid-cols-3")).not.toBeNull();
+    expect(document.querySelectorAll('[data-slot="printer-card"]')).toHaveLength(3);
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "M");
+    const grid = document.querySelector('[data-slot="printer-card"]')!.parentElement as HTMLElement;
+    expect(grid.style.gridTemplateColumns).toContain("minmax(min(340px");
+  });
+
+  it("defaults to size L with 2 printers or fewer; a stored choice wins", async () => {
+    overviewBox.current = { printers: [printerItem(1), printerItem(2)], up_next: [], recent_runs: [] };
+    const { unmount } = renderPage();
+    await screen.findByText("Printer 1");
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "L");
+    unmount();
+    localStorage.setItem("printerCardSize", "M");
+    renderPage();
+    await screen.findByText("Printer 1");
+    expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "M");
   });
 
   it("card size selector persists to localStorage and changes the grid", async () => {
@@ -196,7 +210,8 @@ describe("PrintDashboardPage printer counts", () => {
     expect(document.querySelector('[data-slot="printer-card"]')).toHaveAttribute("data-size", "XL");
     fireEvent.click(screen.getByRole("radio", { name: "S" }));
     expect(localStorage.getItem("printerCardSize")).toBe("S");
-    expect(document.querySelector(".xl\\:grid-cols-5")).not.toBeNull();
+    const grid = document.querySelector('[data-slot="printer-card"]')!.parentElement!.parentElement as HTMLElement;
+    expect(grid.style.gridTemplateColumns).toContain("minmax(min(200px");
   });
 
   it("renders a CameraTile only for can_print printers on L/XL cards", async () => {
@@ -214,6 +229,7 @@ describe("PrintDashboardPage printer counts", () => {
   });
 
   it("renders no CameraTile on M cards", async () => {
+    localStorage.setItem("printerCardSize", "M");
     overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
     renderPage();
     await screen.findByText("Printer 1");

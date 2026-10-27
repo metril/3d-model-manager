@@ -174,7 +174,7 @@ def test_run_slice_cancel_kills(fake_cli):
 @pytest.fixture
 def api(monkeypatch, fake_cli, bbl):
     monkeypatch.setattr(main, "CLI", str(fake_cli))
-    monkeypatch.setattr(main.app.state, "index", ProfileIndex(bbl))
+    monkeypatch.setattr(main.app.state, "index", ProfileIndex(bbl), raising=False)
     monkeypatch.setattr(main, "JOB_TIMEOUT_S", 3)
     return TestClient(main.app)
 

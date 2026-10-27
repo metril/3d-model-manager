@@ -26,6 +26,7 @@ import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
+import { SliceDialog } from "@/components/slice/SliceDialog";
 import { SliceFileButton } from "@/components/slice/SliceFileButton";
 import { pickSliceableFile } from "@/components/slice/sliceable";
 import { PrintDialog } from "@/components/print/PrintDialog";
@@ -155,6 +156,7 @@ export function ModelHeader({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [sliceOpen, setSliceOpen] = useState(false);
   const canRedownload = Boolean(model.source_site && model.source_url);
   const needsReview = model.review_state === "adopted";
   // P5 Task 11: the header's "Print…" opens the shared `PrintDialog` --
@@ -178,10 +180,11 @@ export function ModelHeader({
   // file" concept to hang this off of yet.
   const slicerFile = pickBestSlicerFile(model.current_revision?.files ?? []);
   const sliceableFile = pickSliceableFile(model.current_revision?.files ?? []);
+  const canSlice = !!sliceableFile && !!features.data?.slicer_configured && can("printers:print");
 
   return (
     <div className="space-y-3 border-b border-border pb-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1 space-y-2">
           {/* Keep the page's h1 in the heading outline even while the name
               is editable -- InlineEdit renders spans, so nesting it here is
@@ -242,12 +245,12 @@ export function ModelHeader({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
           {/* A star is a deliberate, always-live action -- not part of the
               edit gate the way name/description/tags/archive are. */}
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="icon"
             aria-label={model.favorite ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={model.favorite}
@@ -255,11 +258,21 @@ export function ModelHeader({
           >
             <StarIcon className={model.favorite ? "fill-warning text-warning" : ""} />
           </Button>
-          {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" /> : null}
-          {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
+          {/* One split button for Slice + Open in slicer. */}
+          {canSlice && slicerFile ? (
+            <>
+              <OpenInSlicerButton file={slicerFile} size="default" onSlice={() => setSliceOpen(true)} />
+              <SliceDialog open={sliceOpen} onOpenChange={setSliceOpen} file={sliceableFile!} />
+            </>
+          ) : (
+            <>
+              {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" /> : null}
+              {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
+            </>
+          )}
           {canPrint ? (
             <>
-              <Button type="button" variant="outline" onClick={() => setPrintOpen(true)}>
+              <Button type="button" onClick={() => setPrintOpen(true)}>
                 Print…
               </Button>
               <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} />
@@ -280,7 +293,7 @@ export function ModelHeader({
             Add to queue
           </Button>
           {panelsMenu}
-          <Button type="button" variant="outline" onClick={onToggleEditMode}>
+          <Button type="button" variant="ghost" onClick={onToggleEditMode}>
             <PencilIcon />
             {editMode ? "Done" : "Edit"}
           </Button>

@@ -34,7 +34,7 @@ export function PrintHistoryPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">History</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">History</h1>
         <p className="text-sm text-muted-foreground">
           {printerEnabled ? "Print runs and library stats." : "Library stats."}
         </p>

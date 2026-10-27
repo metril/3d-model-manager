@@ -35,7 +35,7 @@ export function StatsPage() {
     <PageContainer width="default">
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1">
-          <h1 className="text-lg font-semibold text-foreground">{t("stats.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("stats.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("stats.subtitle")}</p>
         </div>
         <div role="group" aria-label={t("stats.range")} className="flex gap-1">

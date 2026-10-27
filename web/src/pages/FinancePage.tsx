@@ -28,7 +28,7 @@ export function FinancePage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Finance</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Finance</h1>
         <p className="text-sm text-muted-foreground">Cost centers, budgets and the shared ledger.</p>
       </div>
 

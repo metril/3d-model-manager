@@ -38,7 +38,7 @@ export function AddPage() {
   return (
     <PageContainer width="fluid">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Add to library</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Add to library</h1>
         <p className="text-sm text-muted-foreground">
           Upload your own files, import from a link, or search the galleries.
         </p>

@@ -39,7 +39,7 @@ describe("plate-clear pill", () => {
     unmount();
     const idle = a1Mini({}, { gcode_state: "FINISH" });
     renderCard(<StatusSection printerId={1} status={idle.status} activeJob={null} lastRuns={[]} canControl />);
-    await screen.findByText("Idle");
+    await screen.findByText("Nothing printed yet");
     expect(screen.queryByText("Plate needs clearing")).toBeNull();
   });
 });

@@ -1,42 +1,66 @@
 /**
- * Print status block: 96 px thumbnail, stage text, print name, progress,
- * remaining / ETA, layer n/total, started-by and the skip-objects button
- * (badge = skippable objects). Idle shows "Last: ..." from the latest run
- * and a plate-clear pill after a finished print.
+ * Job block: 64 px thumbnail, print name, big percent, state-coloured progress
+ * bar (striped while paused) and the ETA row. Stage text shows only when it adds
+ * something beyond the header's state pill. Idle shows "Last: ..." from the
+ * latest run plus the plate-clear pill; failed freezes the bar in red; offline
+ * shows the last print only.
  */
-import { ListXIcon, PrinterIcon } from "lucide-react";
+import { PrinterIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
-import { usePrinterObjects } from "@/api/printerControl";
 import { useClearPlate } from "@/api/printerOps";
 import type { ActiveJobOut, ArchiveOut, PrinterStatusOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SharedPlugPowerOn } from "@/components/print/PlugRow";
 import { formatEta } from "@/lib/formatEta";
-import { toneForGcode } from "@/lib/printerState";
+import { formatRelativeTime } from "@/lib/format";
+import { toneForGcode, type StateTone } from "@/lib/printerState";
+import { cn } from "@/lib/utils";
 
 import { etaClock } from "./etaClock";
-import { SkipObjectsDialog } from "./SkipObjectsDialog";
+import { fillStyle, trackStyle } from "./tone";
 
-function Thumb({ src }: { src: string | null }) {
+function Thumb({ src, small = false, dim = false }: { src: string | null; small?: boolean; dim?: boolean }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="pc-thumb flex shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted",
+        small ? "size-12" : "size-16",
+        dim && "grayscale",
+      )}
+    >
       {src && !failed ? (
-        <img
-          src={src}
-          alt=""
-          className="size-full object-cover"
-          onError={() => setFailed(true)}
-        />
+        <img src={src} alt="" className="size-full object-cover" onError={() => setFailed(true)} />
       ) : (
         <PrinterIcon className="size-6 text-muted-foreground/50" />
       )}
     </div>
   );
 }
+
+/** Progress bar: `h-2` track at 16% of the state colour, fill in the state colour. */
+export function ProgressBar({ tone, pct, className }: { tone: StateTone; pct: number; className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="progressbar"
+      aria-label={t("card.status.progress")}
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className={cn("h-2 w-full overflow-hidden rounded-full", className)}
+      style={trackStyle(tone)}
+    >
+      <div className="h-full rounded-full transition-all" style={fillStyle(tone, pct)} />
+    </div>
+  );
+}
+
+const GENERIC_STAGES = new Set(["idle", "printing", "paused", "offline", "finished", "failed"]);
 
 export function StatusSection({
   printerId,
@@ -52,37 +76,40 @@ export function StatusSection({
   canControl: boolean;
 }) {
   const { t } = useTranslation();
-  const { tone } = toneForGcode(status.online, status.gcode_state);
+  const { tone, label } = toneForGcode(status.online, status.gcode_state);
   const active = tone === "printing" || tone === "paused";
-  const [skipOpen, setSkipOpen] = useState(false);
-  const objects = usePrinterObjects(printerId, active && canControl);
-  const skippable = objects.data?.objects ?? [];
   const last = lastRuns[0];
   const clearPlate = useClearPlate(printerId);
 
   if (!status.online) {
+    const seen = status.last_report_at ? formatRelativeTime(status.last_report_at) : null;
     return (
-      <p className="pc-t12 text-muted-foreground" data-slot="status-section">
-        {last
-          ? t("card.status.offlineLast", { name: last.subtask_name ?? last.model_name ?? t("card.status.print") })
-          : t("card.status.offline")}
-      </p>
+      <div className="flex flex-col items-start gap-1.5 empty:hidden" data-slot="status-section">
+        {seen && seen !== "—" ? <p className="pc-t12 text-muted-foreground">{t("card.status.offlineSeen", { when: seen })}</p> : null}
+        {last ? (
+          <p className="pc-t12 max-w-full truncate text-muted-foreground">
+            {t("card.status.lastPrint", { name: last.subtask_name ?? last.model_name ?? t("card.status.print") })}
+          </p>
+        ) : null}
+        <SharedPlugPowerOn printerId={printerId} canControl={canControl} label={t("card.status.powerOn")} />
+      </div>
     );
   }
 
   if (!active) {
+    const failedPct = tone === "failed" && status.mc_percent != null ? Math.max(0, Math.min(100, status.mc_percent)) : null;
     return (
       <div className="flex items-center gap-3" data-slot="status-section">
-        <Thumb src={last?.has_thumbnail ? `/api/archives/${last.id}/thumbnail` : null} />
+        <Thumb small src={last?.has_thumbnail ? `/api/archives/${last.id}/thumbnail` : null} />
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="pc-t12 font-medium">{status.stage && status.stage !== "Idle" ? status.stage : t("card.status.idle")}</p>
           {last ? (
-            <p className="pc-t11 truncate text-muted-foreground">
+            <p className="pc-t12 truncate text-muted-foreground">
               {t("card.status.last", { name: last.subtask_name ?? last.model_name ?? t("card.status.print"), result: last.result })}
             </p>
           ) : (
-            <p className="pc-t11 text-muted-foreground">{t("card.status.nothing")}</p>
+            <p className="pc-t12 text-muted-foreground">{t("card.status.nothing")}</p>
           )}
+          {failedPct != null ? <ProgressBar tone="failed" pct={failedPct} /> : null}
           {status.awaiting_plate_clear ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">{t("printerOps.plateNeedsClearing")}</Badge>
@@ -110,57 +137,33 @@ export function StatusSection({
   const name = activeJob?.model_name ?? activeJob?.subtask_name ?? status.subtask_name ?? t("card.status.print");
   const thumbArchive = lastRuns.find((r) => activeJob && r.print_job_id === activeJob.id && r.has_thumbnail);
   const thumbSrc = activeJob?.thumbnail_url ?? (thumbArchive ? `/api/archives/${thumbArchive.id}/thumbnail` : null);
+  const stage = status.stage && !GENERIC_STAGES.has(status.stage.toLowerCase()) && status.stage !== label ? status.stage : null;
   return (
-    <div className="flex gap-3" data-slot="status-section">
-      <Thumb src={thumbSrc} />
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-2">
-          <p className="pc-t12 min-w-0 flex-1 truncate font-medium" title={name}>
+    <div className="flex flex-col gap-2" data-slot="status-section">
+      <div className="flex items-center gap-3">
+        <Thumb src={thumbSrc} />
+        <div className="min-w-0 flex-1">
+          <p className="pc-t12 truncate font-medium" title={name}>
             {name}
           </p>
-          {skippable.length > 1 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon-xs"
-              className="relative"
-              aria-label={t("card.status.skip")}
-              onClick={() => setSkipOpen(true)}
-            >
-              <ListXIcon />
-              <span className="absolute -right-1.5 -top-1.5 rounded-full bg-primary px-1 text-[9px] leading-4 text-primary-foreground">
-                {skippable.length}
-              </span>
-            </Button>
+          {stage ? <p className="pc-t11 truncate text-muted-foreground">{stage}</p> : null}
+          {activeJob ? (
+            <p className="pc-t10 truncate text-muted-foreground">
+              {activeJob.origin === "app" ? t("card.status.startedApp") : t("card.status.startedPrinter")}
+            </p>
           ) : null}
         </div>
-        {status.stage ? <p className="pc-t11 text-muted-foreground">{status.stage}</p> : null}
-        <div
-          role="progressbar"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-        >
-          <div className="h-full rounded-full bg-state-printing transition-all" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="pc-t11 flex flex-wrap items-center justify-between gap-x-3 font-mono tabular-nums text-muted-foreground">
-          <span>{pct}%</span>
-          {remaining ? <span>{t("card.status.left", { t: remaining })}</span> : null}
-          {clock ? <span>{t("card.status.eta", { t: clock })}</span> : null}
-          <span>
-            {t("card.status.layer", { n: status.layer_num ?? 0, total: status.total_layer_num ?? 0 })}
-          </span>
-        </div>
-        {activeJob ? (
-          <p className="pc-t10 text-muted-foreground">
-            {activeJob.origin === "app" ? t("card.status.startedApp") : t("card.status.startedPrinter")}
-          </p>
-        ) : null}
+        <span className="font-mono text-2xl font-semibold tabular-nums leading-none" data-testid="job-percent">
+          {pct}
+          <span className="text-base font-normal text-muted-foreground">%</span>
+        </span>
       </div>
-      {skippable.length > 1 ? (
-        <SkipObjectsDialog printerId={printerId} objects={skippable} open={skipOpen} onOpenChange={setSkipOpen} />
-      ) : null}
+      <ProgressBar tone={tone} pct={pct} />
+      <div className="pc-t11 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono tabular-nums text-muted-foreground">
+        {clock ? <span className="font-semibold text-foreground">{t("card.status.eta", { t: clock })}</span> : null}
+        {remaining ? <span>{t("card.status.left", { t: remaining })}</span> : null}
+        <span className="ml-auto">{t("card.status.layer", { n: status.layer_num ?? 0, total: status.total_layer_num ?? 0 })}</span>
+      </div>
     </div>
   );
 }

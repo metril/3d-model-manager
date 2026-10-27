@@ -14,6 +14,7 @@ import { useAuth } from "@/api/auth";
 import { usePurgeTrash, useRestoreTrash, useTrash } from "@/api/trash";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PageContainer } from "@/components/ui/page-container";
@@ -69,7 +70,7 @@ export function TrashPage() {
     <PageContainer width="default">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Trash</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Trash</h1>
           <p className="text-sm text-muted-foreground">
             {retention > 0
               ? `Deleted models are kept for ${retention} day${retention === 1 ? "" : "s"}, then permanently removed.`
@@ -121,11 +122,10 @@ export function TrashPage() {
           {query.error instanceof ApiError ? query.error.detail : "Couldn't load the trash."}
         </p>
       ) : items.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            The trash is empty.
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Trash2Icon}
+          title="The trash is empty."
+        />
       ) : (
         <div className="space-y-2">
           {canWrite && actionable.length > 0 && (

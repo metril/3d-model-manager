@@ -25,8 +25,6 @@ export interface CardPerms {
 export interface CardExtras {
   badgeExtra: CardSlot;
   footerExtra: CardSlot;
-  onInfo: () => void;
-  onDiagnose?: () => void;
   onHms?: () => void;
   onDry: (unitId: number) => void;
   modals: ReactNode;
@@ -37,9 +35,7 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
   const modals = usePrinterModals(printer.id, status);
   const goDetail = () => void navigate({ to: "/printers/$id", params: { id: String(printer.id) } });
   return {
-    onInfo: () => modals.open("info"),
     onDry: (unitId) => modals.open("drying", unitId),
-    onDiagnose: perms.canAdmin ? () => modals.open("diagnostic") : undefined,
     onHms: perms.canPrint ? () => modals.open("hms") : undefined,
     badgeExtra: (
       <>
@@ -53,6 +49,7 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
         status={status}
         canControl={ctx.canControl}
         canPrint={perms.canPrint}
+        canAdmin={perms.canAdmin}
         size={ctx.size}
         onOpen={(kind) => modals.open(kind)}
         onCamera={goDetail}

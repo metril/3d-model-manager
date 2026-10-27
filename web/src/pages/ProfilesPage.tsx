@@ -7,7 +7,7 @@
  * profile) are hidden without `inventory:write`.
  */
 import { useState } from "react";
-import { CloudIcon, PlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
+import { CloudIcon, PlusIcon, Trash2Icon, UploadIcon, WrenchIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -21,6 +21,7 @@ import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { RecipeForm } from "@/components/inventory/RecipeForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -97,7 +98,7 @@ function ProfilesTab() {
               {profiles.error instanceof ApiError ? profiles.error.detail : "Couldn't load profiles."}
             </p>
           ) : (profiles.data ?? []).length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">No profiles yet.</div>
+            <EmptyState icon={WrenchIcon} title="No profiles yet." />
           ) : (
             <Table>
               <TableHeader>
@@ -176,7 +177,7 @@ function RecipesTab() {
               {recipes.error instanceof ApiError ? recipes.error.detail : "Couldn't load recipes."}
             </p>
           ) : (recipes.data ?? []).length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">No recipes yet.</div>
+            <EmptyState icon={WrenchIcon} title="No recipes yet." />
           ) : (
             <Table>
               <TableHeader>
@@ -350,7 +351,7 @@ export function ProfilesPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Profiles & recipes</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Profiles & recipes</h1>
         <p className="text-sm text-muted-foreground">
           Slicer profiles imported from a bundle, the sidecar or your cloud accounts, the recipes that combine them, and the pipelines that run them.
         </p>

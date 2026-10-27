@@ -592,6 +592,8 @@
     "select": "Select {{name}}",
     "expand": "Expand {{name}}",
     "back": "Back",
+    "progress": "Print progress",
+    "upNext": "Up next ({{n}})",
     "untested": "Untested on this model",
     "badge": {
       "connected": "Connected",
@@ -625,10 +627,15 @@
     },
     "tools": {
       "label": "Printer tools",
-      "more": "More"
+      "more": "More",
+      "groupJob": "Job",
+      "groupMaintain": "Maintain",
+      "groupInsight": "Insight"
     },
     "footer": {
       "print": "Print",
+      "powerOn": "Power on",
+      "unreachable": "Not reachable",
       "firmware": "Firmware"
     },
     "status": {
@@ -637,6 +644,10 @@
       "offlineLast": "Offline — last: {{name}}",
       "idle": "Idle",
       "last": "Last: {{name}} · {{result}}",
+      "lastPrint": "Last print: {{name}}",
+      "offlineSeen": "Offline · last seen {{when}}",
+      "powerOn": "Power on",
+      "progress": "Print progress",
       "nothing": "Nothing printed yet",
       "print": "Print",
       "skip": "Skip objects",
@@ -651,6 +662,12 @@
       "standard": "Standard",
       "sport": "Sport",
       "ludicrous": "Ludicrous",
+      "speedChip": "{{name}} · {{pct}}%",
+      "silentHint": "Quiet, finest surface",
+      "standardHint": "Default speed",
+      "sportHint": "Faster, slight quality loss",
+      "ludicrousHint": "Max speed, artifacts likely",
+      "busyReason": "Unavailable while printing",
       "movement": "Movement",
       "move": "Move",
       "jogStep": "Jog step",
@@ -731,6 +748,14 @@
       "dismiss": "Dismiss"
     }
   },
+  "library": {
+    "empty": {
+      "none": "No models yet",
+      "add": "Add a model",
+      "filtered": "No models match these filters",
+      "clear": "Clear filters"
+    }
+  },
   "dash": {
     "status": {
       "printing": "printing",
@@ -741,6 +766,12 @@
       "offline": "offline"
     },
     "nextFree": "Next free: {{name}} in {{eta}}",
+    "empty": {
+      "filters": "No printers match these filters.",
+      "clearFilters": "Clear filters",
+      "queue": "Nothing in the queue yet.",
+      "runs": "No print runs yet."
+    },
     "bulk": {
       "selected": "{{n}} selected",
       "pauseBtn": "Pause selected ({{n}})",

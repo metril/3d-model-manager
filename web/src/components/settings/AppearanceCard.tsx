@@ -9,14 +9,14 @@ import { cn } from "@/lib/utils";
 
 const MODES = ["light", "dark", "system"] as const;
 
-// Swatches mirror the hue/chroma pairs in index.css (`:root[data-accent=...]`).
+// Swatches mirror the hues (shared L/C) in index.css (`:root[data-accent=...]`).
 const SWATCH: Record<(typeof ACCENTS)[number], string> = {
-  blue: "oklch(0.62 0.19 262)",
-  orange: "oklch(0.646 0.176 41.1)",
-  green: "oklch(0.646 0.16 149)",
-  teal: "oklch(0.646 0.12 190)",
-  purple: "oklch(0.646 0.2 300)",
-  red: "oklch(0.646 0.21 25)",
+  teal: "oklch(0.62 0.11 192)",
+  blue: "oklch(0.62 0.11 255)",
+  orange: "oklch(0.62 0.11 50)",
+  green: "oklch(0.62 0.11 150)",
+  purple: "oklch(0.62 0.11 300)",
+  red: "oklch(0.62 0.11 20)",
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
