@@ -38,3 +38,15 @@ export function createRafScheduler(
 
   return { invalidate, cancel };
 }
+
+/** Calls `apply` with the invalidate fn exactly once. R3F consumers (drei
+ * OrbitControls/Bounds) key effects on `state.invalidate`, so every swap
+ * disposes + reconnects the controls; this guarantees a single swap. */
+export function createInvalidateInstaller(apply: (invalidate: () => void) => void) {
+  let installed = false;
+  return (invalidate: () => void) => {
+    if (installed) return;
+    installed = true;
+    apply(invalidate);
+  };
+}

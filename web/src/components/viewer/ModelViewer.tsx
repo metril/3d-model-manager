@@ -65,9 +65,10 @@ import {
   type ReactNode,
 } from "react";
 import * as THREE from "three";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useOnRelocate } from "@/lib/windowRelocate";
-import { createRafScheduler } from "@/components/viewer/rafDriver";
+import { createInvalidateInstaller, createRafScheduler } from "@/components/viewer/rafDriver";
+import { canFit, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
 import {
   Bounds,
   Center,
@@ -390,37 +391,245 @@ function Exposure({ exposure }: { exposure: number }) {
  * `getVisibleBox` is identity-stable (fully ref-based, see its definition),
  * so this intentionally does not run then; the NEXT fit (explicit or
  * load-driven) picks up the new visible set. */
+/** Pointer-gesture state shared between `OrbitControls` (start/end) and the
+ * things that must not run mid-drag (refits) or should degrade (LOD). A plain
+ * object, not React state: flipping it must never re-render the canvas tree. */
+interface GestureBus {
+  active: boolean;
+  start: () => void;
+  end: () => void;
+  subscribe: (fn: (active: boolean) => void) => () => void;
+}
+function createGestureBus(): GestureBus {
+  const listeners = new Set<(active: boolean) => void>();
+  const bus: GestureBus = {
+    active: false,
+    start: () => {
+      bus.active = true;
+      listeners.forEach((fn) => fn(true));
+    },
+    end: () => {
+      bus.active = false;
+      listeners.forEach((fn) => fn(false));
+    },
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+  };
+  return bus;
+}
+
+interface OrbitLike {
+  target: THREE.Vector3;
+  update: () => void;
+}
+
 function BoundsRefitter({
   loadedCount,
   fitSignal,
   getVisibleBox,
+  bus,
 }: {
   loadedCount: number;
   fitSignal: number;
   getVisibleBox: () => THREE.Box3 | null;
+  bus: GestureBus;
 }) {
   const api = useBounds();
   const controls = useThree((state) => state.controls);
   const size = useThree((state) => state.size);
-  useLayoutEffect(() => {
-    // `controls` and `size` are refit TRIGGERS, not inputs -- the fit reads
-    // neither (Bounds' api resolves both from the store itself); they're
-    // referenced here only so each attach/resize re-runs this effect (see
-    // the doc comment above for why that's load-bearing).
-    void controls;
-    void size;
+  const get = useThree((state) => state.get);
+  const sizeOk = size.width >= 2 && size.height >= 2;
+
+  // Always-latest closure so the scheduler/effects below don't depend on
+  // `api` (re-created whenever `invalidate`/camera/controls change).
+  const runRef = useRef<(kind: "now" | "debounced") => void>(() => {});
+  runRef.current = (kind) => {
+    const { size: sz, camera, controls: ctl, invalidate } = get();
     const box = getVisibleBox();
-    if (box) {
-      api.refresh(box).clip().fit();
-    } else if (loadedCount > 0) {
-      api.refresh().clip().fit();
+    if (!canFit(sz, box)) return;
+    if (box) api.refresh(box);
+    else if (loadedCount > 0) api.refresh();
+    else return;
+    const measured = api.getSize();
+    if (!canFit(sz, measured.box) || !Number.isFinite(measured.distance)) return;
+    api.clip();
+    const orbit = ctl as unknown as OrbitLike | null;
+    const ortho = (camera as THREE.OrthographicCamera).isOrthographicCamera;
+    if (kind === "debounced" && !ortho) {
+      // Resize fit: snap, don't tween -- a tween writes camera.position every
+      // frame and fights OrbitControls' own update() while the panel is dragged.
+      const dir = camera.position.clone().sub(measured.center);
+      if (dir.lengthSq() < 1e-12) dir.set(1, 1, 1);
+      camera.position.copy(measured.center).addScaledVector(dir.normalize(), measured.distance);
+      if (orbit) {
+        orbit.target.copy(measured.center);
+        camera.lookAt(measured.center);
+        orbit.update();
+      }
+      camera.updateMatrixWorld();
+      invalidate();
+      return;
     }
-    // `api` and `getVisibleBox` are included for the lint rule's sake --
-    // `api` is a `useMemo` inside `Bounds` keyed on the camera/controls/
-    // margin, `getVisibleBox` is a `useCallback([])`, so in practice both
-    // are stable across re-renders and this still only actually refits when
-    // `loadedCount`/`fitSignal`/`controls`/`size` changes.
-  }, [loadedCount, fitSignal, controls, size, api, getVisibleBox]);
+    api.fit();
+    if (orbit && ortho) {
+      // Bounds' ortho fit only animates zoom; a remounted OrbitControls would
+      // otherwise keep orbiting the origin.
+      orbit.target.copy(measured.center);
+      orbit.update();
+    }
+  };
+
+  const [scheduler] = useState(() =>
+    createRefitScheduler({
+      delay: 150,
+      isGestureActive: () => bus.active,
+      run: (kind) => runRef.current(kind),
+    }),
+  );
+  useEffect(() => {
+    const off = bus.subscribe((active) => {
+      if (!active) scheduler.gestureEnd();
+    });
+    return () => {
+      off();
+      scheduler.cancel();
+    };
+  }, [bus, scheduler]);
+
+  // Explicit triggers (load, Fit view, controls attach, panel becoming laid out).
+  useLayoutEffect(() => {
+    void controls;
+    scheduler.request("now");
+  }, [loadedCount, fitSignal, controls, sizeOk, scheduler]);
+  // Resize: debounced + instant.
+  const firstSize = useRef(true);
+  useEffect(() => {
+    if (firstSize.current) {
+      firstSize.current = false;
+      return;
+    }
+    scheduler.request("debounced");
+  }, [size.width, size.height, scheduler]);
+
+  // NaN backstop: a zero-size/degenerate fit can poison camera/controls with
+  // non-finite values, after which orbit/zoom silently stop working forever.
+  const [poseGuard] = useState(() =>
+    createPoseGuard(
+      () => {
+        const { camera, controls: ctl } = get();
+        const target = (ctl as unknown as OrbitLike | null)?.target;
+        if (!target) return null;
+        return {
+          position: camera.position.clone(),
+          target: target.clone(),
+          zoom: (camera as THREE.OrthographicCamera).zoom,
+        };
+      },
+      (pose) => {
+        const { camera, controls: ctl, invalidate } = get();
+        const orbit = ctl as unknown as OrbitLike;
+        camera.position.copy(pose.position);
+        orbit.target.copy(pose.target);
+        if (Number.isFinite(pose.zoom)) (camera as THREE.OrthographicCamera).zoom = pose.zoom;
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld();
+        orbit.update();
+        invalidate();
+      },
+    ),
+  );
+  useFrame(() => void poseGuard.check(), -0.5);
+  return null;
+}
+
+/** Interaction LOD: while OrbitControls is mid-gesture drop N8AO and render at
+ * dpr 1; restore ~200ms after the gesture and render one frame. Owns its own
+ * state so only this leaf re-renders -- never the canvas tree. */
+function InteractiveEffects({ ao, bus }: { ao: boolean; bus: GestureBus }) {
+  const setDpr = useThree((state) => state.setDpr);
+  const invalidate = useThree((state) => state.invalidate);
+  const [interacting, setInteracting] = useState(false);
+  useEffect(() => {
+    const lod = createInteractionLod(200, setInteracting);
+    const off = bus.subscribe((active) => (active ? lod.start() : lod.end()));
+    return () => {
+      off();
+      lod.dispose();
+    };
+  }, [bus]);
+  useEffect(() => {
+    setDpr(interacting ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+    invalidate();
+  }, [interacting, setDpr, invalidate]);
+  return <ViewerEffects ao={ao && !interacting} />;
+}
+
+/** Recovers from WebGL context loss (GPU reset, tab discard, driver hiccup)
+ * instead of leaving a permanently frozen/blank canvas. */
+function ContextLossGuard() {
+  const gl = useThree((state) => state.gl);
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    const el = gl.domElement;
+    const lost = (e: Event) => e.preventDefault(); // allow restoration
+    const restored = () => invalidate();
+    el.addEventListener("webglcontextlost", lost);
+    el.addEventListener("webglcontextrestored", restored);
+    return () => {
+      el.removeEventListener("webglcontextlost", lost);
+      el.removeEventListener("webglcontextrestored", restored);
+    };
+  }, [gl, invalidate]);
+  return null;
+}
+
+/** If the pointer capture is lost mid-drag (dockview overlay, window blur) the
+ * `pointerup` never reaches OrbitControls and it stays in a drag state. Cancel
+ * the gesture explicitly. */
+function GestureSafety({ bus }: { bus: GestureBus }) {
+  const gl = useThree((state) => state.gl);
+  useEffect(() => {
+    const el = gl.domElement;
+    const win = el.ownerDocument.defaultView ?? window;
+    const cancel = () => {
+      if (!bus.active) return;
+      el.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1, bubbles: true }));
+      if (bus.active) bus.end();
+    };
+    el.addEventListener("lostpointercapture", cancel);
+    win.addEventListener("blur", cancel);
+    return () => {
+      el.removeEventListener("lostpointercapture", cancel);
+      win.removeEventListener("blur", cancel);
+    };
+  }, [gl, bus]);
+  return null;
+}
+
+/** Dev-only handle for e2e/perf checks: `window.__tdmmViewer`. */
+function DevHook() {
+  const get = useThree((state) => state.get);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const w = window as unknown as { __tdmmViewer?: unknown };
+    w.__tdmmViewer = {
+      get camera() {
+        return get().camera;
+      },
+      get controls() {
+        return get().controls;
+      },
+      get gl() {
+        return get().gl;
+      },
+      invalidate: () => get().invalidate(),
+    };
+    return () => {
+      delete w.__tdmmViewer;
+    };
+  }, [get]);
   return null;
 }
 
@@ -560,6 +769,14 @@ export default function ModelViewer({
    * camera actually moves off it. */
   onCameraPresetClear?: () => void;
 }) {
+  const [gestureBus] = useState(createGestureBus);
+  // `ViewerStage` passes an inline arrow here (new identity every render);
+  // route through a ref so the guard's listener (and the canvas tree) stay stable.
+  const presetClearRef = useRef(onCameraPresetClear);
+  useEffect(() => {
+    presetClearRef.current = onCameraPresetClear;
+  });
+  const stablePresetClear = useCallback(() => presetClearRef.current?.(), []);
   const [loadedParts, setLoadedParts] = useState<Map<number, { box: THREE.Box3; triangles: number }>>(
     () => new Map(),
   );
@@ -805,6 +1022,14 @@ export default function ModelViewer({
       gl={{ antialias: false, localClippingEnabled: true }}
       className="h-full w-full"
     >
+      {/* FIRST child: swaps `invalidate` in its layout effect, which runs
+          before any passive effect below (OrbitControls' connect effect has
+          `invalidate` in its deps -- swapping after it would dispose and
+          re-connect the controls, killing an in-flight gesture). */}
+      <RafDriver />
+      <DevHook />
+      <ContextLossGuard />
+      <GestureSafety bus={gestureBus} />
       <color attach="background" args={[background]} />
       <Exposure exposure={lighting.exposure} />
       {/* Unconditional (not gated on `tools.grid`) -- `layers.enable` is
@@ -829,7 +1054,7 @@ export default function ModelViewer({
       <AutoRotate enabled={tools.autoRotate} />
       <CaptureBridge apiRef={apiRef} />
       <DoubleClickTarget />
-      {onCameraPresetClear && <OrbitPresetGuard onUserOrbit={onCameraPresetClear} />}
+      {onCameraPresetClear && <OrbitPresetGuard onUserOrbit={stablePresetClear} />}
 
       <ambientLight intensity={lighting.ambient} />
       <directionalLight position={[2.5, 4, 2.5]} intensity={lighting.key} />
@@ -895,6 +1120,7 @@ export default function ModelViewer({
           loadedCount={loadedCount}
           fitSignal={fitSignal + presetFitBump}
           getVisibleBox={getVisibleBox}
+          bus={gestureBus}
         />
       </Bounds>
 
@@ -952,7 +1178,14 @@ export default function ModelViewer({
         />
       )}
 
-      <OrbitControls makeDefault enablePan autoRotate={tools.autoRotate} autoRotateSpeed={1.5} />
+      <OrbitControls
+        makeDefault
+        enablePan
+        autoRotate={tools.autoRotate}
+        autoRotateSpeed={1.5}
+        onStart={gestureBus.start}
+        onEnd={gestureBus.end}
+      />
 
       {/* `renderPriority={2}`, NOT drei's default of 1 -- with the
           `EffectComposer` active (`ViewerEffects` below, also a
@@ -974,8 +1207,7 @@ export default function ModelViewer({
           wrong (dark halos along the cut plane that don't correspond to any
           real crevice), so this gate wins over the lighting preset's own
           `ao` choice rather than combining with it. */}
-      <ViewerEffects ao={lighting.ao && !tools.section.enabled} />
-      <RafDriver />
+      <InteractiveEffects ao={lighting.ao && !tools.section.enabled} bus={gestureBus} />
     </Canvas>
   );
 }
@@ -985,23 +1217,23 @@ export default function ModelViewer({
  * for `frameloop="never"`), and re-targets when a dock moves the canvas
  * between windows. */
 function RafDriver() {
-  const gl = useThree((state) => state.gl);
   const set = useThree((state) => state.set);
-  const advance = useThree((state) => state.advance);
-  const scheduler = useMemo(
-    () =>
-      createRafScheduler(
-        () => gl.domElement.ownerDocument.defaultView ?? window,
-        (seconds) => advance(seconds, true),
-      ),
-    [gl, advance],
+  const get = useThree((state) => state.get);
+  // Created once (gl/advance are stable for the canvas's life); read lazily so
+  // nothing here can change identity and re-run the install below.
+  const [scheduler] = useState(() =>
+    createRafScheduler(
+      () => get().gl.domElement.ownerDocument.defaultView ?? window,
+      (seconds) => get().advance(seconds, true),
+    ),
   );
+  const [install] = useState(() => createInvalidateInstaller((invalidate) => set({ invalidate })));
 
   useLayoutEffect(() => {
-    set({ invalidate: scheduler.invalidate });
+    install(scheduler.invalidate);
     scheduler.invalidate();
     return scheduler.cancel;
-  }, [scheduler, set]);
+  }, [scheduler, install]);
 
   useOnRelocate(scheduler.invalidate);
   return null;

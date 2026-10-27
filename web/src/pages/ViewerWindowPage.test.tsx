@@ -170,7 +170,7 @@ describe("ViewerWindowPage", () => {
     renderPage();
 
     const viewer = await screen.findByTestId("model-viewer");
-    expect(viewer).toHaveAttribute("data-background", "#a1a1aa");
+    expect(viewer).toHaveAttribute("data-background", "#9aa5b8");
     const parts = modelViewerMock.mock.calls.at(-1)?.[0].parts;
     expect((parts ?? []).map((part: { id: number }) => part.id)).toEqual([1, 2]);
   });

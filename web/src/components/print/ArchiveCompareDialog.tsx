@@ -107,7 +107,7 @@ function Compared({ data }: { data: CompareOut }) {
           <table className="w-full">
             <tbody>
               {data.settings_diff.map((row) => (
-                <tr key={row.key} data-testid="diff-row" className="bg-amber-500/10">
+                <tr key={row.key} data-testid="diff-row" className="bg-warning/10">
                   <th className="px-2 py-1.5 text-left font-mono text-xs">{row.key}</th>
                   {cols.map((a) => (
                     <td key={a.id} className="px-2 py-1.5 font-mono text-xs">

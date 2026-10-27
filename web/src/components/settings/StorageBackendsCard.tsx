@@ -251,7 +251,7 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
             <p
               role={testBackend.data.ok ? undefined : "alert"}
               className={
-                testBackend.data.ok ? "mt-1 text-xs text-emerald-600 dark:text-emerald-400" : "mt-1 text-xs text-destructive"
+                testBackend.data.ok ? "mt-1 text-xs text-success" : "mt-1 text-xs text-destructive"
               }
             >
               {testBackend.data.detail} ({testBackend.data.latency_ms} ms)

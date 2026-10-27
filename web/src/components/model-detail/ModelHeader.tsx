@@ -253,7 +253,7 @@ export function ModelHeader({
             aria-pressed={model.favorite}
             onClick={() => patchModel.mutate({ favorite: !model.favorite })}
           >
-            <StarIcon className={model.favorite ? "fill-amber-400 text-amber-500" : ""} />
+            <StarIcon className={model.favorite ? "fill-warning text-warning" : ""} />
           </Button>
           {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" /> : null}
           {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}

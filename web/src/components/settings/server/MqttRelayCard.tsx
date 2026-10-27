@@ -154,7 +154,7 @@ function Form({ data }: { data: MqttRelay }) {
             {test.isPending ? t("settings.server.relay.testing") : t("settings.server.relay.test")}
           </Button>
           {test.data ? (
-            <span role="status" className={test.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}>
+            <span role="status" className={test.data.ok ? "text-sm text-success" : "text-sm text-destructive"}>
               {test.data.ok ? t("settings.server.relay.testOk") : t("settings.server.relay.testFailed", { error: test.data.detail })}
             </span>
           ) : null}
