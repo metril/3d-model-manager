@@ -87,6 +87,7 @@ async def list_models(
     tags: Annotated[list[int] | None, Query()] = None,
     tag_mode: Literal["any", "all"] = "any",
     file_tags: Annotated[list[int] | None, Query()] = None,
+    file_tag_mode: Literal["any", "all"] = "any",
     format: str | None = None,
     has_sliced: bool | None = None,
     collection: int | None = None,
@@ -116,6 +117,7 @@ async def list_models(
         tag_ids=tags or (),
         tag_mode=tag_mode,
         file_tag_ids=file_tags or (),
+        file_tag_mode=file_tag_mode,
     )
     return GalleryPage(items=items, next_cursor=next_cursor)
 

@@ -770,7 +770,7 @@ async def bulk_update_models(
     touched_ids: set[int] = set()
 
     if add_tags:
-        tag_ids = [await _get_or_create_tag_id(db, name) for name in add_tags]
+        tag_ids = list(dict.fromkeys([await _get_or_create_tag_id(db, name) for name in add_tags]))
         existing_pairs = set(
             (
                 await db.execute(
@@ -1209,6 +1209,7 @@ async def list_models(
     tag_ids: Sequence[int] = (),
     tag_mode: tags_svc.TagMode = "any",
     file_tag_ids: Sequence[int] = (),
+    file_tag_mode: tags_svc.TagMode = "any",
 ) -> tuple[list[ModelSummary], str | None]:
     """Gallery query: search/filter/sort + cursor pagination (Task 5
     interface decision; Task 7 adds the ``has_sliced`` filter; Branch 3 Task 1
@@ -1253,8 +1254,8 @@ async def list_models(
         stmt = stmt.where(tags_svc.tag_filter("model", Model.id, tag_ids, tag_mode))
     if file_tag_ids:
         # Any revision's file path counts (file tags key on rel_path, not a
-        # revision); with tag_mode=all one file path must carry every tag.
-        stmt = stmt.where(tags_svc.file_tag_filter(Model.id, file_tag_ids, tag_mode))
+        # revision); with file_tag_mode=all one file path must carry every tag.
+        stmt = stmt.where(tags_svc.file_tag_filter(Model.id, file_tag_ids, file_tag_mode))
     if format_:
         stmt = stmt.where(
             Model.current_revision_id.in_(

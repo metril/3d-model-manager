@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { glbFiles, pickViewerFiles } from "@/components/viewer/viewable";
 import type { FileOut, ModelDetail } from "@/api/types";
@@ -51,16 +51,22 @@ export function useStudioSelection(model: ModelDetail | undefined): {
   // conversion finishing and promoting a file into the assembly) falls back
   // to the same default a fresh mount would have seeded, instead of a blank
   // surface.
-  const selection: StudioSelection | undefined =
+  const resolved: StudioSelection | undefined =
     raw && (raw.type === "assembly" ? glbable.length > 0 : others.some((file) => file.id === raw.id))
       ? raw
       : defaultSelection(glbable, others);
+  // Primitive key keeps `selection` identity-stable across renders.
+  const selKey = resolved ? (resolved.type === "assembly" ? "assembly" : `file:${resolved.id}`) : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const selection = useMemo(() => resolved, [selKey]);
+  const onSelectAssembly = useCallback(() => setRaw({ type: "assembly" }), []);
+  const onViewIn3D = useCallback(
+    (file: FileOut) => setRaw(file.glb_status === "ok" ? { type: "assembly" } : { type: "file", id: file.id }),
+    [],
+  );
 
-  return {
-    selection,
-    glbable,
-    others,
-    onSelectAssembly: () => setRaw({ type: "assembly" }),
-    onViewIn3D: (file) => setRaw(file.glb_status === "ok" ? { type: "assembly" } : { type: "file", id: file.id }),
-  };
+  return useMemo(
+    () => ({ selection, glbable, others, onSelectAssembly, onViewIn3D }),
+    [selection, glbable, others, onSelectAssembly, onViewIn3D],
+  );
 }

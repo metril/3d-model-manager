@@ -107,6 +107,31 @@ def upgrade() -> None:
         )
         op.create_index(f"ix_{table}_tag_id", table, ["tag_id"])
 
+    # Carry legacy free-text arrays into the shared vocabulary.
+    for table, col, parent, legacy in (
+        ("project_tags", "project_id", "projects", "projects"),
+        ("print_archive_tags", "archive_id", "print_archives", "print_archives"),
+    ):
+        op.execute(
+            f"""
+            INSERT INTO tags (name)
+            SELECT DISTINCT ON (lower(n)) n FROM (
+              SELECT btrim(unnest(tags)) AS n FROM {legacy}
+            ) s WHERE n <> '' ORDER BY lower(n), n
+            ON CONFLICT DO NOTHING
+            """
+        )
+        op.execute(
+            f"""
+            INSERT INTO {table} ({col}, tag_id)
+            SELECT DISTINCT s.id, t.id FROM (
+              SELECT id, btrim(unnest(tags)) AS n FROM {parent}
+            ) s JOIN tags t ON lower(t.name) = lower(s.n)
+            WHERE s.n <> ''
+            ON CONFLICT DO NOTHING
+            """
+        )
+
 
 def downgrade() -> None:
     for table, _col, _parent in reversed(_SIMPLE_JOINS):

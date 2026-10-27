@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
 
@@ -49,6 +49,13 @@ export function ModelDetailPage() {
   // >=900px: dockable panels. Below: the stacked cards, no dock.
   const docked = useMediaQuery("(min-width: 900px)");
   const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
+  // Memoised so unrelated re-renders (dock api, media query) don't re-render
+  // every context consumer, including the WebGL viewer stage.
+  const model = modelQuery.data;
+  const ctxValue = useMemo(
+    () => (model ? { model, editMode, setEditMode, relocateOpen, setRelocateOpen, studio } : null),
+    [model, editMode, relocateOpen, studio],
+  );
 
   if (modelQuery.isLoading) {
     return (
@@ -66,13 +73,10 @@ export function ModelDetailPage() {
     return <p className="text-sm text-destructive">{message}</p>;
   }
 
-  const model = modelQuery.data;
-  if (!model) return null;
+  if (!model || !ctxValue) return null;
 
   return (
-    <ModelDetailProvider
-      value={{ model, editMode, setEditMode, relocateOpen, setRelocateOpen, studio }}
-    >
+    <ModelDetailProvider value={ctxValue}>
       <div className="space-y-6">
         <ModelHeader
           model={model}
