@@ -58,7 +58,7 @@ interface StoredBackground {
   custom: string;
 }
 
-const DEFAULT_STATE: StoredBackground = { preset: "studio", custom: DEFAULT_CUSTOM_COLOR };
+const DEFAULT_STATE: StoredBackground = { preset: "theme", custom: DEFAULT_CUSTOM_COLOR };
 
 function isBackgroundPreset(value: unknown): value is BackgroundPreset {
   return typeof value === "string" && (BACKGROUND_PRESET_ORDER as readonly string[]).includes(value);
