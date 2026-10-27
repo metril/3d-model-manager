@@ -222,10 +222,14 @@ class Tag(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    # Palette key (see app.schemas.library.TAG_COLORS), not a free-form
-    # value -- enforced by a Literal at the API layer and a CHECK
-    # constraint in the DB (some paths write model_tags/tags directly).
-    color: Mapped[str | None] = mapped_column(String, nullable=True)
+    # ``#rrggbb`` hex (validated at the API layer). Names are additionally
+    # unique case-insensitively via the ``uq_tags_name_lower`` index below.
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    icon: Mapped[str | None] = mapped_column(String, nullable=True)  # lucide icon name
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+Index("uq_tags_name_lower", func.lower(Tag.name), unique=True)
 
 
 class Note(Base):

@@ -72,6 +72,13 @@ from app.models.sensors import PrinterSensorSample
 from app.models.slicing import PrintRecipe, SliceJob, SlicerPipeline, SlicerProfile
 from app.models.storage import FileLocation, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
+from app.models.tag_links import (  # noqa: F401
+    followed_collection_tags,
+    model_file_tags,
+    print_archive_tags,
+    project_attachment_tags,
+    project_tags,
+)
 from app.models.virtual_printer import VirtualPrinter
 
 __all__ = [

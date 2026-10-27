@@ -14,6 +14,7 @@ from app.models.enums import (
     PrintJobOrigin,
     VerdictSource,
 )
+from app.schemas.library import TagRef
 from app.schemas.prints import PrintOut
 
 
@@ -56,6 +57,7 @@ class ArchiveOut(BaseModel):
     result_override: ArchiveResult | None = None
     notes: str | None = None
     tags: list[str] = Field(default_factory=list)
+    tag_refs: list[TagRef] = []
     confirm_requested: bool = False
     confirm_expires_at: datetime | None = None
     user_verdict: ArchiveVerdict | None = None

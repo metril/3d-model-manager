@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.library import TagRef
+
 ProjectStatus = Literal["planning", "active", "on_hold", "completed", "archived"]
 
 
@@ -137,6 +139,7 @@ class AttachmentOut(BaseModel):
     content_type: str | None = None
     size: int
     created_at: datetime
+    tag_refs: list[TagRef] = []
 
 
 class ProjectSummary(BaseModel):
@@ -149,6 +152,7 @@ class ProjectSummary(BaseModel):
     cover_model_id: int | None = None
     cover_model_slug: str | None = None
     tags: list[str]
+    tag_refs: list[TagRef] = []
     is_template: bool
     completed_at: datetime | None = None
     created_by_user_id: int | None = None

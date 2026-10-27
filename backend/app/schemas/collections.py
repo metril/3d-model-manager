@@ -12,6 +12,8 @@ from app.models.enums import CollectionSyncMode, ImportSite
 if TYPE_CHECKING:
     from app.models.collections import FollowedCollection, PendingImport
 
+from app.schemas.library import TagRef
+
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -28,6 +30,7 @@ class FollowedCollectionOut(BaseModel):
     # Up to 4 member-model thumbnail URLs for the card's 2x2 collage (R11-C
     # item 17); empty when nothing has a ready cover yet.
     preview_thumbnails: list[str] = []
+    tag_refs: list[TagRef] = []
 
     @classmethod
     def from_model(
