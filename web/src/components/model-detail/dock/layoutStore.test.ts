@@ -59,7 +59,7 @@ describe("layoutStore", () => {
   });
 
   it("ignores a layout saved under the v1 key", () => {
-    expect(LAYOUT_KEY).toMatch(/v3$/);
+    expect(LAYOUT_KEY).toMatch(/v4$/);
     const storage = { getItem: (k: string) => (k === "tdmm.modelDetailLayout.v1" ? "{}" : null) } as Storage;
     expect(loadLayout(storage)).toBeNull();
   });
