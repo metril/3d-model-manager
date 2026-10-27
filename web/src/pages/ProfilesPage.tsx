@@ -350,7 +350,7 @@ export function ProfilesPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Profiles & recipes</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Profiles & recipes</h1>
         <p className="text-sm text-muted-foreground">
           Slicer profiles imported from a bundle, the sidecar or your cloud accounts, the recipes that combine them, and the pipelines that run them.
         </p>

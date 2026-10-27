@@ -14,35 +14,35 @@ describe("appearance", () => {
     delete document.documentElement.dataset.accent;
   });
 
-  it("defaults to classic/blue and stamps <html>", () => {
+  it("defaults to classic/teal and stamps <html>", () => {
     const { result } = renderHook(() => useAppearance(), { wrapper });
     expect(result.current.style).toBe("classic");
-    expect(result.current.accent).toBe("blue");
+    expect(result.current.accent).toBe("teal");
     expect(document.documentElement.dataset.style).toBe("classic");
-    expect(document.documentElement.dataset.accent).toBe("blue");
+    expect(document.documentElement.dataset.accent).toBe("teal");
   });
 
   it("persists choices and restores them on remount", () => {
     const first = renderHook(() => useAppearance(), { wrapper });
     act(() => {
       first.result.current.setStyle("glow");
-      first.result.current.setAccent("teal");
+      first.result.current.setAccent("purple");
     });
     expect(window.localStorage.getItem(STYLE_KEY)).toBe("glow");
-    expect(window.localStorage.getItem(ACCENT_KEY)).toBe("teal");
-    expect(document.documentElement.dataset.accent).toBe("teal");
+    expect(window.localStorage.getItem(ACCENT_KEY)).toBe("purple");
+    expect(document.documentElement.dataset.accent).toBe("purple");
     first.unmount();
 
     const second = renderHook(() => useAppearance(), { wrapper });
     expect(second.result.current.style).toBe("glow");
-    expect(second.result.current.accent).toBe("teal");
+    expect(second.result.current.accent).toBe("purple");
   });
 
   it("ignores garbage in storage", () => {
     window.localStorage.setItem(STYLE_KEY, "neon");
     window.localStorage.setItem(ACCENT_KEY, "pink");
     const { result } = renderHook(() => useAppearance(), { wrapper });
-    expect([result.current.style, result.current.accent]).toEqual(["classic", "blue"]);
+    expect([result.current.style, result.current.accent]).toEqual(["classic", "teal"]);
   });
 
   it("throws outside the provider", () => {

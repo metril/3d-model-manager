@@ -166,7 +166,7 @@ export function ProjectsPage() {
   return (
     <PageContainer width="default">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Projects</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
         {canWrite && (
           <Button type="button" onClick={() => setCreateOpen(true)}>
             <PlusIcon /> New project

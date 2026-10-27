@@ -222,7 +222,7 @@ function QueueLanes() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Print queue</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print queue</h1>
           <p className="text-sm text-muted-foreground">
             One lane per printer, plus unassigned entries waiting for the dispatcher.
           </p>

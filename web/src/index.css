@@ -65,10 +65,8 @@
     --shadow-elevation-3: var(--elevation-3);
     /* Printer-state vocabulary (P3 Task 4, `lib/printerState.ts`'s
        `StateTone`) -- one named color per tone, shared by StateBadge,
-       Sparkline, and the overview's table rows. `printing` reuses the
-       brand amber (the spec reserves amber for primary + in-progress);
-       the rest are new, dedicated hues so finished/failed/paused/idle/
-       offline never compete with the primary accent. */
+       Sparkline, and the overview's table rows. each has a dedicated
+       hue (printing = sky blue) so none compete with the primary accent. */
     --color-state-printing: var(--state-printing);
     --color-state-finished: var(--state-finished);
     --color-state-failed: var(--state-failed);
@@ -78,106 +76,111 @@
 }
 
 :root {
-    /* Cool slate neutrals (oklch hue ~255, low chroma). Accent hue/chroma
-       come from `data-accent`; lightness is per mode via --accent-l. */
-    --accent-h: 262;
-    --accent-c: 0.19;
-    --accent-l: 0.56;
+    /* Slate + teal (palette A). Neutrals sit at hue ~245-250 with low chroma;
+       accent hue comes from `data-accent`, with the same L/C for every accent
+       so they swap without changing contrast. */
+    --accent-h: 192;
+    --accent-c: 0.105;
+    --accent-l: 0.52;
     --style-chroma: 1;
-    --background: oklch(0.968 0.007 255);
-    --foreground: oklch(0.18 0.02 260);
-    --card: oklch(1 0.002 255);
-    --card-foreground: oklch(0.18 0.02 260);
-    --popover: oklch(1 0.002 255);
-    --popover-foreground: oklch(0.18 0.02 260);
+    --background: oklch(0.975 0.006 245);
+    --foreground: oklch(0.21 0.025 250);
+    --card: oklch(0.995 0.003 245);
+    --card-foreground: oklch(0.21 0.025 250);
+    --popover: oklch(1 0.002 245);
+    --popover-foreground: oklch(0.21 0.025 250);
     --primary: oklch(var(--accent-l) calc(var(--accent-c) * var(--style-chroma)) var(--accent-h));
-    --primary-foreground: oklch(0.985 0.004 255);
-    --secondary: oklch(0.935 0.012 255);
-    --secondary-foreground: oklch(0.25 0.025 260);
-    --muted: oklch(0.96 0.008 255);
-    --muted-foreground: oklch(0.45 0.022 257);
-    --accent: oklch(0.935 0.014 255);
-    --accent-foreground: oklch(0.25 0.025 260);
-    --destructive: oklch(0.577 0.225 27);
-    --success: oklch(0.55 0.14 152);
-    --success-foreground: oklch(0.985 0.004 255);
-    --warning: oklch(0.6 0.14 70);
-    --warning-foreground: oklch(0.18 0.02 260);
-    --border: oklch(0.9 0.012 255);
-    --input: oklch(0.86 0.014 255);
-    --ring: var(--primary);
-    --chart-1: var(--viz-1);
-    --chart-2: var(--viz-2);
-    --chart-3: var(--viz-3);
-    --chart-4: var(--viz-4);
-    --chart-5: var(--viz-5);
+    --primary-foreground: oklch(0.985 0.01 var(--accent-h));
+    --secondary: oklch(0.935 0.014 240);
+    --secondary-foreground: oklch(0.25 0.025 250);
+    --muted: oklch(0.955 0.01 245);
+    --muted-foreground: oklch(0.47 0.025 250);
+    --accent: oklch(0.93 0.03 var(--accent-h));
+    --accent-foreground: oklch(0.25 0.025 250);
+    --destructive: oklch(0.55 0.2 25);
+    --success: oklch(0.54 0.13 155);
+    --success-foreground: oklch(0.985 0.01 155);
+    --warning: oklch(0.52 0.13 70);
+    --warning-foreground: oklch(0.985 0.01 80);
+    --border: oklch(0.9 0.014 245);
+    --input: oklch(0.86 0.016 245);
+    --ring: oklch(0.6 0.11 var(--accent-h));
+    --chart-1: var(--primary);
+    --chart-2: var(--state-printing);
+    --chart-3: var(--state-finished);
+    --chart-4: var(--state-paused);
+    --chart-5: var(--state-failed);
     --radius: 0.625rem;
-    --sidebar: oklch(0.945 0.01 255);
-    --sidebar-foreground: oklch(0.18 0.02 260);
+    --sidebar: oklch(0.955 0.01 245);
+    --sidebar-foreground: oklch(0.21 0.025 250);
     --sidebar-primary: var(--primary);
     --sidebar-primary-foreground: var(--primary-foreground);
-    --sidebar-accent: oklch(0.91 0.016 255);
-    --sidebar-accent-foreground: oklch(0.25 0.025 260);
-    --sidebar-border: oklch(0.88 0.014 255);
+    --sidebar-accent: oklch(0.92 0.02 245);
+    --sidebar-accent-foreground: oklch(0.25 0.025 250);
+    --sidebar-border: oklch(0.89 0.014 245);
     --sidebar-ring: var(--ring);
-    --elevation-1: 0 1px 2px 0 oklch(0.25 0.04 260 / 8%), 0 1px 1px 0 oklch(0.25 0.04 260 / 4%);
-    --elevation-2: 0 2px 8px -2px oklch(0.25 0.04 260 / 12%), 0 1px 2px -1px oklch(0.25 0.04 260 / 8%);
-    --elevation-3: 0 12px 32px -6px oklch(0.25 0.04 260 / 18%), 0 4px 10px -4px oklch(0.25 0.04 260 / 10%);
-    /* Printer-state tones (`lib/printerState.ts`): mapped onto the semantic
-       status tokens so they track the theme. */
-    --state-printing: var(--primary);
+    --elevation-1: 0 1px 2px 0 oklch(0.25 0.04 250 / 8%), 0 1px 1px 0 oklch(0.25 0.04 250 / 4%);
+    --elevation-2: 0 2px 8px -2px oklch(0.25 0.04 250 / 12%), 0 1px 2px -1px oklch(0.25 0.04 250 / 8%);
+    --elevation-3: 0 12px 32px -6px oklch(0.25 0.04 250 / 18%), 0 4px 10px -4px oklch(0.25 0.04 250 / 10%);
+    /* Printer-state tones (`lib/printerState.ts`): dedicated hues, never the
+       brand accent. Offline is text-grade (L 0.50 light / 0.66 dark, >=4.5:1). */
+    --state-printing: oklch(0.55 0.15 240);
     --state-finished: var(--success);
     --state-failed: var(--destructive);
     --state-paused: var(--warning);
-    --state-idle: var(--muted-foreground);
-    --state-offline: oklch(0.68 0.012 255);
+    --state-idle: oklch(0.5 0.02 250);
+    --state-offline: oklch(0.5 0.012 250);
 }
 
 .dark {
-    --accent-l: 0.66;
-    /* Layered surfaces: bg < card < popover. Hairlines are white alpha. */
-    --background: oklch(0.135 0.012 258);
-    --foreground: oklch(0.97 0.005 255);
-    --card: oklch(0.185 0.016 257);
-    --card-foreground: oklch(0.97 0.005 255);
-    --popover: oklch(0.225 0.018 257);
-    --popover-foreground: oklch(0.97 0.005 255);
-    --primary-foreground: oklch(0.14 0.02 260);
-    --secondary: oklch(0.25 0.016 255);
-    --secondary-foreground: oklch(0.97 0.005 255);
-    --muted: oklch(0.23 0.014 255);
-    --muted-foreground: oklch(0.74 0.02 257);
-    --accent: oklch(0.26 0.018 255);
-    --accent-foreground: oklch(0.97 0.005 255);
-    --destructive: oklch(0.7 0.19 22);
-    --success: oklch(0.74 0.16 152);
-    --success-foreground: oklch(0.14 0.02 260);
-    --warning: oklch(0.8 0.15 80);
-    --warning-foreground: oklch(0.14 0.02 260);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --sidebar: oklch(0.105 0.012 258);
-    --sidebar-foreground: oklch(0.97 0.005 255);
-    --sidebar-accent: oklch(0.22 0.02 257);
-    --sidebar-accent-foreground: oklch(0.97 0.005 255);
-    --sidebar-border: oklch(1 0 0 / 9%);
+    --accent-l: 0.76;
+    --accent-c: 0.12;
+    /* Layered surfaces: bg < card < popover; hairlines are tinted, not white alpha. */
+    --background: oklch(0.175 0.016 250);
+    --foreground: oklch(0.95 0.008 245);
+    --card: oklch(0.215 0.018 250);
+    --card-foreground: oklch(0.95 0.008 245);
+    --popover: oklch(0.25 0.02 250);
+    --popover-foreground: oklch(0.95 0.008 245);
+    --primary-foreground: oklch(0.18 0.03 var(--accent-h));
+    --secondary: oklch(0.27 0.02 250);
+    --secondary-foreground: oklch(0.95 0.008 245);
+    --muted: oklch(0.25 0.018 250);
+    --muted-foreground: oklch(0.74 0.02 248);
+    --accent: oklch(0.3 0.04 var(--accent-h));
+    --accent-foreground: oklch(0.95 0.008 245);
+    --destructive: oklch(0.7 0.18 25);
+    --success: oklch(0.75 0.15 155);
+    --success-foreground: oklch(0.18 0.03 155);
+    --warning: oklch(0.8 0.14 75);
+    --warning-foreground: oklch(0.18 0.03 75);
+    --border: oklch(0.31 0.022 250);
+    --input: oklch(0.35 0.024 250);
+    --ring: oklch(0.7 0.12 var(--accent-h));
+    --sidebar: oklch(0.175 0.016 250);
+    --sidebar-foreground: oklch(0.95 0.008 245);
+    --sidebar-accent: oklch(0.25 0.02 250);
+    --sidebar-accent-foreground: oklch(0.95 0.008 245);
+    --sidebar-border: oklch(0.31 0.022 250);
     --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 40%), inset 0 1px 0 0 rgb(255 255 255 / 5%);
     --elevation-2: 0 2px 10px -2px rgb(0 0 0 / 55%), 0 1px 3px -1px rgb(0 0 0 / 45%);
     --elevation-3: 0 16px 40px -8px rgb(0 0 0 / 65%), 0 4px 12px -4px rgb(0 0 0 / 50%);
-    --state-offline: oklch(0.42 0.015 255);
+    --state-printing: oklch(0.74 0.13 240);
+    --state-idle: oklch(0.7 0.02 248);
+    --state-offline: oklch(0.66 0.015 250);
 }
 
 /* Q8a appearance: style x accent layered on top of the mode (.dark/:root).
    `data-accent`/`data-style` are set on <html> by `lib/appearance.tsx`; with
-   neither attribute the defaults above (classic + cool blue) apply.
-   Accents only carry hue/chroma (lightness is --accent-l per mode);
-   `--style-chroma` lets "vibrant" boost it. */
-:root[data-accent="blue"] { --accent-h: 262; --accent-c: 0.19; }
-:root[data-accent="orange"] { --accent-h: 41.1; --accent-c: 0.176; }
-:root[data-accent="green"] { --accent-h: 149; --accent-c: 0.16; }
-:root[data-accent="teal"] { --accent-h: 190; --accent-c: 0.12; }
-:root[data-accent="purple"] { --accent-h: 300; --accent-c: 0.2; }
-:root[data-accent="red"] { --accent-h: 25; --accent-c: 0.21; }
+   neither attribute the defaults above (classic + teal) apply.
+   Accents only carry hue; L/C are shared per mode (--accent-l/--accent-c) so
+   every accent has teal's contrast. `--style-chroma` lets "vibrant" boost it. */
+:root[data-accent="teal"] { --accent-h: 192; }
+:root[data-accent="blue"] { --accent-h: 255; }
+:root[data-accent="orange"] { --accent-h: 50; }
+:root[data-accent="green"] { --accent-h: 150; }
+:root[data-accent="purple"] { --accent-h: 300; }
+:root[data-accent="red"] { --accent-h: 20; }
 /* Glow: accent-tinted hairlines and a soft accent halo on raised surfaces. */
 :root[data-style="glow"] {
     --border: color-mix(in oklch, var(--primary) 28%, transparent);
@@ -189,17 +192,17 @@
 /* Vibrant: saturated accent and accent-washed surfaces. */
 :root[data-style="vibrant"] {
     --style-chroma: 1.35;
-    --background: color-mix(in oklch, var(--primary) 7%, oklch(0.99 0.004 255));
-    --card: color-mix(in oklch, var(--primary) 4%, oklch(1 0.002 255));
-    --sidebar: color-mix(in oklch, var(--primary) 9%, oklch(0.99 0.004 255));
-    --muted: color-mix(in oklch, var(--primary) 10%, oklch(0.97 0.008 255));
+    --background: color-mix(in oklch, var(--primary) 7%, oklch(0.99 0.004 245));
+    --card: color-mix(in oklch, var(--primary) 4%, oklch(0.995 0.003 245));
+    --sidebar: color-mix(in oklch, var(--primary) 9%, oklch(0.99 0.004 245));
+    --muted: color-mix(in oklch, var(--primary) 10%, oklch(0.97 0.008 245));
 }
 :root.dark[data-style="vibrant"] {
-    --background: color-mix(in oklch, var(--primary) 12%, oklch(0.15 0.012 255));
-    --card: color-mix(in oklch, var(--primary) 14%, oklch(0.19 0.014 255));
-    --popover: color-mix(in oklch, var(--primary) 16%, oklch(0.22 0.016 255));
-    --sidebar: color-mix(in oklch, var(--primary) 16%, oklch(0.175 0.013 255));
-    --muted: color-mix(in oklch, var(--primary) 12%, oklch(0.23 0.014 255));
+    --background: color-mix(in oklch, var(--primary) 12%, oklch(0.17 0.014 250));
+    --card: color-mix(in oklch, var(--primary) 14%, oklch(0.21 0.016 250));
+    --popover: color-mix(in oklch, var(--primary) 16%, oklch(0.245 0.018 250));
+    --sidebar: color-mix(in oklch, var(--primary) 16%, oklch(0.17 0.014 250));
+    --muted: color-mix(in oklch, var(--primary) 12%, oklch(0.25 0.016 250));
 }
 
 @layer base {

@@ -69,7 +69,7 @@ export function JobsPage() {
     <PageContainer width="default">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Jobs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Jobs</h1>
           <p className="text-sm text-muted-foreground">
             Every background job tracked by the app — uploads, pipeline steps, scans, imports, and storage migrations.
           </p>

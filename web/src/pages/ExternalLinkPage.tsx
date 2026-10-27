@@ -52,7 +52,7 @@ export function ExternalLinkPage() {
   return (
     <div className="flex h-[calc(100svh-7rem)] flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">{link.name}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{link.name}</h1>
         {openButton}
       </div>
       <iframe

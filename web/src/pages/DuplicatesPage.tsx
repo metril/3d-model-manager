@@ -109,7 +109,7 @@ export function DuplicatesPage() {
     <PageContainer width="default">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Duplicate files</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Duplicate files</h1>
           <p className="text-sm text-muted-foreground">
             {reportQuery.data
               ? `Reclaimable: ${humanizeBytes(reportQuery.data.total_wasted_bytes)}`

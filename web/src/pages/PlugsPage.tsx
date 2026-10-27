@@ -30,7 +30,7 @@ export function PlugsPage() {
     <PageContainer width="default">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold text-foreground">Smart plugs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Smart plugs</h1>
           <p className="text-sm text-muted-foreground">
             {list.length} plug{list.length === 1 ? "" : "s"} - {totalW.toFixed(0)} W now - {totalKwh.toFixed(2)} kWh total
           </p>

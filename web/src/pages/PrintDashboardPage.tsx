@@ -71,7 +71,7 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Print</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
         </div>
         <div className="space-y-2 py-8 text-center">
           <p role="alert" className="text-sm text-destructive">
@@ -89,7 +89,7 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Print</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
           <p className="text-sm text-muted-foreground">Add a printer to start printing from here.</p>
         </div>
         <PrinterSetupCard />
@@ -100,7 +100,7 @@ export function PrintDashboardPage() {
   return (
     <PageContainer width="fluid">
       <div>
-        <h1 className="text-lg font-semibold text-foreground">Print</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
         <p className="text-sm text-muted-foreground">A live overview of your printers.</p>
       </div>
 
