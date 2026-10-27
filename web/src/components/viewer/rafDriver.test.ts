@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRafScheduler, type RafWindow } from "./rafDriver";
+import { createInvalidateInstaller, createRafScheduler, type RafWindow } from "./rafDriver";
 
 function fakeWindow() {
   let next = 1;
@@ -82,5 +82,17 @@ describe("createRafScheduler", () => {
     expect(times).toHaveLength(3);
     const deltas = times.slice(1).map((t, i) => t - times[i]);
     expect(deltas.every((d) => d > 0 && d < 0.1)).toBe(true);
+  });
+});
+
+describe("createInvalidateInstaller", () => {
+  it("applies invalidate exactly once", () => {
+    const apply = vi.fn();
+    const install = createInvalidateInstaller(apply);
+    const fn = () => {};
+    install(fn);
+    install(fn);
+    install(() => {});
+    expect(apply).toHaveBeenCalledExactlyOnceWith(fn);
   });
 });
