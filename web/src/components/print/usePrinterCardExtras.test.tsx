@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
@@ -41,18 +41,19 @@ describe("ManagedPrinterCard (usePrinterCardExtras)", () => {
     getCalls.length = 0;
   });
 
-  it("M card: camera split button, firmware and history buttons in the footer; Info/Diagnose in the menu", async () => {
+  it("M card: camera split button + More menu (firmware, history) in the footer toolbar", async () => {
     renderCard(<ManagedPrinterCard item={a1Mini()} size="M" />);
     expect(await screen.findByRole("button", { name: "Camera" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Camera options" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Firmware" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Temperature history" })).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Firmware" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Temperature history" })).toBeInTheDocument();
   });
 
   it("S compact card shows no footer items", async () => {
     renderCard(<ManagedPrinterCard item={a1Mini()} size="S" />);
     expect(await screen.findByRole("button", { name: /Expand/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Firmware" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Camera" })).toBeNull();
   });
 

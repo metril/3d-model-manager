@@ -623,6 +623,10 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteDesc": "The printer and its connection settings are removed. Print history is kept."
     },
+    "tools": {
+      "label": "Printer tools",
+      "more": "More"
+    },
     "footer": {
       "print": "Print",
       "firmware": "Firmware"
@@ -655,6 +659,7 @@
       "extrude": "Extrude",
       "retract": "Retract",
       "extrudeHint": "Extrude needs the nozzle at 170 °C or hotter.",
+      "section": "Live controls",
       "lightLabel": "Chamber light",
       "light": "Light",
       "speed": "Print speed",

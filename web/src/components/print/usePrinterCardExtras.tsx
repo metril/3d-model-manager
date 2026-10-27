@@ -6,19 +6,14 @@
  */
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { MaintenanceBadge } from "@/components/maintenance/MaintenanceBadge";
-import { CameraSplitButton } from "@/components/print/CameraSplitButton";
-import { HistoryButtons } from "@/components/print/HistoryButtons";
 import { SharedPlugRow } from "@/components/print/PlugRow";
+import { PrinterToolbar } from "@/components/print/card/PrinterToolbar";
 import { usePrinterModals } from "@/components/print/modals";
 import type { CardSlot } from "@/components/print/PrinterCard";
 import { SharedDetectionBadge } from "@/components/printer/DetectionBadge";
-import { capsOf } from "@/components/print/card/caps";
-import { UntestedTip } from "@/components/print/card/UntestedTip";
-import { Button } from "@/components/ui/button";
 
 export interface CardPerms {
   /** `canPrinter(id, "print")`: camera, HMS, detection, history. */
@@ -38,10 +33,8 @@ export interface CardExtras {
 }
 
 export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusOut, perms: CardPerms): CardExtras {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const modals = usePrinterModals(printer.id, status);
-  const amsUnits = status.ams_units?.map((u) => u.id) ?? [];
   const goDetail = () => void navigate({ to: "/printers/$id", params: { id: String(printer.id) } });
   return {
     onInfo: () => modals.open("info"),
@@ -55,31 +48,16 @@ export function usePrinterCardExtras(printer: PrinterOut, status: PrinterStatusO
       </>
     ),
     footerExtra: (ctx) => (
-      <>
-        {perms.canPrint ? <CameraSplitButton printerId={printer.id} onInline={goDetail} /> : null}
-        <SharedPlugRow printerId={printer.id} canControl={ctx.canControl} />
-        {ctx.canControl ? (
-          <UntestedTip show={capsOf(printer).verified === false}>
-            <Button variant="outline" size="sm" onClick={() => modals.open("printOptions")}>
-              {t("printerOps.printOptions.menu")}
-            </Button>
-          </UntestedTip>
-        ) : null}
-        {ctx.canControl && capsOf(printer).kprofiles ? (
-          <Button variant="outline" size="sm" onClick={() => modals.open("kprofiles")}>
-            {t("kprofile.menu")}
-          </Button>
-        ) : null}
-        {perms.canPrint && capsOf(printer).sd_browser ? (
-          <Button variant="outline" size="sm" onClick={() => modals.open("files")}>
-            {t("printerOps.files.button")}
-          </Button>
-        ) : null}
-        <Button variant="outline" size="sm" onClick={() => modals.open("firmware")}>
-          {t("card.footer.firmware")}
-        </Button>
-        {perms.canPrint ? <HistoryButtons printerId={printer.id} amsUnits={amsUnits} /> : null}
-      </>
+      <PrinterToolbar
+        printer={printer}
+        status={status}
+        canControl={ctx.canControl}
+        canPrint={perms.canPrint}
+        size={ctx.size}
+        onOpen={(kind) => modals.open(kind)}
+        onCamera={goDetail}
+        extra={<SharedPlugRow printerId={printer.id} canControl={ctx.canControl} />}
+      />
     ),
     modals: modals.modals,
   };

@@ -154,12 +154,15 @@ describe("PrinterDetailPage", () => {
     mockGet();
     const first = renderDetail();
     await screen.findByText("42%");
-    expect(screen.queryByRole("button", { name: "AMS history" })).toBeNull();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
+    await screen.findByRole("menuitem", { name: "Firmware" });
+    expect(screen.queryByRole("menuitem", { name: "AMS history" })).toBeNull();
     first.unmount();
 
     mockGet({ amsUnits: [0, 1] });
     renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "AMS history" }));
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "AMS history" }));
     expect(await screen.findByRole("img", { name: /AMS unit 2 - Humidity/ })).toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith(expect.stringMatching(/^\/printers\/1\/ams-history\?unit=1&from=/));
   });
@@ -181,7 +184,8 @@ describe("PrinterDetailPage", () => {
   it("offers a Firmware button that opens the firmware modal", async () => {
     mockGet();
     renderDetail();
-    expect(await screen.findByRole("button", { name: "Firmware" })).toBeInTheDocument();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Firmware" })).toBeInTheDocument();
   });
 
   it("hides Pause for a member without control", async () => {
