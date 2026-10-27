@@ -28,7 +28,8 @@ const value = {
   setEditMode: vi.fn(),
   relocateOpen: false,
   setRelocateOpen: vi.fn(),
-  studio: { selection: undefined, glbable: [], others: [], onSelectAssembly: vi.fn(), onViewIn3D: vi.fn() },
+  studio: { selection: undefined, glbable: [], others: [], onSelectAssembly: vi.fn(),
+      onSelectFile: vi.fn(), onViewIn3D: vi.fn() },
 } as ModelDetailContextValue;
 
 beforeAll(() => {

@@ -3,7 +3,7 @@ import type { DockviewApi, IDockviewPanel } from "dockview-react";
 import { DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
 
 const LEFT_WIDTH = 0.66;
-const LEFT_TOP_HEIGHT = 0.7;
+const LEFT_TOP_HEIGHT = 0.78;
 const RIGHT_TOP_HEIGHT = 0.5;
 
 type Direction = "above" | "below" | "left" | "right";

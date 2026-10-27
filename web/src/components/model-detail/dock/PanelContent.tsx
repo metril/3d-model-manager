@@ -28,6 +28,7 @@ function ViewerContent({ fill }: { fill?: boolean }) {
       others={studio.others}
       selection={studio.selection}
       onSelectAssembly={studio.onSelectAssembly}
+      onSelectFile={studio.onSelectFile}
       fill={fill}
     />
   );
@@ -51,7 +52,7 @@ function RelatedContent() {
   return <RelatedModels model={useModelDetail().model} />;
 }
 function GcodeProfilesContent() {
-  return <GcodeProfilesCard model={useModelDetail().model} />;
+  return <GcodeProfilesCard model={useModelDetail().model} selection={useModelDetail().studio.selection} onView={useModelDetail().studio.onSelectFile} />;
 }
 function PrintHistoryContent() {
   return <PrintHistoryCard model={useModelDetail().model} />;

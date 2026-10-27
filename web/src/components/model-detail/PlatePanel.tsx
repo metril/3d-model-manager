@@ -105,6 +105,7 @@ export function PlatePanel({
   compact = false,
   fill = false,
   autoPreview = false,
+  noPreview = false,
 }: {
   file: FileOut;
   compact?: boolean;
@@ -112,17 +113,21 @@ export function PlatePanel({
   fill?: boolean;
   /** Mount the layer preview immediately instead of behind a button. */
   autoPreview?: boolean;
+  /** Metadata + plate strip only; the layer preview lives in the main viewer. */
+  noPreview?: boolean;
 }) {
   const plates = file.meta?.plates ?? [];
   const header = headerLine(file);
   const meta = metaLine(file);
   const [previewOpen, setPreviewOpen] = useState(autoPreview);
-  const info = [header, meta].filter(Boolean).join(" · ");
+  const singleFill = fill && plates.length === 1 ? plateCaption(plates[0]) : null;
+  const info = [header, meta, singleFill].filter(Boolean).join(" · ");
   const infoLine = (
     <>
       {header ? <span>{header}</span> : null}
       {header && meta ? " · " : null}
       {meta ? <span>{meta}</span> : null}
+      {singleFill ? <span>{header || meta ? " · " : ""}{singleFill}</span> : null}
     </>
   );
 
@@ -134,6 +139,7 @@ export function PlatePanel({
         </p>
       ) : null}
       {!compact &&
+        !noPreview &&
         (previewOpen ? (
           <div
             className={
@@ -159,7 +165,28 @@ export function PlatePanel({
             Preview layers
           </Button>
         ))}
-      {plates.length === 0 ? (
+      {fill ? (
+        plates.length > 1 && (
+          <div className="flex h-12 shrink-0 gap-2 overflow-x-auto">
+            {plates.map((plate) => (
+              <div key={plate.index} className="flex shrink-0 items-center gap-2 rounded-md border border-border px-1.5">
+                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                  {plate.thumbnail_available ? (
+                    <img
+                      src={`/api/blobs/${file.blob_hash}/plates/${plate.index}/thumb`}
+                      alt={`Plate ${plate.index}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{plateCaption(plate)}</span>
+              </div>
+            ))}
+          </div>
+        )
+      ) : plates.length === 0 ? (
         !compact && (
           <p className="py-8 text-center text-sm text-muted-foreground">No plate details available yet.</p>
         )

@@ -16,6 +16,7 @@ function StudioWorkspaceGeneration({
   others,
   selection,
   onSelectAssembly,
+  onSelectFile,
   fill,
 }: {
   model: ModelDetail;
@@ -23,6 +24,7 @@ function StudioWorkspaceGeneration({
   others: FileOut[];
   selection: StudioSelection | undefined;
   onSelectAssembly: () => void;
+  onSelectFile?: (file: FileOut) => void;
   /** Fill the host's height (dock panel) rather than the fixed inline stage. */
   fill?: boolean;
 }) {
@@ -52,6 +54,7 @@ function StudioWorkspaceGeneration({
         otherFiles={others}
         stageProps={stageProps}
         onSelectAssembly={onSelectAssembly}
+        onSelectFile={onSelectFile}
       />
     </div>
   );
@@ -76,6 +79,7 @@ export function StudioWorkspace({
   others,
   selection,
   onSelectAssembly,
+  onSelectFile,
   fill,
 }: {
   model: ModelDetail;
@@ -83,6 +87,7 @@ export function StudioWorkspace({
   others: FileOut[];
   selection: StudioSelection | undefined;
   onSelectAssembly: () => void;
+  onSelectFile?: (file: FileOut) => void;
   /** Fill the host's height (dock panel) rather than the fixed inline stage. */
   fill?: boolean;
 }) {
@@ -94,6 +99,7 @@ export function StudioWorkspace({
       others={others}
       selection={selection}
       onSelectAssembly={onSelectAssembly}
+      onSelectFile={onSelectFile}
       fill={fill}
     />
   );

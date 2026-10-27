@@ -445,8 +445,16 @@ function BoundsRefitter({
   // Always-latest closure so the scheduler/effects below don't depend on
   // `api` (re-created whenever `invalidate`/camera/controls change).
   const runRef = useRef<(kind: "now" | "debounced") => void>(() => {});
+  // Once the user orbits/zooms, a plain resize keeps their pose (r3f updates
+  // the aspect itself); only load / selection / explicit Fit refit.
+  const interacted = useRef(false);
   runRef.current = (kind) => {
     const { size: sz, camera, controls: ctl, invalidate } = get();
+    if (kind === "debounced" && interacted.current) {
+      invalidate();
+      return;
+    }
+    interacted.current = false;
     const box = getVisibleBox();
     if (!canFit(sz, box)) return;
     if (box) api.refresh(box);
@@ -490,6 +498,7 @@ function BoundsRefitter({
   );
   useEffect(() => {
     const off = bus.subscribe((active) => {
+      if (active) interacted.current = true;
       if (!active) scheduler.gestureEnd();
     });
     return () => {

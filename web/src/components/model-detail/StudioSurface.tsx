@@ -1,6 +1,7 @@
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { SegmentedControl } from "@/components/viewer/SegmentedControl";
 import { PlatePanel } from "@/components/model-detail/PlatePanel";
 import { PlaceholderCard, ViewerStage, type ViewerStageProps } from "@/components/viewer/ViewerStage";
 import type { StudioSelection } from "@/components/model-detail/studioSelection";
@@ -65,6 +66,7 @@ export function StudioSurface({
   otherFiles,
   stageProps,
   onSelectAssembly,
+  onSelectFile,
   fill = false,
 }: {
   /** Stretch the viewer to its container's height (dock panel) instead of the
@@ -78,7 +80,38 @@ export function StudioSurface({
    * assembly view. Only rendered as a chip when a single file is selected
    * AND the model actually has an assembly to go back to. */
   onSelectAssembly: () => void;
+  onSelectFile?: (file: FileOut) => void;
 }) {
+  const sliced = otherFiles.filter((f) => f.kind === "sliced");
+  const canToggle = hasGlb && sliced.length > 0 && onSelectFile !== undefined;
+  const toggle = canToggle ? (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <SegmentedControl
+        label="Viewer mode"
+        options={["model", "sliced"] as const}
+        labels={{ model: "Model", sliced: "Sliced" }}
+        value={selection?.type === "assembly" ? "model" : selection?.type === "file" && sliced.some((f) => f.id === selection.id) ? "sliced" : null}
+        onChange={(next) => (next === "model" ? onSelectAssembly() : onSelectFile(sliced.find((f) => selection?.type === "file" && f.id === selection.id) ?? sliced[0]))}
+      />
+      {selection?.type === "file" && sliced.length > 1 && (
+        <select
+          aria-label="Sliced file"
+          className="h-7 max-w-48 rounded-md border border-border bg-card px-1 text-xs"
+          value={selection.id}
+          onChange={(e) => {
+            const f = sliced.find((x) => x.id === Number(e.target.value));
+            if (f) onSelectFile(f);
+          }}
+        >
+          {sliced.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.rel_path.split("/").pop()}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  ) : null;
   if (!selection) {
     return (
       <PlaceholderCard
@@ -91,7 +124,10 @@ export function StudioSurface({
   if (selection.type === "assembly" && hasGlb) {
     return (
       <div className={fill ? "flex h-full min-h-0 min-w-0 flex-col gap-4" : "flex min-w-0 flex-col gap-4"}>
-        <ViewerStage {...stageProps} variant={fill ? "window" : "inline"} showWindowButtons />
+        {toggle}
+        <div className={fill ? "min-h-0 flex-1" : undefined}>
+          <ViewerStage {...stageProps} variant={fill ? "window" : "inline"} showWindowButtons />
+        </div>
       </div>
     );
   }
@@ -108,7 +144,8 @@ export function StudioSurface({
 
   return (
     <div className={fill ? "flex h-full min-h-0 min-w-0 flex-col gap-2" : "flex min-w-0 flex-col gap-2"}>
-      {hasGlb && (
+      {toggle}
+      {hasGlb && !toggle && (
         <button
           type="button"
           onClick={onSelectAssembly}

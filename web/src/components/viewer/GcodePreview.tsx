@@ -159,17 +159,17 @@ export function GcodePreview({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="aspect-video w-full overflow-hidden rounded-lg border border-border bg-muted">
         <canvas ref={canvasRef} className="h-full w-full" />
       </div>
       {status === "loading" ? (
         <p className="text-center text-sm text-muted-foreground">Loading preview…</p>
       ) : (
-        <div className="space-y-1">
+        <div className="flex items-center gap-3">
           <input
             type="range"
-            className="w-full"
+            className="min-w-0 flex-1"
             min={1}
             max={Math.max(layerCount, 1)}
             step={1}
@@ -177,7 +177,7 @@ export function GcodePreview({
             onChange={(event) => setLayer(Number(event.target.value))}
             aria-label="Layer"
           />
-          <p className="text-xs text-muted-foreground">
+          <p className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
             Layer {layer} / {layerCount}
             {currentHeight !== null ? ` · Z ${currentHeight.toFixed(2)} mm` : ""}
           </p>
