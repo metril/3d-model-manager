@@ -320,6 +320,21 @@ describe("LibraryPage", () => {
     });
   });
 
+  it("shows a filtered empty state with Clear filters when a filter is active, plain empty state otherwise", async () => {
+    mockGalleryOk();
+    renderLibraryPage();
+    await screen.findByText("No models yet");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    await screen.findByText("No models match these filters");
+    expect(screen.queryByText("No models yet")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await screen.findByText("No models yet");
+    await waitFor(() => expect(lastModelsCall()).not.toContain("favorite="));
+  });
+
   it("filters by a single format via the chip facet, clearing back to All", async () => {
     mockGalleryOk();
     renderLibraryPage();
@@ -887,7 +902,7 @@ describe("LibraryPage -- category facet (R13b)", () => {
   it("updates the category filter live when ?category= changes without remounting, preserving other search params", async () => {
     mockGalleryOkWithCategories([CATEGORY]);
     const { router } = renderLibraryPage(["/library?collection=5"]);
-    await screen.findByText("No models yet");
+    await screen.findByText("No models match these filters");
 
     await act(async () => {
       await router.navigate({

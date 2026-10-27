@@ -103,6 +103,7 @@ function CompactCard({ item, onExpand, selected, onSelectedChange, badgeExtra }:
             <>
               <span
                 role="progressbar"
+                aria-label={t("card.progress")}
                 aria-valuenow={pct}
                 aria-valuemin={0}
                 aria-valuemax={100}
@@ -198,21 +199,21 @@ export function PrinterCard({
         void drop(e.dataTransfer);
       }}
     >
-      {camera ? <div className="relative aspect-video bg-muted">{camera}</div> : null}
+      {camera && status.online && status.ipcam !== false ? <div className="relative aspect-video bg-muted">{camera}</div> : null}
       {badge != null ? <div className="absolute right-2 top-2 z-10">{badge}</div> : null}
-      {size === "S" ? (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="absolute right-12 top-2 z-10 inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs hover:bg-muted"
-        >
-          <ArrowLeftIcon className="size-3" />
-          {t("card.back")}
-        </button>
-      ) : null}
 
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-start gap-2">
+          {size === "S" ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="mt-3 inline-flex shrink-0 items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs hover:bg-muted"
+            >
+              <ArrowLeftIcon className="size-3" />
+              {t("card.back")}
+            </button>
+          ) : null}
           {onSelectedChange ? (
             <Checkbox
               className="mt-3"
@@ -252,7 +253,7 @@ export function PrinterCard({
           data-slot="secondary-row"
         >
           <ControlsSection printer={printer} status={status} canControl={canControl} size={effective} />
-          <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1.5">{footerSlot}</div>
+          {footerSlot != null && footerSlot !== false ? <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1.5">{footerSlot}</div> : null}
         </div>
         {upNext.length > 0 ? (
           <details className="group border-t pt-2" data-slot="up-next">

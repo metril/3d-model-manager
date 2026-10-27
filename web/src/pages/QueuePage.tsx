@@ -28,7 +28,7 @@ import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
 import { useCancelQueueSlice, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
-import { EmptyHint } from "@/components/print/EmptyHint";
+import { EmptyState } from "@/components/ui/empty-state";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 import { QueueEntryDetail } from "@/components/print/QueueEntryDetail";
 import { LaneResumeButton, ScheduleChips } from "@/components/print/QueueScheduleChips";
@@ -269,7 +269,7 @@ function QueueLane({ title, entries, printerId }: { title: string; entries: Queu
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <EmptyHint icon={<ListOrderedIcon />}>{t("dash.empty.queue")}</EmptyHint>
+          <EmptyState icon={ListOrderedIcon} title={t("dash.empty.queue")} />
         ) : (
           <ul className="divide-y divide-border">
             {entries.map((entry, index) => (

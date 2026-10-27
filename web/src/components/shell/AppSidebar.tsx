@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -126,12 +126,13 @@ function NavLink({
   badgeAriaLabel?: string;
 }) {
   const navLabel = useNavLabel();
+  const label = item.translate === false ? item.label : navLabel(item.label);
   const linkClass = cn(
     "relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
     collapsed && "justify-center px-0",
   );
   const link = item.externalUrl ? (
-    <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
+    <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass} aria-label={collapsed ? label : undefined}>
       <item.icon className="size-4 shrink-0" />
       {!collapsed && (item.translate === false ? item.label : navLabel(item.label))}
     </a>
@@ -145,6 +146,7 @@ function NavLink({
       params={item.params as never}
       activeOptions={{ exact: !!item.exact }}
       className={linkClass}
+      aria-label={collapsed ? label : undefined}
       activeProps={{ className: "bg-sidebar-accent font-medium text-foreground before:absolute before:inset-y-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-sidebar-primary" }}
     >
       <item.icon className="size-4 shrink-0" />
@@ -205,6 +207,23 @@ export function AppSidebar({
   const reviewCount = useReviewCount({ enabled: canReview });
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   const { t } = useTranslation();
+  const navRef = useRef<HTMLElement>(null);
+  const [navFade, setNavFade] = useState(false);
+  const updateNavFade = useCallback(() => {
+    const el = navRef.current;
+    if (el) setNavFade(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    updateNavFade();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(updateNavFade);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [updateNavFade]);
+  useEffect(updateNavFade); // content (collections, printers) changes scrollHeight
   const navLabel = useNavLabel();
   const { groups: visibleGroups, systemItems: visibleSystemItems, externalItems } = useVisibleNav();
 
@@ -279,7 +298,12 @@ export function AppSidebar({
       </div>
       ) : null}
       <ScanChip collapsed={collapsed} />
-      <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <nav
+        ref={navRef}
+        onScroll={updateNavFade}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2"
+      >
         {visibleGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
             {!collapsed && (
@@ -368,6 +392,15 @@ export function AppSidebar({
           </div>
         )}
       </nav>
+      <div
+        aria-hidden="true"
+        data-slot="nav-fade"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-sidebar to-transparent transition-opacity",
+          navFade ? "opacity-100" : "opacity-0",
+        )}
+      />
+      </div>
       <div className="flex shrink-0 flex-col gap-1 border-t border-sidebar-border px-2 py-2">
         {!collapsed && <div className="label-caps px-2.5 pb-1">System</div>}
         {visibleSystemItems.map((item) => (

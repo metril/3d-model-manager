@@ -12,7 +12,7 @@ import { usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut } from "@/api/types";
 import { HistoryIcon } from "lucide-react";
-import { EmptyHint } from "@/components/print/EmptyHint";
+import { EmptyState } from "@/components/ui/empty-state";
 import { CompareBar } from "@/components/print/ArchiveCompareDialog";
 import { useRunSelection } from "@/components/print/useRunSelection";
 import { RunDetailSheet } from "@/components/print/RunDetailSheet";
@@ -93,7 +93,7 @@ export function RecentRunsList({ runs, limit = 10 }: { runs: ArchiveOut[]; limit
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {shown.length === 0 ? (
-          <EmptyHint icon={<HistoryIcon />}>{t("dash.empty.runs")}</EmptyHint>
+          <EmptyState icon={HistoryIcon} title={t("dash.empty.runs")} />
         ) : (
           <ul className="divide-y divide-border">
             {shown.map((run) => (

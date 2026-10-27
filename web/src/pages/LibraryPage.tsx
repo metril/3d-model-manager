@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   ArchiveIcon,
@@ -178,6 +179,7 @@ function TypeFilter({ value, onChange }: { value: BlobFormat[]; onChange: (next:
 }
 
 export function LibraryPage() {
+  const { t } = useTranslation();
   // One-way seed only: a provenance badge or a related-models card can deep
   // link here with `?collection=<id>` (see `librarySearch.ts`), but the
   // facet's own selections never write back to the URL -- same as every
@@ -190,9 +192,8 @@ export function LibraryPage() {
   const debouncedSearch = useDebouncedValue(searchInput, 300);
   const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   const [fileTagFilter, setFileTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
-  // The backend's `format` filter accepts a single value (SPEC "API surface"),
-  // so the chips behave as a single-select facet ("All" clears it).
-  // The Type multi-select can hold several; the quick chips set exactly one.
+  // The backend's `format` filter takes a comma-separated list. The quick
+  // chips set exactly one ("All" clears it); the Type multi-select holds several.
   const [activeFormats, setActiveFormats] = useState<BlobFormat[]>([]);
   const [slicedOnly, setSlicedOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -461,6 +462,19 @@ export function LibraryPage() {
     (tagFilter.tags.length > 0 ? 1 : 0) +
     (fileTagFilter.tags.length > 0 ? 1 : 0);
 
+  const hasActiveFilters = extraFilterCount > 0 || activeFormats.length > 0 || debouncedSearch.length > 0;
+  function clearFilters() {
+    setSearchInput("");
+    setTagFilter(EMPTY_TAG_FILTER);
+    setFileTagFilter(EMPTY_TAG_FILTER);
+    setActiveFormats([]);
+    setSlicedOnly(false);
+    setFavoritesOnly(false);
+    setArchivedOnly(false);
+    setActiveCollection(undefined);
+    if (activeCategory !== undefined) goToCategory(undefined);
+  }
+
   const secondaryFilters = (
     <>
       {categories.length > 0 && (
@@ -642,11 +656,15 @@ export function LibraryPage() {
         <EmptyState
           className="mt-12"
           icon={SquareLibraryIcon}
-          title="No models yet"
+          title={hasActiveFilters ? t("library.empty.filtered") : t("library.empty.none")}
           action={
-            can("library:write") ? (
+            hasActiveFilters ? (
+              <Button type="button" variant="outline" onClick={clearFilters}>
+                {t("library.empty.clear")}
+              </Button>
+            ) : can("library:write") ? (
               <Button asChild>
-                <Link to="/add">Add a model</Link>
+                <Link to="/add">{t("library.empty.add")}</Link>
               </Button>
             ) : undefined
           }
@@ -756,7 +774,7 @@ function SelectionActionBar({
 
   const ids = selectedItems.map((model) => model.id);
   const slugs = selectedItems.map((model) => model.slug);
-const tagsOnSelection: TagRef[] = [
+  const tagsOnSelection: TagRef[] = [
     ...new Map(selectedItems.flatMap((model) => tagRefsOf(model)).map((tag) => [tag.name, tag])).values(),
   ].sort((a, b) => a.name.localeCompare(b.name));
 

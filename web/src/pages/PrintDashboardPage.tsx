@@ -24,7 +24,7 @@ import { useReviewCount } from "@/api/queue";
 import { CameraTile } from "@/components/print/CameraTile";
 import { HaAlertBadge } from "@/components/print/HaAlertBadge";
 import { PlateStallBadge } from "@/components/print/PlateStallBadge";
-import { EmptyHint } from "@/components/print/EmptyHint";
+import { EmptyState } from "@/components/ui/empty-state";
 import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
 import { CARD_SIZES, gridStyle, useCardSize } from "@/components/print/card/cardSize";
 import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
@@ -184,8 +184,9 @@ export function PrintDashboardPage() {
           ) : null}
 
           {groups.every((g) => g.items.length === 0) ? (
-            <EmptyHint
-              icon={<PrinterIcon />}
+            <EmptyState
+              icon={PrinterIcon}
+              title={t("dash.empty.filters")}
               action={
                 <Button
                   type="button"
@@ -196,9 +197,7 @@ export function PrintDashboardPage() {
                   {t("dash.empty.clearFilters")}
                 </Button>
               }
-            >
-              {t("dash.empty.filters")}
-            </EmptyHint>
+            />
           ) : null}
           {groups.map((group) => (
             <section key={group.key} className="flex flex-col gap-2">

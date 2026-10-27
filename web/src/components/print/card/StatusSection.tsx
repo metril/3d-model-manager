@@ -14,7 +14,9 @@ import { useClearPlate } from "@/api/printerOps";
 import type { ActiveJobOut, ArchiveOut, PrinterStatusOut } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SharedPlugPowerOn } from "@/components/print/PlugRow";
 import { formatEta } from "@/lib/formatEta";
+import { formatRelativeTime } from "@/lib/format";
 import { toneForGcode, type StateTone } from "@/lib/printerState";
 import { cn } from "@/lib/utils";
 
@@ -42,9 +44,11 @@ function Thumb({ src, small = false, dim = false }: { src: string | null; small?
 
 /** Progress bar: `h-2` track at 16% of the state colour, fill in the state colour. */
 export function ProgressBar({ tone, pct, className }: { tone: StateTone; pct: number; className?: string }) {
+  const { t } = useTranslation();
   return (
     <div
       role="progressbar"
+      aria-label={t("card.status.progress")}
       aria-valuenow={pct}
       aria-valuemin={0}
       aria-valuemax={100}
@@ -78,11 +82,17 @@ export function StatusSection({
   const clearPlate = useClearPlate(printerId);
 
   if (!status.online) {
-    if (!last) return null;
+    const seen = status.last_report_at ? formatRelativeTime(status.last_report_at) : null;
     return (
-      <p className="pc-t12 truncate text-muted-foreground" data-slot="status-section">
-        {t("card.status.lastPrint", { name: last.subtask_name ?? last.model_name ?? t("card.status.print") })}
-      </p>
+      <div className="flex flex-col items-start gap-1.5 empty:hidden" data-slot="status-section">
+        {seen && seen !== "—" ? <p className="pc-t12 text-muted-foreground">{t("card.status.offlineSeen", { when: seen })}</p> : null}
+        {last ? (
+          <p className="pc-t12 max-w-full truncate text-muted-foreground">
+            {t("card.status.lastPrint", { name: last.subtask_name ?? last.model_name ?? t("card.status.print") })}
+          </p>
+        ) : null}
+        <SharedPlugPowerOn printerId={printerId} canControl={canControl} label={t("card.status.powerOn")} />
+      </div>
     );
   }
 

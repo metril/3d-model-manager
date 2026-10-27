@@ -57,6 +57,8 @@ export function ControlsSection({
   const control = useControl(printer.id);
   const [speed, setSpeed] = useOptimistic(status.speed_level);
   const [light, setLight] = useState<boolean | null>(null);
+  // The status doesn't report the airduct mode, so track the last pick locally.
+  const [airduct, setAirduct] = useState<"cooling" | "heating" | null>(null);
   const lightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(lightTimer.current), []);
   const untested = !caps.verified;
@@ -106,22 +108,22 @@ export function ControlsSection({
             {SPEED_LEVELS.map(({ level, key, pct, hint }) => (
               <Tooltip key={level}>
                 <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={speed === level}
-                      aria-label={t(key)}
-                      className={cn(
-                        SEG_BTN,
-                        "flex flex-col items-center leading-tight",
-                        speed === level ? SEG_ON : SEG_OFF,
-                        speed === level && level !== 2 && "text-warning",
-                      )}
-                      onClick={() => void pickSpeed(level)}
-                    >
-                      <span>{t(key)}</span>
-                      <span className="font-mono text-[0.85em] font-normal tabular-nums opacity-80">{pct}%</span>
-                    </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={speed === level}
+                    aria-label={t(key)}
+                    className={cn(
+                      SEG_BTN,
+                      "flex flex-col items-center leading-tight",
+                      speed === level ? SEG_ON : SEG_OFF,
+                      speed === level && level !== 2 && "text-warning",
+                    )}
+                    onClick={() => void pickSpeed(level)}
+                  >
+                    <span>{t(key)}</span>
+                    <span className="font-mono text-[0.85em] font-normal tabular-nums opacity-80">{pct}%</span>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent>{tip(t(hint))}</TooltipContent>
               </Tooltip>
@@ -131,18 +133,18 @@ export function ControlsSection({
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      data-testid="speed-chip"
-                      className={cn("font-mono tabular-nums", nonStandard && "text-warning hover:text-warning")}
-                    >
-                      <GaugeIcon />
-                      {current ? t("card.controls.speedChip", { name: t(current.key), pct: current.pct }) : t("card.controls.speed")}
-                    </Button>
-                  </DropdownMenuTrigger>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-testid="speed-chip"
+                    className={cn("font-mono tabular-nums", nonStandard && "text-warning hover:text-warning")}
+                  >
+                    <GaugeIcon />
+                    {current ? t("card.controls.speedChip", { name: t(current.key), pct: current.pct }) : t("card.controls.speed")}
+                  </Button>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>{tip(t("card.controls.speed"))}</TooltipContent>
             </Tooltip>
@@ -169,8 +171,13 @@ export function ControlsSection({
               <UntestedTip key={mode} show={untested}>
                 <button
                   type="button"
-                  className={cn(SEG_BTN, SEG_OFF, "capitalize")}
-                  onClick={() => void control.send("airduct", { mode })}
+                  aria-pressed={airduct === mode}
+                  className={cn(SEG_BTN, airduct === mode ? SEG_ON : SEG_OFF, "capitalize")}
+                  onClick={async () => {
+                    const prev = airduct;
+                    setAirduct(mode);
+                    if (!(await control.send("airduct", { mode }))) setAirduct(prev);
+                  }}
                 >
                   {t(mode === "cooling" ? "card.controls.cooling" : "card.controls.heating")}
                 </button>

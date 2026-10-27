@@ -493,8 +493,12 @@ async def test_gallery_format_filter_accepts_comma_separated_list(
 
     assert await slugs("stl") == {stl["slug"]}
     assert await slugs("stl,3mf") == {stl["slug"], threemf["slug"]}
-    assert await slugs("stl,nonsense") == {stl["slug"]}
-    assert await slugs("nonsense") == set()
+    assert await slugs(" STL , 3Mf ") == {stl["slug"], threemf["slug"]}
+    assert len(await slugs(",")) == 3
+    assert len(await slugs("")) == 3
+    for bad in ("nonsense", "stl,nonsense"):
+        response = await authenticated_client.get(f"/api/models?format={bad}")
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

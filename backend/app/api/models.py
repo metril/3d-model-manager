@@ -100,12 +100,24 @@ async def list_models(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> GalleryPage:
+    formats: list[BlobFormat] = []
+    for raw in (format or "").split(","):
+        value = raw.strip().lower()
+        if not value:
+            continue
+        try:
+            formats.append(BlobFormat(value))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown format: {value}",
+            ) from None
     items, next_cursor = await library.list_models(
         db,
         settings,
         q=q,
         tag=tag,
-        format_=format,
+        format_=formats,
         has_sliced=has_sliced,
         collection=collection,
         favorite=favorite,

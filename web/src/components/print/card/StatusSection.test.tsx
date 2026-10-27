@@ -79,6 +79,17 @@ describe("StatusSection", () => {
     expect(screen.queryByText(/Offline/)).toBeNull();
   });
 
+  it("offline: shows last seen when the report time is known; progress bars are named", async () => {
+    const seen = new Date(Date.now() - 3 * 3600_000).toISOString();
+    const off = a1Mini({}, { online: false, last_report_at: seen });
+    const { unmount } = renderCard(<StatusSection printerId={1} status={off.status} activeJob={null} lastRuns={[]} canControl />);
+    expect(await screen.findByText(/Offline · last seen/)).toBeInTheDocument();
+    unmount();
+    const on = a1Mini({}, PRINTING);
+    renderCard(<StatusSection printerId={1} status={on.status} activeJob={JOB} lastRuns={[]} canControl />);
+    expect(await screen.findByRole("progressbar", { name: "Print progress" })).toBeInTheDocument();
+  });
+
   it("etaClock formats null / valid", () => {
     expect(etaClock(null)).toBeNull();
     expect(etaClock(30, new Date("2026-01-01T10:00:00"))).toMatch(/10:30/);
