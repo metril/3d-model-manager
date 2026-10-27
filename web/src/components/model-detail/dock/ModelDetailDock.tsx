@@ -4,6 +4,7 @@ import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
+import { useModelDetail } from "./ModelDetailContext";
 import { buildDefaultLayout, addPanelAtDefault } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
@@ -37,6 +38,8 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
  * groups, resized, closed/re-added, and popped out into live windows. The
  * layout persists per browser (`layoutStore`); pop-outs never survive reload. */
 export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
+  const { model } = useModelDetail();
+  const hasSliced = (model.current_revision?.files ?? []).some((file) => file.kind === "sliced");
   const emitter = useMemo(() => createRelocateEmitter(), []);
   const themeSyncs = useRef(new Map<string, () => void>());
 
@@ -53,7 +56,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
           restored = false;
         }
       }
-      if (!restored) buildDefaultLayout(api);
+      if (!restored) buildDefaultLayout(api, { hasSliced });
 
       // Disposed with the dockview api when the component unmounts.
       api.onDidLayoutChange(() => saveLayout(api.toJSON()));
@@ -70,7 +73,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
       api.onDidOpenPopoutWindowFail(() => toast.error("Allow pop-ups to open panels in a window"));
       onApi?.(api);
     },
-    [emitter, onApi],
+    [emitter, onApi, hasSliced],
   );
 
   const unmounted = useRef(false);
@@ -92,7 +95,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
 
   return (
     <RelocateContext.Provider value={emitter}>
-      <div className="h-[calc(100svh-13rem)] min-h-[640px] w-full" data-testid="model-detail-dock">
+      <div className="h-[calc(100svh-10rem)] min-h-[520px] w-full" data-testid="model-detail-dock">
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}

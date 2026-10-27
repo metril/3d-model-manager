@@ -53,23 +53,29 @@ describe("layoutStore", () => {
   it("flags registry panels that were unknown at save time", () => {
     localStorage.setItem(
       LAYOUT_KEY,
-      JSON.stringify({ v: 1, known: ["viewer", "notes", "specs"], layout: layout() }),
+      JSON.stringify({ v: 2, known: ["viewer", "notes", "specs"], layout: layout() }),
     );
     expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => !["viewer", "notes", "specs"].includes(id)));
+  });
+
+  it("ignores a layout saved under the v1 key", () => {
+    expect(LAYOUT_KEY).toMatch(/v2$/);
+    const storage = { getItem: (k: string) => (k === "tdmm.modelDetailLayout.v1" ? "{}" : null) } as Storage;
+    expect(loadLayout(storage)).toBeNull();
   });
 
   it("rejects wrong version, corrupt JSON and unknown panel ids", () => {
     expect(parseLayout(null)).toBeNull();
     expect(parseLayout("{nope")).toBeNull();
-    expect(parseLayout(JSON.stringify({ v: 2, layout: layout() }))).toBeNull();
-    expect(parseLayout(JSON.stringify({ v: 1, layout: { panels: {} } }))).toBeNull();
+    expect(parseLayout(JSON.stringify({ v: 1, layout: layout() }))).toBeNull();
+    expect(parseLayout(JSON.stringify({ v: 2, layout: { panels: {} } }))).toBeNull();
     const unknown = layout({ panels: { viewer: { id: "viewer" }, ghost: { id: "ghost" } } as never });
-    expect(parseLayout(JSON.stringify({ v: 1, layout: unknown }))).toBeNull();
+    expect(parseLayout(JSON.stringify({ v: 2, layout: unknown }))).toBeNull();
   });
 
   it("rejects a group that references a panel missing from `panels`", () => {
     const bad = layout({ panels: { viewer: { id: "viewer" } } as never });
-    expect(parseLayout(JSON.stringify({ v: 1, layout: bad }))).toBeNull();
+    expect(parseLayout(JSON.stringify({ v: 2, layout: bad }))).toBeNull();
   });
 
   it("folds popout groups back into their reference group", () => {
