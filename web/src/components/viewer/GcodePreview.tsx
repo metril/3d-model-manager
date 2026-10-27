@@ -119,6 +119,31 @@ export function GcodePreview({
     preview.render();
   }, [layer, status]);
 
+  // Follow the container (flex-1 / h-full in the dock), not a fixed aspect.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const box = canvas?.parentElement;
+    if (!canvas || !box || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      const preview = previewRef.current;
+      const w = box.clientWidth;
+      const h = box.clientHeight;
+      if (!preview || w < 2 || h < 2) return;
+      preview.resize?.();
+      preview.render();
+    };
+    const ro = new ResizeObserver(() => {
+      if (!raf) raf = requestAnimationFrame(apply);
+    });
+    ro.observe(box);
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   const currentHeight = previewRef.current?.layers[layer - 1]?.height ?? null;
 
   if (status === "error") {

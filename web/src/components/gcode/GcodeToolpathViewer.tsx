@@ -49,6 +49,12 @@ function formatDuration(s: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m ${Math.floor(s % 60)}s`;
 }
 
+/** jsdom / ancient browsers: treat the viewer as always visible. */
+class NoopObserver {
+  observe() {}
+  disconnect() {}
+}
+
 type LoadState = "loading" | "ready" | "empty" | "error";
 
 export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialColorMode = "feature", onLoaded }: GcodeToolpathViewerProps) {
@@ -70,6 +76,7 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
   const handleRef = useRef<ReturnType<typeof makeToolpath> | null>(null);
   const dataRef = useRef<ReturnType<typeof buildSegmentData> | null>(null);
   const framedRef = useRef(false);
+  const invalidateRef = useRef<(() => void) | null>(null);
   const rangeRef = useRef(range);
   const travelRef = useRef(showTravel);
   const onLoadedRef = useRef(onLoaded);
@@ -129,24 +136,60 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
     controlsRef.current = controls;
     setSceneReady(true);
 
+    // Render on demand: one rAF per change (controls 'change', damping tail,
+    // resize, data updates), paused while offscreen / tab hidden.
     let frame = 0;
-    const animate = () => {
-      frame = requestAnimationFrame(animate);
-      controls.update();
+    let visible = true;
+    let disposed = false;
+    const renderFrame = () => {
+      frame = 0;
+      if (disposed || !visible || document.hidden) return;
+      // update() returns true while damping is still moving the camera.
+      if (controls.update()) schedule();
       renderer.render(scene, camera);
     };
-    animate();
+    const schedule = () => {
+      if (frame || disposed || !visible || document.hidden) return;
+      frame = requestAnimationFrame(renderFrame);
+    };
+    invalidateRef.current = schedule;
+    controls.addEventListener("change", schedule);
     const resize = () => {
       const cw = container.clientWidth || 1;
       const ch = container.clientHeight || 1;
       camera.aspect = cw / ch;
       camera.updateProjectionMatrix();
       renderer.setSize(cw, ch);
+      schedule();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
+    const io = new (globalThis.IntersectionObserver ?? NoopObserver)((entries) => {
+      visible = entries[entries.length - 1]?.isIntersecting ?? true;
+      if (visible) schedule();
+      else if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    });
+    io.observe(container);
+    const onVisibility = () => {
+      if (!document.hidden) schedule();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    const onLost = (e: Event) => e.preventDefault();
+    renderer.domElement.addEventListener("webglcontextlost", onLost);
+    renderer.domElement.addEventListener("webglcontextrestored", schedule);
+    schedule();
     return () => {
+      disposed = true;
+      invalidateRef.current = null;
       observer.disconnect();
+      io.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      renderer.domElement.removeEventListener("webglcontextlost", onLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", schedule);
+      controls.removeEventListener("change", schedule);
       cancelAnimationFrame(frame);
       controls.dispose();
       grid.geometry.dispose();
@@ -206,9 +249,11 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
       controls.target.copy(center);
       controls.update();
     }
+    invalidateRef.current?.();
     return () => {
       scene.remove(group);
       handle.dispose();
+      invalidateRef.current?.();
       handleRef.current = null;
       dataRef.current = null;
     };
@@ -216,8 +261,14 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed, keyedMode, hiddenSig, sceneReady]);
 
-  useEffect(() => handleRef.current?.setLayerRange(range[0], range[1]), [range]);
-  useEffect(() => handleRef.current?.setTravelVisible(showTravel), [showTravel]);
+  useEffect(() => {
+    handleRef.current?.setLayerRange(range[0], range[1]);
+    invalidateRef.current?.();
+  }, [range]);
+  useEffect(() => {
+    handleRef.current?.setTravelVisible(showTravel);
+    invalidateRef.current?.();
+  }, [showTravel]);
 
   // --- colours ---
   const colorInfo = useMemo(() => {
@@ -234,6 +285,7 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
   }, [mode, parsed, generation, hiddenSig]);
   useEffect(() => {
     if (colorInfo) handleRef.current?.setColors(colorInfo.color);
+    invalidateRef.current?.();
   }, [colorInfo]);
 
   const toggle = useCallback((key: string) => {
