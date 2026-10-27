@@ -5,15 +5,19 @@ import { usePrinterCommand } from "@/api/printers";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 
-/** Pause/Resume + Stop (destructive) for a running/paused print, each behind a confirm. */
+/**
+ * Pause (secondary, wide) or Resume (filled) plus Stop (outline, destructive
+ * text/border), each behind a confirm. Renders as the two cells of the
+ * primary-action grid.
+ */
 export function JobActions({ printerId, paused }: { printerId: number; paused: boolean }) {
   const { t } = useTranslation();
   const command = usePrinterCommand(printerId);
   return (
-    <div className="flex items-center gap-2" data-slot="job-actions">
+    <>
       <ConfirmDialog
         trigger={
-          <Button type="button" size="sm" variant="outline" disabled={command.isPending}>
+          <Button type="button" variant={paused ? "default" : "secondary"} className="w-full" disabled={command.isPending}>
             {paused ? <PlayIcon /> : <PauseIcon />}
             {paused ? t("card.controls.resume") : t("card.controls.pause")}
           </Button>
@@ -24,7 +28,12 @@ export function JobActions({ printerId, paused }: { printerId: number; paused: b
       />
       <ConfirmDialog
         trigger={
-          <Button type="button" size="sm" variant="destructive" disabled={command.isPending}>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={command.isPending}
+          >
             <SquareIcon />
             {t("card.controls.stop")}
           </Button>
@@ -35,6 +44,6 @@ export function JobActions({ printerId, paused }: { printerId: number; paused: b
         destructive
         onConfirm={() => command.mutate("stop")}
       />
-    </div>
+    </>
   );
 }

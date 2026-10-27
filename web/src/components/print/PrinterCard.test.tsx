@@ -146,4 +146,42 @@ describe("PrinterCard", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(uploadMock).not.toHaveBeenCalled();
   });
+
+  it("no-overlap regression: primary actions and the tool row are separate sections, in spec order", async () => {
+    const { PrinterToolbar } = await import("@/components/print/card/PrinterToolbar");
+    const it = a1Mini({}, { gcode_state: "RUNNING", mc_percent: 42 });
+    renderCard(
+      <PrinterCard
+        item={it}
+        footerExtra={(ctx) => (
+          <PrinterToolbar printer={ctx.printer} status={ctx.status} canControl canPrint size={ctx.size} onOpen={() => {}} />
+        )}
+      />,
+    );
+    const primary = await screen.findByText("Pause").then((el) => el.closest('[data-slot="card-footer"]')!);
+    const secondary = document.querySelector('[data-slot="secondary-row"]')!;
+    expect(primary).not.toContainElement(screen.getByRole("button", { name: "More" }));
+    expect(secondary).toContainElement(screen.getByRole("button", { name: "More" }));
+    expect(secondary).toContainElement(screen.getByRole("button", { name: "Chamber light" }));
+    // order: job -> primary -> telemetry -> secondary
+    const order = ["status-section", "card-footer", "temp-fan-tiles", "secondary-row"].map((slot) =>
+      document.querySelector(`[data-slot="${slot}"]`)!,
+    );
+    for (let i = 0; i < order.length - 1; i++)
+      expect(order[i].compareDocumentPosition(order[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("each status appears once: pill only, no Connected chip, no duplicate idle text", async () => {
+    renderCard(<PrinterCard item={a1Mini()} />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    expect(screen.getAllByText("Idle")).toHaveLength(1);
+    expect(screen.queryByText("Connected")).toBeNull();
+  });
+
+  it("offline card is dimmed and shows no job actions", async () => {
+    renderCard(<PrinterCard item={a1Mini({}, { online: false })} />);
+    await screen.findByRole("link", { name: "A1 Mini" });
+    expect(document.querySelector('[data-slot="printer-card"]')!.className).toContain("opacity-70");
+    expect(screen.queryByRole("button", { name: "Print" })).toBeNull();
+  });
 });

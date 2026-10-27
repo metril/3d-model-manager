@@ -1,4 +1,4 @@
-/** Connection, WiFi/Ethernet, HMS, queue, firmware, door and dev-mode chips. `extra` is the `badge-extra` slot. */
+/** WiFi/Ethernet, HMS, queue, firmware, door and dev-mode chips. `extra` is the `badge-extra` slot. */
 import { DoorOpenIcon, ShieldAlertIcon, WifiIcon, CableIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,8 +26,7 @@ export function BadgeRow({
   const hms = status.hms?.length ?? 0;
   const fw = status.firmware?.ota;
   return (
-    <div className="pc-t11 flex flex-wrap items-center gap-1.5" data-slot="badge-row">
-      <Badge variant={status.online ? "secondary" : "outline"}>{status.online ? t("card.badge.connected") : t("card.badge.offline")}</Badge>
+    <div className="pc-t11 flex flex-wrap items-center gap-1.5 empty:hidden" data-slot="badge-row">
       {status.online ? (
         <Badge variant="outline" title={t("card.badge.network")}>
           {status.wifi_signal ? <WifiIcon /> : <CableIcon />}

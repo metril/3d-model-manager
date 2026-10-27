@@ -66,7 +66,7 @@ describe("TempFanTiles", () => {
   it("H2D: both nozzles show their own reading and each posts its extruder_id", async () => {
     const it = h2d();
     renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
-    expect(await screen.findByTestId("tile-nozzle-r")).toHaveTextContent("215 → 220");
+    expect(await screen.findByTestId("tile-nozzle-r")).toHaveTextContent("215/220");
     expect(screen.getByTestId("tile-nozzle-l")).toHaveTextContent("31");
     fireEvent.click(screen.getByRole("button", { name: "Set Nozzle L 0.6" }));
     fireEvent.click(await screen.findByRole("button", { name: "PLA 220" }));
@@ -75,11 +75,11 @@ describe("TempFanTiles", () => {
     );
   });
 
-  it("shows current -> target", async () => {
+  it("shows current/target with the target muted", async () => {
     const it = a1Mini({}, { bed_temper: 55, bed_target: 60 });
     renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
     const bed = await screen.findByTestId("tile-bed");
-    expect(bed).toHaveTextContent("55 → 60 °C");
+    expect(bed).toHaveTextContent("55/60°");
   });
 
   it("bed popover: PLA preset sends 60 and shows it optimistically", async () => {
@@ -88,7 +88,7 @@ describe("TempFanTiles", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Set Bed" }));
     fireEvent.click(await screen.findByRole("button", { name: "PLA 60" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/control/temperature", { target: "bed", value: 60 }));
-    await waitFor(() => expect(screen.getByTestId("tile-bed")).toHaveTextContent("24 → 60"));
+    await waitFor(() => expect(screen.getByTestId("tile-bed")).toHaveTextContent("24/60"));
   });
 
   it("number input + Enter sets the nozzle; Off sends 0", async () => {
@@ -107,11 +107,11 @@ describe("TempFanTiles", () => {
     renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
     fireEvent.click(await screen.findByRole("button", { name: "Set Bed" }));
     fireEvent.click(await screen.findByRole("button", { name: "PETG 80" }));
-    await waitFor(() => expect(screen.getByTestId("tile-bed")).toHaveTextContent("→ 80"));
+    await waitFor(() => expect(screen.getByTestId("tile-bed")).toHaveTextContent("/80"));
     await act(async () => {
       vi.advanceTimersByTime(REVERT_MS + 50);
     });
-    expect(screen.getByTestId("tile-bed")).not.toHaveTextContent("→ 80");
+    expect(screen.getByTestId("tile-bed")).not.toHaveTextContent("/80");
   });
 
   it("fan popover 50% posts the fan command", async () => {
@@ -127,5 +127,12 @@ describe("TempFanTiles", () => {
     renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl={false} />);
     await screen.findByTestId("tile-bed");
     expect(screen.queryByRole("button", { name: "Set Bed" })).toBeNull();
+  });
+
+  it("hides fan tiles whose reading is null", async () => {
+    const it = a1Mini({}, { fan_part_pct: null });
+    renderCard(<TempFanTiles printer={it.printer} status={it.status} canControl />);
+    await screen.findByTestId("tile-bed");
+    expect(screen.queryByTestId("tile-fan-part")).toBeNull();
   });
 });

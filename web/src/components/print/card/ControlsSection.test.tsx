@@ -64,13 +64,48 @@ describe("ControlsSection", () => {
     }
   });
 
-  it("speed segmented control marks the active level and posts a change", async () => {
+  it("M: speed chip shows name and %, opens a radio menu with % and hints, and posts the level", async () => {
     const it = a1Mini({}, { speed_level: 2 });
-    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
-    expect(await screen.findByRole("radio", { name: "Standard" })).toHaveAttribute("aria-checked", "true");
+    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl size="M" />);
+    const chip = await screen.findByTestId("speed-chip");
+    expect(chip).toHaveTextContent("Standard \u00b7 100%");
+    expect(screen.queryByTestId("speed-segmented")).toBeNull();
+    fireEvent.pointerDown(chip, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitemradio", { name: /Standard/ })).toHaveAttribute("aria-checked", "true");
+    for (const [name, pct, hint] of [
+      ["Silent", "50%", "Quiet, finest surface"],
+      ["Sport", "124%", "Faster, slight quality loss"],
+      ["Ludicrous", "166%", "Max speed, artifacts likely"],
+    ]) {
+      const item = screen.getByRole("menuitemradio", { name: new RegExp(name) });
+      expect(item).toHaveTextContent(pct);
+      expect(item).toHaveTextContent(hint);
+    }
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /Sport/ }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/control/speed", { level: 3 }));
+    await waitFor(() => expect(screen.getByTestId("speed-chip")).toHaveTextContent("Sport \u00b7 124%"));
+    expect(screen.getByTestId("speed-chip").className).toContain("text-warning");
+  });
+
+  it("L/XL: segmented control with two-line labels marks the active level and posts a change", async () => {
+    const it = a1Mini({}, { speed_level: 2 });
+    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl size="L" />);
+    expect(screen.queryByTestId("speed-chip")).toBeNull();
+    const std = await screen.findByRole("radio", { name: "Standard" });
+    expect(std).toHaveAttribute("aria-checked", "true");
+    expect(std).toHaveTextContent("100%");
+    expect(screen.getByRole("radio", { name: "Ludicrous" })).toHaveTextContent("166%");
     fireEvent.click(screen.getByRole("radio", { name: "Sport" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/control/speed", { level: 3 }));
     expect(screen.getByRole("radio", { name: "Sport" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("light toggle is a ghost button (not primary) with aria-pressed", async () => {
+    const it = a1Mini({}, { light_on: true });
+    renderCard(<ControlsSection printer={it.printer} status={it.status} canControl />);
+    const btn = await screen.findByRole("button", { name: "Chamber light" });
+    expect(btn).toHaveAttribute("data-variant", "ghost");
+    expect(btn).toHaveAttribute("aria-pressed", "true");
   });
 
   it("airduct control only with the capability (A1 absent, X1C absent too: capability false)", async () => {

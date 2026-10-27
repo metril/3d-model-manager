@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActiveJobOut, ArchiveOut } from "@/api/types";
@@ -24,16 +24,25 @@ describe("StatusSection", () => {
     getMock.mockResolvedValue({ job_id: 5, plate: 1, objects: [] });
   });
 
-  it("printing: name, stage, progress, remaining, layer, started-by", async () => {
+  it("printing: name, big percent, progress, ETA row, layer, started-by; generic stage hidden", async () => {
     const it = a1Mini({}, PRINTING);
     renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
     expect(await screen.findByText("Benchy")).toBeInTheDocument();
-    expect(screen.getByText("Printing")).toBeInTheDocument();
+    expect(screen.queryByText("Printing")).toBeNull();
+    expect(screen.getByTestId("job-percent")).toHaveTextContent("42%");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
     expect(screen.getByText("1h 15m left")).toBeInTheDocument();
     expect(screen.getByText("Layer 10/100")).toBeInTheDocument();
     expect(screen.getByText(/ETA/)).toBeInTheDocument();
     expect(screen.getByText(/from the app/)).toBeInTheDocument();
+  });
+
+  it("a specific stage is shown; paused uses a striped fill", async () => {
+    const it = a1Mini({}, { ...PRINTING, gcode_state: "PAUSE", stage: "Filament runout" });
+    renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
+    expect(await screen.findByText("Filament runout")).toBeInTheDocument();
+    const fill = screen.getByRole("progressbar").firstElementChild as HTMLElement;
+    expect(fill.style.backgroundImage).toContain("repeating-linear-gradient");
   });
 
   it("printing: thumbnail comes from the active job's thumbnail_url", async () => {
@@ -63,40 +72,11 @@ describe("StatusSection", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", "/api/archives/9/thumbnail");
   });
 
-  it("skip-objects button with badge opens the dialog and posts the selection", async () => {
-    getMock.mockResolvedValue({
-      job_id: 5,
-      plate: 1,
-      objects: [
-        { id: 10, name: "Part A", plate: 1 },
-        { id: 11, name: "Part B", plate: 1 },
-        { id: 12, name: "Part C", plate: 1 },
-      ],
-    });
-    postMock.mockResolvedValue({ ok: true });
-    const it = a1Mini({}, PRINTING);
-    renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
-    const btn = await screen.findByRole("button", { name: "Skip objects" });
-    expect(btn).toHaveTextContent("3");
-    fireEvent.click(btn);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Part B" }));
-    fireEvent.click(screen.getByRole("button", { name: /Skip 1 selected/ }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/skip-objects", { object_ids: [11] }));
-  });
-
-  it("no skip button when the viewer cannot control or only one object exists", async () => {
-    getMock.mockResolvedValue({ job_id: 5, plate: 1, objects: [{ id: 1, name: "Solo", plate: 1 }] });
-    const it = a1Mini({}, PRINTING);
-    renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
-    await screen.findByText("Benchy");
-    await waitFor(() => expect(getMock).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: "Skip objects" })).toBeNull();
-  });
-
-  it("offline text", async () => {
+  it("offline: only the last print, no repeated status", async () => {
     const it = a1Mini({}, { online: false });
-    renderCard(<StatusSection printerId={1} status={it.status} activeJob={null} lastRuns={[]} canControl />);
-    expect(await screen.findByText(/Offline/)).toBeInTheDocument();
+    renderCard(<StatusSection printerId={1} status={it.status} activeJob={null} lastRuns={[RUN]} canControl />);
+    expect(await screen.findByText("Last print: cube")).toBeInTheDocument();
+    expect(screen.queryByText(/Offline/)).toBeNull();
   });
 
   it("etaClock formats null / valid", () => {

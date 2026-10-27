@@ -1,5 +1,5 @@
 /**
- * Temperature + fan tiles. Each tile shows `current -> target` (fans: %),
+ * Temperature + fan tiles. Each tile shows `current/target°` (target muted; fans: %, hidden when null),
  * and clicking opens a popover with a number input and presets (PLA 220/60,
  * PETG 250/80, Off). Targets are applied optimistically and revert after
  * 10 s if the printer's reported target never matches. Chamber / aux /
@@ -75,8 +75,8 @@ function Tile({
       </span>
       <span className="pc-t12 font-mono tabular-nums">
         {current}
-        {target != null && !suffix ? <span className="text-muted-foreground"> → {target}</span> : null}
-        <span className="text-muted-foreground"> {unit}</span>
+        {target != null && !suffix ? <span className="text-muted-foreground">/{target}</span> : null}
+        <span className="text-muted-foreground">{unit}</span>
       </span>
     </div>
   );
@@ -183,7 +183,7 @@ function TempTile({
       icon={icon}
       current={fmt(current)}
       target={shown != null && shown > 0 ? Math.round(shown) : null}
-      unit="°C"
+      unit="°"
       max={max}
       presets={[...presets, { label: t("card.temps.off"), value: 0 }]}
       disabled={disabled}
@@ -268,8 +268,8 @@ export function TempFanTiles({
   ];
   const common = { printerId: printer.id, disabled, untested };
   return (
-    <div className="flex flex-col gap-1.5" data-slot="temp-fan-tiles">
-      <div className="flex gap-1.5">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(84px,1fr))] gap-1.5" data-slot="temp-fan-tiles">
+      <>
         {caps.dual_nozzle ? (
           <>
             {([1, 0] as const).map((id) => {
@@ -332,14 +332,16 @@ export function TempFanTiles({
             hint={caps.chamber_heater ? undefined : t("card.temps.chamberReadonly")}
           />
         ) : null}
-      </div>
-      <div className="flex gap-1.5">
+      </>
+      {status.fan_part_pct != null ? (
         <FanTile {...common} fan="part" label={t("card.temps.partFan")} reported={status.fan_part_pct} />
-        {caps.aux_fan ? <FanTile {...common} fan="aux" label={t("card.temps.auxFan")} reported={status.fan_aux_pct} /> : null}
-        {caps.chamber_fan ? (
-          <FanTile {...common} fan="chamber" label={t("card.temps.chamberFan")} reported={status.fan_chamber_pct} />
-        ) : null}
-      </div>
+      ) : null}
+      {caps.aux_fan && status.fan_aux_pct != null ? (
+        <FanTile {...common} fan="aux" label={t("card.temps.auxFan")} reported={status.fan_aux_pct} />
+      ) : null}
+      {caps.chamber_fan && status.fan_chamber_pct != null ? (
+        <FanTile {...common} fan="chamber" label={t("card.temps.chamberFan")} reported={status.fan_chamber_pct} />
+      ) : null}
     </div>
   );
 }

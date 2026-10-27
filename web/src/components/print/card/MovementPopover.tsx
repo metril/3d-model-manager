@@ -40,6 +40,7 @@ export function MovementPopover({
           showLabel={showLabel}
           untested={untested}
           disabled={busy}
+          reason={t("card.controls.busyReason")}
         />
       </PopoverTrigger>
       <PopoverContent className="w-60">

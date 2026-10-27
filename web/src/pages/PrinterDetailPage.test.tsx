@@ -134,7 +134,7 @@ describe("PrinterDetailPage", () => {
     renderDetail();
 
     expect((await screen.findAllByText("Bambu A1", {}, { timeout: 3000 })).length).toBeGreaterThan(0);
-    expect(await screen.findByText("42%")).toBeInTheDocument();
+    expect(await screen.findByTestId("job-percent")).toHaveTextContent("42%");
     expect(getMock).toHaveBeenCalledWith("/archives?printer=1");
     expect(await screen.findByText("No maintenance tasks yet.")).toBeInTheDocument();
   });
@@ -153,7 +153,7 @@ describe("PrinterDetailPage", () => {
   it("hides AMS history without units; with 2 units charts both", async () => {
     mockGet();
     const first = renderDetail();
-    await screen.findByText("42%");
+    await screen.findByTestId("job-percent");
     fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
     await screen.findByRole("menuitem", { name: "Firmware" });
     expect(screen.queryByRole("menuitem", { name: "AMS history" })).toBeNull();

@@ -11,6 +11,8 @@ import { useTranslation } from "react-i18next";
 import { usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut } from "@/api/types";
+import { HistoryIcon } from "lucide-react";
+import { EmptyHint } from "@/components/print/EmptyHint";
 import { CompareBar } from "@/components/print/ArchiveCompareDialog";
 import { useRunSelection } from "@/components/print/useRunSelection";
 import { RunDetailSheet } from "@/components/print/RunDetailSheet";
@@ -78,6 +80,7 @@ function RunRow({
 }
 
 export function RecentRunsList({ runs, limit = 10 }: { runs: ArchiveOut[]; limit?: number }) {
+  const { t } = useTranslation();
   const [openId, setOpenId] = useState<number | null>(null);
   const shown = runs.slice(0, limit);
   const selection = useRunSelection();
@@ -90,7 +93,7 @@ export function RecentRunsList({ runs, limit = 10 }: { runs: ArchiveOut[]; limit
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {shown.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No runs yet.</p>
+          <EmptyHint icon={<HistoryIcon />}>{t("dash.empty.runs")}</EmptyHint>
         ) : (
           <ul className="divide-y divide-border">
             {shown.map((run) => (
