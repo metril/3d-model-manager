@@ -14,7 +14,7 @@
  * button's primary (non-dropdown) action next time.
  */
 import { useState } from "react";
-import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
+import { ChevronDownIcon, ExternalLinkIcon, ScissorsIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/api/client";
@@ -41,9 +41,14 @@ interface SlicerLinkResponse {
 export function OpenInSlicerButton({
   file,
   size = "icon-sm",
+  onSlice,
 }: {
   file: FileOut;
   size?: "icon-sm" | "default";
+  /** When set (header only), the primary segment becomes "Slice..." and the
+   * slicers move into the dropdown as "Open in <slicer>" items -- one split
+   * button for both actions. */
+  onSlice?: () => void;
 }) {
   const [lastSlicer, setLastSlicer] = useState<SlicerOption>(readLastSlicer);
   const [pending, setPending] = useState(false);
@@ -73,10 +78,19 @@ export function OpenInSlicerButton({
         size={size}
         className="rounded-r-none"
         disabled={pending}
-        aria-label={`Open ${file.rel_path} in ${lastSlicer.label}`}
-        onClick={() => void openIn(lastSlicer)}
+        aria-label={onSlice ? "Slice" : `Open ${file.rel_path} in ${lastSlicer.label}`}
+        onClick={() => (onSlice ? onSlice() : void openIn(lastSlicer))}
       >
-        {size === "icon-sm" ? <ExternalLinkIcon className="size-4" /> : `Open in ${lastSlicer.label}`}
+        {onSlice ? (
+          <>
+            <ScissorsIcon className="size-4" />
+            Slice…
+          </>
+        ) : size === "icon-sm" ? (
+          <ExternalLinkIcon className="size-4" />
+        ) : (
+          `Open in ${lastSlicer.label}`
+        )}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -94,7 +108,7 @@ export function OpenInSlicerButton({
         <DropdownMenuContent align="end">
           {SLICER_OPTIONS.map((slicer) => (
             <DropdownMenuItem key={slicer.id} onSelect={() => void openIn(slicer)}>
-              {slicer.label}
+              {onSlice ? `Open in ${slicer.label}` : slicer.label}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

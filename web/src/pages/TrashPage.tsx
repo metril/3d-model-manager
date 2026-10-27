@@ -14,6 +14,7 @@ import { useAuth } from "@/api/auth";
 import { usePurgeTrash, useRestoreTrash, useTrash } from "@/api/trash";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PageContainer } from "@/components/ui/page-container";
@@ -121,11 +122,10 @@ export function TrashPage() {
           {query.error instanceof ApiError ? query.error.detail : "Couldn't load the trash."}
         </p>
       ) : items.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            The trash is empty.
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Trash2Icon}
+          title="The trash is empty."
+        />
       ) : (
         <div className="space-y-2">
           {canWrite && actionable.length > 0 && (

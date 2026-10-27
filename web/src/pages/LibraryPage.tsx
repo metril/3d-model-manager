@@ -4,6 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   ArchiveIcon,
   BookmarkIcon,
+  ChevronDownIcon,
   FolderKanbanIcon,
   FolderTreeIcon,
   LayoutGridIcon,
@@ -12,6 +13,8 @@ import {
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
+  SlidersHorizontalIcon,
+  SquareLibraryIcon,
   StarIcon,
   TagIcon,
   Trash2Icon,
@@ -46,6 +49,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { chunkIntoRows, columnsForWidth, estimateListRowHeight, estimateRowHeight } from "@/lib/grid";
@@ -141,6 +146,37 @@ function FilterChip({
   );
 }
 
+const QUICK_FORMATS: BlobFormat[] = ["stl", "3mf", "gcode"];
+
+/** Multi-select over every file type (the chips beside it cover the common ones). */
+function TypeFilter({ value, onChange }: { value: BlobFormat[]; onChange: (next: BlobFormat[]) => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" size="sm">
+          Type{value.length > 0 ? <Badge variant="secondary">{value.length}</Badge> : null}
+          <ChevronDownIcon />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-48">
+        <div className="flex flex-col gap-2">
+          {BLOB_FORMATS.map((format) => (
+            <Label key={format} className="flex items-center gap-2 text-sm font-normal">
+              <Checkbox
+                checked={value.includes(format)}
+                onCheckedChange={(checked) =>
+                  onChange(checked === true ? [...value, format] : value.filter((f) => f !== format))
+                }
+              />
+              {FORMAT_LABELS[format]}
+            </Label>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function LibraryPage() {
   // One-way seed only: a provenance badge or a related-models card can deep
   // link here with `?collection=<id>` (see `librarySearch.ts`), but the
@@ -156,7 +192,8 @@ export function LibraryPage() {
   const [fileTagFilter, setFileTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // The backend's `format` filter accepts a single value (SPEC "API surface"),
   // so the chips behave as a single-select facet ("All" clears it).
-  const [activeFormat, setActiveFormat] = useState<BlobFormat | undefined>(undefined);
+  // The Type multi-select can hold several; the quick chips set exactly one.
+  const [activeFormats, setActiveFormats] = useState<BlobFormat[]>([]);
   const [slicedOnly, setSlicedOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [archivedOnly, setArchivedOnly] = useState(false);
@@ -257,7 +294,7 @@ export function LibraryPage() {
       tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
       fileTags: fileTagFilter.tags.length ? fileTagFilter.tags : undefined,
       fileTagMode: fileTagFilter.tags.length > 1 ? fileTagFilter.mode : undefined,
-      format: activeFormat,
+      format: activeFormats.length ? activeFormats.join(",") : undefined,
       has_sliced: slicedOnly || undefined,
       collection: activeCollection,
       category: activeCategory,
@@ -269,7 +306,7 @@ export function LibraryPage() {
       debouncedSearch,
       tagFilter,
       fileTagFilter,
-      activeFormat,
+      activeFormats,
       slicedOnly,
       favoritesOnly,
       archivedOnly,
@@ -415,6 +452,78 @@ export function LibraryPage() {
 
   const isEmpty = !modelsQuery.isLoading && items.length === 0;
 
+  const extraFilterCount =
+    (slicedOnly ? 1 : 0) +
+    (favoritesOnly ? 1 : 0) +
+    (archivedOnly ? 1 : 0) +
+    (activeCollection !== undefined ? 1 : 0) +
+    (activeCategory !== undefined ? 1 : 0) +
+    (tagFilter.tags.length > 0 ? 1 : 0) +
+    (fileTagFilter.tags.length > 0 ? 1 : 0);
+
+  const secondaryFilters = (
+    <>
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by category">
+          <FilterChip active={!activeCategory} onClick={() => goToCategory(undefined)}>
+            All categories
+          </FilterChip>
+          {categories.map((category) => (
+            <FilterChip
+              key={category.id}
+              active={activeCategory === category.id}
+              onClick={() => goToCategory(activeCategory === category.id ? undefined : category.id)}
+            >
+              <span
+                aria-hidden="true"
+                className={cn("size-1.5 rounded-full", tagColorClass(category.color) ?? "bg-muted-foreground")}
+              />
+              {category.name}
+            </FilterChip>
+          ))}
+        </div>
+      )}
+      <Label className="flex items-center gap-2 text-sm font-normal">
+        <Checkbox checked={slicedOnly} onCheckedChange={(checked) => setSlicedOnly(checked === true)} />
+        Sliced only
+      </Label>
+      <FilterChip active={favoritesOnly} onClick={() => setFavoritesOnly((prev) => !prev)}>
+        <StarIcon className={favoritesOnly ? "fill-current" : undefined} />
+        Favorites
+      </FilterChip>
+      <FilterChip active={archivedOnly} onClick={() => setArchivedOnly((prev) => !prev)}>
+        <ArchiveIcon />
+        Include archived
+      </FilterChip>
+      <TagFilter value={tagFilter} onChange={setTagFilter} label="Tags" countKey="models" />
+      <TagFilter value={fileTagFilter} onChange={setFileTagFilter} label="Has file tagged" countKey="model_files" />
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm">
+            <BookmarkIcon /> {activeCollectionTitle ? `Collection: ${activeCollectionTitle}` : "Collection"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-64">
+          <div className="flex flex-wrap gap-1.5">
+            {collections.map((collection) => (
+              <button
+                key={collection.id}
+                type="button"
+                onClick={() => setActiveCollection(activeCollection === collection.id ? undefined : collection.id)}
+              >
+                <Badge variant={activeCollection === collection.id ? "default" : "outline"} className="cursor-pointer">
+                  {`${collection.title} (${collection.site})`}
+                </Badge>
+              </button>
+            ))}
+            {collections.length === 0 && <p className="text-xs text-muted-foreground">No followed collections</p>}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </>
+  );
+
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3">
@@ -461,98 +570,47 @@ export function LibraryPage() {
           ) : null}
         </div>
 
-        {categories.length > 0 && viewMode !== "folders" && (
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by category">
-            <FilterChip active={!activeCategory} onClick={() => goToCategory(undefined)}>
-              All categories
-            </FilterChip>
-            {categories.map((category) => (
-              <FilterChip
-                key={category.id}
-                active={activeCategory === category.id}
-                onClick={() => goToCategory(activeCategory === category.id ? undefined : category.id)}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn("size-1.5 rounded-full", tagColorClass(category.color) ?? "bg-muted-foreground")}
-                />
-                {category.name}
-              </FilterChip>
-            ))}
-          </div>
-        )}
-
         {viewMode !== "folders" && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by format">
-            <FilterChip active={!activeFormat} onClick={() => setActiveFormat(undefined)}>
-              All
-            </FilterChip>
-            {BLOB_FORMATS.map((format) => (
-              <FilterChip
-                key={format}
-                active={activeFormat === format}
-                onClick={() => setActiveFormat(activeFormat === format ? undefined : format)}
-              >
-                {FORMAT_LABELS[format]}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by format">
+              <FilterChip active={activeFormats.length === 0} onClick={() => setActiveFormats([])}>
+                All
               </FilterChip>
-            ))}
+              {QUICK_FORMATS.map((format) => (
+                <FilterChip
+                  key={format}
+                  active={activeFormats.length === 1 && activeFormats[0] === format}
+                  onClick={() =>
+                    setActiveFormats(activeFormats.length === 1 && activeFormats[0] === format ? [] : [format])
+                  }
+                >
+                  {FORMAT_LABELS[format]}
+                </FilterChip>
+              ))}
+              <TypeFilter value={activeFormats} onChange={setActiveFormats} />
+            </div>
+
+            {/* Below sm everything else lives in a Filters sheet so the grid
+                stays above the fold. */}
+            <div className="sm:hidden">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    <SlidersHorizontalIcon /> Filters
+                    {extraFilterCount > 0 ? <Badge variant="secondary">{extraFilterCount}</Badge> : null}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="max-h-[85svh] overflow-y-auto">
+                  <SheetHeader>
+                    <SheetTitle>Filters</SheetTitle>
+                    <SheetDescription className="sr-only">Narrow the library</SheetDescription>
+                  </SheetHeader>
+                  <div className="flex flex-col gap-4 px-4 pb-6">{secondaryFilters}</div>
+                </SheetContent>
+              </Sheet>
+            </div>
+            <div className="hidden flex-wrap items-center gap-x-3 gap-y-2 sm:flex">{secondaryFilters}</div>
           </div>
-
-          <div className="hidden h-5 w-px bg-border sm:block" />
-
-          <Label className="flex items-center gap-2 text-sm font-normal">
-            <Checkbox
-              checked={slicedOnly}
-              onCheckedChange={(checked) => setSlicedOnly(checked === true)}
-            />
-            Sliced only
-          </Label>
-
-          <FilterChip active={favoritesOnly} onClick={() => setFavoritesOnly((prev) => !prev)}>
-            <StarIcon className={favoritesOnly ? "fill-current" : undefined} />
-            Favorites
-          </FilterChip>
-
-          <FilterChip active={archivedOnly} onClick={() => setArchivedOnly((prev) => !prev)}>
-            <ArchiveIcon />
-            Include archived
-          </FilterChip>
-
-          <TagFilter value={tagFilter} onChange={setTagFilter} label="Tags" countKey="models" />
-          <TagFilter value={fileTagFilter} onChange={setFileTagFilter} label="Has file tagged" countKey="model_files" />
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                <BookmarkIcon /> {activeCollectionTitle ? `Collection: ${activeCollectionTitle}` : "Collection"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64">
-              <div className="flex flex-wrap gap-1.5">
-                {collections.map((collection) => (
-                  <button
-                    key={collection.id}
-                    type="button"
-                    onClick={() =>
-                      setActiveCollection(activeCollection === collection.id ? undefined : collection.id)
-                    }
-                  >
-                    <Badge
-                      variant={activeCollection === collection.id ? "default" : "outline"}
-                      className="cursor-pointer"
-                    >
-                      {`${collection.title} (${collection.site})`}
-                    </Badge>
-                  </button>
-                ))}
-                {collections.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No followed collections</p>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
         )}
       </div>
 
@@ -581,19 +639,18 @@ export function LibraryPage() {
           </div>
         </Card>
       ) : isEmpty ? (
-        <Card className="mx-auto mt-12 max-w-md">
-          <CardHeader className="items-center text-center">
-            <CardTitle>No models yet</CardTitle>
-            <CardDescription>Upload your first 3D model to get started.</CardDescription>
-          </CardHeader>
-          <div className="flex justify-center pb-4">
-            {can("library:write") ? (
+        <EmptyState
+          className="mt-12"
+          icon={SquareLibraryIcon}
+          title="No models yet"
+          action={
+            can("library:write") ? (
               <Button asChild>
                 <Link to="/add">Add a model</Link>
               </Button>
-            ) : null}
-          </div>
-        </Card>
+            ) : undefined
+          }
+        />
       ) : (
         <>
           <div ref={gridRef} className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
