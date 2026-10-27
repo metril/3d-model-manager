@@ -32,9 +32,9 @@ const RESULT_LABELS: Record<PrintResult, string> = {
   partial: "Partial",
 };
 const RESULT_BADGE: Record<PrintResult, { variant: "destructive" | "outline"; className?: string }> = {
-  success: { variant: "outline", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
+  success: { variant: "outline", className: "bg-success/15 text-success" },
   fail: { variant: "destructive" },
-  partial: { variant: "outline", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
+  partial: { variant: "outline", className: "bg-warning/15 text-warning" },
 };
 
 /** A labeled horizontal bar, its width relative to `max` -- the CSS-only
@@ -220,7 +220,7 @@ export function HistoryStats() {
                 <p className="text-xs text-muted-foreground">Logged</p>
               </div>
               <div>
-                <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                <p className="text-xl font-semibold tabular-nums text-success">
                   {stats.prints.succeeded}
                 </p>
                 <p className="text-xs text-muted-foreground">Succeeded</p>

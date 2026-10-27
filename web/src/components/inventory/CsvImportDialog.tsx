@@ -92,7 +92,7 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
             </p>
           ) : null}
           {expired ? (
-            <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 p-2 text-sm">
+            <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-warning/40 p-2 text-sm">
               <span>{t("spoolAdmin.csv.expired")}</span>
               {file ? (
                 <Button type="button" size="sm" variant="outline" onClick={() => runDry(file)}>

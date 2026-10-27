@@ -82,7 +82,7 @@ export function ScheduleChips({ entry }: { entry: QueueEntry }) {
     <>
       {when && waiting ? (
         <span className="inline-flex items-center gap-0.5">
-          <Badge variant="outline" className="border-sky-500 bg-transparent text-sky-600 dark:text-sky-400">
+          <Badge variant="outline" className="border-primary bg-transparent text-primary">
             <CalendarClockIcon className="size-3" />
             {t("queueSched.chip.scheduled", { when })}
           </Badge>
@@ -101,7 +101,7 @@ export function ScheduleChips({ entry }: { entry: QueueEntry }) {
       ) : null}
       {awaitingRelease ? (
         <span className="inline-flex items-center gap-1.5">
-          <Badge variant="outline" className="border-amber-500 bg-transparent text-amber-600 dark:text-amber-400">
+          <Badge variant="outline" className="border-warning bg-transparent text-warning">
             {t("queueSched.chip.manual")}
           </Badge>
           {canReview ? (
@@ -115,7 +115,7 @@ export function ScheduleChips({ entry }: { entry: QueueEntry }) {
         <span className="inline-flex items-center gap-1.5">
           <Badge
             variant="outline"
-            className="border-amber-500 bg-transparent text-amber-600 dark:text-amber-400"
+            className="border-warning bg-transparent text-warning"
             title={reason ?? undefined}
           >
             {reason

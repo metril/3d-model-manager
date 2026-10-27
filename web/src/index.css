@@ -31,6 +31,10 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-success-foreground: var(--success-foreground);
+    --color-success: var(--success);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-warning: var(--warning);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -74,120 +78,106 @@
 }
 
 :root {
-    --background: oklch(0.985 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    /* Filament amber — the one brand accent (~#E8622C), a molten hot-end
-       orange. Drives primary actions, active nav, and focus. */
-    --primary: oklch(0.646 0.176 41.1);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.96 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.9 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.646 0.176 41.1);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.5rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-    --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 6%);
-    --elevation-2: 0 2px 8px -2px rgb(0 0 0 / 12%), 0 1px 2px -1px rgb(0 0 0 / 8%);
-    --elevation-3: 0 12px 32px -6px rgb(0 0 0 / 18%), 0 4px 10px -4px rgb(0 0 0 / 10%);
-    /* Printer-state tones (P3 Task 4) -- see `@theme inline` above. */
-    --state-printing: var(--primary); /* the one brand amber */
-    --state-finished: oklch(0.627 0.17 149);
+    /* Cool slate neutrals (oklch hue ~255, low chroma). Accent hue/chroma
+       come from `data-accent`; lightness is per mode via --accent-l. */
+    --accent-h: 262;
+    --accent-c: 0.19;
+    --accent-l: 0.56;
+    --style-chroma: 1;
+    --background: oklch(0.985 0.004 255);
+    --foreground: oklch(0.18 0.02 260);
+    --card: oklch(1 0.002 255);
+    --card-foreground: oklch(0.18 0.02 260);
+    --popover: oklch(1 0.002 255);
+    --popover-foreground: oklch(0.18 0.02 260);
+    --primary: oklch(var(--accent-l) calc(var(--accent-c) * var(--style-chroma)) var(--accent-h));
+    --primary-foreground: oklch(0.985 0.004 255);
+    --secondary: oklch(0.955 0.01 255);
+    --secondary-foreground: oklch(0.25 0.025 260);
+    --muted: oklch(0.96 0.008 255);
+    --muted-foreground: oklch(0.5 0.02 257);
+    --accent: oklch(0.955 0.01 255);
+    --accent-foreground: oklch(0.25 0.025 260);
+    --destructive: oklch(0.577 0.225 27);
+    --success: oklch(0.55 0.14 152);
+    --success-foreground: oklch(0.985 0.004 255);
+    --warning: oklch(0.6 0.14 70);
+    --warning-foreground: oklch(0.18 0.02 260);
+    --border: oklch(0.91 0.01 255);
+    --input: oklch(0.89 0.012 255);
+    --ring: var(--primary);
+    --chart-1: var(--viz-1);
+    --chart-2: var(--viz-2);
+    --chart-3: var(--viz-3);
+    --chart-4: var(--viz-4);
+    --chart-5: var(--viz-5);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.975 0.006 255);
+    --sidebar-foreground: oklch(0.18 0.02 260);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.945 0.012 255);
+    --sidebar-accent-foreground: oklch(0.25 0.025 260);
+    --sidebar-border: oklch(0.91 0.01 255);
+    --sidebar-ring: var(--ring);
+    --elevation-1: 0 1px 2px 0 oklch(0.25 0.04 260 / 7%);
+    --elevation-2: 0 2px 8px -2px oklch(0.25 0.04 260 / 12%), 0 1px 2px -1px oklch(0.25 0.04 260 / 8%);
+    --elevation-3: 0 12px 32px -6px oklch(0.25 0.04 260 / 18%), 0 4px 10px -4px oklch(0.25 0.04 260 / 10%);
+    /* Printer-state tones (`lib/printerState.ts`): mapped onto the semantic
+       status tokens so they track the theme. */
+    --state-printing: var(--primary);
+    --state-finished: var(--success);
     --state-failed: var(--destructive);
-    --state-paused: oklch(0.554 0.046 257);
+    --state-paused: var(--warning);
     --state-idle: var(--muted-foreground);
-    --state-offline: oklch(0.65 0 0);
+    --state-offline: oklch(0.68 0.012 255);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    /* Filament amber (see :root) — same brand accent on dark surfaces. */
-    --primary: oklch(0.646 0.176 41.1);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    /* Tightened vs. the shadcn default (was 0.269, same as --secondary/
-       --accent, so muted surfaces and borders were nearly invisible against
-       the sidebar/card): muted sits closer to the card so hover states read
-       as "lifted" rather than lost, and border/input are more opaque so
-       hairlines separate panels in the new grouped sidebar/topbar. */
-    --muted: oklch(0.235 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 14%);
-    --input: oklch(1 0 0 / 18%);
-    --ring: oklch(0.646 0.176 41.1);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --accent-l: 0.66;
+    /* Layered surfaces: bg < card < popover. Hairlines are white alpha. */
+    --background: oklch(0.16 0.012 255);
+    --foreground: oklch(0.97 0.005 255);
+    --card: oklch(0.19 0.014 255);
+    --card-foreground: oklch(0.97 0.005 255);
+    --popover: oklch(0.22 0.016 255);
+    --popover-foreground: oklch(0.97 0.005 255);
+    --primary-foreground: oklch(0.14 0.02 260);
+    --secondary: oklch(0.25 0.016 255);
+    --secondary-foreground: oklch(0.97 0.005 255);
+    --muted: oklch(0.23 0.014 255);
+    --muted-foreground: oklch(0.7 0.02 257);
+    --accent: oklch(0.26 0.018 255);
+    --accent-foreground: oklch(0.97 0.005 255);
+    --destructive: oklch(0.7 0.19 22);
+    --success: oklch(0.74 0.16 152);
+    --success-foreground: oklch(0.14 0.02 260);
+    --warning: oklch(0.8 0.15 80);
+    --warning-foreground: oklch(0.14 0.02 260);
+    --border: oklch(1 0 0 / 8%);
+    --input: oklch(1 0 0 / 12%);
+    --sidebar: oklch(0.175 0.013 255);
+    --sidebar-foreground: oklch(0.97 0.005 255);
+    --sidebar-accent: oklch(0.25 0.018 255);
+    --sidebar-accent-foreground: oklch(0.97 0.005 255);
+    --sidebar-border: oklch(1 0 0 / 8%);
     --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 40%);
     --elevation-2: 0 2px 10px -2px rgb(0 0 0 / 55%), 0 1px 3px -1px rgb(0 0 0 / 45%);
     --elevation-3: 0 16px 40px -8px rgb(0 0 0 / 65%), 0 4px 12px -4px rgb(0 0 0 / 50%);
-    /* Printer-state tones (P3 Task 4) -- same hues as :root; dark-mode
-       destructive/muted-foreground already lighten themselves above. */
-    --state-printing: var(--primary);
-    --state-finished: oklch(0.627 0.17 149);
-    --state-failed: var(--destructive);
-    --state-paused: oklch(0.554 0.046 257);
-    --state-idle: var(--muted-foreground);
-    --state-offline: oklch(0.4 0 0);
+    --state-offline: oklch(0.42 0.015 255);
 }
 
 /* Q8a appearance: style x accent layered on top of the mode (.dark/:root).
    `data-accent`/`data-style` are set on <html> by `lib/appearance.tsx`; with
-   neither attribute the defaults above (classic + brand orange) apply.
-   Accents only carry hue/chroma; `--style-chroma` lets "vibrant" boost it. */
-:root {
-    --style-chroma: 1;
-}
+   neither attribute the defaults above (classic + cool blue) apply.
+   Accents only carry hue/chroma (lightness is --accent-l per mode);
+   `--style-chroma` lets "vibrant" boost it. */
+:root[data-accent="blue"] { --accent-h: 262; --accent-c: 0.19; }
 :root[data-accent="orange"] { --accent-h: 41.1; --accent-c: 0.176; }
 :root[data-accent="green"] { --accent-h: 149; --accent-c: 0.16; }
 :root[data-accent="teal"] { --accent-h: 190; --accent-c: 0.12; }
-:root[data-accent="blue"] { --accent-h: 255; --accent-c: 0.19; }
 :root[data-accent="purple"] { --accent-h: 300; --accent-c: 0.2; }
 :root[data-accent="red"] { --accent-h: 25; --accent-c: 0.21; }
-:root[data-accent] {
-    --primary: oklch(0.646 calc(var(--accent-c) * var(--style-chroma)) var(--accent-h));
-    --ring: var(--primary);
-}
 /* Glow: accent-tinted hairlines and a soft accent halo on raised surfaces. */
 :root[data-style="glow"] {
     --border: color-mix(in oklch, var(--primary) 28%, transparent);
@@ -199,22 +189,22 @@
 /* Vibrant: saturated accent and accent-washed surfaces. */
 :root[data-style="vibrant"] {
     --style-chroma: 1.35;
-    --background: color-mix(in oklch, var(--primary) 7%, oklch(1 0 0));
-    --card: color-mix(in oklch, var(--primary) 4%, oklch(1 0 0));
-    --sidebar: color-mix(in oklch, var(--primary) 9%, oklch(1 0 0));
-    --muted: color-mix(in oklch, var(--primary) 10%, oklch(0.97 0 0));
+    --background: color-mix(in oklch, var(--primary) 7%, oklch(0.99 0.004 255));
+    --card: color-mix(in oklch, var(--primary) 4%, oklch(1 0.002 255));
+    --sidebar: color-mix(in oklch, var(--primary) 9%, oklch(0.99 0.004 255));
+    --muted: color-mix(in oklch, var(--primary) 10%, oklch(0.97 0.008 255));
 }
 :root.dark[data-style="vibrant"] {
-    --background: color-mix(in oklch, var(--primary) 12%, oklch(0.145 0 0));
-    --card: color-mix(in oklch, var(--primary) 14%, oklch(0.205 0 0));
-    --popover: var(--card);
-    --sidebar: color-mix(in oklch, var(--primary) 16%, oklch(0.205 0 0));
-    --muted: color-mix(in oklch, var(--primary) 12%, oklch(0.235 0 0));
+    --background: color-mix(in oklch, var(--primary) 12%, oklch(0.15 0.012 255));
+    --card: color-mix(in oklch, var(--primary) 14%, oklch(0.19 0.014 255));
+    --popover: color-mix(in oklch, var(--primary) 16%, oklch(0.22 0.016 255));
+    --sidebar: color-mix(in oklch, var(--primary) 16%, oklch(0.175 0.013 255));
+    --muted: color-mix(in oklch, var(--primary) 12%, oklch(0.23 0.014 255));
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring/60;
     }
   body {
     @apply bg-background text-foreground;

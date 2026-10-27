@@ -21,8 +21,8 @@ describe("PrintCalendar", () => {
     render(<PrintCalendar onSelectDay={onSelect} />);
     const d5 = screen.getByTestId(`day-${ym}-05`);
     expect(d5).toHaveTextContent("3 · 4.5h");
-    expect(d5.className).toContain("emerald");
-    expect(screen.getByTestId(`day-${ym}-06`).className).toContain("red");
+    expect(d5.className).toContain("bg-success");
+    expect(screen.getByTestId(`day-${ym}-06`).className).toContain("bg-destructive");
     expect(screen.getByTestId(`day-${ym}-07`)).toBeDisabled();
     fireEvent.click(d5);
     expect(onSelect).toHaveBeenCalledWith(`${ym}-05`);

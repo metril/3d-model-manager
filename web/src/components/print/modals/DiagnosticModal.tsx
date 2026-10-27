@@ -13,7 +13,7 @@ export function DiagnosticChecks({ checks }: { checks: DiagnosticCheck[] }) {
       {checks.map((c) => (
         <li key={c.id} className="flex items-start gap-2" data-status={c.status}>
           {c.status === "ok" ? (
-            <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+            <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-success" />
           ) : c.status === "fail" ? (
             <XCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
           ) : (

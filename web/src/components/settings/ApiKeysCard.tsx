@@ -198,9 +198,9 @@ function MintedKey({ label, secret, onDismiss }: { label: string; secret: string
     });
   }
   return (
-    <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+    <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
       <p className="text-sm font-medium text-foreground">Key created for &quot;{label}&quot;</p>
-      <p className="text-xs text-amber-700 dark:text-amber-400">
+      <p className="text-xs text-warning">
         Copy it now — it won&apos;t be shown again.
       </p>
       <div className="flex items-center gap-2">

@@ -108,7 +108,7 @@ export function MqttDebugModal({
                 <div className="flex items-center gap-2">
                   <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setOpenKey(openKey === `${r.ts}-${r.topic}` ? null : `${r.ts}-${r.topic}`)}>
                     <span className="text-muted-foreground">{new Date(r.ts * 1000).toLocaleTimeString()}</span>
-                    <span className={cn("rounded px-1", r.dir === "cmd" ? "bg-amber-500/20" : "bg-sky-500/20")}>
+                    <span className={cn("rounded px-1", r.dir === "cmd" ? "bg-warning/20" : "bg-primary/20")}>
                       {r.dir === "cmd" ? t("printer.mqttDebug.cmd") : t("printer.mqttDebug.in")}
                     </span>
                     <span className="truncate">{r.topic}</span>

@@ -86,7 +86,7 @@ export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
             {update.error instanceof ApiError ? update.error.detail : "Could not save camera"}
           </p>
         ) : null}
-        {update.isSuccess ? <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p> : null}
+        {update.isSuccess ? <p className="text-sm text-success">Saved.</p> : null}
       </div>
       <OverlayTokensList printerId={printer.id} />
     </fieldset>

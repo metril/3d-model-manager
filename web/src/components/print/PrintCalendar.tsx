@@ -16,9 +16,9 @@ function dayTone(ok: number, failed: number): string {
   const total = ok + failed;
   if (total === 0) return "bg-muted/40";
   const ratio = ok / total;
-  if (ratio >= 0.8) return "bg-emerald-500/25 border-emerald-500/50";
-  if (ratio >= 0.5) return "bg-amber-500/25 border-amber-500/50";
-  return "bg-red-500/25 border-red-500/50";
+  if (ratio >= 0.8) return "bg-success/25 border-success/50";
+  if (ratio >= 0.5) return "bg-warning/25 border-warning/50";
+  return "bg-destructive/25 border-destructive/50";
 }
 
 export function PrintCalendar({ onSelectDay }: { onSelectDay: (date: string) => void }) {
@@ -101,9 +101,9 @@ export function PrintCalendar({ onSelectDay }: { onSelectDay: (date: string) => 
         <ul className="flex flex-wrap gap-4 text-xs text-muted-foreground">
           {(
             [
-              ["bg-emerald-500/25 border-emerald-500/50", "legendOk"],
-              ["bg-amber-500/25 border-amber-500/50", "legendMixed"],
-              ["bg-red-500/25 border-red-500/50", "legendFailed"],
+              ["bg-success/25 border-success/50", "legendOk"],
+              ["bg-warning/25 border-warning/50", "legendMixed"],
+              ["bg-destructive/25 border-destructive/50", "legendFailed"],
             ] as const
           ).map(([cls, key]) => (
             <li key={key} className="flex items-center gap-1.5">

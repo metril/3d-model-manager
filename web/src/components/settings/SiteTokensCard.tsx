@@ -78,7 +78,7 @@ export function SiteTokensCard() {
             {update.error instanceof ApiError ? update.error.detail : "Could not save the tokens."}
           </p>
         )}
-        {update.isSuccess && <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p>}
+        {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
       </CardContent>
     </Card>
   );

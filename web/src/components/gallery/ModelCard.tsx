@@ -233,9 +233,9 @@ export function ModelCard({
                 aria-label={model.favorite ? "Remove from favorites" : "Add to favorites"}
                 aria-pressed={model.favorite}
                 onClick={() => patchModel.mutate({ favorite: !model.favorite })}
-                className="rounded-full bg-background/80 p-1 text-foreground backdrop-blur-sm transition-colors hover:text-amber-500"
+                className="rounded-full bg-background/80 p-1 text-foreground backdrop-blur-sm transition-colors hover:text-warning"
               >
-                <StarIcon className={model.favorite ? "size-4 fill-amber-400 text-amber-500" : "size-4"} />
+                <StarIcon className={model.favorite ? "size-4 fill-warning text-warning" : "size-4"} />
               </button>
             </span>
           </div>

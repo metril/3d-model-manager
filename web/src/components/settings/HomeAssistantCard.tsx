@@ -128,7 +128,7 @@ function ActorField({ data }: { data: HaSettings }) {
         {actorBad ? (
           <span
             role="alert"
-            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400"
+            className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning"
           >
             {actorMsg}
           </span>
@@ -226,7 +226,7 @@ function MqttSection({
         {test.data ? (
           <span
             role={test.data.ok ? undefined : "alert"}
-            className={test.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}
+            className={test.data.ok ? "text-sm text-success" : "text-sm text-destructive"}
           >
             {test.data.detail}
           </span>
@@ -289,7 +289,7 @@ function RestSection({
         {test.data ? (
           <span
             role={test.data.ok ? undefined : "alert"}
-            className={test.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}
+            className={test.data.ok ? "text-sm text-success" : "text-sm text-destructive"}
           >
             {test.data.detail}
           </span>
@@ -298,13 +298,13 @@ function RestSection({
       {unreachable ? (
         <p
           role="alert"
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+          className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
           Home Assistant unreachable, queue holds are ignored
         </p>
       ) : null}
       {entityErrors.length > 0 ? (
-        <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">
+        <p role="alert" className="text-sm text-warning">
           {entityErrors.map((e) => String(e)).join(", ")}
         </p>
       ) : null}
