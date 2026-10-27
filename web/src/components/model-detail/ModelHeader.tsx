@@ -184,7 +184,7 @@ export function ModelHeader({
 
   return (
     <div className="space-y-3 border-b border-border pb-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1 space-y-2">
           {/* Keep the page's h1 in the heading outline even while the name
               is editable -- InlineEdit renders spans, so nesting it here is
@@ -245,7 +245,7 @@ export function ModelHeader({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
           {/* A star is a deliberate, always-live action -- not part of the
               edit gate the way name/description/tags/archive are. */}
           <Button

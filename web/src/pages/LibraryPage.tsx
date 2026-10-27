@@ -605,7 +605,7 @@ export function LibraryPage() {
                     <SheetTitle>Filters</SheetTitle>
                     <SheetDescription className="sr-only">Narrow the library</SheetDescription>
                   </SheetHeader>
-                  <div className="flex flex-col gap-4 px-4 pb-6">{secondaryFilters}</div>
+                  <div className="flex flex-col items-start gap-4 px-4 pb-6">{secondaryFilters}</div>
                 </SheetContent>
               </Sheet>
             </div>

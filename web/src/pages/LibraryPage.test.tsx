@@ -332,6 +332,21 @@ describe("LibraryPage", () => {
     await waitFor(() => expect(lastModelsCall()).not.toContain("format="));
   });
 
+  it("Type multi-select sends a comma-joined format; chips still replace it", async () => {
+    mockGalleryOk();
+    renderLibraryPage();
+    await screen.findByText("No models yet");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Type/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "STL" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "OBJ" }));
+    await waitFor(() => expect(decodeURIComponent(lastModelsCall())).toContain("format=stl,obj"));
+
+    fireEvent.click(screen.getByRole("button", { name: "3MF" }));
+    await waitFor(() => expect(lastModelsCall()).toContain("format=3mf"));
+    expect(lastModelsCall()).not.toContain("obj");
+  });
+
   it("only lets one format be active at a time (single-select chips)", async () => {
     mockGalleryOk();
     renderLibraryPage();

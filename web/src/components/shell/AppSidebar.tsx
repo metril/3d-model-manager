@@ -152,7 +152,7 @@ function NavLink({
       {badge ? (
         <span
           className={cn(
-            "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-mono",
+            "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-white tabular-mono",
             collapsed ? "absolute top-0.5 right-1 h-3.5 min-w-3.5 px-0.5 text-[9px]" : "ml-auto",
           )}
           aria-label={badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"}`}
