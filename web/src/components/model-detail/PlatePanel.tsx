@@ -52,10 +52,12 @@ function plateCaption(plate: PlateOut): string {
   return parts.filter((part): part is string => part !== null).join(" · ");
 }
 
-function PlateCard({ blobHash, plate }: { blobHash: string; plate: PlateOut }) {
+function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate: PlateOut; small?: boolean }) {
   return (
-    <div className="w-48 shrink-0 space-y-2 rounded-lg border border-border p-3">
-      <div className="flex aspect-square items-center justify-center overflow-hidden rounded bg-muted">
+    <div className={`shrink-0 space-y-1.5 rounded-lg border border-border p-2 ${small ? "w-40" : "w-48"}`}>
+      <div
+        className={`flex items-center justify-center overflow-hidden rounded bg-muted ${small ? "h-14" : "aspect-square"}`}
+      >
         {plate.thumbnail_available ? (
           <img
             src={`/api/blobs/${blobHash}/plates/${plate.index}/thumb`}
@@ -98,30 +100,61 @@ function PlateCard({ blobHash, plate }: { blobHash: string; plate: PlateOut }) {
  * `StudioSurface` shows beneath the assembly viewer when the model has both
  * ready GLB parts AND sliced files, so neither view has to hide behind the
  * other. */
-export function PlatePanel({ file, compact = false }: { file: FileOut; compact?: boolean }) {
+export function PlatePanel({
+  file,
+  compact = false,
+  fill = false,
+  autoPreview = false,
+}: {
+  file: FileOut;
+  compact?: boolean;
+  /** Fill the host's height: canvas takes the remaining space, only the plate strip scrolls. */
+  fill?: boolean;
+  /** Mount the layer preview immediately instead of behind a button. */
+  autoPreview?: boolean;
+}) {
   const plates = file.meta?.plates ?? [];
   const header = headerLine(file);
   const meta = metaLine(file);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(autoPreview);
+  const info = [header, meta].filter(Boolean).join(" · ");
+  const infoLine = (
+    <>
+      {header ? <span>{header}</span> : null}
+      {header && meta ? " · " : null}
+      {meta ? <span>{meta}</span> : null}
+    </>
+  );
 
   return (
-    <div className="space-y-3">
-      {!compact && header ? <p className="text-sm text-muted-foreground">{header}</p> : null}
-      {!compact && meta ? <p className="text-sm text-muted-foreground">{meta}</p> : null}
+    <div className={fill ? "flex h-full min-h-0 flex-col gap-2" : "space-y-3"}>
+      {!compact && info ? (
+        <p className={fill ? "shrink-0 truncate text-xs text-muted-foreground" : "text-sm text-muted-foreground"} title={info}>
+          {infoLine}
+        </p>
+      ) : null}
       {!compact &&
         (previewOpen ? (
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-                <LoaderCircleIcon className="size-4 animate-spin" />
-                Loading g-code preview…
-              </div>
+          <div
+            className={
+              fill
+                ? "min-h-0 flex-1 [&>div]:flex [&>div]:h-full [&>div]:min-h-0 [&>div]:flex-col [&>div]:space-y-2 [&_.aspect-video]:aspect-auto [&_.aspect-video]:min-h-0 [&_.aspect-video]:flex-1 [&>div>div:last-child]:shrink-0"
+                : undefined
             }
           >
-            <GcodePreview fileId={file.id} />
-          </Suspense>
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                  <LoaderCircleIcon className="size-4 animate-spin" />
+                  Loading g-code preview…
+                </div>
+              }
+            >
+              <GcodePreview fileId={file.id} />
+            </Suspense>
+          </div>
         ) : (
-          <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
+          <Button variant="outline" size="sm" className="shrink-0 self-start" onClick={() => setPreviewOpen(true)}>
             <LayersIcon className="size-4" />
             Preview layers
           </Button>
@@ -131,9 +164,9 @@ export function PlatePanel({ file, compact = false }: { file: FileOut; compact?:
           <p className="py-8 text-center text-sm text-muted-foreground">No plate details available yet.</p>
         )
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className={fill ? "flex shrink-0 gap-2 overflow-x-auto pb-1" : "flex gap-3 overflow-x-auto pb-2"}>
           {plates.map((plate) => (
-            <PlateCard key={plate.index} blobHash={file.blob_hash} plate={plate} />
+            <PlateCard key={plate.index} blobHash={file.blob_hash} plate={plate} small={fill} />
           ))}
         </div>
       )}
