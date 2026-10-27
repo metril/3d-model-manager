@@ -256,6 +256,7 @@ export function LibraryPage() {
       tags: tagFilter.tags.length ? tagFilter.tags : undefined,
       tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
       fileTags: fileTagFilter.tags.length ? fileTagFilter.tags : undefined,
+      fileTagMode: fileTagFilter.tags.length > 1 ? fileTagFilter.mode : undefined,
       format: activeFormat,
       has_sliced: slicedOnly || undefined,
       collection: activeCollection,

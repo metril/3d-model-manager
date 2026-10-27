@@ -92,15 +92,16 @@ function mapEntities(data: unknown, fn: (entity: Rec) => Rec | undefined): unkno
   return fn(obj) ?? obj;
 }
 
-function withRefs(entity: Rec, refs: TagRef[]): Rec {
-  return { ...entity, tag_refs: refs, ...("tags" in entity ? { tags: refs.map((ref) => ref.name) } : {}) };
+/** Only models keep a legacy `tags: string[]` mirror; projects/archives are fully migrated to refs. */
+function withRefs(entity: Rec, refs: TagRef[], legacyTags = false): Rec {
+  return { ...entity, tag_refs: refs, ...(legacyTags && "tags" in entity ? { tags: refs.map((ref) => ref.name) } : {}) };
 }
 
 function patchPlan(target: TagTarget, refs: TagRef[]): { prefix: QueryKey; fn: (entity: Rec) => Rec | undefined } {
   const hasRefs = (e: Rec) => "tag_refs" in e;
   switch (target.kind) {
     case "model":
-      return { prefix: ["models"], fn: (e) => (e.id === target.id && hasRefs(e) ? withRefs(e, refs) : undefined) };
+      return { prefix: ["models"], fn: (e) => (e.id === target.id && hasRefs(e) ? withRefs(e, refs, true) : undefined) };
     case "file":
       return {
         prefix: ["models"],

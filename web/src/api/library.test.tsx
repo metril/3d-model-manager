@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type { GalleryPage, ModelDetail, ModelSummary } from "@/api/types";
-import { modelQueryOptions, patchModelInListCache, useArchiveModel, usePatchModel } from "@/api/library";
+import { buildModelsUrl, modelQueryOptions, patchModelInListCache, useArchiveModel, usePatchModel } from "@/api/library";
 
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as jobs.test.tsx), so the fakes have to be created through
@@ -285,5 +285,18 @@ describe("useArchiveModel", () => {
 describe("modelQueryOptions", () => {
   it("keys the detail query by slug", () => {
     expect(modelQueryOptions("gizmo").queryKey).toEqual(["models", "detail", "gizmo"]);
+  });
+});
+
+describe("buildModelsUrl tag modes", () => {
+  it("sends tag_mode and file_tag_mode independently", () => {
+    const url = buildModelsUrl({ tags: [1, 2], tagMode: "any", fileTags: [3, 4], fileTagMode: "all", sort: "new" });
+    const p = new URL(url, "http://x").searchParams;
+    expect(p.get("tag_mode")).toBeNull();
+    expect(p.get("file_tag_mode")).toBe("all");
+    const url2 = buildModelsUrl({ tags: [1, 2], tagMode: "all", fileTags: [3, 4], sort: "new" });
+    const p2 = new URL(url2, "http://x").searchParams;
+    expect(p2.get("tag_mode")).toBe("all");
+    expect(p2.get("file_tag_mode")).toBeNull();
   });
 });

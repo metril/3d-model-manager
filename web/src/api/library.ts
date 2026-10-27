@@ -140,8 +140,9 @@ export interface GalleryFilters {
   /** Tag ids; `tagMode` picks any-of vs all-of. */
   tags?: number[];
   tagMode?: TagMode;
-  /** Models having a FILE carrying these tag ids (same any/all mode). */
+  /** Models having a FILE carrying these tag ids; `fileTagMode` is independent of `tagMode`. */
   fileTags?: number[];
+  fileTagMode?: TagMode;
   format?: string;
   has_sliced?: boolean;
   collection?: number;
@@ -159,11 +160,14 @@ export interface GalleryFilters {
 
 const GALLERY_PAGE_SIZE = 24;
 
-function buildModelsUrl(filters: Partial<GalleryFilters>, cursor?: string, limit = GALLERY_PAGE_SIZE): string {
+export function buildModelsUrl(filters: Partial<GalleryFilters>, cursor?: string, limit = GALLERY_PAGE_SIZE): string {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
   appendTagParams(params, filters.tags, filters.tagMode);
-  for (const id of filters.fileTags ?? []) params.append("file_tags", String(id));
+  if (filters.fileTags?.length) {
+    for (const id of filters.fileTags) params.append("file_tags", String(id));
+    if (filters.fileTagMode === "all") params.set("file_tag_mode", "all");
+  }
   if (filters.format) params.set("format", filters.format);
   if (filters.has_sliced) params.set("has_sliced", "true");
   if (filters.collection !== undefined) params.set("collection", String(filters.collection));
