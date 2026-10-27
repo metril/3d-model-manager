@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
+import { FolderKanbanIcon, PlusIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import {
@@ -20,6 +20,7 @@ import { TagFilter } from "@/components/tags/TagFilter";
 import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -221,11 +222,21 @@ export function ProjectsPage() {
       {list.isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : (list.data ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {tab === "projects"
-            ? "No projects yet. Create one, or add models to a project from the library."
-            : "No templates yet. Save a project as a template from its page."}
-        </p>
+        <EmptyState
+          icon={FolderKanbanIcon}
+          title={
+            tab === "projects"
+              ? "No projects yet. Create one, or add models to a project from the library."
+              : "No templates yet. Save a project as a template from its page."
+          }
+          action={
+            tab === "projects" && canWrite ? (
+              <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
+                <PlusIcon /> New project
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(list.data ?? []).map((p) => (

@@ -232,7 +232,7 @@ const dashboardRedirectRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/dashboard",
   beforeLoad: () => {
-    throw redirect({ to: "/print/history", search: { tab: "stats" } });
+    throw redirect({ to: "/stats" });
   },
   component: () => null,
 });

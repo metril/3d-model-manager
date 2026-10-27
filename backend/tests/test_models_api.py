@@ -470,6 +470,33 @@ async def test_gallery_format_filter_matches_current_revision_files(
     assert detail["formats"] == ["stl"]
 
 
+async def test_gallery_format_filter_accepts_comma_separated_list(
+    authenticated_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    stl = await _create_model(authenticated_client, "Only STL")
+    threemf = await _create_model(authenticated_client, "Only 3MF")
+    await _create_model(authenticated_client, "Nothing")
+    for created, name, fmt, data in (
+        (stl, "a.stl", BlobFormat.STL, b"solid a"),
+        (threemf, "b.3mf", BlobFormat.THREEMF, b"3mf-b"),
+    ):
+        model = await db_session.get(Model, created["id"])
+        revision = await db_session.get(Revision, model.current_revision_id)
+        await seed_file(model, revision, name, data, blob_format=fmt)
+
+    async def slugs(query: str) -> set[str]:
+        response = await authenticated_client.get(f"/api/models?format={query}")
+        assert response.status_code == 200
+        return {item["slug"] for item in response.json()["items"]}
+
+    assert await slugs("stl") == {stl["slug"]}
+    assert await slugs("stl,3mf") == {stl["slug"], threemf["slug"]}
+    assert await slugs("stl,nonsense") == {stl["slug"]}
+    assert await slugs("nonsense") == set()
+
+
 # ---------------------------------------------------------------------------
 # gallery: sort + cursor pagination
 # ---------------------------------------------------------------------------

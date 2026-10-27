@@ -87,17 +87,17 @@ beforeEach(() => {
 });
 
 describe("ModelCard", () => {
-  it("renders name, first 3 tags with overflow count, format badges, and updated date", async () => {
+  it("renders name, first 2 tags with overflow count, format badges, and updated date", async () => {
     renderCard(MODEL);
 
     expect(await screen.findByText("Articulated Dragon")).toBeInTheDocument();
 
-    // First 3 tags shown, 4th collapsed into an overflow badge.
+    // First 2 tags shown, rest collapsed into an overflow badge.
     expect(screen.getByText("fantasy")).toBeInTheDocument();
     expect(screen.getByText("articulated")).toBeInTheDocument();
-    expect(screen.getByText("dragon")).toBeInTheDocument();
+    expect(screen.queryByText("dragon")).not.toBeInTheDocument();
     expect(screen.queryByText("flexi")).not.toBeInTheDocument();
-    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.getByText("+2")).toBeInTheDocument();
 
     // Format badges (the placeholder thumbnail also shows a "STL" monogram,
     // so scope the query to the badge row to avoid ambiguity).
@@ -108,7 +108,7 @@ describe("ModelCard", () => {
     expect(screen.getByText(/Updated/)).toBeInTheDocument();
   });
 
-  it("shows all tags with no overflow badge when there are 3 or fewer", async () => {
+  it("shows all tags with no overflow badge when there are 2 or fewer", async () => {
     renderCard({ ...MODEL, tags: ["fantasy", "dragon"] });
 
     expect(await screen.findByText("fantasy")).toBeInTheDocument();

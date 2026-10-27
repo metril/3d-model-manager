@@ -19,7 +19,7 @@ import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 import type { ModelSummary } from "@/api/types";
 
-const VISIBLE_TAGS = 3;
+const VISIBLE_TAGS = 2;
 const VISIBLE_FORMATS = 3;
 
 /** `W × D × H mm`, one decimal each -- `null` when the model has no
@@ -306,7 +306,7 @@ export function ModelCard({
             {formatOverflowCount > 0 && <Badge variant="outline">+{formatOverflowCount}</Badge>}
           </div>
 
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Updated {formatDate(model.updated_at)}
           </p>
         </CardContent>

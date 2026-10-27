@@ -1261,7 +1261,7 @@ async def list_models(
             Model.current_revision_id.in_(
                 select(File.revision_id)
                 .join(Blob, Blob.hash == File.blob_hash)
-                .where(Blob.format == format_)
+                .where(Blob.format.in_([f for f in format_.split(",") if f]))
             )
         )
     if has_sliced is not None:

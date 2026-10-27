@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
   ChevronsLeftIcon,
   HelpCircle,
@@ -31,7 +32,7 @@ import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 import type { LibrarySearch } from "@/pages/librarySearch";
 
-const MAX_COLLECTION_LINKS = 8;
+const MAX_COLLECTION_LINKS = 5;
 
 // R9-D item 7: scan progress chip. `useScanRuns` (`@/api/scan`) already
 // fetches the latest run and gets invalidated live by `useEvents.tsx`'s
@@ -40,31 +41,43 @@ const MAX_COLLECTION_LINKS = 8;
 // dedicated progress-percent event; `files_hashed`/`files_seen` off the same
 // `ScanRunOut` row double as the N/M count (indeterminate until
 // `files_seen` is nonzero).
-const SCAN_DONE_VISIBLE_MS = 4000;
+type ScanChipState = { kind: "running"; run: ScanRunOut } | { kind: "failed" };
 
-type ScanChipState = { kind: "running"; run: ScanRunOut } | { kind: "done" } | { kind: "failed" };
-
+/** Running/failed chip state; a finished scan is announced as a toast (see
+ * `useScanDoneToast`) instead of a lingering pill. */
 function useScanChipState(): ScanChipState | null {
   const { data } = useScanRuns();
   const latest = data?.[0];
-  const [expiredDoneId, setExpiredDoneId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!latest || latest.state !== "done") return;
-    const id = window.setTimeout(() => setExpiredDoneId(latest.id), SCAN_DONE_VISIBLE_MS);
-    return () => window.clearTimeout(id);
-  }, [latest]);
-
   if (!latest) return null;
   if (latest.state === "queued" || latest.state === "running") return { kind: "running", run: latest };
   if (latest.state === "failed") return { kind: "failed" };
-  if (latest.state === "done" && latest.id !== expiredDoneId) return { kind: "done" };
-  return null; // "skipped", or a "done" run past its 4s grace period
+  return null;
+}
+
+/** Toasts "Scan done" once when a run seen running/queued in this session
+ * finishes (never for a run that was already done on page load). */
+function useScanDoneToast() {
+  const { data } = useScanRuns();
+  const navigate = useNavigate();
+  const latest = data?.[0];
+  const watching = useRef<number | null>(null);
+  useEffect(() => {
+    if (!latest) return;
+    if (latest.state === "queued" || latest.state === "running") {
+      watching.current = latest.id;
+    } else if (latest.state === "done" && watching.current === latest.id) {
+      watching.current = null;
+      toast.success("Scan done", {
+        action: { label: "View jobs", onClick: () => void navigate({ to: "/system/jobs" }) },
+      });
+    }
+  }, [latest, navigate]);
 }
 
 function ScanChip({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const state = useScanChipState();
+  useScanDoneToast();
   if (!state || collapsed) return null;
 
   function goToJobs() {
@@ -80,18 +93,6 @@ function ScanChip({ collapsed }: { collapsed: boolean }) {
       >
         <TriangleAlertIcon className="size-3.5" />
         Scan failed
-      </button>
-    );
-  }
-
-  if (state.kind === "done") {
-    return (
-      <button
-        type="button"
-        onClick={goToJobs}
-        className="mx-2 mb-2 flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-xs font-medium text-foreground"
-      >
-        Scan done
       </button>
     );
   }
@@ -126,7 +127,7 @@ function NavLink({
 }) {
   const navLabel = useNavLabel();
   const linkClass = cn(
-    "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+    "relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
     collapsed && "justify-center px-0",
   );
   const link = item.externalUrl ? (
@@ -144,16 +145,19 @@ function NavLink({
       params={item.params as never}
       activeOptions={{ exact: !!item.exact }}
       className={linkClass}
-      activeProps={{ className: "bg-muted font-medium text-foreground" }}
+      activeProps={{ className: "bg-sidebar-accent font-medium text-foreground before:absolute before:inset-y-1.5 before:-left-2 before:w-0.5 before:rounded-full before:bg-sidebar-primary" }}
     >
       <item.icon className="size-4 shrink-0" />
       {!collapsed && (item.translate === false ? item.label : navLabel(item.label))}
-      {!collapsed && badge ? (
+      {badge ? (
         <span
-          className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-mono"
+          className={cn(
+            "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-white tabular-mono",
+            collapsed ? "absolute top-0.5 right-1 h-3.5 min-w-3.5 px-0.5 text-[9px]" : "ml-auto",
+          )}
           aria-label={badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"}`}
         >
-          {badge}
+          {badge > 99 ? "99+" : badge}
         </span>
       ) : null}
     </Link>
@@ -235,8 +239,8 @@ export function AppSidebar({
       )}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-border bg-card transition-transform duration-150",
-          "lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:transition-[width]",
+          "fixed inset-y-0 left-0 z-50 flex h-svh min-h-0 w-64 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-transform duration-150",
+          "lg:sticky lg:top-0 lg:z-auto lg:w-auto lg:translate-x-0 lg:transition-[width]",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           collapsed && "lg:w-14",
           !collapsed && "lg:w-56",
@@ -275,7 +279,7 @@ export function AppSidebar({
       </div>
       ) : null}
       <ScanChip collapsed={collapsed} />
-      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2">
+      <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2">
         {visibleGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-1">
             {!collapsed && (
@@ -308,20 +312,18 @@ export function AppSidebar({
                         key={c.id}
                         to="/library"
                         search={{ collection: c.id }}
-                        className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                        activeProps={{ className: "bg-muted text-foreground" }}
+                        className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                        activeProps={{ className: "bg-sidebar-accent text-foreground" }}
                       >
                         {c.title}
                       </Link>
                     ))}
-                    {hasMoreCollections && (
-                      <Link
-                        to="/collections"
-                        className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        All collections
-                      </Link>
-                    )}
+                    <Link
+                      to="/collections"
+                      className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                    >
+                      {hasMoreCollections ? `All ${followed.data?.length} collections` : "All collections"}
+                    </Link>
                   </div>
                 )}
               </div>
@@ -345,7 +347,7 @@ export function AppSidebar({
                 to="/library"
                 search={(prev: LibrarySearch) => ({ ...prev, category: category.id })}
                 className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                activeProps={{ className: "bg-muted font-medium text-foreground" }}
+                activeProps={{ className: "bg-sidebar-accent font-medium text-foreground" }}
               >
                 <span
                   aria-hidden="true"
@@ -366,16 +368,17 @@ export function AppSidebar({
           </div>
         )}
       </nav>
-      <div className="flex flex-col gap-1 border-t border-border px-2 py-2">
+      <div className="flex shrink-0 flex-col gap-1 border-t border-sidebar-border px-2 py-2">
+        {!collapsed && <div className="label-caps px-2.5 pb-1">System</div>}
         {visibleSystemItems.map((item) => (
           <NavLink key={item.to as string} item={item} collapsed={collapsed} />
         ))}
+        <ServiceStatusDot collapsed={collapsed} />
+        <SidebarPrinterWidget collapsed={collapsed} />
       </div>
-      <ServiceStatusDot collapsed={collapsed} />
-      <SidebarPrinterWidget collapsed={collapsed} />
       <div
         className={cn(
-          "flex items-center justify-between gap-2 border-t border-border px-4 py-3",
+          "flex shrink-0 items-center justify-between gap-2 border-t border-sidebar-border px-4 py-3",
           collapsed && "flex-col gap-1.5 px-1.5",
         )}
       >

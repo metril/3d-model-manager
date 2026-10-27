@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { useEffect, useState } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/AppShell";
@@ -11,7 +12,9 @@ import { AppShell } from "@/components/AppShell";
 // to has to be created through `vi.hoisted`.
 type ScanRunStub = { id: number; state: string; files_seen: number; files_hashed: number };
 
-const { featuresBox, failedImportsBox, scanRunsBox, externalLinksBox } = vi.hoisted(() => ({
+const { featuresBox, failedImportsBox, scanRunsBox, externalLinksBox, scanListeners, toastSuccess } = vi.hoisted(() => ({
+  scanListeners: new Set<() => void>(),
+  toastSuccess: vi.fn(),
   externalLinksBox: { current: [] as Array<Record<string, unknown>> },
   featuresBox: { current: { printer_enabled: false } as { printer_enabled: boolean } | undefined },
   failedImportsBox: { current: 0 },
@@ -34,8 +37,18 @@ vi.mock("@/api/imports", () => ({
 }));
 
 vi.mock("@/api/scan", () => ({
-  useScanRuns: () => ({ data: scanRunsBox.current }),
+  useScanRuns: () => {
+    const [, force] = useState(0);
+    useEffect(() => {
+      const fn = () => force((n) => n + 1);
+      scanListeners.add(fn);
+      return () => void scanListeners.delete(fn);
+    }, []);
+    return { data: scanRunsBox.current };
+  },
 }));
+
+vi.mock("sonner", () => ({ toast: { success: toastSuccess, error: vi.fn() } }));
 
 vi.mock("@/api/auth", () => ({
   useAuth: () => ({ data: { username: "tester" }, can: () => true, canPrinter: () => true }),
@@ -270,18 +283,17 @@ describe("AppShell scan chip (R9-D item 7)", () => {
     expect(await screen.findByText("Scanning…")).toBeInTheDocument();
   });
 
-  it("shows 'Scan done' then hides it after ~4s", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    scanRunsBox.current = [{ id: 1, state: "done", files_seen: 40, files_hashed: 40 }];
-
+  it("toasts Scan done (no lingering pill) when a watched run finishes", async () => {
+    scanRunsBox.current = [{ id: 1, state: "running", files_seen: 40, files_hashed: 10 }];
     renderShell();
+    expect(await screen.findByText(/Scanning/)).toBeInTheDocument();
 
-    expect(await screen.findByText("Scan done")).toBeInTheDocument();
-
-    await act(async () => {
-      vi.advanceTimersByTime(4000);
+    act(() => {
+      scanRunsBox.current = [{ id: 1, state: "done", files_seen: 40, files_hashed: 40 }];
+      scanListeners.forEach((fn) => fn());
     });
 
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Scan done", expect.anything()));
     expect(screen.queryByText("Scan done")).not.toBeInTheDocument();
   });
 
