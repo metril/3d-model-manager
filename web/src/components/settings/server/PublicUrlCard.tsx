@@ -78,7 +78,7 @@ export function PublicUrlCard({ data }: { data: ServerSettingsOut }) {
           <p role="alert" className="text-sm text-destructive">{t("settings.server.publicUrl.invalid")}</p>
         ) : null}
         {mismatch ? (
-          <p role="alert" className="text-sm text-amber-600">
+          <p role="alert" className="text-sm text-warning">
             {t("settings.server.publicUrl.mismatch", { origin })}
           </p>
         ) : null}

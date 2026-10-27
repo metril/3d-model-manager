@@ -17,7 +17,7 @@ const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 const levelClass: Record<string, string> = {
   DEBUG: "text-muted-foreground",
   INFO: "",
-  WARNING: "text-amber-600 dark:text-amber-400",
+  WARNING: "text-warning",
   ERROR: "text-destructive",
   CRITICAL: "font-semibold text-destructive",
 };

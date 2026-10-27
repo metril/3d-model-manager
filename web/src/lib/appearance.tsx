@@ -21,7 +21,7 @@ import {
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [style, setStyleState] = useState<ThemeStyle>(() => read(STYLE_KEY, STYLES, "classic"));
-  const [accent, setAccentState] = useState<ThemeAccent>(() => read(ACCENT_KEY, ACCENTS, "orange"));
+  const [accent, setAccentState] = useState<ThemeAccent>(() => read(ACCENT_KEY, ACCENTS, "blue"));
 
   useEffect(() => {
     document.documentElement.dataset.style = style;

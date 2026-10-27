@@ -112,7 +112,7 @@ export function SpoolmanCard() {
           </Button>
         </div>
 
-        {update.isSuccess && !dirty && <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p>}
+        {update.isSuccess && !dirty && <p className="text-sm text-success">Saved.</p>}
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
             {update.error instanceof ApiError ? update.error.detail : "Could not save these settings."}
@@ -120,7 +120,7 @@ export function SpoolmanCard() {
         )}
         {test.data &&
           (test.data.ok ? (
-            <p className="text-sm text-emerald-600 dark:text-emerald-400">
+            <p className="text-sm text-success">
               Connected{test.data.version ? ` (Spoolman ${test.data.version})` : ""}.
             </p>
           ) : (

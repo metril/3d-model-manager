@@ -25,7 +25,7 @@ export function ServiceStatusDot({ collapsed }: { collapsed: boolean }) {
         collapsed && "mx-1.5 justify-center px-0",
       )}
     >
-      <span className={cn("size-2.5 shrink-0 rounded-full", overall === "down" ? "bg-destructive" : "bg-amber-500")} />
+      <span className={cn("size-2.5 shrink-0 rounded-full", overall === "down" ? "bg-destructive" : "bg-warning")} />
       {!collapsed && <span className="truncate text-muted-foreground">{label}</span>}
     </Link>
   );

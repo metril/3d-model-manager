@@ -33,10 +33,10 @@ const STATE_LABEL: Record<ImportState, string> = {
 // exists as a Badge variant of its own -- mirrors `PrintsTab.tsx`'s
 // `RESULT_BADGE` (same "layer a status color onto outline" idiom).
 const STATE_BADGE: Record<ImportState, { variant: "destructive" | "outline"; className?: string }> = {
-  pending: { variant: "outline", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
-  fetching: { variant: "outline", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
-  downloading: { variant: "outline", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
-  done: { variant: "outline", className: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
+  pending: { variant: "outline", className: "bg-warning/15 text-warning" },
+  fetching: { variant: "outline", className: "bg-warning/15 text-warning" },
+  downloading: { variant: "outline", className: "bg-warning/15 text-warning" },
+  done: { variant: "outline", className: "bg-success/15 text-success" },
   failed: { variant: "destructive" },
 };
 

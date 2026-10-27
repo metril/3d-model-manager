@@ -408,7 +408,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             <p
               role={detectSerial.data.serial ? undefined : "alert"}
               className={
-                detectSerial.data.serial ? "text-xs text-emerald-600 dark:text-emerald-400" : "text-xs text-destructive"
+                detectSerial.data.serial ? "text-xs text-success" : "text-xs text-destructive"
               }
             >
               {detectSerial.data.detail}
@@ -579,7 +579,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           {saveMutation.error instanceof ApiError ? saveMutation.error.detail : "Could not save printer"}
         </p>
       ) : null}
-      {saveMutation.isSuccess ? <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p> : null}
+      {saveMutation.isSuccess ? <p className="text-sm text-success">Saved.</p> : null}
 
       {deletePrinter.isError ? (
         <p role="alert" className="text-sm text-destructive">
@@ -594,7 +594,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
       ) : null}
       {printer ? <PlugConfig printerId={printer.id} /> : null}
       {testPrinter.data ? (
-        <p role={testPrinter.data.ok ? undefined : "alert"} className={testPrinter.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}>
+        <p role={testPrinter.data.ok ? undefined : "alert"} className={testPrinter.data.ok ? "text-sm text-success" : "text-sm text-destructive"}>
           {testPrinter.data.detail}
           {testPrinter.data.gcode_state ? ` (state: ${testPrinter.data.gcode_state})` : ""}
         </p>

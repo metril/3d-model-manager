@@ -68,7 +68,7 @@ export function PlugsPage() {
                       : " - standalone"}
                   </span>
                   {p.orphaned ? (
-                    <Badge variant="outline" className="border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                    <Badge variant="outline" className="border-warning bg-warning/10 text-warning">
                       orphaned - printer deleted
                     </Badge>
                   ) : null}

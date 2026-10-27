@@ -33,9 +33,9 @@ export const GRID_LAYER = 1;
 // standalone opacity uniform -- the fade/thickness props below are what
 // keep it subtle), and `EDGE_COLOR`/`EDGE_OPACITY` draw a low-contrast plate
 // boundary rather than a bright frame.
-const CELL_COLOR = "#6b7280";
-const SECTION_COLOR = "#9ca3af";
-const EDGE_COLOR = "#6b7280";
+const CELL_COLOR = "#7b879c";
+const SECTION_COLOR = "#566176";
+const EDGE_COLOR = "#566176";
 const EDGE_OPACITY = 0.5;
 
 /** Enables `GRID_LAYER` on the current camera so it renders the grid,

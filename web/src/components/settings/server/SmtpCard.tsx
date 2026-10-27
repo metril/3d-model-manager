@@ -151,7 +151,7 @@ export function SmtpCard({ data }: { data: ServerSettingsOut }) {
           </Field>
           <p className="text-xs text-muted-foreground">{t("smtp.testHint")}</p>
           {test.data?.ok ? (
-            <p role="status" className="text-sm text-emerald-600 dark:text-emerald-400">
+            <p role="status" className="text-sm text-success">
               {t("smtp.testOk")}
             </p>
           ) : test.data ? (

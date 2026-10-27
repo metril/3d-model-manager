@@ -29,13 +29,13 @@ describe("DiffView", () => {
     const addedBadges = screen.getAllByText("Added");
     // one in the section heading count badge, one per-row badge
     expect(addedBadges.length).toBeGreaterThanOrEqual(1);
-    expect(addedBadges.some((badge) => badge.className.includes("emerald"))).toBe(true);
+    expect(addedBadges.some((badge) => badge.className.includes("success"))).toBe(true);
 
     const removedBadges = screen.getAllByText("Removed");
-    expect(removedBadges.some((badge) => badge.className.includes("red"))).toBe(true);
+    expect(removedBadges.some((badge) => badge.className.includes("destructive"))).toBe(true);
 
     const changedBadges = screen.getAllByText("Changed");
-    expect(changedBadges.some((badge) => badge.className.includes("amber"))).toBe(true);
+    expect(changedBadges.some((badge) => badge.className.includes("warning"))).toBe(true);
 
     const unchangedBadges = screen.getAllByText("Unchanged");
     expect(unchangedBadges.some((badge) => badge.className.includes("muted"))).toBe(true);

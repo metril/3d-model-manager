@@ -63,7 +63,7 @@ export function FirmwareModal({
               </>
             ) : null}
             {upload.isSuccess ? (
-              <p className="text-sm text-emerald-600 dark:text-emerald-400">
+              <p className="text-sm text-success">
                 Staging started. Confirm the update on the printer screen.
               </p>
             ) : null}

@@ -190,7 +190,7 @@ function MissingRow({ missing }: { missing: ScanMissing }) {
           {deleteFile.error instanceof ApiError ? deleteFile.error.detail : "Could not remove file record"}
         </p>
       ) : null}
-      {deleteFile.isSuccess ? <p className="text-xs text-emerald-600 dark:text-emerald-400">Removed.</p> : null}
+      {deleteFile.isSuccess ? <p className="text-xs text-success">Removed.</p> : null}
     </li>
   );
 }

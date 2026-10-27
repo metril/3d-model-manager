@@ -6,8 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const stateDotClass: Record<ServiceState, string> = {
-  ok: "bg-emerald-500",
-  warn: "bg-amber-500",
+  ok: "bg-success",
+  warn: "bg-warning",
   down: "bg-destructive",
   off: "bg-muted-foreground/40",
 };

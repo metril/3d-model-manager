@@ -93,7 +93,7 @@ export function ChangePasswordCard() {
           </p>
         )}
         {!mismatch && changePassword.isSuccess && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400">Password updated.</p>
+          <p className="text-sm text-success">Password updated.</p>
         )}
       </CardContent>
     </Card>

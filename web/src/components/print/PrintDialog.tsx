@@ -86,7 +86,7 @@ const EXTERNAL_UNIT = 255;
 
 const STATUS_STYLE: Record<PlanFilamentStatus, string> = {
   ok: "border-border",
-  color: "border-amber-500/50 bg-amber-500/10",
+  color: "border-warning/50 bg-warning/10",
   type: "border-destructive/50 bg-destructive/10",
   none: "border-destructive/50 bg-destructive/10",
 };
@@ -885,7 +885,7 @@ export function PrintDialog({
                 {(plan?.warnings ?? []).length > 0 ? (
                   <ul className="space-y-1">
                     {plan!.warnings.map((w, i) => (
-                      <li key={i} className="text-sm text-amber-600">
+                      <li key={i} className="text-sm text-warning">
                         {w}
                       </li>
                     ))}
