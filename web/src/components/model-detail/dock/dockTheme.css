@@ -73,3 +73,36 @@
   border-radius: var(--radius);
   overflow: hidden;
 }
+
+/* Modern tabs: accent underline on the active tab, soft hover. */
+.dockview-theme-tdmm .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--border);
+}
+.dockview-theme-tdmm .dv-tab {
+  position: relative;
+  font-weight: 500;
+  transition: color 0.15s, background-color 0.15s;
+}
+.dockview-theme-tdmm .dv-tab:hover {
+  background-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  color: var(--foreground);
+}
+.dockview-theme-tdmm .dv-tab::after {
+  content: "";
+  position: absolute;
+  inset-inline: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary);
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.dockview-theme-tdmm .dv-tab.dv-active-tab::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.dockview-theme-tdmm .dv-groupview {
+  box-shadow: var(--elevation-1);
+}
