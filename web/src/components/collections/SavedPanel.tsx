@@ -1,4 +1,7 @@
 import { type FormEvent, useState } from "react";
+import { EntityTags } from "@/components/tags/EntityTags";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilter";
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, ImageIcon, RefreshCwIcon } from "lucide-react";
 
@@ -41,7 +44,11 @@ import { useOpenMap } from "@/lib/useOpenMap";
  * `useFollowedCollections()` from both `FollowedCard` and `BrowseCard` is a
  * single shared request, not two. */
 export function FollowedCard() {
-  const followed = useFollowedCollections();
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const followed = useFollowedCollections({
+    tags: tagFilter.tags.length ? tagFilter.tags : undefined,
+    tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
+  });
   const syncNow = useSyncCollectionsNow();
 
   return (
@@ -63,6 +70,7 @@ export function FollowedCard() {
             <RefreshCwIcon />
             {syncNow.isPending ? "Syncing…" : "Sync now"}
           </Button>
+          <TagFilter value={tagFilter} onChange={setTagFilter} countKey="collections" />
           {syncNow.isError && (
             <p role="alert" className="text-sm text-destructive">
               {syncNow.error instanceof ApiError ? syncNow.error.detail : "Could not start the sync."}
@@ -74,7 +82,9 @@ export function FollowedCard() {
           <Skeleton className="h-20 w-full rounded-lg" />
         ) : (followed.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            You aren&apos;t following any collections yet.
+            {tagFilter.tags.length > 0
+              ? "No followed collections match this tag filter."
+              : "You aren't following any collections yet."}
           </p>
         ) : (
           <div className="space-y-2">
@@ -122,6 +132,7 @@ function FollowedRow({ collection }: { collection: FollowedCollection }) {
       <CollectionCollage thumbnails={collection.preview_thumbnails} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{collection.title}</p>
+        <EntityTags target={{ kind: "collection", id: collection.id }} tags={collection.tag_refs} className="my-0.5" />
         <p className="font-mono text-xs text-muted-foreground">
           <span className="capitalize">{collection.site}</span> · {collection.kind} ·{" "}
           {collection.last_synced_at ? `synced ${formatDate(collection.last_synced_at)}` : "never synced"}

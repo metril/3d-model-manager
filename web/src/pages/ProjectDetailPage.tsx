@@ -1,4 +1,7 @@
 import { useRef, useState } from "react";
+import { EntityTags } from "@/components/tags/EntityTags";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, matchesTagFilter, type TagFilterValue } from "@/components/tags/tagFilter";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { DownloadIcon, ListPlusIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -336,10 +339,15 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
   const upload = useUploadAttachment(project.id);
   const del = useDeleteAttachment(project.id);
   const input = useRef<HTMLInputElement>(null);
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const shown = project.attachments.filter((a) => matchesTagFilter(a.tag_refs, tagFilter));
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>Attachments</CardTitle>
+        {project.attachments.length > 0 && (
+          <TagFilter value={tagFilter} onChange={setTagFilter} countKey="attachments" />
+        )}
         {canWrite && (
           <>
             <input
@@ -361,11 +369,21 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
       </CardHeader>
       <CardContent className="space-y-1 text-sm">
         {project.attachments.length === 0 && <p className="text-muted-foreground">No attachments.</p>}
-        {project.attachments.map((a) => (
-          <div key={a.id} className="flex items-center justify-between">
-            <a href={attachmentUrl(project.id, a.id)} download className="hover:underline">
-              {a.filename} <span className="text-muted-foreground">({humanizeBytes(a.size)})</span>
-            </a>
+        {project.attachments.length > 0 && shown.length === 0 && (
+          <p className="text-muted-foreground">No attachments match this tag filter.</p>
+        )}
+        {shown.map((a) => (
+          <div key={a.id} className="flex items-center justify-between gap-2">
+            <div className="min-w-0 space-y-1">
+              <a href={attachmentUrl(project.id, a.id)} download className="hover:underline">
+                {a.filename} <span className="text-muted-foreground">({humanizeBytes(a.size)})</span>
+              </a>
+              <EntityTags
+                target={{ kind: "attachment", projectId: project.id, id: a.id }}
+                tags={a.tag_refs}
+                readOnly={!canWrite}
+              />
+            </div>
             {canWrite && (
               <Button type="button" size="icon" variant="ghost" aria-label={`Delete ${a.filename}`} onClick={() => del.mutate(a.id)}>
                 <Trash2Icon />
@@ -404,7 +422,6 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
   const del = useDeleteProject();
   const queue = useQueueRemaining(project.id);
   const makeTemplate = useCreateTemplate(project.id);
-  const [tags, setTags] = useState<string | null>(null);
   const [delOpen, setDelOpen] = useState(false);
   const [tplOpen, setTplOpen] = useState(false);
   const [tplName, setTplName] = useState("");
@@ -486,18 +503,7 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
           />
         </label>
         {project.overdue && <Badge variant="destructive">Overdue</Badge>}
-        <Input
-          className="h-8 w-64"
-          aria-label="Tags"
-          placeholder="Tags, comma separated"
-          disabled={!canWrite}
-          value={tags ?? project.tags.join(", ")}
-          onChange={(e) => setTags(e.target.value)}
-          onBlur={() => {
-            if (tags !== null) patch.mutate({ tags: tags.split(",").map((t) => t.trim()).filter(Boolean) });
-            setTags(null);
-          }}
-        />
+        <EntityTags target={{ kind: "project", id: project.id }} tags={project.tag_refs} readOnly={!canWrite} />
       </div>
 
       <Textarea

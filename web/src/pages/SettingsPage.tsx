@@ -17,6 +17,7 @@ import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { ApiKeysCard } from "@/components/settings/ApiKeysCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
+import { TagManagerCard } from "@/components/settings/TagManagerCard";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { FailureDetectionCard } from "@/components/settings/FailureDetectionCard";
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
@@ -106,6 +107,7 @@ export function SettingsPage() {
             <AutomationCard />
             <EmailPrefsCard />
             <CategoriesSection />
+            <TagManagerCard />
             <PrintCostCard />
             {auth.can("inventory:write") && <SpoolmanCard />}
             {auth.data?.has_password && <ChangePasswordCard />}

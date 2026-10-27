@@ -6,6 +6,7 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { appendTagParams, type TagMode } from "@/api/tags";
 import type {
   CollectionSyncMode,
   FollowedCollection,
@@ -33,8 +34,21 @@ export const remoteListsQueryOptions = queryOptions({
   queryFn: () => api.get<RemoteList[]>("/imports/lists"),
 });
 
-export function useFollowedCollections() {
-  return useQuery(followedQueryOptions);
+export interface FollowedFilters {
+  tags?: number[];
+  tagMode?: TagMode;
+}
+
+/** Followed collections, optionally filtered by tag ids (any/all). The
+ * unfiltered call shares the plain `["collections"]` cache entry. */
+export function useFollowedCollections(filters: FollowedFilters = {}) {
+  const filtered = !!filters.tags?.length;
+  const params = new URLSearchParams();
+  appendTagParams(params, filters.tags, filters.tagMode);
+  return useQuery({
+    queryKey: filtered ? (["collections", "list", filters.tags, filters.tagMode ?? "any"] as const) : followedQueryOptions.queryKey,
+    queryFn: () => api.get<FollowedCollection[]>(filtered ? `/collections?${params.toString()}` : "/collections"),
+  });
 }
 
 export function usePendingImports() {

@@ -115,6 +115,7 @@ export interface ModelSummary {
   name: string;
   description: string | null;
   tags: string[];
+  tag_refs?: TagRef[];
   updated_at: string;
   created_at: string;
   file_count: number;
@@ -208,6 +209,7 @@ export interface FileOut {
   thumb_ready: boolean;
   glb_status: GlbStatus | null;
   glb_preview_ready: boolean;
+  tag_refs?: TagRef[];
 }
 
 export interface NoteCreate {
@@ -278,6 +280,7 @@ export interface ModelDetail {
   created_at: string;
   updated_at: string;
   tags: string[];
+  tag_refs?: TagRef[];
   current_revision: RevisionDetail | null;
   notes: NoteOut[];
   review_state?: string | null;
@@ -329,15 +332,43 @@ export type TagColor =
   | "violet"
   | "pink";
 
-export interface TagCreate {
-  name: string;
-  color?: TagColor | null;
-}
-
-export interface TagOut {
+/** Compact tag reference embedded in entity payloads (`tag_refs`). `color`
+ * is a `#rrggbb` hex string. */
+export interface TagRef {
   id: number;
   name: string;
-  color?: TagColor | null;
+  color?: string | null;
+  icon?: string | null;
+  description?: string | null;
+}
+
+export interface TagCounts {
+  models: number;
+  model_files: number;
+  projects: number;
+  attachments: number;
+  archives: number;
+  collections: number;
+  total: number;
+}
+
+/** `GET /tags` row; `counts` only with `?with_counts=true`. */
+export interface TagOut extends TagRef {
+  counts?: TagCounts | null;
+}
+
+export interface TagCreate {
+  name: string;
+  color?: string | null;
+  icon?: string | null;
+  description?: string | null;
+}
+
+export interface TagUpdate {
+  name?: string;
+  color?: string | null;
+  icon?: string | null;
+  description?: string | null;
 }
 
 // -- categories (R13b, backend/app/schemas/categories.py) ------------------
@@ -1201,6 +1232,7 @@ export interface FollowedCollection {
   created_at: string;
   /** Up to 4 member-model thumbnail URLs for the card's 2x2 collage. */
   preview_thumbnails: string[];
+  tag_refs?: TagRef[];
 }
 
 /** An item a `review`-mode sync found but didn't import. */
@@ -1442,6 +1474,7 @@ export interface PrintPatchIn {
 
 export interface ArchiveOut {
   id: number;
+  tag_refs?: TagRef[];
   print_job_id: number;
   printer_id: number;
   printer_name: string;

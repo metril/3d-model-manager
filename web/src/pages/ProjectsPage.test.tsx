@@ -21,6 +21,11 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/api/auth", () => ({ useAuth: () => ({ can: () => mocks.canWrite }) }));
 vi.mock("@/api/library", () => ({ useModel: () => ({ data: undefined }) }));
+vi.mock("@/components/tags/EntityTags", () => ({ EntityTags: () => null }));
+vi.mock("@/components/tags/TagFilter", async (orig) => ({
+  ...(await orig<typeof import("@/components/tags/TagFilter")>()),
+  TagFilter: () => null,
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 vi.mock("@/api/projects", async () => {
   const actual = await vi.importActual<typeof import("@/api/projects")>("@/api/projects");

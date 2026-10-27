@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon, DownloadIcon, FolderIcon, SearchIcon } from "lucide-react";
 
-import { useTagColorMap } from "@/api/library";
+import { TagChip } from "@/components/tags/TagChip";
+import { tagRefsOf } from "@/components/tags/tagRefs";
 import { useStorageTree } from "@/api/storageTree";
 import { ApiError } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +61,6 @@ function FileRow({ file }: { file: StorageTreeFile }) {
  * `model` is non-null -- i.e. the current path is a single model's own
  * directory, not just an arbitrary folder. */
 function ModelHeaderStrip({ model }: { model: ModelSummary }) {
-  const tagColors = useTagColorMap();
   return (
     <Card className="flex-row items-center justify-between gap-3 p-4">
       <div className="min-w-0 space-y-1.5">
@@ -75,10 +75,8 @@ function ModelHeaderStrip({ model }: { model: ModelSummary }) {
               {model.category.name}
             </Badge>
           )}
-          {model.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className={tagColorClass(tagColors[tag])}>
-              {tag}
-            </Badge>
+          {tagRefsOf(model).map((tag) => (
+            <TagChip key={tag.name} tag={tag} />
           ))}
         </div>
       </div>

@@ -6,6 +6,11 @@ import type { ArchiveOut } from "@/api/types";
 import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
 
 const { useArchivesMock } = vi.hoisted(() => ({ useArchivesMock: vi.fn() }));
+vi.mock("@/components/tags/EntityTags", () => ({ EntityTags: () => null }));
+vi.mock("@/components/tags/TagFilter", async (orig) => ({
+  ...(await orig<typeof import("@/components/tags/TagFilter")>()),
+  TagFilter: () => null,
+}));
 vi.mock("@/components/print/SourceFiles", () => ({ SourceFiles: () => null }));
 vi.mock("@/api/archives", () => ({
   useArchives: useArchivesMock,

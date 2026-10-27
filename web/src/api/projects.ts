@@ -2,6 +2,8 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { appendTagParams, type TagMode } from "@/api/tags";
+import type { TagRef } from "@/api/types";
 
 export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "archived";
 export const PROJECT_STATUSES: ProjectStatus[] = ["planning", "active", "on_hold", "completed", "archived"];
@@ -52,6 +54,7 @@ export interface ProjectAttachment {
   content_type: string | null;
   size: number;
   created_at: string;
+  tag_refs?: TagRef[];
 }
 
 export interface ProjectSummary {
@@ -64,6 +67,7 @@ export interface ProjectSummary {
   cover_model_id: number | null;
   cover_model_slug: string | null;
   tags: string[];
+  tag_refs?: TagRef[];
   is_template: boolean;
   completed_at: string | null;
   created_at: string;
@@ -106,6 +110,8 @@ export interface QueueRemainingResult {
 export interface ProjectFilters {
   status?: ProjectStatus;
   q?: string;
+  tags?: number[];
+  tagMode?: TagMode;
 }
 
 export interface ProjectBody {
@@ -135,6 +141,7 @@ export const projectsQueryOptions = (filters: ProjectFilters = {}) => {
   const p = new URLSearchParams();
   if (filters.status) p.set("status", filters.status);
   if (filters.q) p.set("q", filters.q);
+  appendTagParams(p, filters.tags, filters.tagMode);
   const qs = p.toString();
   return queryOptions({
     queryKey: ["projects", "list", filters] as const,
