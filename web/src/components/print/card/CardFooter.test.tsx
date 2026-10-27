@@ -9,20 +9,25 @@ vi.mock("@/components/print/PrintDialog", () => ({
 }));
 
 describe("CardFooter", () => {
-  it("Print opens the dialog; extra slot renders", async () => {
-    renderCard(<CardFooter canPrint online extra={<span>plug</span>} />);
-    expect(await screen.findByText("plug")).toBeInTheDocument();
+  it("idle: full-width Print opens the dialog", async () => {
+    renderCard(<CardFooter canPrint online gcodeState="IDLE" />);
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Print" }));
+    const btn = await screen.findByRole("button", { name: "Print" });
+    expect(btn.className).toContain("col-span-2");
+    fireEvent.click(btn);
     expect(await screen.findByRole("dialog")).toHaveTextContent("print dialog");
   });
 
-  it("no Print button without permission; disabled when offline", async () => {
-    const { unmount } = renderCard(<CardFooter canPrint={false} online extra={<span data-testid="card-footer-probe" />} />);
-    await screen.findByTestId("card-footer-probe");
+  it("no Print button without permission", async () => {
+    const { container } = renderCard(<CardFooter canPrint={false} online gcodeState="IDLE" />);
+    await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByRole("button", { name: "Print" })).toBeNull();
-    unmount();
+    expect(container.querySelector('[data-slot="card-footer"]')).toBeNull();
+  });
+
+  it("offline: no Print, shows the unreachable note", async () => {
     renderCard(<CardFooter canPrint online={false} />);
-    expect(await screen.findByRole("button", { name: "Print" })).toBeDisabled();
+    expect(await screen.findByText("Not reachable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Print" })).toBeNull();
   });
 });

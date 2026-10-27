@@ -42,24 +42,18 @@ describe("CardHeader", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", "/img/printers/x1c.png");
   });
 
-  it("menu: Info / Diagnose call the slot callbacks", async () => {
-    const onInfo = vi.fn();
-    const onDiagnose = vi.fn();
-    const it = a1Mini();
-    renderCard(<CardHeader printer={it.printer} status={it.status} onInfo={onInfo} onDiagnose={onDiagnose} />);
-    await screen.findByRole("link", { name: "A1 Mini" });
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Info" }));
-    expect(onInfo).toHaveBeenCalled();
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Diagnose" }));
-    expect(onDiagnose).toHaveBeenCalled();
+  it("single state pill; model hidden when it equals the name", async () => {
+    const it = a1Mini({}, { gcode_state: "RUNNING" });
+    renderCard(<CardHeader printer={{ ...it.printer, name: it.printer.model! }} status={it.status} />);
+    await screen.findByRole("link", { name: it.printer.model! });
+    expect(screen.getAllByText("Printing")).toHaveLength(1);
+    expect(screen.getByText(/0\.4 mm/).textContent).not.toContain(`${it.printer.model} \u00b7`);
   });
 
   it("menu: Reconnect probes the printer; admin items hidden without settings:write", async () => {
     postMock.mockResolvedValue({ ok: true, detail: "ok", gcode_state: "IDLE" });
     const it = a1Mini();
-    renderCard(<CardHeader printer={it.printer} status={it.status} onInfo={() => {}} />);
+    renderCard(<CardHeader printer={it.printer} status={it.status} />);
     await screen.findByRole("link", { name: "A1 Mini" });
     openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reconnect" }));
@@ -69,7 +63,7 @@ describe("CardHeader", () => {
   it("hides Edit/Diagnose/Delete for non-admins", async () => {
     canBox.current = false;
     const it = a1Mini();
-    renderCard(<CardHeader printer={it.printer} status={it.status} onDiagnose={() => {}} />);
+    renderCard(<CardHeader printer={it.printer} status={it.status} />);
     await screen.findByRole("link", { name: "A1 Mini" });
     openMenu();
     await screen.findByRole("menuitem", { name: "Force refresh" });

@@ -120,7 +120,7 @@ describe("totalGrams", () => {
 describe("RecentRunsList", () => {
   it("shows an empty state with no runs", () => {
     render(<RecentRunsList runs={[]} />);
-    expect(screen.getByText("No runs yet.")).toBeInTheDocument();
+    expect(screen.getByText("No print runs yet.")).toBeInTheDocument();
   });
 
   it("renders name, printer, grams, and cost", () => {

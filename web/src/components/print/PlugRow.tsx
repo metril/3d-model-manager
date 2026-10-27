@@ -1,7 +1,8 @@
-import { PlugIcon } from "lucide-react";
+import { PlugIcon, PowerIcon } from "lucide-react";
 
 import { usePlugSummary, usePlugToggle, usePrinterPlugs } from "@/api/ops";
 import type { PlugOut } from "@/api/types";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
 /** The printer's main smart plug (state + toggle); renders nothing when none is configured.
@@ -52,5 +53,19 @@ function PlugRowView({ plug: p, canControl }: { plug: PlugOut | null | undefined
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** "Power on" for an offline printer: only when a smart plug is linked and not already on. */
+export function SharedPlugPowerOn({ printerId, canControl = true, label }: { printerId: number; canControl?: boolean; label: string }) {
+  const summary = usePlugSummary();
+  const toggle = usePlugToggle();
+  const plug = summary.data?.plugs?.[String(printerId)];
+  if (!plug || !canControl || plug.last_state === "on") return null;
+  return (
+    <Button type="button" size="sm" variant="secondary" disabled={toggle.isPending} onClick={() => toggle.mutate({ id: plug.id, on: true })}>
+      <PowerIcon />
+      {label}
+    </Button>
   );
 }

@@ -20,7 +20,7 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -28,6 +28,7 @@ import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
 import { useCancelQueueSlice, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
+import { EmptyHint } from "@/components/print/EmptyHint";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 import { QueueEntryDetail } from "@/components/print/QueueEntryDetail";
 import { LaneResumeButton, ScheduleChips } from "@/components/print/QueueScheduleChips";
@@ -256,6 +257,7 @@ function QueueLanes() {
 }
 
 function QueueLane({ title, entries, printerId }: { title: string; entries: QueueEntry[]; printerId: number | null }) {
+  const { t } = useTranslation();
   return (
     <Card className="w-80 shrink-0">
       <CardHeader>
@@ -267,7 +269,7 @@ function QueueLane({ title, entries, printerId }: { title: string; entries: Queu
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">Nothing here.</p>
+          <EmptyHint icon={<ListOrderedIcon />}>{t("dash.empty.queue")}</EmptyHint>
         ) : (
           <ul className="divide-y divide-border">
             {entries.map((entry, index) => (

@@ -15,6 +15,7 @@ export function ToolButton({
   icon,
   showLabel = false,
   untested = false,
+  reason,
   variant = "ghost",
   ...props
 }: Omit<ComponentProps<typeof Button>, "children" | "size"> & {
@@ -22,18 +23,31 @@ export function ToolButton({
   icon: ReactNode;
   showLabel?: boolean;
   untested?: boolean;
+  /** Shown in the tooltip while `disabled` (why the tool is unavailable). */
+  reason?: string;
 }) {
   const { t } = useTranslation();
+  const button = (
+    <Button type="button" variant={variant} size={showLabel ? "sm" : "icon-sm"} aria-label={label} {...props}>
+      {icon}
+      {showLabel ? label : null}
+    </Button>
+  );
+  const whyDisabled = props.disabled && reason;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button type="button" variant={variant} size={showLabel ? "sm" : "icon-sm"} aria-label={label} {...props}>
-          {icon}
-          {showLabel ? label : null}
-        </Button>
+        {whyDisabled ? (
+          <span tabIndex={0} className="inline-flex">
+            {button}
+          </span>
+        ) : (
+          button
+        )}
       </TooltipTrigger>
       <TooltipContent>
         <span className="block">{label}</span>
+        {whyDisabled ? <span className="block opacity-70">{reason}</span> : null}
         {untested ? <span className="block opacity-70">{t("card.untested")}</span> : null}
       </TooltipContent>
     </Tooltip>
