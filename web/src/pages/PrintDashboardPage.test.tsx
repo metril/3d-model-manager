@@ -224,9 +224,8 @@ describe("PrintDashboardPage printer counts", () => {
     overviewBox.current = { printers: [printerItem(1), printerItem(2)], up_next: [], recent_runs: [] };
     renderPage();
     await screen.findByText("Printer 1");
-    expect(await screen.findAllByRole("button", { name: "Firmware" })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "More" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Camera options" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Temperature history" })).toHaveLength(2);
   });
 
   it("Q12: S cards render no footer items", async () => {

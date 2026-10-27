@@ -38,6 +38,7 @@ export interface CardSlotCtx {
   status: PrinterStatusOut;
   canControl: boolean;
   canPrint: boolean;
+  size: CardSize;
 }
 export type CardSlot = ReactNode | ((ctx: CardSlotCtx) => ReactNode);
 
@@ -145,14 +146,14 @@ export function PrinterCard({
           onExpand={() => setExpanded(true)}
           selected={selected}
           onSelectedChange={onSelectedChange}
-          badgeExtra={renderSlot(badgeExtra, { printer: item.printer, status: item.status, canControl: item.can_control, canPrint: item.can_print })}
+          badgeExtra={renderSlot(badgeExtra, { printer: item.printer, status: item.status, canControl: item.can_control, canPrint: item.can_print, size: "S" })}
         />
       </div>
     );
   }
 
   const effective: CardSize = size === "S" ? "M" : size;
-  const ctx: CardSlotCtx = { printer, status, canControl, canPrint };
+  const ctx: CardSlotCtx = { printer, status, canControl, canPrint, size: effective };
   const { tone, label } = toneForGcode(status.online, status.gcode_state);
   const style = { "--pc-s": CARD_SCALE[effective] } as CSSProperties;
 
@@ -235,10 +236,17 @@ export function PrinterCard({
           canControl={canControl}
         />
         {status.online ? <TempFanTiles printer={printer} status={status} canControl={canControl} /> : null}
-        <ControlsSection printer={printer} status={status} canControl={canControl} />
+        <ControlsSection printer={printer} status={status} canControl={canControl} labeled={effective === "XL"} />
         <FilamentsSection printer={printer} status={status} canControl={canControl} mapping={amsMapping} onDry={onDry} />
         {upNext.length > 0 ? <UpNextList entries={upNext} printerId={printer.id} bare /> : null}
-        <CardFooter printerId={printer.id} canPrint={canPrint} online={status.online} extra={renderSlot(footerExtra, ctx)} />
+        <CardFooter
+          printerId={printer.id}
+          canPrint={canPrint}
+          canControl={canControl}
+          online={status.online}
+          gcodeState={status.gcode_state}
+          extra={renderSlot(footerExtra, ctx)}
+        />
       </div>
     </div>
   );
