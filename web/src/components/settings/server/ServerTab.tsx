@@ -36,7 +36,7 @@ export function ServerTab() {
     <>
       <ServicesCard />
       {data.ignored_env.length ? (
-        <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+        <div role="alert" className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
           {t("settings.server.ignoredEnv", { names: data.ignored_env.join(", ") })}
         </div>
       ) : null}

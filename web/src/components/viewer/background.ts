@@ -22,15 +22,15 @@ export const BACKGROUND_PRESET_LABELS: Record<BackgroundPreset, string> = {
 
 // Theme-independent neutral studio background: the page background is
 // near-black in dark mode, which hides dark-colored models against a
-// transparent canvas. A fixed mid-light gray keeps both dark and light
+// transparent canvas. A fixed mid-light cool slate keeps both dark and light
 // models legible (tunable) -- this was the previous ModelViewer hard-code.
-const STUDIO = "#a1a1aa";
+const STUDIO = "#9aa5b8";
 const WHITE = "#ffffff";
-const DARK = "#18181b";
+const DARK = "#12151c";
 // "theme" preset: same dark hex as the `dark` preset, but a lighter neutral
 // than pure white for the light side so glTF materials don't blow out.
-const THEME_DARK = "#18181b";
-const THEME_LIGHT = "#e5e5e5";
+const THEME_DARK = "#12151c";
+const THEME_LIGHT = "#e6e9ef";
 
 export const DEFAULT_CUSTOM_COLOR = STUDIO;
 

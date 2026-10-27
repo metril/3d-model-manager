@@ -14,12 +14,12 @@ describe("appearance", () => {
     delete document.documentElement.dataset.accent;
   });
 
-  it("defaults to classic/orange and stamps <html>", () => {
+  it("defaults to classic/blue and stamps <html>", () => {
     const { result } = renderHook(() => useAppearance(), { wrapper });
     expect(result.current.style).toBe("classic");
-    expect(result.current.accent).toBe("orange");
+    expect(result.current.accent).toBe("blue");
     expect(document.documentElement.dataset.style).toBe("classic");
-    expect(document.documentElement.dataset.accent).toBe("orange");
+    expect(document.documentElement.dataset.accent).toBe("blue");
   });
 
   it("persists choices and restores them on remount", () => {
@@ -42,7 +42,7 @@ describe("appearance", () => {
     window.localStorage.setItem(STYLE_KEY, "neon");
     window.localStorage.setItem(ACCENT_KEY, "pink");
     const { result } = renderHook(() => useAppearance(), { wrapper });
-    expect([result.current.style, result.current.accent]).toEqual(["classic", "orange"]);
+    expect([result.current.style, result.current.accent]).toEqual(["classic", "blue"]);
   });
 
   it("throws outside the provider", () => {

@@ -59,7 +59,7 @@ function Form({ initial }: { initial: AppSettings }) {
           >
             {update.isPending ? "Saving…" : "Save"}
           </Button>
-          {update.isSuccess && <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p>}
+          {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
         </div>
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">

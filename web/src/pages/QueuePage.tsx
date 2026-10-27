@@ -68,7 +68,7 @@ const STATE_CLASSES: Record<QueueState, string> = {
   held: "bg-transparent text-state-paused border-state-paused",
   failed: "bg-destructive/10 text-destructive border-transparent",
   done: "bg-state-finished/15 text-state-finished border-transparent",
-  skipped: "bg-transparent text-amber-600 border-amber-500 dark:text-amber-400",
+  skipped: "bg-transparent text-warning border-warning",
 };
 
 export function QueueStateChip({
@@ -130,7 +130,7 @@ function ReviewChips({ entry }: { entry: QueueEntry }) {
   return (
     <>
       {entry.review_state === "pending" ? (
-        <Badge variant="outline" className="border-slate-400 bg-transparent text-slate-500 dark:text-slate-400">
+        <Badge variant="outline" className="border-muted-foreground bg-transparent text-muted-foreground">
           Pending review
         </Badge>
       ) : null}
@@ -141,7 +141,7 @@ function ReviewChips({ entry }: { entry: QueueEntry }) {
       ) : null}
       {overBudget ? (
         <span className="inline-flex items-center gap-1.5">
-          <Badge variant="outline" className="border-amber-500 bg-transparent text-amber-600 dark:text-amber-400">
+          <Badge variant="outline" className="border-warning bg-transparent text-warning">
             Over budget
           </Badge>
           <Button

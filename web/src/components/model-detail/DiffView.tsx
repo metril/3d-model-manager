@@ -5,9 +5,9 @@ import type { DiffEntry, DiffResponse } from "@/api/types";
 type DiffKey = keyof DiffResponse;
 
 const DIFF_SECTIONS: { key: DiffKey; label: string; badgeClassName: string }[] = [
-  { key: "added", label: "Added", badgeClassName: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
-  { key: "removed", label: "Removed", badgeClassName: "bg-red-500/15 text-red-700 dark:text-red-400" },
-  { key: "changed", label: "Changed", badgeClassName: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
+  { key: "added", label: "Added", badgeClassName: "bg-success/15 text-success" },
+  { key: "removed", label: "Removed", badgeClassName: "bg-destructive/15 text-destructive" },
+  { key: "changed", label: "Changed", badgeClassName: "bg-warning/15 text-warning" },
   { key: "unchanged", label: "Unchanged", badgeClassName: "bg-muted text-muted-foreground" },
 ];
 

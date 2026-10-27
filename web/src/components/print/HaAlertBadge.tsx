@@ -17,7 +17,7 @@ export function HaAlertBadge({ reason, held }: { reason: string; held: boolean }
       variant="outline"
       title={reason}
       aria-label={`${label}: ${reason}`}
-      className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+      className="gap-1 border-warning bg-warning/10 text-warning"
     >
       <SirenIcon className="size-3.5" />
       {label}

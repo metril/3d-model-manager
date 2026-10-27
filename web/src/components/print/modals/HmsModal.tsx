@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 const SEVERITY_CLASS: Record<string, string> = {
   fatal: "text-destructive",
   serious: "text-destructive",
-  common: "text-amber-600 dark:text-amber-400",
+  common: "text-warning",
   info: "text-muted-foreground",
 };
 

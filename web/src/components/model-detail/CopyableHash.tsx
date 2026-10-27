@@ -22,7 +22,7 @@ export function CopyableHash({ hash, compact = false }: { hash: string; compact?
       className="inline-flex items-center gap-1 rounded px-1 font-mono text-xs hover:bg-muted"
     >
       <span className={compact ? "hidden @md/files:inline" : undefined}>{hash.slice(0, 10)}</span>
-      {copied ? <CheckIcon className="size-3 text-emerald-600" /> : <CopyIcon className="size-3 text-muted-foreground" />}
+      {copied ? <CheckIcon className="size-3 text-success" /> : <CopyIcon className="size-3 text-muted-foreground" />}
     </button>
   );
 }

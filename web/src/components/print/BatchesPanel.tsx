@@ -57,7 +57,7 @@ export function BatchProgressBar({ batch }: { batch: Batch }) {
     >
       {seg(p.done, "bg-state-finished", "done")}
       {seg(p.failed, "bg-destructive", "failed")}
-      {seg(p.skipped, "bg-amber-500", "skipped")}
+      {seg(p.skipped, "bg-warning", "skipped")}
     </div>
   );
 }
