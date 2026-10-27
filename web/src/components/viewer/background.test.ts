@@ -25,7 +25,7 @@ describe("resolveBackground", () => {
   });
 
   it("follows the app theme: dark resolves to the dark neutral", () => {
-    expect(resolveBackground("theme", "#000000", true)).toBe("#12151c");
+    expect(resolveBackground("theme", "#000000", true)).toBe("#252c3a");
   });
 
   it("follows the app theme: light resolves to a light neutral", () => {

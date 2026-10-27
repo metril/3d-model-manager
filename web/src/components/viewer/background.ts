@@ -27,9 +27,9 @@ export const BACKGROUND_PRESET_LABELS: Record<BackgroundPreset, string> = {
 const STUDIO = "#9aa5b8";
 const WHITE = "#ffffff";
 const DARK = "#12151c";
-// "theme" preset: same dark hex as the `dark` preset, but a lighter neutral
+// "theme" preset: a mid-dark slate (lighter than `dark` so models keep contrast), and a lighter neutral
 // than pure white for the light side so glTF materials don't blow out.
-const THEME_DARK = "#12151c";
+const THEME_DARK = "#252c3a";
 const THEME_LIGHT = "#e6e9ef";
 
 export const DEFAULT_CUSTOM_COLOR = STUDIO;
