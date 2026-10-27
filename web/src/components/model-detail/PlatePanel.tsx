@@ -105,6 +105,7 @@ export function PlatePanel({
   compact = false,
   fill = false,
   autoPreview = false,
+  noPreview = false,
 }: {
   file: FileOut;
   compact?: boolean;
@@ -112,6 +113,8 @@ export function PlatePanel({
   fill?: boolean;
   /** Mount the layer preview immediately instead of behind a button. */
   autoPreview?: boolean;
+  /** Metadata + plate strip only; the layer preview lives in the main viewer. */
+  noPreview?: boolean;
 }) {
   const plates = file.meta?.plates ?? [];
   const header = headerLine(file);
@@ -134,6 +137,7 @@ export function PlatePanel({
         </p>
       ) : null}
       {!compact &&
+        !noPreview &&
         (previewOpen ? (
           <div
             className={

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewHeaderActionsProps } from "dockview-react";
 import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +41,32 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
   const { model } = useModelDetail();
   const hasSliced = (model.current_revision?.files ?? []).some((file) => file.kind === "sliced");
   const emitter = useMemo(() => createRelocateEmitter(), []);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+  // Fit the viewport: everything below the dock's top edge (minus the shell's
+  // bottom padding) so the page itself never scrolls; sane floor for tiny windows.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      setHeight(Math.max(420, Math.floor(window.innerHeight - top - 24)));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    // Banners/headers above the dock can appear or wrap after mount.
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    // Observe everything laid out above the dock (its ancestors' earlier
+    // siblings): their size is what moves the dock's top edge.
+    for (let el: Element | null = wrapRef.current; el && el !== document.body; el = el.parentElement) {
+      ro?.observe(el);
+      for (let sib = el.previousElementSibling; sib; sib = sib.previousElementSibling) ro?.observe(sib);
+    }
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, []);
   const themeSyncs = useRef(new Map<string, () => void>());
 
   const handleReady = useCallback(
@@ -95,7 +121,11 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
 
   return (
     <RelocateContext.Provider value={emitter}>
-      <div className="h-[calc(100svh-10rem)] min-h-[520px] w-full" data-testid="model-detail-dock">
+      <div
+        ref={wrapRef}
+        className="w-full"
+        style={{ height: height ?? "calc(100svh - 10rem)" }}
+        data-testid="model-detail-dock">
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}

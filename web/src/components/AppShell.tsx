@@ -77,7 +77,7 @@ export function AppShell() {
 
   return (
     <EventsProvider>
-      <div className="flex min-h-svh">
+      <div className="flex h-svh">
         <AppSidebar
           onOpenShortcuts={() => setShortcutsOpen(true)}
           mobileOpen={mobileNavOpen}

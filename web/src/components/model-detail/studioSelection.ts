@@ -32,6 +32,8 @@ export function useStudioSelection(model: ModelDetail | undefined): {
   glbable: FileOut[];
   others: FileOut[];
   onSelectAssembly: () => void;
+  /** Switches the surface to one specific non-assembly file (sliced preview). */
+  onSelectFile: (file: FileOut) => void;
   /** Files-card row action (eye icon): jumps the studio surface to this
    * file. A ready-GLB file lives in the combined assembly view rather than
    * as its own "file" entry, so route to "assembly" for those and to the
@@ -60,13 +62,14 @@ export function useStudioSelection(model: ModelDetail | undefined): {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const selection = useMemo(() => resolved, [selKey]);
   const onSelectAssembly = useCallback(() => setRaw({ type: "assembly" }), []);
+  const onSelectFile = useCallback((file: FileOut) => setRaw({ type: "file", id: file.id }), []);
   const onViewIn3D = useCallback(
     (file: FileOut) => setRaw(file.glb_status === "ok" ? { type: "assembly" } : { type: "file", id: file.id }),
     [],
   );
 
   return useMemo(
-    () => ({ selection, glbable, others, onSelectAssembly, onViewIn3D }),
-    [selection, glbable, others, onSelectAssembly, onViewIn3D],
+    () => ({ selection, glbable, others, onSelectAssembly, onSelectFile, onViewIn3D }),
+    [selection, glbable, others, onSelectAssembly, onSelectFile, onViewIn3D],
   );
 }
