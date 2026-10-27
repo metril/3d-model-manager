@@ -3,6 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PlusIcon } from "lucide-react";
 
 import { modelQueryOptions } from "@/api/library";
+import { EntityTags } from "@/components/tags/EntityTags";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, matchesTagFilter, type TagFilterValue } from "@/components/tags/tagFilter";
 import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
@@ -82,9 +85,11 @@ export function FilesTab({
 }) {
   const queryClient = useQueryClient();
   const [showAddFiles, setShowAddFiles] = useState(false);
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // Doc-kind files (README, license, etc.) surface only in the Docs tab --
   // exclude them here so they don't also clutter the Files list.
-  const files = (model.current_revision?.files ?? []).filter((file) => file.kind !== "doc");
+  const allFiles = (model.current_revision?.files ?? []).filter((file) => file.kind !== "doc");
+  const files = allFiles.filter((file) => matchesTagFilter(file.tag_refs, tagFilter));
   const currentRevision = model.current_revision;
 
   // Uploads (Task 10, correctness map §B4) always target the model's
@@ -107,7 +112,12 @@ export function FilesTab({
   return (
     <div className="space-y-4">
       {currentRevision ? (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-2">
+          {allFiles.length > 0 ? (
+            <TagFilter value={tagFilter} onChange={setTagFilter} label="Filter by tag" countKey="model_files" />
+          ) : (
+            <span />
+          )}
           <Button type="button" variant="outline" size="sm" onClick={() => setShowAddFiles((prev) => !prev)}>
             <PlusIcon className="size-4" />
             Add files
@@ -120,7 +130,9 @@ export function FilesTab({
       ) : null}
 
       {files.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">No files on the current revision yet.</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          {allFiles.length > 0 ? "No files match this tag filter." : "No files on the current revision yet."}
+        </p>
       ) : (
         <ul role="list" className="@container/files divide-y">
           {files.map((file) => (
@@ -138,6 +150,11 @@ export function FilesTab({
                     {file.verified_at ? "stored" : "processing"}
                   </Badge>
                   <CopyableHash hash={file.blob_hash} compact />
+                  <EntityTags
+                    target={{ kind: "file", modelId: model.id, relPath: file.rel_path }}
+                    tags={file.tag_refs}
+                    className="basis-full"
+                  />
                 </>
               }
               actions={

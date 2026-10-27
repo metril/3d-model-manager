@@ -5,16 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagEditor } from "@/components/model-detail/TagEditor";
 import type { ModelDetail } from "@/api/types";
 
-const { getMock, patchMock } = vi.hoisted(() => ({
+const { getMock, putMock } = vi.hoisted(() => ({
   getMock: vi.fn().mockResolvedValue([]),
-  patchMock: vi.fn().mockResolvedValue({ id: 1, name: "fantasy", color: "teal" }),
+  putMock: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
     ...actual,
-    api: { ...actual.api, get: getMock, patch: patchMock },
+    api: { ...actual.api, get: getMock, put: putMock },
   };
 });
 
@@ -35,6 +35,10 @@ const MODEL: ModelDetail = {
   created_at: "2026-06-01T12:00:00Z",
   updated_at: "2026-06-01T12:00:00Z",
   tags: ["fantasy", "dragon"],
+  tag_refs: [
+    { id: 1, name: "fantasy", color: "#14b8a6" },
+    { id: 2, name: "dragon", color: null },
+  ],
   current_revision: null,
   notes: [],
   backends: [],
@@ -56,38 +60,32 @@ function renderEditor(editMode: boolean) {
 
 beforeEach(() => {
   getMock.mockClear();
-  patchMock.mockClear();
+  putMock.mockClear();
 });
 
 describe("TagEditor", () => {
-  it("shows tag chips without remove buttons or the add-tag control by default", () => {
+  it("shows tag chips without remove buttons or the picker by default", () => {
     renderEditor(false);
 
     expect(screen.getByText("fantasy")).toBeInTheDocument();
     expect(screen.getByText("dragon")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove tag/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add tag" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit tags" })).not.toBeInTheDocument();
   });
 
-  it("shows remove buttons and the add-tag control in edit mode", () => {
+  it("shows remove buttons and the picker in edit mode", () => {
     renderEditor(true);
 
-    expect(screen.getByText("fantasy")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove tag fantasy" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove tag dragon" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add tag" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit tags" })).toBeInTheDocument();
   });
 
-  it("opens a color picker for a known tag in edit mode and sets its color", async () => {
-    getMock.mockResolvedValue([
-      { id: 1, name: "fantasy", color: null },
-      { id: 2, name: "dragon", color: null },
-    ]);
+  it("removing a chip PUTs the remaining tag ids", async () => {
     renderEditor(true);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set color for tag fantasy" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Color teal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag fantasy" }));
 
-    await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/tags/1", { color: "teal" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/models/1/tags", { tag_ids: [2] }));
   });
 });

@@ -13,6 +13,9 @@ import type { ArchiveOut, ArchiveResult } from "@/api/types";
 import { CompareBar } from "@/components/print/ArchiveCompareDialog";
 import { useRunSelection } from "@/components/print/useRunSelection";
 import { RunDetailSheet } from "@/components/print/RunDetailSheet";
+import { EntityTags } from "@/components/tags/EntityTags";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -64,6 +67,9 @@ function RunRow({
         {run.run?.filament_g != null ? `${run.run.filament_g} g` : "--"}
       </TableCell>
       <TableCell className="font-mono tabular-nums">{run.run ? formatCost(run.run.total_cost) : "--"}</TableCell>
+      <TableCell onClick={(e) => e.stopPropagation()}>
+        <EntityTags target={{ kind: "archive", id: run.id }} tags={run.tag_refs} />
+      </TableCell>
       <TableCell>{run.run?.quality ?? ""}</TableCell>
       <TableCell>{formatDateTime(run.finished_at ?? run.created_at)}</TableCell>
     </TableRow>
@@ -82,7 +88,13 @@ export function PrintJobHistory({
   const [openId, setOpenId] = useState<number | null>(null);
   const printers = usePrinters();
   const effectivePrinterId = fixedPrinterId ?? printerId;
-  const archives = useArchives({ printerId: effectivePrinterId, result, ...(date ? { from: date, to: date } : {}) });
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const archives = useArchives({
+    printerId: effectivePrinterId,
+    result,
+    tags: tagFilter.tags.length ? tagFilter.tags : undefined,
+    tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
+    ...(date ? { from: date, to: date } : {}) });
   const rows = archives.data;
 
   return (
@@ -127,6 +139,7 @@ export function PrintJobHistory({
               ))}
             </SelectContent>
           </Select>
+          <TagFilter value={tagFilter} onChange={setTagFilter} countKey="archives" />
           {date ? (
             <Button size="sm" variant="secondary" onClick={onClearDate}>
               {t("archiveX.calendar.clearDate", { date })}
@@ -156,6 +169,7 @@ export function PrintJobHistory({
                 <TableHead>Duration</TableHead>
                 <TableHead>Grams</TableHead>
                 <TableHead>Cost</TableHead>
+                <TableHead>Tags</TableHead>
                 <TableHead>Quality</TableHead>
                 <TableHead>Finished</TableHead>
               </TableRow>

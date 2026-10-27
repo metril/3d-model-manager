@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { appendTagParams, type TagMode } from "@/api/tags";
 import type {
   ArchiveOut,
   ArchivePatchIn,
@@ -35,6 +36,8 @@ export interface ArchiveFilters {
   /** Inclusive YYYY-MM-DD bounds (UTC day of created_at). */
   from?: string;
   to?: string;
+  tags?: number[];
+  tagMode?: TagMode;
 }
 
 export function useArchives(filters: ArchiveFilters = {}) {
@@ -45,9 +48,10 @@ export function useArchives(filters: ArchiveFilters = {}) {
   if (filters.limit != null) params.set("limit", String(filters.limit));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
+  appendTagParams(params, filters.tags, filters.tagMode);
   const qs = params.toString();
   return useQuery({
-    queryKey: ["archives", filters.from ?? null, filters.to ?? null, filters.printerId ?? null, filters.result ?? null, filters.modelId ?? null, filters.limit ?? null] as const,
+    queryKey: ["archives", filters.from ?? null, filters.to ?? null, filters.printerId ?? null, filters.result ?? null, filters.modelId ?? null, filters.limit ?? null, filters.tags ?? null, filters.tagMode ?? null] as const,
     queryFn: () => api.get<ArchiveOut[]>(`/archives${qs ? `?${qs}` : ""}`),
     refetchInterval: (q) => archivesRefetchInterval(q.state.data),
   });

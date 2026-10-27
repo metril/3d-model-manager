@@ -3,7 +3,9 @@ import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { FileStackIcon, StarIcon } from "lucide-react";
 
-import { modelQueryOptions, usePatchModel, useTagColorMap } from "@/api/library";
+import { modelQueryOptions, usePatchModel } from "@/api/library";
+import { TagChip } from "@/components/tags/TagChip";
+import { tagRefsOf } from "@/components/tags/tagRefs";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
 import { Badge } from "@/components/ui/badge";
@@ -40,14 +42,14 @@ export function ModelRow({
   const [coverErrored, setCoverErrored] = useState(false);
   const patchModel = usePatchModel(model.slug);
   const queryClient = useQueryClient();
-  const tagColors = useTagColorMap();
 
   function onIntent() {
     void queryClient.prefetchQuery({ ...modelQueryOptions(model.slug), staleTime: 30_000 });
   }
 
-  const visibleTags = model.tags.slice(0, VISIBLE_TAGS);
-  const overflowCount = model.tags.length - visibleTags.length;
+  const tagRefs = tagRefsOf(model);
+  const visibleTags = tagRefs.slice(0, VISIBLE_TAGS);
+  const overflowCount = tagRefs.length - visibleTags.length;
   const uniqueFormats = Array.from(new Set(model.formats));
   const primaryFormat = model.formats[0];
   const Icon = formatIcon(primaryFormat);
@@ -124,9 +126,7 @@ export function ModelRow({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {visibleTags.map((tag) => (
-            <Badge key={tag} variant="secondary" className={tagColorClass(tagColors[tag])}>
-              {tag}
-            </Badge>
+            <TagChip key={tag.name} tag={tag} />
           ))}
           {overflowCount > 0 && <Badge variant="outline">+{overflowCount}</Badge>}
           {uniqueFormats.map((format) => (

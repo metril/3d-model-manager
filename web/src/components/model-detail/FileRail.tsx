@@ -1,5 +1,6 @@
 import { RotateCcwIcon } from "lucide-react";
 
+import { TagChips } from "@/components/tags/TagChip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FilamentChip } from "@/components/ui/filament-chip";
@@ -44,6 +45,7 @@ export function PartRow({
       <span className="min-w-0 flex-1 truncate text-sm" title={file.rel_path}>
         {file.rel_path}
       </span>
+      {file.tag_refs && file.tag_refs.length > 0 && <TagChips tags={file.tag_refs} max={2} className="shrink-0 flex-nowrap" />}
       {color && (
         <Tooltip>
           <TooltipTrigger asChild>

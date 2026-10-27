@@ -240,6 +240,7 @@ const GALLERY_MODEL_4: ModelSummary = {
 function mockGalleryOkWithModels(models: ModelSummary[]) {
   getMock.mockImplementation((path: string) => {
     if (path.startsWith("/models")) return Promise.resolve({ items: models, next_cursor: null });
+    if (path.startsWith("/tags")) return Promise.resolve([{ id: 1, name: "fantasy", color: "#14b8a6" }]);
     return Promise.resolve([]);
   });
 }
@@ -422,6 +423,34 @@ describe("LibraryPage", () => {
     expect(await screen.findByText("1 selected")).toBeInTheDocument();
   });
 
+  it("tag filter any/all and the file-tag filter drive the tags / tag_mode / file_tags query params", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/models")) return Promise.resolve({ items: [], next_cursor: null });
+      if (path.startsWith("/tags"))
+        return Promise.resolve([
+          { id: 1, name: "fantasy", color: "#14b8a6" },
+          { id: 2, name: "dragon", color: null },
+        ]);
+      return Promise.resolve([]);
+    });
+    renderLibraryPage();
+    const tagList = await screen.findByRole("list", { name: "Tags filter" });
+    fireEvent.click(await within(tagList).findByRole("button", { name: /fantasy/ }));
+    fireEvent.click(within(tagList).getByRole("button", { name: /dragon/ }));
+
+    const modelCalls = () =>
+      getMock.mock.calls.map((call: unknown[]) => String(call[0])).filter((path: string) => path.startsWith("/models?"));
+    await waitFor(() => expect(modelCalls().at(-1)).toContain("tags=1&tags=2"));
+    expect(modelCalls().at(-1)).not.toContain("tag_mode");
+
+    fireEvent.click(within(screen.getByRole("group", { name: "Match mode" })).getByRole("button", { name: "All" }));
+    await waitFor(() => expect(modelCalls().at(-1)).toContain("tag_mode=all"));
+
+    const fileList = screen.getByRole("list", { name: "Has file tagged filter" });
+    fireEvent.click(within(fileList).getByRole("button", { name: /dragon/ }));
+    await waitFor(() => expect(modelCalls().at(-1)).toContain("file_tags=2"));
+  });
+
   it("a second Enter while the tag mutation is in flight doesn't fire a second bulk update", async () => {
     mockGalleryOkWithModels([GALLERY_MODEL]);
     // Never settles: keeps the mutation pending so the in-flight guard is
@@ -432,10 +461,10 @@ describe("LibraryPage", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Test Model" }));
     await screen.findByText("1 selected");
 
-    const input = screen.getByRole("textbox", { name: "Tag to add" });
-    fireEvent.change(input, { target: { value: "fantasy" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter" });
+    const addList = (await screen.findAllByRole("list", { name: "Tags" }))[0]!;
+    const fantasy = await within(addList).findByRole("button", { name: /fantasy/ });
+    fireEvent.click(fantasy);
+    fireEvent.click(fantasy);
 
     await waitFor(() =>
       expect(postMock.mock.calls.filter((call: unknown[]) => call[0] === "/models/bulk")).toHaveLength(1),

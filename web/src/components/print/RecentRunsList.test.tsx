@@ -5,6 +5,11 @@ import type { ArchiveOut } from "@/api/types";
 import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { totalGrams } from "@/lib/totalGrams";
 
+vi.mock("@/components/tags/EntityTags", () => ({ EntityTags: () => null }));
+vi.mock("@/components/tags/TagFilter", async (orig) => ({
+  ...(await orig<typeof import("@/components/tags/TagFilter")>()),
+  TagFilter: () => null,
+}));
 vi.mock("@/components/print/SourceFiles", () => ({ SourceFiles: () => null }));
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),

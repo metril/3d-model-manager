@@ -13,6 +13,9 @@
 import { useEffect, useState } from "react";
 import { FileText as FileTextIcon } from "lucide-react";
 
+import { EntityTags } from "@/components/tags/EntityTags";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, matchesTagFilter, type TagFilterValue } from "@/components/tags/tagFilter";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -89,14 +92,20 @@ function isPreviewable(file: FileOut): boolean {
 
 export function DocsTab({ model }: { model: ModelDetail }) {
   const [openPreviewId, setOpenPreviewId] = useState<number | null>(null);
-  const files = (model.current_revision?.files ?? []).filter((file) => file.kind === "doc");
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const allDocs = (model.current_revision?.files ?? []).filter((file) => file.kind === "doc");
+  const files = allDocs.filter((file) => matchesTagFilter(file.tag_refs, tagFilter));
 
-  if (files.length === 0) {
+  if (allDocs.length === 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">No documents on the current revision yet.</p>;
   }
 
   return (
     <div className="space-y-4">
+      <TagFilter value={tagFilter} onChange={setTagFilter} label="Filter by tag" countKey="model_files" />
+      {files.length === 0 && (
+        <p className="py-8 text-center text-sm text-muted-foreground">No documents match this tag filter.</p>
+      )}
       <ul role="list" className="@container/files divide-y">
         {files.map((file) => {
           const previewOpen = openPreviewId === file.id;
@@ -113,6 +122,11 @@ export function DocsTab({ model }: { model: ModelDetail }) {
                   <Badge variant={file.verified_at ? "secondary" : "outline"}>
                     {file.verified_at ? "stored" : "processing"}
                   </Badge>
+                  <EntityTags
+                    target={{ kind: "file", modelId: model.id, relPath: file.rel_path }}
+                    tags={file.tag_refs}
+                    className="basis-full"
+                  />
                 </>
               }
               actions={

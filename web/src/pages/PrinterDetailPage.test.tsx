@@ -95,7 +95,7 @@ function mockGet(options: { printers?: PrinterOut[]; features?: { printer_enable
     }
     if (path.startsWith("/printers/1/ams-history")) return Promise.resolve({ unit: 0, step_s: 60, points: [{ ts: "2026-10-23T10:00:00Z", humidity: 30, temp: 25 }] });
     if (path === "/printers/1/status") return Promise.resolve(STATUS);
-    if (path.startsWith("/archives")) return Promise.resolve([]);
+    if (path.startsWith("/archives") || path.startsWith("/tags")) return Promise.resolve([]);
     if (path === "/printers/1/maintenance") return Promise.resolve([]);
     if (path === "/printers/1/plugs") return Promise.resolve([]);
     return Promise.resolve({});

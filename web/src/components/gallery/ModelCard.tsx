@@ -3,7 +3,9 @@ import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ClockIcon, FileStackIcon, StarIcon, XIcon } from "lucide-react";
 
-import { modelQueryOptions, usePatchModel, useTagColorMap } from "@/api/library";
+import { modelQueryOptions, usePatchModel } from "@/api/library";
+import { TagChip } from "@/components/tags/TagChip";
+import { tagRefsOf } from "@/components/tags/tagRefs";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
@@ -57,7 +59,6 @@ export function ModelCard({
   const [hovered, setHovered] = useState(false);
   const patchModel = usePatchModel(model.slug);
   const queryClient = useQueryClient();
-  const tagColors = useTagColorMap();
 
   // R9-A item 4: warm the model detail query on hover/focus intent so the
   // click-through navigation renders instantly. A `staleTime` keeps it from
@@ -66,8 +67,9 @@ export function ModelCard({
     setHovered(true);
     void queryClient.prefetchQuery({ ...modelQueryOptions(model.slug), staleTime: 30_000 });
   }
-  const visibleTags = model.tags.slice(0, VISIBLE_TAGS);
-  const overflowCount = model.tags.length - visibleTags.length;
+  const tagRefs = tagRefsOf(model);
+  const visibleTags = tagRefs.slice(0, VISIBLE_TAGS);
+  const overflowCount = tagRefs.length - visibleTags.length;
   const uniqueFormats = Array.from(new Set(model.formats));
   const visibleFormats = uniqueFormats.slice(0, VISIBLE_FORMATS);
   const formatOverflowCount = uniqueFormats.length - visibleFormats.length;
@@ -285,9 +287,7 @@ export function ModelCard({
           {visibleTags.length > 0 && (
             <div className="flex min-h-5 flex-wrap gap-1">
               {visibleTags.map((tag) => (
-                <Badge key={tag} variant="secondary" className={tagColorClass(tagColors[tag])}>
-                  {tag}
-                </Badge>
+                <TagChip key={tag.name} tag={tag} />
               ))}
               {overflowCount > 0 && <Badge variant="outline">+{overflowCount}</Badge>}
             </div>

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EntityTags } from "@/components/tags/EntityTags";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatCost, formatDateTime, humanizeDuration } from "@/lib/format";
 
@@ -149,6 +150,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
         {archive.duration_s != null ? <span className="tabular-nums">{humanizeDuration(archive.duration_s)}</span> : null}
         <span>{formatDateTime(archive.finished_at ?? archive.created_at)}</span>
       </div>
+      <EntityTags target={{ kind: "archive", id: archive.id }} tags={archive.tag_refs} readOnly={!canWriteArchive} />
       {note ? <p className="text-muted-foreground">{note}</p> : null}
       {archive.fetch_error ? <p className="text-destructive">{archive.fetch_error}</p> : null}
       {archive.est_filament && archive.est_filament.length > 0 ? (

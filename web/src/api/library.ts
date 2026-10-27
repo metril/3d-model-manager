@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
+import { appendTagParams, type TagMode } from "@/api/tags";
 import type {
   DiffResponse,
   GalleryPage,
@@ -32,7 +33,6 @@ import type {
   RevisionCreate,
   RevisionDetail,
   RevisionSummary,
-  TagOut,
 } from "@/api/types";
 
 /** Prefix shared by every `useModelsQuery` cache entry (the full key also
@@ -137,7 +137,11 @@ function mergeDetailIntoSummary(item: ModelSummary, detail: ModelDetail): ModelS
 
 export interface GalleryFilters {
   q?: string;
-  tag?: string;
+  /** Tag ids; `tagMode` picks any-of vs all-of. */
+  tags?: number[];
+  tagMode?: TagMode;
+  /** Models having a FILE carrying these tag ids (same any/all mode). */
+  fileTags?: number[];
   format?: string;
   has_sliced?: boolean;
   collection?: number;
@@ -158,7 +162,8 @@ const GALLERY_PAGE_SIZE = 24;
 function buildModelsUrl(filters: Partial<GalleryFilters>, cursor?: string, limit = GALLERY_PAGE_SIZE): string {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
-  if (filters.tag) params.set("tag", filters.tag);
+  appendTagParams(params, filters.tags, filters.tagMode);
+  for (const id of filters.fileTags ?? []) params.append("file_tags", String(id));
   if (filters.format) params.set("format", filters.format);
   if (filters.has_sliced) params.set("has_sliced", "true");
   if (filters.collection !== undefined) params.set("collection", String(filters.collection));
@@ -462,54 +467,6 @@ export function useRelocateModel(slug: string) {
     mutationFn: (payload: ModelRelocateIn) =>
       api.post<JobOut>(`/models/${encodeURIComponent(slug)}/relocate`, payload),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["storage"] }),
-  });
-}
-
-export const tagsQueryOptions = queryOptions({
-  queryKey: ["tags"] as const,
-  queryFn: () => api.get<TagOut[]>("/tags"),
-});
-
-export function useTags() {
-  return useQuery(tagsQueryOptions);
-}
-
-/** name -> color lookup, for chip rendering wherever only the tag name is
- * on hand (`ModelSummary.tags`/`ModelDetail.tags` are `string[]`, colors
- * live only on the global `/api/tags` list). Cheap: `useTags`' result is
- * shared react-query cache, so this doesn't add a request per caller. */
-export function useTagColorMap(): Record<string, TagOut["color"]> {
-  const { data } = useTags();
-  const map: Record<string, TagOut["color"]> = {};
-  for (const tag of data ?? []) map[tag.name] = tag.color;
-  return map;
-}
-
-export function useAddTag(slug: string, modelId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (name: string) => api.post<TagOut>(`/models/${modelId}/tags`, { name }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: modelQueryOptions(slug).queryKey });
-      void queryClient.invalidateQueries({ queryKey: tagsQueryOptions.queryKey });
-    },
-  });
-}
-
-export function useSetTagColor() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, color }: { id: number; color: TagOut["color"] }) =>
-      api.patch<TagOut>(`/tags/${id}`, { color }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: tagsQueryOptions.queryKey }),
-  });
-}
-
-export function useRemoveTag(slug: string, modelId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (name: string) => api.delete<void>(`/models/${modelId}/tags/${encodeURIComponent(name)}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: modelQueryOptions(slug).queryKey }),
   });
 }
 

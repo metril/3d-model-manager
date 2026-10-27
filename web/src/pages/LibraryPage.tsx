@@ -24,7 +24,12 @@ import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useRestoreTrash } from "@/api/trash";
-import { useBulkDeleteModels, useBulkUpdateModels, useModelsQuery, useTags } from "@/api/library";
+import { useBulkDeleteModels, useBulkUpdateModels, useModelsQuery } from "@/api/library";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilter";
+import { TagPicker } from "@/components/tags/TagPicker";
+import { tagRefsOf } from "@/components/tags/tagRefs";
+import type { TagRef } from "@/api/types";
 import { useEnqueueModel } from "@/api/queue";
 import { useTriggerScan } from "@/api/scan";
 import { ApiError } from "@/api/client";
@@ -147,7 +152,8 @@ export function LibraryPage() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const debouncedSearch = useDebouncedValue(searchInput, 300);
-  const [activeTag, setActiveTag] = useState<string | undefined>(undefined);
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const [fileTagFilter, setFileTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // The backend's `format` filter accepts a single value (SPEC "API surface"),
   // so the chips behave as a single-select facet ("All" clears it).
   const [activeFormat, setActiveFormat] = useState<BlobFormat | undefined>(undefined);
@@ -238,7 +244,6 @@ export function LibraryPage() {
     setLastSelectedIndex(index);
   }
 
-  const tagsQuery = useTags();
   const collectionsQuery = useFollowedCollections();
   const collections = collectionsQuery.data ?? EMPTY_COLLECTIONS;
   const activeCollectionTitle = collections.find((collection) => collection.id === activeCollection)?.title;
@@ -248,7 +253,9 @@ export function LibraryPage() {
   const filters = useMemo(
     () => ({
       q: debouncedSearch || undefined,
-      tag: activeTag,
+      tags: tagFilter.tags.length ? tagFilter.tags : undefined,
+      tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
+      fileTags: fileTagFilter.tags.length ? fileTagFilter.tags : undefined,
       format: activeFormat,
       has_sliced: slicedOnly || undefined,
       collection: activeCollection,
@@ -259,7 +266,8 @@ export function LibraryPage() {
     }),
     [
       debouncedSearch,
-      activeTag,
+      tagFilter,
+      fileTagFilter,
       activeFormat,
       slicedOnly,
       favoritesOnly,
@@ -405,7 +413,6 @@ export function LibraryPage() {
   }, [virtualRows, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const isEmpty = !modelsQuery.isLoading && items.length === 0;
-  const tags = tagsQuery.data ?? [];
 
   return (
     <div className="space-y-5">
@@ -511,35 +518,8 @@ export function LibraryPage() {
             Include archived
           </FilterChip>
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                <TagIcon /> {activeTag ? `Tag: ${activeTag}` : "Tags"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64">
-              <div className="flex flex-wrap gap-1.5">
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => setActiveTag(activeTag === tag.name ? undefined : tag.name)}
-                  >
-                    <Badge
-                      variant={activeTag === tag.name ? "default" : "outline"}
-                      className={cn(
-                        "cursor-pointer",
-                        activeTag !== tag.name && tagColorClass(tag.color),
-                      )}
-                    >
-                      {tag.name}
-                    </Badge>
-                  </button>
-                ))}
-                {tags.length === 0 && <p className="text-xs text-muted-foreground">No tags yet</p>}
-              </div>
-            </PopoverContent>
-          </Popover>
+          <TagFilter value={tagFilter} onChange={setTagFilter} label="Tags" countKey="models" />
+          <TagFilter value={fileTagFilter} onChange={setFileTagFilter} label="Has file tagged" countKey="model_files" />
 
           <Popover>
             <PopoverTrigger asChild>
@@ -705,9 +685,6 @@ function SelectionActionBar({
   deleteConfirmOpen: boolean;
   onDeleteConfirmOpenChange: (open: boolean) => void;
 }) {
-  const [tagToAdd, setTagToAdd] = useState("");
-  const [addTagOpen, setAddTagOpen] = useState(false);
-  const [removeTagOpen, setRemoveTagOpen] = useState(false);
   const [queueing, setQueueing] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
 
@@ -721,7 +698,9 @@ function SelectionActionBar({
 
   const ids = selectedItems.map((model) => model.id);
   const slugs = selectedItems.map((model) => model.slug);
-  const tagsOnSelection = Array.from(new Set(selectedItems.flatMap((model) => model.tags))).sort();
+const tagsOnSelection: TagRef[] = [
+    ...new Map(selectedItems.flatMap((model) => tagRefsOf(model)).map((tag) => [tag.name, tag])).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 
   // The actions are mutually exclusive while any of them is in flight --
   // most importantly Delete vs the enqueue loop: models can otherwise be
@@ -744,32 +723,28 @@ function SelectionActionBar({
     inFlight.current = false;
   }
 
-  function addTag() {
-    const trimmed = tagToAdd.trim();
-    if (!trimmed || !claim()) return;
+  function addTag(tag: TagRef) {
+    if (!claim()) return;
     bulkUpdate.mutate(
-      { ids, add_tags: [trimmed] },
+      { ids, add_tags: [tag.name] },
       {
         onSettled: release,
         onSuccess: (result) => {
           toast.success(`Tagged ${result.updated} model${result.updated === 1 ? "" : "s"}`);
-          setTagToAdd("");
-          setAddTagOpen(false);
           onDone();
         },
       },
     );
   }
 
-  function removeTag(name: string) {
+  function removeTag(tag: TagRef) {
     if (!claim()) return;
     bulkUpdate.mutate(
-      { ids, remove_tags: [name] },
+      { ids, remove_tags: [tag.name] },
       {
         onSettled: release,
         onSuccess: (result) => {
           toast.success(`Untagged ${result.updated} model${result.updated === 1 ? "" : "s"}`);
-          setRemoveTagOpen(false);
           onDone();
         },
       },
@@ -844,60 +819,28 @@ function SelectionActionBar({
         {selectedItems.length} selected
       </span>
 
-      <Popover open={addTagOpen} onOpenChange={setAddTagOpen}>
-        <PopoverTrigger asChild>
+      <TagPicker
+        onPick={addTag}
+        align="center"
+        disabled={busy}
+        trigger={
           <Button type="button" variant="outline" size="sm" disabled={busy}>
             <TagIcon /> Add tag
           </Button>
-        </PopoverTrigger>
-        <PopoverContent align="center" className="w-56">
-          <Input
-            autoFocus
-            value={tagToAdd}
-            placeholder="Tag name…"
-            aria-label="Tag to add"
-            onChange={(event) => setTagToAdd(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addTag();
-              }
-            }}
-          />
-          <Button
-            type="button"
-            size="sm"
-            className="mt-2 w-full"
-            disabled={!tagToAdd.trim() || busy}
-            onClick={addTag}
-          >
-            Add
-          </Button>
-        </PopoverContent>
-      </Popover>
+        }
+      />
 
-      <Popover open={removeTagOpen} onOpenChange={setRemoveTagOpen}>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm" disabled={busy}>
+      <TagPicker
+        onPick={removeTag}
+        options={tagsOnSelection}
+        align="center"
+        disabled={busy || tagsOnSelection.length === 0}
+        trigger={
+          <Button type="button" variant="outline" size="sm" disabled={busy || tagsOnSelection.length === 0}>
             <XIcon /> Remove tag
           </Button>
-        </PopoverTrigger>
-        <PopoverContent align="center" className="w-56">
-          {tagsOnSelection.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {tagsOnSelection.map((name) => (
-                <button key={name} type="button" disabled={busy} onClick={() => removeTag(name)}>
-                  <Badge variant="outline" className="cursor-pointer">
-                    {name}
-                  </Badge>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">None of the selected models have tags.</p>
-          )}
-        </PopoverContent>
-      </Popover>
+        }
+      />
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={favoriteSelection}>
         <StarIcon /> Favorite

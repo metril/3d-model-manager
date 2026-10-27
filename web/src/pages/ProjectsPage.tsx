@@ -14,6 +14,10 @@ import {
   type ProjectSummary,
 } from "@/api/projects";
 import { useModel } from "@/api/library";
+import { TagChips } from "@/components/tags/TagChip";
+import { tagRefsOf } from "@/components/tags/tagRefs";
+import { TagFilter } from "@/components/tags/TagFilter";
+import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,6 +71,7 @@ function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () =
           )}
           {!project.is_template && <Badge variant="secondary">{statusLabel(project.status)}</Badge>}
         </div>
+        <TagChips tags={tagRefsOf(project)} />
         {!project.is_template && (
           <>
             <Progress value={p.percent} aria-label={`${p.percent}% complete`} />
@@ -142,7 +147,13 @@ export function ProjectsPage() {
   const [status, setStatus] = useState<ProjectStatus | "">("");
   const [search, setSearch] = useState("");
   const q = useDebouncedValue(search, 250);
-  const projects = useProjects({ status: status || undefined, q: q || undefined });
+  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const projects = useProjects({
+    status: status || undefined,
+    q: q || undefined,
+    tags: tagFilter.tags.length ? tagFilter.tags : undefined,
+    tagMode: tagFilter.tags.length > 1 ? tagFilter.mode : undefined,
+  });
   const templates = useProjectTemplates();
   const create = useCreateProject();
   const fromTemplate = useFromTemplate();
@@ -202,6 +213,7 @@ export function ProjectsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <TagFilter value={tagFilter} onChange={setTagFilter} countKey="projects" />
           </>
         )}
       </div>
