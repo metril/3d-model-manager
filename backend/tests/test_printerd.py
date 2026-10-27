@@ -478,7 +478,7 @@ def test_reconcile_tears_down_disabled_printer_thread(
     try:
         assert _wait_until(lambda: {id1, id2} <= daemon._workers.keys())
         cmd_thread = _find_thread(f"cmd-{id2}")
-        assert cmd_thread.is_alive()
+        assert _wait_until(cmd_thread.is_alive)
 
         with base.sync_session() as s:
             printer = s.get(Printer, id2)
