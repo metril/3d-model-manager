@@ -85,7 +85,7 @@ export function PrinterInfoModal({
               </ul>
             )}
             {!caps.verified ? (
-              <p className="text-xs text-amber-600 dark:text-amber-400">
+              <p className="text-xs text-warning">
                 untested on this model
               </p>
             ) : null}

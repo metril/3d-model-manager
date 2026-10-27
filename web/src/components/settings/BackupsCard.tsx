@@ -45,7 +45,7 @@ function RunRow({ run, isAdmin }: { run: BackupRun; isAdmin: boolean }) {
           onConfirm={() => restore.mutate(run.id)}
         />
       ) : null}
-      {restore.isSuccess ? <span className="w-full text-xs text-emerald-600">Restored {restore.data.restored} settings.</span> : null}
+      {restore.isSuccess ? <span className="w-full text-xs text-success">Restored {restore.data.restored} settings.</span> : null}
       {restore.isError ? (
         <span role="alert" className="w-full text-xs text-destructive">
           {errText(restore.error, "Restore failed")}
@@ -173,7 +173,7 @@ export function BackupsCard() {
               Run backup now
             </Button>
           ) : null}
-          {save.isSuccess ? <span className="text-sm text-emerald-600">Saved.</span> : null}
+          {save.isSuccess ? <span className="text-sm text-success">Saved.</span> : null}
         </div>
         {save.isError ? (
           <p role="alert" className="text-sm text-destructive">

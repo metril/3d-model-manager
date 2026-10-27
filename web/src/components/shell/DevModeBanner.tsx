@@ -41,7 +41,7 @@ function Banner({
       data-testid={`dev-mode-banner-${variant}`}
       className={cn(
         "flex items-center gap-2 border-b px-6 py-2 text-sm",
-        off ? "bg-amber-500/10 text-amber-900 dark:text-amber-200" : "bg-muted text-muted-foreground",
+        off ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground",
       )}
     >
       {off ? <AlertTriangleIcon className="size-4 shrink-0" /> : <HelpCircleIcon className="size-4 shrink-0" />}

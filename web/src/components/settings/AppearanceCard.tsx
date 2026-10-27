@@ -11,10 +11,10 @@ const MODES = ["light", "dark", "system"] as const;
 
 // Swatches mirror the hue/chroma pairs in index.css (`:root[data-accent=...]`).
 const SWATCH: Record<(typeof ACCENTS)[number], string> = {
+  blue: "oklch(0.62 0.19 262)",
   orange: "oklch(0.646 0.176 41.1)",
   green: "oklch(0.646 0.16 149)",
   teal: "oklch(0.646 0.12 190)",
-  blue: "oklch(0.646 0.19 255)",
   purple: "oklch(0.646 0.2 300)",
   red: "oklch(0.646 0.21 25)",
 };

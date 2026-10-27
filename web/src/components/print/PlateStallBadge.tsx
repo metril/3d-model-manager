@@ -9,7 +9,7 @@ export function PlateStallBadge() {
       variant="outline"
       title="Plate check is waiting for a camera frame; the queued print is held. Check the camera."
       aria-label="Plate check stalled"
-      className="gap-1 border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+      className="gap-1 border-warning bg-warning/10 text-warning"
     >
       <CameraOffIcon className="size-3.5" />
       Plate check stalled

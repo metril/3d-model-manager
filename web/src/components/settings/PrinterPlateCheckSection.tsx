@@ -112,7 +112,7 @@ export function PrinterPlateCheckSection({ printer }: { printer: PrinterOut }) {
             {errText(update.error, "Could not save plate check")}
           </p>
         ) : null}
-        {update.isSuccess ? <p className="text-sm text-emerald-600 dark:text-emerald-400">Saved.</p> : null}
+        {update.isSuccess ? <p className="text-sm text-success">Saved.</p> : null}
       </div>
       {check.isError ? (
         <p role="alert" className="text-sm text-destructive">
@@ -121,7 +121,7 @@ export function PrinterPlateCheckSection({ printer }: { printer: PrinterOut }) {
       ) : null}
       {check.data ? (
         <div className="flex flex-col gap-2" data-testid="plate-check-result">
-          <p className={check.data.empty ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}>
+          <p className={check.data.empty ? "text-sm text-success" : "text-sm text-destructive"}>
             {check.data.empty ? "Empty" : "Not empty"} - {check.data.message} (threshold {check.data.threshold}%)
           </p>
           {check.data.preview ? (
@@ -135,7 +135,7 @@ export function PrinterPlateCheckSection({ printer }: { printer: PrinterOut }) {
         </p>
       ) : null}
       {diagnose.data ? (
-        <p className={diagnose.data.ok ? "text-sm text-emerald-600 dark:text-emerald-400" : "text-sm text-destructive"}>
+        <p className={diagnose.data.ok ? "text-sm text-success" : "text-sm text-destructive"}>
           Camera ({diagnose.data.camera_kind}): {diagnose.data.hint}
         </p>
       ) : null}

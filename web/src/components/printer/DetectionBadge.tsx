@@ -16,7 +16,7 @@ export function DetectionBadgeView({ status }: { status: DetectionStatus }) {
     (status.detection_paused ? "paused" : status.active && status.smoothed != null ? "watching" : "idle");
   if (phase === "paused") {
     return (
-      <span className={cn(pill, "border-amber-500/40 bg-amber-500/10 text-amber-600")}>
+      <span className={cn(pill, "border-warning/40 bg-warning/10 text-warning")}>
         detection paused
       </span>
     );
@@ -50,7 +50,7 @@ export function DetectionBadgeView({ status }: { status: DetectionStatus }) {
     status.state === "pause"
       ? "border-destructive/40 bg-destructive/10 text-destructive"
       : status.state === "warn"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+        ? "border-warning/40 bg-warning/10 text-warning"
         : "border-border text-muted-foreground";
   return (
     <span className={cn(pill, tone)} title="Failure detection score (smoothed)">

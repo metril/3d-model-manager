@@ -134,7 +134,7 @@ function TaskRow({ task, printerId, canControl }: { task: MaintenanceTask; print
     task.status === "overdue"
       ? "border-destructive/50 bg-destructive/5"
       : task.status === "soon"
-        ? "border-amber-500/50 bg-amber-500/5"
+        ? "border-warning/50 bg-warning/5"
         : "";
   return (
     <li className={`space-y-2 rounded-lg border p-3 ${tone}`} data-status={task.status}>

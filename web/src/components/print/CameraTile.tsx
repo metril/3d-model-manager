@@ -357,7 +357,7 @@ export function CameraTile({
       )}
 
       {status.data?.beta ? (
-        <span className="absolute left-1.5 top-1.5 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-black">
+        <span className="absolute left-1.5 top-1.5 rounded bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-black">
           beta
         </span>
       ) : null}
