@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import HTTPException, status
 from sqlalchemy import Table, delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -67,9 +68,14 @@ async def get_or_create_tag(db: AsyncSession, name: str, color: str | None = Non
     """Case-insensitive get-or-create by name (flushes, never commits)."""
     tag = await find_by_name(db, name)
     if tag is None:
-        tag = Tag(name=name, color=_norm_color(color))
-        db.add(tag)
-        await db.flush()
+        # Race-safe: concurrent creators hit the lower(name) unique index.
+        await db.execute(
+            pg_insert(Tag)
+            .values(name=name, color=_norm_color(color))
+            .on_conflict_do_nothing(index_elements=[func.lower(Tag.name)])
+        )
+        tag = await find_by_name(db, name)
+        assert tag is not None
     return tag
 
 
@@ -115,7 +121,13 @@ async def create_tag(db: AsyncSession, payload: TagCreate) -> TagOut:
         description=payload.description,
     )
     db.add(tag)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"tag {payload.name!r} already exists"
+        ) from None
     return TagOut(**to_ref(tag).model_dump())
 
 

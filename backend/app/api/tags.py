@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.db import get_db
 from app.models.collections import FollowedCollection
-from app.models.projects import Project, ProjectAttachment
+from app.models.projects import ProjectAttachment
 from app.schemas.library import (
     FileTagIdsIn,
     TagCreate,
@@ -23,6 +23,7 @@ from app.schemas.library import (
     TagUpdate,
 )
 from app.services import library
+from app.services import projects as projects_svc
 from app.services import tags as tags_svc
 
 router = APIRouter(tags=["tags"])
@@ -98,10 +99,12 @@ async def set_model_file_tags(
 
 @router.put("/projects/{project_id}/tags", response_model=list[TagRef], dependencies=_W)
 async def set_project_tags(
-    project_id: int, payload: TagIdsIn, db: AsyncSession = Depends(get_db)
+    project_id: int,
+    payload: TagIdsIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[TagRef]:
-    if await db.get(Project, project_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    await projects_svc.get_owned(db, ctx, project_id)
     return await tags_svc.set_entity_tags(db, "project", project_id, payload.tag_ids)
 
 
@@ -111,8 +114,13 @@ async def set_project_tags(
     dependencies=_W,
 )
 async def set_attachment_tags(
-    project_id: int, attachment_id: int, payload: TagIdsIn, db: AsyncSession = Depends(get_db)
+    project_id: int,
+    attachment_id: int,
+    payload: TagIdsIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[TagRef]:
+    await projects_svc.get_owned(db, ctx, project_id)
     att = await db.scalar(
         select(ProjectAttachment.id).where(
             ProjectAttachment.id == attachment_id, ProjectAttachment.project_id == project_id

@@ -176,7 +176,12 @@ async def test_file_tags_filters_and_survive_revision(
 
     # gallery file_tags filter (a single file must carry all for mode=all)
     only_b = await _tag(c)
-    r = await c.get("/api/models", params={"file_tags": both, "tag_mode": "all"})
+    r = await c.get("/api/models", params={"file_tags": both, "file_tag_mode": "all"})
+    assert m["id"] in {i["id"] for i in r.json()["items"]}
+    # tag_mode no longer drives the file filter: model tag_mode=all + file any still matches
+    r = await c.get(
+        "/api/models", params={"file_tags": both, "tag_mode": "all", "file_tag_mode": "any"}
+    )
     assert m["id"] in {i["id"] for i in r.json()["items"]}
     r = await c.get("/api/models", params={"file_tags": [only_b["id"]]})
     assert m["id"] not in {i["id"] for i in r.json()["items"]}
@@ -296,6 +301,10 @@ async def test_migration_up_down_maps_colors(scratch_db) -> None:
         )
         dup_id = await conn.fetchval("SELECT id FROM tags WHERE name = 'dup'")
         await conn.execute("INSERT INTO model_tags (model_id, tag_id) VALUES ($1, $2)", mid, dup_id)
+        pid = await conn.fetchval(
+            "INSERT INTO projects (name, tags) "
+            "VALUES ('p', ARRAY['Legacy','legacy','x']) RETURNING id"
+        )
     finally:
         await conn.close()
 
@@ -303,7 +312,11 @@ async def test_migration_up_down_maps_colors(scratch_db) -> None:
     conn = await asyncpg.connect(dsn)
     try:
         rows = {r["name"]: r["color"] for r in await conn.fetch("SELECT name, color FROM tags")}
-        assert rows == {"Dup": "#ef4444", "x": "#14b8a6"}  # case-dupe merged into lowest id
+        assert set(rows) == {"Dup", "x", "Legacy"}  # case-dupe merged into lowest id
+        assert rows["Dup"] == "#ef4444" and rows["x"] == "#14b8a6" and rows["Legacy"] is None
+        assert (
+            await conn.fetchval("SELECT count(*) FROM project_tags WHERE project_id=$1", pid) == 2
+        )
         assert await conn.fetchval("SELECT count(*) FROM model_tags") == 1
         keep = await conn.fetchval("SELECT id FROM tags WHERE name = 'Dup'")
         assert await conn.fetchval("SELECT tag_id FROM model_tags") == keep
@@ -325,7 +338,7 @@ async def test_migration_up_down_maps_colors(scratch_db) -> None:
     conn = await asyncpg.connect(dsn)
     try:
         rows = {r["name"]: r["color"] for r in await conn.fetch("SELECT name, color FROM tags")}
-        assert rows == {"Dup": "red", "x": "teal"}
+        assert rows == {"Dup": "red", "x": "teal", "Legacy": None}
         assert await conn.fetchval("select to_regclass('project_tags')") is None
         cols = await conn.fetchval(
             "SELECT count(*) FROM information_schema.columns "
@@ -334,3 +347,23 @@ async def test_migration_up_down_maps_colors(scratch_db) -> None:
         assert cols == 0
     finally:
         await conn.close()
+
+
+async def test_project_tags_require_owner(
+    authenticated_client: httpx.AsyncClient, member_client: httpx.AsyncClient
+) -> None:
+    t = await _tag(authenticated_client)
+    p = await _project(authenticated_client)
+    r = await member_client.put(f"/api/projects/{p['id']}/tags", json={"tag_ids": [t["id"]]})
+    assert r.status_code in (403, 404)
+    r = await member_client.put(
+        f"/api/projects/{p['id']}/attachments/1/tags", json={"tag_ids": [t["id"]]}
+    )
+    assert r.status_code in (403, 404)
+
+
+async def test_bulk_add_case_variant_tags(authenticated_client: httpx.AsyncClient) -> None:
+    c = authenticated_client
+    m = await _model(c)
+    r = await c.post("/api/models/bulk", json={"ids": [m["id"]], "add_tags": ["PLA", "pla"]})
+    assert r.status_code == 200, r.text
