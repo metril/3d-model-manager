@@ -417,6 +417,21 @@ describe("LibraryPage", () => {
     expect(await screen.findByRole("button", { name: "Collection: Cool Prints" })).toBeInTheDocument();
   });
 
+  // Sidebar collection links only change `?collection=` on the already-mounted
+  // `/library` route, so the facet must follow the URL live, not seed once.
+  it("switches the collection filter live when ?collection= changes without remounting", async () => {
+    mockGalleryOkWithCollections([FOLLOWED_COLLECTION, { ...FOLLOWED_COLLECTION, id: 6, title: "Other Prints" }]);
+    const { router } = renderLibraryPage(["/library?collection=5"]);
+    await waitFor(() => expect(lastModelsCall()).toContain("collection=5"));
+
+    await act(async () => {
+      await router.navigate({ to: "/library", search: { collection: 6 } });
+    });
+
+    await waitFor(() => expect(lastModelsCall()).toContain("collection=6"));
+    expect(await screen.findByRole("button", { name: "Collection: Other Prints" })).toBeInTheDocument();
+  });
+
   it("adds favorite=true to the gallery query when the Favorites facet is toggled on, and clears it back off", async () => {
     mockGalleryOk();
     renderLibraryPage();
