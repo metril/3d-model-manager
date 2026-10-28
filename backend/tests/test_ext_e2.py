@@ -175,3 +175,71 @@ async def test_v2_model_printables_lists_sliced_files_only(
     queue = await mint(["queue"])
     r = await client.get(f"/api/ext/v2/models/{model.id}/printables", headers=queue)
     assert r.status_code == 403
+
+
+async def test_create_import_dedups_in_flight_import(
+    client: httpx.AsyncClient, ext_token: str, db_session, fake_import
+):
+    from app.models.enums import ImportState
+    from app.models.system import Import
+
+    pending = Import(
+        url="https://fake.test/thing/77",
+        site=ImportSite.THINGIVERSE,
+        external_id="77",
+        state=ImportState.DOWNLOADING,
+    )
+    db_session.add(pending)
+    await db_session.commit()
+    r = await client.post(
+        "/api/ext/imports", json={"url": "https://fake.test/thing/77"}, headers=_bearer(ext_token)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == pending.id
+    rows = (await db_session.execute(select(Import).where(Import.external_id == "77"))).all()
+    assert len(rows) == 1
+
+
+async def test_me_can_set_credentials_follows_owner_grant(
+    client: httpx.AsyncClient, ext_token: str, db_session, member
+):
+    r = await client.get("/api/ext/me", headers=_bearer(ext_token))
+    assert r.json()["can_set_credentials"] is True  # admin owner holds settings:write
+    mtoken, _ = await api_tokens.mint(db_session, user_id=member.id, label="member ext")
+    r = await client.get("/api/ext/me", headers=_bearer(mtoken))
+    assert r.json()["can_set_credentials"] is False
+
+
+async def test_put_collection_omitted_fields_preserve_existing(
+    client: httpx.AsyncClient, ext_token: str, db_session
+):
+    h = _bearer(ext_token)
+    await client.put(
+        "/api/ext/collections/d",
+        json={"site": "makerworld", "title": "D", "count": 9, "is_default": True},
+        headers=h,
+    )
+    r = await client.put(
+        "/api/ext/collections/d", json={"site": "makerworld", "title": "D2"}, headers=h
+    )
+    assert r.status_code == 200
+    db_session.expire_all()
+    row = (
+        await db_session.execute(
+            select(RemoteCollectionCache).where(RemoteCollectionCache.list_id == "d")
+        )
+    ).scalar_one()
+    assert row.title == "D2" and row.count == 9 and row.is_default is True
+    # explicit null count clears it; fresh insert defaults hold
+    await client.put(
+        "/api/ext/collections/d",
+        json={"site": "makerworld", "title": "D2", "count": None},
+        headers=h,
+    )
+    await client.put("/api/ext/collections/e", json={"site": "makerworld", "title": "E"}, headers=h)
+    db_session.expire_all()
+    rows = {
+        x.list_id: x for x in (await db_session.execute(select(RemoteCollectionCache))).scalars()
+    }
+    assert rows["d"].count is None and rows["d"].is_default is True
+    assert rows["e"].count is None and rows["e"].is_default is False

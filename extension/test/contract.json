@@ -1,6 +1,6 @@
 [
   {"method": "GET", "path": "/ext/ping", "request_fields": [], "response_fields": ["ok"]},
-  {"method": "GET", "path": "/ext/me", "request_fields": [], "response_fields": ["username", "perms", "app_version"]},
+  {"method": "GET", "path": "/ext/me", "request_fields": [], "response_fields": ["username", "perms", "app_version", "can_set_credentials"]},
   {"method": "POST", "path": "/ext/imports", "request_fields": ["url", "collection_id", "tags"], "response_fields": ["id", "state", "model_id", "error"]},
   {"method": "GET", "path": "/ext/imports/{import_id}", "request_fields": [], "response_fields": ["id", "state", "error", "model_id"]},
   {"method": "POST", "path": "/ext/credentials/makerworld", "request_fields": ["token"], "response_fields": ["ok"]},

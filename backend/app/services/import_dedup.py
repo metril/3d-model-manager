@@ -75,6 +75,19 @@ def find_live_import_sync(
 _ACTIVE_STATES = (ImportState.PENDING, ImportState.FETCHING, ImportState.DOWNLOADING)
 
 
+def _active_import_stmt(site: ImportSite, external_id: str):
+    return (
+        select(Import)
+        .where(
+            Import.site == site,
+            Import.external_id == external_id,
+            Import.state.in_(_ACTIVE_STATES),
+        )
+        .order_by(Import.id)
+        .limit(1)
+    )
+
+
 def find_active_import_sync(
     session: SyncSession, site: ImportSite, external_id: str | None
 ) -> Import | None:
@@ -90,17 +103,16 @@ def find_active_import_sync(
     """
     if not external_id:
         return None
-    stmt = (
-        select(Import)
-        .where(
-            Import.site == site,
-            Import.external_id == external_id,
-            Import.state.in_(_ACTIVE_STATES),
-        )
-        .order_by(Import.id)
-        .limit(1)
-    )
-    return session.execute(stmt).scalars().first()
+    return session.execute(_active_import_stmt(site, external_id)).scalars().first()
+
+
+async def find_active_import(
+    db: AsyncSession, site: ImportSite, external_id: str | None
+) -> Import | None:
+    """Async twin of :func:`find_active_import_sync` (API-side in-flight dedup)."""
+    if not external_id:
+        return None
+    return (await db.execute(_active_import_stmt(site, external_id))).scalars().first()
 
 
 # ---------------------------------------------------------------------------
