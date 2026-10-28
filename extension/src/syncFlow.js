@@ -1,45 +1,36 @@
 /**
- * Shared MakerWorld collections-sync orchestration (import-health branch
- * T5). Extracted out of the popup's old `handleSyncCollections` so BOTH the
- * popup (manual "Sync collections to app" button, `popup.js`) and the
- * background service worker (auto-sync on page visit, `background.js`)
- * drive the exact same flow instead of two copies drifting apart.
+ * Shared MakerWorld collections-sync orchestration. BOTH the popup (manual
+ * "Sync collections to app" button, `popup.js`) and the background service
+ * worker (auto-sync on page visit, `background.js`) drive this exact flow.
  *
  * `chrome.*` is never called here directly -- the impure seams are all
- * injected, so this module stays unit-testable with stubs (`test/
- * syncFlow.test.js`):
- *   - `exec(tabId, func, args)`: wraps `chrome.scripting.executeScript`,
- *     resolving to the injected function's return value. Used to read the
- *     page's `__NEXT_DATA__`/data route and to fetch each collection's
- *     items straight out of the page (the page's own origin carries the
- *     browser's cookies/`cf_clearance` a background-worker `fetch`
- *     couldn't).
- *   - `api`: an `api.js` client (`pushCollections`/`pushCollectionItems`).
- *   - `report(text, kind)`: status callback. The popup wires this to its
- *     status line; the background service worker wires it to `console.*`
- *     only (background failures are silent to the user -- see
- *     `background.js`).
+ * injected, so this module stays unit-testable with stubs:
+ *   - `exec(tabId, func, args)`: wraps `chrome.scripting.executeScript`
+ *     (`exec.js`), resolving to the injected function's return value. Used to
+ *     read the page's `__NEXT_DATA__`/data route and to fetch each
+ *     collection's items out of the page (the page's own origin carries the
+ *     browser's cookies/`cf_clearance` a background-worker `fetch` couldn't).
+ *   - `api`: an `api.js` client (`pushCollections`/`upsertCollection`/
+ *     `pushCollectionItems`).
+ *   - `report(text, kind)`: status callback (`kind`: null | "ok" | "warn" |
+ *     "error"). The popup wires it to its status line; the background worker
+ *     wires it to `console.*` only.
  *
- * `syncCollections` resolves to `{collections, items, unreadable, partial}`
- * on success (including a run where some collections' items came up
- * unreadable from EVERY source tried -- see `readCollectionItemsFromDataRoute`
- * and `readCollectionItems` below -- or came up SHORTER than the collection's
- * own known count even after every source was tried, `partial`, F2
- * hardening) and REJECTS on a hard failure (page unreadable, no collections
- * found/readable, list push rejected) -- the rejection's `message` is the
- * same user-facing text `report` was just called with, so callers can
- * surface it verbatim without re-deriving it.
+ * Item source: each collection's own SSR data route
+ * (`/_next/data/<buildId>/<locale>/collections/<id>-<slug>.json`), read
+ * tolerantly by `findDesignListIn`. There is NO uid-aggregate `/api/v1`
+ * fallback: that endpoint ignores the list id and can return ALL favorites,
+ * which would overwrite a collection's membership with the wrong set.
  *
- * `syncCollectionDetail` (M11) is a SEPARATE, guaranteed-correct flow for
- * the collection detail page the user is actually looking at -- see its own
- * doc below.
+ * `syncCollections` resolves to `{collections, items, unreadable, failed,
+ * partial}` and REJECTS on a hard failure (page unreadable, no collections,
+ * list push rejected). `syncCollectionDetail` is the guaranteed-correct
+ * single-collection flow for the page the user is looking at.
  */
 
 import {
-  buildItemsFetchPlan,
   collectionDetailPathnameFrom,
   extractFavoritesListFrom,
-  extractHandle,
   findCollectionTitleIn,
   findDesignListIn,
   hasFavoritesList,
@@ -49,87 +40,134 @@ import {
 } from "./collections.js";
 import { hashToken } from "./courier.js";
 
-// Matches the backend's own page size (`_SEARCH_PAGE_SIZE`,
-// `backend/app/importers/makerworld.py`) so a page pulled in-browser lines
-// up with how the app would page the same endpoint.
-const ITEMS_PAGE_SIZE = 20;
+/** Per-collection reads/pushes run with this many in flight. */
+const CONCURRENCY = 4;
+
+// Keys whose array is specific to ONE collection's items (an empty one is a
+// trustworthy "zero items"); mirrors `collections.js`'s `TRUSTED_EMPTY_KEYS`.
+const NAMED_LIST_KEYS = new Set(["designs", "favoritesDesigns"]);
 
 /**
- * Executed IN THE COLLECTIONS PAGE (via the injected `exec`), not the
- * service worker or the popup -- `chrome.scripting` serializes this
- * function's source and re-evaluates it in the page's isolated world, so it
- * cannot close over anything from this module, only its own args and
- * globals the page provides (`document`, `location`, `fetch`).
- *
- * Reads the inline `__NEXT_DATA__` script tag AND -- when it carries a
- * `buildId` -- also fetches the page's own Next.js data route
- * (`/_next/data/<buildId><pathname>.json`) for a FRESH copy of the same
- * page's props. The inline snapshot goes stale on a client-side SPA
- * navigation (Next.js only embeds the FIRST server-rendered page's props;
- * navigating to `/collections` inside the app without a hard reload leaves
- * `__NEXT_DATA__.props.pageProps` as whatever page loaded first) -- live bug
- * report: the popup said "No collections found" while the user was looking
- * right at their collections, until a hard refresh. The data route always
- * reflects the CURRENT page, so `readCollectionsPage` (and
- * `readCollectionDetailPage`, M11) below prefer it. This function is
- * pathname-agnostic (reads `location.pathname`, whatever page it's injected
- * into) -- reused verbatim for the collection DETAIL page read, not just the
- * collections LIST page.
- * @returns {{nextData: unknown, routePageProps: unknown}} `nextData` is the
- *   parsed `__NEXT_DATA__` (or `null` if missing/malformed). `routePageProps`
- *   is the data route response's `pageProps`, or `null` on a missing
- *   `buildId`, fetch failure, non-ok response, or parse failure (silent
- *   fallback -- the caller falls back to `nextData` in that case).
+ * Runs `fn(item, index)` over `items` with at most `limit` in flight and
+ * resolves to the results in input order. `fn` is expected not to throw
+ * (callers wrap their own try/catch); a throw rejects the whole call.
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
  */
-async function readCollectionsDataInPage() {
-  let nextData;
-  try {
-    nextData = JSON.parse(document.getElementById("__NEXT_DATA__")?.textContent ?? "null");
-  } catch {
-    nextData = null;
+export async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/**
+ * Executed IN THE PAGE (via the injected `exec`), not the worker or popup --
+ * `chrome.scripting` serializes this function's source and re-evaluates it
+ * in the page, so it cannot close over anything from this module.
+ *
+ * Reads the inline `__NEXT_DATA__` AND -- when it carries a `buildId` -- the
+ * page's own Next.js data route (`/_next/data/<buildId><pathname>.json`) for
+ * a FRESH copy of the page's props (the inline snapshot goes stale across a
+ * client-side SPA navigation). To keep the injection result small, only
+ * array fields and one level of shallow objects are returned (not the whole
+ * `pageProps`).
+ *
+ * `expectedPathname` guards the navigation race: if the tab is no longer on
+ * that path (before or after the fetch) the read is abandoned with
+ * `navigated: true` instead of returning another page's data.
+ * @param {string|null} expectedPathname
+ * @returns {Promise<{navigated?: boolean, nextData: unknown, routePageProps: unknown}>}
+ */
+async function readCollectionsDataInPage(expectedPathname) {
+  const norm = (p) => String(p || "").replace(/\/$/, "");
+  const moved = () => Boolean(expectedPathname) && norm(location.pathname) !== norm(expectedPathname);
+  if (moved()) {
+    return { navigated: true, nextData: null, routePageProps: null };
   }
 
+  const slimPageProps = (pageProps) => {
+    if (!pageProps || typeof pageProps !== "object") {
+      return null;
+    }
+    const out = {};
+    for (const [key, value] of Object.entries(pageProps)) {
+      if (Array.isArray(value)) {
+        out[key] = value;
+      } else if (value && typeof value === "object") {
+        const inner = {};
+        for (const [innerKey, innerValue] of Object.entries(value)) {
+          if (Array.isArray(innerValue)) {
+            inner[innerKey] = innerValue;
+          } else if (innerValue === null || typeof innerValue !== "object") {
+            inner[innerKey] =
+              typeof innerValue === "string" && innerValue.length > 300 ? innerValue.slice(0, 300) : innerValue;
+          }
+        }
+        out[key] = inner;
+      }
+    }
+    return out;
+  };
+
+  let rawNextData;
+  try {
+    rawNextData = JSON.parse(document.getElementById("__NEXT_DATA__")?.textContent ?? "null");
+  } catch {
+    rawNextData = null;
+  }
+  const nextData = rawNextData
+    ? { buildId: rawNextData.buildId, props: { pageProps: slimPageProps(rawNextData.props?.pageProps) } }
+    : null;
+
   let routePageProps = null;
-  const buildId = nextData?.buildId;
+  const buildId = rawNextData?.buildId;
   if (buildId) {
     try {
-      const pathname = location.pathname.replace(/\/$/, "");
-      const response = await fetch(`/_next/data/${buildId}${pathname}.json`, {
+      const response = await fetch(`/_next/data/${buildId}${norm(location.pathname)}.json`, {
         credentials: "include",
+        signal: AbortSignal.timeout(15000),
       });
       if (response.ok) {
         const routeJson = await response.json();
-        routePageProps = routeJson?.pageProps ?? null;
+        routePageProps = slimPageProps(routeJson?.pageProps);
       }
     } catch {
       routePageProps = null;
     }
   }
 
+  if (moved()) {
+    return { navigated: true, nextData: null, routePageProps: null };
+  }
   return { nextData, routePageProps };
 }
 
 /**
- * Executed IN THE COLLECTIONS PAGE (see `readCollectionsDataInPage`'s doc
- * for the self-contained-function constraint). Collects every `a[href]` on
- * the page whose BROWSER-RESOLVED absolute href is same-origin and whose
- * pathname loosely looks like it MIGHT be a collection link (contains
- * `/collection` or `/collections`) -- a cheap, coarse pre-filter only; the
- * PRECISE "does this pathname actually match the collection-detail shape
- * for one of OUR synced list ids" matching happens back in
- * `matchCollectionLinks` (`collections.js`), a pure function that's unit-
- * tested directly instead of only reachable through a DOM. Kept deliberately
- * dumb (no list-id awareness, no shape validation) so this in-page function
- * stays trivially self-contained.
- * @returns {string[]} deduped pathnames (query strings/hashes dropped, same
- *   as `location.pathname`).
+ * Executed IN THE PAGE (same self-contained constraint). Collects every
+ * same-origin `a[href]` pathname that loosely looks like a collection link;
+ * the PRECISE matching happens in `matchCollectionLinks` (pure, tested).
+ * @param {string|null} expectedPathname navigation-race guard, as above
+ * @returns {string[]}
  */
-function collectCollectionAnchorPathnamesInPage() {
+function collectCollectionAnchorPathnamesInPage(expectedPathname) {
+  const norm = (p) => String(p || "").replace(/\/$/, "");
+  if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
+    return [];
+  }
   const seen = new Set();
   const pathnames = [];
-  const anchors = document.querySelectorAll("a[href]");
-  for (const anchor of anchors) {
-    const href = anchor.href; // browser-resolved, always absolute
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    const href = anchor.href;
     if (!href) {
       continue;
     }
@@ -139,10 +177,7 @@ function collectCollectionAnchorPathnamesInPage() {
     } catch {
       continue;
     }
-    if (url.origin !== location.origin) {
-      continue; // same-origin only
-    }
-    if (!/\/collections?\//i.test(url.pathname)) {
+    if (url.origin !== location.origin || !/\/collections?\//i.test(url.pathname)) {
       continue;
     }
     if (!seen.has(url.pathname)) {
@@ -154,120 +189,65 @@ function collectCollectionAnchorPathnamesInPage() {
 }
 
 /**
- * Executed IN THE COLLECTIONS PAGE (see `readCollectionsDataInPage` above)
- * -- same self-contained-function constraint applies. FALLBACK item source
- * (see `readCollectionItemsFromDataRoute` below for the PRIMARY ones) --
- * kept because it's the one path that's confirmed to work end-to-end for
- * SOME accounts, even though a real sync on the reporting user's account
- * pushed 6 collections but zero items through it (handle extraction may
- * have failed, or this endpoint may just be uid-aggregate-only even from a
- * real signed-in browser -- CONFIRMED TWICE in-browser, M11: this endpoint
- * serves only the uid aggregate, everywhere, so it is genuinely a
- * last-resort fallback now, not a "maybe it works" one).
- * @param {string} listId
- * @param {string} handle
- * @param {number[]} offsets
- * @returns {Promise<Array<unknown>>} one parsed JSON response per offset (or
- *   `null` for an offset whose fetch failed/didn't parse as JSON) -- fed to
- *   `mapDesignHits` below.
- */
-async function fetchCollectionItemsInPage(listId, handle, offsets) {
-  const pages = [];
-  for (const offset of offsets) {
-    try {
-      const response = await fetch(
-        "/api/v1/design-service/favorites/designs/" +
-          listId +
-          "?handle=@" +
-          handle +
-          "&limit=20&offset=" +
-          offset,
-        {
-          credentials: "include",
-          headers: { "x-bbl-client-type": "web", "x-bbl-app-source": "makerworld" },
-        },
-      );
-      pages.push(await response.json());
-    } catch {
-      pages.push(null);
-    }
-  }
-  return pages;
-}
-
-/**
- * FALLBACK: fetches one collection's items IN THE PAGE across every offset
- * planned for it via the `/api/v1` favorites-designs endpoint, and maps the
- * pages to push entries with `mapDesignHits`. Never throws -- a failed
- * injection or an in-browser fetch that comes back empty both just yield
- * `[]`, which the caller (`syncCollections`) treats as "no items readable"
- * unless a PRIMARY data-route source (below) already found something.
- */
-async function readCollectionItems(tabId, listId, handle, offsets, exec) {
-  let pages;
-  try {
-    pages = await exec(tabId, fetchCollectionItemsInPage, [listId, handle, offsets]);
-  } catch {
-    return [];
-  }
-  const items = [];
-  for (const page of pages || []) {
-    items.push(...mapDesignHits(page));
-  }
-  return items;
-}
-
-/**
- * Executed IN THE COLLECTIONS PAGE (see `readCollectionsDataInPage` above)
- * -- same self-contained-function constraint applies. Fetches ONE
- * collection's own SSR data route for an already-known pathname (either an
- * anchor-derived real link or the ground-truth `collectionDetailPathnameFrom`
- * construction -- both handle-free, unlike `fetchCollectionItemsInPage`
- * above).
+ * Executed IN THE PAGE. Fetches ONE collection's own SSR data route for an
+ * already-known pathname. Aborts (null) when the tab navigated away
+ * (`expectedPathname`) and times out after 15s.
  * @param {string} buildId
  * @param {string} collectionPathname e.g. `/en/collections/18925823-esp32`
- * @returns {Promise<unknown>} the parsed data-route JSON (`{pageProps, ...}`),
- *   or `null` on a fetch failure, non-ok response, or parse failure.
+ * @param {string|null} expectedPathname navigation-race guard
+ * @returns {Promise<unknown>} parsed data-route JSON, or `null` on any failure
  */
-async function fetchCollectionDataRouteInPage(buildId, collectionPathname) {
+async function fetchCollectionDataRouteInPage(buildId, collectionPathname, expectedPathname) {
+  const norm = (p) => String(p || "").replace(/\/$/, "");
+  if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
+    return null;
+  }
   try {
     const response = await fetch(`/_next/data/${buildId}${collectionPathname}.json`, {
       credentials: "include",
+      signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
       return null;
     }
-    return await response.json();
+    const routeJson = await response.json();
+    if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
+      return null;
+    }
+    // Only the candidate arrays (and shallow info objects) cross back, not
+    // the whole pageProps.
+    const pageProps = routeJson?.pageProps;
+    if (!pageProps || typeof pageProps !== "object") {
+      return { pageProps: null };
+    }
+    const slim = {};
+    for (const [key, value] of Object.entries(pageProps)) {
+      if (Array.isArray(value)) {
+        slim[key] = value;
+      } else if (value && typeof value === "object") {
+        const inner = {};
+        for (const [innerKey, innerValue] of Object.entries(value)) {
+          if (Array.isArray(innerValue)) {
+            inner[innerKey] = innerValue;
+          }
+        }
+        slim[key] = inner;
+      }
+    }
+    return { pageProps: slim };
   } catch {
     return null;
   }
 }
 
 /**
- * PRIMARY item source (M10/M11): reads one collection's items straight off
- * a candidate SSR data-route pathname instead of the
- * `/api/v1/design-service/favorites/designs/{listId}` endpoint
- * (`readCollectionItems` above, now the LAST-RESORT fallback -- CONFIRMED
- * uid-aggregate-only, M11). The exact `pageProps` field carrying the design
- * list on this route wasn't captured live, so `findDesignListIn`
- * (`collections.js`) scans tolerantly; this function logs which key matched
- * via `report` (kind `null`, informational) so a future drift in that field
- * name is diagnosable instead of silently falling back forever. Never
- * throws -- a failed injection or a route with no recognizable design array
- * both just yield `found: false`.
+ * Reads one collection's items off a candidate SSR data-route pathname.
+ * Logs which key matched via `report` (informational). Never throws.
  *
- * Returns `found` separately from `items` (F3 hardening) so the caller
- * (`syncCollections`) can tell "a trusted design list was located and it's
- * just empty" (`found: true, items: []` -- a genuinely-empty collection)
- * apart from "no recognizable design list at all" (`found: false, items: []`
- * -- try the next candidate pathname, then falls back to
- * `readCollectionItems`).
- *
- * Also returns a `diagnostic` string (M11) describing THIS ONE source's
- * outcome for the unreadable-collection diagnostic (`describeUnreadableCollection`
- * below) -- top-level `pageProps` KEY NAMES only, never values, so a pasted
- * diagnostic line can never leak a user's collection contents.
- * @returns {Promise<{items: import("./collections.js").CollectionItemPushEntry[], found: boolean, diagnostic: string}>}
+ * Returns `found` (a trusted design list was located -- possibly empty),
+ * `rawLength` (the array length as served, for the partial-read check) and a
+ * `diagnostic` string with top-level `pageProps` KEY NAMES only (never values).
+ * @returns {Promise<{items: import("./collections.js").CollectionItemPushEntry[], found: boolean, rawLength: number, diagnostic: string}>}
  */
 async function readCollectionItemsFromDataRoute(
   tabId,
@@ -276,15 +256,16 @@ async function readCollectionItemsFromDataRoute(
   entryTitle,
   exec,
   report,
+  expectedPathname,
 ) {
   let routeJson;
   try {
-    routeJson = await exec(tabId, fetchCollectionDataRouteInPage, [buildId, collectionPathname]);
+    routeJson = await exec(tabId, fetchCollectionDataRouteInPage, [buildId, collectionPathname, expectedPathname]);
   } catch {
-    return { items: [], found: false, diagnostic: "route unreachable" };
+    return { items: [], found: false, rawLength: 0, diagnostic: "route unreachable" };
   }
   if (!routeJson) {
-    return { items: [], found: false, diagnostic: "route 404 or unavailable" };
+    return { items: [], found: false, rawLength: 0, diagnostic: "route 404 or unavailable" };
   }
   const found = findDesignListIn(routeJson?.pageProps);
   if (!found) {
@@ -294,81 +275,74 @@ async function readCollectionItemsFromDataRoute(
     return {
       items: [],
       found: false,
+      rawLength: 0,
       diagnostic: `route ok but no design array (pageProps keys: ${keys})`,
     };
   }
   report(`Matched items for "${entryTitle}" via pageProps.${found.key}.`, null);
-  // Tolerant of a `name` field standing in for `title` (the deep-scan shape
-  // check in `findDesignListIn` accepts either) -- `mapDesignHits` itself
-  // only recognizes `title`, so normalize before reusing it.
-  const normalized = found.designs.map((design) =>
-    design && !design.title && design.name ? { ...design, title: design.name } : design,
-  );
   return {
-    items: mapDesignHits({ hits: normalized }),
+    items: mapDesignHits({ hits: normalizeDesigns(found.designs) }),
     found: true,
+    key: found.key,
+    rawLength: found.rawLength,
     diagnostic: `route ok, matched pageProps.${found.key}`,
   };
 }
 
+/** `findDesignListIn` accepts a `name` field standing in for `title`; `mapDesignHits` only knows `title`. */
+function normalizeDesigns(designs) {
+  return designs.map((design) => (design && !design.title && design.name ? { ...design, title: design.name } : design));
+}
+
 /**
  * Composes the ONE diagnostic line surfaced for the FIRST collection that
- * stays unreadable from every source tried (M11 -- live bug report:
- * "Synced 7 collections (0 items; 7 collections unreadable)" with no way to
- * tell WHY from the popup's summary alone). Exported so this formatting is
- * unit-testable without driving the whole `syncCollections` flow. Never
- * includes field VALUES -- `attempts[].diagnostic` strings
- * (`readCollectionItemsFromDataRoute` above) are already scrubbed to key
- * names only, and this function adds nothing but pathnames (already public
- * -- they're URLs) and counts.
+ * stays unreadable. Never includes field VALUES (key names, pathnames and
+ * counts only).
  * @param {string} title
- * @param {{anchorPathname: string|null, attempts: Array<{label: string, pathname: string, diagnostic: string}>, fallback: string}} info
+ * @param {{anchorPathname: string|null, attempts: Array<{label: string, pathname: string, diagnostic: string}>}} info
  * @returns {string}
  */
-export function describeUnreadableCollection(title, { anchorPathname, attempts, fallback }) {
+export function describeUnreadableCollection(title, { anchorPathname, attempts }) {
   const attemptText = (attempts || [])
     .map((attempt) => `${attempt.label} (${attempt.pathname}): ${attempt.diagnostic}`)
     .join("; ");
   const anchorText = anchorPathname ? `found (${anchorPathname})` : "not found";
-  return (
-    `Diagnostic for "${title}" -- anchor link ${anchorText}` +
-    (attemptText ? `; ${attemptText}` : "") +
-    `; fallback: ${fallback}.`
-  );
+  return `Diagnostic for "${title}" -- anchor link ${anchorText}` + (attemptText ? `; ${attemptText}` : "") + ".";
 }
 
 /**
- * Reads the collections page's live data (via the injected `exec`) and
- * extracts its favorites list with the pure `extractFavoritesListFrom`,
- * preferring a FRESH read off the page's own Next.js data route over the
- * inline `__NEXT_DATA__` snapshot (which can go stale across a client-side
- * SPA navigation -- see `readCollectionsDataInPage`'s doc). The route is
- * trusted whenever it yields a `favoritesList` array AT ALL, even an EMPTY
- * one (an empty array is still a legitimate "you have zero collections"
- * answer FROM THE FRESH SOURCE); the inline snapshot is only consulted when
- * the route was unreachable or its shape didn't include a `favoritesList`
- * at all.
- *
- * Exported so callers that need to know "what's on the page right now"
- * WITHOUT running the full sync -- the background auto-sync's hash-throttle
- * check (`background.js`) -- can share the exact same read/extract logic
- * `syncCollections` uses, and hand the result to `syncCollections` via its
- * `page` option to avoid reading twice.
- * @param {{tabId: number, exec: (tabId: number, func: Function, args?: unknown[]) => Promise<unknown>}} opts
- * @returns {Promise<{nextData: unknown, entries: import("./collections.js").CollectionPushEntry[], found: boolean}|null>}
- *   `null` when the page itself couldn't be read (a hard failure -- the
- *   `exec` injection threw). `found` is `true` when a `favoritesList` array
- *   was located (route or inline), even if `entries` ends up empty (a
- *   genuinely-empty account); `false` when NEITHER source had a
- *   `favoritesList` at all (stale/malformed snapshot AND an unreachable
- *   route) -- `syncCollections` uses this to pick between "you have no
- *   collections" and "try a hard refresh" (see its doc).
+ * `url`'s pathname (for the navigation-race guard), or `null` when `url` is
+ * absent/unparseable (guard disabled).
  */
-export async function readCollectionsPage({ tabId, exec }) {
+function pathnameOf(url) {
+  try {
+    return url ? new URL(url).pathname : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the collections page's live data and extracts its favorites list,
+ * preferring the FRESH data route over the inline snapshot (stale after SPA
+ * navigation). The route is trusted whenever it yields a `favoritesList`
+ * array AT ALL, even an empty one; the inline snapshot is the fallback.
+ *
+ * @param {{tabId: number, url?: string, exec: (tabId: number, func: Function, args?: unknown[]) => Promise<unknown>}} opts
+ *   `url` (the tab's URL) enables the navigation-race guard.
+ * @returns {Promise<{nextData: unknown, entries: import("./collections.js").CollectionPushEntry[], found: boolean}|null>}
+ *   `null` when the page couldn't be read (injection threw, or the tab
+ *   navigated away mid-read). `found` is `true` when a `favoritesList` array
+ *   was located (even if `entries` is empty).
+ */
+export async function readCollectionsPage({ tabId, url, exec }) {
   let page;
   try {
-    page = await exec(tabId, readCollectionsDataInPage);
+    page = await exec(tabId, readCollectionsDataInPage, [pathnameOf(url)]);
   } catch {
+    return null;
+  }
+  if (page?.navigated) {
     return null;
   }
   const { nextData, routePageProps } = page ?? {};
@@ -382,10 +356,8 @@ export async function readCollectionsPage({ tabId, exec }) {
 }
 
 /**
- * SHA-256 hash (hex, via `courier.js`'s `hashToken`) of a `readCollectionsPage`
- * result's `entries` -- the payload the background auto-sync throttle
- * compares against `lastCollectionsHash` (`background.js`) to decide
- * whether anything actually changed since the last push.
+ * SHA-256 hash (hex) of a `readCollectionsPage` result's `entries` -- the
+ * payload the auto-sync throttle compares against `lastCollectionsHash`.
  * @param {Array} entries
  * @returns {Promise<string>}
  */
@@ -394,10 +366,7 @@ export function hashCollectionsPayload(entries) {
 }
 
 /**
- * True when `entries`' hash differs from `lastHash` -- mirrors `courier.js`'s
- * `shouldPush` semantics (same "hash the current value, compare to the last
- * pushed hash" shape) but for the collections payload instead of the
- * MakerWorld cookie.
+ * True when `entries`' hash differs from `lastHash`.
  * @param {Array} entries
  * @param {string|null|undefined} lastHash
  * @returns {Promise<boolean>}
@@ -409,59 +378,65 @@ export async function shouldPushCollections(entries, lastHash) {
 
 /**
  * True when a `syncCollections` result should have its throttle hash
- * persisted (`background.js`'s `lastCollectionsHash`) -- only on a fully-
- * clean run where every collection's items were BOTH readable AND complete.
- * Either kind of incomplete read must NOT advance the hash: an `unreadable`
- * collection (`unreadable.length > 0`) -- MakerWorld can serve a
- * collection's items empty transiently (same "empty isn't proof of empty"
- * caution as the cookie courier) -- or a `partial` one (F2 hardening,
- * `syncCollections`'s truncation handling: pushed SOME items, but fewer than
- * the collection's own known count even after the fallback was tried).
- * Persisting the hash on either would mean auto-sync never retries those
- * collections until the list itself changes. `result.partial` is optional in
- * the input shape (defaults to none) so callers/tests that predate F2 don't
- * need to thread an empty array through. Pulled out as its own pure function
- * so the persist decision is testable without a `chrome.*` stub.
- * @param {{unreadable: string[], partial?: string[]}} result
+ * persisted -- only on a fully-clean run: nothing `unreadable`, nothing
+ * `failed` (push rejected) and nothing `partial`. Any of those must leave the
+ * hash alone so the next visit retries.
+ * @param {{unreadable: string[], failed?: string[], partial?: string[]}} result
  * @returns {boolean}
  */
 export function shouldPersistHash(result) {
-  return result.unreadable.length === 0 && (result.partial?.length ?? 0) === 0;
+  return (
+    result.unreadable.length === 0 && (result.failed?.length ?? 0) === 0 && (result.partial?.length ?? 0) === 0
+  );
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * Candidate data-route pathnames for one collection, in preference order:
+ * the anchor-derived real link, the constructed `/{locale}/collections/...`
+ * (locale defaults to `en`), and the locale-less variant. Deduplicated.
+ */
+function candidatePathnames(anchorPathname, url, entry) {
+  const constructed = collectionDetailPathnameFrom(url, entry.list_id, entry.slug);
+  const localeless = constructed.replace(/^\/[^/]+(?=\/collections\/)/, "");
+  const out = [];
+  const add = (label, pathname) => {
+    if (pathname && !out.some((c) => c.pathname === pathname)) {
+      out.push({ label, pathname });
+    }
+  };
+  add("anchor", anchorPathname);
+  add("constructed", constructed);
+  add("locale-less", localeless);
+  return out;
 }
 
 /**
  * Runs the full collections sync: read the page, push the collection list,
- * then read+push each collection's items. See the module docstring for the
- * injected-seam contract and the resolve/reject shape.
+ * then read+push each collection's items (bounded concurrency, each
+ * collection isolated by its own try/catch).
  *
- * Item source order per collection (M11, ground-truth-informed): (1) the
- * ANCHOR-derived pathname (`matchCollectionLinks` on every `a[href]`
- * collected from the page ONCE up front, `collectCollectionAnchorPathnamesInPage`)
- * when a real link to this collection was found on the page -- an actual
- * link can never be wrong about its own shape; (2) the ground-truth
- * CONSTRUCTED pathname (`collectionDetailPathnameFrom`,
- * `/{locale}/collections/{listId}[-slug]`) built straight from the entry's
- * own pushed data -- costs one fetch, and covers every collection even when
- * no anchor to it exists on the current page; (3) the `/api/v1` paged
- * fallback (confirmed uid-aggregate-only, M11 -- genuinely last-resort now).
+ * Per-collection outcomes:
+ *   - items read and pushed -> counted; `partial` when the RAW array served
+ *     is shorter than the collection's known count;
+ *   - trusted-empty list with a known count of 0 -> pushes `[]` so removals
+ *     propagate;
+ *   - nothing readable -> `unreadable` (nothing pushed);
+ *   - the push was rejected/threw -> `failed` (distinct from unreadable).
  * @param {object} opts
  * @param {number} opts.tabId
- * @param {string} opts.url the tab's URL (used to derive the handle and the
- *   constructed pathname's locale prefix)
+ * @param {string} opts.url the tab's URL (locale for constructed pathnames, navigation guard)
  * @param {(tabId: number, func: Function, args?: unknown[]) => Promise<unknown>} opts.exec
  * @param {{pushCollections: Function, pushCollectionItems: Function}} opts.api
  * @param {(text: string, kind: string|null) => void} opts.report
- * @param {{nextData: unknown, entries: Array, found: boolean}} [opts.page] a
- *   pre-fetched `readCollectionsPage` result -- when supplied,
- *   `syncCollections` skips its own page read and uses this instead (the
- *   background auto-sync throttle already read the page once to compute a
- *   hash; there's no need to read it again here).
- * @returns {Promise<{collections: number, items: number, unreadable: string[], partial: string[]}>}
+ * @param {{nextData: unknown, entries: Array, found: boolean}} [opts.page] pre-fetched `readCollectionsPage` result
+ * @returns {Promise<{collections: number, items: number, unreadable: string[], failed: string[], partial: string[]}>}
  */
 export async function syncCollections({ tabId, url, exec, api, report, page }) {
   report("Reading collections…", null);
 
-  const resolvedPage = page ?? (await readCollectionsPage({ tabId, exec }));
+  const resolvedPage = page ?? (await readCollectionsPage({ tabId, url, exec }));
   if (!resolvedPage) {
     const message = "Couldn't read this page.";
     report(message, "error");
@@ -470,12 +445,6 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
 
   const { nextData, entries, found } = resolvedPage;
   if (entries.length === 0) {
-    // Two genuinely different situations, told apart by `found`
-    // (`readCollectionsPage`'s doc): a `favoritesList` array was located
-    // (route or inline) and it's just empty -- vs. NEITHER source had one
-    // at all, which is the stale-snapshot/unreadable-route failure mode
-    // from the live bug report ("No collections found" while the user was
-    // looking right at their collections).
     const message = found
       ? "No collections in your MakerWorld account yet."
       : "Couldn't read your collections from this page — try a hard refresh (Ctrl+Shift+R) and click again.";
@@ -491,21 +460,15 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
     throw new Error(message);
   }
 
-  const handle = extractHandle(nextData, url);
   const buildId = nextData?.buildId ?? null;
+  const guard = pathnameOf(url);
 
-  // Collect every anchor on the page ONCE (not per collection) and match it
-  // against the pushed list ids -- see `collectCollectionAnchorPathnamesInPage`
-  // and `matchCollectionLinks` docs. Only worth doing when there's a
-  // `buildId` to build a data route from (same gating as the constructed
-  // pathname below); never throws -- an unreadable page here just means no
-  // anchor pathnames were found, falling straight through to the
-  // constructed candidate.
+  // Collect every anchor ONCE and match against the pushed list ids.
   let anchorPathnames = new Map();
   if (buildId) {
     let anchorHrefs = [];
     try {
-      anchorHrefs = (await exec(tabId, collectCollectionAnchorPathnamesInPage)) || [];
+      anchorHrefs = (await exec(tabId, collectCollectionAnchorPathnamesInPage, [guard])) || [];
     } catch {
       anchorHrefs = [];
     }
@@ -515,40 +478,13 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
     );
   }
 
-  const offsetsByList = new Map();
-  for (const { listId, offset } of buildItemsFetchPlan(entries, ITEMS_PAGE_SIZE)) {
-    if (!offsetsByList.has(listId)) {
-      offsetsByList.set(listId, []);
-    }
-    offsetsByList.get(listId).push(offset);
-  }
-
-  let totalItems = 0;
-  const unreadableTitles = [];
-  const partialTitles = [];
-  let firstUnreadableDiagnostic = null;
-
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    report(`Reading items for "${entry.title}" (${i + 1}/${entries.length})…`, null);
-
+  let done = 0;
+  const processEntry = async (entry) => {
     const anchorPathname = anchorPathnames.get(entry.list_id) || null;
-    const constructedPathname = collectionDetailPathnameFrom(url, entry.list_id, entry.slug);
-
-    // PRIMARY sources, tried in order until one returns a TRUSTED result
-    // (`found: true`, even if its items are empty -- see
-    // `readCollectionItemsFromDataRoute`'s F3 doc): the anchor-derived real
-    // link first (when one was found), then the ground-truth construction.
-    const primaryAttempts = [];
-    let primary = { items: [], found: false };
+    const attempts = [];
+    let primary = { items: [], found: false, rawLength: 0 };
     if (buildId) {
-      const candidates = anchorPathname
-        ? [
-            { label: "anchor", pathname: anchorPathname },
-            { label: "constructed", pathname: constructedPathname },
-          ]
-        : [{ label: "constructed", pathname: constructedPathname }];
-      for (const candidate of candidates) {
+      for (const candidate of candidatePathnames(anchorPathname, url, entry)) {
         const attempt = await readCollectionItemsFromDataRoute(
           tabId,
           buildId,
@@ -556,8 +492,9 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
           entry.title,
           exec,
           report,
+          guard,
         );
-        primaryAttempts.push({ ...candidate, diagnostic: attempt.diagnostic });
+        attempts.push({ ...candidate, diagnostic: attempt.diagnostic });
         if (attempt.found) {
           primary = attempt;
           break;
@@ -565,125 +502,98 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
       }
     }
 
-    if (primary.found && primary.items.length === 0) {
-      // F3: a TRUSTED design list was located on a data route and it's
-      // just empty -- a genuinely-empty collection, told apart from "no
-      // recognizable design list at all" by `primary.found`. Push nothing,
-      // don't treat it as unreadable, and don't even try the fallback (there
-      // is nothing to recover -- the primary source already answered
-      // definitively).
-      continue;
-    }
-
-    let items = primary.items;
-    // Needs the paged `/api/v1` fallback when either (a) no primary source
-    // found anything at all (`found: false` on every candidate, or no
-    // buildId), or (b) one found SOME items but fewer than the collection's
-    // own known `count` (F2) -- an SSR data route can silently truncate a
-    // large collection's item array rather than paging it, so a short
-    // primary read isn't proof the collection actually has that few items.
-    // Only attempted when a handle is available (the fallback endpoint needs
-    // one).
-    const primaryCount = items.length;
-    const needsFallback =
-      Boolean(handle) && (primaryCount === 0 || (entry.count != null && primaryCount < entry.count));
-    let fallbackDiagnostic = handle ? null : "skipped (no handle)";
-    if (needsFallback) {
-      const fallbackItems = await readCollectionItems(
-        tabId,
-        entry.list_id,
-        handle,
-        offsetsByList.get(entry.list_id) || [0],
-        exec,
-      );
-      fallbackDiagnostic = `${fallbackItems.length} item${fallbackItems.length === 1 ? "" : "s"}`;
-      // Only adopt the fallback's items when it did BETTER than the primary
-      // -- a worse/equal fallback read (e.g. the same truncation, or a
-      // transient empty response) must not throw away a longer primary
-      // result.
-      if (fallbackItems.length > primaryCount) {
-        items = fallbackItems;
+    // A trusted-but-empty list: only believe it (and push `[]` so removals
+    // propagate) when the collection's own count agrees it is empty.
+    if (primary.found && primary.rawLength === 0) {
+      if (entry.count === 0) {
+        const emptyResult = await api.pushCollectionItems("makerworld", entry.list_id, []);
+        return emptyResult.ok ? { status: "ok", pushed: 0 } : { status: "failed" };
+      }
+      if (entry.count == null) {
+        return { status: "skipped" }; // can't tell empty from a transient empty read
       }
     }
 
-    if (items.length === 0) {
-      // Every source came up empty -- never push an empty membership set
-      // (the backend's own fallback treats absence as "no data", safer
-      // than a wrong empty set overwriting real cached items).
-      unreadableTitles.push(entry.title);
+    if (primary.items.length === 0) {
+      return { status: "unreadable", diagnostic: describeUnreadableCollection(entry.title, { anchorPathname, attempts }) };
+    }
+
+    const itemsResult = await api.pushCollectionItems("makerworld", entry.list_id, primary.items);
+    if (!itemsResult.ok) {
+      return { status: "failed" };
+    }
+    // Partial: the raw array served is shorter than the known count.
+    const partial = entry.count != null && primary.rawLength < entry.count;
+    return { status: partial ? "partial" : "ok", pushed: primary.items.length };
+  };
+
+  const outcomes = await mapLimit(entries, CONCURRENCY, async (entry) => {
+    let outcome;
+    try {
+      outcome = await processEntry(entry);
+    } catch {
+      outcome = { status: "failed" };
+    }
+    done += 1;
+    report(`Read items for "${entry.title}" (${done}/${entries.length})…`, null);
+    return outcome;
+  });
+
+  let totalItems = 0;
+  const unreadableTitles = [];
+  const failedTitles = [];
+  const partialTitles = [];
+  let firstUnreadableDiagnostic = null;
+  outcomes.forEach((outcome, i) => {
+    const title = entries[i].title;
+    totalItems += outcome.pushed ?? 0;
+    if (outcome.status === "unreadable") {
+      unreadableTitles.push(title);
       if (!firstUnreadableDiagnostic) {
-        firstUnreadableDiagnostic = describeUnreadableCollection(entry.title, {
-          anchorPathname,
-          attempts: primaryAttempts,
-          fallback: fallbackDiagnostic ?? "not attempted",
-        });
+        firstUnreadableDiagnostic = outcome.diagnostic;
         console.error(`[collections sync] ${firstUnreadableDiagnostic}`);
       }
-      continue;
+    } else if (outcome.status === "failed") {
+      failedTitles.push(title);
+    } else if (outcome.status === "partial") {
+      partialTitles.push(title);
     }
-    const itemsResult = await api.pushCollectionItems("makerworld", entry.list_id, items);
-    if (itemsResult.ok) {
-      totalItems += items.length;
-      if (entry.count != null && items.length < entry.count) {
-        // F2: pushed what we have, but it's still short of the collection's
-        // own known count even after the fallback was tried -- flag it as
-        // `partial` rather than silently reporting success with wrong
-        // (incomplete) data. Like `unreadable`, this suppresses the
-        // background auto-sync's hash persist (`shouldPersistHash`) so the
-        // next visit retries this collection instead of treating the short
-        // read as done.
-        partialTitles.push(entry.title);
-      }
-    } else {
-      unreadableTitles.push(entry.title);
-    }
-  }
+  });
 
-  const unreadableSuffix =
-    unreadableTitles.length > 0
-      ? `; ${unreadableTitles.length} collection${unreadableTitles.length === 1 ? "" : "s"} unreadable`
-      : "";
-  const partialSuffix =
-    partialTitles.length > 0
-      ? `; ${partialTitles.length} collection${partialTitles.length === 1 ? "" : "s"} partial`
-      : "";
-  // The diagnostic (M11) is APPENDED to the summary rather than reported on
-  // its own -- the popup's status line only ever shows the LAST `report`
-  // call's text, so a mid-loop-only diagnostic would be overwritten by the
-  // next collection's progress line before the user ever saw it.
+  const suffixes = [
+    unreadableTitles.length > 0 ? `; ${plural(unreadableTitles.length, "collection")} unreadable` : "",
+    failedTitles.length > 0 ? `; ${plural(failedTitles.length, "collection")} failed to push` : "",
+    partialTitles.length > 0 ? `; ${plural(partialTitles.length, "collection")} partial` : "",
+  ].join("");
+  // APPENDED to the summary: the popup only shows the LAST `report` text.
   const diagnosticSuffix = firstUnreadableDiagnostic ? ` ${firstUnreadableDiagnostic}` : "";
+  const clean = shouldPersistHash({ unreadable: unreadableTitles, failed: failedTitles, partial: partialTitles });
   report(
-    `Synced ${entries.length} collections (${totalItems} items${unreadableSuffix}${partialSuffix}).${diagnosticSuffix}`,
-    "ok",
+    `Synced ${entries.length} collections (${totalItems} items${suffixes}).${diagnosticSuffix}`,
+    clean ? "ok" : "warn",
   );
   return {
     collections: entries.length,
     items: totalItems,
     unreadable: unreadableTitles,
+    failed: failedTitles,
     partial: partialTitles,
   };
 }
 
 /**
- * Reads a MakerWorld collection DETAIL page's live data (M11) -- the
- * guaranteed-correct item source: the user is LOOKING AT the collection's
- * own items right now, so there's no route-guessing or anchor-hunting
- * involved at all, unlike `syncCollections`'s bulk item discovery. Reuses
- * `readCollectionsDataInPage` (pathname-agnostic -- reads whatever page it's
- * injected into) for the actual read, then the SAME tolerant
- * `findDesignListIn` discovery `syncCollections` uses for the items, plus
- * `findCollectionTitleIn` (`collections.js`) for the collection's own title
- * AND its own derivable item count (best-effort -- see its doc; both `null`
- * when not derivable). The count (I1 hardening) is what `syncCollectionDetail`
- * uses to tell a complete single-SSR-response item read apart from a
- * truncated one -- see its own doc.
+ * Reads a MakerWorld collection DETAIL page's live data -- the guaranteed-
+ * correct item source (the user is LOOKING AT the collection's items).
+ * Reuses `readCollectionsDataInPage`, then `findDesignListIn` for the items
+ * and `findCollectionTitleIn` for the collection's own title and count.
+ *
+ * The FRESH data route is preferred. The inline `__NEXT_DATA__` (stale after
+ * an SPA navigation) is only used when it carries a collection-info object
+ * whose id matches this URL's id -- otherwise it is some other page's data.
  * @param {{tabId: number, url: string, exec: (tabId: number, func: Function, args?: unknown[]) => Promise<unknown>}} opts
- * @returns {Promise<{parsed: {id: string, slug: string|null}, pageProps: unknown, items: import("./collections.js").CollectionItemPushEntry[], title: string|null, count: number|null, found: boolean}|null>}
- *   `null` when `url` isn't a collection detail page at all, or the page
- *   itself couldn't be read (the `exec` injection threw). `found` is `true`
- *   when a design list was located (even an empty, genuinely-empty one);
- *   `false` when nothing recognizable was found -- `items` is `[]` either
- *   way in that case.
+ * @returns {Promise<{parsed: {id: string, slug: string|null}, pageProps: unknown, items: import("./collections.js").CollectionItemPushEntry[], title: string|null, count: number|null, found: boolean, key: string|null, rawLength: number}|null>}
+ *   `null` when `url` isn't a collection detail page, the page couldn't be
+ *   read, or the tab navigated away mid-read.
  */
 export async function readCollectionDetailPage({ tabId, url, exec }) {
   const parsed = parseCollectionDetailUrl(url);
@@ -693,33 +603,46 @@ export async function readCollectionDetailPage({ tabId, url, exec }) {
 
   let page;
   try {
-    page = await exec(tabId, readCollectionsDataInPage);
+    page = await exec(tabId, readCollectionsDataInPage, [pathnameOf(url)]);
   } catch {
     return null;
   }
-  const { nextData, routePageProps } = page ?? {};
-  const pageProps = routePageProps ?? nextData?.props?.pageProps ?? null;
-
-  const found = findDesignListIn(pageProps);
-  if (!found) {
-    return { parsed, pageProps, items: [], title: null, count: null, found: false };
+  if (page?.navigated) {
+    return null;
   }
-  const normalized = found.designs.map((design) =>
-    design && !design.title && design.name ? { ...design, title: design.name } : design,
-  );
-  const items = mapDesignHits({ hits: normalized });
+  const { nextData, routePageProps } = page ?? {};
+
+  let pageProps = routePageProps ?? null;
+  let found = findDesignListIn(pageProps);
+  if (!found) {
+    const inline = nextData?.props?.pageProps ?? null;
+    if (inline && findCollectionTitleIn(inline, parsed.id)) {
+      pageProps = inline;
+      found = findDesignListIn(inline);
+    }
+  }
+  if (!found) {
+    return { parsed, pageProps, items: [], title: null, count: null, found: false, key: null, rawLength: 0 };
+  }
+  const items = mapDesignHits({ hits: normalizeDesigns(found.designs) });
   const info = findCollectionTitleIn(pageProps, parsed.id);
-  return { parsed, pageProps, items, title: info ? info.title : null, count: info ? info.count : null, found: true };
+  return {
+    parsed,
+    pageProps,
+    items,
+    title: info ? info.title : null,
+    count: info ? info.count : null,
+    found: true,
+    key: found.key,
+    rawLength: found.rawLength,
+  };
 }
 
 /**
- * SHA-256 hash of a `readCollectionDetailPage` result's item ids (M11) --
- * the payload the background auto-sync throttle compares against
- * `lastCollectionItemsHash` (`background.js`/`config.js`) to decide whether
- * a given collection's membership actually changed since it was last
- * pushed. Hashes just the ids (not full item objects) since a design's
- * title/author/thumbnail changing without a membership change isn't
- * something this extension needs to re-sync for.
+ * SHA-256 hash of a `readCollectionDetailPage` result's item ids -- the
+ * payload the detail auto-sync throttle compares against
+ * `lastCollectionItemsHash`. Ids only: a title/author change alone isn't a
+ * membership change.
  * @param {import("./collections.js").CollectionItemPushEntry[]} items
  * @returns {Promise<string>}
  */
@@ -727,19 +650,13 @@ export function hashCollectionItemsPayload(items) {
   return hashToken(JSON.stringify((items || []).map((item) => item.external_id)));
 }
 
-// `config.js`'s `lastCollectionItemsHash` is an ARRAY of `{listId, hash}`
-// pairs, oldest-first -- NOT a plain object keyed by listId. MakerWorld list
-// ids are canonical-numeric-looking strings (e.g. `"18925823"`), and every
-// JS engine silently reorders a plain object's INTEGER-like keys to
-// ascending numeric order regardless of insertion order -- which would
-// silently break "prune to the last 50 by recency" (`upsertCollectionItemsHash`
-// below) the same way it would for any object keyed by an id like this.
+// `lastCollectionItemsHash` is an ARRAY of `{listId, hash}` pairs, oldest
+// first -- NOT an object keyed by listId (integer-like keys get reordered by
+// every JS engine, which would break "prune to the last 50 by recency").
 const DEFAULT_MAX_COLLECTION_ITEM_HASHES = 50;
 
 /**
- * Looks up `listId`'s last-pushed items hash within `entries`
- * (`config.js`'s `lastCollectionItemsHash` array shape -- see the doc
- * comment above `DEFAULT_MAX_COLLECTION_ITEM_HASHES`).
+ * Looks up `listId`'s last-pushed items hash within `entries`.
  * @param {Array<{listId: string, hash: string}>|null|undefined} entries
  * @param {string} listId
  * @returns {string|null}
@@ -751,10 +668,7 @@ export function findLastCollectionItemsHash(entries, listId) {
 
 /**
  * Returns a NEW array with `listId`'s hash upserted at the END (most
- * recently synced), pruned to the last `limit` entries -- the
- * `lastCollectionItemsHash` throttle map's update step
- * (`background.js`'s detail-page auto-sync). Pure -- doesn't mutate
- * `entries`.
+ * recently synced), pruned to the last `limit` entries. Pure.
  * @param {Array<{listId: string, hash: string}>|null|undefined} entries
  * @param {string} listId
  * @param {string} hash
@@ -768,61 +682,33 @@ export function upsertCollectionItemsHash(entries, listId, hash, limit = DEFAULT
 }
 
 /**
- * Syncs a SINGLE collection straight from its own detail page (M11) --
- * a guaranteed-correct fallback/complement to `syncCollections`'s bulk
- * discovery: the user is looking right at this collection's items, so
- * there's no route-guessing involved. Pushes an upsert-shaped collections
- * entry (`pushCollections`) ONLY when a title was derivable
- * (`findCollectionTitleIn`, best-effort, unverified field names -- see its
- * doc); when it isn't, this pushes ITEMS ONLY, keyed by the id from the URL
- * (a collection push isn't required for `pushCollectionItems` to accept
- * items for that id -- see `backend/app/api/ext.py`). Also pushes nothing
- * for a genuinely-empty collection (`items.length === 0`) -- same "never
- * push an empty membership set" caution as `syncCollections`.
+ * Syncs a SINGLE collection from its own detail page. Upserts ONE cache entry
+ * (`api.upsertCollection`, never the full-replace `pushCollections`, which
+ * would wipe every other cached collection) when a title is derivable, then
+ * pushes the items (a replace-set on the backend).
  *
- * I1 hardening: this flow reads a collection's items off ONE un-paged SSR
- * response (`readCollectionDetailPage`) -- unlike `syncCollections`'s bulk
- * discovery, there's no paged `/api/v1` fallback to retry a short read with
- * here (that endpoint is uid-aggregate-only, M11's `syncCollections` doc).
- * `pushCollectionItems` is a REPLACE-SET on the backend (ids missing from
- * the push get deleted from the collection), so pushing a truncated `items`
- * array would silently SHRINK the backend's cached membership. This uses
- * the collection's own derivable item count (`readCollectionDetailPage`'s
- * `count`, via `findCollectionTitleIn`) to tell a complete read apart from a
- * truncated one:
- *   - count derivable AND `items.length < count`: a TRUNCATED read -- push
- *     NOTHING (neither the collections entry nor the items), report/log a
- *     "partial read" message, and return `partial: true` so the caller
- *     (`background.js`) knows NOT to persist its per-collection throttle
- *     hash -- the next visit retries instead of treating a short read as
- *     done.
- *   - count NOT derivable at all: can't tell complete from truncated, so
- *     push the items anyway (best available data -- same spirit as
- *     `syncCollections`'s "empty isn't proof of empty") but NEVER stamp the
- *     collections entry's `count` as `items.length` (that would assert a
- *     fact about the collection this one read never actually established --
- *     omitted as `null` instead), and return `countDerived: false` so the
- *     caller still doesn't persist the throttle hash (a future visit may
- *     yet reveal this read was short).
- *   - count derivable AND `items.length >= count`: a confirmed-complete
- *     read -- push as usual, and stamping `count` with the DERIVED value
- *     (not `items.length`, which only happens to match here) is legitimate.
+ * Completeness (items are read off ONE un-paged SSR response, so a short read
+ * would silently shrink the cached membership):
+ *   - count derivable and the RAW array served is shorter than it: TRUNCATED
+ *     -- push NOTHING, report a warning, `partial: true`.
+ *   - count NOT derivable: only believed when the list came from a named key
+ *     (`designs`/`favoritesDesigns`); an unnamed/deep-scanned array is not
+ *     trusted, so nothing is pushed (`partial: true`). A named-key read is
+ *     pushed with `count: null` (never asserting `items.length` as the count).
+ *   - count derivable and met: confirmed complete.
+ * A trusted-empty read with a derived count of 0 pushes `[]` so removals
+ * propagate; any other empty read pushes no items.
+ *
+ * `persistable` tells `background.js` whether to persist its throttle hash:
+ * `!partial && (countDerived || namedKey)`.
  * @param {object} opts
  * @param {number} opts.tabId
- * @param {string} opts.url the tab's URL -- must be a collection detail page
+ * @param {string} opts.url must be a collection detail page
  * @param {(tabId: number, func: Function, args?: unknown[]) => Promise<unknown>} opts.exec
- * @param {{pushCollections: Function, pushCollectionItems: Function}} opts.api
+ * @param {{upsertCollection: Function, pushCollectionItems: Function}} opts.api
  * @param {(text: string, kind: string|null) => void} opts.report
- * @param {Awaited<ReturnType<typeof readCollectionDetailPage>>} [opts.page] a
- *   pre-fetched `readCollectionDetailPage` result -- when supplied, skips
- *   the module's own page read (the background auto-sync throttle already
- *   read the page once to compute a hash).
- * @returns {Promise<{listId: string, title: string|null, items: number, partial: boolean, countDerived: boolean}>}
- *   `partial` is `true` only for the truncated-read case above (nothing was
- *   pushed that run). `countDerived` is `false` whenever the collection's
- *   own count couldn't be read off the page at all. `background.js` only
- *   persists its throttle hash when `partial` is `false` AND `countDerived`
- *   is `true` -- i.e. a confirmed-complete read.
+ * @param {Awaited<ReturnType<typeof readCollectionDetailPage>>} [opts.page] pre-fetched read
+ * @returns {Promise<{listId: string, title: string|null, items: number, partial: boolean, countDerived: boolean, persistable: boolean}>}
  */
 export async function syncCollectionDetail({ tabId, url, exec, api, report, page }) {
   report("Reading this collection…", null);
@@ -840,12 +726,19 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
   }
 
   const { parsed, items, title, count } = resolvedPage;
+  const rawLength = resolvedPage.rawLength ?? items.length;
   const countDerived = typeof count === "number";
+  const namedKey = NAMED_LIST_KEYS.has(resolvedPage.key);
+  const skipped = (message) => {
+    report(message, "warn");
+    return { listId: parsed.id, title: title || null, items: 0, partial: true, countDerived, persistable: false };
+  };
 
-  if (countDerived && items.length < count) {
-    const message = `Partial read (${items.length} of ${count}) — skipped.`;
-    report(message, "ok");
-    return { listId: parsed.id, title: title || null, items: 0, partial: true, countDerived };
+  if (countDerived && rawLength < count) {
+    return skipped(`Partial read (${rawLength} of ${count}) — skipped.`);
+  }
+  if (!countDerived && !namedKey) {
+    return skipped("Couldn't confirm this collection was read completely — skipped.");
   }
 
   if (title) {
@@ -856,7 +749,7 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
       count: countDerived ? count : null,
       is_default: false,
     };
-    const listResult = await api.pushCollections("makerworld", [entry]);
+    const listResult = await api.upsertCollection("makerworld", entry);
     if (!listResult.ok) {
       const message = listResult.error || "Something went wrong.";
       report(message, "error");
@@ -864,7 +757,9 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
     }
   }
 
-  if (items.length > 0) {
+  // Non-empty: push. Trusted-empty with a confirmed count of 0: push `[]`.
+  const trustedEmpty = rawLength === 0 && countDerived && count === 0;
+  if (items.length > 0 || trustedEmpty) {
     const itemsResult = await api.pushCollectionItems("makerworld", parsed.id, items);
     if (!itemsResult.ok) {
       const message = itemsResult.error || "Something went wrong.";
@@ -874,6 +769,6 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
   }
 
   const label = title || parsed.id;
-  report(`Synced "${label}": ${items.length} item${items.length === 1 ? "" : "s"}.`, "ok");
-  return { listId: parsed.id, title: title || null, items: items.length, partial: false, countDerived };
+  report(`Synced "${label}": ${plural(items.length, "item")}.`, "ok");
+  return { listId: parsed.id, title: title || null, items: items.length, partial: false, countDerived, persistable: true };
 }
