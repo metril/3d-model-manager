@@ -11,6 +11,17 @@
  */
 
 /**
+ * MakerWorld hosts and the locale path prefix -- the single source for
+ * `detect.js` and this module. `LOCALE_PREFIX` is a regex-source fragment
+ * matching an optional leading locale segment with its trailing slash
+ * (`en/`, `pt-br/`, `zh-hant/`); deliberately loose, it only needs to
+ * recognize the site's own prefixes.
+ */
+export const MAKERWORLD_HOSTS = new Set(["makerworld.com", "www.makerworld.com"]);
+export const LOCALE_PREFIX = "(?:[a-z]{2,3}(?:-[a-z0-9]{2,4})?/)?";
+const LOCALE_SEGMENT_RE = /^[a-z]{2,3}(?:-[a-z0-9]{2,4})?$/i;
+
+/**
  * @typedef {{
  *   list_id: string,
  *   title: string,
@@ -133,7 +144,11 @@ export function extractHandle(nextDataJson, url) {
   if (pathname) {
     const match = HANDLE_PATH_RE.exec(pathname);
     if (match) {
-      return decodeURIComponent(match[1]);
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return match[1]; // malformed %-escape: use the raw segment
+      }
     }
   }
   const pageProps = nextDataJson?.props?.pageProps;
@@ -159,7 +174,7 @@ export function extractHandle(nextDataJson, url) {
 // still tolerated. Two capture groups: the numeric id, and the slug
 // (without its leading `-`, or `undefined` when absent).
 const COLLECTION_DETAIL_PATH_RE =
-  /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?collections\/(\d+)(?:-([^/?#]*))?\/?$/i;
+  new RegExp(`^\\/${LOCALE_PREFIX}collections/(\\d+)(?:-([^/?#]*))?/?$`, "i");
 
 // Same shape as `COLLECTION_DETAIL_PATH_RE` above, but tolerant of the
 // singular "collection" spelling too. Only safe HERE, in `matchCollectionLinks`:
@@ -171,13 +186,8 @@ const COLLECTION_DETAIL_PATH_RE =
 // `/collection/{id}` route on the site could get scraped as if it were one
 // of our collections and silently push a bogus membership set (M1).
 const ANCHOR_COLLECTION_DETAIL_PATH_RE =
-  /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?collections?\/(\d+)(?:-([^/?#]*))?\/?$/i;
+  new RegExp(`^\\/${LOCALE_PREFIX}collections?/(\\d+)(?:-([^/?#]*))?/?$`, "i");
 
-// Same MakerWorld hosts `detect.js` gates on -- duplicated locally rather
-// than imported so this module stays free of a cross-file dependency for one
-// small constant (mirrors `background.js`/`popup.js`'s already-duplicated
-// `execInTab`).
-const MAKERWORLD_HOSTS = new Set(["makerworld.com", "www.makerworld.com"]);
 
 /**
  * Given raw anchor hrefs (absolute or relative, as collected from a
@@ -261,7 +271,6 @@ export function parseCollectionDetailUrl(url) {
 // real ISO codes); a false positive here just means a made-up two-letter
 // first path segment gets treated as a locale, which is harmless since the
 // resulting pathname would 404 the same way an omitted locale might.
-const LOCALE_SEGMENT_RE = /^[a-z]{2}(?:-[a-z]{2})?$/i;
 
 /**
  * Best-effort locale prefix (`"en"`, `"de-de"`, ...) read off `url`'s own
@@ -307,8 +316,11 @@ function localeFromUrl(url) {
  * @returns {string}
  */
 export function collectionDetailPathnameFrom(url, listId, slug) {
-  const locale = localeFromUrl(url);
-  const prefix = locale ? `/${locale}` : "";
+  // No locale on the current page: default to `en` (MakerWorld's data
+  // routes need one; `readCollectionItemsFromDataRoute` callers also try
+  // the locale-less variant).
+  const locale = localeFromUrl(url) || "en";
+  const prefix = `/${locale}`;
   return slug
     ? `${prefix}/collections/${listId}-${encodeURIComponent(slug)}`
     : `${prefix}/collections/${listId}`;
@@ -431,45 +443,6 @@ export function findCollectionTitleIn(pageProps, id) {
  * }} CollectionItemPushEntry
  */
 
-// Mirrors the ext API's own cap (`backend/app/api/ext.py`'s
-// `_MAX_PUSHED_ITEMS`) -- a plan that requested more than this would just
-// have its tail rejected by the push, so there's no point building it.
-const MAX_ITEMS_PER_COLLECTION = 500;
-
-/**
- * Pure paging plan: for every pushed collection (the `extractFavoritesListFrom`
- * entries, each carrying its own `count`), the `{listId, offset}` requests
- * needed to walk its full item count in `pageSize`-sized pages, capped at
- * `MAX_ITEMS_PER_COLLECTION` items/collection (matching the ext push
- * endpoint's own limit). A collection with no known `count` (null/0/absent
- * -- MakerWorld's own SSR scrape doesn't always carry one) still gets
- * exactly one page (offset 0): the only page a fetch can be planned for
- * without first knowing how many there are, and better than skipping the
- * collection outright.
- * @param {Array<{list_id: string, count: number|null}>} collections
- * @param {number} [pageSize]
- * @returns {Array<{listId: string, offset: number}>}
- */
-export function buildItemsFetchPlan(collections, pageSize = 20) {
-  if (!Array.isArray(collections)) {
-    return [];
-  }
-  const plan = [];
-  for (const entry of collections) {
-    if (!entry || !entry.list_id) {
-      continue;
-    }
-    const knownCount =
-      typeof entry.count === "number" && entry.count > 0 ? entry.count : pageSize;
-    const cappedCount = Math.min(knownCount, MAX_ITEMS_PER_COLLECTION);
-    const pageCount = Math.max(1, Math.ceil(cappedCount / pageSize));
-    for (let page = 0; page < pageCount; page++) {
-      plan.push({ listId: entry.list_id, offset: page * pageSize });
-    }
-  }
-  return plan;
-}
-
 /**
  * Maps one page of MakerWorld's `/design-service/favorites/designs/{listId}`
  * response (`{hits: [design...], total}`) to the shape `POST /ext/
@@ -504,7 +477,7 @@ export function mapDesignHits(designHitsResponse) {
     items.push({
       external_id: String(id),
       title,
-      url: `https://makerworld.com/en/models/${id}`,
+      url: `https://makerworld.com/models/${id}`,
       author: design.designCreator?.name ?? null,
       thumbnail_url: design.cover ?? null,
     });
@@ -566,7 +539,7 @@ function looksLikeDesign(value) {
   if (
     value === null ||
     typeof value !== "object" ||
-    typeof value.id !== "number" ||
+    !(typeof value.id === "number" || (typeof value.id === "string" && /^\d+$/.test(value.id))) ||
     !(typeof value.title === "string" || typeof value.name === "string")
   ) {
     return false;
@@ -575,24 +548,22 @@ function looksLikeDesign(value) {
 }
 
 /**
- * True iff a non-empty array has AT LEAST ONE non-null entry that looks
- * design-shaped (`looksLikeDesign`), and every other entry is either `null`
- * or also design-shaped. Requiring at least one non-null hit is F4 hardening
- * -- an array of nothing but `null`s previously passed this check (every
- * item WAS `null`, vacuously satisfying the old all-or-nothing test) despite
- * carrying zero actual design-shape evidence. An empty array can't be
- * shape-validated at all -- callers decide separately whether an empty array
- * is still trustworthy (see `findDesignListIn`'s named-key branch,
- * `TRUSTED_EMPTY_KEYS`).
+ * The design-shaped entries (`looksLikeDesign`) of `array`, or `null` when
+ * it isn't a design list: strictly MORE than half of its non-null entries
+ * must be design-shaped (and at least one), and the malformed minority is
+ * filtered out rather than failing the whole array. An array of nothing but
+ * `null`s carries no evidence (F4). An empty array can't be shape-validated
+ * -- callers decide separately whether it's trustworthy (see
+ * `findDesignListIn`'s named-key branch, `TRUSTED_EMPTY_KEYS`).
  * @param {Array} array
- * @returns {boolean}
+ * @returns {Array|null}
  */
-function isDesignShapedArray(array) {
-  return (
-    array.length > 0 &&
-    array.some((item) => looksLikeDesign(item)) &&
-    array.every((item) => item === null || looksLikeDesign(item))
-  );
+function filterDesigns(array) {
+  const present = array.filter((item) => item !== null && item !== undefined);
+  const designs = present.filter(looksLikeDesign);
+  // Majority rule: tolerate a few malformed entries, but an array that is
+  // mostly something else is not a design list.
+  return designs.length > 0 && designs.length * 2 > present.length ? designs : null;
 }
 
 /**
@@ -618,7 +589,11 @@ function isDesignShapedArray(array) {
  * Returns `null` when nothing matches at either level, so callers know to
  * fall back to the `/api/v1` endpoint.
  * @param {unknown} pageProps a collection data-route response's `pageProps`
- * @returns {{key: string, designs: Array}|null}
+ * `designs` holds only the design-shaped entries; `rawLength` is the length
+ * of the array as the page served it (what a partial-read check must compare
+ * against the collection's count, since filtered/unmappable entries still
+ * count toward what the server returned).
+ * @returns {{key: string, designs: Array, rawLength: number}|null}
  */
 export function findDesignListIn(pageProps) {
   if (!pageProps || typeof pageProps !== "object") {
@@ -632,12 +607,13 @@ export function findDesignListIn(pageProps) {
     }
     if (candidate.length === 0) {
       if (TRUSTED_EMPTY_KEYS.has(key)) {
-        return { key, designs: candidate };
+        return { key, designs: candidate, rawLength: 0 };
       }
       continue; // generic "list": an empty array proves nothing -- keep looking
     }
-    if (isDesignShapedArray(candidate)) {
-      return { key, designs: candidate };
+    const designs = filterDesigns(candidate);
+    if (designs) {
+      return { key, designs, rawLength: candidate.length };
     }
   }
 
@@ -648,16 +624,18 @@ export function findDesignListIn(pageProps) {
     if (DESIGN_LIST_KEYS.includes(key)) {
       continue; // already checked above
     }
-    if (Array.isArray(value) && isDesignShapedArray(value)) {
-      return { key, designs: value };
+    const topDesigns = Array.isArray(value) ? filterDesigns(value) : null;
+    if (topDesigns) {
+      return { key, designs: topDesigns, rawLength: value.length };
     }
     if (value && typeof value === "object" && !Array.isArray(value)) {
       for (const [nestedKey, nestedValue] of Object.entries(value)) {
         if (EXCLUDED_KEYS.has(nestedKey)) {
           continue;
         }
-        if (Array.isArray(nestedValue) && isDesignShapedArray(nestedValue)) {
-          return { key: `${key}.${nestedKey}`, designs: nestedValue };
+        const nestedDesigns = Array.isArray(nestedValue) ? filterDesigns(nestedValue) : null;
+        if (nestedDesigns) {
+          return { key: `${key}.${nestedKey}`, designs: nestedDesigns, rawLength: nestedValue.length };
         }
       }
     }

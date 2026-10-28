@@ -3,57 +3,44 @@
  * Mirrors the backend's per-importer `canonicalize` regexes (see
  * `backend/app/importers/{makerworld,thingiverse,printables}.py`) so the
  * extension's "is this a model page" check agrees with what the app will
- * actually accept — the backend still does the authoritative canonicalize;
- * this is only a loose gate for enabling the popup button / context menu.
+ * actually accept -- the backend still does the authoritative canonicalize;
+ * this is only a gate for enabling the popup button / context menu.
+ *
+ * Every pattern is anchored and tested against the URL's PATHNAME only (never
+ * the query string or hash), so a model-looking string in a query can't
+ * false-positive. The one exception is Thingiverse's `?thing=<id>` form,
+ * which is read from `searchParams` explicitly. MakerWorld hosts, the locale
+ * prefix and the collection-detail parser are shared with `collections.js`
+ * (single source).
  */
+
+import { LOCALE_PREFIX, MAKERWORLD_HOSTS, parseCollectionDetailUrl } from "./collections.js";
+
+const rx = (source) => new RegExp(source, "i");
 
 const SITES = [
   {
     site: "makerworld",
-    hosts: new Set(["makerworld.com", "www.makerworld.com"]),
-    idPattern: /models\/(\d+)/i,
+    hosts: MAKERWORLD_HOSTS,
+    pathPattern: rx(`^/${LOCALE_PREFIX}models/\\d+(?:[-/].*)?$`),
   },
   {
     site: "thingiverse",
     hosts: new Set(["thingiverse.com", "www.thingiverse.com"]),
-    idPattern: /(?:thing:|.*?[?&]thing=)(\d+)/i,
+    // `/thing:123`, `/thing:123/files`, `/en/thing:123`.
+    pathPattern: rx(`^/${LOCALE_PREFIX}thing:\\d+(?:/.*)?$`),
+    queryParam: "thing",
   },
   {
     site: "printables",
     hosts: new Set(["printables.com", "www.printables.com"]),
-    idPattern: /model\/(\d+)/i,
+    pathPattern: rx(`^/${LOCALE_PREFIX}model/\\d+(?:[-/].*)?$`),
   },
 ];
 
-const MAKERWORLD_HOSTS = new Set(["makerworld.com", "www.makerworld.com"]);
-
-// `/@<handle>/collections`, optionally locale-prefixed (`/en/@handle/...`)
-// and optionally followed by a further path segment (viewing one collection)
-// or a query string (the query is naturally ignored since it's not part of
-// `URL#pathname`). Tested against the pathname only, anchored at both ends
-// so an unrelated page that merely contains "/collections/" somewhere
-// doesn't false-positive.
-const COLLECTIONS_PATH_PATTERN = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?@[^/]+\/collections(?:\/.*)?$/i;
-
-// GROUND TRUTH (a real logged-in browser, M11): a MakerWorld collection
-// DETAIL page is `/{locale}/collections/{id}-{slug}`, e.g.
-// `https://makerworld.com/en/collections/18925823-esp32` -- an entirely
-// different route from `COLLECTIONS_PATH_PATTERN` above (no `@handle`
-// segment, and requires a numeric id). Kept in sync with `collections.js`'s
-// `COLLECTION_DETAIL_PATH_RE` (same shape, duplicated locally rather than
-// imported -- mirrors this file/`popup.js`/`background.js`'s already-
-// duplicated `execInTab` pattern). Anchored so the bare index page
-// (`/@handle/collections`, no id) never matches here. PLURAL-ONLY (M1
-// hardening): this is the gate that decides whether the background
-// auto-sync even LOOKS at a page as a collection detail page at all, so it
-// must never tolerate the singular "collection" spelling -- an unrelated
-// future `/collection/{id}` route on the site (a different entity type
-// entirely) must not be able to trigger a bogus membership push just
-// because its URL shape happens to look close enough. (`collections.js`'s
-// `matchCollectionLinks` keeps a separate, narrowly-scoped singular
-// tolerance for anchor-derived links, where matches are already
-// pre-filtered to ids we know are real collections -- see its own doc.)
-const COLLECTION_DETAIL_PATH_PATTERN = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?collections\/(\d+)(?:-[^/?#]*)?\/?$/i;
+// `/@<handle>/collections`, optionally locale-prefixed, optionally followed
+// by a further path segment. Pathname-only and anchored at both ends.
+const COLLECTIONS_PATH_PATTERN = rx(`^/${LOCALE_PREFIX}@[^/]+/collections(?:/.*)?$`);
 
 /** Match patterns for the supported gallery sites (kept equal to manifest `host_permissions`). */
 export const GALLERY_HOST_PATTERNS = [
@@ -66,10 +53,11 @@ export const GALLERY_HOST_PATTERNS = [
 ];
 
 /**
+ * The one URL -> site resolver: `{entry, parsed}` for a supported gallery
+ * host, else `null` (also for unparseable input).
  * @param {string} url
- * @returns {"makerworld"|"thingiverse"|"printables"|null}
  */
-export function detectSite(url) {
+export function siteEntryFor(url) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -77,84 +65,60 @@ export function detectSite(url) {
     return null;
   }
   const host = (parsed.hostname || "").toLowerCase();
-  for (const entry of SITES) {
-    if (entry.hosts.has(host)) {
-      return entry.site;
-    }
-  }
-  return null;
+  const entry = SITES.find((s) => s.hosts.has(host));
+  return entry ? { entry, parsed } : null;
 }
 
 /**
- * True iff `url` is on a supported gallery host AND matches that site's
- * model-id pattern (path segment or query string, per site).
+ * @param {string} url
+ * @returns {"makerworld"|"thingiverse"|"printables"|null}
+ */
+export function detectSite(url) {
+  return siteEntryFor(url)?.entry.site ?? null;
+}
+
+/**
+ * True iff `url` is on a supported gallery host AND its pathname matches that
+ * site's model pattern (or, for Thingiverse, carries a numeric `?thing=`).
  * @param {string} url
  * @returns {boolean}
  */
 export function isModelPage(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
+  const hit = siteEntryFor(url);
+  if (!hit) {
     return false;
   }
-  const host = (parsed.hostname || "").toLowerCase();
-  const entry = SITES.find((s) => s.hosts.has(host));
-  if (!entry) {
-    return false;
+  const { entry, parsed } = hit;
+  if (entry.pathPattern.test(parsed.pathname)) {
+    return true;
   }
-  // Test against pathname + search so query-string id shapes (Thingiverse's
-  // `?thing=<id>`) match without needing the full href (which would also
-  // match a fragment/hash containing digits after "thing:" incidentally —
-  // acceptable for this loose gate).
-  const target = `${parsed.pathname}${parsed.search}`;
-  return entry.idPattern.test(target);
+  return Boolean(entry.queryParam && /^\d+$/.test(parsed.searchParams.get(entry.queryParam) ?? ""));
+}
+
+function onMakerworld(url) {
+  return siteEntryFor(url)?.entry.site === "makerworld" ? siteEntryFor(url).parsed : null;
 }
 
 /**
  * True iff `url` is a MakerWorld user's collections page --
  * `/@<handle>/collections`, optionally locale-prefixed and/or with a
- * trailing path segment or query string. Used to gate the popup's "Sync
- * collections to app" button (`extractFavoritesListFrom` in `collections.js`
- * does the actual scrape).
+ * trailing path segment. Gates the popup's "Sync collections to app" button.
  * @param {string} url
  * @returns {boolean}
  */
 export function isCollectionsPage(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  const host = (parsed.hostname || "").toLowerCase();
-  if (!MAKERWORLD_HOSTS.has(host)) {
-    return false;
-  }
-  return COLLECTIONS_PATH_PATTERN.test(parsed.pathname);
+  const parsed = onMakerworld(url);
+  return Boolean(parsed && COLLECTIONS_PATH_PATTERN.test(parsed.pathname));
 }
 
 /**
- * True iff `url` is a MakerWorld collection DETAIL page -- ground-truth
- * shape `/collections/<id>[-slug]`, optionally locale-prefixed, NO `@handle`
- * segment (`COLLECTION_DETAIL_PATH_PATTERN` above; a real capture:
- * `https://makerworld.com/en/collections/18925823-esp32`). Used to gate the
- * popup's "Sync this collection to app" button and the background auto-
- * sync's per-page trigger (`syncFlow.js`'s `syncCollectionDetail`) --
- * distinct from `isCollectionsPage` above, which gates the bulk LIST sync.
+ * True iff `url` is a MakerWorld collection DETAIL page
+ * (`/<locale>/collections/<id>[-slug]`, no `@handle`), per the shared
+ * `parseCollectionDetailUrl`. Distinct from `isCollectionsPage`, which gates
+ * the bulk LIST sync.
  * @param {string} url
  * @returns {boolean}
  */
 export function isCollectionDetailPage(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  const host = (parsed.hostname || "").toLowerCase();
-  if (!MAKERWORLD_HOSTS.has(host)) {
-    return false;
-  }
-  return COLLECTION_DETAIL_PATH_PATTERN.test(parsed.pathname);
+  return Boolean(onMakerworld(url) && parseCollectionDetailUrl(url));
 }

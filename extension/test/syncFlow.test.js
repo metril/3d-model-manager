@@ -182,7 +182,7 @@ test("syncCollections: happy path -- pushes the list, reads+pushes each collecti
     {
       external_id: "1",
       title: "Item A",
-      url: "https://makerworld.com/en/models/1",
+      url: "https://makerworld.com/models/1",
       author: null,
       thumbnail_url: null,
     },
@@ -497,7 +497,7 @@ test("syncCollections item-source preference: an empty/404 constructed route fal
     {
       external_id: "9",
       title: "Fallback Item",
-      url: "https://makerworld.com/en/models/9",
+      url: "https://makerworld.com/models/9",
       author: null,
       thumbnail_url: null,
     },
@@ -541,7 +541,7 @@ test("syncCollections: primary item source tolerates a deep-scan-discovered desi
     {
       external_id: "77",
       title: "Deep Item",
-      url: "https://makerworld.com/en/models/77",
+      url: "https://makerworld.com/models/77",
       author: null,
       thumbnail_url: null,
     },
@@ -910,7 +910,7 @@ test("readCollectionDetailPage: happy path -- parses id/slug from the URL, finds
     {
       external_id: "1",
       title: "Item A",
-      url: "https://makerworld.com/en/models/1",
+      url: "https://makerworld.com/models/1",
       author: null,
       thumbnail_url: null,
     },
@@ -1209,7 +1209,7 @@ test("syncCollectionDetail: an injected `page` skips the module's own page read 
         {
           external_id: "1",
           title: "Item A",
-          url: "https://makerworld.com/en/models/1",
+          url: "https://makerworld.com/models/1",
           author: null,
           thumbnail_url: null,
         },
