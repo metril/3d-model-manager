@@ -419,11 +419,17 @@ export function AppSidebar({
       </div>
       <div
         className={cn(
-          "flex shrink-0 items-center justify-between gap-2 border-t border-sidebar-border px-4 py-3",
-          collapsed && "flex-col gap-1.5 px-1.5",
+          "flex shrink-0 flex-col gap-2 border-t border-sidebar-border px-4 py-3",
+          collapsed && "items-center gap-1.5 px-1.5",
         )}
       >
-        {!collapsed && <span className="truncate text-sm text-muted-foreground">{me?.username}</span>}
+        {/* Own full-width row: sharing one with the four icon buttons left
+            ~50px, which clipped all but the shortest usernames. */}
+        {!collapsed && (
+          <span className="truncate text-sm text-muted-foreground" title={me?.username}>
+            {me?.username}
+          </span>
+        )}
         <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
           <InstallAppButton />
           <ThemeToggle />
