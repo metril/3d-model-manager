@@ -1,0 +1,307 @@
+/*
+ * Shared popup + options styles. Tokens mirror web/src/index.css (slate +
+ * teal), pre-converted from oklch to hex because the manifest allows Chrome
+ * 110 (oklch needs 111). No remote fonts (extension CSP): system stack only.
+ * Dark mode follows the OS. Every text/background pair below is >= 4.5:1.
+ *
+ * --primary is the brand teal (#0f8a94 light / #5ccbd6 dark) for rings and
+ * accents; --primary-solid is the slightly deeper light-mode teal used for
+ * button fills and link text so white-on-teal clears AA (plain #0f8a94 is 4.1:1).
+ */
+:root {
+  color-scheme: light dark;
+  --background: #f4f7fb;
+  --foreground: #0f1923;
+  --card: #fcfeff;
+  --muted: #ebf1f7;
+  --muted-foreground: #505c69;
+  --secondary: #e2ebf2;
+  --border: #d7dfe7;
+  --input: #c9d2db;
+  --primary: #0f8a94;
+  --primary-solid: #0b7882;
+  --primary-foreground: #ffffff;
+  --ring: #0f8a94;
+  --success: #006933;
+  --warning: #844700;
+  --destructive: #bb061e;
+  --radius: 0.625rem;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b1117;
+    --foreground: #eaeff4;
+    --card: #131a22;
+    --muted: #1b222a;
+    --muted-foreground: #a1acb7;
+    --secondary: #1f2730;
+    --border: #28313b;
+    --input: #313c47;
+    --primary: #5ccbd6;
+    --primary-solid: #5ccbd6;
+    --primary-foreground: #011615;
+    --ring: #5ccbd6;
+    --success: #4ec983;
+    --warning: #f2af48;
+    --destructive: #fa6863;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 14px/1.45 var(--font);
+  color: var(--foreground);
+  background: var(--background);
+  overflow-wrap: anywhere;
+}
+
+body.popup {
+  width: 320px;
+}
+
+main {
+  padding: 16px;
+}
+
+body.options main {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+body.options h1 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 28px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+p {
+  margin: 0 0 12px;
+  color: var(--muted-foreground);
+}
+
+a {
+  color: var(--primary-solid);
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin: 12px 0 4px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="url"],
+select {
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+}
+
+input::placeholder {
+  color: var(--muted-foreground);
+}
+
+button,
+a.button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+}
+
+button:hover:not(:disabled),
+a.button:hover {
+  border-color: var(--primary);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button.primary,
+a.button.primary {
+  color: var(--primary-foreground);
+  background: var(--primary-solid);
+  border-color: var(--primary-solid);
+}
+
+button.inline {
+  display: inline-block;
+  width: auto;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.buttons button {
+  width: auto;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-row button {
+  width: auto;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin: 4px 0 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.checkbox-row input {
+  margin-top: 3px;
+  accent-color: var(--primary-solid);
+}
+
+.checkbox-row label {
+  margin: 0;
+  font-weight: 400;
+}
+
+.status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  min-height: 1em;
+  color: var(--muted-foreground);
+}
+
+.status.ok,
+.queue-note.ok {
+  color: var(--success);
+}
+
+.status.warn,
+.queue-note.warn {
+  color: var(--warning);
+}
+
+.status.error,
+.queue-note.error {
+  color: var(--destructive);
+}
+
+.status a,
+.queue-note a {
+  font-weight: 600;
+}
+
+.banner {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.banner.warn {
+  color: var(--warning);
+}
+
+.stack > * + * {
+  margin-top: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.chip button {
+  display: inline-block;
+  width: auto;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1.4;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+}
+
+.sites {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: var(--muted-foreground);
+}
+
+.footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.token-row .field-row button {
+  min-width: 64px;
+}

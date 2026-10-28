@@ -1,105 +1,47 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Save to my library</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-      }
-      body {
-        margin: 0;
-        width: 280px;
-        font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #1b1b1b;
-        background: #fff;
-      }
-      main {
-        padding: 16px;
-      }
-      h1 {
-        font-size: 14px;
-        font-weight: 600;
-        margin: 0 0 8px;
-      }
-      p {
-        margin: 0 0 12px;
-        color: #555;
-      }
-      button,
-      a.button {
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px 12px;
-        font-size: 14px;
-        font-weight: 600;
-        border-radius: 6px;
-        border: 1px solid #ccc;
-        background: #f5f5f5;
-        color: #1b1b1b;
-        cursor: pointer;
-        text-align: center;
-        text-decoration: none;
-      }
-      button:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-      }
-      button.primary,
-      a.button.primary {
-        background: #2563eb;
-        border-color: #2563eb;
-        color: #fff;
-      }
-      button.primary:disabled {
-        background: #94a8d8;
-        border-color: #94a8d8;
-      }
-      .status {
-        margin: 12px 0 0;
-        font-size: 13px;
-        min-height: 1em;
-      }
-      .status.ok {
-        color: #1a7f37;
-      }
-      .status.error {
-        color: #c0342a;
-      }
-      .status.warn {
-        color: #9a6700;
-      }
-      .hint {
-        font-size: 12px;
-        color: #777;
-        margin: 8px 0 0;
-      }
-      @media (prefers-color-scheme: dark) {
-        body {
-          background: #1e1e1e;
-          color: #eee;
-        }
-        p {
-          color: #aaa;
-        }
-        button,
-        a.button {
-          background: #2a2a2a;
-          border-color: #444;
-          color: #eee;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="theme.css" />
   </head>
-  <body>
+  <body class="popup">
     <main>
       <h1>Save to my library</h1>
       <p id="message">Loading&hellip;</p>
+      <div id="save-options" class="stack" hidden>
+        <div>
+          <label for="collection">Collection</label>
+          <select id="collection" aria-describedby="collection-hint">
+            <option value="">None</option>
+          </select>
+          <p id="collection-hint" class="hint">Adds the model to one of your followed collections.</p>
+        </div>
+        <div>
+          <label for="tag-input">Tags</label>
+          <input id="tag-input" type="text" list="tag-list" autocomplete="off" aria-describedby="tag-hint" placeholder="Add a tag, press Enter" />
+          <datalist id="tag-list"></datalist>
+          <div id="tag-chips" class="chips"></div>
+          <p id="tag-hint" class="hint">Up to 20 tags. Applied when the import finishes.</p>
+        </div>
+      </div>
       <div id="actions"></div>
       <div id="access"></div>
+      <div id="progress" class="stack" hidden>
+        <p id="import-status" class="status" role="status"></p>
+        <a id="open-app" class="button" target="_blank" rel="noreferrer" hidden>Open in app</a>
+        <div id="queue-box" class="stack" hidden>
+          <label for="printer">Printer</label>
+          <select id="printer"></select>
+          <button id="queue-button" type="button">Add to queue</button>
+        </div>
+        <p id="queue-note" class="queue-note" role="status"></p>
+      </div>
       <p id="status" class="status" role="status"></p>
+      <p id="error" class="status error" role="alert"></p>
       <p id="courier" class="hint"></p>
+      <p id="whoami" class="hint footer" hidden></p>
     </main>
     <script type="module" src="popup.js"></script>
   </body>

@@ -136,6 +136,7 @@ test("describeMe: username + version, missing-perm warning, legacy fallback, err
   assert.deepEqual(describeMe(ok({ username: "alice", perms: ["library:write", "settings:write"], app_version: "0.8.0" })), {
     text: "Connected as alice · app v0.8.0.",
     kind: "ok",
+    notices: [],
   });
   const warn = describeMe(ok({ username: "alice", perms: ["library:write"], app_version: "0.8.0" }));
   assert.equal(warn.kind, "warn");
