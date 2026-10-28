@@ -10,13 +10,13 @@ library, and keeps the app's stored MakerWorld cookie fresh while you browse
 This extension isn't published to the Chrome Web Store — sideload it from the
 zip attached to each GitHub release:
 
-1. Download `tdmm-extension-<version>.zip` and its `.sha256` sidecar from the
+1. Download `tdmm-extension-chrome-<version>.zip` (`-firefox-` for Firefox) and its `.sha256` sidecar from the
    [latest release](https://github.com/metril/3d-model-manager/releases/latest).
 2. Verify it, then unpack:
 
    ```sh
-   sha256sum -c tdmm-extension-<version>.zip.sha256
-   unzip tdmm-extension-<version>.zip -d tdmm-extension
+   sha256sum -c tdmm-extension-chrome-<version>.zip.sha256
+   unzip tdmm-extension-chrome-<version>.zip -d tdmm-extension
    ```
 
 3. Open `chrome://extensions`.

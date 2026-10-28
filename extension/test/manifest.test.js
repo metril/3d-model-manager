@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { toFirefox } from "../scripts/build-firefox-manifest.mjs";
 import { existsSync, readFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
@@ -12,10 +13,18 @@ test("manifest: unified name, Firefox gecko id/min version, Chrome min version",
   assert.equal(manifest.minimum_chrome_version, "121");
 });
 
-test("manifest: background declares both service_worker (Chrome) and scripts (Firefox)", () => {
+test("manifest: Chrome background is service_worker only (no scripts warning)", () => {
   assert.equal(manifest.background.service_worker, "src/background.js");
-  assert.deepEqual(manifest.background.scripts, ["src/background.js"]);
+  assert.equal(manifest.background.scripts, undefined);
   assert.ok(manifest.permissions.includes("webNavigation"));
+});
+
+test("firefox manifest generator: scripts, no service_worker", () => {
+  const ff = toFirefox(manifest);
+  assert.deepEqual(ff.background.scripts, ["src/background.js"]);
+  assert.equal(ff.background.service_worker, undefined);
+  assert.equal(ff.background.type, "module");
+  assert.equal(ff.browser_specific_settings.gecko.id, manifest.browser_specific_settings.gecko.id);
 });
 
 test("manifest: 16/32/48/128 icons exist on disk and are used for the action too", () => {
@@ -30,4 +39,7 @@ test("manifest: 16/32/48/128 icons exist on disk and are used for the action too
 test("release workflow zips the icons directory", () => {
   const workflow = readFileSync(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
   assert.match(workflow, /zip -r -X [^\n]*manifest\.json src icons/);
+  assert.match(workflow, /tdmm-extension-chrome-/);
+  assert.match(workflow, /tdmm-extension-firefox-/);
+  assert.match(workflow, /build-firefox-manifest\.mjs/);
 });

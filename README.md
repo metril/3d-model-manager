@@ -292,7 +292,7 @@ value is one of:
 
 The extension is versioned **in lockstep with the app** — same number, always
 — and each release publishes it as a sideload zip
-(`tdmm-extension-<version>.zip`, with a `.sha256` sidecar) attached to the
+(`tdmm-extension-chrome-<version>.zip` (`-firefox-` for Firefox), with a `.sha256` sidecar) attached to the
 GitHub Release. Install and verification steps are in
 [extension/README.md](extension/README.md).
 

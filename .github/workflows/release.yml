@@ -593,9 +593,17 @@ jobs:
         run: |
           version="${{ needs.release-please.outputs.version }}"
           mkdir -p dist
-          (cd extension && zip -r -X "../dist/tdmm-extension-${version}.zip" manifest.json src icons)
-          (cd dist && sha256sum "tdmm-extension-${version}.zip" > "tdmm-extension-${version}.zip.sha256")
-          unzip -l "dist/tdmm-extension-${version}.zip"
+          # Chrome: manifest.json as committed (service_worker only -- Chrome
+          # warns on background.scripts). Firefox: generated manifest with
+          # background.scripts instead, staged beside src/ and icons/.
+          (cd extension && zip -r -X "../dist/tdmm-extension-chrome-${version}.zip" manifest.json src icons)
+          stage="$(mktemp -d)"
+          cp -r extension/src extension/icons "$stage/"
+          node extension/scripts/build-firefox-manifest.mjs "$stage/manifest.json"
+          (cd "$stage" && zip -r -X "$GITHUB_WORKSPACE/dist/tdmm-extension-firefox-${version}.zip" manifest.json src icons)
+          (cd dist && for b in chrome firefox; do sha256sum "tdmm-extension-${b}-${version}.zip" > "tdmm-extension-${b}-${version}.zip.sha256"; done)
+          unzip -l "dist/tdmm-extension-chrome-${version}.zip"
+          unzip -l "dist/tdmm-extension-firefox-${version}.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: extension-zip

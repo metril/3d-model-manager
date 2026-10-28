@@ -544,7 +544,7 @@ export function ViewerStage({
         ref={stageRef}
         className={cn(
           "relative overflow-hidden rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-          variant === "inline" ? "h-[450px]" : "h-full min-h-0 flex-1",
+          variant === "inline" ? "h-[450px]" : "min-h-0 flex-1",
           isFullscreen && "h-screen",
         )}
         tabIndex={0}
@@ -640,7 +640,7 @@ export function ViewerStage({
           />
         </div>
       </div>
-      <ViewerFooterStrip files={files} checkedIds={checkedIds} />
+      <div className="shrink-0"><ViewerFooterStrip files={files} checkedIds={checkedIds} /></div>
     </TooltipProvider>
   );
 }
