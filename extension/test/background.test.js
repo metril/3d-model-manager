@@ -168,3 +168,31 @@ test("a collections-list run with a rejected push never advances the list hash",
   }
   assert.equal((await getState()).lastCollectionsHash, null);
 });
+
+test("context menu: 'Save & queue' entries exist only while a printer key is set (rebuilt on change)", async () => {
+  const since = async (fn) => {
+    const before = call("contextMenus.create").length;
+    await fn();
+    await tick(40);
+    return call("contextMenus.create").slice(before).map((c) => c[1].title);
+  };
+  await setConfig({ printerKey: "" });
+  assert.deepEqual(await since(() => bg.ensureContextMenu()), ["Save model to my library", "Save model to my library"]);
+  // storage.onChanged rebuilds the menu when the key appears...
+  const withKey = await since(() => setConfig({ printerKey: "pk" }));
+  assert.equal(withKey.filter((t) => t === "Save & queue to printer").length, 2);
+  // ...and again when it is cleared.
+  const cleared = await since(() => setConfig({ printerKey: "" }));
+  assert.equal(cleared.filter((t) => t === "Save & queue to printer").length, 0);
+  assert.ok(cleared.length >= 2);
+});
+
+test("messages: a 'queue' message without a printer key is refused, not silently dropped", async () => {
+  const [onMessage] = stub.listeners["runtime.onMessage"];
+  const answer = new Promise((resolve) =>
+    onMessage({ type: "queue", importId: 1 }, { id: "test-ext", url: "chrome-extension://test-ext/src/popup.html" }, resolve),
+  );
+  const response = await answer;
+  assert.equal(response.ok, false);
+  assert.match(response.error, /printer key/);
+});

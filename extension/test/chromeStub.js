@@ -12,6 +12,7 @@ export function install(overrides = {}) {
       (listeners[name] ||= []).push(fn);
     },
   });
+  const changed = event("storage.onChanged");
   const area = (name) => ({
     get: async (keys) => {
       const list = keys == null ? Object.keys(stores[name]) : [].concat(keys);
@@ -24,11 +25,19 @@ export function install(overrides = {}) {
     },
     set: async (obj) => {
       await new Promise((r) => setTimeout(r, 1));
+      const changes = {};
+      for (const k of Object.keys(obj)) {
+        changes[k] = { oldValue: stores[name][k], newValue: structuredClone(obj[k]) };
+      }
       stores[name] = { ...stores[name], ...structuredClone(obj) };
+      for (const fn of listeners["storage.onChanged"] || []) fn(changes, name);
+    },
+    remove: async (keys) => {
+      for (const k of [].concat(keys)) delete stores[name][k];
     },
   });
   const chrome = {
-    storage: { local: area("local"), session: area("session") },
+    storage: { local: area("local"), session: area("session"), onChanged: changed },
     runtime: {
       id: "test-ext",
       getURL: (p = "") => `chrome-extension://test-ext/${p}`,
@@ -57,6 +66,9 @@ export function install(overrides = {}) {
     alarms: {
       get: async () => null,
       create: (name, info) => calls.push(["alarms.create", name, info]),
+      clear: async (name) => {
+        calls.push(["alarms.clear", name]);
+      },
       onAlarm: event("alarms.onAlarm"),
     },
     action: {
