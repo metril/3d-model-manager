@@ -1,6 +1,6 @@
 # Browser extension — Send to my library
 
-A sideloaded Chrome (MV3) extension that saves MakerWorld, Thingiverse, and
+A sideloaded Chrome / Firefox (MV3) extension that saves MakerWorld, Thingiverse, and
 Printables model pages straight into your self-hosted 3D Model Manager
 library, and keeps the app's stored MakerWorld cookie fresh while you browse
 — no more copying cookie values out of DevTools by hand.
@@ -27,6 +27,24 @@ zip attached to each GitHub release:
 Chrome won't update a "Load unpacked" extension for you — to upgrade, download
 the newer release's zip, unpack it over the same folder, and hit **Reload** on
 the extension's card in `chrome://extensions`.
+
+### Firefox
+
+Firefox needs Firefox 115 or newer (the manifest sets `strict_min_version`).
+An unsigned extension can only be loaded **temporarily**:
+
+1. Unzip the release (or use this `extension/` folder from a checkout).
+2. Open `about:debugging#/runtime/this-firefox` and click **Load Temporary
+   Add-on…**, then pick the `manifest.json` inside the folder.
+3. Temporary add-ons are removed when Firefox restarts; reload it the same
+   way. (For a permanent install you would have to sign it with Mozilla; or
+   run it with `npx web-ext run` from this folder during development.)
+
+Firefox grants **no** site access by default. After installing, open the
+popup or options page and click **Grant access** (it appears whenever your
+app's address or the gallery sites are not yet permitted), and accept the
+prompt. Chrome grants the gallery sites at install and only asks for your
+app's address on **Save**.
 
 **Or, for development**: point **Load unpacked** at this `extension/` folder
 directly from a source checkout. Same steps 3-5, no download — and your edits
@@ -57,7 +75,14 @@ and reload — nothing will object.
    origin; grant it (the extension only asks for the one origin you gave it,
    nothing broader).
 5. Click **Test connection** to confirm the app is reachable and the token
-   is valid.
+   is valid. It shows which account the token belongs to and the app's
+   version, and warns if the token lacks the `library:write` or
+   `settings:write` permission. (Older servers without `/api/ext/me` fall
+   back to a plain connectivity check.)
+
+Use `https://` for any app that isn't on your local network (localhost,
+private IPs and `.local` names are fine over `http://`); the options page
+warns when your token would otherwise travel unencrypted.
 
 ## Usage
 
@@ -136,9 +161,19 @@ refresh a cookie it can't see.
 
 ## Running the tests
 
+Needs Node 24 (no dependencies to install). From the repo root:
+
 ```sh
 node --test extension/test/*.test.js
 ```
 
-Use the glob form above, not a bare `extension/test` directory — the
-directory form is broken on Node 24.
+or from inside `extension/`:
+
+```sh
+node --test test/*.test.js
+```
+
+Use the glob form, not a bare `test` / `extension/test` directory argument --
+the directory form is broken on Node 24 (it tries to load the directory as a
+module). `test/chromeStub.js` is a minimal in-memory `chrome` stub shared by
+the storage, background and options tests.

@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildItemsFetchPlan,
   collectionDetailPathnameFrom,
   extractFavoritesListFrom,
   extractHandle,
@@ -13,6 +12,12 @@ import {
   matchCollectionLinks,
   parseCollectionDetailUrl,
 } from "../src/collections.js";
+
+/** Compares `{key, designs}` only, ignoring `rawLength`. */
+function findNoLen(pageProps) {
+  const r = findDesignListIn(pageProps);
+  return r && { key: r.key, designs: r.designs };
+}
 
 /** Wraps a `favoritesList` array in the shape of a real `__NEXT_DATA__`
  * script tag's parsed JSON (`{props: {pageProps: {favoritesList}}}`). */
@@ -156,63 +161,6 @@ test("extractHandle: an unparseable URL and no usable __NEXT_DATA__ returns null
   assert.equal(extractHandle({}, "https://makerworld.com/some/other/page"), null);
 });
 
-test("buildItemsFetchPlan: empty collections array returns an empty plan", () => {
-  assert.deepEqual(buildItemsFetchPlan([]), []);
-});
-
-test("buildItemsFetchPlan: happy path -- one page per collection when count <= pageSize", () => {
-  const plan = buildItemsFetchPlan(
-    [
-      { list_id: "2155987", count: 7 },
-      { list_id: "18925823", count: 9 },
-    ],
-    20,
-  );
-
-  assert.deepEqual(plan, [
-    { listId: "2155987", offset: 0 },
-    { listId: "18925823", offset: 0 },
-  ]);
-});
-
-test("buildItemsFetchPlan: count > pageSize produces one descriptor per page, offsets stepping by pageSize", () => {
-  const plan = buildItemsFetchPlan([{ list_id: "42", count: 45 }], 20);
-
-  assert.deepEqual(plan, [
-    { listId: "42", offset: 0 },
-    { listId: "42", offset: 20 },
-    { listId: "42", offset: 40 },
-  ]);
-});
-
-test("buildItemsFetchPlan: caps a collection's coverage at 500 items regardless of a larger count", () => {
-  const plan = buildItemsFetchPlan([{ list_id: "42", count: 10000 }], 20);
-
-  assert.equal(plan.length, 25); // 500 / 20
-  assert.deepEqual(plan[0], { listId: "42", offset: 0 });
-  assert.deepEqual(plan[24], { listId: "42", offset: 480 });
-});
-
-test("buildItemsFetchPlan: a null/absent count still yields exactly one page (offset 0)", () => {
-  const plan = buildItemsFetchPlan(
-    [
-      { list_id: "1", count: null },
-      { list_id: "2" },
-      { list_id: "3", count: 0 },
-    ],
-    20,
-  );
-
-  assert.deepEqual(plan, [
-    { listId: "1", offset: 0 },
-    { listId: "2", offset: 0 },
-    { listId: "3", offset: 0 },
-  ]);
-});
-
-test("buildItemsFetchPlan: entries missing a list_id are skipped", () => {
-  assert.deepEqual(buildItemsFetchPlan([null, {}, { count: 5 }]), []);
-});
 
 test("mapDesignHits: happy path -- maps hits to push entries", () => {
   // Mirrors backend/tests/cassettes/makerworld_fixtures.py FAVORITE_DESIGNS.
@@ -238,14 +186,14 @@ test("mapDesignHits: happy path -- maps hits to push entries", () => {
     {
       external_id: "2188414",
       title: "ESP32-C6-Zigbee Gehäuse",
-      url: "https://makerworld.com/en/models/2188414",
+      url: "https://makerworld.com/models/2188414",
       author: "Jackstyle",
       thumbnail_url: "https://makerworld.bblmw.com/cover1.jpg",
     },
     {
       external_id: "2603954",
       title: "Housing for ESP32-C6 DevKitC",
-      url: "https://makerworld.com/en/models/2603954",
+      url: "https://makerworld.com/models/2603954",
       author: "Javier Lorenzana",
       thumbnail_url: "https://makerworld.bblmw.com/cover2.jpg",
     },
@@ -275,7 +223,7 @@ test("mapDesignHits: drops entries missing an id or a title, defaults absent aut
     {
       external_id: "99",
       title: "Kept, no creator or cover",
-      url: "https://makerworld.com/en/models/99",
+      url: "https://makerworld.com/models/99",
       author: null,
       thumbnail_url: null,
     },
@@ -289,7 +237,7 @@ test("mapDesignHits: drops entries missing an id or a title, defaults absent aut
 // PRIMARY item source produced zero items on a real sync).
 
 test("findDesignListIn: matches a known key ('designs') directly, no deep-scan needed", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     designs: [{ id: 1, title: "Item A" }, { id: 2, title: "Item B" }],
     unrelated: "noise",
   });
@@ -300,22 +248,22 @@ test("findDesignListIn: matches a known key ('designs') directly, no deep-scan n
 });
 
 test("findDesignListIn: matches other known keys ('favoritesDesigns', 'list') in priority order", () => {
-  assert.deepEqual(findDesignListIn({ favoritesDesigns: [{ id: 1, title: "A" }] }), {
+  assert.deepEqual(findNoLen({ favoritesDesigns: [{ id: 1, title: "A" }] }), {
     key: "favoritesDesigns",
     designs: [{ id: 1, title: "A" }],
   });
-  assert.deepEqual(findDesignListIn({ list: [{ id: 1, name: "A" }] }), {
+  assert.deepEqual(findNoLen({ list: [{ id: 1, name: "A" }] }), {
     key: "list",
     designs: [{ id: 1, name: "A" }],
   });
 });
 
 test("findDesignListIn: a known key with an empty array is still trusted (a genuinely-empty collection)", () => {
-  assert.deepEqual(findDesignListIn({ designs: [] }), { key: "designs", designs: [] });
+  assert.deepEqual(findNoLen({ designs: [] }), { key: "designs", designs: [] });
 });
 
 test("findDesignListIn: a known key whose array doesn't look design-shaped is skipped in favor of a later match", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     designs: ["not", "design", "shaped"],
     favoritesDesigns: [{ id: 1, title: "Real design" }],
   });
@@ -323,7 +271,7 @@ test("findDesignListIn: a known key whose array doesn't look design-shaped is sk
 });
 
 test("findDesignListIn: deep-scan fallback -- a non-empty array of design-shaped objects under an unrecognized top-level key", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     someUnrecognizedField: [{ id: 42, title: "Found via deep-scan" }],
   });
   assert.deepEqual(found, {
@@ -333,24 +281,24 @@ test("findDesignListIn: deep-scan fallback -- a non-empty array of design-shaped
 });
 
 test("findDesignListIn: deep-scan fallback also looks one level into a nested plain object", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     result: { items: [{ id: 7, name: "Nested design" }] },
   });
   assert.deepEqual(found, { key: "result.items", designs: [{ id: 7, name: "Nested design" }] });
 });
 
 test("findDesignListIn: deep-scan requires shape validation AND non-emptiness -- an empty or non-design array under an unknown key is never trusted", () => {
-  assert.equal(findDesignListIn({ someField: [] }), null);
-  assert.equal(findDesignListIn({ someField: ["not", "designs"] }), null);
-  assert.equal(findDesignListIn({ someField: [{ id: "not-a-number", title: "A" }] }), null);
-  assert.equal(findDesignListIn({ someField: [{ id: 1 }] }), null); // no title/name
+  assert.equal(findNoLen({ someField: [] }), null);
+  assert.equal(findNoLen({ someField: ["not", "designs"] }), null);
+  assert.equal(findNoLen({ someField: [{ id: "not-a-number", title: "A" }] }), null);
+  assert.equal(findNoLen({ someField: [{ id: 1 }] }), null); // no title/name
 });
 
 test("findDesignListIn: no match anywhere (named keys or deep-scan) returns null", () => {
-  assert.equal(findDesignListIn({}), null);
-  assert.equal(findDesignListIn(null), null);
-  assert.equal(findDesignListIn(undefined), null);
-  assert.equal(findDesignListIn({ unrelated: "noise", other: 42 }), null);
+  assert.equal(findNoLen({}), null);
+  assert.equal(findNoLen(null), null);
+  assert.equal(findNoLen(undefined), null);
+  assert.equal(findNoLen({ unrelated: "noise", other: 42 }), null);
 });
 
 // F1 hardening: `findDesignListIn` must never mistake the collections LIST
@@ -362,7 +310,7 @@ test("findDesignListIn: no match anywhere (named keys or deep-scan) returns null
 // like a design does, wrongly matched.
 
 test("findDesignListIn: excludes favoritesList from the named-key/deep-scan search entirely -- pageProps carrying ONLY favoritesList (collection-shaped entries) is not-found", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     favoritesList: [
       { id: 2155987, title: "Default Collection", designCnt: 7, isDefault: true },
       { id: 18925823, title: "ESP32", designCnt: 9, isDefault: false },
@@ -372,19 +320,19 @@ test("findDesignListIn: excludes favoritesList from the named-key/deep-scan sear
 });
 
 test("findDesignListIn: favoritesList is excluded even when its entries would otherwise LOOK design-shaped (no collection markers) -- the key-name exclusion alone is enough to refuse it", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     favoritesList: [{ id: 1, title: "Looks design-shaped but is really a collection entry" }],
   });
   assert.equal(found, null);
 });
 
 test("findDesignListIn: collection-shaped objects (designCnt/isDefault present) are rejected by the discriminator under ANY key, named or deep-scanned -- not just favoritesList", () => {
-  assert.equal(findDesignListIn({ someUnrecognizedKey: [{ id: 1, title: "A", designCnt: 5 }] }), null);
-  assert.equal(findDesignListIn({ designs: [{ id: 1, title: "A", isDefault: true }] }), null);
+  assert.equal(findNoLen({ someUnrecognizedKey: [{ id: 1, title: "A", designCnt: 5 }] }), null);
+  assert.equal(findNoLen({ designs: [{ id: 1, title: "A", isDefault: true }] }), null);
 });
 
 test("findDesignListIn: an empty generic 'list' key does not short-circuit the search -- a real design array elsewhere still wins", () => {
-  const found = findDesignListIn({
+  const found = findNoLen({
     list: [],
     someUnrecognizedKey: [{ id: 1, title: "Real design" }],
   });
@@ -392,15 +340,15 @@ test("findDesignListIn: an empty generic 'list' key does not short-circuit the s
 });
 
 test("findDesignListIn: an empty generic 'list' key alone (nothing better found) is NOT trusted -- unlike the specific 'designs'/'favoritesDesigns' keys", () => {
-  assert.equal(findDesignListIn({ list: [] }), null);
+  assert.equal(findNoLen({ list: [] }), null);
 });
 
 // F4 hardening: an array of nothing but `null`s carries zero positive
 // design-shape evidence and must never pass as design-shaped.
 
 test("findDesignListIn: an array of all-null entries is never design-shaped, named key or deep-scan", () => {
-  assert.equal(findDesignListIn({ designs: [null, null] }), null);
-  assert.equal(findDesignListIn({ someUnrecognizedKey: [null, null] }), null);
+  assert.equal(findNoLen({ designs: [null, null] }), null);
+  assert.equal(findNoLen({ someUnrecognizedKey: [null, null] }), null);
 });
 
 // matchCollectionLinks / parseCollectionDetailUrl / collectionDetailPathnameFrom
@@ -551,15 +499,15 @@ test("collectionDetailPathnameFrom: omits the slug when the entry has none", () 
   );
 });
 
-test("collectionDetailPathnameFrom: omits the locale prefix when the URL has none", () => {
+test("collectionDetailPathnameFrom: defaults to the en locale when the URL has none", () => {
   assert.equal(
     collectionDetailPathnameFrom("https://makerworld.com/@Terminalfoo/collections", "18925823", "esp32"),
-    "/collections/18925823-esp32",
+    "/en/collections/18925823-esp32",
   );
 });
 
-test("collectionDetailPathnameFrom: falls back to no locale when the URL doesn't parse", () => {
-  assert.equal(collectionDetailPathnameFrom("not a url", "18925823", "esp32"), "/collections/18925823-esp32");
+test("collectionDetailPathnameFrom: falls back to en when the URL doesn't parse", () => {
+  assert.equal(collectionDetailPathnameFrom("not a url", "18925823", "esp32"), "/en/collections/18925823-esp32");
 });
 
 // M2: the slug comes straight off MakerWorld's own page data, not something

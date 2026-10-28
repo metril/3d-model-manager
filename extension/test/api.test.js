@@ -211,7 +211,7 @@ test("pushCollections: non-2xx surfaces the response's `detail` as `error`", asy
 
       assert.equal(result.ok, false);
       assert.equal(result.status, 422);
-      assert.equal(result.error, "collections: at most 200 entries");
+      assert.equal(result.error, "Invalid request (422): collections: at most 200 entries");
     }
   );
 });
@@ -225,7 +225,7 @@ test("non-2xx: surfaces the response's `detail` as `error`", async () => {
 
       assert.equal(result.ok, false);
       assert.equal(result.status, 422);
-      assert.equal(result.error, "Unsupported or invalid URL");
+      assert.equal(result.error, "Invalid request (422): Unsupported or invalid URL");
     }
   );
 });
@@ -245,7 +245,7 @@ test("non-2xx: joins an array `detail` (FastAPI validation shape) instead of str
 
       assert.equal(result.ok, false);
       assert.equal(result.status, 422);
-      assert.equal(result.error, "field required; field required");
+      assert.equal(result.error, "Invalid request (422): field required; field required");
       assert.doesNotMatch(result.error, /\[object Object\]/);
     }
   );
@@ -260,7 +260,7 @@ test("401: surfaces as a non-ok result without throwing", async () => {
 
       assert.equal(result.ok, false);
       assert.equal(result.status, 401);
-      assert.equal(result.error, "Not authenticated");
+      assert.equal(result.error, "Token rejected (401) — check your API token. Not authenticated");
     }
   );
 });
@@ -271,7 +271,7 @@ test("network failure: resolves to a normalized error instead of throwing", asyn
       throw new Error("getaddrinfo ENOTFOUND nas.local");
     },
     async () => {
-      const client = createClient({ baseUrl: "http://nas.local:8080", token: "tok123" });
+      const client = createClient({ baseUrl: "http://nas.local:8080", token: "tok123", retryDelayMs: 0 });
       const result = await client.ping();
 
       assert.equal(result.ok, false);

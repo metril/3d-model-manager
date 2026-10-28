@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { hashToken, pickCookieValue, shouldPush } from "../src/courier.js";
+import { decidePush, hashToken, pickCookie, pickCookieValue, shouldPush } from "../src/courier.js";
 
 test("hashToken: stable for the same input, differs for different input", async () => {
   const a1 = await hashToken("secret-cookie-value");
@@ -44,12 +44,38 @@ test("pickCookieValue: skips an empty-value entry and returns the first non-empt
   );
 });
 
-test("pickCookieValue: returns the first non-empty value when multiple candidates exist", () => {
+test("pickCookieValue: prefers the exact apex domain regardless of array order", () => {
+  const a = { domain: "www.makerworld.com", value: "first-value" };
+  const b = { domain: ".makerworld.com", value: "second-value" };
+  assert.equal(pickCookieValue([a, b]), "second-value");
+  assert.equal(pickCookieValue([b, a]), "second-value");
+});
+
+test("pickCookie: skips expired cookies", () => {
+  const now = 1000;
+  assert.equal(pickCookie([{ value: "old", expirationDate: 999 }], "makerworld.com", now), null);
   assert.equal(
-    pickCookieValue([
-      { domain: "www.makerworld.com", value: "first-value" },
-      { domain: "makerworld.com", value: "second-value" },
-    ]),
-    "first-value"
+    pickCookie([{ value: "old", expirationDate: 999 }, { value: "live", expirationDate: 2000 }], "makerworld.com", now).value,
+    "live",
   );
+});
+
+test("pickCookie: order is exact domain, then hostOnly, then latest expiry, then value (deterministic)", () => {
+  const base = { domain: "x.makerworld.com" };
+  assert.equal(pickCookie([{ ...base, value: "a" }, { ...base, value: "b", hostOnly: true }]).value, "b");
+  assert.equal(
+    pickCookie([{ ...base, value: "a", expirationDate: 5e9 }, { ...base, value: "b", expirationDate: 6e9 }]).value,
+    "b",
+  );
+  assert.equal(pickCookie([{ ...base, value: "a", expirationDate: 5e9 }, { ...base, value: "z" }]).value, "a"); // persistent beats session
+  assert.equal(pickCookie([{ ...base, value: "b" }, { ...base, value: "a" }]).value, "a");
+  assert.equal(pickCookie([{ ...base, value: "a" }, { ...base, value: "b" }]).value, "a");
+});
+
+test("decidePush: hashes once and returns the hash for persisting", async () => {
+  const r = await decidePush("cookie", null);
+  assert.equal(r.push, true);
+  assert.equal(r.hash, await hashToken("cookie"));
+  assert.deepEqual(await decidePush("cookie", r.hash), { push: false, hash: r.hash });
+  assert.deepEqual(await decidePush("", r.hash), { push: false, hash: null });
 });

@@ -593,7 +593,7 @@ jobs:
         run: |
           version="${{ needs.release-please.outputs.version }}"
           mkdir -p dist
-          (cd extension && zip -r -X "../dist/tdmm-extension-${version}.zip" manifest.json src)
+          (cd extension && zip -r -X "../dist/tdmm-extension-${version}.zip" manifest.json src icons)
           (cd dist && sha256sum "tdmm-extension-${version}.zip" > "tdmm-extension-${version}.zip.sha256")
           unzip -l "dist/tdmm-extension-${version}.zip"
       - uses: actions/upload-artifact@v7

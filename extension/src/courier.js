@@ -38,22 +38,62 @@ export async function shouldPush(currentValue, lastPushedHash) {
 }
 
 /**
- * Picks the cookie value to use from a `chrome.cookies.getAll(...)` result.
- * MakerWorld may set the `token` cookie as host-only on `www.makerworld.com`
- * rather than domain-scoped to `makerworld.com`, so a lookup can return
- * multiple candidates (or none). Pure/chrome-free so it's unit-testable
- * without a browser context.
+ * Hashes `value` ONCE and compares with the last pushed hash. Returns the
+ * hash so the caller can persist it without hashing again.
+ * @param {string|null|undefined} value
+ * @param {string|null|undefined} lastPushedHash
+ * @returns {Promise<{push: boolean, hash: string|null}>}
+ */
+export async function decidePush(value, lastPushedHash) {
+  if (!value) {
+    return { push: false, hash: null };
+  }
+  const hash = await hashToken(value);
+  return { push: hash !== lastPushedHash, hash };
+}
+
+const stripDot = (domain) => String(domain || "").replace(/^\./, "").toLowerCase();
+
+/**
+ * Deterministically picks the best cookie from a `cookies.get`/`getAll`
+ * result: skips expired cookies and empty values, then prefers (1) the exact
+ * apex domain (`makerworld.com`), (2) `hostOnly`, (3) the latest expiry
+ * (session cookies, which have none, rank below persistent ones), and finally
+ * breaks ties on the value so the choice never depends on array order.
+ * Pure/chrome-free.
+ * @param {Array<{value?: string, domain?: string, hostOnly?: boolean, expirationDate?: number}>|null|undefined} cookies
+ * @param {string} [exactDomain]
+ * @param {number} [nowSeconds]
+ * @returns {object|null} the chosen cookie object
+ */
+export function pickCookie(cookies, exactDomain = "makerworld.com", nowSeconds = Date.now() / 1000) {
+  if (!Array.isArray(cookies)) {
+    return null;
+  }
+  const usable = cookies.filter(
+    (c) =>
+      c &&
+      typeof c.value === "string" &&
+      c.value !== "" &&
+      !(typeof c.expirationDate === "number" && c.expirationDate <= nowSeconds),
+  );
+  usable.sort((a, b) => {
+    const exact = Number(stripDot(b.domain) === exactDomain) - Number(stripDot(a.domain) === exactDomain);
+    if (exact) return exact;
+    const host = Number(Boolean(b.hostOnly)) - Number(Boolean(a.hostOnly));
+    if (host) return host;
+    const expiry = (b.expirationDate ?? 0) - (a.expirationDate ?? 0);
+    if (expiry) return expiry;
+    return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
+  });
+  return usable[0] ?? null;
+}
+
+/**
+ * Value of the cookie `pickCookie` chooses, or `null`.
  * @param {Array<{value?: string}>|null|undefined} cookies
  * @returns {string|null}
  */
 export function pickCookieValue(cookies) {
-  if (!Array.isArray(cookies)) {
-    return null;
-  }
-  for (const cookie of cookies) {
-    if (cookie && typeof cookie.value === "string" && cookie.value !== "") {
-      return cookie.value;
-    }
-  }
-  return null;
+  return pickCookie(cookies)?.value ?? null;
 }
