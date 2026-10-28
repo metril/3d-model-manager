@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
 if TYPE_CHECKING:
     from app.importers.base import RemoteList, SearchResult
@@ -14,6 +14,12 @@ NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length
 
 class ImportCreate(BaseModel):
     url: NonEmptyStr
+    # Browser-extension save options: a followed (local) collection to file the
+    # model under and tag names to apply once the import completes.
+    collection_id: int | None = None
+    tags: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    ] = Field(default_factory=list, max_length=20)
 
 
 class ImportOut(BaseModel):

@@ -47,7 +47,8 @@ from app.api.deps import (
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import ApiToken, AuditLog, Printer, User
-from app.models.library import PrintQueueEntry
+from app.models.enums import BlobFormat
+from app.models.library import Blob, File, Model, PrintQueueEntry
 from app.schemas.imports import ImportCreate, ImportOut
 from app.schemas.library import ModelCreate, RevisionCreate
 from app.schemas.printers import PrinterOut
@@ -315,6 +316,42 @@ async def list_queue(
     return out
 
 
+@router.get("/models/{model_id}/printables")
+async def model_printables(
+    model_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: KeyAuth = Depends(_READ),
+) -> list[dict]:
+    """Queue-eligible files of a model's current revision: already-sliced
+    ``.gcode.3mf`` files (the only kind enqueueable without a slicer recipe).
+
+    Each element maps straight into ``POST /ext/v2/queue``:
+    ``{"file_id": el["file_id"], "model_id": <model_id>, "plate": el["plate"],
+    "printer_id": <required when the key has a printer allowlist>}`` (the
+    ``plate`` key may be omitted when null). ``kind`` is always ``"sliced"``.
+    """
+    model = await db.get(Model, model_id)
+    if model is None or model.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {model_id} not found")
+    if model.current_revision_id is None:
+        return []
+    rows = (
+        await db.execute(
+            select(File)
+            .join(Blob, Blob.hash == File.blob_hash)
+            .where(
+                File.revision_id == model.current_revision_id,
+                Blob.format == BlobFormat.GCODE_3MF,
+            )
+            .order_by(File.rel_path)
+        )
+    ).scalars()
+    return [
+        {"file_id": f.id, "name": f.rel_path.rsplit("/", 1)[-1], "kind": "sliced", "plate": None}
+        for f in rows
+    ]
+
+
 @router.post("/queue", status_code=status.HTTP_201_CREATED)
 async def enqueue(
     payload: QueueEnqueueIn,
@@ -452,9 +489,9 @@ async def create_import(
     db: AsyncSession = Depends(get_db),
     auth: KeyAuth = Depends(_UPLOAD),
 ) -> ImportOut:
-    from app.services.imports import start_import
+    from app.services.imports import start_import_with_options
 
-    imp, created = await start_import(db, payload.url, created_by_user_id=auth.ctx.user.id)
+    imp, created = await start_import_with_options(db, payload, auth.ctx.user.id)
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)
