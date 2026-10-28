@@ -195,15 +195,16 @@ function collectCollectionAnchorPathnamesInPage(expectedPathname) {
  * @param {string} buildId
  * @param {string} collectionPathname e.g. `/en/collections/18925823-esp32`
  * @param {string|null} expectedPathname navigation-race guard
+ * @param {string} [query] e.g. `?page=2&offset=20&limit=20` (later pages of a long collection)
  * @returns {Promise<unknown>} parsed data-route JSON, or `null` on any failure
  */
-async function fetchCollectionDataRouteInPage(buildId, collectionPathname, expectedPathname) {
+async function fetchCollectionDataRouteInPage(buildId, collectionPathname, expectedPathname, query) {
   const norm = (p) => String(p || "").replace(/\/$/, "");
   if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
     return null;
   }
   try {
-    const response = await fetch(`/_next/data/${buildId}${collectionPathname}.json`, {
+    const response = await fetch(`/_next/data/${buildId}${collectionPathname}.json${query || ""}`, {
       credentials: "include",
       signal: AbortSignal.timeout(15000),
     });
@@ -257,10 +258,16 @@ async function readCollectionItemsFromDataRoute(
   exec,
   report,
   expectedPathname,
+  query = "",
 ) {
   let routeJson;
   try {
-    routeJson = await exec(tabId, fetchCollectionDataRouteInPage, [buildId, collectionPathname, expectedPathname]);
+    routeJson = await exec(tabId, fetchCollectionDataRouteInPage, [
+      buildId,
+      collectionPathname,
+      expectedPathname,
+      query,
+    ]);
   } catch {
     return { items: [], found: false, rawLength: 0, diagnostic: "route unreachable" };
   }
@@ -287,6 +294,38 @@ async function readCollectionItemsFromDataRoute(
     rawLength: found.rawLength,
     diagnostic: `route ok, matched pageProps.${found.key}`,
   };
+}
+
+/** Hard bound on extra pages per collection (a looping route can't spin forever). */
+const MAX_EXTRA_PAGES = 50;
+
+/**
+ * A collection's data route serves only its first page of designs. While the
+ * items read so far fall short of `count`, keeps requesting the same route
+ * with `page`/`offset`/`limit` params (sized from the first page) and merges
+ * new ids. Stops on an unreadable/empty page, or one adding nothing new (a
+ * route that ignores the params just repeats page 1) -- leaving the result
+ * short, which the caller still reports as partial. Never throws.
+ * @returns {Promise<{items: object[], rawLength: number}>}
+ */
+async function readRemainingPages(first, count, read) {
+  const items = [...first.items];
+  const seen = new Set(items.map((item) => item.external_id));
+  const pageSize = first.rawLength;
+  let rawLength = first.rawLength;
+  for (let page = 2; page <= MAX_EXTRA_PAGES + 1 && rawLength < count; page += 1) {
+    const attempt = await read(`?page=${page}&offset=${(page - 1) * pageSize}&limit=${pageSize}`);
+    const fresh = attempt.found ? attempt.items.filter((item) => !seen.has(item.external_id)) : [];
+    if (fresh.length === 0) {
+      break;
+    }
+    for (const item of fresh) {
+      seen.add(item.external_id);
+      items.push(item);
+    }
+    rawLength += attempt.rawLength;
+  }
+  return { items, rawLength };
 }
 
 /** `findDesignListIn` accepts a `name` field standing in for `title`; `mapDesignHits` only knows `title`. */
@@ -496,10 +535,17 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
         );
         attempts.push({ ...candidate, diagnostic: attempt.diagnostic });
         if (attempt.found) {
-          primary = attempt;
+          primary = { ...attempt, pathname: candidate.pathname };
           break;
         }
       }
+    }
+
+    if (primary.found && entry.count != null && primary.rawLength > 0 && primary.rawLength < entry.count) {
+      const paged = await readRemainingPages(primary, entry.count, (query) =>
+        readCollectionItemsFromDataRoute(tabId, buildId, primary.pathname, entry.title, exec, report, guard, query),
+      );
+      primary = { ...primary, items: paged.items, rawLength: paged.rawLength };
     }
 
     // A trusted-but-empty list: only believe it (and push `[]` so removals

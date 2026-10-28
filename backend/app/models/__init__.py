@@ -21,6 +21,7 @@ from app.models.auth import (
 from app.models.base import Base
 from app.models.billing import CostCenter, LedgerEntry
 from app.models.collections import (
+    AutofollowDismissed,
     FollowedCollection,
     PendingImport,
     RemoteCollectionCache,
@@ -117,6 +118,7 @@ __all__ = [
     "UserOtpCode",
     "UserEmailPreference",
     "UserTotp",
+    "AutofollowDismissed",
     "PendingImport",
     "Print",
     "AmsLabel",

@@ -505,3 +505,34 @@ async def test_member_owned_token_cannot_set_makerworld_credential(
         "/api/ext/credentials/makerworld", json={"token": "x"}, headers=_bearer(token)
     )
     assert r.status_code == 403
+
+
+async def test_push_collections_autofollows_named_folders_when_aggregate_followed(
+    client: httpx.AsyncClient, ext_token: str, db_session
+):
+    from sqlalchemy import select
+
+    from app.models.collections import FollowedCollection
+    from app.models.enums import CollectionSyncMode, ImportSite
+    from app.services import collections as collections_svc
+
+    await collections_svc.follow(
+        db_session,
+        site=ImportSite.MAKERWORLD,
+        list_id="3054026541",
+        kind="collection",
+        title="All collected models",
+        mode=CollectionSyncMode.AUTO,
+    )
+    for _ in range(2):  # idempotent
+        r = await client.post(
+            "/api/ext/collections",
+            json={"site": "makerworld", "collections": [{"list_id": "5", "title": "ESP32"}]},
+            headers=_bearer(ext_token),
+        )
+        assert r.status_code == 200, r.text
+    db_session.expire_all()
+    rows = (await db_session.execute(select(FollowedCollection))).scalars().all()
+    by_id = {x.list_id: x for x in rows}
+    assert set(by_id) == {"3054026541", "5"}
+    assert by_id["5"].mode == CollectionSyncMode.AUTO and by_id["5"].title == "ESP32"
