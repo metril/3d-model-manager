@@ -29,7 +29,16 @@ export function install(overrides = {}) {
   });
   const chrome = {
     storage: { local: area("local"), session: area("session") },
-    runtime: { id: "test-ext", getURL: (p = "") => `chrome-extension://test-ext/${p}` },
+    runtime: {
+      id: "test-ext",
+      getURL: (p = "") => `chrome-extension://test-ext/${p}`,
+      onInstalled: event("runtime.onInstalled"),
+      onStartup: event("runtime.onStartup"),
+      onMessage: event("runtime.onMessage"),
+      openOptionsPage: async () => {
+        calls.push(["runtime.openOptionsPage"]);
+      },
+    },
     permissions: {
       contains: async (q) => (chrome.__granted ? chrome.__granted(q) : true),
       request: async (q) => {
@@ -37,8 +46,32 @@ export function install(overrides = {}) {
         return true;
       },
     },
-    cookies: { getAll: async () => [], get: async () => null, onChanged: event("cookies.onChanged") },
-    tabs: { onUpdated: event("tabs.onUpdated") },
+    cookies: {
+      getAll: async () => [],
+      get: async () => null,
+      getAllCookieStores: async () => [{ id: "0" }],
+      onChanged: event("cookies.onChanged"),
+    },
+    tabs: { onUpdated: event("tabs.onUpdated"), query: async () => [] },
+    webNavigation: { onHistoryStateUpdated: event("webNavigation.onHistoryStateUpdated") },
+    alarms: {
+      get: async () => null,
+      create: (name, info) => calls.push(["alarms.create", name, info]),
+      onAlarm: event("alarms.onAlarm"),
+    },
+    action: {
+      setBadgeText: async (a) => {
+        calls.push(["action.setBadgeText", a]);
+      },
+      setBadgeBackgroundColor: async (a) => {
+        calls.push(["action.setBadgeBackgroundColor", a]);
+      },
+    },
+    contextMenus: {
+      removeAll: (cb) => cb && cb(),
+      create: (o) => calls.push(["contextMenus.create", o]),
+      onClicked: event("contextMenus.onClicked"),
+    },
     ...overrides,
   };
   globalThis.chrome = chrome;
