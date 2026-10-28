@@ -180,10 +180,6 @@ function TypeFilter({ value, onChange }: { value: BlobFormat[]; onChange: (next:
 
 export function LibraryPage() {
   const { t } = useTranslation();
-  // One-way seed only: a provenance badge or a related-models card can deep
-  // link here with `?collection=<id>` (see `librarySearch.ts`), but the
-  // facet's own selections never write back to the URL -- same as every
-  // other filter on this page.
   const search = useSearch({ strict: false }) as LibrarySearch;
   const navigate = useNavigate();
 
@@ -198,15 +194,19 @@ export function LibraryPage() {
   const [slicedOnly, setSlicedOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [archivedOnly, setArchivedOnly] = useState(false);
-  const [activeCollection, setActiveCollection] = useState<number | undefined>(search.collection);
-  // R13b: unlike `activeCollection` above (one-way-seed-only, local state),
-  // this facet is derived LIVE from `search.category` every render -- a
-  // sidebar category link clicked while already on `/` only changes the
-  // search params (same route), so a one-shot `useState` seed would never
-  // see the update. Setting it writes back to the URL (`goToCategory`
-  // below) rather than local state, which is what makes the sidebar's own
-  // links (and the browser back button) agree with these chips.
+  // The collection and category facets are derived LIVE from the search
+  // params every render -- a sidebar collection/category link clicked while
+  // already on `/library` only changes the search params (same route), so a
+  // one-shot `useState` seed would never see the update. Setting either
+  // writes back to the URL (`goToCollection` / `goToCategory` below) rather
+  // than local state, which is what makes the sidebar's own links (and the
+  // browser back button) agree with these chips.
+  const activeCollection = search.collection;
   const activeCategory = search.category;
+
+  function goToCollection(next: number | undefined) {
+    void navigate({ to: "/library", search: (prev: LibrarySearch) => ({ ...prev, collection: next }) });
+  }
 
   function goToCategory(next: number | undefined) {
     void navigate({ to: "/library", search: (prev: LibrarySearch) => ({ ...prev, category: next }) });
@@ -471,8 +471,12 @@ export function LibraryPage() {
     setSlicedOnly(false);
     setFavoritesOnly(false);
     setArchivedOnly(false);
-    setActiveCollection(undefined);
-    if (activeCategory !== undefined) goToCategory(undefined);
+    if (activeCollection !== undefined || activeCategory !== undefined) {
+      void navigate({
+        to: "/library",
+        search: (prev: LibrarySearch) => ({ ...prev, collection: undefined, category: undefined }),
+      });
+    }
   }
 
   const secondaryFilters = (
@@ -523,7 +527,7 @@ export function LibraryPage() {
               <button
                 key={collection.id}
                 type="button"
-                onClick={() => setActiveCollection(activeCollection === collection.id ? undefined : collection.id)}
+                onClick={() => goToCollection(activeCollection === collection.id ? undefined : collection.id)}
               >
                 <Badge variant={activeCollection === collection.id ? "default" : "outline"} className="cursor-pointer">
                   {`${collection.title} (${collection.site})`}
