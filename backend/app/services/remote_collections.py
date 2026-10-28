@@ -62,6 +62,47 @@ def _upsert_values(site: ImportSite, entry: CacheEntry) -> dict:
     }
 
 
+def _upsert_stmt(site: ImportSite, entry: CacheEntry, keep: frozenset[str] = frozenset()):
+    """``keep``: column names left untouched on conflict (omitted by the caller)."""
+    stmt = pg_insert(RemoteCollectionCache).values(**_upsert_values(site, entry))
+    set_ = {
+        "title": stmt.excluded.title,
+        "slug": stmt.excluded.slug,
+        "count": stmt.excluded.count,
+        "is_default": stmt.excluded.is_default,
+        "updated_at": func.now(),
+    }
+    for k in keep:
+        set_.pop(k, None)
+    return stmt.on_conflict_do_update(
+        index_elements=[RemoteCollectionCache.site, RemoteCollectionCache.list_id],
+        set_=set_,
+    )
+
+
+async def upsert_cache_entry(
+    db: AsyncSession,
+    site: ImportSite,
+    entry: CacheEntry,
+    keep: frozenset[str] = frozenset(),
+) -> int:
+    """ASYNC single-entry upsert by ``(site, list_id)`` (``PUT
+    /ext/collections/{list_id}``). Unlike ``replace_site_cache`` this NEVER
+    deletes other cached collections. Returns 1."""
+    await db.execute(_upsert_stmt(site, entry, keep))
+    await db.commit()
+    db.expire_all()  # see `replace_site_cache`'s matching comment
+    return 1
+
+
+def upsert_cache_entry_sync(session: SyncSession, site: ImportSite, entry: CacheEntry) -> int:
+    """SYNC twin of ``upsert_cache_entry``."""
+    session.execute(_upsert_stmt(site, entry))
+    session.commit()
+    session.expire_all()
+    return 1
+
+
 async def replace_site_cache(db: AsyncSession, site: ImportSite, entries: list[CacheEntry]) -> int:
     """ASYNC twin (API path, ``POST /ext/collections``). Upsert every entry
     by ``(site, list_id)``, then delete whatever else was cached for ``site``

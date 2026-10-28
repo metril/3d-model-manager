@@ -17,7 +17,8 @@ from app.importers.registry import build_importer_for_url, deferred_site_for_url
 from app.models.collections import FollowedCollection
 from app.models.enums import ImportState
 from app.models.system import Import
-from app.services.import_dedup import find_live_import
+from app.schemas.imports import ImportCreate
+from app.services.import_dedup import find_active_import, find_live_import
 from app.tasks.importing import import_from_url
 
 
@@ -39,6 +40,7 @@ async def start_import(
     url: str,
     collection: FollowedCollection | None = None,
     created_by_user_id: int | None = None,
+    extra_tags: list[str] | None = None,
 ) -> tuple[Import, bool]:
     """Returns ``(import_row, created)``. ``created`` is False when the model was
     already in the library -- the caller then hands back the EXISTING import
@@ -64,6 +66,8 @@ async def start_import(
 
     external_id = importer.canonicalize(url)
     existing = await find_live_import(db, importer.site, external_id)
+    if existing is None:
+        existing = await find_active_import(db, importer.site, external_id)
     if existing is not None:
         return existing, False
 
@@ -74,6 +78,7 @@ async def start_import(
         state=ImportState.PENDING,
         collection_id=collection.id if collection else None,
         created_by_user_id=created_by_user_id,
+        extra_tags=extra_tags or None,
     )
     db.add(imp)
     await db.commit()
@@ -140,3 +145,26 @@ async def retry_failed_import(db: AsyncSession, import_id: int) -> Import:
     # "pending" snapshot.
     await db.refresh(imp)
     return imp
+
+
+async def start_import_with_options(
+    db: AsyncSession, payload: ImportCreate, created_by_user_id: int | None
+) -> tuple[Import, bool]:
+    """``start_import`` plus the extension's save options: ``payload.collection_id``
+    must name a followed collection (422 otherwise) and ``payload.tags`` are
+    applied to the model when the import completes."""
+    collection = None
+    if payload.collection_id is not None:
+        collection = await db.get(FollowedCollection, payload.collection_id)
+        if collection is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"collection {payload.collection_id} not found",
+            )
+    return await start_import(
+        db,
+        payload.url,
+        collection=collection,
+        created_by_user_id=created_by_user_id,
+        extra_tags=payload.tags or None,
+    )
