@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.8.0](https://github.com/metril/3d-model-manager/compare/v0.7.0...v0.8.0) (2026-10-28)
+
+
+### Features
+
+* **api:** universal tags with hex colors, icons, and any/all filters ([09465a4](https://github.com/metril/3d-model-manager/commit/09465a4d50cdc7449b4cc811248a011fa156ff80))
+* **ext:** /me, collection upsert, import save options, local lists, printables, contract test ([325a6e1](https://github.com/metril/3d-model-manager/commit/325a6e168c5bcb5c04f5010be28b8a388a36c7c2))
+* **ext:** /me, single-collection upsert, import save options, printables ([8de8db9](https://github.com/metril/3d-model-manager/commit/8de8db984005326ef14097741517209156087ab7))
+* **extension:** background import tracking and Save & queue context menu ([fbd7828](https://github.com/metril/3d-model-manager/commit/fbd7828442ecc9a37d868aa3758eade5b7b95730))
+* **extension:** background import tracking, save options, printer queue, diagnostics, slate+teal UI ([3614faa](https://github.com/metril/3d-model-manager/commit/3614faa28a6f0ad4fc750383d84573b587632a22))
+* **extension:** popup/options UI, diagnostics, printer key, shared slate+teal theme ([43d350c](https://github.com/metril/3d-model-manager/commit/43d350cb48bc2e455d1ec8d007f300a97fe3f1be))
+* **extension:** v2 client, save options, printer queue logic, contract test ([970488e](https://github.com/metril/3d-model-manager/commit/970488e44ac48460b209c87ef756c9e6365a3f63))
+* **print:** redesign printer card (state accent, grouped actions, speed menu) ([d78e4ff](https://github.com/metril/3d-model-manager/commit/d78e4ff3363d058f0b5add69607404c62756f1c1))
+* **print:** reorganize printer card controls into live row, toolbar with overflow, and state-aware footer action ([2911fbd](https://github.com/metril/3d-model-manager/commit/2911fbd6ae183dc234f0ea94437b3eb1b2368d34))
+* **tags:** shared tag vocabulary across models, files, projects, archives, collections ([0d2d6cf](https://github.com/metril/3d-model-manager/commit/0d2d6cfe07e7eee96337e6cabd1eda839c8b052d))
+* **web:** cool slate dark-first theme ([b56f204](https://github.com/metril/3d-model-manager/commit/b56f204edcbd663aa16ce85e8ece394eb2d861ac))
+* **web:** cool slate dark-first theme with semantic status tokens ([08a6754](https://github.com/metril/3d-model-manager/commit/08a6754acdd449b482cb2afecbca32305c5e536a))
+* **web:** custom tags everywhere with picker, manager, and any/all filters ([9b418ae](https://github.com/metril/3d-model-manager/commit/9b418aed7168079f07e8b4f21cfec0116ab98d2b))
+* **web:** larger default detail layout, one-click sliced preview ([fe3d75c](https://github.com/metril/3d-model-manager/commit/fe3d75ce1eeeed41672fa75a1772ce21ed04455f))
+* **web:** larger detail layout, one-click sliced preview ([1177c03](https://github.com/metril/3d-model-manager/commit/1177c0301462469dc01a129c6d1ae6af1c46a76f))
+* **web:** modern theme polish - sidebar/card surfaces, native form controls, button/tabs/dock styling ([3e85810](https://github.com/metril/3d-model-manager/commit/3e858102ccd7b0f0bbc83ffebac04d604bef33d3))
+* **web:** organized printer controls ([b189853](https://github.com/metril/3d-model-manager/commit/b1898532ae2b7b09f6ef494a8a4431a891da75e0))
+* **web:** shell + library UX (sidebar, filters, cards, header, empty states) ([c52d59c](https://github.com/metril/3d-model-manager/commit/c52d59c0a698ebc8b947914d2c1da839e6dd53c1))
+* **web:** slate+teal palette, teal default accent, type/radius polish ([3b4259e](https://github.com/metril/3d-model-manager/commit/3b4259e85daeee3eef9efed771bc0c9f81ba83d7))
+* **web:** universal tags UI with picker, filter, manager and per-entity tagging ([f8eac4f](https://github.com/metril/3d-model-manager/commit/f8eac4f1bc89418662578486b07eeac08c86b8a4))
+
+
+### Bug Fixes
+
+* **ext:** dedupe in-flight imports, can_set_credentials on /me, optional collection upsert fields ([8791e62](https://github.com/metril/3d-model-manager/commit/8791e62326bca14d8934eb4f43fb55bb12820a3d))
+* **extension:** address review findings ([91bda24](https://github.com/metril/3d-model-manager/commit/91bda24b82a318d6b0b70d806b7c30bae3342e86))
+* **extension:** anchor URL detection, share constants, harden collection scraping helpers ([396fd09](https://github.com/metril/3d-model-manager/commit/396fd09c09c8cd10e34a254beab5ff519ab9e67d))
+* **extension:** deadline-based import polling with fast-fail on 401/403/404 ([e1baa88](https://github.com/metril/3d-model-manager/commit/e1baa88bdc0907e7da6b0eef2960b962164f3e0f))
+* **extension:** event-driven single-flight courier, deterministic cookie pick, per-tab badge, sender validation, exec timeout ([b108bd0](https://github.com/metril/3d-model-manager/commit/b108bd0da36570bae0943129a68b5614efd31557))
+* **extension:** Firefox manifest keys, icons, unified name; ship icons in release zip ([913bc7c](https://github.com/metril/3d-model-manager/commit/913bc7c88b5965dc5ff0b56c53850d738e472cdd))
+* **extension:** grant-access button, https warning, me-based connection test, dedup status polling in popup ([619cc49](https://github.com/metril/3d-model-manager/commit/619cc491f814cdf573aed84d43e7668481f0eb17))
+* **extension:** harden api client (redirect, error mapping, retry); add me and upsertCollection ([cd392ad](https://github.com/metril/3d-model-manager/commit/cd392ad626eeda72faeea70e734b5a23603a2b0f))
+* **extension:** split storage into config/state with locked updater and migration ([a321c86](https://github.com/metril/3d-model-manager/commit/a321c86a848347e159f0674ce9a58a2801ad3c5b))
+* **extension:** sync data-loss, MV3 lifecycle, races, detection, Firefox support ([ccd0ab5](https://github.com/metril/3d-model-manager/commit/ccd0ab5b2d238df34c2a737c105e5e6a0efb6cc6))
+* **extension:** upsert single collection, drop uid-aggregate fallback, guard stale pages and navigation races in sync flow ([a83f61e](https://github.com/metril/3d-model-manager/commit/a83f61e7e38181bcd54a5e79e2a6d5e19f302d82))
+* **nav:** drop auto-generated per-printer sidebar links ([c338818](https://github.com/metril/3d-model-manager/commit/c338818a488414e1967c038fef5d5281cb41a18c))
+* **printerd:** publish worker only after cmd thread starts; guard unstarted join ([ae63e4b](https://github.com/metril/3d-model-manager/commit/ae63e4bf3d00e5fb54fc671f000adc3bd09bc561))
+* **printerd:** start command thread before publishing worker ([7c2aabc](https://github.com/metril/3d-model-manager/commit/7c2aabc3e691157f4df5f5ecacbb0e3106bc48a6))
+* **printers:** report offline/no data for unreachable printers ([16e9217](https://github.com/metril/3d-model-manager/commit/16e921767ac0780f26f544ef96e24a8d0aadc1c0))
+* **printers:** show unreachable printers as offline / no data ([b2b494f](https://github.com/metril/3d-model-manager/commit/b2b494fadac33a0ecaf2cae64d0ebee430d8a7d0))
+* smoke-test findings ([b4e73b3](https://github.com/metril/3d-model-manager/commit/b4e73b33e0f3b9d875a4b231d3c13c578ce05fd2))
+* smoke-test findings (api port, startup gate, slice logs, thumb size, obico version, project delete) ([b0d57ef](https://github.com/metril/3d-model-manager/commit/b0d57ef418ee400278e34d65458f51d47092db63))
+* **tags:** owner checks, file_tag_mode, legacy tag migration, bulk dedupe, race-safe create ([71918b6](https://github.com/metril/3d-model-manager/commit/71918b6e3504abd6602ac00d4ddfe87bb8f0c92e))
+* UX review fixes (format filter 422, filtered empty state, offline card, a11y, sidebar fade) ([11991b9](https://github.com/metril/3d-model-manager/commit/11991b9ca1219ea13e464334d1b036a4b47035c7))
+* **viewer:** stop stuck orbit controls and cut interaction lag ([1bb31e4](https://github.com/metril/3d-model-manager/commit/1bb31e4c007962782e8de4c3dde2b6a29ba5c2ba))
+* **web:** compact plate chips, one-row layer slider, taller viewer row ([4523351](https://github.com/metril/3d-model-manager/commit/45233511c2edfae08c48c38abbbca89de3d0f716))
+* **web:** independent file_tag_mode filter; legacy tags mirror only for models ([0b088c6](https://github.com/metril/3d-model-manager/commit/0b088c6ce3eb09e78ecd80177fa3e8d35ac0717f))
+* **web:** sliced preview as first-class viewer mode, dock fits viewport, keep camera pose on resize ([da44a96](https://github.com/metril/3d-model-manager/commit/da44a965150594d12cf4ca905decd06d780d1e47))
+* **web:** sliced preview in main viewer, dock fits viewport, keep camera on resize ([6ba9cdb](https://github.com/metril/3d-model-manager/commit/6ba9cdb9d8de2b3bd10b6b78fbaf6f54e4b28429))
+* **web:** viewer lag and stuck orbit/zoom controls ([2640015](https://github.com/metril/3d-model-manager/commit/2640015516a295177504b065ddda02a16a26f13f))
+
 ## [0.7.0](https://github.com/metril/3d-model-manager/compare/v0.6.0...v0.7.0) (2026-10-26)
 
 
