@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/metril/3d-model-manager/compare/v0.9.0...v0.9.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **web:** sidebar collection links switch the library filter live ([7ab6265](https://github.com/metril/3d-model-manager/commit/7ab626551a66babd01bf5b6ba4d1c0f5f6963eed))
+* **web:** sidebar collection links switch the library filter live ([0794978](https://github.com/metril/3d-model-manager/commit/07949785a804cb64d8d357e9b651b9d8dcb45a4e))
+
 ## [0.9.0](https://github.com/metril/3d-model-manager/compare/v0.8.0...v0.9.0) (2026-10-28)
 
 
