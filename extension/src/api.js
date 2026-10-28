@@ -9,13 +9,37 @@
  *   { ok: boolean, status: number, data: unknown, error: string|null }
  */
 
+/** Adds a status-bearing prefix for the statuses users can act on. */
+export function friendlyError(status, detail) {
+  if (status === 401) return `Token rejected (401) — check your API token. ${detail}`;
+  if (status === 403) return `Token lacks permission (403) — ${detail}`;
+  if (status === 422) return `Invalid request (422): ${detail}`;
+  if (status >= 500) return `Server error (${status}): ${detail}`;
+  return detail;
+}
+
 /**
- * @param {{ baseUrl: string, token: string }} opts
+ * @param {{ baseUrl: string, token: string, retryDelayMs?: number }} opts
  */
-export function createClient({ baseUrl, token }) {
+export function createClient({ baseUrl, token, retryDelayMs = 400 }) {
   const root = String(baseUrl ?? "").replace(/\/+$/, "");
 
-  async function request(path, { method = "GET", body } = {}) {
+  /**
+   * One request with a single retry (after `retryDelayMs`) on a transient
+   * failure -- network error, timeout or 5xx -- unless `retry: false`
+   * (non-idempotent POSTs, i.e. `createImport`).
+   */
+  async function request(path, opts = {}) {
+    const { retry = true } = opts;
+    const first = await requestOnce(path, opts);
+    if (!retry || first.ok || (first.status !== 0 && first.status < 500)) {
+      return first;
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    return requestOnce(path, opts);
+  }
+
+  async function requestOnce(path, { method = "GET", body } = {}) {
     const headers = {
       Authorization: `Bearer ${token}`,
     };
@@ -32,11 +56,16 @@ export function createClient({ baseUrl, token }) {
         headers,
         body: payload,
         credentials: "omit",
+        // A redirect would re-send the bearer token to wherever it points.
+        redirect: "error",
         signal: AbortSignal.timeout(15000),
       });
     } catch (err) {
       // Network-level failure (offline, DNS, CORS, refused connection —
       // never logs the token, only the generic failure reason).
+      if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+        return { ok: false, status: 0, data: null, error: "Request timed out — is the app reachable?" };
+      }
       return { ok: false, status: 0, data: null, error: err?.message || "Network error" };
     }
 
@@ -58,22 +87,38 @@ export function createClient({ baseUrl, token }) {
       response.statusText ||
       `Request failed (${response.status})`;
     // FastAPI validation errors surface `detail` as an array of error
-    // objects (each with a `msg`), not a string — join them instead of
-    // letting `String(detail)` render "[object Object]".
+    // objects (each with a `msg`); other shapes may be plain objects.
     if (Array.isArray(detail)) {
       detail = detail
         .map((item) => (item && typeof item === "object" ? item.msg || JSON.stringify(item) : item))
         .join("; ");
+    } else if (detail && typeof detail === "object") {
+      detail = JSON.stringify(detail);
     }
-    return { ok: false, status: response.status, data, error: String(detail) };
+    return { ok: false, status: response.status, data, error: friendlyError(response.status, String(detail)) };
   }
 
   return {
     ping() {
       return request("/ping");
     },
+    /**
+     * `GET /ext/me` -> `{username, perms, app_version}`. Older servers
+     * without it (404) fall back to `/ping`, reported as `{legacy: true}`.
+     */
+    async me() {
+      const result = await request("/me");
+      if (result.status !== 404) {
+        return result;
+      }
+      const ping = await request("/ping");
+      return ping.ok
+        ? { ...ping, data: { username: null, perms: null, app_version: null, legacy: true } }
+        : ping;
+    },
     createImport(url) {
-      return request("/imports", { method: "POST", body: { url } });
+      // Not idempotent: never auto-retried.
+      return request("/imports", { method: "POST", body: { url }, retry: false });
     },
     /**
      * Narrow status read for the popup's post-save poll (import-health
@@ -93,6 +138,19 @@ export function createClient({ baseUrl, token }) {
      */
     pushCollections(site, collections) {
       return request("/collections", { method: "POST", body: { site, collections } });
+    },
+    /**
+     * Upserts ONE cached collection entry (no delete of the others), unlike
+     * `pushCollections`, which is a full replace for the site.
+     * @param {string} site
+     * @param {{list_id: string, title: string, slug: string|null, count: number|null, is_default: boolean}} entry
+     */
+    upsertCollection(site, entry) {
+      const { list_id, ...rest } = entry;
+      return request(`/collections/${encodeURIComponent(list_id)}`, {
+        method: "PUT",
+        body: { site, ...rest },
+      });
     },
     /**
      * @param {string} site
