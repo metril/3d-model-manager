@@ -4,11 +4,11 @@ name: Release
 # plus container publishing to GHCR.
 #
 # Versioning contract:
-#   * EVERY push to main publishes ghcr.io/metril/3d-model-manager:edge and
+#   * EVERY push to main publishes ghcr.io/metril/3d-model-manager:edge, :latest and
 #     :sha-<short>, built from that exact tree, stamped APP_VERSION=edge-<sha>.
 #   * Merging the release PR release-please maintains ADDITIONALLY cuts the
 #     vX.Y.Z tag, writes CHANGELOG.md, publishes the full ladder
-#     (:X.Y.Z, :X.Y, :X, :latest), stamps APP_VERSION=X.Y.Z, rebuilds the
+#     (:X.Y.Z, :X.Y, :X), stamps APP_VERSION=X.Y.Z, rebuilds the
 #     browser-extension zip, and attaches it to the GitHub Release.
 #
 # release-please and the build run in the SAME workflow run, gated on
@@ -248,8 +248,8 @@ jobs:
   # Slicer sidecar image: build, run the real smoke slice (20 mm cube with the
   # bundled A1 mini profiles) against the container, then publish
   # ghcr.io/<owner>/3d-model-manager-slicer. Independent of the app image.
-  # Every push to main: :edge, :sha-<short>, :<bambu-version>-<sha>. A release
-  # run additionally: :X.Y.Z, :X.Y, :X, :latest (same ladder as the app image).
+  # Every push to main: :edge, :latest, :sha-<short>, :<bambu-version>-<sha>. A release
+  # run additionally: :X.Y.Z, :X.Y, :X (same ladder as the app image).
   slicer-image:
     name: Slicer sidecar image
     needs: [release-please, slicer-wrapper]
@@ -271,9 +271,9 @@ jobs:
         run: |
           img="${{ env.REGISTRY }}/${{ github.repository_owner }}/3d-model-manager-slicer"
           bambu=$(sed -n 's/^ARG BAMBU_VERSION=//p' slicer/Dockerfile)
-          tags="$img:edge $img:sha-${GITHUB_SHA::7} $img:${bambu}-${GITHUB_SHA::7}"
+          tags="$img:edge $img:latest $img:sha-${GITHUB_SHA::7} $img:${bambu}-${GITHUB_SHA::7}"
           if [ "$RELEASE_CREATED" = "true" ]; then
-            tags="$tags $img:latest $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
+            tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
           fi
           echo "list=${tags}" >> "$GITHUB_OUTPUT"
       - name: Build (loaded locally)
@@ -341,9 +341,9 @@ jobs:
           ctx=$(sed -n 's/^ *context: *\(https:\/\/github.com\/TheSpaghettiDetective\/obico-server.git#[0-9a-f]*:ml_api\) *$/\1/p' compose.obico.yaml)
           [ -n "$ctx" ] || { echo "::error::no pinned ml_api build context in compose.obico.yaml"; exit 1; }
           up=$(echo "$ctx" | sed 's/.*#\([0-9a-f]*\):ml_api/\1/')
-          tags="$img:edge $img:sha-${GITHUB_SHA::7} $img:upstream-${up::7}"
+          tags="$img:edge $img:latest $img:sha-${GITHUB_SHA::7} $img:upstream-${up::7}"
           if [ "$RELEASE_CREATED" = "true" ]; then
-            tags="$tags $img:latest $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
+            tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
           fi
           echo "context=${ctx}" >> "$GITHUB_OUTPUT"
           echo "upstream=$img:upstream-${up::7}" >> "$GITHUB_OUTPUT"
@@ -530,15 +530,15 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           # The ONE place tags are computed. The `enable=` conditions on the last
-          # four are what makes a single workflow serve both paths: non-release
-          # pushes get edge + sha only; a release run gets those plus the full
+          # three are what makes a single workflow serve both paths: non-release
+          # pushes get edge + latest + sha only; a release run gets those plus the full
           # ladder. The bare-major tag is `0` while pre-1.0 and carries no
           # compatibility promise -- kept for ladder symmetry, but the README
           # points users at :X.Y.Z or :latest.
           tags: |
             type=raw,value=edge,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
-            type=raw,value=latest,enable=${{ needs.release-please.outputs.release_created == 'true' }}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ needs.release-please.outputs.version }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
             type=raw,value=${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
             type=raw,value=${{ needs.release-please.outputs.major }},enable=${{ needs.release-please.outputs.release_created == 'true' }}

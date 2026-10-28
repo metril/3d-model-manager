@@ -4,7 +4,7 @@
 #
 # `app.services.slicer_client.SlicerClient` talks to it. The release workflow
 # publishes ghcr.io/metril/3d-model-manager-slicer (:edge, :sha-<short>,
-# :<bambu-version>-<sha>, and :X.Y.Z/:X.Y/:X/:latest on releases);
+# :<bambu-version>-<sha>, :latest, and :X.Y.Z/:X.Y/:X on releases);
 # compose.prod.yaml pulls it. Standalone, set SLICER_IMAGE to use a published
 # tag instead of the local build. The Bambu Studio AppImage is pinned
 # (version + sha256) in slicer/Dockerfile.
