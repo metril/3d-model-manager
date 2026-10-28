@@ -1,10 +1,12 @@
 /**
  * Persistence over `chrome.storage.local`, split into two keys:
  *   - `config`: user settings + the API token (written by the options page).
- *       { schemaVersion, appBaseUrl, apiToken, autoCourier, autoSyncCollections }
+ *       { schemaVersion, appBaseUrl, apiToken, printerKey, autoCourier,
+ *         autoSyncCollections }
  *   - `state`: machine-written bookkeeping (throttle hashes, courier status).
  *       { lastMakerworldHash, lastCollectionsHash,
  *         lastCollectionItemsHash: Array<{listId, hash}>,
+ *         lastSave: {collectionId, tags, printerId} (the popup's remembered choice),
  *         lastCourierStatus, lastCourierAt }
  * The split keeps the background worker's frequent state writes from ever
  * clobbering a settings save made in the options page (and vice versa).
@@ -37,6 +39,8 @@ export function coerceConfig(raw) {
     schemaVersion: SCHEMA_VERSION,
     appBaseUrl: str(r.appBaseUrl, ""),
     apiToken: str(r.apiToken, ""),
+    // Optional scoped key (`queue`+`read`) for the v2 plane (send to printer).
+    printerKey: str(r.printerKey, ""),
     autoCourier: bool(r.autoCourier, true),
     autoSyncCollections: bool(r.autoSyncCollections, true),
   };
@@ -50,7 +54,13 @@ export function coerceState(raw) {
         (e) => e && typeof e.listId === "string" && typeof e.hash === "string",
       )
     : [];
+  const save = r.lastSave && typeof r.lastSave === "object" ? r.lastSave : {};
   return {
+    lastSave: {
+      collectionId: Number.isInteger(save.collectionId) ? save.collectionId : null,
+      tags: Array.isArray(save.tags) ? save.tags.filter((t) => typeof t === "string") : [],
+      printerId: Number.isInteger(save.printerId) ? save.printerId : null,
+    },
     lastMakerworldHash: strOrNull(r.lastMakerworldHash),
     lastCollectionsHash: strOrNull(r.lastCollectionsHash),
     lastCollectionItemsHash: items,

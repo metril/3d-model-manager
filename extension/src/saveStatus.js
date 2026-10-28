@@ -38,6 +38,8 @@ function withPollTimeout(promise, ms) {
  * @param {number} [opts.timeoutMs]
  * @param {number} [opts.intervalMs]
  * @param {number} [opts.pollTimeoutMs] cap on a single status request
+ * @param {(data: object) => void} [opts.onStatus] called with every successfully
+ *   read status body (progress display / model id capture)
  * @param {(ms: number) => Promise<void>} opts.sleep
  * @param {() => number} [opts.now] clock (injectable for tests)
  * @returns {Promise<{outcome: "done"|"failed"|"timeout", error?: string}>}
@@ -48,6 +50,7 @@ export async function pollImportStatus({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
   pollTimeoutMs = DEFAULT_POLL_TIMEOUT_MS,
+  onStatus,
   sleep,
   now = Date.now,
 }) {
@@ -67,6 +70,9 @@ export async function pollImportStatus({
     }
     const data = result && result.ok ? result.data : null;
     const state = data && typeof data === "object" ? data.state : null;
+    if (state) {
+      onStatus?.(data);
+    }
 
     if (state === "done") {
       return { outcome: "done" };

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { createClient } from "../src/api.js";
 
@@ -278,5 +279,47 @@ test("network failure: resolves to a normalized error instead of throwing", asyn
       assert.equal(result.status, 0);
       assert.match(result.error, /ENOTFOUND/);
     }
+  );
+});
+
+test("contract: every api.js call's method + path appears in test/contract.json", async () => {
+  const contract = JSON.parse(readFileSync(new URL("./contract.json", import.meta.url), "utf8"));
+  const matchers = contract.map((e) => ({
+    method: e.method,
+    re: new RegExp(`^${e.path.replace(/\{[^}]+\}/g, "[^/]+")}$`),
+  }));
+  // One representative call per client method; a new method without an entry fails below.
+  const calls = {
+    ping: (c) => c.ping(),
+    me: (c) => c.me(),
+    createImport: (c) => c.createImport("u", { collectionId: 1, tags: ["a"] }),
+    getImportStatus: (c) => c.getImportStatus(5),
+    setMakerworldCredential: (c) => c.setMakerworldCredential("v"),
+    pushCollections: (c) => c.pushCollections("makerworld", []),
+    upsertCollection: (c) => c.upsertCollection("makerworld", { list_id: "9", title: "t", slug: null, count: 1, is_default: false }),
+    pushCollectionItems: (c) => c.pushCollectionItems("makerworld", "9", []),
+    listLocalCollections: (c) => c.listLocalCollections(),
+    listTags: (c) => c.listTags(),
+    v2Ping: (c) => c.v2Ping(),
+    v2Printers: (c) => c.v2Printers(),
+    v2Printables: (c) => c.v2Printables(3),
+    v2Enqueue: (c) => c.v2Enqueue({ modelId: 3, fileId: 4, plate: 1, printerId: 2 }),
+  };
+  await withStubFetch(
+    () => jsonResponse(200, { ok: true }),
+    async (seen) => {
+      const client = createClient({ baseUrl: "http://a", token: "t", retryDelayMs: 0 });
+      assert.deepEqual(Object.keys(client).sort(), Object.keys(calls).sort(), "client method without a contract call");
+      for (const [name, run] of Object.entries(calls)) {
+        seen.length = 0;
+        await run(client);
+        const { url, init } = seen[0];
+        const path = new URL(url).pathname.replace(/^\/api/, "");
+        assert.ok(
+          matchers.some((m) => m.method === init.method && m.re.test(path)),
+          `${name}: ${init.method} ${path} is not in contract.json`,
+        );
+      }
+    },
   );
 });

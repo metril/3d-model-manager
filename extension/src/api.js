@@ -4,6 +4,9 @@
  * worker and Node 18+/20+), so this stays unit-testable with a stubbed
  * `fetch` in Node's test runner without any DOM/extension shims.
  *
+ * `v2: true` requests target the scoped-key plane (`/api/ext/v2`, used with
+ * the optional "Printer key"); the same client class serves both.
+ *
  * Every method returns a normalized result instead of throwing, so callers
  * (popup/background) never need a try/catch around a network call:
  *   { ok: boolean, status: number, data: unknown, error: string|null }
@@ -39,7 +42,7 @@ export function createClient({ baseUrl, token, retryDelayMs = 400 }) {
     return requestOnce(path, opts);
   }
 
-  async function requestOnce(path, { method = "GET", body } = {}) {
+  async function requestOnce(path, { method = "GET", body, v2 = false } = {}) {
     const headers = {
       Authorization: `Bearer ${token}`,
     };
@@ -51,7 +54,7 @@ export function createClient({ baseUrl, token, retryDelayMs = 400 }) {
 
     let response;
     try {
-      response = await fetch(`${root}/api/ext${path}`, {
+      response = await fetch(`${root}${v2 ? "/api/ext/v2" : "/api/ext"}${path}`, {
         method,
         headers,
         body: payload,
@@ -116,9 +119,43 @@ export function createClient({ baseUrl, token, retryDelayMs = 400 }) {
         ? { ...ping, data: { username: null, perms: null, app_version: null, legacy: true } }
         : ping;
     },
-    createImport(url) {
+    /**
+     * @param {string} url
+     * @param {{collectionId?: number|null, tags?: string[]}} [options] applied
+     *   by the app when the import finishes (ignored on a dedup 200).
+     */
+    createImport(url, { collectionId = null, tags = [] } = {}) {
+      const body = { url };
+      if (collectionId !== null && collectionId !== undefined) body.collection_id = collectionId;
+      if (tags.length > 0) body.tags = tags;
       // Not idempotent: never auto-retried.
-      return request("/imports", { method: "POST", body: { url }, retry: false });
+      return request("/imports", { method: "POST", body, retry: false });
+    },
+    /** The app's followed collections, `[{id, name}]`. */
+    listLocalCollections() {
+      return request("/local-collections");
+    },
+    /** Existing tags, `[{name}]`, for autocomplete. */
+    listTags() {
+      return request("/tags");
+    },
+    /** v2 (scoped printer key): key info incl. `scopes`. */
+    v2Ping() {
+      return request("/ping", { v2: true });
+    },
+    v2Printers() {
+      return request("/printers", { v2: true });
+    },
+    /** Queue-eligible (sliced) files of a model: `[{file_id, name, kind, plate}]`. */
+    v2Printables(modelId) {
+      return request(`/models/${encodeURIComponent(modelId)}/printables`, { v2: true });
+    },
+    /** Not idempotent: never auto-retried. `plate` omitted when null. */
+    v2Enqueue({ modelId, fileId, plate = null, printerId = null }) {
+      const body = { model_id: modelId, file_id: fileId };
+      if (plate !== null && plate !== undefined) body.plate = plate;
+      if (printerId !== null && printerId !== undefined) body.printer_id = printerId;
+      return request("/queue", { method: "POST", body, retry: false, v2: true });
     },
     /**
      * Narrow status read for the popup's post-save poll (import-health
