@@ -33,10 +33,9 @@ const ACTIVE: ReadonlyArray<ImportOut["state"]> = ["pending", "fetching", "downl
 // and "the SSE connection/browser tab actually delivered that event".
 const LIST_POLL_MS = 5000;
 
-export const importsQueryOptions = queryOptions({
-  queryKey: ["imports"] as const,
-  queryFn: () => api.get<ImportOut[]>("/imports?limit=50"),
-});
+const PAGE_SIZE = 50;
+
+export type ImportsFilter = "all" | "failed";
 
 /** The "Recent imports" card's data source -- polls every `LIST_POLL_MS`
  * ONLY while some row is non-terminal, and stops once everything has
@@ -44,27 +43,51 @@ export const importsQueryOptions = queryOptions({
  * state idiom). `AppShell`'s failed-imports nav badge deliberately does NOT
  * use this hook -- see `useFailedImportsCount` below -- so the poll only
  * runs while the Collections page (which mounts this) is actually open. */
-export function useImportsList() {
-  return useQuery({
-    ...importsQueryOptions,
+export function useImportsList(filter: ImportsFilter = "all") {
+  return useInfiniteQuery({
+    queryKey: ["imports", "list", filter] as const,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.get<ImportOut[]>(
+        `/imports?limit=${PAGE_SIZE}&offset=${pageParam}${filter === "failed" ? "&state=failed" : ""}`,
+      ),
+    getNextPageParam: (last, pages) => (last.length >= PAGE_SIZE ? pages.length * PAGE_SIZE : undefined),
+    select: (d) => d.pages.flat(),
     refetchInterval: (query) => {
-      const rows = query.state.data ?? [];
+      const rows = query.state.data?.pages.flat() ?? [];
       return rows.some((row) => ACTIVE.includes(row.state)) ? LIST_POLL_MS : false;
     },
   });
 }
 
-/** Failed-imports count for the nav rail's Collections badge (import-health
- * task T3). Reuses `importsQueryOptions`'s exact query key so it dedupes
- * with `useImportsList` -- the SAME cached list, not a second fetch -- but
- * deliberately omits `useImportsList`'s poll: `AppShell` is mounted on every
- * page, so giving IT a 5s interval would poll app-wide forever. Staying on
- * the default (no interval) leaves it to the SSE invalidation (and any
- * mutation that touches `["imports"]`) to keep the count honest, same as
- * every other live-updated list in the app. */
+/** Count of failed, not-dismissed imports for the nav badge. Its own cheap
+ * `GET /imports/failed-count` (so it never depends on how many rows a list
+ * page holds); lives under the `["imports"]` prefix so SSE/mutation
+ * invalidation keeps it honest, with no polling. */
 export function useFailedImportsCount(): number {
-  const { data } = useQuery(importsQueryOptions);
-  return (data ?? []).filter((row) => row.state === "failed").length;
+  const { data } = useQuery({
+    queryKey: ["imports", "failed-count"] as const,
+    queryFn: () => api.get<{ count: number }>("/imports/failed-count"),
+  });
+  return data?.count ?? 0;
+}
+
+/** Acknowledge one failed import (`POST /imports/{id}/dismiss`); idempotent. */
+export function useDismissImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<ImportOut>(`/imports/${id}/dismiss`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["imports"] }),
+  });
+}
+
+/** Acknowledge every failed import at once (`POST /imports/dismiss-failed`). */
+export function useDismissFailedImports() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ dismissed: number }>("/imports/dismiss-failed"),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["imports"] }),
+  });
 }
 
 /** Re-enqueues a `failed` import (`POST /imports/{id}/retry`) -- 409 if the

@@ -31,6 +31,7 @@ class ImportOut(BaseModel):
     model_id: int | None
     error: str | None
     meta: dict | None
+    dismissed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -45,6 +46,7 @@ class ImportOut(BaseModel):
             model_id=imp.model_id,
             error=imp.error,
             meta=imp.meta,
+            dismissed_at=imp.dismissed_at,
             created_at=imp.created_at,
             updated_at=imp.updated_at,
         )

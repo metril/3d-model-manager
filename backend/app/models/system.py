@@ -51,6 +51,9 @@ class Import(Base):
     extra_tags: Mapped[list[str] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     meta: Mapped[dict | None] = mapped_column(JSONB)
+    # Set when the user acknowledges a FAILED import (stops it counting toward
+    # the nav badge); cleared again by a retry.
+    dismissed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False

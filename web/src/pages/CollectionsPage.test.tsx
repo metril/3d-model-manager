@@ -71,6 +71,9 @@ vi.mock("@/api/collections", async () => {
 vi.mock("@/api/imports", () => ({
   useImportsList: () => empty,
   useRetryImport: () => ({ ...idle, mutate: vi.fn() }),
+  useDismissImport: () => ({ ...idle, mutate: vi.fn() }),
+  useDismissFailedImports: () => ({ ...idle, mutate: vi.fn() }),
+  useFailedImportsCount: () => 0,
 }));
 
 // Radix Select never opens under jsdom -- swap for a native <select>.

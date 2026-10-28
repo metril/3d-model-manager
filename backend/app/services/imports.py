@@ -120,7 +120,7 @@ async def retry_failed_import(db: AsyncSession, import_id: int) -> Import:
     result = await db.execute(
         update(Import)
         .where(Import.id == import_id, Import.state == ImportState.FAILED)
-        .values(state=ImportState.PENDING, error=None)
+        .values(state=ImportState.PENDING, error=None, dismissed_at=None)
     )
     if result.rowcount == 0:
         # Either no such import, or one that exists but wasn't `failed` (a
