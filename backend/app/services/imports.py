@@ -18,7 +18,7 @@ from app.models.collections import FollowedCollection
 from app.models.enums import ImportState
 from app.models.system import Import
 from app.schemas.imports import ImportCreate
-from app.services.import_dedup import find_live_import
+from app.services.import_dedup import find_active_import, find_live_import
 from app.tasks.importing import import_from_url
 
 
@@ -66,6 +66,8 @@ async def start_import(
 
     external_id = importer.canonicalize(url)
     existing = await find_live_import(db, importer.site, external_id)
+    if existing is None:
+        existing = await find_active_import(db, importer.site, external_id)
     if existing is not None:
         return existing, False
 

@@ -99,11 +99,14 @@ class ExtCollectionEntryIn(BaseModel):
 
 
 class ExtCollectionUpsertIn(BaseModel):
+    """``count`` / ``is_default`` are optional: when omitted an existing row
+    keeps its stored values (insert defaults: None / False)."""
+
     site: ImportSite
     title: _TitleStr
     slug: _SlugStr | None = None
     count: int | None = None
-    is_default: bool = False
+    is_default: bool | None = None
 
 
 class ExtCollectionsPushIn(BaseModel):
@@ -145,6 +148,7 @@ class ExtMeOut(BaseModel):
     username: str
     perms: list[str]
     app_version: str
+    can_set_credentials: bool = False
 
 
 class ExtLocalCollectionOut(BaseModel):
@@ -158,12 +162,18 @@ class ExtTagOut(BaseModel):
 
 @router.get("/me", response_model=ExtMeOut)
 async def me(
-    ctx: AuthContext = Depends(require_token_context), settings: Settings = Depends(get_settings)
+    ctx: AuthContext = Depends(require_token_context),
+    settings: Settings = Depends(get_settings),
+    token: ApiToken = Depends(require_api_token),
+    db: AsyncSession = Depends(get_db),
 ) -> ExtMeOut:
     """Who the token acts as and what it can do (owner's grants capped to
     ``TOKEN_PERM_CAP``); any perms, so the options page can warn on missing ones."""
     return ExtMeOut(
-        username=ctx.user.username, perms=sorted(ctx.perms), app_version=settings.app_version
+        username=ctx.user.username,
+        perms=sorted(ctx.perms),
+        app_version=settings.app_version,
+        can_set_credentials=await _owner_has_settings_write(db, token),
     )
 
 
@@ -214,16 +224,21 @@ async def get_import_status(import_id: int, db: AsyncSession = Depends(get_db)) 
     return ImportStatusOut(id=imp.id, state=imp.state, error=imp.error, model_id=imp.model_id)
 
 
+async def _owner_has_settings_write(db: AsyncSession, token: ApiToken) -> bool:
+    owner = await db.get(User, token.user_id)
+    if owner is None:
+        return False
+    _, perms, _ = await load_grants(db, owner)
+    return "settings:write" in perms
+
+
 async def _owner_settings_write(
     token: ApiToken = Depends(require_api_token), db: AsyncSession = Depends(get_db)
 ) -> None:
     """The MakerWorld credential is global: only a token whose OWNER holds
     ``settings:write`` (uncapped grants) may overwrite it."""
-    owner = await db.get(User, token.user_id)
-    if owner is not None:
-        _, perms, _ = await load_grants(db, owner)
-        if "settings:write" in perms:
-            return
+    if await _owner_has_settings_write(db, token):
+        return
     raise HTTPException(status.HTTP_403_FORBIDDEN, "settings:write required")
 
 
@@ -291,9 +306,10 @@ async def upsert_collection(
         title=payload.title,
         slug=payload.slug,
         count=payload.count,
-        is_default=payload.is_default,
+        is_default=bool(payload.is_default),
     )
-    count = await remote_collections.upsert_cache_entry(db, payload.site, entry)
+    keep = frozenset(c for c in ("count", "is_default") if c not in payload.model_fields_set)
+    count = await remote_collections.upsert_cache_entry(db, payload.site, entry, keep)
     return ExtCollectionsPushOut(count=count)
 
 
