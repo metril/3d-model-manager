@@ -24,14 +24,18 @@
  */
 
 import { isCollectionDetailPage, isCollectionsPage, isModelPage } from "./detect.js";
-import { getConfig, isConfigured } from "./config.js";
+import { getConfig, getState, isConfigured } from "./config.js";
 import { createClient } from "./api.js";
+import { renderGrantAccess } from "./access.js";
+import { execInTab } from "./exec.js";
 import { syncCollectionDetail, syncCollections } from "./syncFlow.js";
 import { pollImportStatus } from "./saveStatus.js";
 
 const messageEl = document.getElementById("message");
 const actionsEl = document.getElementById("actions");
 const statusEl = document.getElementById("status");
+const courierEl = document.getElementById("courier");
+const accessEl = document.getElementById("access");
 
 function setStatus(text, kind) {
   statusEl.textContent = text || "";
@@ -91,19 +95,6 @@ function renderSyncCollectionDetail(tabId, url, config) {
   button.textContent = "Sync this collection to app";
   button.addEventListener("click", () => handleSyncCollectionDetail(button, tabId, url, config));
   actionsEl.replaceChildren(button);
-}
-
-/**
- * `exec(tabId, func, args)` seam `syncFlow.js` needs -- the one place this
- * file wraps `chrome.scripting.executeScript` for the collections flow.
- * Resolves to the injected function's return value (`results[0].result`),
- * or rejects if the injection itself fails (tab closed, no permission,
- * etc.) -- `syncFlow.js` is the layer that decides what an injection
- * failure means for the overall sync (see its docstring).
- */
-async function execInTab(tabId, func, args = []) {
-  const results = await chrome.scripting.executeScript({ target: { tabId }, func, args });
-  return results && results[0] && results[0].result;
 }
 
 /**
@@ -175,15 +166,19 @@ async function handleSave(button, url, config) {
     button.disabled = false;
     return;
   }
-  if (response.status !== 201) {
-    // Already in the library (200, deduped) -- nothing new was created, so
-    // there's no import to poll.
-    setStatus("Saved — already in your library.", "ok");
-    return;
-  }
-
-  setStatus("Added to your library.", "ok");
   const importId = response.data && response.data.id;
+  const knownState = response.data && response.data.state;
+  if (response.status !== 201) {
+    // Already known to the app (200, deduped). Its row may still be in
+    // flight or may have failed earlier, so report its real state.
+    if (importId === undefined || importId === null || knownState === "done") {
+      setStatus("Saved — already in your library.", "ok");
+      return;
+    }
+    setStatus("Already added — checking its status…", null);
+  } else {
+    setStatus("Added to your library.", "ok");
+  }
   if (importId === undefined || importId === null) {
     return;
   }
@@ -202,6 +197,16 @@ async function handleSave(button, url, config) {
   }
 }
 
+/** Shows the last courier outcome (recorded by the background worker). */
+async function renderCourierStatus() {
+  const state = await getState();
+  if (!state.lastCourierStatus) {
+    return;
+  }
+  const when = state.lastCourierAt ? ` (${new Date(state.lastCourierAt).toLocaleString()})` : "";
+  courierEl.textContent = `Cookie sync: ${state.lastCourierStatus}${when}`;
+}
+
 async function init() {
   const config = await getConfig();
   if (!isConfigured(config)) {
@@ -210,6 +215,12 @@ async function init() {
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab && tab.id !== undefined) {
+    // Drop any stale per-tab badge left by a context-menu save.
+    Promise.resolve(chrome.action.setBadgeText({ text: "", tabId: tab.id })).catch(() => {});
+  }
+  renderCourierStatus().catch(() => {});
+  renderGrantAccess(accessEl, config.appBaseUrl, () => init()).catch(() => {});
   const url = tab && tab.url;
   if (url && isModelPage(url)) {
     renderSavable(url, config);

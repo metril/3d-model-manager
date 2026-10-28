@@ -88,6 +88,9 @@
       .status.ok {
         color: #1a7f37;
       }
+      .status.warn {
+        color: #9a6700;
+      }
       .status.error {
         color: #c0342a;
       }
@@ -122,7 +125,10 @@
 
       <label for="app-base-url">App address</label>
       <input id="app-base-url" type="url" placeholder="http://nas.local:8080" autocomplete="off" />
-      <p class="hint">The base URL of your app, no trailing path.</p>
+      <p class="hint">The base URL of your app, no trailing path. Use https unless it is on your local network.</p>
+      <p id="insecure-warning" class="status warn" role="alert" hidden>
+        Warning: this address is plain http on a non-local host, so your API token would be sent unencrypted.
+      </p>
 
       <label for="api-token">API token</label>
       <input id="api-token" type="password" placeholder="Paste your token" autocomplete="off" />
@@ -147,6 +153,7 @@
         <button id="test" type="button">Test connection</button>
       </div>
 
+      <div id="access"></div>
       <p id="status" class="status" role="status"></p>
     </main>
     <script type="module" src="options.js"></script>

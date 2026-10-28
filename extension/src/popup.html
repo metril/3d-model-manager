@@ -67,6 +67,14 @@
       .status.error {
         color: #c0342a;
       }
+      .status.warn {
+        color: #9a6700;
+      }
+      .hint {
+        font-size: 12px;
+        color: #777;
+        margin: 8px 0 0;
+      }
       @media (prefers-color-scheme: dark) {
         body {
           background: #1e1e1e;
@@ -89,7 +97,9 @@
       <h1>Save to my library</h1>
       <p id="message">Loading&hellip;</p>
       <div id="actions"></div>
+      <div id="access"></div>
       <p id="status" class="status" role="status"></p>
+      <p id="courier" class="hint"></p>
     </main>
     <script type="module" src="popup.js"></script>
   </body>
