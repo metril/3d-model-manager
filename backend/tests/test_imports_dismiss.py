@@ -70,14 +70,18 @@ async def test_dismiss_failed_only_touches_undismissed_failed_rows(
 async def test_list_filters_offset_and_failed_count(
     authenticated_client, library_root, data_dir, db_session
 ):
-    ids = [(await _seed(db_session, state=ImportState.FAILED, external_id=str(i))).id for i in range(3)]
+    ids = [
+        (await _seed(db_session, state=ImportState.FAILED, external_id=str(i))).id for i in range(3)
+    ]
     await _seed(db_session, state=ImportState.DONE, external_id="d")
     await authenticated_client.post(f"/api/imports/{ids[0]}/dismiss")
 
     assert (await authenticated_client.get("/api/imports/failed-count")).json() == {"count": 2}
     failed = (await authenticated_client.get("/api/imports?state=failed")).json()
     assert {r["id"] for r in failed} == set(ids)
-    hidden = (await authenticated_client.get("/api/imports?state=failed&include_dismissed=false")).json()
+    hidden = (
+        await authenticated_client.get("/api/imports?state=failed&include_dismissed=false")
+    ).json()
     assert {r["id"] for r in hidden} == set(ids[1:])
     page = (await authenticated_client.get("/api/imports?state=failed&limit=2&offset=2")).json()
     assert len(page) == 1
