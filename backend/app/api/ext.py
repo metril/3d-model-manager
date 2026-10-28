@@ -20,7 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_api_token, require_token_perm
+from app.api.deps import (
+    AuthContext,
+    require_api_token,
+    require_token_context,
+    require_token_perm,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.registry import get_importer
@@ -29,8 +34,10 @@ from app.models.enums import ImportSite
 from app.models.system import Import
 from app.schemas.imports import ImportCreate, ImportOut, NonEmptyStr
 from app.services import import_tokens, remote_collections
-from app.services.imports import start_import
+from app.services.collections import list_followed
+from app.services.imports import start_import_with_options
 from app.services.permissions import load_grants
+from app.services.tags import list_tags
 
 _LIB_WRITE = require_token_perm("library:write")
 
@@ -66,9 +73,9 @@ class OkOut(BaseModel):
 
 class ImportStatusOut(BaseModel):
     """The token plane's read of an import -- deliberately just these three
-    fields, a minimal ``{id, state, error}`` payload: unlike the session-
-    gated ``ImportOut``, this omits ``url``/``site``/``external_id``/
-    ``model_id``/``meta`` on purpose, so a leaked extension token can't be
+    fields plus ``model_id`` (so the extension can deep-link to the finished
+    model), a minimal payload: unlike the session-gated ``ImportOut``, this
+    omits ``url``/``site``/``external_id``/``meta`` on purpose, so a leaked extension token can't be
     turned into a data-exfiltration read surface over the library. Import
     ids ARE sequential and therefore walkable -- a valid token holder can
     enumerate other imports' state/error by id; that's an accepted
@@ -80,10 +87,19 @@ class ImportStatusOut(BaseModel):
     id: int
     state: str
     error: str | None
+    model_id: int | None = None
 
 
 class ExtCollectionEntryIn(BaseModel):
     list_id: _IdStr
+    title: _TitleStr
+    slug: _SlugStr | None = None
+    count: int | None = None
+    is_default: bool = False
+
+
+class ExtCollectionUpsertIn(BaseModel):
+    site: ImportSite
     title: _TitleStr
     slug: _SlugStr | None = None
     count: int | None = None
@@ -125,6 +141,49 @@ async def ping() -> OkOut:
     return OkOut()
 
 
+class ExtMeOut(BaseModel):
+    username: str
+    perms: list[str]
+    app_version: str
+
+
+class ExtLocalCollectionOut(BaseModel):
+    id: int
+    name: str
+
+
+class ExtTagOut(BaseModel):
+    name: str
+
+
+@router.get("/me", response_model=ExtMeOut)
+async def me(
+    ctx: AuthContext = Depends(require_token_context), settings: Settings = Depends(get_settings)
+) -> ExtMeOut:
+    """Who the token acts as and what it can do (owner's grants capped to
+    ``TOKEN_PERM_CAP``); any perms, so the options page can warn on missing ones."""
+    return ExtMeOut(
+        username=ctx.user.username, perms=sorted(ctx.perms), app_version=settings.app_version
+    )
+
+
+@router.get("/local-collections", response_model=list[ExtLocalCollectionOut])
+async def local_collections(
+    db: AsyncSession = Depends(get_db), _: AuthContext = Depends(_LIB_WRITE)
+) -> list[ExtLocalCollectionOut]:
+    """Followed (local) collections, for the extension's save-to picker."""
+    rows = await list_followed(db)
+    return [ExtLocalCollectionOut(id=r.id, name=r.title) for r in rows]
+
+
+@router.get("/tags", response_model=list[ExtTagOut])
+async def tags(
+    db: AsyncSession = Depends(get_db), _: AuthContext = Depends(_LIB_WRITE)
+) -> list[ExtTagOut]:
+    """Existing tag names, for the extension's tag chip autocomplete."""
+    return [ExtTagOut(name=t.name) for t in await list_tags(db)]
+
+
 @router.post("/imports", status_code=status.HTTP_201_CREATED, response_model=ImportOut)
 async def create_import(
     payload: ImportCreate,
@@ -136,7 +195,7 @@ async def create_import(
     -- same ``start_import`` call, same 200-vs-201 dedup signal -- reused
     verbatim rather than reimplemented so the two entry points can't drift.
     """
-    imp, created = await start_import(db, payload.url, created_by_user_id=ctx.user.id)
+    imp, created = await start_import_with_options(db, payload, ctx.user.id)
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)
@@ -152,7 +211,7 @@ async def get_import_status(import_id: int, db: AsyncSession = Depends(get_db)) 
     imp = await db.get(Import, import_id)
     if imp is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"import {import_id} not found")
-    return ImportStatusOut(id=imp.id, state=imp.state, error=imp.error)
+    return ImportStatusOut(id=imp.id, state=imp.state, error=imp.error, model_id=imp.model_id)
 
 
 async def _owner_settings_write(
@@ -215,6 +274,26 @@ async def push_collections(
         for entry in payload.collections
     ]
     count = await remote_collections.replace_site_cache(db, payload.site, entries)
+    return ExtCollectionsPushOut(count=count)
+
+
+@router.put("/collections/{list_id}", response_model=ExtCollectionsPushOut)
+async def upsert_collection(
+    list_id: _IdStr,
+    payload: ExtCollectionUpsertIn,
+    db: AsyncSession = Depends(get_db),
+    _: AuthContext = Depends(_LIB_WRITE),
+) -> ExtCollectionsPushOut:
+    """Upsert ONE cached collection entry (never deletes others, unlike the
+    full-replace ``POST /ext/collections``)."""
+    entry = remote_collections.CacheEntry(
+        list_id=list_id,
+        title=payload.title,
+        slug=payload.slug,
+        count=payload.count,
+        is_default=payload.is_default,
+    )
+    count = await remote_collections.upsert_cache_entry(db, payload.site, entry)
     return ExtCollectionsPushOut(count=count)
 
 

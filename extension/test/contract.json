@@ -1,0 +1,17 @@
+[
+  {"method": "GET", "path": "/ext/ping", "request_fields": [], "response_fields": ["ok"]},
+  {"method": "GET", "path": "/ext/me", "request_fields": [], "response_fields": ["username", "perms", "app_version"]},
+  {"method": "POST", "path": "/ext/imports", "request_fields": ["url", "collection_id", "tags"], "response_fields": ["id", "state", "model_id", "error"]},
+  {"method": "GET", "path": "/ext/imports/{import_id}", "request_fields": [], "response_fields": ["id", "state", "error", "model_id"]},
+  {"method": "POST", "path": "/ext/credentials/makerworld", "request_fields": ["token"], "response_fields": ["ok"]},
+  {"method": "POST", "path": "/ext/collections", "request_fields": ["site", "collections"], "response_fields": ["ok", "count"]},
+  {"method": "PUT", "path": "/ext/collections/{list_id}", "request_fields": ["site", "title", "slug", "count", "is_default"], "response_fields": ["count"]},
+  {"method": "POST", "path": "/ext/collections/{list_id}/items", "request_fields": ["site", "items"], "response_fields": ["ok", "count"]},
+  {"method": "GET", "path": "/ext/local-collections", "request_fields": [], "response_fields": ["id", "name"]},
+  {"method": "GET", "path": "/ext/tags", "request_fields": [], "response_fields": ["name"]},
+  {"method": "GET", "path": "/ext/v2/ping", "request_fields": [], "response_fields": []},
+  {"method": "GET", "path": "/ext/v2/printers", "request_fields": [], "response_fields": ["id", "name"]},
+  {"method": "GET", "path": "/ext/v2/models/{model_id}/printables", "request_fields": [], "response_fields": []},
+  {"method": "POST", "path": "/ext/v2/queue", "request_fields": ["model_id", "file_id", "plate", "printer_id"], "response_fields": []},
+  {"method": "POST", "path": "/ext/v2/imports", "request_fields": ["url", "collection_id", "tags"], "response_fields": ["id", "state", "model_id"]}
+]

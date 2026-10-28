@@ -46,6 +46,9 @@ class Import(Base):
     collection_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("followed_collections.id", ondelete="SET NULL")
     )
+    # Extra tag names to apply to the resulting model when the import
+    # completes (browser extension "save options"); NULL/empty = none.
+    extra_tags: Mapped[list[str] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     meta: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

@@ -103,9 +103,9 @@ async def test_get_import_status_returns_narrow_shape(
 
     r = await client.get(f"/api/ext/imports/{import_id}", headers=_bearer(ext_token))
     assert r.status_code == 200, r.text
-    # Exactly {id, state, error} -- no url/site/external_id/model_id/meta:
+    # Exactly {id, state, error, model_id} -- no url/site/external_id/meta:
     # the ext plane must not become a data-exfiltration read surface.
-    assert set(r.json()) == {"id", "state", "error"}
+    assert set(r.json()) == {"id", "state", "error", "model_id"}
     assert r.json()["id"] == import_id
     assert r.json()["state"] in {"pending", "fetching", "downloading", "done", "failed"}
 

@@ -292,6 +292,18 @@ def _stage_and_process_files(
     return process_staged_zips(settings, staged)
 
 
+def _merge_tags(meta_tags, extra_tags) -> list[str]:
+    """Site tags first, then the extension-supplied ones; case-insensitive dedupe."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in [*(meta_tags or ()), *(extra_tags or ())]:
+        key = name.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(name.strip())
+    return out
+
+
 def _set_state(session, imp: Import, state: ImportState, *, error: str | None = None) -> None:
     imp.state = state
     if error is not None:
@@ -407,7 +419,7 @@ def import_from_url(import_id: int) -> None:
                 source_author=meta.author,
                 source_license=meta.license,
                 imported_at=datetime.now(UTC),
-                tags=list(meta.tags),
+                tags=_merge_tags(meta.tags, imp.extra_tags),
                 source_collection_id=source_collection_id,
                 source_collection_title=source_collection_title,
                 initial_revision_name="imported",
