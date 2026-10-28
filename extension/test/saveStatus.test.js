@@ -3,12 +3,79 @@ import assert from "node:assert/strict";
 
 import { pollImportStatus } from "../src/saveStatus.js";
 
-/** A `sleep` stub that never actually waits, but records each call's ms. */
+/** Fake clock: `sleep` advances `now` instead of waiting. */
+let clock = 0;
+const now = () => clock;
 function fakeSleep(calls) {
   return async (ms) => {
     calls.push(ms);
+    clock += ms;
   };
 }
+
+test("pollImportStatus: 401/403/404 fail immediately without further polling", async () => {
+  for (const status of [401, 403, 404]) {
+    let calls = 0;
+    const result = await pollImportStatus({
+      fetchStatus: async () => {
+        calls++;
+        return { ok: false, status, data: null, error: `bad ${status}` };
+      },
+      importId: 1,
+      now,
+      sleep: fakeSleep([]),
+    });
+    assert.deepEqual(result, { outcome: "failed", error: `bad ${status}` });
+    assert.equal(calls, 1);
+  }
+});
+
+test("pollImportStatus: slow requests count against the deadline (clock-based)", async () => {
+  clock = 0;
+  let calls = 0;
+  const result = await pollImportStatus({
+    fetchStatus: async () => {
+      calls++;
+      clock += 5000;
+      return { ok: true, status: 200, data: { state: "fetching" }, error: null };
+    },
+    importId: 1,
+    timeoutMs: 15000,
+    intervalMs: 2000,
+    now,
+    sleep: fakeSleep([]),
+  });
+  assert.deepEqual(result, { outcome: "timeout" });
+  assert.equal(calls, 3); // not ceil(15000/2000)=8
+});
+
+test("pollImportStatus: a hanging request is cut off by the per-poll timeout", async () => {
+  clock = 0;
+  let calls = 0;
+  const result = await pollImportStatus({
+    fetchStatus: () => {
+      calls++;
+      return new Promise(() => {});
+    },
+    importId: 1,
+    timeoutMs: 1,
+    pollTimeoutMs: 10,
+    now,
+    sleep: fakeSleep([]),
+  });
+  assert.deepEqual(result, { outcome: "timeout" });
+  assert.equal(calls, 1);
+});
+
+test("pollImportStatus: a deduped (200) import's state is honoured like a fresh one", async () => {
+  const result = await pollImportStatus({
+    fetchStatus: async () => ({ ok: true, status: 200, data: { id: 3, state: "failed", error: "old failure" }, error: null }),
+    importId: 3,
+    now,
+    sleep: fakeSleep([]),
+  });
+  assert.deepEqual(result, { outcome: "failed", error: "old failure" });
+});
 
 test("pollImportStatus: resolves done as soon as the state is done", async () => {
   const sleeps = [];
@@ -19,7 +86,7 @@ test("pollImportStatus: resolves done as soon as the state is done", async () =>
       return { ok: true, status: 200, data: { id: 1, state: "done", error: null }, error: null };
     },
     importId: 1,
-    sleep: fakeSleep(sleeps),
+    now, sleep: fakeSleep(sleeps),
   });
 
   assert.deepEqual(result, { outcome: "done" });
@@ -40,7 +107,7 @@ test("pollImportStatus: resolves failed with the row's error text", async () => 
       error: null,
     }),
     importId: 1,
-    sleep: fakeSleep([]),
+    now, sleep: fakeSleep([]),
   });
 
   assert.deepEqual(result, {
@@ -58,7 +125,7 @@ test("pollImportStatus: a failed state with no error text falls back to a generi
       error: null,
     }),
     importId: 1,
-    sleep: fakeSleep([]),
+    now, sleep: fakeSleep([]),
   });
 
   assert.deepEqual(result, { outcome: "failed", error: "Import failed." });
@@ -80,7 +147,7 @@ test("pollImportStatus: times out if the import never leaves a non-terminal stat
     importId: 1,
     timeoutMs: 6000,
     intervalMs: 2000,
-    sleep: fakeSleep(sleeps),
+    now, sleep: fakeSleep(sleeps),
   });
 
   assert.deepEqual(result, { outcome: "timeout" });
@@ -100,7 +167,7 @@ test("pollImportStatus: a transient fetch error mid-poll is retried, not surface
     importId: 1,
     timeoutMs: 6000,
     intervalMs: 2000,
-    sleep: fakeSleep(sleeps),
+    now, sleep: fakeSleep(sleeps),
   });
 
   assert.deepEqual(result, { outcome: "done" });
@@ -118,7 +185,7 @@ test("pollImportStatus: fetch errors all the way to the deadline still resolve t
     importId: 1,
     timeoutMs: 4000,
     intervalMs: 2000,
-    sleep: fakeSleep([]),
+    now, sleep: fakeSleep([]),
   });
 
   assert.deepEqual(result, { outcome: "timeout" });
