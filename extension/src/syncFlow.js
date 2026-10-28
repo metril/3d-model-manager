@@ -313,7 +313,7 @@ async function readRemainingPages(first, count, read) {
   const seen = new Set(items.map((item) => item.external_id));
   const pageSize = first.rawLength;
   let rawLength = first.rawLength;
-  for (let page = 2; page <= MAX_EXTRA_PAGES && rawLength < count; page += 1) {
+  for (let page = 2; page <= MAX_EXTRA_PAGES + 1 && rawLength < count; page += 1) {
     const attempt = await read(`?page=${page}&offset=${(page - 1) * pageSize}&limit=${pageSize}`);
     const fresh = attempt.found ? attempt.items.filter((item) => !seen.has(item.external_id)) : [];
     if (fresh.length === 0) {

@@ -20,6 +20,7 @@ from sqlalchemy.orm import aliased
 
 from app.importers.base import AGGREGATE_LIST_TITLE
 from app.models.collections import (
+    AutofollowDismissed,
     FollowedCollection,
     PendingImport,
     RemoteCollectionCache,
@@ -149,6 +150,12 @@ async def follow(
         ),
     )
     db.add(row)
+    # An explicit follow clears any auto-follow tombstone for this list.
+    await db.execute(
+        sa_delete(AutofollowDismissed).where(
+            AutofollowDismissed.site == site, AutofollowDismissed.list_id == list_id
+        )
+    )
     await db.commit()
     await db.refresh(row)
     return row
@@ -158,6 +165,13 @@ async def unfollow(db: AsyncSession, collection_id: int) -> None:
     """Unfollow. Its queued `pending_imports` go with it (FK ON DELETE CASCADE)
     -- they only ever meant "this followed list found something new"."""
     row = await get_followed(db, collection_id)
+    if not row.is_aggregate:
+        # Tombstone so auto-follow doesn't resurrect a folder the user dropped.
+        await db.execute(
+            pg_insert(AutofollowDismissed)
+            .values(site=row.site, list_id=row.list_id)
+            .on_conflict_do_nothing()
+        )
     await db.delete(row)
     await db.commit()
 
@@ -295,6 +309,7 @@ def _autofollow_plan(
     aggregates: Sequence[FollowedCollection],
     cached: Sequence[RemoteCollectionCache],
     followed: set[tuple[ImportSite, str]],
+    dismissed: set[tuple[ImportSite, str]],
 ) -> list[dict]:
     """Rows to insert: every cached named folder of a site whose aggregate is
     followed, not yet followed itself. Inherits the aggregate's mode/owner."""
@@ -304,7 +319,7 @@ def _autofollow_plan(
     out = []
     for c in cached:
         agg = agg_by_site.get(c.site)
-        if agg is None or c.list_id == agg.list_id or (c.site, c.list_id) in followed:
+        if agg is None or c.list_id == agg.list_id or (c.site, c.list_id) in followed | dismissed:
             continue
         out.append(
             {
@@ -341,7 +356,10 @@ async def autofollow_named(db: AsyncSession, site: ImportSite | None = None) -> 
     followed = {
         (r.site, r.list_id) for r in (await db.execute(select(FollowedCollection))).scalars()
     }
-    plan = _autofollow_plan(aggregates, cached, followed)
+    dismissed = {
+        (r.site, r.list_id) for r in (await db.execute(select(AutofollowDismissed))).scalars()
+    }
+    plan = _autofollow_plan(aggregates, cached, followed, dismissed)
     if plan:
         await db.execute(pg_insert(FollowedCollection).values(plan).on_conflict_do_nothing())
         await db.commit()
@@ -356,7 +374,10 @@ def autofollow_named_sync(session: SyncSession, site: ImportSite | None = None) 
         return 0
     cached = list(session.execute(cache_stmt).scalars())
     followed = {(r.site, r.list_id) for r in session.execute(select(FollowedCollection)).scalars()}
-    plan = _autofollow_plan(aggregates, cached, followed)
+    dismissed = {
+        (r.site, r.list_id) for r in session.execute(select(AutofollowDismissed)).scalars()
+    }
+    plan = _autofollow_plan(aggregates, cached, followed, dismissed)
     if plan:
         session.execute(pg_insert(FollowedCollection).values(plan).on_conflict_do_nothing())
         session.commit()

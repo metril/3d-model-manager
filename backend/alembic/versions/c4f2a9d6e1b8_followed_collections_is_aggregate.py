@@ -26,7 +26,15 @@ def upgrade() -> None:
         "UPDATE followed_collections SET is_aggregate = true "
         "WHERE site = 'makerworld' AND kind = 'collection' AND title = 'All collected models'"
     )
+    op.create_table(
+        "collection_autofollow_dismissed",
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
+        sa.Column("site", sa.String(), nullable=False),
+        sa.Column("list_id", sa.Text(), nullable=False),
+        sa.UniqueConstraint("site", "list_id", name="uq_collection_autofollow_dismissed_site_list"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("collection_autofollow_dismissed")
     op.drop_column("followed_collections", "is_aggregate")

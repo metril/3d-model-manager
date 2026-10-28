@@ -67,6 +67,22 @@ class FollowedCollection(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
+class AutofollowDismissed(Base):
+    """Tombstone: a named folder the user unfollowed, so ``autofollow_named``
+    doesn't re-follow it on the next sync. Cleared by an explicit re-follow.
+    A separate table (not a flag on ``RemoteCollectionCache``) because
+    ``replace_site_cache`` may rewrite those rows."""
+
+    __tablename__ = "collection_autofollow_dismissed"
+    __table_args__ = (
+        UniqueConstraint("site", "list_id", name="uq_collection_autofollow_dismissed_site_list"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    site: Mapped[ImportSite] = mapped_column(str_enum(ImportSite, "import_site"), nullable=False)
+    list_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class PendingImport(Base):
     """An item a ``review``-mode sync discovered but did NOT import. Approving
     one just POSTs its ``url`` through the normal import path (which is itself

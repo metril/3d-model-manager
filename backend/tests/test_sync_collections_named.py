@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.importers.base import SearchResult
 from app.models.collections import (
+    AutofollowDismissed,
     FollowedCollection,
     PendingImport,
     RemoteCollectionCache,
@@ -226,3 +227,31 @@ async def test_follow_marks_makerworld_all_collected_models_as_aggregate(db_sess
     )
     other = await svc.follow(db_session, site=SITE, list_id="9", kind="collection", title="Named")
     assert row.is_aggregate is True and other.is_aggregate is False
+
+
+async def test_unfollowed_named_folder_stays_unfollowed_until_explicitly_refollowed(db_session):
+    agg = await svc.follow(
+        db_session, site=SITE, list_id=AGG, kind="collection", title="All collected models"
+    )
+    db_session.add(RemoteCollectionCache(site=SITE, list_id=NAMED, title="Things to print"))
+    await db_session.commit()
+    assert await svc.autofollow_named(db_session) == 1
+    named = (
+        await db_session.execute(
+            select(FollowedCollection).where(FollowedCollection.list_id == NAMED)
+        )
+    ).scalar_one()
+
+    await svc.unfollow(db_session, named.id)
+    assert await svc.autofollow_named(db_session) == 0
+    assert await db_session.run_sync(lambda s: svc.autofollow_named_sync(s)) == 0  # sync twin
+    left = (await db_session.execute(select(FollowedCollection))).scalars().all()
+    assert [r.list_id for r in left] == [agg.list_id]
+
+    # explicit re-follow clears the tombstone: it's followed again, and a later
+    # unfollow re-writes it
+    again = await svc.follow(db_session, site=SITE, list_id=NAMED, kind="collection", title="T")
+    dismissed = (await db_session.execute(select(AutofollowDismissed))).scalars().all()
+    assert dismissed == []
+    await svc.unfollow(db_session, again.id)
+    assert await svc.autofollow_named(db_session) == 0

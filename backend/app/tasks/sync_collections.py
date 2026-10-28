@@ -140,6 +140,8 @@ def _sync_one(session, collection: FollowedCollection) -> None:
             session.commit()
             session.refresh(imp)
             import_from_url.apply_async(args=[imp.id], task_id=f"import-{imp.id}")
+            # A stale review row (e.g. queued earlier under the aggregate).
+            collections_svc.drop_pending_sync(session, collection, item.external_id)
         else:
             collections_svc.add_pending_sync(
                 session,
