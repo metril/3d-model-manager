@@ -61,7 +61,7 @@ and the `virtual-printer` run this **one** image; they differ only by the
 `ROLE` env var and their `command`. The overlay also pulls the published
 slicer sidecar, `ghcr.io/metril/3d-model-manager-slicer:${IMAGE_TAG}`
 (amd64; versioned in lockstep with the app, so no extra variable).
-**Note:** `ghcr.io/metril/3d-model-manager-slicer:latest` only exists after the first release published following this change; until then use `IMAGE_TAG=edge` (or skip the slicer with `docker compose stop slicer`).
+**Note:** the slicer image is published on every push to `main` (`:edge`/`:latest`); to skip it use `docker compose stop slicer`.
 
 Confirm what's actually running:
 
@@ -275,7 +275,7 @@ All on `ghcr.io/metril/3d-model-manager`:
 | `v0.1.0` | Never | **Production.** An exact release, byte-for-byte reproducible. |
 | `0.1` | Yes — newest patch in that minor series | Automatic patch updates, no feature changes. |
 | `0` | Yes — newest release in that major series | Pre-1.0 this carries **no compatibility promise**; it exists for ladder symmetry. Don't deploy it. |
-| `latest` | Yes — newest stable release | Casual/first-time deployments. |
+| `latest` | Yes — **every** push to `main` (same as `edge`) | Casual/first-time deployments. Pin a release for anything you care about. |
 | `edge` | Yes — **every** push to `main` | Testing unreleased work. **Not supported**: it can contain schema changes whose migrations are not in any release. |
 | `sha-<short>` | Never | Pinning one specific commit, e.g. bisecting a regression. |
 
@@ -463,8 +463,8 @@ starts with the stack and is enabled by default; **Settings → Server**
 holds the on/off switch, URL (default `http://slicer:3001`), timeout, a
 health badge and a Test button. No env var is needed. With
 `compose.prod.yaml` the published image
-`ghcr.io/metril/3d-model-manager-slicer` (tags `edge`, `sha-<short>`,
-`<bambu>-<sha>`, and `X.Y.Z`/`X.Y`/`X`/`latest` per release; amd64 only) is
+`ghcr.io/metril/3d-model-manager-slicer` (tags `edge`, `latest`, `sha-<short>`,
+`<bambu>-<sha>`, and `X.Y.Z`/`X.Y`/`X` per release; amd64 only) is
 pulled; a source build uses `tdmm-slicer:local`. Set `SLICER_IMAGE` in `.env`
 to pin another tag. With the slicer disabled, recipe actions stay off
 (`GET /api/slicer/health` reports `configured: false`).
