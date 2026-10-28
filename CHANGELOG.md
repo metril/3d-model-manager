@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2](https://github.com/metril/3d-model-manager/compare/v0.9.1...v0.9.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **web:** give the sidebar username its own row so it isn't clipped ([4a70b04](https://github.com/metril/3d-model-manager/commit/4a70b041180ebb8b065e486c99814403465e4c25))
+* **web:** give the sidebar username its own row so it isn't clipped ([abe8cd6](https://github.com/metril/3d-model-manager/commit/abe8cd604a853a516b9942b1518776ddd270d819))
+
 ## [0.9.1](https://github.com/metril/3d-model-manager/compare/v0.9.0...v0.9.1) (2026-10-28)
 
 
