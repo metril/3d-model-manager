@@ -101,6 +101,7 @@ test("coerce: wrong-typed stored values fall back to defaults", () => {
     schemaVersion: SCHEMA_VERSION,
     appBaseUrl: "",
     apiToken: "",
+    printerKey: "",
     autoCourier: true,
     autoSyncCollections: true,
   });

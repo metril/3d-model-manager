@@ -44,13 +44,13 @@ export async function missingOrigins(appBaseUrl) {
 }
 
 /**
- * Requests every missing origin in one prompt. MUST be called from a user
- * gesture (a click handler).
- * @param {string} appBaseUrl
+ * Requests the given (already computed) missing origins in one prompt. MUST
+ * be called synchronously from a user gesture (a click handler): Firefox
+ * drops the gesture across an `await`, so `missing` is computed at render time.
+ * @param {string[]} missing
  * @returns {Promise<boolean>} true when nothing is missing afterwards
  */
-export async function grantAccess(appBaseUrl) {
-  const missing = await missingOrigins(appBaseUrl);
+export async function grantAccess(missing) {
   if (missing.length === 0) {
     return true;
   }
@@ -73,7 +73,9 @@ export async function renderGrantAccess(container, appBaseUrl, onGranted) {
   button.textContent = "Grant access";
   button.title = `Needed: ${missing.join(", ")}`;
   button.addEventListener("click", async () => {
-    const granted = await grantAccess(appBaseUrl);
+    // FIRST statement: no awaits before the request (Firefox user gesture).
+    const request = chrome.permissions.request({ origins: missing });
+    const granted = await Promise.resolve(request).then(Boolean, () => false);
     if (granted) {
       button.remove();
       onGranted?.();

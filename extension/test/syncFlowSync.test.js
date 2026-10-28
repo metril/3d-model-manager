@@ -449,7 +449,7 @@ test("syncCollectionDetail: upserts ONE entry via upsertCollection (never the fu
   const result = await syncCollectionDetail({ tabId: 1, url: DETAIL_URL, exec, api, report });
   assert.equal(calls.pushCollections.length, 0);
   assert.deepEqual(calls.upsertCollection, [
-    { site: "makerworld", entry: { list_id: "18925823", title: "ESP32", slug: "esp32", count: 1, is_default: false } },
+    { site: "makerworld", entry: { list_id: "18925823", title: "ESP32", slug: "esp32", count: 1 } },
   ]);
   assert.equal(calls.pushCollectionItems.length, 1);
   assert.deepEqual(result, { listId: "18925823", title: "ESP32", items: 1, partial: false, countDerived: true, persistable: true });
@@ -493,7 +493,8 @@ test("syncCollectionDetail: count not derivable + named key -> pushes with count
   const exec = detailExec(detailPage({ favoritesInfo: { id: 18925823, title: "ESP32" }, designs: [design(1), design(2)] }));
   const { api, calls } = stubApi();
   const result = await syncCollectionDetail({ tabId: 1, url: DETAIL_URL, exec, api, report: () => {} });
-  assert.equal(calls.upsertCollection[0].entry.count, null);
+  assert.equal("count" in calls.upsertCollection[0].entry, false);
+  assert.equal("is_default" in calls.upsertCollection[0].entry, false);
   assert.equal(calls.pushCollectionItems[0].items.length, 2);
   assert.equal(result.countDerived, false);
   assert.equal(result.persistable, true);

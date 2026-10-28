@@ -742,12 +742,13 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
   }
 
   if (title) {
+    // `is_default` is omitted (the server keeps the stored value), and so is
+    // `count` when it wasn't derived from the page.
     const entry = {
       list_id: parsed.id,
       title,
       slug: parsed.slug,
-      count: countDerived ? count : null,
-      is_default: false,
+      ...(countDerived ? { count } : {}),
     };
     const listResult = await api.upsertCollection("makerworld", entry);
     if (!listResult.ok) {

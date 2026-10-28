@@ -90,13 +90,34 @@ test("missingOrigins/grantAccess: asks only for what is missing, in one request"
     assert.deepEqual(await missingOrigins("http://nas.local:8080"), ["http://nas.local:8080/*"].concat(
       requiredOrigins("x").filter((o) => !o.includes("makerworld.com")),
     ));
-    assert.equal(await grantAccess("http://nas.local:8080"), true);
+    assert.equal(await grantAccess(await missingOrigins("http://nas.local:8080")), true);
     assert.equal(h.calls.filter((c) => c[0] === "permissions.request").length, 1);
     h.chrome.__granted = () => true;
     assert.deepEqual(await missingOrigins("http://nas.local:8080"), []);
-    assert.equal(await grantAccess("http://nas.local:8080"), true);
+    assert.equal(await grantAccess([]), true);
     assert.equal(h.calls.filter((c) => c[0] === "permissions.request").length, 1); // no extra prompt
   } finally {
+    h.uninstall();
+  }
+});
+
+test("renderGrantAccess: click requests the render-time missing origins with no await before request", async () => {
+  const h = install();
+  try {
+    h.chrome.__granted = () => false;
+    let click;
+    const button = { addEventListener: (_e, fn) => (click = fn), remove() {} };
+    globalThis.document = { createElement: () => button };
+    const container = { append() {} };
+    assert.equal(await renderGrantAccess(container, "http://nas.local:8080"), true);
+    const before = h.calls.filter((c) => c[0] === "permissions.request").length;
+    const containsBefore = h.calls.filter((c) => c[0] === "permissions.contains").length;
+    const p = click(); // synchronous part must already have called request
+    assert.equal(h.calls.filter((c) => c[0] === "permissions.request").length, before + 1);
+    assert.equal(h.calls.filter((c) => c[0] === "permissions.contains").length, containsBefore);
+    await p;
+  } finally {
+    delete globalThis.document;
     h.uninstall();
   }
 });
@@ -133,13 +154,17 @@ test("normalizeBaseUrl: trims, rejects non-http(s), flags insecure plain http to
 
 test("describeMe: username + version, missing-perm warning, legacy fallback, errors", () => {
   const ok = (data) => ({ ok: true, status: 200, data, error: null });
-  assert.deepEqual(describeMe(ok({ username: "alice", perms: ["library:write", "settings:write"], app_version: "0.8.0" })), {
+  assert.deepEqual(describeMe(ok({ username: "alice", perms: ["library:write"], app_version: "0.8.0", can_set_credentials: true })), {
     text: "Connected as alice · app v0.8.0.",
     kind: "ok",
+    notices: [],
   });
-  const warn = describeMe(ok({ username: "alice", perms: ["library:write"], app_version: "0.8.0" }));
+  // Old server (no can_set_credentials): no settings:write warning.
+  assert.equal(describeMe(ok({ username: "alice", perms: ["library:write"], app_version: "0.8.0" })).kind, "ok");
+  const warn = describeMe(ok({ username: "alice", perms: ["library:write"], app_version: "0.8.0", can_set_credentials: false }));
   assert.equal(warn.kind, "warn");
-  assert.match(warn.text, /missing: settings:write/);
+  assert.match(warn.text, /can't set the MakerWorld cookie/);
+  assert.equal(describeMe(ok({ username: "a", perms: [], app_version: "1" })).kind, "warn"); // missing library:write
   assert.equal(describeMe(ok({ username: null, legacy: true })).kind, "ok");
   assert.match(describeMe(ok({ username: null, legacy: true })).text, /older server/);
   const bad = describeMe({ ok: false, status: 401, data: null, error: "Token rejected" });
