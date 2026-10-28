@@ -9,7 +9,7 @@ test("manifest: unified name, Firefox gecko id/min version, Chrome min version",
   assert.equal(manifest.name, "3D Model Manager");
   assert.equal(manifest.browser_specific_settings.gecko.id, "tdmm-extension@metril.github.io");
   assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "115.0");
-  assert.equal(manifest.minimum_chrome_version, "110");
+  assert.equal(manifest.minimum_chrome_version, "121");
 });
 
 test("manifest: background declares both service_worker (Chrome) and scripts (Firefox)", () => {

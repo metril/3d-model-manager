@@ -10,7 +10,7 @@
  * and a 1-minute alarm (see background.js) resumes every unfinished record.
  *
  * Record: { id, url, tabId, state, error, modelId, startedAt, finished,
- *           queue: null | {printerId}, queueResult: null | {status, message?, count?} }
+ *           queue: null | {printerId, unassigned?}, queueResult: null | {status, message?, count?} }
  */
 
 import { pollImportStatus } from "./saveStatus.js";
@@ -74,7 +74,9 @@ export async function runQueue(id, deps) {
     result = await queueModel({
       api: deps.v2Api,
       modelId: rec.modelId,
-      printerId: rec.queue?.printerId ?? lastSave.printerId ?? null,
+      // `unassigned`: the popup explicitly chose no printer; only the
+      // context-menu path (printerId null, no marker) falls back to lastSave.
+      printerId: rec.queue?.unassigned ? null : (rec.queue?.printerId ?? lastSave.printerId ?? null),
     });
   } catch (err) {
     result = { status: "error", message: err?.message || "Couldn't add to the queue." };
@@ -116,10 +118,14 @@ export async function trackImport(id, deps) {
   await writes;
 
   if (outcome.outcome === "done") {
-    rec = await patchImport(id, { state: "done", finished: true });
+    const queueNow = Boolean(rec.queue && deps.v2Api && !rec.queueResult);
+    // Not finished until the queue step has run, so a worker killed mid-queue
+    // is resumed by the alarm (which re-enters here with queueResult unset).
+    rec = await patchImport(id, { state: "done", finished: !queueNow });
     await badge(deps, rec, "✓", BADGE_OK);
-    if (rec.queue && deps.v2Api) {
-      rec = await runQueue(id, deps);
+    if (queueNow) {
+      await runQueue(id, deps);
+      rec = await patchImport(id, { finished: true });
     }
   } else if (outcome.outcome === "failed") {
     rec = await patchImport(id, { state: "failed", error: outcome.error, finished: true });

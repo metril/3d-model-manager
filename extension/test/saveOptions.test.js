@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { install } from "./chromeStub.js";
 import { createClient } from "../src/api.js";
-import { buildSaveOptions, loadOptionLists, normalizeTags, splitTagInput } from "../src/saveOptions.js";
+import { buildSaveOptions, clearCaches, loadOptionLists, normalizeTags, splitTagInput } from "../src/saveOptions.js";
 
 test("normalizeTags: trims, dedupes case-insensitively, drops empty/over-long, caps at 20", () => {
   assert.deepEqual(normalizeTags([" Benchy ", "benchy", "", "  ", "x".repeat(65), "Tool"]), ["Benchy", "Tool"]);
@@ -71,6 +71,27 @@ test("loadOptionLists: a failed half yields an empty list and is not cached", as
     assert.deepEqual(await loadOptionLists(api), { collections: [], tags: ["a"] });
     await loadOptionLists(api);
     assert.equal(calls, 2);
+  } finally {
+    stub.uninstall();
+  }
+});
+
+test("option lists are cached per app URL and clearCaches drops every cache key", async () => {
+  const stub = install();
+  try {
+    let calls = 0;
+    const api = {
+      listLocalCollections: async () => (calls++, { ok: true, data: [{ id: 1, name: "A" }] }),
+      listTags: async () => ({ ok: true, data: [{ name: "t" }] }),
+    };
+    await loadOptionLists(api, { baseUrl: "http://a" });
+    await loadOptionLists(api, { baseUrl: "http://a" });
+    assert.equal(calls, 1);
+    await loadOptionLists(api, { baseUrl: "http://b" }); // other server: no cross-talk
+    assert.equal(calls, 2);
+    await chrome.storage.session.set({ "me-cache:http://a": { username: "x" }, other: 1 });
+    await clearCaches();
+    assert.deepEqual(Object.keys(await chrome.storage.session.get(null)), ["other"]);
   } finally {
     stub.uninstall();
   }

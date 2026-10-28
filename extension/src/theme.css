@@ -305,3 +305,7 @@ button.inline {
 .token-row .field-row button {
   min-width: 64px;
 }
+
+[hidden] {
+  display: none !important;
+}

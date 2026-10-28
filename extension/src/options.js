@@ -12,6 +12,7 @@
 import { renderGrantAccess } from "./access.js";
 import { createClient } from "./api.js";
 import { getConfig, hashResetPatch, setConfig, setState } from "./config.js";
+import { clearCaches, meCacheKey } from "./saveOptions.js";
 import { describeMe, describePrinterKey, normalizeBaseUrl, settingsTokensUrl } from "./optionsLogic.js";
 
 const baseUrlInput = document.getElementById("app-base-url");
@@ -95,7 +96,7 @@ baseUrlInput.addEventListener("input", () => {
 });
 
 /** Renders the diagnostics block (user, version, notices) and caches `/me` for the popup. */
-function renderDiagnostics(me, described) {
+function renderDiagnostics(me, described, baseUrl) {
   const lines = [];
   if (me.ok && me.data && me.data.username) {
     lines.push(`Signed in as ${me.data.username}${me.data.app_version ? ` · app v${me.data.app_version}` : ""}`);
@@ -113,7 +114,7 @@ function renderDiagnostics(me, described) {
   diagnosticsEl.hidden = lines.length === 0;
   const cache = me.ok && me.data && me.data.username ? me.data : null;
   const session = chrome.storage.session;
-  Promise.resolve(cache ? session.set({ "me-cache": cache }) : session.remove("me-cache")).catch(() => {});
+  Promise.resolve(cache ? session.set({ [meCacheKey(baseUrl)]: cache }) : session.remove(meCacheKey(baseUrl))).catch(() => {});
 }
 
 /** `/me` check with the token as typed; returns the described result. */
@@ -121,7 +122,7 @@ async function checkConnection(url, token) {
   const client = createClient({ baseUrl: url, token });
   const me = await client.me();
   const described = describeMe(me, chrome.runtime.getManifest().version);
-  renderDiagnostics(me, described);
+  renderDiagnostics(me, described, url);
   return described;
 }
 
@@ -163,6 +164,9 @@ saveButton.addEventListener("click", async () => {
       autoCourier: autoCourierInput.checked,
       autoSyncCollections: autoSyncCollectionsInput.checked,
     });
+    if (prev.appBaseUrl !== parsed.url || prev.apiToken !== token) {
+      await clearCaches();
+    }
     const reset = hashResetPatch(prev, { appBaseUrl: parsed.url, apiToken: token });
     if (Object.keys(reset).length > 0) {
       await setState(reset);

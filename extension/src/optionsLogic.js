@@ -3,7 +3,7 @@
  * unit-testable.
  */
 
-const REQUIRED_PERMS = ["library:write", "settings:write"];
+const REQUIRED_PERMS = ["library:write"];
 
 /** True for hosts where plain http is acceptable: localhost, RFC1918, `.local`. */
 export function isPrivateHost(hostname) {
@@ -87,6 +87,15 @@ export function describeMe(result, manifestVersion) {
     if (missing.length > 0) {
       return { text: `${text} Token is missing: ${missing.join(", ")}.`, kind: "warn", notices };
     }
+  }
+  // The token's perms are capped server-side, so settings:write never shows
+  // there; newer servers report the real answer. Old servers: no field, no warning.
+  if (data.can_set_credentials === false) {
+    return {
+      text: `${text} This token's owner can't set the MakerWorld cookie (needs settings:write).`,
+      kind: "warn",
+      notices,
+    };
   }
   return { text, kind: notices.length > 0 ? "warn" : "ok", notices };
 }

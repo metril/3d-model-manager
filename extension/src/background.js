@@ -183,7 +183,7 @@ async function saveUrl(url, { tabId, options, queue = null } = {}) {
 }
 
 /** Popup "Add to queue" after the import is done. */
-async function queueImport(importId, printerId) {
+async function queueImport(importId, printerId, unassigned = false) {
   const config = await getConfig();
   if (!isConfigured(config) || !config.printerKey) {
     return { ok: false, error: "Set a printer key in the extension options first." };
@@ -192,7 +192,7 @@ async function queueImport(importId, printerId) {
   if (!rec) {
     return { ok: false, error: "That import is no longer tracked." };
   }
-  await patchImport(importId, { queue: { printerId }, queueResult: null });
+  await patchImport(importId, { queue: unassigned ? { printerId: null, unassigned: true } : { printerId }, queueResult: null });
   await runQueue(importId, trackerDeps(config));
   return { ok: true };
 }
@@ -212,7 +212,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message && message.type === "queue" && message.importId !== undefined) {
     const printerId = Number.isInteger(message.printerId) ? message.printerId : null;
-    queueImport(message.importId, printerId).then(sendResponse).catch(fail);
+    queueImport(message.importId, printerId, message.unassigned === true).then(sendResponse).catch(fail);
     return true;
   }
   return false;

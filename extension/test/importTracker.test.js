@@ -126,6 +126,54 @@ test("trackImport with queue: queues once done when exactly one sliced file exis
   }
 });
 
+test("trackImport with queue: not finished until the queue step completes; resume handles queue && !queueResult", async () => {
+  const stub = install();
+  try {
+    await seed(7, { queue: { printerId: null } });
+    const snapshots = [];
+    stub.chrome.storage.onChanged.addListener((changes) => {
+      if (changes["imp:7"]) snapshots.push(changes["imp:7"].newValue);
+    });
+    const v2Api = {
+      v2Printables: async () => ok([{ file_id: 9, name: "a.gcode.3mf", kind: "sliced", plate: null }]),
+      v2Printers: async () => ok([{ id: 5, name: "A1" }]),
+      v2Enqueue: async () => ok({}, 201),
+    };
+    const { deps } = makeDeps({ statuses: [ok({ id: 7, state: "done", model_id: 42 })], v2Api });
+    const rec = await trackImport(7, deps);
+    const done = snapshots.filter((s) => s.state === "done" && !s.queueResult);
+    assert.ok(done.length > 0 && done.every((s) => s.finished === false));
+    assert.equal(rec.finished, true);
+    assert.equal(rec.queueResult.status, "queued");
+    // Worker died after "done" but before the queue ran: still active, resumed.
+    await seed(8, { state: "done", modelId: 42, queue: { printerId: null } });
+    assert.ok((await listActiveImports()).some((r) => r.id === 8));
+  } finally {
+    stub.uninstall();
+  }
+});
+
+test("runQueue: explicit unassigned ignores lastSave.printerId; context-menu path falls back to it", async () => {
+  const stub = install();
+  try {
+    const enqueued = [];
+    const v2Api = {
+      v2Printables: async () => ok([{ file_id: 9, name: "a.gcode.3mf", kind: "sliced", plate: null }]),
+      v2Printers: async () => ok([{ id: 5, name: "A1" }]),
+      v2Enqueue: async (body) => (enqueued.push(body), ok({}, 201)),
+    };
+    const { deps } = makeDeps({ statuses: [], v2Api, lastSave: { printerId: 8 } });
+    await seed(1, { modelId: 42, queue: { printerId: null, unassigned: true } });
+    await runQueue(1, deps);
+    await seed(2, { modelId: 42, queue: { printerId: null } });
+    await runQueue(2, deps);
+    assert.notEqual(enqueued[0].printerId, 8);
+    assert.equal(enqueued[1].printerId, 8);
+  } finally {
+    stub.uninstall();
+  }
+});
+
 test("trackImport with queue: no sliced file -> '!' badge and a 'none' result the popup can explain", async () => {
   const stub = install();
   try {

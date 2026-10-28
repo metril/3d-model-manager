@@ -20,7 +20,7 @@ import { isModelPage } from "./detect.js";
 import { execInTab } from "./exec.js";
 import { IMPORT_PREFIX, findImportForUrl, readImport } from "./importTracker.js";
 import { SUPPORTED_SITES, importView, popupView } from "./popupLogic.js";
-import { buildSaveOptions, loadOptionLists, normalizeTags, splitTagInput } from "./saveOptions.js";
+import { buildSaveOptions, loadOptionLists, meCacheKey, normalizeTags, splitTagInput } from "./saveOptions.js";
 import { syncCollectionDetail, syncCollections } from "./syncFlow.js";
 
 const $ = (id) => document.getElementById(id);
@@ -141,12 +141,12 @@ tagInput.addEventListener("keydown", (event) => {
 tagInput.addEventListener("change", commitTagInput);
 
 /** Fills the pickers from the cached lists; the form works even if this fails. */
-async function setupSaveOptions(client) {
+async function setupSaveOptions(client, config) {
   $("save-options").hidden = false;
   const { lastSave } = await getState();
   tags = normalizeTags(lastSave.tags);
   renderChips();
-  const lists = await loadOptionLists(client);
+  const lists = await loadOptionLists(client, { baseUrl: config.appBaseUrl });
   collectionEl.replaceChildren(collectionEl.options[0]);
   for (const c of lists.collections) {
     const option = document.createElement("option");
@@ -170,11 +170,17 @@ async function setupSaveOptions(client) {
 function renderSavable(url, config, client) {
   messageEl.textContent = "Send this model to your library.";
   const button = makeButton("Save to my library", () => handleSave(button, url, config));
+  saveButtonEl = button;
   show(button);
-  setupSaveOptions(client).catch(() => {});
+  setupSaveOptions(client, config).catch(() => {});
   // A save already in flight (or finished) for this page: show its live state.
   findImportForUrl(url)
-    .then((rec) => rec && watchImport(rec.id, config))
+    .then((rec) => {
+      if (rec) {
+        if (!rec.finished) button.disabled = true;
+        return watchImport(rec.id, config);
+      }
+    })
     .catch(() => {});
 }
 
@@ -217,7 +223,13 @@ async function loadPrinters(config) {
   document.querySelector('label[for="printer"]').hidden = list.length === 0;
 }
 
+let saveButtonEl = null;
+
 function renderImport(rec, config) {
+  // Keep Save disabled while this page's import is still running.
+  if (saveButtonEl) {
+    saveButtonEl.disabled = Boolean(rec && !rec.finished);
+  }
   const view = importView(rec, { base: config.appBaseUrl });
   progressEl.hidden = !rec;
   importStatusEl.textContent = view.text;
@@ -257,7 +269,7 @@ async function watchImport(id, config) {
     queueNoteEl.textContent = "Adding to the queue…";
     queueNoteEl.className = "queue-note";
     try {
-      const res = await chrome.runtime.sendMessage({ type: "queue", importId: id, printerId });
+      const res = await chrome.runtime.sendMessage({ type: "queue", importId: id, printerId, unassigned: printerId === null });
       if (res && !res.ok) {
         setStatus(res.error || "Couldn't add to the queue.", "error");
         queueButton.disabled = false;
@@ -353,8 +365,9 @@ async function renderCourierStatus() {
 }
 
 /** Account + app version cached by the options page's last "/me" check. */
-async function renderWhoami() {
-  const me = (await chrome.storage.session.get("me-cache"))["me-cache"];
+async function renderWhoami(baseUrl) {
+  const key = meCacheKey(baseUrl);
+  const me = (await chrome.storage.session.get(key))[key];
   if (!me || !me.username) {
     return;
   }
@@ -378,7 +391,7 @@ async function init() {
     Promise.resolve(chrome.action.setBadgeText({ text: "", tabId })).catch(() => {});
   }
   renderCourierStatus().catch(() => {});
-  renderWhoami().catch(() => {});
+  renderWhoami(config.appBaseUrl).catch(() => {});
   renderGrantAccess($("access"), config.appBaseUrl, () => init()).catch(() => {});
   const client = createClient({ baseUrl: config.appBaseUrl, token: config.apiToken });
   if (view === "model" && isModelPage(url)) {

@@ -8,6 +8,24 @@
 export const MAX_TAGS = 20;
 export const MAX_TAG_LENGTH = 64;
 const CACHE_KEY = "options-cache";
+const ME_CACHE_KEY = "me-cache";
+
+/** Per-app-URL session cache keys (a different server must never see another's cache). */
+export const optionsCacheKey = (base) => `${CACHE_KEY}:${base ?? ""}`;
+export const meCacheKey = (base) => `${ME_CACHE_KEY}:${base ?? ""}`;
+
+/** Drops every options/me cache entry (call when the app URL or token changes). */
+export async function clearCaches() {
+  const session = globalThis.chrome?.storage?.session;
+  if (!session) return;
+  try {
+    const all = await session.get(null);
+    const keys = Object.keys(all).filter((k) => k.startsWith(CACHE_KEY) || k.startsWith(ME_CACHE_KEY));
+    if (keys.length > 0) await session.remove(keys);
+  } catch {
+    // Best-effort.
+  }
+}
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
@@ -53,13 +71,13 @@ export function buildSaveOptions({ collectionId, tags }) {
  * fetch yields an empty list for that half (the form still works, just
  * without suggestions) and is NOT cached.
  * @param {{listLocalCollections: Function, listTags: Function}} api
- * @param {{now?: () => number}} [opts]
+ * @param {{now?: () => number, baseUrl?: string}} [opts]
  * @returns {Promise<{collections: Array<{id: number, name: string}>, tags: string[]}>}
  */
-export async function loadOptionLists(api, { now = Date.now } = {}) {
+export async function loadOptionLists(api, { now = Date.now, baseUrl = "" } = {}) {
   const session = globalThis.chrome?.storage?.session;
   try {
-    const cached = session ? (await session.get(CACHE_KEY))[CACHE_KEY] : null;
+    const cached = session ? (await session.get(optionsCacheKey(baseUrl)))[optionsCacheKey(baseUrl)] : null;
     if (cached && now() - cached.at < CACHE_TTL_MS) {
       return { collections: cached.collections, tags: cached.tags };
     }
@@ -75,7 +93,7 @@ export async function loadOptionLists(api, { now = Date.now } = {}) {
     tags.ok && Array.isArray(tags.data) ? tags.data.map((t) => t && t.name).filter((n) => typeof n === "string") : [];
   if (cols.ok && tags.ok && session) {
     try {
-      await session.set({ [CACHE_KEY]: { at: now(), collections, tags: tagNames } });
+      await session.set({ [optionsCacheKey(baseUrl)]: { at: now(), collections, tags: tagNames } });
     } catch {
       // Best-effort cache.
     }
