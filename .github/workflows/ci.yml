@@ -287,6 +287,20 @@ jobs:
         # is no package.json under extension/ -- plain unbundled MV3 JS with
         # zero dependencies, so nothing to install first.
         run: node --test extension/test/*.test.js
+      - name: manifest required keys
+        # Fails fast on a manifest Chrome or Firefox would refuse to load.
+        run: |
+          jq -e '.manifest_version == 3
+            and (.name | length > 0) and (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+"))
+            and (.background.service_worker | length > 0) and (.background.scripts | length > 0)
+            and (.browser_specific_settings.gecko.id | length > 0)
+            and (.action.default_popup | length > 0) and (.icons | length > 0)
+            and (.permissions | index("storage")) and (.permissions | index("alarms"))' \
+            extension/manifest.json
+      - name: web-ext lint
+        # Errors fail the job; the known Firefox-for-Android / service_worker
+        # warnings (Chrome+Firefox dual manifest) do not.
+        run: npx --yes web-ext@8 lint --source-dir extension --self-hosted
 
   slicer-wrapper:
     name: Slicer wrapper tests (mocked CLI)

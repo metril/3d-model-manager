@@ -69,16 +69,22 @@ and reload — nothing will object.
 1. Open the extension's options page (right-click its toolbar icon → **Options**,
    or `chrome://extensions` → the extension's **Details** → **Extension options**).
 2. Enter your app's base URL, e.g. `http://your-host:8080` (no trailing path).
-3. Mint an **API token** in the app itself, at **Settings → Imports → Browser
-   extension**, and paste it in.
+3. Mint an **API token** in the app itself, at **Settings → Accounts →
+   Browser extension** (the options page links straight there once you have
+   typed your app address), and paste it in. The **Show** button reveals the
+   token while you check it.
 4. Click **Save** — Chrome prompts for permission to reach your app's
    origin; grant it (the extension only asks for the one origin you gave it,
    nothing broader).
-5. Click **Test connection** to confirm the app is reachable and the token
-   is valid. It shows which account the token belongs to and the app's
-   version, and warns if the token lacks the `library:write` or
-   `settings:write` permission. (Older servers without `/api/ext/me` fall
-   back to a plain connectivity check.)
+5. Saving (and **Test connection**) runs a diagnostics check against
+   `GET /api/ext/me`: it shows which account the token belongs to and the
+   app's version, warns if the token lacks the `library:write` or
+   `settings:write` permission, and flags a **version mismatch** when the
+   app and the extension are on different releases (they ship together, so
+   update whichever is older). The last result is shown in the popup's
+   footer. (Older servers without `/api/ext/me` fall back to a plain
+   connectivity check.)
+6. Optional, **Printer key**: see [Send to a printer](#send-to-a-printer).
 
 Use `https://` for any app that isn't on your local network (localhost,
 private IPs and `.local` names are fine over `http://`); the options page
@@ -88,17 +94,52 @@ warns when your token would otherwise travel unencrypted.
 
 - **Toolbar button**: open a model page on MakerWorld, Thingiverse, or
   Printables, click the extension's toolbar icon, then **Save to my
-  library**.
+  library**. On any other page the popup links to your library and lists
+  the supported sites.
 - **Right-click a link**: on any page, right-click a link to a model on one
   of those sites and choose **Save model to my library** from the context
   menu — no need to open the link first.
 
-After **Save to my library**, the popup polls the app for whether the
-import actually finished, and common failure causes surface right in the
-popup (e.g. "Bambu sign-in expired — reconnect your Bambu account in
-Settings.") instead of a generic "Added" that isn't actually true — the
-poll only runs while the popup stays open, so if you close it right after
-saving, check the app itself for the outcome.
+### Save options
+
+Before saving, the popup offers a **Collection** (one of the app's followed
+collections) and **Tags** (type, press Enter or comma; existing tags
+autocomplete). They are sent with the import and applied by the app when it
+finishes (an already-saved model is not changed). The lists are cached for a
+few minutes and your last choice is remembered. The right-click entry saves
+without options.
+
+### Import tracking
+
+The background worker, not the popup, follows the import: it polls the app
+until the import finishes and keeps the progress in `storage.session`. The
+popup subscribes to it and shows live state (waiting, fetching, downloading,
+done, or the failure reason, e.g. "Bambu sign-in expired — reconnect your
+Bambu account in Settings."), plus **Open in app** (`/models/<id>`) once it
+is done — closing and reopening the popup mid-import picks the state back
+up. The toolbar badge on that tab shows the result too (`…` working, `✓`
+done, `!` failed), for right-click saves as well. A 1-minute alarm resumes
+tracking if the worker was restarted; an import still unfinished after 30
+minutes is dropped with a "check the app" note.
+
+### Send to a printer
+
+Optional. In the app, create an API key with the `queue` and `read` scopes
+(and, if you like, a printer allowlist), paste it into **Printer key** on the
+options page, and save — the key is checked against `/api/ext/v2/ping` and
+rejected if either scope is missing. Then:
+
+- once an import is **done**, the popup shows a printer select and **Add to
+  queue** (the printer you choose is remembered);
+- the right-click menu gains **Save & queue to printer**, which queues as
+  soon as the import finishes.
+
+Only an already-sliced file (`.gcode.3mf`) can be queued. If the model has
+exactly one, it is queued; if it has none the popup says "No sliced file yet
+— slice it in the app" (with **Open in app**), and if it has several it asks
+you to pick one in the app. A right-click queue that can't complete shows a
+`!` badge; open the popup on that tab for the explanation. Clearing the
+Printer key removes the menu entry and the popup controls.
 
 ## Syncing your MakerWorld collections
 
@@ -176,4 +217,18 @@ node --test test/*.test.js
 Use the glob form, not a bare `test` / `extension/test` directory argument --
 the directory form is broken on Node 24 (it tries to load the directory as a
 module). `test/chromeStub.js` is a minimal in-memory `chrome` stub shared by
-the storage, background and options tests.
+the storage, background and options tests. `test/contract.json` lists the
+app endpoints the extension may call; `api.test.js` fails if `api.js` calls
+anything not in it (the backend asserts the same file).
+
+CI also runs a manifest required-keys check and `npx web-ext@8 lint
+--source-dir extension --self-hosted`. Run the lint locally the same way;
+the remaining warnings (dual Chrome/Firefox background keys, Firefox for
+Android) are expected.
+
+## Look and feel
+
+`src/theme.css` is shared by the popup and the options page. Its tokens
+mirror the web app (slate + teal, 0.625rem radius), follow the OS light/dark
+setting, and use the system font stack only (extension pages can't load
+remote fonts).
