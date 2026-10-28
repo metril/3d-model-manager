@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.0](https://github.com/metril/3d-model-manager/compare/v0.8.0...v0.9.0) (2026-10-28)
+
+
+### Features
+
+* **imports:** dismiss failed imports, clearer badge, full failed list ([dc68b6d](https://github.com/metril/3d-model-manager/commit/dc68b6dd2d7e3636a2ce5e50a097b9b22c236132))
+* **imports:** dismiss failed imports, clearer badge, full failed list ([558c145](https://github.com/metril/3d-model-manager/commit/558c145dd5779eac5a72455a5dfc614f74563481))
+
+
+### Bug Fixes
+
+* Chrome manifest warning + 3D viewer bottom clipping ([56ed9f0](https://github.com/metril/3d-model-manager/commit/56ed9f0b79843dc131e9e541e84b7003e8159e29))
+* **collections:** named MakerWorld folders beat the aggregate ([1a2bb88](https://github.com/metril/3d-model-manager/commit/1a2bb884de33a66cfce570ede5e5a0ce28bb9d8a))
+* **collections:** named MakerWorld folders beat the uid aggregate ([a7dc5fb](https://github.com/metril/3d-model-manager/commit/a7dc5fbb7b83ab0ea3289bbbeb77a28dd28b696d))
+* **collections:** unfollow tombstone, drop stale pending, paging bound ([5c1338b](https://github.com/metril/3d-model-manager/commit/5c1338b17ebfc6c6d4e71fa27b6fa07d08f993ea))
+* **extension:** per-browser manifests so Chrome stops warning on background.scripts ([e5fd5c1](https://github.com/metril/3d-model-manager/commit/e5fd5c1f9149785a6261ecad446d6173d3714d8d))
+* **migrations:** timezone-aware imports.dismissed_at ([ce6a268](https://github.com/metril/3d-model-manager/commit/ce6a268dbce59440b9ab6f6a3666cc553f6806e9))
+* **web:** stop the 3D viewer footer clipping the stage bottom ([e31f0a2](https://github.com/metril/3d-model-manager/commit/e31f0a23cd6c22ad5438f4b617da5ead17e93fe4))
+
 ## [0.8.0](https://github.com/metril/3d-model-manager/compare/v0.7.0...v0.8.0) (2026-10-28)
 
 
