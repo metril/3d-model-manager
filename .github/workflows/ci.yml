@@ -288,19 +288,25 @@ jobs:
         # zero dependencies, so nothing to install first.
         run: node --test extension/test/*.test.js
       - name: manifest required keys
-        # Fails fast on a manifest Chrome or Firefox would refuse to load.
+        # Fails fast on a manifest Chrome or Firefox would refuse to load. The
+        # committed manifest is the Chrome one (service_worker only); the
+        # Firefox one is generated, exactly as the release job does.
         run: |
           jq -e '.manifest_version == 3
             and (.name | length > 0) and (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+"))
-            and (.background.service_worker | length > 0) and (.background.scripts | length > 0)
+            and (.background.service_worker | length > 0) and (.background.scripts == null)
             and (.browser_specific_settings.gecko.id | length > 0)
             and (.action.default_popup | length > 0) and (.icons | length > 0)
             and (.permissions | index("storage")) and (.permissions | index("alarms"))' \
             extension/manifest.json
+          mkdir -p "$RUNNER_TEMP/ff"
+          cp -r extension/src extension/icons "$RUNNER_TEMP/ff/"
+          node extension/scripts/build-firefox-manifest.mjs "$RUNNER_TEMP/ff/manifest.json"
+          jq -e '(.background.scripts | length > 0) and (.background.service_worker == null)' "$RUNNER_TEMP/ff/manifest.json"
       - name: web-ext lint
-        # Errors fail the job; the known Firefox-for-Android / service_worker
-        # warnings (Chrome+Firefox dual manifest) do not.
-        run: npx --yes web-ext@8 lint --source-dir extension --self-hosted
+        # Errors fail the job; the known Firefox-for-Android warnings do not.
+        # Lints the generated Firefox build (background.scripts).
+        run: npx --yes web-ext@8 lint --source-dir "$RUNNER_TEMP/ff" --self-hosted
 
   slicer-wrapper:
     name: Slicer wrapper tests (mocked CLI)
