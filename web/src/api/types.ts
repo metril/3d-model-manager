@@ -1157,6 +1157,8 @@ export interface ImportOut {
   model_id: number | null;
   error: string | null;
   meta: Record<string, unknown> | null;
+  /** Set when the user dismissed this failed import (stops counting in the nav badge). */
+  dismissed_at: string | null;
   created_at: string;
   updated_at: string;
 }

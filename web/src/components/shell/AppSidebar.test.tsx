@@ -39,8 +39,10 @@ vi.mock("@/api/printers", () => ({
   usePrinterStatus: () => ({ data: undefined }),
 }));
 
+const { failedBox } = vi.hoisted(() => ({ failedBox: { current: 0 } }));
+
 vi.mock("@/api/imports", () => ({
-  useFailedImportsCount: () => 0,
+  useFailedImportsCount: () => failedBox.current,
 }));
 
 vi.mock("@/api/scan", () => ({
@@ -89,6 +91,24 @@ function renderSidebar() {
     </QueryClientProvider>,
   );
 }
+
+describe("AppSidebar -- failed-imports badge", () => {
+  it("explains the badge and links to the Recent imports tab", async () => {
+    failedBox.current = 3;
+    renderSidebar();
+    const badge = await screen.findByLabelText("3 failed imports \u2014 click to review");
+    expect(badge).toHaveAttribute("title", "3 failed imports \u2014 click to review");
+    expect(badge.closest("a")).toHaveAttribute("href", "/collections?tab=imports");
+    failedBox.current = 0;
+  });
+
+  it("has no badge and a plain link when nothing is failed", async () => {
+    failedBox.current = 0;
+    renderSidebar();
+    const link = await screen.findByRole("link", { name: /Collections/ });
+    expect(link).toHaveAttribute("href", "/collections");
+  });
+});
 
 describe("AppSidebar -- Categories (R13b)", () => {
   it("renders no Categories section when there are no categories", async () => {

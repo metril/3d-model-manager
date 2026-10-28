@@ -13,7 +13,7 @@ from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm, require_session
@@ -23,7 +23,7 @@ from app.importers.registry import (
     get_importer,
     registered_sites,
 )
-from app.models.enums import ImportSite
+from app.models.enums import ImportSite, ImportState
 from app.models.system import Import
 from app.schemas.imports import (
     ImportCreate,
@@ -184,13 +184,50 @@ async def create_import(
 
 
 @router.get("", response_model=list[ImportOut])
-async def list_imports(limit: int = 50, db: AsyncSession = Depends(get_db)) -> list[ImportOut]:
-    rows = (
-        (await db.execute(select(Import).order_by(Import.created_at.desc()).limit(limit)))
-        .scalars()
-        .all()
-    )
+async def list_imports(
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    state: ImportState | None = None,
+    include_dismissed: bool = True,
+    db: AsyncSession = Depends(get_db),
+) -> list[ImportOut]:
+    """Newest first. ``state`` filters to one state; ``include_dismissed=false``
+    hides dismissed rows; ``offset`` pages."""
+    stmt = select(Import)
+    if state is not None:
+        stmt = stmt.where(Import.state == state)
+    if not include_dismissed:
+        stmt = stmt.where(Import.dismissed_at.is_(None))
+    stmt = stmt.order_by(Import.created_at.desc(), Import.id.desc()).limit(limit).offset(offset)
+    rows = (await db.execute(stmt)).scalars().all()
     return [ImportOut.from_model(r) for r in rows]
+
+
+@router.get("/failed-count")
+async def failed_import_count(db: AsyncSession = Depends(get_db)) -> dict[str, int]:
+    """Failed, not-dismissed imports -- what the nav badge shows. Declared
+    BEFORE ``/{import_id}``."""
+    n = await db.scalar(
+        select(func.count())
+        .select_from(Import)
+        .where(Import.state == ImportState.FAILED, Import.dismissed_at.is_(None))
+    )
+    return {"count": n or 0}
+
+
+@router.post(
+    "/dismiss-failed",
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def dismiss_failed_imports(db: AsyncSession = Depends(get_db)) -> dict[str, int]:
+    """Acknowledge every failed, not-yet-dismissed import; returns how many."""
+    result = await db.execute(
+        update(Import)
+        .where(Import.state == ImportState.FAILED, Import.dismissed_at.is_(None))
+        .values(dismissed_at=func.now())
+    )
+    await db.commit()
+    return {"dismissed": result.rowcount}
 
 
 @router.get("/{import_id}", response_model=ImportOut)
@@ -212,4 +249,26 @@ async def retry_import(import_id: int, db: AsyncSession = Depends(get_db)) -> Im
     been fixed, without having to re-paste the URL. 404 unknown id, 409
     unless the row is currently ``failed`` (``retry_failed_import``)."""
     imp = await retry_failed_import(db, import_id)
+    return ImportOut.from_model(imp)
+
+
+@router.post(
+    "/{import_id}/dismiss",
+    response_model=ImportOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def dismiss_import(import_id: int, db: AsyncSession = Depends(get_db)) -> ImportOut:
+    """Acknowledge a ``failed`` import so it stops counting toward the nav
+    badge (idempotent). 404 unknown id, 409 unless currently ``failed``."""
+    imp = await db.get(Import, import_id)
+    if imp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"import {import_id} not found")
+    if imp.state != ImportState.FAILED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"import {import_id} is not in a failed state"
+        )
+    if imp.dismissed_at is None:
+        imp.dismissed_at = func.now()
+        await db.commit()
+        await db.refresh(imp)
     return ImportOut.from_model(imp)

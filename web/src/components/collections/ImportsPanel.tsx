@@ -10,7 +10,16 @@
  * a short poll while anything is non-terminal -- see `api/imports.ts`), so
  * no manual refresh is needed on this page.
  */
-import { useImportsList, useRetryImport } from "@/api/imports";
+import {
+  type ImportsFilter,
+  useDismissFailedImports,
+  useDismissImport,
+  useFailedImportsCount,
+  useImportsList,
+  useRetryImport,
+} from "@/api/imports";
+import { useState } from "react";
+
 import type { ImportOut, ImportState } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +27,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatRelativeTime } from "@/lib/format";
 
-const VISIBLE_LIMIT = 10;
 
 const STATE_LABEL: Record<ImportState, string> = {
   pending: "Pending",
@@ -52,22 +60,25 @@ function importTitle(imp: ImportOut): string {
 
 function ImportRow({ imp }: { imp: ImportOut }) {
   const retry = useRetryImport();
+  const dismiss = useDismissImport();
+  const dismissed = imp.state === "failed" && !!imp.dismissed_at;
   const badge = STATE_BADGE[imp.state];
   const title = importTitle(imp);
 
   return (
-    <li className="rounded-lg border border-border p-3">
+    <li className={`rounded-lg border border-border p-3${dismissed ? " opacity-60" : ""}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={badge.variant} className={badge.className}>
               {STATE_LABEL[imp.state]}
             </Badge>
+            {dismissed ? <Badge variant="outline">Dismissed</Badge> : null}
             {/* `done` rows with a `model_id` would ideally link straight to the
                 model, but the only route that shows one (`/models/$slug`) needs
                 a slug the import list doesn't carry and no by-id route exists
                 to redirect through -- left as plain text (see T3 report). */}
-            <span className="min-w-0 truncate text-sm font-medium text-foreground" title={imp.url}>
+            <span className="min-w-0 text-sm font-medium break-all text-foreground" title={imp.url}>
               {title}
             </span>
           </div>
@@ -77,15 +88,28 @@ function ImportRow({ imp }: { imp: ImportOut }) {
           ) : null}
         </div>
         {imp.state === "failed" ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={retry.isPending}
-            onClick={() => retry.mutate(imp.id)}
-          >
-            {retry.isPending ? "Retrying…" : "Retry"}
-          </Button>
+          <div className="flex gap-2">
+            {!dismissed ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={dismiss.isPending}
+                onClick={() => dismiss.mutate(imp.id)}
+              >
+                Dismiss
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={retry.isPending}
+              onClick={() => retry.mutate(imp.id)}
+            >
+              {retry.isPending ? "Retrying…" : "Retry"}
+            </Button>
+          </div>
         ) : null}
       </div>
     </li>
@@ -93,32 +117,69 @@ function ImportRow({ imp }: { imp: ImportOut }) {
 }
 
 export function ImportsPanel() {
-  const importsQuery = useImportsList();
+  const [filter, setFilter] = useState<ImportsFilter>("all");
+  const importsQuery = useImportsList(filter);
   const imports = importsQuery.data ?? [];
-  const visible = imports.slice(0, VISIBLE_LIMIT);
-  const remaining = imports.length - visible.length;
+  const dismissAll = useDismissFailedImports();
+  const undismissed = useFailedImportsCount();
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle>Recent imports</CardTitle>
+        <div className="flex gap-1" role="group" aria-label="Filter imports">
+          {(["all", "failed"] as const).map((f) => (
+            <Button
+              key={f}
+              type="button"
+              size="sm"
+              variant={filter === f ? "secondary" : "ghost"}
+              aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
+            >
+              {f === "all" ? "All" : "Failed"}
+            </Button>
+          ))}
+        </div>
+        {undismissed > 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={dismissAll.isPending}
+            onClick={() => dismissAll.mutate()}
+          >
+            Dismiss all failed ({undismissed})
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent>
         {importsQuery.isLoading ? (
           <Skeleton className="h-24 w-full rounded-lg" />
         ) : imports.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No imports yet. Save a model from the extension or approve one from a collection review.
+            {filter === "failed"
+              ? "No failed imports."
+              : "No imports yet. Save a model from the extension or approve one from a collection review."}
           </p>
         ) : (
           <>
             <ul className="space-y-2" data-testid="imports-list">
-              {visible.map((imp) => (
+              {imports.map((imp) => (
                 <ImportRow key={imp.id} imp={imp} />
               ))}
             </ul>
-            {remaining > 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">and {remaining} more…</p>
+            {importsQuery.hasNextPage ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                disabled={importsQuery.isFetchingNextPage}
+                onClick={() => void importsQuery.fetchNextPage()}
+              >
+                {importsQuery.isFetchingNextPage ? "Loading…" : "Show more"}
+              </Button>
             ) : null}
           </>
         )}

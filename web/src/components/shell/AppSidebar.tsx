@@ -127,6 +127,8 @@ function NavLink({
 }) {
   const navLabel = useNavLabel();
   const label = item.translate === false ? item.label : navLabel(item.label);
+  const badgeText =
+    badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"} — click to review`;
   const linkClass = cn(
     "relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
     collapsed && "justify-center px-0",
@@ -144,6 +146,8 @@ function NavLink({
       // specific route `to` resolves to, which a generically-typed `NavItem`
       // can't express statically.
       params={item.params as never}
+      // With failed imports pending, land on the tab that shows (and clears) them.
+      search={(item.to === "/collections" && badge && !badgeAriaLabel ? { tab: "imports" } : undefined) as never}
       activeOptions={{ exact: !!item.exact }}
       className={linkClass}
       aria-label={collapsed ? label : undefined}
@@ -157,7 +161,8 @@ function NavLink({
             "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-white tabular-mono",
             collapsed ? "absolute top-0.5 right-1 h-3.5 min-w-3.5 px-0.5 text-[9px]" : "ml-auto",
           )}
-          aria-label={badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"}`}
+          aria-label={badgeText}
+          title={badgeText}
         >
           {badge > 99 ? "99+" : badge}
         </span>
@@ -170,7 +175,10 @@ function NavLink({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{(item.translate === false ? item.label : navLabel(item.label))}</TooltipContent>
+      <TooltipContent side="right">
+        {label}
+        {badge ? ` (${badgeText})` : ""}
+      </TooltipContent>
     </Tooltip>
   );
 }
