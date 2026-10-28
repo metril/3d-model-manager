@@ -2,60 +2,111 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { hashResetPatch, setConfig, getConfig } from "../src/config.js";
+import {
+  SCHEMA_VERSION,
+  coerceConfig,
+  coerceState,
+  getConfig,
+  getState,
+  hashResetPatch,
+  setConfig,
+  setState,
+} from "../src/config.js";
+import { install } from "./chromeStub.js";
 import { GALLERY_HOST_PATTERNS } from "../src/detect.js";
 
-/** Installs an in-memory `chrome.storage.local` whose reads/writes yield, to expose races. */
-function installChrome() {
-  let store = {};
-  globalThis.chrome = {
-    storage: {
-      local: {
-        get: async (key) => {
-          const snapshot = { [key]: store[key] };
-          await new Promise((r) => setTimeout(r, 5));
-          return snapshot;
-        },
-        set: async (obj) => {
-          await new Promise((r) => setTimeout(r, 1));
-          store = { ...store, ...obj };
-        },
-      },
-    },
-  };
-}
-
-test("setConfig: concurrent patches are serialized, none are lost", async () => {
-  installChrome();
+test("setConfig/setState: concurrent writers to both keys are serialized, none are lost", async () => {
+  const h = install();
   try {
     await Promise.all([
       setConfig({ appBaseUrl: "https://a.example" }),
-      setConfig({ lastMakerworldHash: "h1" }),
-      setConfig({ lastCollectionsHash: "h2" }),
+      setState({ lastMakerworldHash: "h1" }),
+      setState({ lastCollectionsHash: "h2" }),
+      setConfig({ apiToken: "t" }),
     ]);
     const cfg = await getConfig();
+    const st = await getState();
     assert.equal(cfg.appBaseUrl, "https://a.example");
-    assert.equal(cfg.lastMakerworldHash, "h1");
-    assert.equal(cfg.lastCollectionsHash, "h2");
+    assert.equal(cfg.apiToken, "t");
+    assert.equal(st.lastMakerworldHash, "h1");
+    assert.equal(st.lastCollectionsHash, "h2");
+    assert.equal(cfg.lastMakerworldHash, undefined); // hashes live in state only
   } finally {
-    delete globalThis.chrome;
+    h.uninstall();
+  }
+});
+
+test("setState: updater function runs inside the lock (no lost array updates)", async () => {
+  const h = install();
+  try {
+    await Promise.all(
+      ["1", "2", "3", "4"].map((id) =>
+        setState((cur) => ({
+          lastCollectionItemsHash: [...cur.lastCollectionItemsHash, { listId: id, hash: "x" }],
+        })),
+      ),
+    );
+    const st = await getState();
+    assert.deepEqual(st.lastCollectionItemsHash.map((e) => e.listId).sort(), ["1", "2", "3", "4"]);
+  } finally {
+    h.uninstall();
   }
 });
 
 test("setConfig: a failed write does not block later writes", async () => {
-  installChrome();
+  const h = install();
   try {
-    const realSet = globalThis.chrome.storage.local.set;
-    globalThis.chrome.storage.local.set = async () => {
+    const realSet = h.chrome.storage.local.set;
+    h.chrome.storage.local.set = async () => {
       throw new Error("quota");
     };
     await assert.rejects(setConfig({ apiToken: "x" }), /quota/);
-    globalThis.chrome.storage.local.set = realSet;
+    h.chrome.storage.local.set = realSet;
     const next = await setConfig({ apiToken: "y" });
     assert.equal(next.apiToken, "y");
   } finally {
-    delete globalThis.chrome;
+    h.uninstall();
   }
+});
+
+test("migration: old single blob splits into config + state, once", async () => {
+  const h = install();
+  try {
+    h.stores.local.config = {
+      appBaseUrl: "https://a",
+      apiToken: "tok",
+      autoCourier: false,
+      lastMakerworldHash: "mh",
+      lastCollectionsHash: "ch",
+      lastCollectionItemsHash: [{ listId: "5", hash: "ih" }],
+    };
+    const cfg = await getConfig();
+    assert.equal(cfg.schemaVersion, SCHEMA_VERSION);
+    assert.equal(cfg.autoCourier, false);
+    assert.equal(cfg.appBaseUrl, "https://a");
+    const st = await getState();
+    assert.equal(st.lastMakerworldHash, "mh");
+    assert.deepEqual(st.lastCollectionItemsHash, [{ listId: "5", hash: "ih" }]);
+    // persisted split: config key no longer carries hashes
+    assert.equal("lastMakerworldHash" in h.stores.local.config, false);
+    assert.equal(h.stores.local.state.lastCollectionsHash, "ch");
+  } finally {
+    h.uninstall();
+  }
+});
+
+test("coerce: wrong-typed stored values fall back to defaults", () => {
+  const cfg = coerceConfig({ appBaseUrl: 5, apiToken: null, autoCourier: "yes", autoSyncCollections: 0 });
+  assert.deepEqual(cfg, {
+    schemaVersion: SCHEMA_VERSION,
+    appBaseUrl: "",
+    apiToken: "",
+    autoCourier: true,
+    autoSyncCollections: true,
+  });
+  const st = coerceState({ lastMakerworldHash: 7, lastCollectionItemsHash: [null, { listId: 1 }, { listId: "a", hash: "b" }] });
+  assert.equal(st.lastMakerworldHash, null);
+  assert.deepEqual(st.lastCollectionItemsHash, [{ listId: "a", hash: "b" }]);
 });
 
 test("hashResetPatch: clears hashes only when URL or token changes", () => {

@@ -1,74 +1,146 @@
 /**
- * Config persistence over `chrome.storage.local`. This is the one place
- * that reads/writes the extension's settings object:
- *   { appBaseUrl: string, apiToken: string, autoCourier: boolean,
- *     lastMakerworldHash: string|null, autoSyncCollections: boolean,
- *     lastCollectionsHash: string|null,
- *     lastCollectionItemsHash: Array<{listId: string, hash: string}> }
+ * Persistence over `chrome.storage.local`, split into two keys:
+ *   - `config`: user settings + the API token (written by the options page).
+ *       { schemaVersion, appBaseUrl, apiToken, autoCourier, autoSyncCollections }
+ *   - `state`: machine-written bookkeeping (throttle hashes, courier status).
+ *       { lastMakerworldHash, lastCollectionsHash,
+ *         lastCollectionItemsHash: Array<{listId, hash}>,
+ *         lastCourierStatus, lastCourierAt }
+ * The split keeps the background worker's frequent state writes from ever
+ * clobbering a settings save made in the options page (and vice versa).
  *
- * `apiToken` living in `chrome.storage.local` is unavoidable — it's the
- * credential the extension authenticates with — but nothing else here ever
- * stores a raw secret: the MakerWorld cookie itself is never persisted,
- * only its hash (`lastMakerworldHash`, produced by `courier.js`).
- * `lastCollectionsHash` (import-health branch T5) is the same idea applied
- * to the background auto-sync's throttle -- a hash of the last-pushed
- * collections payload, not the payload itself (see `syncFlow.js`'s
- * `hashCollectionsPayload`). `lastCollectionItemsHash` (M11) is the
- * per-collection counterpart for the detail-page auto-sync
- * (`syncFlow.js`'s `hashCollectionItemsPayload`/`upsertCollectionItemsHash`)
- * -- deliberately an ARRAY of `{listId, hash}` pairs rather than an object
- * keyed by listId, since MakerWorld list ids are canonical-numeric-looking
- * strings and every JS engine silently reorders a plain object's
- * INTEGER-like keys to ascending numeric order regardless of insertion
- * order, which would break "prune to the last 50 by recency".
+ * Every read-modify-write runs under `navigator.locks.request("tdmm-state")`
+ * so it is atomic ACROSS extension contexts (service worker, popup, options).
+ * Where Web Locks are unavailable (node tests) it falls back to an
+ * in-context promise chain.
  *
- * Uses `chrome.*`, so this module is NOT unit-tested directly (see
- * `courier.test.js` / `detect.test.js` for the pure logic this wraps).
+ * `lastCollectionItemsHash` is an ARRAY of pairs, not an object keyed by
+ * listId: list ids look like integers and JS engines reorder integer-like
+ * keys, which would break "prune to the last 50 by recency".
+ *
+ * Only a HASH of the MakerWorld cookie is ever stored, never the cookie.
  */
 
-const STORAGE_KEY = "config";
+const CONFIG_KEY = "config";
+const STATE_KEY = "state";
+const LOCK_NAME = "tdmm-state";
+export const SCHEMA_VERSION = 2;
 
-const DEFAULTS = {
-  appBaseUrl: "",
-  apiToken: "",
-  autoCourier: true,
-  lastMakerworldHash: null,
-  autoSyncCollections: true,
-  lastCollectionsHash: null,
-  lastCollectionItemsHash: [],
-};
+const str = (v, d) => (typeof v === "string" ? v : d);
+const bool = (v, d) => (typeof v === "boolean" ? v : d);
+const strOrNull = (v) => (typeof v === "string" && v ? v : null);
 
-/**
- * @returns {Promise<{appBaseUrl:string, apiToken:string, autoCourier:boolean, lastMakerworldHash:string|null, autoSyncCollections:boolean, lastCollectionsHash:string|null, lastCollectionItemsHash:Array<{listId:string, hash:string}>}>}
- */
-export async function getConfig() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  return { ...DEFAULTS, ...(stored[STORAGE_KEY] || {}) };
+/** Coerces an untrusted stored blob into a well-typed config object. */
+export function coerceConfig(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    appBaseUrl: str(r.appBaseUrl, ""),
+    apiToken: str(r.apiToken, ""),
+    autoCourier: bool(r.autoCourier, true),
+    autoSyncCollections: bool(r.autoSyncCollections, true),
+  };
 }
 
-/**
- * Shallow-merges `patch` into the persisted config and returns the result.
- * @param {Partial<{appBaseUrl:string, apiToken:string, autoCourier:boolean, lastMakerworldHash:string|null, autoSyncCollections:boolean, lastCollectionsHash:string|null, lastCollectionItemsHash:Array<{listId:string, hash:string}>}>} patch
- */
-export function setConfig(patch) {
-  // Serialize read-merge-write so concurrent callers don't clobber each other.
-  const run = writeChain.then(async () => {
-    const current = await getConfig();
-    const next = { ...current, ...patch };
-    await chrome.storage.local.set({ [STORAGE_KEY]: next });
-    return next;
-  });
-  writeChain = run.catch(() => {});
-  return run;
+/** Coerces an untrusted stored blob into a well-typed state object. */
+export function coerceState(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const items = Array.isArray(r.lastCollectionItemsHash)
+    ? r.lastCollectionItemsHash.filter(
+        (e) => e && typeof e.listId === "string" && typeof e.hash === "string",
+      )
+    : [];
+  return {
+    lastMakerworldHash: strOrNull(r.lastMakerworldHash),
+    lastCollectionsHash: strOrNull(r.lastCollectionsHash),
+    lastCollectionItemsHash: items,
+    lastCourierStatus: strOrNull(r.lastCourierStatus),
+    lastCourierAt: typeof r.lastCourierAt === "number" ? r.lastCourierAt : null,
+  };
 }
 
 let writeChain = Promise.resolve();
 
+/** Runs `fn` exclusively: Web Locks across contexts, promise chain otherwise. */
+function withLock(fn) {
+  const locks = globalThis.navigator?.locks;
+  if (locks && typeof locks.request === "function") {
+    return locks.request(LOCK_NAME, fn);
+  }
+  const run = writeChain.then(fn);
+  writeChain = run.catch(() => {});
+  return run;
+}
+
 /**
- * Patch that clears the throttle hashes when the app URL or token changes,
- * so a new server gets a fresh push instead of being skipped as "unchanged".
- * @param {{appBaseUrl:string, apiToken:string}} prev
- * @param {{appBaseUrl:string, apiToken:string}} next
+ * Reads both keys. A pre-split blob (hashes inside `config`, no
+ * `schemaVersion`) is reported via `needsMigration`; its hashes seed `state`.
+ */
+async function readAll() {
+  const stored = await chrome.storage.local.get([CONFIG_KEY, STATE_KEY]);
+  const rawConfig = stored[CONFIG_KEY];
+  const rawState = stored[STATE_KEY];
+  const needsMigration = Boolean(rawConfig) && rawConfig.schemaVersion !== SCHEMA_VERSION;
+  return {
+    config: coerceConfig(rawConfig),
+    state: coerceState(needsMigration ? { ...rawConfig, ...(rawState || {}) } : rawState),
+    needsMigration,
+  };
+}
+
+async function readMigrated() {
+  const first = await readAll();
+  if (!first.needsMigration) {
+    return first;
+  }
+  return withLock(async () => {
+    const again = await readAll();
+    if (again.needsMigration) {
+      await chrome.storage.local.set({ [CONFIG_KEY]: again.config, [STATE_KEY]: again.state });
+    }
+    return again;
+  });
+}
+
+export async function getConfig() {
+  return (await readMigrated()).config;
+}
+
+export async function getState() {
+  return (await readMigrated()).state;
+}
+
+/** Atomically shallow-merges `patch` into the persisted config. */
+export function setConfig(patch) {
+  return withLock(async () => {
+    const { config, state } = await readAll();
+    const next = coerceConfig({ ...config, ...patch });
+    await chrome.storage.local.set({ [CONFIG_KEY]: next, [STATE_KEY]: state });
+    return next;
+  });
+}
+
+/**
+ * Atomically updates the persisted state. `update` is either a patch object
+ * or an updater `(current) => patch` evaluated INSIDE the lock, so
+ * read-modify-write sequences (e.g. upserting one hash into an array) can't
+ * lose a concurrent writer's changes.
+ * @param {object|((current: object) => object)} update
+ */
+export function setState(update) {
+  return withLock(async () => {
+    const { config, state } = await readAll();
+    const patch = typeof update === "function" ? update(state) : update;
+    const next = coerceState({ ...state, ...patch });
+    await chrome.storage.local.set({ [CONFIG_KEY]: config, [STATE_KEY]: next });
+    return next;
+  });
+}
+
+/**
+ * State patch that clears the throttle hashes when the app URL or token
+ * changes, so a new server gets a fresh push instead of being skipped as
+ * "unchanged".
  */
 export function hashResetPatch(prev, next) {
   if (prev.appBaseUrl === next.appBaseUrl && prev.apiToken === next.apiToken) {
