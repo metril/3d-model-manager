@@ -60,10 +60,11 @@ def _backfill_provenance_sync(session, imp: Import, collection: FollowedCollecti
     """Heal an import a later sync re-discovers as already-imported but that
     never recorded which collection it came from -- imports that predate this
     feature, or that were created some other way (manual paste, a different
-    followed list's earlier sync). FIRST collection wins: a value already
-    stamped on either the import row or the model it produced is never
-    overwritten. ``imp`` is a live import (``find_live_import_sync``
-    guarantees ``model_id IS NOT NULL``).
+    followed list's earlier sync). NAMED beats AGGREGATE, else FIRST wins: a
+    value already stamped on either the import row or the model it produced is
+    never overwritten, except that a stamp pointing at an aggregate ("All
+    collected models") is re-homed to a named folder. ``imp`` is a live import
+    (``find_live_import_sync`` guarantees ``model_id IS NOT NULL``).
     """
     # Already healed -- skip without fetching the Model. Safe because
     # `imp.collection_id` and the model's `source_collection_id` move
@@ -75,6 +76,17 @@ def _backfill_provenance_sync(session, imp: Import, collection: FollowedCollecti
     # re-fetching it here would just be a per-item no-op query on every
     # steady-state sync walk.
     if imp.collection_id is not None:
+        if collection.is_aggregate or imp.collection_id == collection.id:
+            return
+        current = session.get(FollowedCollection, imp.collection_id)
+        if current is None or not current.is_aggregate:
+            return
+        imp.collection_id = collection.id
+        model = session.get(Model, imp.model_id)
+        if model is not None and model.source_collection_id in (None, current.id):
+            model.source_collection_id = collection.id
+            model.source_collection_title = collection.title
+        session.commit()
         return
     imp.collection_id = collection.id
     model = session.get(Model, imp.model_id)
@@ -92,7 +104,17 @@ def _sync_one(session, collection: FollowedCollection) -> None:
         )
         return
 
+    # An aggregate walk leaves items a followed named folder owns to that
+    # folder (it was walked first); they'd otherwise be claimed here.
+    owned = (
+        collections_svc.named_owners_sync(session, collection.site)
+        if collection.is_aggregate
+        else {}
+    )
+
     for item in _walk_list_items(importer, collection.list_id):
+        if item.external_id in owned:
+            continue
         live_import = find_live_import_sync(session, item.site, item.external_id)
         # ...or still in flight: under real (non-eager) Celery the import this
         # run just dispatched is only `pending`, so a model that appears in two
@@ -138,6 +160,7 @@ def sync_all(job_id: str) -> None:
 
     try:
         with base.sync_session() as s:
+            collections_svc.autofollow_named_sync(s)
             collection_ids = [c.id for c in collections_svc.list_followed_sync(s)]
 
         for collection_id in collection_ids:

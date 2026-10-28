@@ -33,6 +33,7 @@ from app.models import ApiToken, User
 from app.models.enums import ImportSite
 from app.models.system import Import
 from app.schemas.imports import ImportCreate, ImportOut, NonEmptyStr
+from app.services import collections as collections_svc
 from app.services import import_tokens, remote_collections
 from app.services.collections import list_followed
 from app.services.imports import start_import_with_options
@@ -289,6 +290,7 @@ async def push_collections(
         for entry in payload.collections
     ]
     count = await remote_collections.replace_site_cache(db, payload.site, entries)
+    await collections_svc.autofollow_named(db, payload.site)
     return ExtCollectionsPushOut(count=count)
 
 

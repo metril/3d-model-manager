@@ -38,6 +38,7 @@ function routedExec({ page, anchors = [], routes = {} } = {}) {
     if (func.name === "collectCollectionAnchorPathnamesInPage") return anchors;
     if (func.name === "fetchCollectionDataRouteInPage") {
       const r = routes[args[1]];
+      if (typeof r === "function") return r(args);
       return r === undefined ? null : r;
     }
     throw new Error(`unexpected injected func ${func.name}`);
@@ -238,6 +239,42 @@ test("syncCollections: partial uses the RAW array length vs. the count (and stil
   assert.equal(apiCalls.pushCollectionItems[0].items.length, 2);
   assert.equal(reports.at(-1).kind, "warn");
   assert.equal(shouldPersistHash(result), false);
+});
+
+test("syncCollections: pages through every item when the first page is shorter than the count", async () => {
+  const pages = { 1: [1, 2], 2: [3, 4], 3: [5] };
+  const { exec, calls } = routedExec({
+    page: listPage([{ id: 1, title: "One", slug: "one", designCnt: 5 }]),
+    routes: {
+      "/en/collections/1-one": (args) => {
+        const n = Number(new URLSearchParams(args[3] || "").get("page") || 1);
+        return route({ designs: (pages[n] || []).map((id) => design(id)) });
+      },
+    },
+  });
+  const { api, calls: apiCalls } = stubApi();
+  const { report } = reporter();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report });
+  assert.deepEqual(result, { collections: 1, items: 5, unreadable: [], failed: [], partial: [] });
+  assert.equal(apiCalls.pushCollectionItems.length, 1);
+  assert.deepEqual(
+    apiCalls.pushCollectionItems[0].items.map((i) => i.external_id),
+    ["1", "2", "3", "4", "5"],
+  );
+  assert.equal(calls.filter((c) => c.name === "fetchCollectionDataRouteInPage").length, 3);
+});
+
+test("syncCollections: a route that ignores paging params stops after one repeat page and stays partial", async () => {
+  const { exec, calls } = routedExec({
+    page: listPage([{ id: 1, title: "One", slug: "one", designCnt: 9 }]),
+    routes: { "/en/collections/1-one": route({ designs: [design(1), design(2)] }) },
+  });
+  const { api, calls: apiCalls } = stubApi();
+  const { report } = reporter();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report });
+  assert.deepEqual(result.partial, ["One"]);
+  assert.equal(apiCalls.pushCollectionItems[0].items.length, 2);
+  assert.equal(calls.filter((c) => c.name === "fetchCollectionDataRouteInPage").length, 2);
 });
 
 test("syncCollections: per-collection work runs with bounded concurrency (4)", async () => {

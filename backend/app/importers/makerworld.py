@@ -35,6 +35,7 @@ boolean check exactly, just nested one level deeper."""
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import ClassVar
 from urllib.parse import parse_qs, urlparse
@@ -42,6 +43,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from app.importers.base import (
+    AGGREGATE_LIST_TITLE,
     ImportFile,
     ImportMetadata,
     RemoteList,
@@ -57,6 +59,8 @@ _ALLOWED_HOSTS = {"makerworld.com", "www.makerworld.com"}
 # MakerWorld URLs: /en/models/<id>[-<slug>] (locale prefix optional/variable:
 # /de/, /fr/, /zh/, /ja/, ... or none at all) -- the id is always the numeric
 # segment right after "models/".
+logger = logging.getLogger(__name__)
+
 _ID_RE = re.compile(r"models/(\d+)", re.IGNORECASE)
 # Add-by-URL (M10 escape hatch B, `POST /collections/from-url`): MakerWorld
 # spells the path both ways (`/collection/<id>` singular on some surfaces,
@@ -490,7 +494,7 @@ class MakerWorldImporter:
                 site=self.site,
                 list_id=str(uid),
                 kind="collection",
-                title="All collected models",
+                title=AGGREGATE_LIST_TITLE,
                 count=None,
             )
         ]
@@ -546,13 +550,13 @@ class MakerWorldImporter:
             if cache_entries:
                 with sync_session() as s:
                     replace_site_cache_sync(s, self.site, cache_entries)
-        except (RuntimeError, httpx.HTTPError, KeyError):
+        except (RuntimeError, httpx.HTTPError, KeyError) as exc:
             # RuntimeError: Cloudflare challenge (`_makerworld_build_id`).
             # httpx.HTTPError: non-2xx (`raise_for_status`) / transport error.
             # KeyError: unexpected pageProps shape. Any of these -> skip the
             # named collections (and the cache write above) -- the merge
             # below fills the gap from whatever is already cached.
-            pass
+            logger.warning("makerworld SSR collections listing failed: %r", exc)
         # ALWAYS merge cached rows in (M10 escape hatch A): the extension's
         # push -- or a past successful SSR read -- fills in what THIS call's
         # SSR attempt couldn't reach. An SSR-fresh entry above wins over the

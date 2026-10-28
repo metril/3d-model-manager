@@ -81,6 +81,11 @@ class SearchResult:
     thumbnail_url: str | None = None
 
 
+# Title of MakerWorld's uid-keyed aggregate list; `follow()` flags rows with it
+# as `is_aggregate`.
+AGGREGATE_LIST_TITLE = "All collected models"
+
+
 @dataclass(frozen=True)
 class RemoteList:
     """One of the signed-in user's lists on a site (M8 H): a collection, or the

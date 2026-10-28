@@ -13,11 +13,18 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import aliased
 
-from app.models.collections import FollowedCollection, PendingImport, RemoteCollectionItem
+from app.importers.base import AGGREGATE_LIST_TITLE
+from app.models.collections import (
+    FollowedCollection,
+    PendingImport,
+    RemoteCollectionCache,
+    RemoteCollectionItem,
+)
 from app.models.enums import CollectionSyncMode, ImportSite
 from app.models.library import Model
 from app.services import tags as tags_svc
@@ -137,6 +144,9 @@ async def follow(
         title=title,
         mode=mode,
         created_by_user_id=created_by_user_id,
+        is_aggregate=(
+            site == ImportSite.MAKERWORLD and kind == "collection" and title == AGGREGATE_LIST_TITLE
+        ),
     )
     db.add(row)
     await db.commit()
@@ -278,11 +288,107 @@ async def resolve_display_collections(
     return result
 
 
+# -- auto-follow of named folders -----------------------------------------
+
+
+def _autofollow_plan(
+    aggregates: Sequence[FollowedCollection],
+    cached: Sequence[RemoteCollectionCache],
+    followed: set[tuple[ImportSite, str]],
+) -> list[dict]:
+    """Rows to insert: every cached named folder of a site whose aggregate is
+    followed, not yet followed itself. Inherits the aggregate's mode/owner."""
+    agg_by_site: dict[ImportSite, FollowedCollection] = {}
+    for a in aggregates:
+        agg_by_site.setdefault(a.site, a)
+    out = []
+    for c in cached:
+        agg = agg_by_site.get(c.site)
+        if agg is None or c.list_id == agg.list_id or (c.site, c.list_id) in followed:
+            continue
+        out.append(
+            {
+                "site": c.site,
+                "list_id": c.list_id,
+                "kind": "collection",
+                "title": c.title,
+                "mode": agg.mode,
+                "created_by_user_id": agg.created_by_user_id,
+                "is_aggregate": False,
+            }
+        )
+    return out
+
+
+def _autofollow_stmts(site: ImportSite | None):
+    agg_stmt = select(FollowedCollection).where(FollowedCollection.is_aggregate.is_(True))
+    cache_stmt = select(RemoteCollectionCache).order_by(RemoteCollectionCache.id)
+    if site is not None:
+        agg_stmt = agg_stmt.where(FollowedCollection.site == site)
+        cache_stmt = cache_stmt.where(RemoteCollectionCache.site == site)
+    return agg_stmt.order_by(FollowedCollection.id), cache_stmt
+
+
+async def autofollow_named(db: AsyncSession, site: ImportSite | None = None) -> int:
+    """Follow every cached named folder (``remote_collection_cache``) of a site
+    whose aggregate ("All collected models") is followed. Idempotent; returns
+    the number of newly followed folders."""
+    agg_stmt, cache_stmt = _autofollow_stmts(site)
+    aggregates = list((await db.execute(agg_stmt)).scalars())
+    if not aggregates:
+        return 0
+    cached = list((await db.execute(cache_stmt)).scalars())
+    followed = {
+        (r.site, r.list_id) for r in (await db.execute(select(FollowedCollection))).scalars()
+    }
+    plan = _autofollow_plan(aggregates, cached, followed)
+    if plan:
+        await db.execute(pg_insert(FollowedCollection).values(plan).on_conflict_do_nothing())
+        await db.commit()
+    return len(plan)
+
+
+def autofollow_named_sync(session: SyncSession, site: ImportSite | None = None) -> int:
+    """Worker twin of ``autofollow_named``."""
+    agg_stmt, cache_stmt = _autofollow_stmts(site)
+    aggregates = list(session.execute(agg_stmt).scalars())
+    if not aggregates:
+        return 0
+    cached = list(session.execute(cache_stmt).scalars())
+    followed = {(r.site, r.list_id) for r in session.execute(select(FollowedCollection)).scalars()}
+    plan = _autofollow_plan(aggregates, cached, followed)
+    if plan:
+        session.execute(pg_insert(FollowedCollection).values(plan).on_conflict_do_nothing())
+        session.commit()
+    return len(plan)
+
+
+def named_owners_sync(session: SyncSession, site: ImportSite) -> dict[str, int]:
+    """``{external_id: followed named collection id}`` for every item the
+    extension has pushed into a FOLLOWED, non-aggregate list of ``site``
+    (lowest followed id wins when an item sits in several)."""
+    rows = session.execute(
+        select(RemoteCollectionItem.external_id, FollowedCollection.id)
+        .join(
+            FollowedCollection,
+            (FollowedCollection.site == RemoteCollectionItem.site)
+            & (FollowedCollection.list_id == RemoteCollectionItem.list_id),
+        )
+        .where(RemoteCollectionItem.site == site, FollowedCollection.is_aggregate.is_(False))
+        .order_by(FollowedCollection.id.desc())
+    )
+    return {ext_id: cid for ext_id, cid in rows}  # desc order -> lowest id lands last
+
+
 # -- worker-side twins ----------------------------------------------------
 
 
 def list_followed_sync(session: SyncSession) -> list[FollowedCollection]:
-    stmt = select(FollowedCollection).order_by(FollowedCollection.id)
+    # Named lists before aggregates: a named folder must claim an item's
+    # provenance before the superset aggregate does.
+    stmt = select(FollowedCollection).order_by(
+        FollowedCollection.is_aggregate, FollowedCollection.id
+    )
     return list(session.execute(stmt).scalars())
 
 
@@ -330,12 +436,19 @@ def add_pending_sync(
     discovering the same item must not queue a duplicate row) -- so a
     repeated sync (or a second list surfacing the same item) is a no-op."""
     already = session.execute(
-        select(PendingImport.id).where(
+        select(PendingImport, FollowedCollection.is_aggregate)
+        .join(FollowedCollection, FollowedCollection.id == PendingImport.collection_id)
+        .where(
             PendingImport.site == collection.site,
             PendingImport.external_id == external_id,
         )
     ).first()
     if already is not None:
+        pending, under_aggregate = already
+        if under_aggregate and not collection.is_aggregate:
+            # Named beats aggregate: re-home a row the aggregate queued first.
+            pending.collection_id = collection.id
+            session.commit()
         return False
     session.add(
         PendingImport(

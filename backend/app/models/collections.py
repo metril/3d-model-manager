@@ -56,6 +56,12 @@ class FollowedCollection(Base):
     mode: Mapped[CollectionSyncMode] = mapped_column(
         str_enum(CollectionSyncMode, "collection_sync_mode"), nullable=False
     )
+    # The site's "everything you saved" list (MakerWorld's uid-keyed "All
+    # collected models"): a superset of the user's named folders, so a named
+    # folder always wins provenance over it (see ``app.tasks.sync_collections``).
+    is_aggregate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false(), default=False
+    )
     last_synced_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
