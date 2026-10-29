@@ -3,7 +3,7 @@
  * a recipe plus ordered steps (orient/arrange pre-steps, then a rename or
  * queue post-step) run in one click on a file.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import type { QueueEntry, SliceJob } from "@/api/types";
@@ -42,8 +42,25 @@ export interface PipelineRun {
 
 const KEY = ["slicer-pipelines"] as const;
 
-export function usePipelines() {
-  return useQuery({ queryKey: KEY, queryFn: () => api.get<SlicerPipeline[]>("/slicer-pipelines") });
+export interface PipelineScope {
+  printerId?: number;
+  nozzle?: number;
+  q?: string;
+}
+
+export function usePipelines(scope?: PipelineScope) {
+  return useQuery({
+    queryKey: [...KEY, scope?.printerId ?? null, scope?.nozzle ?? null, scope?.q ?? ""] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (scope?.printerId != null) params.set("printer_id", String(scope.printerId));
+      if (scope?.nozzle != null) params.set("nozzle_mm", String(scope.nozzle));
+      if (scope?.q) params.set("q", scope.q);
+      const qs = params.toString();
+      return api.get<SlicerPipeline[]>(qs ? `/slicer-pipelines?${qs}` : "/slicer-pipelines");
+    },
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useSavePipeline() {

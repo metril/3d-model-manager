@@ -39,6 +39,7 @@ import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
 import { parsePrintHistorySearch } from "@/pages/printHistorySearch";
 import { parseQueueSearch } from "@/pages/queueSearch";
 import { parsePrintDashSearch } from "@/pages/printerDashSearch";
+import { parseProfilesSearch } from "@/pages/profilesSearch";
 import { parseViewerWindowSearch } from "@/pages/viewerWindowSearch";
 
 export interface RouterContext {
@@ -335,6 +336,7 @@ const inventoryMaterialsRoute = createRoute({
 const inventoryProfilesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/profiles",
+  validateSearch: (search: Record<string, unknown>) => parseProfilesSearch(search),
   component: ProfilesPage,
 });
 

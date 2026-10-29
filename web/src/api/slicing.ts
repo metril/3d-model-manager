@@ -11,32 +11,51 @@ import type {
   PrintRecipeIn,
   ProfileImportResult,
   ProfileKind,
+  ProfileListOut,
   SliceJob,
   SlicerHealth,
   SlicerProfile,
 } from "@/api/types";
 
-function profilesQueryKey(kind?: ProfileKind) {
-  return ["profiles", kind ?? "all"] as const;
+/** Scope shared by the profile/recipe/pipeline lists (backend `scope` params). */
+export interface ProfileScope {
+  printerId?: number;
+  nozzle?: number;
+  layer?: number;
+  q?: string;
+  /** Include out-of-scope rows (flagged `in_scope: false`). */
+  all?: boolean;
 }
 
-/** `GET /profiles?kind=&full=1` -- always fetches `data` too (`full=1`),
- * since every caller (the table, and `RecipeForm`'s bed-type lookup) needs
- * it; the backend only omits `data` from a list response to keep it light
- * when nothing else wants it, which isn't the case for this UI. */
-export function useProfiles(kind?: ProfileKind) {
+function profilesQueryKey(kind?: ProfileKind, scope?: ProfileScope, full = true) {
+  return ["profiles", kind ?? "all", scope ?? null, full] as const;
+}
+
+/** `GET /profiles?kind=&full=1` envelope (items + `total`/`nozzle_source`).
+ * `full=1` by default: the table and `RecipeForm` (bed types) need `data`. */
+export function useProfileList(kind?: ProfileKind, scope?: ProfileScope, options?: { full?: boolean }) {
+  const full = options?.full ?? true;
   return useQuery({
-    queryKey: profilesQueryKey(kind),
+    queryKey: profilesQueryKey(kind, scope, full),
     queryFn: () => {
-      const params = new URLSearchParams({ full: "1" });
+      const params = new URLSearchParams();
+      if (full) params.set("full", "1");
       if (kind) params.set("kind", kind);
-      return api
-        .get<{ items: SlicerProfile[]; total: number; nozzle_source: string | null }>(
-          `/profiles?${params.toString()}`,
-        )
-        .then((res) => res.items);
+      if (scope?.printerId != null) params.set("printer_id", String(scope.printerId));
+      if (scope?.nozzle != null) params.set("nozzle_mm", String(scope.nozzle));
+      if (scope?.layer != null) params.set("layer_height_mm", String(scope.layer));
+      if (scope?.q) params.set("q", scope.q);
+      if (scope?.all) params.set("show_all", "1");
+      return api.get<ProfileListOut>(`/profiles?${params.toString()}`);
     },
+    placeholderData: keepPreviousData,
   });
+}
+
+/** Items only, for callers that don't need the envelope. */
+export function useProfiles(kind?: ProfileKind, scope?: ProfileScope) {
+  const query = useProfileList(kind, scope);
+  return { ...query, data: query.data?.items };
 }
 
 export function useProfile(id: number | null | undefined) {
@@ -73,13 +92,26 @@ export function useImportProfiles() {
 /** Prefix of every recipes query key; mutations invalidate by this. */
 const RECIPES_KEY = ["recipes"] as const;
 
-/** `printerId` asks the backend to annotate each recipe with `compatible` /
- * `incompatible_reason` for that printer (the single source of truth). */
-export function useRecipes(printerId?: number) {
+export interface RecipeScope extends ProfileScope {
+  compatibleOnly?: boolean;
+}
+
+/** A bare number is the legacy `printerId` signature: the backend annotates
+ * each recipe with `compatible` / `incompatible_reason` for that printer. */
+export function useRecipes(arg?: number | RecipeScope) {
+  const scope: RecipeScope = typeof arg === "number" ? { printerId: arg } : (arg ?? {});
   return useQuery({
-    queryKey: [...RECIPES_KEY, printerId ?? null] as const,
-    queryFn: () =>
-      api.get<PrintRecipe[]>(printerId != null ? `/recipes?printer_id=${printerId}` : "/recipes"),
+    queryKey: [...RECIPES_KEY, scope.printerId ?? null, scope.nozzle ?? null, scope.layer ?? null, scope.compatibleOnly ?? false, scope.q ?? ""] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (scope.printerId != null) params.set("printer_id", String(scope.printerId));
+      if (scope.nozzle != null) params.set("nozzle_mm", String(scope.nozzle));
+      if (scope.layer != null) params.set("layer_height_mm", String(scope.layer));
+      if (scope.compatibleOnly) params.set("compatible_only", "1");
+      if (scope.q) params.set("q", scope.q);
+      const qs = params.toString();
+      return api.get<PrintRecipe[]>(qs ? `/recipes?${qs}` : "/recipes");
+    },
     placeholderData: keepPreviousData,
   });
 }

@@ -7,18 +7,22 @@
  * profile) are hidden without `inventory:write`.
  */
 import { useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { CloudIcon, PlusIcon, Trash2Icon, UploadIcon, WrenchIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useDeletePipeline, usePipelines, type SlicerPipeline } from "@/api/pipelines";
-import { useDeleteRecipe, useProfiles, useRecipes, useSlicerHealth } from "@/api/slicing";
+import { useDeleteRecipe, useProfileList, useRecipes, useSlicerHealth, type ProfileScope } from "@/api/slicing";
 import type { PrintRecipe, ProfileKind } from "@/api/types";
 import { CloudPresetsDialog } from "@/components/inventory/CloudPresetsDialog";
 import { PipelineForm } from "@/components/inventory/PipelineForm";
 import { ProfileImportDialog } from "@/components/inventory/ProfileImportDialog";
 import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { RecipeForm } from "@/components/inventory/RecipeForm";
+import { ProfileScopeBar, ScopeBadges, ScopeHeader } from "@/components/inventory/ProfileScopeBar";
+import { isUniversal } from "@/lib/profileScope";
+import { parseProfilesSearch, type ProfilesSearch } from "@/pages/profilesSearch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -46,13 +50,27 @@ function SidecarHealthChip() {
   );
 }
 
-function ProfilesTab() {
+function ProfilesTab({
+  scope,
+  kindFilter,
+  setKindFilter,
+  onAll,
+}: {
+  scope: ProfileScope;
+  kindFilter: ProfileKind | "all";
+  setKindFilter: (k: ProfileKind | "all") => void;
+  onAll: (all: boolean) => void;
+}) {
   const { can } = useAuth();
   const canWrite = can("inventory:write");
-  const [kindFilter, setKindFilter] = useState<ProfileKind | "all">("all");
   const [importOpen, setImportOpen] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
-  const profiles = useProfiles(kindFilter === "all" ? undefined : kindFilter);
+  const profileList = useProfileList(kindFilter === "all" ? undefined : kindFilter, {
+    ...scope,
+    layer: kindFilter === "process" ? scope.layer : undefined,
+  });
+  const profiles = { ...profileList, data: profileList.data?.items };
+  const shown = (profiles.data ?? []).filter((p) => p.in_scope !== false).length;
   const health = useSlicerHealth();
 
   return (
@@ -89,6 +107,14 @@ function ProfilesTab() {
 
       {canWrite && health.data?.configured ? <SyncProfilesButton idPrefix="profiles-sync" /> : null}
 
+      <ScopeHeader
+        idPrefix="profiles"
+        shown={shown}
+        total={profileList.data?.total}
+        all={scope.all}
+        onAll={onAll}
+      />
+
       <Card>
         <CardContent>
           {profiles.isLoading ? (
@@ -111,8 +137,13 @@ function ProfilesTab() {
               </TableHeader>
               <TableBody>
                 {(profiles.data ?? []).map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
+                  <TableRow key={p.id} className={p.in_scope === false ? "opacity-50" : undefined}>
+                    <TableCell className="font-medium">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {p.name}
+                        <ScopeBadges universal={isUniversal(p)} reason={p.in_scope === false ? p.scope_reason : null} />
+                      </span>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{p.printer_model ?? "—"}</TableCell>
                     <TableCell className="font-mono text-muted-foreground">
                       {p.nozzle_mm != null ? `${p.nozzle_mm} mm` : "—"}
@@ -139,10 +170,11 @@ function ProfilesTab() {
   );
 }
 
-function RecipesTab() {
+function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolean) => void }) {
   const { can } = useAuth();
   const canWrite = can("inventory:write");
-  const recipes = useRecipes();
+  const recipes = useRecipes({ ...scope, compatibleOnly: !scope.all });
+  const shown = (recipes.data ?? []).filter((r) => r.compatible !== false).length;
   const deleteRecipe = useDeleteRecipe();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<PrintRecipe | undefined>(undefined);
@@ -168,6 +200,14 @@ function RecipesTab() {
         </div>
       ) : null}
 
+      <ScopeHeader
+        idPrefix="recipes"
+        shown={shown}
+        total={scope.all ? (recipes.data ?? []).length : undefined}
+        all={scope.all}
+        onAll={onAll}
+      />
+
       <Card>
         <CardContent>
           {recipes.isLoading ? (
@@ -190,15 +230,18 @@ function RecipesTab() {
               </TableHeader>
               <TableBody>
                 {(recipes.data ?? []).map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} className={r.compatible === false ? "opacity-50" : undefined}>
                     <TableCell className="font-medium">
-                      {canWrite ? (
-                        <button type="button" className="hover:underline" onClick={() => openEdit(r)}>
-                          {r.name}
-                        </button>
-                      ) : (
-                        r.name
-                      )}
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {canWrite ? (
+                          <button type="button" className="hover:underline" onClick={() => openEdit(r)}>
+                            {r.name}
+                          </button>
+                        ) : (
+                          r.name
+                        )}
+                        <ScopeBadges universal={false} reason={r.compatible === false ? r.incompatible_reason : null} />
+                      </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{r.bed_type}</TableCell>
                     <TableCell>
@@ -232,10 +275,10 @@ function RecipesTab() {
 
 const STEP_LABEL: Record<string, string> = { orient: "Orient", arrange: "Arrange", rename: "Rename", queue: "Queue" };
 
-function PipelinesTab() {
+function PipelinesTab({ scope }: { scope: ProfileScope }) {
   const { can } = useAuth();
   const canWrite = can("inventory:write");
-  const pipelines = usePipelines();
+  const pipelines = usePipelines({ printerId: scope.printerId, nozzle: scope.nozzle, q: scope.q });
   const remove = useDeletePipeline();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<SlicerPipeline | undefined>(undefined);
@@ -257,6 +300,8 @@ function PipelinesTab() {
           </Button>
         </div>
       ) : null}
+
+      <ScopeHeader idPrefix="pipelines" shown={(pipelines.data ?? []).length} />
 
       <Card>
         <CardContent>
@@ -346,7 +391,26 @@ function PipelinesTab() {
 }
 
 export function ProfilesPage() {
-  const [tab, setTab] = useState<"profiles" | "recipes" | "pipelines">("profiles");
+  const navigate = useNavigate();
+  const search = parseProfilesSearch(useSearch({ strict: false }) as Record<string, unknown>);
+  const tab = search.tab ?? "profiles";
+  const [kindFilter, setKindFilter] = useState<ProfileKind | "all">("all");
+  function patchSearch(patch: Partial<ProfilesSearch>) {
+    void navigate({
+      to: ".",
+      search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
+      replace: true,
+    });
+  }
+  const scope: ProfileScope = {
+    printerId: search.printer,
+    nozzle: search.nozzle,
+    layer: search.layer,
+    q: search.q,
+    all: search.all === 1,
+  };
+  const onAll = (all: boolean) => patchSearch({ all: all ? 1 : undefined });
+  const showLayer = tab === "recipes" || (tab === "profiles" && kindFilter === "process");
 
   return (
     <PageContainer width="default">
@@ -357,20 +421,25 @@ export function ProfilesPage() {
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "profiles" | "recipes" | "pipelines")}>
+      <ProfileScopeBar search={search} onPatch={patchSearch} showLayer={showLayer} />
+
+      <Tabs
+        value={tab}
+        onValueChange={(v) => patchSearch({ tab: v === "profiles" ? undefined : (v as "recipes" | "pipelines") })}
+      >
         <TabsList>
           <TabsTrigger value="profiles">Profiles</TabsTrigger>
           <TabsTrigger value="recipes">Recipes</TabsTrigger>
           <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
         </TabsList>
         <TabsContent value="profiles">
-          <ProfilesTab />
+          <ProfilesTab scope={scope} kindFilter={kindFilter} setKindFilter={setKindFilter} onAll={onAll} />
         </TabsContent>
         <TabsContent value="recipes">
-          <RecipesTab />
+          <RecipesTab scope={scope} onAll={onAll} />
         </TabsContent>
         <TabsContent value="pipelines">
-          <PipelinesTab />
+          <PipelinesTab scope={scope} />
         </TabsContent>
       </Tabs>
     </PageContainer>

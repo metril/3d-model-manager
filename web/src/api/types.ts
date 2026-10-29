@@ -688,6 +688,8 @@ export interface PrinterOut {
   capabilities?: PrinterCapabilities;
   total_print_hours?: number | null;
   maintenance_mode?: boolean;
+  /** Last nozzle diameter (mm) seen from the printer. */
+  nozzle_mm?: number | null;
 }
 
 export interface PrinterCapabilities {
@@ -885,6 +887,8 @@ export interface SlotAssignIn {
 }
 
 export interface PrinterStatusOut {
+  /** Live nozzle diameter (mm); null offline / not reported. */
+  nozzle_mm?: number | null;
   /** T1: firmware-aware capabilities (preferred over `PrinterOut.capabilities` when present). */
   capabilities?: PrinterCapabilities | null;
   online: boolean;
@@ -1930,6 +1934,22 @@ export type ProfileKind = "printer" | "process" | "filament";
 export type ProfileSource = "import" | "builtin" | "synced";
 export type Fanout = "single" | "spread" | "first_n";
 
+export interface ProfileCompat {
+  model_key: string;
+  nozzle_mm: number | null;
+}
+
+export type NozzleSource = "override" | "live" | "last_seen" | "assumed";
+
+/** `GET /profiles` envelope. */
+export interface ProfileListOut {
+  items: SlicerProfile[];
+  /** Rows matching kind/q before scope filtering ("N of M"). */
+  total: number;
+  nozzle_source: NozzleSource | null;
+  nozzle_mm?: number | null;
+}
+
 export interface SlicerProfile {
   id: number;
   name: string;
@@ -1938,6 +1958,13 @@ export interface SlicerProfile {
   nozzle_mm: number | null;
   source: ProfileSource;
   cloud_source?: "orca" | "bambu" | null;
+  /** System-derived scope metadata (read-only). */
+  printer_model_key?: string | null;
+  compat?: ProfileCompat[] | null;
+  layer_height_mm?: number | null;
+  /** Set only when listed with `?printer_id=`. */
+  in_scope?: boolean | null;
+  scope_reason?: string | null;
   created_by_user_id: number | null;
   created_at: string;
   updated_at: string;
