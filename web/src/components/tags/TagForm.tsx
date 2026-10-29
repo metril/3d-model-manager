@@ -4,9 +4,10 @@ import { CheckIcon } from "lucide-react";
 import { TAG_ICONS, TAG_ICON_NAMES } from "@/components/tags/tagIcons";
 import { TagChip } from "@/components/tags/TagChip";
 import { Button } from "@/components/ui/button";
+import { ColorField } from "@/components/ui/color-field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_TAG_COLOR, TAG_PALETTE, isHexColor, normalizeHex, readableTextColor } from "@/lib/tagColors";
+import { DEFAULT_TAG_COLOR, TAG_PALETTE, isHexColor, readableTextColor } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
 
 export interface TagFormValues {
@@ -16,15 +17,9 @@ export interface TagFormValues {
   description: string | null;
 }
 
-/** Palette quick-picks + native color input + hex field. */
+/** Palette quick-picks + colour picker popover. */
 export function TagColorField({ value, onChange }: { value: string | null; onChange: (hex: string) => void }) {
-  const [hexText, setHexText] = useState(value ?? "");
   const current = isHexColor(value) ? value.toLowerCase() : null;
-
-  function commit(hex: string) {
-    setHexText(hex);
-    onChange(hex);
-  }
 
   return (
     <div className="space-y-2">
@@ -35,7 +30,7 @@ export function TagColorField({ value, onChange }: { value: string | null; onCha
             type="button"
             aria-label={`Color ${key}`}
             aria-pressed={current === hex}
-            onClick={() => commit(hex)}
+            onClick={() => onChange(hex)}
             style={{ backgroundColor: hex, color: readableTextColor(hex) }}
             className={cn(
               "flex size-5 items-center justify-center rounded-full ring-offset-2 ring-offset-popover",
@@ -47,24 +42,13 @@ export function TagColorField({ value, onChange }: { value: string | null; onCha
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <input
-          type="color"
-          aria-label="Pick custom color"
-          value={current ?? DEFAULT_TAG_COLOR}
-          onChange={(event) => commit(event.target.value)}
-          className="size-7 shrink-0 cursor-pointer rounded border border-input bg-transparent p-0.5"
-        />
-        <Input
-          aria-label="Hex color"
-          placeholder="#rrggbb"
-          value={hexText}
-          maxLength={7}
-          className="h-7 font-mono text-xs"
-          onChange={(event) => {
-            setHexText(event.target.value);
-            const hex = normalizeHex(event.target.value);
-            if (hex) onChange(hex);
-          }}
+        <ColorField
+          label="Pick custom color"
+          value={current ?? ""}
+          onChange={onChange}
+          swatches={[]}
+          clearable={false}
+          className="w-32"
         />
       </div>
     </div>

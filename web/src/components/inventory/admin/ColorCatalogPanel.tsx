@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FilamentChip } from "@/components/ui/filament-chip";
+import { ColorField } from "@/components/ui/color-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -86,7 +87,7 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cc-hex">{t("spoolAdmin.catalog.hex")}</Label>
-              <Input id="cc-hex" required placeholder="#RRGGBB" {...bind("hex")} />
+              <ColorField id="cc-hex" label={t("spoolAdmin.catalog.hex")} value={f.hex} onChange={(hex) => setF((s) => ({ ...s, hex }))} clearable={false} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cc-mat">{t("spoolAdmin.f.material")}</Label>

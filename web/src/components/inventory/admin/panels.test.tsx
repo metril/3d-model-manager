@@ -133,7 +133,9 @@ describe("ColorCatalogPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add colour" }));
     fireEvent.change(await screen.findByLabelText("Manufacturer"), { target: { value: "Acme" } });
     fireEvent.change(screen.getByLabelText("Colour name"), { target: { value: "Teal" } });
-    fireEvent.change(screen.getByLabelText("Hex"), { target: { value: "#008080" } });
+    fireEvent.click(screen.getByLabelText("Hex"));
+    fireEvent.change(screen.getByLabelText("Hex color"), { target: { value: "#008080" } });
+    fireEvent.keyDown(screen.getByLabelText("Hex color"), { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith("/color-catalog", {

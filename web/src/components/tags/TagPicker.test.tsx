@@ -93,6 +93,7 @@ describe("TagPicker", () => {
 
     fireEvent.change(screen.getByLabelText("Search tags"), { target: { value: "teal-ish" } });
     fireEvent.click(screen.getByRole("button", { name: /Create/ }));
+    fireEvent.click(screen.getByLabelText("Pick custom color"));
     fireEvent.change(screen.getByLabelText("Hex color"), { target: { value: "#12AB34" } });
     fireEvent.click(screen.getByRole("button", { name: "Create tag" }));
 
