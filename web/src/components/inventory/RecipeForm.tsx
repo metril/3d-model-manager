@@ -21,6 +21,7 @@ import type { Fanout, PlanOptions, PrintRecipe, PrintRecipeIn, SlicerProfile } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -91,18 +92,20 @@ export function RecipeForm({
   const saveRecipe = useSaveRecipe();
 
   const [fields, setFields] = useState(() => fieldsFor(recipe));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(fieldsFor(recipe)));
   const [touchedN, setTouchedN] = useState(false);
 
   useEffect(() => {
     if (open) {
       setFields(fieldsFor(recipe));
+      setBaseline(JSON.stringify(fieldsFor(recipe)));
       setTouchedN(false);
       saveRecipe.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const dirty = JSON.stringify(fields) !== JSON.stringify(fieldsFor(recipe));
+  const dirty = JSON.stringify(fields) !== baseline;
 
   const selectedPrinterProfile = (printerProfiles.data ?? []).find(
     (p) => p.id === fields.printerProfileId,
@@ -362,6 +365,9 @@ export function RecipeForm({
           </div>
 
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
             <Button type="submit" disabled={saveRecipe.isPending || fields.printerProfileId == null || fields.processProfileId == null}>
               {saveRecipe.isPending ? "Saving..." : isEdit ? "Save changes" : "Create recipe"}
             </Button>

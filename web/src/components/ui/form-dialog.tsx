@@ -1,4 +1,4 @@
-import { useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -22,11 +22,15 @@ type FormDialogProps = Omit<ComponentProps<typeof DialogContent>, "dismissable">
 export function FormDialog({ open, onOpenChange, dirty, busy, children, ...contentProps }: FormDialogProps) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
+  const returnFocus = useRef<HTMLElement | null>(null);
 
   function requestChange(next: boolean) {
     if (next) return onOpenChange(true);
     if (busy) return;
-    if (dirty) return setConfirming(true);
+    if (dirty) {
+      returnFocus.current = document.activeElement as HTMLElement | null;
+      return setConfirming(true);
+    }
     onOpenChange(false);
   }
 
@@ -43,6 +47,7 @@ export function FormDialog({ open, onOpenChange, dirty, busy, children, ...conte
         title={t("formDialog.discardTitle")}
         description={t("formDialog.discardDesc")}
         confirmLabel={t("formDialog.discard")}
+        onCancel={() => returnFocus.current?.focus()}
         cancelLabel={t("formDialog.keepEditing")}
         destructive
         onConfirm={() => onOpenChange(false)}

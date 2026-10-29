@@ -13,6 +13,7 @@ import { ApiError } from "@/api/client";
 import { useImportProfiles } from "@/api/slicing";
 import { Button } from "@/components/ui/button";
 import {
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -104,6 +105,9 @@ export function ProfileImportDialog({
           </div>
 
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
             <Button type="submit" disabled={!file || importProfiles.isPending}>
               {importProfiles.isPending ? "Importing..." : "Upload bundle"}
             </Button>

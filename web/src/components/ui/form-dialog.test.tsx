@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { DialogTitle } from "@/components/ui/dialog";
+import { DialogClose, DialogTitle } from "@/components/ui/dialog";
 import { FormDialog } from "@/components/ui/form-dialog";
 
 function Harness({ dirty = false, busy = false }: { dirty?: boolean; busy?: boolean }) {
@@ -12,6 +12,7 @@ function Harness({ dirty = false, busy = false }: { dirty?: boolean; busy?: bool
       <p data-testid="outside">outside</p>
       <FormDialog open={open} onOpenChange={setOpen} dirty={dirty} busy={busy}>
         <DialogTitle>Edit thing</DialogTitle>
+        <DialogClose>Cancel</DialogClose>
       </FormDialog>
     </>
   );
@@ -48,6 +49,17 @@ describe("FormDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByText("Discard changes?")).toBeNull();
     expect(isOpen()).toBe(true);
+  });
+
+  it("routes footer Cancel through the same guard", () => {
+    render(<Harness dirty />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(isOpen()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(isOpen()).toBe(false);
   });
 
   it("blocks closing while busy", () => {

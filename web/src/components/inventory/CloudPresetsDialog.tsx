@@ -12,6 +12,7 @@ import { CloudDownloadIcon, RefreshCwIcon } from "lucide-react";
 import { ApiError } from "@/api/client";
 import {
   useCloudDiff,
+  CLOUD_MUTATION_KEY,
   useCloudPresets,
   useCloudStatus,
   useCloudSync,
@@ -27,7 +28,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DialogClose,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -384,7 +387,7 @@ export function CloudPresetsDialog({
 }) {
   const [tab, setTab] = useState<CloudSource>("orca");
   // Any in-flight sync / pairing mutation blocks closing; nothing is "dirty" (each preset imports immediately).
-  const busy = useIsMutating() > 0;
+  const busy = useIsMutating({ mutationKey: CLOUD_MUTATION_KEY }) > 0;
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} busy={busy} className="sm:max-w-2xl">
         <DialogHeader>
@@ -406,6 +409,11 @@ export function CloudPresetsDialog({
             <SourcePanel source="bambu" canWrite={canWrite} canAdmin={canAdmin} />
           </TabsContent>
         </Tabs>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">Close</Button>
+          </DialogClose>
+        </DialogFooter>
     </FormDialog>
   );
 }
