@@ -106,8 +106,8 @@ export function ColorField({
           <span className={cn("font-mono text-xs", !current && "text-muted-foreground")}>{current ?? "#RRGGBB"}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64">
-        <HexColorPicker color={current ?? FALLBACK} onChange={onChange} style={{ width: "100%" }} />
+      <PopoverContent side="bottom" align="start" sideOffset={6} collisionPadding={12} avoidCollisions className="max-h-[min(28rem,var(--radix-popover-content-available-height))] w-64 overflow-y-auto">
+        <HexColorPicker color={current ?? FALLBACK} onChange={onChange} style={{ width: "100%", height: 160 }} />
         <div className="flex items-center gap-1.5">
           <Input
             aria-label="Hex color"

@@ -35,7 +35,7 @@ export function ColorCatalogPicker({
         }}
       />
       {open && q.trim().length >= 2 ? (
-        <ul role="listbox" className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 text-sm shadow-md">
+        <ul role="listbox" className="absolute z-20 mt-1 max-h-40 w-full overflow-y-auto rounded-md border bg-popover p-1 text-sm shadow-md">
           {list.length === 0 && !results.isFetching ? (
             <li className="px-2 py-1 text-muted-foreground">{t("spoolAdmin.catalog.none")}</li>
           ) : null}
