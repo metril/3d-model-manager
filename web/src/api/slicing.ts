@@ -30,7 +30,11 @@ export function useProfiles(kind?: ProfileKind) {
     queryFn: () => {
       const params = new URLSearchParams({ full: "1" });
       if (kind) params.set("kind", kind);
-      return api.get<SlicerProfile[]>(`/profiles?${params.toString()}`);
+      return api
+        .get<{ items: SlicerProfile[]; total: number; nozzle_source: string | null }>(
+          `/profiles?${params.toString()}`,
+        )
+        .then((res) => res.items);
     },
   });
 }

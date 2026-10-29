@@ -21,8 +21,11 @@ re-import rather than duplicating.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import tempfile
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind, ProfileSource
+from app.virtual_printer.catalog import MODELS as _SSDP_MODELS
 
 _KIND_BY_DIR = {
     "machine": ProfileKind.PRINTER,
@@ -74,6 +78,7 @@ class ParsedProfile:
     printer_model: str | None
     nozzle_mm: float | None
     data: dict
+    meta: ProfileMeta | None = None
 
 
 def _is_instantiable(raw: dict) -> bool:
@@ -201,8 +206,16 @@ def _parse_bundle_dir(root: Path, printer_model: str | None) -> list[ParsedProfi
                 printer_model=model,
                 nozzle_mm=nozzle,
                 data=merged,
+                meta=derive_profile_meta(
+                    ProfileKind.PRINTER, merged, name=name, printer_model=model, nozzle_mm=nozzle
+                ),
             )
         )
+
+    def machine_lookup(mname: str) -> tuple[str | None, float | None] | None:
+        if mname not in machines_by_name:
+            return None
+        return _printer_model_and_nozzle(_machine_lookup(mname, machines_by_name))
 
     for _dirname, by_name, kind in (
         ("process", processes_by_name, ProfileKind.PROCESS),
@@ -224,6 +237,14 @@ def _parse_bundle_dir(root: Path, printer_model: str | None) -> list[ParsedProfi
                     printer_model=model,
                     nozzle_mm=nozzle,
                     data=merged,
+                    meta=derive_profile_meta(
+                        kind,
+                        merged,
+                        name=name,
+                        machine_lookup=machine_lookup,
+                        printer_model=model,
+                        nozzle_mm=nozzle,
+                    ),
                 )
             )
 
@@ -250,6 +271,13 @@ def upsert_profiles(
     updated = 0
     skipped = 0
     for profile in parsed:
+        meta = profile.meta or derive_profile_meta(
+            profile.kind,
+            profile.data,
+            name=profile.name,
+            printer_model=profile.printer_model,
+            nozzle_mm=profile.nozzle_mm,
+        )
         existing = session.execute(
             select(SlicerProfile).where(
                 SlicerProfile.kind == profile.kind, SlicerProfile.name == profile.name
@@ -266,6 +294,7 @@ def upsert_profiles(
             )
             if source is not None:
                 row.source = source
+            apply_meta(row, meta)
             session.add(row)
             created += 1
         elif source is ProfileSource.SYNCED and existing.source is not ProfileSource.SYNCED:
@@ -274,6 +303,7 @@ def upsert_profiles(
             existing.printer_model = profile.printer_model
             existing.nozzle_mm = profile.nozzle_mm
             existing.data = profile.data
+            apply_meta(existing, meta)
             updated += 1
     session.commit()
     return {"created": created, "updated": updated, "skipped": skipped}
@@ -284,11 +314,45 @@ def _norm_model(model: str | None) -> str:
     return "".join(ch for ch in text if ch.isalnum())
 
 
-# Common shorthand -> the normalised sidecar `printer_model` it stands for.
-_MODEL_ALIASES = {
+# Alias table: normalised shorthand / SSDP code / firmware code -> canonical
+# model key (the normalised product name). Merged from the SSDP catalogue
+# (`virtual_printer.catalog.MODELS`) and the firmware lookup
+# (`services.firmware.MODEL_TO_API_KEY`) plus common shorthand.
+_MODEL_ALIASES: dict[str, str] = {
     "x1c": "x1carbon",
     "a1m": "a1mini",
+    "n1": "a1mini",
+    "n2s": "a1",
+    "c11": "p1p",
+    "c12": "p1s",
+    "c13": "x1e",
+    "n7": "p2s",
+    "n6": "x2d",
+    "n9": "a2l",
+    "o1d": "h2d",
+    "o1s": "h2s",
+    "o1c": "h2c",
+    "o1c2": "h2c",
+    "o1e": "h2dpro",
+    "o2d": "h2dpro",
+    "blp001": "x1carbon",
+    "blp002": "x1",
 }
+for _code, _product in _SSDP_MODELS.items():
+    _MODEL_ALIASES.setdefault(_norm_model(_code), _norm_model(_product))
+_KNOWN_MODEL_KEYS = frozenset(_MODEL_ALIASES.values()) | {
+    "a1", "a1mini", "p1p", "p1s", "x1", "x1carbon", "x1e", "h2d", "h2s", "h2c", "p2s",
+}  # fmt: skip
+
+
+def model_key(text: str | None) -> str | None:
+    """Canonical model key for any spelling of a printer model ("A1 mini",
+    "Bambu Lab A1 mini", "A1M", "N1" -> "a1mini"). Matching is always key
+    equality, never substring."""
+    norm = _norm_model(text)
+    if not norm:
+        return None
+    return _MODEL_ALIASES.get(norm, norm)
 
 
 def usable_models(models: list[str | None]) -> list[str]:
@@ -319,3 +383,249 @@ def filter_for_models(entries: list[dict], models: list[str | None]) -> list[dic
             and kept_printers.intersection(e.get("compatible_printers") or [])
         )
     ]
+
+
+# --- derived scope metadata -------------------------------------------------
+
+NOZZLE_TOL = 0.01
+LAYER_TOL = 0.005
+
+_COMPAT_RE = re.compile(r"^(?P<model>.+?)\s+(?P<noz>\d+(?:\.\d+)?)\s*nozzle$", re.IGNORECASE)
+_NAME_SUFFIX_RE = re.compile(
+    r"@\s*(?:BBL\s+|Bambu\s*Lab\s+)?(?P<model>.+?)"
+    r"(?:\s+(?P<noz>\d+(?:\.\d+)?)(?:\s*nozzle)?)?\s*$",
+    re.IGNORECASE,
+)
+_LAYER_NAME_RE = re.compile(r"^(\d+\.\d+)mm")
+
+
+@dataclass
+class ProfileMeta:
+    printer_model_key: str | None
+    compat: list[dict] | None
+    layer_height_mm: float | None
+
+
+def _to_float(raw) -> float | None:
+    if isinstance(raw, list):
+        raw = raw[0] if raw else None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _entry(key: str | None, nozzle: float | None) -> dict | None:
+    return {"model_key": key, "nozzle_mm": nozzle} if key else None
+
+
+def _parse_compatible(
+    entries: list,
+    machine_lookup: Callable[[str], tuple[str | None, float | None] | None] | None,
+) -> list[dict]:
+    out: list[dict] = []
+    for raw in entries:
+        text = str(raw)
+        resolved = machine_lookup(text) if machine_lookup else None
+        if resolved is not None and model_key(resolved[0]):
+            e = _entry(model_key(resolved[0]), resolved[1])
+        elif (m := _COMPAT_RE.match(text.strip())) is not None:
+            e = _entry(model_key(m.group("model")), float(m.group("noz")))
+        else:
+            e = _entry(model_key(text), None)
+        if e is not None and e not in out:
+            out.append(e)
+    return out
+
+
+def _name_suffix_entry(name: str) -> dict | None:
+    if "@" not in name:
+        return None
+    m = _NAME_SUFFIX_RE.search(name[name.rindex("@") :])
+    if m is None:
+        return None
+    key = model_key(m.group("model"))
+    # Without an explicit nozzle only a recognised model counts, so a suffix
+    # like "@System" can't turn into a bogus model key.
+    if key is None or (m.group("noz") is None and key not in _KNOWN_MODEL_KEYS):
+        return None
+    return _entry(key, float(m.group("noz")) if m.group("noz") else None)
+
+
+def derive_profile_meta(
+    kind: ProfileKind,
+    data: dict,
+    *,
+    name: str,
+    parent_lookup: Callable[[str], list[dict] | None] | None = None,
+    machine_lookup: Callable[[str], tuple[str | None, float | None] | None] | None = None,
+    printer_model: str | None = None,
+    nozzle_mm: float | None = None,
+) -> ProfileMeta:
+    """Pure: scope metadata for a profile. `compat` is the full list of
+    `{model_key, nozzle_mm|null}` entries it fits; `compat None` + no model
+    key = universal ("any printer"). `parent_lookup(name)` returns an
+    `inherits` parent's compat; `machine_lookup(name)` resolves a
+    `compatible_printers` entry to its machine preset's `(printer_model,
+    nozzle_mm)`. The `printer_model`/`nozzle_mm` columns are only a
+    last-resort input."""
+    data = data or {}
+    compat: list[dict] | None = None
+
+    listed = data.get("compatible_printers")
+    if isinstance(listed, list) and listed:
+        compat = _parse_compatible(listed, machine_lookup) or None
+    if compat is None:
+        model, noz = _printer_model_and_nozzle(data)
+        e = _entry(model_key(model), noz)
+        if e is not None:
+            compat = [e]
+    if compat is None and (parent := data.get("inherits")) and parent_lookup is not None:
+        inherited = parent_lookup(str(parent))
+        if inherited:
+            compat = [dict(x) for x in inherited]
+        elif (e := _name_suffix_entry(str(parent))) is not None:
+            compat = [e]
+    if compat is None:
+        e = _name_suffix_entry(name or str(data.get("name") or ""))
+        if e is not None:
+            compat = [e]
+    if compat is None:
+        e = _entry(model_key(printer_model), nozzle_mm)
+        if e is not None:
+            compat = [e]
+
+    keys = {c["model_key"] for c in compat} if compat else set()
+    layer = None
+    if kind is ProfileKind.PROCESS:
+        layer = _to_float(data.get("layer_height"))
+        if layer is None and (m := _LAYER_NAME_RE.match(name or "")):
+            layer = float(m.group(1))
+    return ProfileMeta(
+        printer_model_key=next(iter(keys)) if len(keys) == 1 else None,
+        compat=compat,
+        layer_height_mm=layer,
+    )
+
+
+def apply_meta(row: SlicerProfile, meta: ProfileMeta) -> None:
+    """Writes the derived columns only -- never `printer_model`/`nozzle_mm`."""
+    row.printer_model_key = meta.printer_model_key
+    row.compat = meta.compat
+    row.layer_height_mm = meta.layer_height_mm
+
+
+def compat_entries(profile) -> list[dict] | None:
+    if profile.compat:
+        return list(profile.compat)
+    if profile.printer_model_key:
+        return [{"model_key": profile.printer_model_key, "nozzle_mm": None}]
+    return None
+
+
+def nozzle_fits(entry_nozzle: float | None, nozzle: float | None) -> bool:
+    return entry_nozzle is None or nozzle is None or abs(entry_nozzle - nozzle) <= NOZZLE_TOL
+
+
+def profile_in_scope(
+    profile, printer_key: str | None, nozzle: float | None, layer: float | None = None
+) -> bool:
+    """Universal profiles pass the model/nozzle check; otherwise any `compat`
+    entry must match the printer's model key and the nozzle (0.01 mm; NULL on
+    either side = any). `layer` applies to process profiles only (0.005 mm)."""
+    if layer is not None and profile.kind is ProfileKind.PROCESS:
+        lh = profile.layer_height_mm
+        if lh is None or abs(lh - layer) > LAYER_TOL:
+            return False
+    entries = compat_entries(profile)
+    if entries is None:
+        return True
+    return any(
+        (printer_key is None or e["model_key"] == printer_key)
+        and nozzle_fits(e.get("nozzle_mm"), nozzle)
+        for e in entries
+    )
+
+
+def scope_mismatch_reason(profile, printer_key: str | None, nozzle: float | None) -> str | None:
+    """Why `profile` is out of model/nozzle scope (None when it fits)."""
+    if profile_in_scope(profile, printer_key, nozzle):
+        return None
+    entries = compat_entries(profile) or []
+    if not any(e["model_key"] == printer_key for e in entries):
+        return f"for {profile.printer_model or entries[0]['model_key']}"
+    nozzles = sorted(
+        {e["nozzle_mm"] for e in entries if e["model_key"] == printer_key and e.get("nozzle_mm")}
+    )
+    return "for " + "/".join(f"{n:g}" for n in nozzles) + " mm nozzle"
+
+
+def backfill_profile_meta(session: Session) -> int:
+    """Derives scope metadata for rows never computed (`compat IS NULL AND
+    layer_height_mm IS NULL`); idempotent. Writes derived columns only -- the
+    user-editable `printer_model`/`nozzle_mm` are never touched. Returns the
+    number of rows that gained metadata."""
+    rows = (
+        session.execute(
+            select(SlicerProfile).where(
+                SlicerProfile.compat.is_(None), SlicerProfile.layer_height_mm.is_(None)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return 0
+    by_kind_name = {
+        (r.kind, r.name): r for r in session.execute(select(SlicerProfile)).scalars().all()
+    }
+
+    def parent_for(kind: ProfileKind) -> Callable[[str], list[dict] | None]:
+        def lookup(pname: str) -> list[dict] | None:
+            parent = by_kind_name.get((kind, pname))
+            return compat_entries(parent) if parent is not None else None
+
+        return lookup
+
+    def machine_lookup(mname: str) -> tuple[str | None, float | None] | None:
+        m = by_kind_name.get((ProfileKind.PRINTER, mname))
+        return (m.printer_model, m.nozzle_mm) if m is not None else None
+
+    changed = 0
+
+    def depth(row: SlicerProfile) -> int:
+        n, cur, seen = 0, row, set()
+        while (p := (cur.data or {}).get("inherits")) and (cur.kind, p) not in seen:
+            seen.add((cur.kind, p))
+            cur = by_kind_name.get((cur.kind, str(p)))
+            if cur is None:
+                break
+            n += 1
+        return n
+
+    # Printers first, then parents before children, so inheritors see fresh compat.
+    for row in sorted(rows, key=lambda r: (r.kind is not ProfileKind.PRINTER, depth(r))):
+        meta = derive_profile_meta(
+            row.kind,
+            row.data,
+            name=row.name,
+            parent_lookup=parent_for(row.kind),
+            machine_lookup=machine_lookup,
+            printer_model=row.printer_model,
+            nozzle_mm=row.nozzle_mm,
+        )
+        apply_meta(row, meta)
+        if meta.compat is not None or meta.layer_height_mm is not None:
+            changed += 1
+    session.commit()
+    return changed
+
+
+async def backfill_profile_meta_async(session) -> int:
+    """Startup hook: `backfill_profile_meta` on an `AsyncSession`. Never fatal."""
+    try:
+        return await session.run_sync(backfill_profile_meta)
+    except Exception:
+        logging.getLogger(__name__).exception("profile scope backfill failed")
+        return 0

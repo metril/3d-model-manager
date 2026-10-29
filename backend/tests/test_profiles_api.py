@@ -43,11 +43,11 @@ async def test_profile_crud_round_trip(authenticated_client: httpx.AsyncClient):
 
     r = await authenticated_client.get("/api/profiles")
     assert r.status_code == 200
-    rows = {row["id"]: row for row in r.json()}
+    rows = {row["id"]: row for row in r.json()["items"]}
     assert rows[profile_id]["data"] is None
 
     r = await authenticated_client.get("/api/profiles?full=1")
-    rows = {row["id"]: row for row in r.json()}
+    rows = {row["id"]: row for row in r.json()["items"]}
     assert rows[profile_id]["data"] == {"printer_model": "A1 mini"}
 
     r = await authenticated_client.get(f"/api/profiles/{profile_id}")
@@ -73,7 +73,7 @@ async def test_profile_kind_filter(
 
     r = await authenticated_client.get("/api/profiles?kind=filament")
     assert r.status_code == 200
-    names = {row["name"] for row in r.json()}
+    names = {row["name"] for row in r.json()["items"]}
     assert names == {"F1"}
 
 
@@ -262,7 +262,7 @@ async def test_import_bundle_multipart(authenticated_client: httpx.AsyncClient, 
     assert body["updated"] == 0
 
     r = await authenticated_client.get("/api/profiles")
-    names = {row["name"] for row in r.json()}
+    names = {row["name"] for row in r.json()["items"]}
     assert "Bambu Lab A1 mini 0.4 nozzle" in names
     assert "Bambu Lab X1 Carbon 0.4 nozzle" not in names
 
@@ -488,7 +488,9 @@ async def test_sync_filters_to_configured_printer_models_and_is_idempotent(
     r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True})
     assert r.status_code == 200, r.text
     assert r.json() == {"created": 2, "updated": 0, "skipped": 0}
-    names = {p["name"]: p for p in (await authenticated_client.get("/api/profiles")).json()}
+    names = {
+        p["name"]: p for p in (await authenticated_client.get("/api/profiles")).json()["items"]
+    }
     assert set(names) == {"A1M 0.4", "p-a1m"}
     assert names["p-a1m"]["source"] == "synced"
 
@@ -508,7 +510,7 @@ async def test_sync_never_overwrites_user_edited_row(
 ):
     r = await _sync(authenticated_client, monkeypatch, {"from_sidecar": True, "all": True})
     assert r.status_code == 200
-    rows = (await authenticated_client.get("/api/profiles")).json()
+    rows = (await authenticated_client.get("/api/profiles")).json()["items"]
     pid = next(p["id"] for p in rows if p["name"] == "p-a1m")
 
     r = await authenticated_client.patch(f"/api/profiles/{pid}", json={"data": {"edited": True}})
@@ -660,7 +662,7 @@ async def test_recipes_unknown_printer_404(authenticated_client: httpx.AsyncClie
 
 async def test_recipes_printer_access_required(member_client: httpx.AsyncClient, printer_row):
     r = await member_client.get("/api/recipes", params={"printer_id": printer_row.id})
-    assert r.status_code == 403
+    assert r.status_code == 404  # invisible printer == missing printer
 
 
 def test_recipe_compatibility_reason_helper():

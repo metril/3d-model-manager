@@ -153,6 +153,8 @@ class PrinterOut(BaseModel):
     host: str
     serial: str
     model: str | None
+    # Last nozzle diameter printerd saw (persisted); live value is on the status.
+    nozzle_mm: float | None = None
     enabled: bool
     power_off_when_drained: bool = False
     options: dict
@@ -176,6 +178,7 @@ class PrinterOut(BaseModel):
             host=p.host,
             serial=p.serial,
             model=p.model,
+            nozzle_mm=getattr(p, "nozzle_mm", None),
             enabled=p.enabled,
             power_off_when_drained=bool(getattr(p, "power_off_when_drained", False)),
             maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
@@ -332,6 +335,8 @@ class PrinterStatusOut(BaseModel):
     hms: list[HmsEntryOut] = Field(default_factory=list)
     sdcard: bool | None = None
     nozzle_type: str | None = None
+    # Live nozzle diameter (mm) from printerd; None offline / not reported.
+    nozzle_mm: float | None = None
     firmware: FirmwareOut | None = None
     ams_units: list[AmsUnitOut] = Field(default_factory=list)
     ext_tray: AmsTrayOut | None = None

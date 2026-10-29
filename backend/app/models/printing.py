@@ -53,6 +53,8 @@ class Printer(Base):
     serial: Mapped[str] = mapped_column(String, nullable=False)
     access_code_enc: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str | None] = mapped_column(String)
+    # Last nozzle diameter printerd saw (live value lives in Redis state).
+    nozzle_mm: Mapped[float | None] = mapped_column(Float)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
     # Cut the printer's power plug(s) when the queue drains (no more work).
     power_off_when_drained: Mapped[bool] = mapped_column(

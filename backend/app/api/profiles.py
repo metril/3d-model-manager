@@ -16,11 +16,18 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
+from app.api.deps import (
+    AuthContext,
+    require_owner_or_admin,
+    require_perm,
+    require_session,
+    visible_printer_ids,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Printer, PrintRecipe, SlicerPipeline, SlicerProfile
@@ -28,6 +35,7 @@ from app.models.enums import Fanout, ProfileKind, ProfileSource
 from app.schemas.slicing import (
     ProfileImportOut,
     ProfileIn,
+    ProfileListOut,
     ProfileOut,
     ProfileUpdate,
     RecipeIn,
@@ -35,7 +43,8 @@ from app.schemas.slicing import (
     RecipeUpdate,
     SlicerHealthOut,
 )
-from app.services.print_plan import recipe_compatibility_reason
+from app.services.print_plan import recipe_compatibility_reason, recipe_scope_reason
+from app.services.profile_scope import scope_for_printer
 from app.services.server_config import get_server_config
 from app.services.slicer_client import (
     SlicerError,
@@ -45,8 +54,12 @@ from app.services.slicer_client import (
 )
 from app.services.slicer_profiles import (
     ProfileImportError,
+    apply_meta,
+    derive_profile_meta,
     filter_for_models,
     parse_bundle,
+    profile_in_scope,
+    scope_mismatch_reason,
     upsert_profiles,
     usable_models,
 )
@@ -68,6 +81,9 @@ def _profile_out(profile: SlicerProfile, *, with_data: bool) -> ProfileOut:
         printer_model=profile.printer_model,
         nozzle_mm=profile.nozzle_mm,
         source=profile.source,
+        printer_model_key=profile.printer_model_key,
+        compat=profile.compat,
+        layer_height_mm=profile.layer_height_mm,
         cloud_source=profile.cloud_source,
         created_by_user_id=profile.created_by_user_id,
         created_at=profile.created_at,
@@ -95,20 +111,131 @@ async def _get_recipe_or_404(db: AsyncSession, recipe_id: int) -> PrintRecipe:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/profiles", response_model=list[ProfileOut])
+def _ilike_escape(q: str) -> str:
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+async def resolve_scope(
+    db: AsyncSession,
+    settings: Settings,
+    ctx: AuthContext,
+    printer_id: int | None,
+    nozzle_mm: float | None,
+) -> tuple[str | None, float | None, str | None]:
+    """`(printer_key, nozzle, nozzle_source)` for the list endpoints. Without a
+    printer only an explicit nozzle override scopes anything."""
+    if printer_id is None:
+        return None, nozzle_mm, ("override" if nozzle_mm is not None else None)
+    visible = visible_printer_ids(ctx)
+    if visible is not None and printer_id not in visible:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+    client = aioredis.Redis.from_url(settings.redis_url)
+    try:
+        return await scope_for_printer(db, client, printer_id, nozzle_mm)
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found") from None
+    finally:
+        await client.aclose()
+
+
+async def _derive_meta(
+    db: AsyncSession,
+    kind: ProfileKind,
+    name: str,
+    data: dict,
+    printer_model: str | None,
+    nozzle_mm: float | None,
+):
+    """Scope metadata for an API-written profile; `inherits` parents and
+    `compatible_printers` entries resolve against local rows."""
+    refs = {str(data["inherits"])} if data.get("inherits") else set()
+    refs |= {str(x) for x in data.get("compatible_printers") or [] if isinstance(x, str)}
+    by_kind_name: dict[tuple[ProfileKind, str], SlicerProfile] = {}
+    if refs:
+        found = (
+            (
+                await db.execute(
+                    select(SlicerProfile).where(
+                        SlicerProfile.name.in_(refs),
+                        SlicerProfile.kind.in_([kind, ProfileKind.PRINTER]),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        by_kind_name = {(r.kind, r.name): r for r in found}
+
+    def parent_lookup(pname: str):
+        from app.services.slicer_profiles import compat_entries
+
+        row = by_kind_name.get((kind, pname))
+        return compat_entries(row) if row is not None else None
+
+    def machine_lookup(mname: str):
+        row = by_kind_name.get((ProfileKind.PRINTER, mname))
+        return (row.printer_model, row.nozzle_mm) if row is not None else None
+
+    return derive_profile_meta(
+        kind,
+        data,
+        name=name,
+        parent_lookup=parent_lookup,
+        machine_lookup=machine_lookup,
+        printer_model=printer_model,
+        nozzle_mm=nozzle_mm,
+    )
+
+
+@router.get("/profiles", response_model=ProfileListOut)
 async def list_profiles(
     kind: ProfileKind | None = None,
     printer_model: str | None = None,
     full: bool = False,
+    printer_id: int | None = None,
+    nozzle_mm: float | None = None,
+    layer_height_mm: float | None = None,
+    q: str | None = None,
+    show_all: bool = False,
     db: AsyncSession = Depends(get_db),
-) -> list[ProfileOut]:
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> ProfileListOut:
+    """Profiles, optionally scoped to a printer (+ nozzle, + layer height for
+    process profiles). `total` counts rows matching `kind`/`q` before scope
+    filtering; `show_all=1` keeps out-of-scope rows, flagged `in_scope=false`
+    with a `scope_reason`."""
     stmt = select(SlicerProfile).order_by(SlicerProfile.kind, SlicerProfile.name)
     if kind is not None:
         stmt = stmt.where(SlicerProfile.kind == kind)
     if printer_model is not None:
         stmt = stmt.where(SlicerProfile.printer_model == printer_model)
+    if q and q.strip():
+        stmt = stmt.where(SlicerProfile.name.ilike(_ilike_escape(q.strip()), escape="\\"))
     rows = (await db.execute(stmt)).scalars().all()
-    return [_profile_out(row, with_data=full) for row in rows]
+    total = len(rows)
+
+    printer_key, nozzle, source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
+    scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
+    items: list[ProfileOut] = []
+    for row in rows:
+        out = _profile_out(row, with_data=full)
+        if scoped:
+            ok = profile_in_scope(row, printer_key, nozzle, layer_height_mm)
+            if not ok and not show_all:
+                continue
+            out.in_scope = ok
+            if not ok:
+                out.scope_reason = scope_mismatch_reason(row, printer_key, nozzle) or (
+                    "layer height differs"
+                )
+        items.append(out)
+    return ProfileListOut(
+        items=items,
+        total=total,
+        nozzle_source=source,
+        nozzle_mm=nozzle if scoped else None,
+    )
 
 
 @router.get("/profiles/{profile_id}", response_model=ProfileOut)
@@ -137,6 +264,17 @@ async def create_profile(
         source=ProfileSource.BUILTIN,
         created_by_user_id=ctx.user.id,
     )
+    apply_meta(
+        profile,
+        await _derive_meta(
+            db,
+            payload.kind,
+            payload.name,
+            payload.data,
+            payload.printer_model,
+            payload.nozzle_mm,
+        ),
+    )
     db.add(profile)
     await db.commit()
     await db.refresh(profile)
@@ -159,6 +297,18 @@ async def update_profile(
     changes = payload.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(profile, field, value)
+    if changes.keys() & {"name", "data", "printer_model", "nozzle_mm"}:
+        apply_meta(
+            profile,
+            await _derive_meta(
+                db,
+                profile.kind,
+                profile.name,
+                profile.data,
+                profile.printer_model,
+                profile.nozzle_mm,
+            ),
+        )
     if changes and profile.source is ProfileSource.SYNCED:
         profile.source = ProfileSource.BUILTIN  # user-edited: a re-sync must not overwrite it
     await db.commit()
@@ -399,34 +549,51 @@ async def _validate_recipe(
 @router.get("/recipes", response_model=list[RecipeOut])
 async def list_recipes(
     printer_id: int | None = None,
+    nozzle_mm: float | None = None,
+    layer_height_mm: float | None = None,
+    compatible_only: bool = False,
+    q: str | None = None,
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> list[RecipeOut]:
-    rows = (await db.execute(select(PrintRecipe).order_by(PrintRecipe.name))).scalars().all()
+    stmt = select(PrintRecipe).order_by(PrintRecipe.name)
+    if q and q.strip():
+        stmt = stmt.where(PrintRecipe.name.ilike(_ilike_escape(q.strip()), escape="\\"))
+    rows = (await db.execute(stmt)).scalars().all()
     out = [RecipeOut.model_validate(row, from_attributes=True) for row in rows]
-    if printer_id is None:
+    scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
+    if not scoped:
         return out
-    printer = await db.get(Printer, printer_id)
-    if printer is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
-    ctx.require_printer(printer_id, "print")
-    models = {
-        pid: model
-        for pid, model in (
-            await db.execute(select(SlicerProfile.id, SlicerProfile.printer_model))
-        ).all()
-    }
+    # resolve_scope first: an invisible printer is a 404 just like a missing one.
+    printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
+    printer = None
+    if printer_id is not None:
+        printer = await db.get(Printer, printer_id)
+        if printer is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+        ctx.require_printer(printer_id, "print")
+    profiles = {p.id: p for p in (await db.execute(select(SlicerProfile))).scalars().all()}
     names = {pid: name for pid, name in (await db.execute(select(Printer.id, Printer.name))).all()}
+    kept: list[RecipeOut] = []
     for recipe, item in zip(rows, out, strict=True):
-        reason = recipe_compatibility_reason(
-            recipe,
-            models.get(recipe.printer_profile_id),
-            printer,
-            names.get(recipe.target_printer_id),
+        reason = None
+        if printer is not None:
+            printer_profile = profiles.get(recipe.printer_profile_id)
+            reason = recipe_compatibility_reason(
+                recipe,
+                printer_profile.printer_model if printer_profile else None,
+                printer,
+                names.get(recipe.target_printer_id),
+            )
+        reason = reason or recipe_scope_reason(
+            recipe, printer_key, nozzle, profiles, layer_height_mm
         )
         item.compatible = reason is None
         item.incompatible_reason = reason
-    return out
+        if reason is None or not compatible_only:
+            kept.append(item)
+    return kept
 
 
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)

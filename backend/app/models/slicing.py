@@ -53,6 +53,14 @@ class SlicerProfile(Base):
     printer_model: Mapped[str | None] = mapped_column(String)
     nozzle_mm: Mapped[float | None] = mapped_column(Float)
     data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # System-owned scope metadata derived from ``data`` (never user-edited; see
+    # ``slicer_profiles.derive_profile_meta``): the single canonical model key
+    # when all ``compat`` entries share one, the full ``[{model_key,
+    # nozzle_mm|null}]`` list, and the process layer height. ``compat IS NULL
+    # AND printer_model_key IS NULL`` = universal ("any printer").
+    printer_model_key: Mapped[str | None] = mapped_column(String, index=True)
+    compat: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    layer_height_mm: Mapped[float | None] = mapped_column(Float)
     source: Mapped[ProfileSource] = mapped_column(
         str_enum(ProfileSource, "profile_source"),
         nullable=False,

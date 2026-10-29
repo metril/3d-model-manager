@@ -200,6 +200,7 @@ class PrinterWorker:
         self._merged: dict | None = None
         self._stop_requested = False
         self._tray_sig: tuple | None = None
+        self._nozzle_seen: float | None = None
         self._prev_gcode: str | None = None
         self._stale_terminal = False
         self.devmode = DevModeTracker()
@@ -345,8 +346,26 @@ class PrinterWorker:
         self._prev_gcode = public.gcode_state
         self._write_public(public)
         self._auto_assign_on_tray_change(public)
+        self._persist_nozzle(public)
         self._reapply_on_idle(public)
         self._transition_active_job(public)
+
+    def _persist_nozzle(self, public: PrinterPublicState) -> None:
+        """Remember the last-seen nozzle on the printer row (so the Profiles
+        scope still has one while the printer is offline); DB only on change."""
+        nozzle = public.nozzle_mm
+        if not nozzle or nozzle <= 0 or nozzle == self._nozzle_seen:
+            return
+        try:
+            with base.sync_session() as session:
+                printer = session.get(Printer, self.printer_id)
+                if printer is not None and printer.nozzle_mm != nozzle:
+                    printer.nozzle_mm = nozzle
+                    session.commit()
+            self._nozzle_seen = nozzle
+        except Exception:
+            self._nozzle_seen = nozzle  # don't retry (and log) on every report
+            log.exception("printerd: nozzle persist failed for printer %s", self.printer_id)
 
     def _auto_assign_on_tray_change(self, public: PrinterPublicState) -> None:
         """RFID auto-assign (P5 spool tray plan): only hits the DB when the
