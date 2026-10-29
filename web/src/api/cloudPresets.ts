@@ -8,6 +8,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 
+/** Shared by every cloud-preset mutation so the dialog can tell when one is in flight. */
+export const CLOUD_MUTATION_KEY = ["cloud-presets-mutation"] as const;
+
 export type CloudSource = "orca" | "bambu";
 export type CloudPresetStatus =
   | "new"
@@ -77,6 +80,7 @@ export function useCloudStatus(enabled = true) {
 export function useOrcaDeviceStart() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: CLOUD_MUTATION_KEY,
     mutationFn: () => api.post<DeviceStart>("/cloud-presets/orca/device/start"),
     onSuccess: () => void qc.invalidateQueries({ queryKey: STATUS_KEY }),
   });
@@ -85,6 +89,7 @@ export function useOrcaDeviceStart() {
 export function useOrcaDevicePoll() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: CLOUD_MUTATION_KEY,
     mutationFn: () => api.post<DevicePoll>("/cloud-presets/orca/device/poll"),
     onSuccess: () => void qc.invalidateQueries({ queryKey: STATUS_KEY }),
   });
@@ -93,6 +98,7 @@ export function useOrcaDevicePoll() {
 export function useOrcaDisconnect() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: CLOUD_MUTATION_KEY,
     mutationFn: () => api.delete<void>("/cloud-presets/orca"),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["cloud-presets"] }),
   });
@@ -120,6 +126,7 @@ export function useCloudDiff(source: CloudSource, presetId: string | null) {
 export function useCloudSync(source: CloudSource) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: CLOUD_MUTATION_KEY,
     mutationFn: (body: { preset_ids?: string[]; overwrite_local?: boolean }) =>
       api.post<CloudSyncResult>(`/cloud-presets/${source}/sync`, body),
     onSuccess: () => {

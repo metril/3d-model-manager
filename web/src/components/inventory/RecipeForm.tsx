@@ -21,13 +21,13 @@ import type { Fanout, PlanOptions, PrintRecipe, PrintRecipeIn, SlicerProfile } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -92,16 +92,20 @@ export function RecipeForm({
   const saveRecipe = useSaveRecipe();
 
   const [fields, setFields] = useState(() => fieldsFor(recipe));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(fieldsFor(recipe)));
   const [touchedN, setTouchedN] = useState(false);
 
   useEffect(() => {
     if (open) {
       setFields(fieldsFor(recipe));
+      setBaseline(JSON.stringify(fieldsFor(recipe)));
       setTouchedN(false);
       saveRecipe.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const dirty = JSON.stringify(fields) !== baseline;
 
   const selectedPrinterProfile = (printerProfiles.data ?? []).find(
     (p) => p.id === fields.printerProfileId,
@@ -149,8 +153,7 @@ export function RecipeForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={saveRecipe.isPending}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit recipe" : "New recipe"}</DialogTitle>
@@ -362,12 +365,14 @@ export function RecipeForm({
           </div>
 
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
             <Button type="submit" disabled={saveRecipe.isPending || fields.printerProfileId == null || fields.processProfileId == null}>
               {saveRecipe.isPending ? "Saving..." : isEdit ? "Save changes" : "Create recipe"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
