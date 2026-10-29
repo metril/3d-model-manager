@@ -87,6 +87,20 @@ describe("CategoriesSection -- color palette (fix-review finding 1/2)", () => {
     );
   });
 
+  it("reopens Add clean after a successful create", async () => {
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add category" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vases" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add category" }));
+    await waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add category" }));
+    expect(screen.getByLabelText("Name")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+  });
+
   it("sends a TagColor palette name (not hex) when editing a category's color", async () => {
     renderSection();
 

@@ -108,7 +108,7 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
         { onSuccess: () => setOpen(false) },
       );
     } else {
-      createBackend.mutate({ name, config }, { onSuccess: () => setOpen(false) });
+      createBackend.mutate({ name, config }, { onSuccess: () => { setOpen(false); reset(); } });
     }
   }
 

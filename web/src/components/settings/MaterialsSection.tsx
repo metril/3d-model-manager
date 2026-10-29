@@ -77,7 +77,7 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
     if (isEdit) {
       updateMaterial.mutate({ id: material.id, payload }, { onSuccess: () => setOpen(false) });
     } else {
-      createMaterial.mutate(payload, { onSuccess: () => setOpen(false) });
+      createMaterial.mutate(payload, { onSuccess: () => { setOpen(false); reset(); } });
     }
   }
 

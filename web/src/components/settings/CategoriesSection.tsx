@@ -100,7 +100,7 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
     if (isEdit) {
       updateCategory.mutate({ id: category.id, payload: { name: trimmed, color } }, { onSuccess: () => setOpen(false) });
     } else {
-      createCategory.mutate({ name: trimmed, color }, { onSuccess: () => setOpen(false) });
+      createCategory.mutate({ name: trimmed, color }, { onSuccess: () => { setOpen(false); reset(); } });
     }
   }
 
