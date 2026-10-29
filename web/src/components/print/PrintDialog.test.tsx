@@ -432,6 +432,21 @@ describe("PrintDialog", () => {
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/archives/7/reprint"));
   });
 
+  it("a reprint's seeded tray overrides do not make the dialog dirty", async () => {
+    const onOpenChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PrintDialog open onOpenChange={onOpenChange} source={{ kind: "archive", archiveId: 7 }} onSent={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/archives/7/reprint"));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/print/plan", expect.anything()));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Discard changes?")).toBeNull();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("disables Send when the reprint's pre-selected printer isn't idle/compatible", async () => {
     const notReadyPlan = basePlan({
       printers: [{ id: 5, name: "Printer A", model: "A1", idle: false, compatible: true, reason: "busy" }],

@@ -60,6 +60,8 @@ export function DryingDialog({
   const nowBlockedByPrint = printing && !caps.ams_drying_while_printing;
 
   const [filament, setFilament] = useState<string>(loaded[0] ?? "PLA");
+  // Seeded (not live) defaults, so a status update after mount doesn't read as an edit.
+  const [seed, setSeed] = useState({ filament: loaded[0] ?? "PLA", mode: (nowBlockedByPrint ? "after" : "now") as string });
   // null = follow the chosen filament's preset; a string = the user's own value for that field.
   const [temp, setTemp] = useState<string | null>(null);
   const [hours, setHours] = useState<string | null>(null);
@@ -79,6 +81,7 @@ export function DryingDialog({
     seeded.current = true;
     setFilament(loaded[0] ?? "PLA");
     setMode(nowBlockedByPrint ? "after" : "now");
+    setSeed({ filament: loaded[0] ?? "PLA", mode: nowBlockedByPrint ? "after" : "now" });
   }, [status, loaded, nowBlockedByPrint]);
 
   const codes = unit?.dry_sf_reason ?? [];
@@ -129,7 +132,7 @@ export function DryingDialog({
   );
 
   const dirty =
-    temp !== null || hours !== null || rotate || atTime !== "" || filament !== (loaded[0] ?? "PLA") || mode !== (nowBlockedByPrint ? "after" : "now");
+    temp !== null || hours !== null || rotate || atTime !== "" || filament !== seed.filament || mode !== seed.mode;
 
   const modes: Array<{ id: Mode; show: boolean; disabled?: boolean }> = [
     { id: "now", show: true, disabled: nowBlockedByPrint },

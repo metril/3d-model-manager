@@ -508,7 +508,6 @@ export function PrintDialog({
 
   const dirty =
     touched ||
-    Object.keys(overrides).length > 0 ||
     copies !== 1 ||
     modelQuery !== "" ||
     selectedRecipeId != null ||
@@ -819,7 +818,7 @@ export function PrintDialog({
                     filament={f}
                     trays={trays}
                     onOverride={(filamentId, tray) =>
-                      setOverrides((prev) => ({ ...prev, [filamentId]: tray }))
+                      { setTouched(true); setOverrides((prev) => ({ ...prev, [filamentId]: tray })); }
                     }
                   />
                 ))}

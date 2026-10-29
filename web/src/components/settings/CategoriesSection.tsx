@@ -100,14 +100,15 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
     if (isEdit) {
       updateCategory.mutate({ id: category.id, payload: { name: trimmed, color } }, { onSuccess: () => setOpen(false) });
     } else {
-      createCategory.mutate({ name: trimmed, color }, { onSuccess: () => { setOpen(false); reset(); } });
+      createCategory.mutate({ name: trimmed, color }, { onSuccess: () => setOpen(false) });
     }
   }
 
   const { requestChange, confirm } = useDiscardGuard({
     onOpenChange: (next) => {
+      // Re-snapshot on every open and close: fresh props, no stale secrets.
+      reset();
       setOpen(next);
-      if (!next) reset();
     },
     dirty,
     busy: mutation.isPending,

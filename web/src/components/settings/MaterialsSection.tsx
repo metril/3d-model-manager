@@ -77,14 +77,15 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
     if (isEdit) {
       updateMaterial.mutate({ id: material.id, payload }, { onSuccess: () => setOpen(false) });
     } else {
-      createMaterial.mutate(payload, { onSuccess: () => { setOpen(false); reset(); } });
+      createMaterial.mutate(payload, { onSuccess: () => setOpen(false) });
     }
   }
 
   const { requestChange, confirm } = useDiscardGuard({
     onOpenChange: (next) => {
+      // Re-snapshot on every open and close: fresh props, no stale secrets.
+      reset();
       setOpen(next);
-      if (!next) reset();
     },
     dirty,
     busy: mutation.isPending,

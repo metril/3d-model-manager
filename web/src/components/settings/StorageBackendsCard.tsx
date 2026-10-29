@@ -108,14 +108,15 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
         { onSuccess: () => setOpen(false) },
       );
     } else {
-      createBackend.mutate({ name, config }, { onSuccess: () => { setOpen(false); reset(); } });
+      createBackend.mutate({ name, config }, { onSuccess: () => setOpen(false) });
     }
   }
 
   const { requestChange, confirm } = useDiscardGuard({
     onOpenChange: (next) => {
+      // Re-snapshot on every open and close: fresh props, no stale secrets.
+      reset();
       setOpen(next);
-      if (!next) reset();
     },
     dirty,
     busy: mutation.isPending,
