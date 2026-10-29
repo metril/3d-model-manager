@@ -22,6 +22,9 @@ interface ConfirmDialogProps {
   title: string;
   description?: string;
   confirmLabel?: string;
+  cancelLabel?: string;
+  /** Called when the dialog is dismissed without confirming. */
+  onCancel?: () => void;
   destructive?: boolean;
   onConfirm: () => void;
 }
@@ -34,6 +37,8 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Confirm",
+  cancelLabel,
+  onCancel,
   destructive,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -41,16 +46,22 @@ export function ConfirmDialog({
   const isControlled = openProp !== undefined;
   const open = isControlled ? openProp : internalOpen;
   const setOpen = isControlled ? (onOpenChange ?? (() => {})) : setInternalOpen;
+  const onCloseAutoFocus = onCancel
+    ? (e: Event) => {
+        e.preventDefault();
+        onCancel();
+      }
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <DialogFooter showCloseButton>
+        <DialogFooter showCloseButton closeLabel={cancelLabel}>
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}

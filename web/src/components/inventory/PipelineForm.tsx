@@ -13,13 +13,13 @@ import { useRecipes } from "@/api/slicing";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -61,16 +61,19 @@ export function PipelineForm({
   const printers = usePrinters();
   const save = useSavePipeline();
   const [f, setF] = useState(() => fieldsFor(pipeline));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(fieldsFor(pipeline)));
 
   useEffect(() => {
     if (open) {
       setF(fieldsFor(pipeline));
+      setBaseline(JSON.stringify(fieldsFor(pipeline)));
       save.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when (re)opened
-  }, [open, pipeline]);
+  }, [open]);
 
   const isEdit = pipeline != null;
+  const dirty = JSON.stringify(f) !== baseline;
   const plateN = f.plate.trim() === "" ? null : Number(f.plate);
   const plateValid = plateN === null || (Number.isInteger(plateN) && plateN >= 1);
   const copiesN = Number(f.copies);
@@ -114,8 +117,7 @@ export function PipelineForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={save.isPending}>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit pipeline" : "New pipeline"}</DialogTitle>
           <DialogDescription>
@@ -270,12 +272,14 @@ export function PipelineForm({
             </p>
           ) : null}
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
             <Button type="submit" disabled={!valid || save.isPending}>
               {save.isPending ? "Saving..." : isEdit ? "Save changes" : "Create pipeline"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

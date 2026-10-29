@@ -13,13 +13,13 @@ import { ApiError } from "@/api/client";
 import { useImportProfiles } from "@/api/slicing";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -64,8 +64,7 @@ export function ProfileImportDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={handleOpenChange} dirty={file != null && result == null} busy={importProfiles.isPending}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>Import profiles</DialogTitle>
@@ -106,12 +105,14 @@ export function ProfileImportDialog({
           </div>
 
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
             <Button type="submit" disabled={!file || importProfiles.isPending}>
               {importProfiles.isPending ? "Importing..." : "Upload bundle"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

@@ -53,9 +53,15 @@ function DialogContent({
   children,
   showCloseButton = true,
   container,
+  dismissable = true,
+  onPointerDownOutside,
+  onInteractOutside,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** When false, outside clicks and Escape never close the dialog. */
+  dismissable?: boolean
   /** Portal target; defaults to the hosting dock panel's document body. */
   container?: HTMLElement | null
 }) {
@@ -69,6 +75,18 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
+        onPointerDownOutside={(e) => {
+          if (!dismissable) e.preventDefault()
+          onPointerDownOutside?.(e)
+        }}
+        onInteractOutside={(e) => {
+          if (!dismissable) e.preventDefault()
+          onInteractOutside?.(e)
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!dismissable) e.preventDefault()
+          onEscapeKeyDown?.(e)
+        }}
         {...props}
       >
         {children}
@@ -103,10 +121,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  closeLabel = "Close",
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
+  closeLabel?: string
 }) {
   return (
     <div
@@ -120,7 +140,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
+          <Button variant="outline">{closeLabel}</Button>
         </DialogPrimitive.Close>
       )}
     </div>

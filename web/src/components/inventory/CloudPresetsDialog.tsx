@@ -5,12 +5,14 @@
  * its sync status against the local copy and can be diffed before importing;
  * presets edited locally are protected unless "overwrite local edits" is on.
  */
+import { useIsMutating } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { CloudDownloadIcon, RefreshCwIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
 import {
   useCloudDiff,
+  CLOUD_MUTATION_KEY,
   useCloudPresets,
   useCloudStatus,
   useCloudSync,
@@ -26,12 +28,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -383,9 +386,10 @@ export function CloudPresetsDialog({
   canAdmin: boolean;
 }) {
   const [tab, setTab] = useState<CloudSource>("orca");
+  // Any in-flight sync / pairing mutation blocks closing; nothing is "dirty" (each preset imports immediately).
+  const busy = useIsMutating({ mutationKey: CLOUD_MUTATION_KEY }) > 0;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} busy={busy} className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Cloud presets</DialogTitle>
           <DialogDescription>
@@ -405,7 +409,11 @@ export function CloudPresetsDialog({
             <SourcePanel source="bambu" canWrite={canWrite} canAdmin={canAdmin} />
           </TabsContent>
         </Tabs>
-      </DialogContent>
-    </Dialog>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">Close</Button>
+          </DialogClose>
+        </DialogFooter>
+    </FormDialog>
   );
 }
