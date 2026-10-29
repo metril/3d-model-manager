@@ -59,7 +59,7 @@ class SlicerProfile(Base):
     # nozzle_mm|null}]`` list, and the process layer height. ``compat IS NULL
     # AND printer_model_key IS NULL`` = universal ("any printer").
     printer_model_key: Mapped[str | None] = mapped_column(String, index=True)
-    compat: Mapped[list | None] = mapped_column(JSONB)
+    compat: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     layer_height_mm: Mapped[float | None] = mapped_column(Float)
     source: Mapped[ProfileSource] = mapped_column(
         str_enum(ProfileSource, "profile_source"),

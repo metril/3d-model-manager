@@ -364,6 +364,7 @@ class PrinterWorker:
                     session.commit()
             self._nozzle_seen = nozzle
         except Exception:
+            self._nozzle_seen = nozzle  # don't retry (and log) on every report
             log.exception("printerd: nozzle persist failed for printer %s", self.printer_id)
 
     def _auto_assign_on_tray_change(self, public: PrinterPublicState) -> None:

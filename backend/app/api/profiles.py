@@ -565,13 +565,14 @@ async def list_recipes(
     scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
     if not scoped:
         return out
+    # resolve_scope first: an invisible printer is a 404 just like a missing one.
+    printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
     printer = None
     if printer_id is not None:
         printer = await db.get(Printer, printer_id)
         if printer is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
         ctx.require_printer(printer_id, "print")
-    printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
     profiles = {p.id: p for p in (await db.execute(select(SlicerProfile))).scalars().all()}
     names = {pid: name for pid, name in (await db.execute(select(Printer.id, Printer.name))).all()}
     kept: list[RecipeOut] = []

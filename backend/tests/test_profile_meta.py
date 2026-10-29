@@ -6,7 +6,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind
@@ -228,3 +228,43 @@ def test_backfill_idempotent_and_never_touches_user_columns():
         backfill_profile_meta(session)
         session.refresh(proc)
         assert proc.compat == before and proc.printer_model == "USER EDIT"
+
+
+def test_inherits_unknown_parent_uses_its_name_suffix():
+    meta = derive_profile_meta(
+        P,
+        {"inherits": "0.20mm Standard @BBL A1M"},
+        name="my tweak",
+        parent_lookup=lambda n: None,
+    )
+    assert meta.compat == [{"model_key": "a1mini", "nozzle_mm": None}]
+
+
+def test_nozzle_only_scope_checks_nozzle_without_printer_key():
+    row = _row(compat=[{"model_key": "a1mini", "nozzle_mm": 0.4}])
+    assert profile_in_scope(row, None, 0.4)
+    assert not profile_in_scope(row, None, 0.2)
+
+
+def test_backfill_parent_derived_before_child_and_no_json_null():
+    with base.sync_session() as session:
+        session.add_all(
+            [
+                SlicerProfile(name="a-child", kind=F, data={"inherits": "z-parent"}),
+                SlicerProfile(
+                    name="z-parent",
+                    kind=F,
+                    data={"compatible_printers": ["Bambu Lab P1S 0.4 nozzle"]},
+                ),
+                SlicerProfile(name="Hand made", kind=F, data={}),
+            ]
+        )
+        session.commit()
+        backfill_profile_meta(session)
+        rows = {r.name: r for r in session.execute(select(SlicerProfile)).scalars()}
+        assert rows["a-child"].compat == [{"model_key": "p1s", "nozzle_mm": 0.4}]
+        # Universal rows store SQL NULL (not JSON null): still "not computed".
+        null_rows = session.execute(
+            select(func.count()).select_from(SlicerProfile).where(SlicerProfile.compat.is_(None))
+        ).scalar()
+        assert null_rows == 1

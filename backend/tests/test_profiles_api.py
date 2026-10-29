@@ -662,7 +662,7 @@ async def test_recipes_unknown_printer_404(authenticated_client: httpx.AsyncClie
 
 async def test_recipes_printer_access_required(member_client: httpx.AsyncClient, printer_row):
     r = await member_client.get("/api/recipes", params={"printer_id": printer_row.id})
-    assert r.status_code == 403
+    assert r.status_code == 404  # invisible printer == missing printer
 
 
 def test_recipe_compatibility_reason_helper():

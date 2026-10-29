@@ -65,10 +65,10 @@ async def list_pipelines(
         stmt = stmt.where(SlicerPipeline.name.ilike(_ilike_escape(q.strip()), escape="\\"))
     rows = (await db.execute(stmt)).scalars().all()
     if printer_id is not None:
+        printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
         printer = await db.get(Printer, printer_id)
         if printer is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
-        printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
         profiles = {p.id: p for p in (await db.execute(select(SlicerProfile))).scalars().all()}
         recipes = {r.id: r for r in (await db.execute(select(PrintRecipe))).scalars().all()}
         names = {i: n for i, n in (await db.execute(select(Printer.id, Printer.name))).all()}

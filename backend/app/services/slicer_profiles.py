@@ -485,6 +485,8 @@ def derive_profile_meta(
         inherited = parent_lookup(str(parent))
         if inherited:
             compat = [dict(x) for x in inherited]
+        elif (e := _name_suffix_entry(str(parent))) is not None:
+            compat = [e]
     if compat is None:
         e = _name_suffix_entry(name or str(data.get("name") or ""))
         if e is not None:
@@ -537,10 +539,12 @@ def profile_in_scope(
         if lh is None or abs(lh - layer) > LAYER_TOL:
             return False
     entries = compat_entries(profile)
-    if entries is None or printer_key is None:
+    if entries is None:
         return True
     return any(
-        e["model_key"] == printer_key and nozzle_fits(e.get("nozzle_mm"), nozzle) for e in entries
+        (printer_key is None or e["model_key"] == printer_key)
+        and nozzle_fits(e.get("nozzle_mm"), nozzle)
+        for e in entries
     )
 
 
@@ -589,8 +593,19 @@ def backfill_profile_meta(session: Session) -> int:
         return (m.printer_model, m.nozzle_mm) if m is not None else None
 
     changed = 0
-    # Printers first so process/filament rows can inherit their fresh compat.
-    for row in sorted(rows, key=lambda r: r.kind is not ProfileKind.PRINTER):
+
+    def depth(row: SlicerProfile) -> int:
+        n, cur, seen = 0, row, set()
+        while (p := (cur.data or {}).get("inherits")) and (cur.kind, p) not in seen:
+            seen.add((cur.kind, p))
+            cur = by_kind_name.get((cur.kind, str(p)))
+            if cur is None:
+                break
+            n += 1
+        return n
+
+    # Printers first, then parents before children, so inheritors see fresh compat.
+    for row in sorted(rows, key=lambda r: (r.kind is not ProfileKind.PRINTER, depth(r))):
         meta = derive_profile_meta(
             row.kind,
             row.data,
