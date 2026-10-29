@@ -5,7 +5,8 @@ import { toast } from "sonner";
 
 import { useAmsLabel } from "@/api/printerOps";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -35,8 +36,7 @@ export function AmsRenameDialog({
     }
   }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={label !== current} busy={mut.isPending} className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{t("printerOps.ams.renameTitle")}</DialogTitle>
         </DialogHeader>
@@ -44,12 +44,11 @@ export function AmsRenameDialog({
           <Label htmlFor="ams-label">{t("printerOps.ams.label")}</Label>
           <Input id="ams-label" value={label} maxLength={100} onChange={(e) => setLabel(e.target.value)} />
         </div>
-        <DialogFooter>
+        <DialogFooter showCloseButton closeLabel={t("common.cancel", { defaultValue: "Cancel" })}>
           <Button type="button" disabled={mut.isPending} onClick={() => void save()}>
             {t("printerOps.slot.save")}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

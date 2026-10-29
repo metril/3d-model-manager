@@ -6,16 +6,11 @@ import { toast } from "sonner";
 import { useCreateModel } from "@/api/library";
 import { api, ApiError } from "@/api/client";
 import { CategoryPicker } from "@/components/gallery/CategoryPicker";
+import { Slot } from "radix-ui";
+
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,7 +44,9 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
           // block navigating to the freshly-created model.
           if (categoryId !== null) {
             try {
-              await api.patch(`/models/${model.slug}`, { category_id: categoryId });
+              await api.patch(`/models/${model.slug}`, {
+                category_id: categoryId,
+              });
               void queryClient.invalidateQueries({ queryKey: ["models"] });
               void queryClient.invalidateQueries({ queryKey: ["storage"] });
             } catch {
@@ -77,15 +74,17 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
         : null;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+    <>
+      <Slot.Root onClick={() => setOpen(true)}>{trigger}</Slot.Root>
+      <FormDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) reset();
+        }}
+        dirty={name !== "" || description !== "" || categoryId !== null}
+        busy={createModel.isPending}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>New model</DialogTitle>
@@ -122,12 +121,17 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
             ) : null}
           </div>
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
             <Button type="submit" disabled={createModel.isPending || name.trim().length === 0}>
               {createModel.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </FormDialog>
+    </>
   );
 }

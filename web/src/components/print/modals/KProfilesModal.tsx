@@ -23,7 +23,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { capsOf, isBusy } from "@/components/print/card/caps";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -46,10 +47,10 @@ function PickDialog({
   onConfirm: (value: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+    <FormDialog open onOpenChange={(o) => !o && onClose()} dirty={value !== ""} className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -65,13 +66,12 @@ function PickDialog({
             ))}
           </SelectContent>
         </Select>
-        <DialogFooter>
+        <DialogFooter showCloseButton closeLabel={t("common.cancel", { defaultValue: "Cancel" })}>
           <Button type="button" disabled={!value} onClick={() => onConfirm(value)}>
             {confirm}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 
@@ -80,8 +80,10 @@ function EditRow({
   onCancel,
   onSave,
   pending,
+  onDirty,
 }: {
   profile: KProfile | null;
+  onDirty: (dirty: boolean) => void;
   onCancel: () => void;
   onSave: (v: { name: string; filament_id: string; k: number; n: number }) => void;
   pending: boolean;
@@ -91,6 +93,12 @@ function EditRow({
   const [fil, setFil] = useState(profile?.filament_id ?? "");
   const [k, setK] = useState(profile ? String(profile.k_value) : "0.020000");
   const [n, setN] = useState(profile ? String(profile.n_coef) : "0");
+  const [baseline] = useState(() => JSON.stringify([name, fil, k, n]));
+  const isDirty = JSON.stringify([name, fil, k, n]) !== baseline;
+  useEffect(() => {
+    onDirty(isDirty);
+    return () => onDirty(false);
+  }, [isDirty, onDirty]);
   const bad = validateK(k, n);
   const ok = !bad && name.trim() !== "" && fil.trim() !== "";
   return (
@@ -180,6 +188,7 @@ export function KProfilesModal({
   const [confirmDel, setConfirmDel] = useState<KProfile | null>(null);
   const [linking, setLinking] = useState<KProfile | null>(null);
   const [applying, setApplying] = useState<KProfile | null>(null);
+  const [editDirty, setEditDirty] = useState(false);
 
   const busy = isBusy(status?.gcode_state);
   const locked = !canControl || busy;
@@ -235,8 +244,7 @@ export function KProfilesModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={editDirty} busy={save.isPending} className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t("kprofile.title")}</DialogTitle>
         </DialogHeader>
@@ -310,11 +318,11 @@ export function KProfilesModal({
               </thead>
               <tbody>
                 {editing === "new" ? (
-                  <EditRow profile={null} pending={save.isPending} onCancel={() => setEditing(null)} onSave={(v) => void saveRow(null, v)} />
+                  <EditRow profile={null} onDirty={setEditDirty} pending={save.isPending} onCancel={() => setEditing(null)} onSave={(v) => void saveRow(null, v)} />
                 ) : null}
                 {profiles.map((p) =>
                   editing === p.setting_id ? (
-                    <EditRow key={p.setting_id} profile={p} pending={save.isPending} onCancel={() => setEditing(null)} onSave={(v) => void saveRow(p, v)} />
+                    <EditRow key={p.setting_id} profile={p} onDirty={setEditDirty} pending={save.isPending} onCancel={() => setEditing(null)} onSave={(v) => void saveRow(p, v)} />
                   ) : (
                     <tr
                       key={p.setting_id}
@@ -406,7 +414,6 @@ export function KProfilesModal({
             }}
           />
         ) : null}
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

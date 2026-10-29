@@ -14,6 +14,7 @@ import type { CategoryOut, TagColor } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDiscardGuard } from "@/components/ui/use-discard-guard";
 import {
   Dialog,
   DialogContent,
@@ -83,6 +84,8 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
   const updateCategory = useUpdateCategory();
   const mutation = isEdit ? updateCategory : createCategory;
 
+  const dirty = JSON.stringify([name, color]) !== JSON.stringify([category?.name ?? "", category?.color ?? DEFAULT_COLOR]);
+
   function reset() {
     setName(category?.name ?? "");
     setColor(category?.color ?? DEFAULT_COLOR);
@@ -101,16 +104,20 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
     }
   }
 
+  const { requestChange, confirm } = useDiscardGuard({
+    onOpenChange: (next) => {
+      setOpen(next);
+      if (!next) reset();
+    },
+    dirty,
+    busy: mutation.isPending,
+  });
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
+    <>
+    <Dialog open={open} onOpenChange={requestChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? `Edit "${category.name}"` : "Add category"}</DialogTitle>
@@ -148,6 +155,8 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
         </form>
       </DialogContent>
     </Dialog>
+    {confirm}
+    </>
   );
 }
 

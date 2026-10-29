@@ -8,7 +8,8 @@ import { ScheduledDryingsList } from "@/components/drying/ScheduledDryingsList";
 import { unitLabel } from "@/components/print/card/ams";
 import { capsOf, isBusy } from "@/components/print/card/caps";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -127,6 +128,9 @@ export function DryingDialog({
     </div>
   );
 
+  const dirty =
+    temp !== null || hours !== null || rotate || atTime !== "" || filament !== (loaded[0] ?? "PLA") || mode !== (nowBlockedByPrint ? "after" : "now");
+
   const modes: Array<{ id: Mode; show: boolean; disabled?: boolean }> = [
     { id: "now", show: true, disabled: nowBlockedByPrint },
     { id: "at", show: true },
@@ -134,8 +138,7 @@ export function DryingDialog({
   ];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={drying.pending} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("drying.title", { unit: unit?.label || unitLabel(unitId) })}</DialogTitle>
           <DialogDescription>{t("drying.description")}</DialogDescription>
@@ -218,7 +221,7 @@ export function DryingDialog({
             <ScheduledDryingsList printerId={printer.id} amsId={unitId} compact />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter showCloseButton closeLabel={t("common.cancel", { defaultValue: "Cancel" })}>
           {active && canControl ? (
             <Button type="button" variant="destructive" disabled={drying.pending} onClick={() => void drying.stop(unitId).then((ok) => ok && onOpenChange(false))}>
               {t("drying.stop")}
@@ -228,7 +231,6 @@ export function DryingDialog({
             {mode === "now" ? t("drying.start") : t("drying.schedule")}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

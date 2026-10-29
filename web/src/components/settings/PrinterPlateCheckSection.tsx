@@ -19,7 +19,8 @@ import {
 import { useUpdatePrinter } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -167,8 +168,7 @@ function CalibrationWizard({
   }
 
   return (
-    <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="sm:max-w-xl">
+    <FormDialog open={open} onOpenChange={close} busy={capture.isPending || del.isPending} className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Calibrate plate check</DialogTitle>
           <DialogDescription>
@@ -240,7 +240,6 @@ function CalibrationWizard({
             </Button>
           </div>
         ) : null}
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

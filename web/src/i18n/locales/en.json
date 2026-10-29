@@ -1,4 +1,7 @@
 {
+  "common": {
+    "cancel": "Cancel"
+  },
   "formDialog": {
     "discardTitle": "Discard changes?",
     "discardDesc": "You have unsaved changes that will be lost.",

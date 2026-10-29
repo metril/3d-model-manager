@@ -34,6 +34,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useDiscardGuard } from "@/components/ui/use-discard-guard";
 import {
   Dialog,
   DialogContent,
@@ -87,6 +88,10 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
   const nameMissing = name.trim().length === 0;
   const isReady = missing.length === 0 && !nameMissing;
 
+  const dirty =
+    JSON.stringify([name, draft]) !==
+    JSON.stringify([backend?.name ?? "", backend ? seedDraft(asConfigOut(backend)) : { backend: "local", config: {} }]);
+
   function reset() {
     setName(backend?.name ?? "");
     setDraft(backend ? seedDraft(asConfigOut(backend)) : { backend: "local", config: {} });
@@ -107,16 +112,20 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
     }
   }
 
+  const { requestChange, confirm } = useDiscardGuard({
+    onOpenChange: (next) => {
+      setOpen(next);
+      if (!next) reset();
+    },
+    dirty,
+    busy: mutation.isPending,
+  });
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
+    <>
+    <Dialog open={open} onOpenChange={requestChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? `Edit "${backend.name}"` : "Add storage backend"}</DialogTitle>
@@ -163,6 +172,8 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
         </form>
       </DialogContent>
     </Dialog>
+    {confirm}
+    </>
   );
 }
 

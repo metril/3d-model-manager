@@ -5,7 +5,8 @@ import { useSkipObjects } from "@/api/printerControl";
 import type { PrintableObject } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 
 /** Pick printable objects of the active print to skip (objects come from the archived 3MF). */
 export function SkipObjectsDialog({
@@ -33,8 +34,7 @@ export function SkipObjectsDialog({
   const canSubmit = picked.size > 0 && picked.size < objects.length && !skip.isPending;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={picked.size > 0} busy={skip.isPending}>
         <DialogHeader>
           <DialogTitle>{t("card.skip.title")}</DialogTitle>
           <DialogDescription>{t("card.skip.desc")}</DialogDescription>
@@ -67,7 +67,6 @@ export function SkipObjectsDialog({
             {t("card.skip.submit", { n: picked.size || "" })}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

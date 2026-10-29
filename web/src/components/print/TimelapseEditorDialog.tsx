@@ -15,13 +15,14 @@ import { ApiError } from "@/api/client";
 import type { ArchiveOut } from "@/api/types";
 import { TimelapsePlayer } from "@/components/print/TimelapsePlayer";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Label } from "@/components/ui/label";
 
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2, 3, 4];
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
-function Editor({ archive, onDone }: { archive: ArchiveOut; onDone: () => void }) {
+function Editor({ archive, onDone, onState }: { archive: ArchiveOut; onDone: () => void; onState: (s: { dirty: boolean; busy: boolean }) => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const info = useTimelapseInfo(archive.id);
@@ -50,6 +51,10 @@ function Editor({ archive, onDone }: { archive: ArchiveOut; onDone: () => void }
   }, [state, job.isError]);
 
   const busy = process.isPending || (jobId != null && state !== "error" && !job.isError);
+  const dirty = start !== 0 || end !== null || speed !== 1 || mode !== "replace";
+  useEffect(() => {
+    onState({ dirty, busy });
+  }, [dirty, busy, onState]);
   const submit = () =>
     process.mutate(
       { trim_start: start, ...(end != null && end < duration ? { trim_end: end } : {}), speed, save_mode: mode },
@@ -140,15 +145,14 @@ export function TimelapseEditorDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const [state, setState] = useState({ dirty: false, busy: false });
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={state.dirty} busy={state.busy} className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t("archiveX.timelapse.title")}</DialogTitle>
           <DialogDescription>{t("archiveX.timelapse.desc")}</DialogDescription>
         </DialogHeader>
-        <Editor archive={archive} onDone={() => onOpenChange(false)} />
-      </DialogContent>
-    </Dialog>
+        <Editor archive={archive} onDone={() => onOpenChange(false)} onState={setState} />
+    </FormDialog>
   );
 }

@@ -16,7 +16,8 @@ import type { ColorCatalogEntry } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { ColorField } from "@/components/ui/color-field";
 import { Input } from "@/components/ui/input";
@@ -33,16 +34,21 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
   const mutation = entry ? patch : create;
   const [f, setF] = useState({ manufacturer: "", color_name: "", hex: "", material: "", effect_type: "", extra: "" });
 
+  const initial = () => ({
+    manufacturer: entry?.manufacturer ?? "",
+    color_name: entry?.color_name ?? "",
+    hex: entry?.hex ?? "",
+    material: entry?.material ?? "",
+    effect_type: entry?.effect_type ?? "",
+    extra: (entry?.extra_colors ?? []).join(", "),
+  });
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initial()));
+  const dirty = JSON.stringify(f) !== baseline;
+
   useEffect(() => {
     if (open) {
-      setF({
-        manufacturer: entry?.manufacturer ?? "",
-        color_name: entry?.color_name ?? "",
-        hex: entry?.hex ?? "",
-        material: entry?.material ?? "",
-        effect_type: entry?.effect_type ?? "",
-        extra: (entry?.extra_colors ?? []).join(", "),
-      });
+      setF(initial());
+      setBaseline(JSON.stringify(initial()));
       create.reset();
       patch.reset();
     }
@@ -69,8 +75,7 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending} className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{entry ? t("spoolAdmin.catalog.editTitle") : t("spoolAdmin.catalog.newTitle")}</DialogTitle>
@@ -113,8 +118,7 @@ function ColorDialog({ open, onOpenChange, entry }: { open: boolean; onOpenChang
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 

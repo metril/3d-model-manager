@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckIcon } from "lucide-react";
 
 import { TAG_ICONS, TAG_ICON_NAMES } from "@/components/tags/tagIcons";
@@ -90,18 +90,31 @@ export function TagForm({
   pending,
   onSubmit,
   onCancel,
+  onDirtyChange,
 }: {
   initial: Partial<TagFormValues>;
   submitLabel: string;
   pending?: boolean;
   onSubmit: (values: TagFormValues) => void;
   onCancel?: () => void;
+  /** Reports whether the fields differ from `initial` (false again on unmount). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [name, setName] = useState(initial.name ?? "");
   const [color, setColor] = useState<string | null>(initial.color ?? DEFAULT_TAG_COLOR);
   const [icon, setIcon] = useState<string | null>(initial.icon ?? null);
   const [description, setDescription] = useState(initial.description ?? "");
   const trimmed = name.trim();
+  const dirty =
+    JSON.stringify([name, color, icon, description]) !==
+    JSON.stringify([initial.name ?? "", initial.color ?? DEFAULT_TAG_COLOR, initial.icon ?? null, initial.description ?? ""]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty]);
+  useEffect(() => () => onDirtyChange?.(false),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []);
 
   return (
     <form

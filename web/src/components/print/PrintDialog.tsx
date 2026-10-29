@@ -55,7 +55,8 @@ import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, Re
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -242,6 +243,8 @@ export function PrintDialog({
   const [schedOpen, setSchedOpen] = useState(false);
   const [sched, setSched] = useState<ScheduleDraft>(EMPTY_SCHEDULE);
   const [batchChoice, setBatchChoice] = useState<BatchChoice>(NO_BATCH);
+  // Set by direct user choices (plate/printer/options/...); auto-seeded defaults do not count.
+  const [touched, setTouched] = useState(false);
 
   // Reset everything when the dialog is relaunched for a different source
   // (or reopened) -- a stale plate/printer/override set from a previous
@@ -266,6 +269,7 @@ export function PrintDialog({
     setSchedOpen(false);
     setSched(EMPTY_SCHEDULE);
     setBatchChoice(NO_BATCH);
+    setTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
@@ -502,6 +506,16 @@ export function PrintDialog({
   // back to the same enqueue path if the server disagrees anyway.
   const sendNext = billingOn || needsReview(auth.data, effectivePrinterId);
 
+  const dirty =
+    touched ||
+    Object.keys(overrides).length > 0 ||
+    copies !== 1 ||
+    modelQuery !== "" ||
+    selectedRecipeId != null ||
+    batchChoice !== NO_BATCH ||
+    JSON.stringify(sched) !== JSON.stringify(EMPTY_SCHEDULE);
+  const submitting = sendPrint.isPending || enqueue.isPending;
+
   function close() {
     onOpenChange(false);
   }
@@ -626,8 +640,7 @@ export function PrintDialog({
   const footerPlate = plan?.plates.find((p) => p.index === effectivePlate) ?? plan?.plates[0];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] sm:max-w-3xl flex-col gap-0 overflow-hidden p-0">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={submitting} className="flex max-h-[85vh] sm:max-w-3xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 py-3">
           <DialogTitle>{printerIdProp != null ? `Print on ${printerName ?? "printer"}` : "Print"}</DialogTitle>
         </DialogHeader>
@@ -668,7 +681,7 @@ export function PrintDialog({
                           <button
                             type="button"
                             className="w-full py-2 text-left text-sm hover:underline"
-                            onClick={() => setPickedModelId(m.id)}
+                            onClick={() => { setTouched(true); setPickedModelId(m.id); }}
                           >
                             {m.name}
                           </button>
@@ -684,7 +697,7 @@ export function PrintDialog({
                           <button
                             type="button"
                             className="w-full py-2 text-left text-sm hover:underline"
-                            onClick={() => setPickedFileId(f.id)}
+                            onClick={() => { setTouched(true); setPickedFileId(f.id); }}
                           >
                             {f.rel_path}
                           </button>
@@ -716,7 +729,7 @@ export function PrintDialog({
                   <button
                     type="button"
                     key={p.index}
-                    onClick={() => setPlate(p.index)}
+                    onClick={() => { setTouched(true); setPlate(p.index); }}
                     className={cn(
                       "w-40 shrink-0 space-y-2 rounded-lg border p-3 text-left",
                       effectivePlate === p.index ? "border-primary" : "border-border",
@@ -820,7 +833,7 @@ export function PrintDialog({
               <div className="space-y-4">
                 <RadioGroup
                   value={effectivePrinterId != null ? String(effectivePrinterId) : ""}
-                  onValueChange={(v) => setPrinterId(Number(v))}
+                  onValueChange={(v) => { setTouched(true); setPrinterId(Number(v)); }}
                 >
                   {planPrinters.map((p) => {
                     const disabled = !(p.idle && p.compatible);
@@ -839,15 +852,15 @@ export function PrintDialog({
                 </RadioGroup>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={bedLevelling} onCheckedChange={(v) => setBedLevelling(v === true)} />
+                    <Checkbox checked={bedLevelling} onCheckedChange={(v) => { setTouched(true); setBedLevelling(v === true); }} />
                     Bed levelling
                   </label>
                   <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={flowCali} onCheckedChange={(v) => setFlowCali(v === true)} />
+                    <Checkbox checked={flowCali} onCheckedChange={(v) => { setTouched(true); setFlowCali(v === true); }} />
                     Flow calibration
                   </label>
                   <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={timelapse} onCheckedChange={(v) => setTimelapse(v === true)} />
+                    <Checkbox checked={timelapse} onCheckedChange={(v) => { setTouched(true); setTimelapse(v === true); }} />
                     Timelapse
                   </label>
                 </div>
@@ -856,7 +869,7 @@ export function PrintDialog({
                     <Label htmlFor="print-dialog-cost-center">Cost center</Label>
                     <Select
                       value={costCenterId != null ? String(costCenterId) : ""}
-                      onValueChange={(v) => setCostCenterId(Number(v))}
+                      onValueChange={(v) => { setTouched(true); setCostCenterId(Number(v)); }}
                       aria-label="Cost center"
                     >
                       <SelectTrigger id="print-dialog-cost-center" className="w-64">
@@ -1023,7 +1036,6 @@ export function PrintDialog({
             ) : null}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

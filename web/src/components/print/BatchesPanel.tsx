@@ -26,7 +26,8 @@ import { QueueStateChip } from "@/pages/QueuePage";
 import { SchedulingFields } from "@/components/print/SchedulingSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogClose, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -112,6 +113,20 @@ function BatchDialog({
   }, [open, batch]);
 
   const pending = create.isPending || patch.isPending;
+  // Dirty = form state differs from what the effect above seeds on open.
+  const dirty =
+    JSON.stringify([name, query, modelId, quantity, printerId, due, notes, plates, sched]) !==
+    JSON.stringify([
+      batch?.name ?? "",
+      "",
+      batch?.model_id ?? null,
+      String(batch?.quantity ?? 1),
+      batch?.printer_id != null ? String(batch.printer_id) : "",
+      batch?.due_date ?? "",
+      batch?.notes ?? "",
+      Object.entries(batch?.plate_targets ?? {}).map(([plate, qty]) => ({ plate, qty: String(qty) })),
+      EMPTY_SCHEDULE,
+    ]);
 
   function plateTargets(): Record<string, number> {
     const out: Record<string, number> = {};
@@ -157,8 +172,7 @@ function BatchDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={pending} className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editing ? t("queueSched.batches.editTitle") : t("queueSched.batches.createTitle")}</DialogTitle>
         </DialogHeader>
@@ -303,15 +317,16 @@ function BatchDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            {t("queueSched.edit.cancel")}
-          </Button>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              {t("queueSched.edit.cancel")}
+            </Button>
+          </DialogClose>
           <Button type="button" disabled={pending} onClick={submit}>
             {t("queueSched.batches.save")}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 

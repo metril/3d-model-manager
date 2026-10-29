@@ -12,7 +12,8 @@ import { useImportCommit, useImportDryRun } from "@/api/spoolAdmin";
 import type { CsvImportPreview } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -68,8 +69,7 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
   const error = dry.error ?? (commit.error && !expired ? commit.error : null);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={file !== null} busy={dry.isPending || commit.isPending} className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t("spoolAdmin.csv.title")}</DialogTitle>
           <DialogDescription>{t("spoolAdmin.csv.desc")}</DialogDescription>
@@ -154,14 +154,15 @@ export function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenC
           ) : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
             {t("spoolAdmin.common.cancel")}
           </Button>
+          </DialogClose>
           <Button type="button" disabled={blocked || commit.isPending} onClick={doCommit}>
             {commit.isPending ? t("spoolAdmin.common.saving") : t("spoolAdmin.csv.commit")}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

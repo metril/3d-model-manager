@@ -9,7 +9,8 @@ import { useCreateSupplier, useDeleteSupplier, usePatchSupplier, useSuppliers } 
 import type { Supplier } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,14 +24,19 @@ function SupplierDialog({ open, onOpenChange, supplier }: { open: boolean; onOpe
   const mutation = supplier ? patch : create;
   const [f, setF] = useState({ name: "", website: "", customer_number: "", note: "" });
 
+  const initial = () => ({
+    name: supplier?.name ?? "",
+    website: supplier?.website ?? "",
+    customer_number: supplier?.customer_number ?? "",
+    note: supplier?.note ?? "",
+  });
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initial()));
+  const dirty = JSON.stringify(f) !== baseline;
+
   useEffect(() => {
     if (open) {
-      setF({
-        name: supplier?.name ?? "",
-        website: supplier?.website ?? "",
-        customer_number: supplier?.customer_number ?? "",
-        note: supplier?.note ?? "",
-      });
+      setF(initial());
+      setBaseline(JSON.stringify(initial()));
       create.reset();
       patch.reset();
     }
@@ -55,8 +61,7 @@ function SupplierDialog({ open, onOpenChange, supplier }: { open: boolean; onOpe
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending} className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{supplier ? t("spoolAdmin.sup.editTitle") : t("spoolAdmin.sup.newTitle")}</DialogTitle>
@@ -89,8 +94,7 @@ function SupplierDialog({ open, onOpenChange, supplier }: { open: boolean; onOpe
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 

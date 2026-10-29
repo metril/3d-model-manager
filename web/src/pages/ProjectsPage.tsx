@@ -22,32 +22,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogClose, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/page-container";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCost, formatDate, useDebouncedValue } from "@/lib/format";
 
-
 export function ProjectCover({ slug }: { slug: string | null }) {
   const model = useModel(slug ?? "");
   const hash = slug ? model.data?.cover_blob_hash : null;
   if (!hash) return <div className="size-full bg-muted" />;
-  return (
-    <img
-      src={`/api/blobs/${hash}/thumb?size=256`}
-      alt=""
-      loading="lazy"
-      className="size-full object-cover"
-    />
-  );
+  return <img src={`/api/blobs/${hash}/thumb?size=256`} alt="" loading="lazy" className="size-full object-cover" />;
 }
 
 function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () => void }) {
@@ -62,11 +49,7 @@ function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () =
           {onUse ? (
             <span className="font-medium">{project.name}</span>
           ) : (
-            <Link
-              to="/projects/$id"
-              params={{ id: String(project.id) }}
-              className="font-medium hover:underline"
-            >
+            <Link to="/projects/$id" params={{ id: String(project.id) }} className="font-medium hover:underline">
               {project.name}
             </Link>
           )}
@@ -115,28 +98,39 @@ function NameDialog({
 }) {
   const [name, setName] = useState("");
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <Input
-          autoFocus
-          aria-label="Project name"
-          placeholder="Project name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && name.trim()) onSubmit(name.trim());
-          }}
-        />
-        <DialogFooter>
-          <Button type="button" disabled={!name.trim() || pending} onClick={() => onSubmit(name.trim())}>
-            Create
+    <FormDialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) setName("");
+      }}
+      dirty={name !== ""}
+      busy={pending}
+    >
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+      </DialogHeader>
+      <Input
+        autoFocus
+        aria-label="Project name"
+        placeholder="Project name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && name.trim()) onSubmit(name.trim());
+        }}
+      />
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline">
+            Cancel
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogClose>
+        <Button type="button" disabled={!name.trim() || pending} onClick={() => onSubmit(name.trim())}>
+          Create
+        </Button>
+      </DialogFooter>
+    </FormDialog>
   );
 }
 
@@ -262,8 +256,7 @@ export function ProjectsPage() {
         onOpenChange={(o) => !o && setTemplateId(null)}
         pending={fromTemplate.isPending}
         onSubmit={(name) =>
-          templateId !== null &&
-          fromTemplate.mutate({ templateId, name }, { onSuccess: (p) => goto(p.id) })
+          templateId !== null && fromTemplate.mutate({ templateId, name }, { onSuccess: (p) => goto(p.id) })
         }
       />
     </PageContainer>

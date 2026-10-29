@@ -14,12 +14,37 @@ import { useDeleteCostCenter } from "@/api/finance";
 import type { CostCenter } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format";
 import { CostCenterForm } from "@/components/finance/CostCenterForm";
 import { DepositDialog } from "@/components/finance/DepositDialog";
+
+function CostCenterDialog({
+  title,
+  center,
+  open,
+  onOpenChange,
+}: {
+  title: string;
+  center: CostCenter | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [state, setState] = useState({ dirty: false, busy: false });
+  return (
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={state.dirty} busy={state.busy}>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+      </DialogHeader>
+      {(center === null || open) && (
+        <CostCenterForm center={center} onSaved={() => onOpenChange(false)} onStateChange={setState} />
+      )}
+    </FormDialog>
+  );
+}
 
 export function CostCenterTable({
   centers,
@@ -85,7 +110,11 @@ export function CostCenterTable({
               >
                 <TableCell className="font-medium">{c.name}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {c.owner_user_id != null ? `User #${c.owner_user_id}` : c.group_id != null ? `Group #${c.group_id}` : "—"}
+                  {c.owner_user_id != null
+                    ? `User #${c.owner_user_id}`
+                    : c.group_id != null
+                      ? `Group #${c.group_id}`
+                      : "—"}
                 </TableCell>
                 <TableCell className="font-mono tabular-nums">{formatCost(c.balance)}</TableCell>
                 <TableCell className="font-mono tabular-nums">{formatCost(c.open_reserved)}</TableCell>
@@ -126,25 +155,20 @@ export function CostCenterTable({
         </Table>
       )}
 
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New cost center</DialogTitle>
-          </DialogHeader>
-          <CostCenterForm center={null} onSaved={() => setCreating(false)} />
-        </DialogContent>
-      </Dialog>
+      <CostCenterDialog title="New cost center" center={null} open={creating} onOpenChange={setCreating} />
 
-      <Dialog open={editing != null} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit {editing?.name}</DialogTitle>
-          </DialogHeader>
-          {editing && <CostCenterForm center={editing} onSaved={() => setEditing(null)} />}
-        </DialogContent>
-      </Dialog>
+      <CostCenterDialog
+        title={`Edit ${editing?.name ?? ""}`}
+        center={editing}
+        open={editing != null}
+        onOpenChange={(open) => !open && setEditing(null)}
+      />
 
-      <DepositDialog center={depositing} open={depositing != null} onOpenChange={(open) => !open && setDepositing(null)} />
+      <DepositDialog
+        center={depositing}
+        open={depositing != null}
+        onOpenChange={(open) => !open && setDepositing(null)}
+      />
     </div>
   );
 }

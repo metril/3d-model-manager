@@ -15,6 +15,7 @@ import { TagPicker } from "@/components/tags/TagPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useDiscardGuard } from "@/components/ui/use-discard-guard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -46,6 +47,8 @@ function TagRow({ tag, all }: { tag: TagOut; all: TagOut[] }) {
   const deleteTag = useDeleteTag();
   const mergeTag = useMergeTag();
   const total = tag.counts?.total ?? 0;
+  const [editDirty, setEditDirty] = useState(false);
+  const guard = useDiscardGuard({ onOpenChange: setEditOpen, dirty: editDirty, busy: updateTag.isPending });
 
   return (
     <TableRow>
@@ -87,8 +90,8 @@ function TagRow({ tag, all }: { tag: TagOut; all: TagOut[] }) {
           />
         </div>
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent>
+        <Dialog open={editOpen} onOpenChange={guard.requestChange}>
+          <DialogContent dismissable={false}>
             <DialogHeader>
               <DialogTitle>Edit tag</DialogTitle>
             </DialogHeader>
@@ -96,7 +99,8 @@ function TagRow({ tag, all }: { tag: TagOut; all: TagOut[] }) {
               initial={tag}
               submitLabel="Save changes"
               pending={updateTag.isPending}
-              onCancel={() => setEditOpen(false)}
+              onCancel={() => guard.requestChange(false)}
+              onDirtyChange={setEditDirty}
               onSubmit={(values) => updateTag.mutate({ id: tag.id, ...values }, { onSuccess: () => setEditOpen(false) })}
             />
             {updateTag.isError && (
@@ -106,6 +110,7 @@ function TagRow({ tag, all }: { tag: TagOut; all: TagOut[] }) {
             )}
           </DialogContent>
         </Dialog>
+        {guard.confirm}
 
         <ConfirmDialog
           open={mergeInto !== null}

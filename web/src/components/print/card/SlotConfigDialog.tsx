@@ -10,8 +10,9 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { selectIds } from "@/components/print/modals/kprofileUtils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { normalizeHex } from "@/components/ui/filament-chip";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -112,10 +113,12 @@ export function SlotConfigDialog({
     }
   }
   const [confirmReset, setConfirmReset] = useState(false);
+  // Snapshot of the form on open; dirty = any field differs from it.
+  const [baseline] = useState(() => JSON.stringify([kChoice, material, subBrand, colour, min, max, apply]));
+  const dirty = JSON.stringify([kChoice, material, subBrand, colour, min, max, apply]) !== baseline;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={configure.isPending || selectK.isPending || reset.isPending} className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("printerOps.slot.title")}</DialogTitle>
         </DialogHeader>
@@ -191,7 +194,7 @@ export function SlotConfigDialog({
             <Label htmlFor="slot-apply">{t("printerOps.slot.apply")}</Label>
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter showCloseButton closeLabel={t("common.cancel", { defaultValue: "Cancel" })}>
           <Button type="button" variant="outline" className="sm:mr-auto" onClick={() => setConfirmReset(true)}>
             {t("printerOps.slot.reset")}
           </Button>
@@ -208,7 +211,6 @@ export function SlotConfigDialog({
           destructive
           onConfirm={() => void doReset()}
         />
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
