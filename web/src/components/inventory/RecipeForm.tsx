@@ -15,7 +15,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
-import { usePrinters } from "@/api/printers";
+import { usePrinters, usePrinterStatus } from "@/api/printers";
 import { useProfiles, useSaveRecipe } from "@/api/slicing";
 import type { Fanout, PlanOptions, PrintRecipe, PrintRecipeIn, SlicerProfile } from "@/api/types";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DEFAULT_NOZZLE, modelKey, scopeMismatchReason } from "@/lib/profileScope";
 
 const FALLBACK_BED_TYPES = ["Textured PEI Plate"];
 const FILAMENT_SLOTS = 4;
@@ -48,8 +49,35 @@ function bedTypesFor(printerProfile: SlicerProfile | undefined): string[] {
   return FALLBACK_BED_TYPES;
 }
 
-function compatible(profile: SlicerProfile, printerModel: string | null): boolean {
-  return profile.printer_model == null || profile.printer_model === printerModel;
+
+interface ScopedOption {
+  profile: SlicerProfile;
+  /** Out-of-scope reason, null when the profile fits. */
+  reason: string | null;
+}
+
+/** Compatible profiles first; out-of-scope ones only with "show all" -- or
+ * when already selected, so a stale pick stays visible (with a warning). */
+function scopedOptions(
+  profiles: SlicerProfile[] | undefined,
+  key: string | null,
+  nozzle: number | null,
+  showAll: boolean,
+  selectedIds: (number | null)[],
+): { options: ScopedOption[]; selectedOutOfScope: boolean } {
+  const all = (profiles ?? []).map((profile) => ({ profile, reason: scopeMismatchReason(profile, key, nozzle) }));
+  const options = [
+    ...all.filter((o) => o.reason === null),
+    ...all.filter((o) => o.reason !== null && (showAll || selectedIds.includes(o.profile.id))),
+  ];
+  return {
+    options,
+    selectedOutOfScope: all.some((o) => o.reason !== null && selectedIds.includes(o.profile.id)),
+  };
+}
+
+function optionLabel(o: ScopedOption): string {
+  return o.reason ? `${o.profile.name} (${o.reason})` : o.profile.name;
 }
 
 function fieldsFor(recipe: PrintRecipe | undefined) {
@@ -100,6 +128,7 @@ export function RecipeForm({
       setFields(fieldsFor(recipe));
       setBaseline(JSON.stringify(fieldsFor(recipe)));
       setTouchedN(false);
+      setShowAll(false);
       saveRecipe.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,9 +139,25 @@ export function RecipeForm({
   const selectedPrinterProfile = (printerProfiles.data ?? []).find(
     (p) => p.id === fields.printerProfileId,
   );
-  const printerModel = selectedPrinterProfile?.printer_model ?? null;
-  const compatibleProcess = (processProfiles.data ?? []).filter((p) => compatible(p, printerModel));
-  const compatibleFilament = (filamentProfiles.data ?? []).filter((p) => compatible(p, printerModel));
+  // Scope: the target printer when set (nozzle = live status -> last seen ->
+  // 0.4), else the picked printer profile's own model/nozzle.
+  const targetPrinter = (printers.data ?? []).find((p) => p.id === fields.targetPrinterId);
+  const targetStatus = usePrinterStatus(targetPrinter?.id ?? 0, { enabled: targetPrinter != null });
+  const scopeKey = targetPrinter
+    ? modelKey(targetPrinter.model)
+    : (selectedPrinterProfile?.printer_model_key ?? modelKey(selectedPrinterProfile?.printer_model));
+  const scopeNozzle = targetPrinter
+    ? (targetStatus.data?.nozzle_mm ?? targetPrinter.nozzle_mm ?? DEFAULT_NOZZLE)
+    : (selectedPrinterProfile?.nozzle_mm ?? null);
+  const [showAll, setShowAll] = useState(false);
+  const scopedPrinter = scopedOptions(printerProfiles.data, targetPrinter ? scopeKey : null, scopeNozzle, showAll, [
+    fields.printerProfileId,
+  ]);
+  const scopedProcess = scopedOptions(processProfiles.data, scopeKey, scopeNozzle, showAll, [
+    fields.processProfileId,
+  ]);
+  const scopedFilament = scopedOptions(filamentProfiles.data, scopeKey, scopeNozzle, showAll, fields.filamentProfileIds);
+  const staleSelection = [scopedPrinter, scopedProcess, scopedFilament].some((o) => o.selectedOutOfScope);
   const bedTypes = bedTypesFor(selectedPrinterProfile);
 
   const nRequired = fields.fanout === "first_n";
@@ -186,9 +231,9 @@ export function RecipeForm({
                   <SelectValue placeholder="Choose a printer profile" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(printerProfiles.data ?? []).map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
+                  {scopedPrinter.options.map((o) => (
+                    <SelectItem key={o.profile.id} value={String(o.profile.id)}>
+                      {optionLabel(o)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -207,9 +252,9 @@ export function RecipeForm({
                   <SelectValue placeholder="Choose a process profile" />
                 </SelectTrigger>
                 <SelectContent>
-                  {compatibleProcess.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
+                  {scopedProcess.options.map((o) => (
+                    <SelectItem key={o.profile.id} value={String(o.profile.id)}>
+                      {optionLabel(o)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -232,9 +277,9 @@ export function RecipeForm({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Empty</SelectItem>
-                      {compatibleFilament.map((p) => (
-                        <SelectItem key={p.id} value={String(p.id)}>
-                          {p.name}
+                      {scopedFilament.options.map((o) => (
+                        <SelectItem key={o.profile.id} value={String(o.profile.id)}>
+                          {optionLabel(o)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -261,6 +306,22 @@ export function RecipeForm({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={showAll} onCheckedChange={(c) => setShowAll(c === true)} />
+                Show all profiles
+              </label>
+              <p className="text-xs text-muted-foreground">
+                By default only profiles for the {targetPrinter ? "target printer" : "chosen printer profile"}&apos;s model
+                and nozzle{scopeNozzle != null ? ` (${scopeNozzle} mm)` : ""} are listed.
+              </p>
+              {staleSelection ? (
+                <p role="status" className="text-xs text-amber-600 dark:text-amber-400">
+                  A selected profile doesn&apos;t match this printer&apos;s model or nozzle.
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-2">

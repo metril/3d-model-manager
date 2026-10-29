@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -127,13 +128,20 @@ function recipe(overrides: Partial<PrintRecipe> = {}): PrintRecipe {
   };
 }
 
-function renderPage() {
+function renderPage(initial = "/") {
+  const rootRoute = createRootRoute();
+  const route = createRoute({ getParentRoute: () => rootRoute, path: "/", component: ProfilesPage });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([route]),
+    history: createMemoryHistory({ initialEntries: [initial] }),
+  });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ProfilesPage />
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return router;
 }
 
 beforeEach(() => {
@@ -153,7 +161,7 @@ beforeEach(() => {
       const items = kind ? all.filter((p) => p.kind === kind) : all;
       return Promise.resolve({ items, total: items.length, nozzle_source: null });
     }
-    if (path === "/recipes") return Promise.resolve([recipe()]);
+    if (path.startsWith("/recipes")) return Promise.resolve([recipe()]);
     if (path === "/printers") return Promise.resolve([]);
     if (path === "/slicer/health") return Promise.resolve({ configured: false, ok: false });
     return Promise.resolve([]);
@@ -223,7 +231,7 @@ describe("ProfilesPage", () => {
 
   it("recipe form requires N for fanout first_n", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("tab", { name: "Recipes" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Recipes" }));
     fireEvent.click(await screen.findByRole("button", { name: "New recipe" }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My recipe" } });
@@ -250,5 +258,70 @@ describe("ProfilesPage", () => {
     const [path, formData] = postFormMock.mock.calls[0];
     expect(path).toBe("/profiles/import");
     expect((formData as FormData).get("bundle")).toBe(file);
+  });
+});
+
+describe("ProfilesPage scope bar", () => {
+  const printer = { id: 7, name: "Mini", model: "A1 mini", nozzle_mm: 0.4 };
+
+  function mockScoped() {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/profiles?")) {
+        const params = new URL(path, "http://x").searchParams;
+        const items = [
+          profile({ id: 1, kind: "printer", name: "A1 mini 0.4", in_scope: true }),
+          profile({ id: 2, kind: "process", name: "Universal draft", printer_model: null, compat: null, layer_height_mm: 0.2, in_scope: true }),
+          ...(params.get("show_all") === "1"
+            ? [profile({ id: 4, kind: "printer", name: "P1S 0.4", printer_model: "P1S", in_scope: false, scope_reason: "for P1S" })]
+            : []),
+        ];
+        return Promise.resolve({ items, total: 3, nozzle_source: "live", nozzle_mm: 0.4 });
+      }
+      if (path.startsWith("/recipes")) return Promise.resolve([recipe()]);
+      if (path === "/printers") return Promise.resolve([printer]);
+      if (path === "/slicer/health") return Promise.resolve({ configured: false, ok: false });
+      return Promise.resolve([]);
+    });
+  }
+
+  it("defaults to the first printer in the URL and scopes the query by it", async () => {
+    mockScoped();
+    const router = renderPage();
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ printer: 7 }));
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith(expect.stringContaining("printer_id=7")));
+    expect((await screen.findAllByTestId("nozzle-source"))[0]).toHaveTextContent("live");
+    await waitFor(() => expect(screen.getByTestId("profiles-count")).toHaveTextContent("Showing 2 of 3"));
+    expect(await screen.findAllByText("Any printer")).not.toHaveLength(0);
+  });
+
+  it("sends show_all and renders out-of-scope rows dimmed with a reason", async () => {
+    mockScoped();
+    renderPage("/?printer=7&all=1");
+    const reason = await screen.findByText("for P1S");
+    expect(reason.closest("tr")).toHaveClass("opacity-50");
+    expect(getMock).toHaveBeenCalledWith(expect.stringContaining("show_all=1"));
+    // "Showing" counts only in-scope rows
+    expect(screen.getByTestId("profiles-count")).toHaveTextContent("Showing 2 of 3");
+  });
+
+  it("replaces a stale ?printer= with the first printer", async () => {
+    mockScoped();
+    const router = renderPage("/?printer=99");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ printer: 7 }));
+  });
+
+  it("Auto nozzle clears the override", async () => {
+    mockScoped();
+    const router = renderPage("/?printer=7&nozzle=0.6");
+    fireEvent.change(await screen.findByLabelText("Nozzle"), { target: { value: "auto" } });
+    await waitFor(() => expect((router.state.location.search as { nozzle?: number }).nozzle).toBeUndefined());
+  });
+
+  it("passes compatible_only on the recipes tab unless incompatible are shown", async () => {
+    mockScoped();
+    renderPage("/?printer=7&tab=recipes");
+    await screen.findByText("Standard PLA");
+    expect(getMock).toHaveBeenCalledWith(expect.stringMatching(/^\/recipes\?.*compatible_only=1/));
+    expect(getMock).toHaveBeenCalledWith(expect.stringContaining("printer_id=7"));
   });
 });
