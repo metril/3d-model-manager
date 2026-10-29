@@ -223,3 +223,15 @@ def test_filter_for_models_loose_aliases():
     names = {e["name"] for e in filter_for_models(entries, ["Bambu Lab X1 Carbon"])}
     assert names == {"X1C 0.4", "p"}
     assert {e["name"] for e in filter_for_models(entries, ["A1M"])} == {"A1M 0.4"}
+
+
+def test_load_folder_recurses_vendor_subfolders(tmp_path):
+    import json
+
+    from app.services.slicer_profiles import _load_folder
+
+    (tmp_path / "filament" / "SUNLU").mkdir(parents=True)
+    (tmp_path / "filament" / "top.json").write_text(json.dumps({"name": "Top"}))
+    (tmp_path / "filament" / "filament_name_map.json").write_text(json.dumps({"a": "b"}))
+    (tmp_path / "filament" / "SUNLU" / "s.json").write_text(json.dumps({"name": "SUNLU PLA+"}))
+    assert set(_load_folder(tmp_path, "filament")) == {"Top", "SUNLU PLA+"}

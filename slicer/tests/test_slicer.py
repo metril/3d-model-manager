@@ -304,3 +304,29 @@ def test_slice_success_returns_log_header(api):
     import base64
 
     base64.b64decode(r.headers["x-slice-log"], validate=True)
+
+
+def test_profile_index_recurses_vendor_subfolders(tmp_path):
+    import json
+
+    fil = tmp_path / "filament"
+    (fil / "SUNLU").mkdir(parents=True)
+    (tmp_path / "machine").mkdir()
+    (tmp_path / "machine" / "a1m.json").write_text(json.dumps(
+        {"name": "A1M 0.4", "instantiation": "true", "printer_model": "A1 mini",
+         "nozzle_diameter": ["0.4"]}))
+    (fil / "fdm_base.json").write_text(json.dumps(
+        {"name": "fdm_base", "instantiation": "false", "filament_type": ["PLA"]}))
+    (fil / "filament_name_map.json").write_text(json.dumps(
+        {"name": "x", "instantiation": "true"}))
+    (fil / "SUNLU" / "sunlu.json").write_text(json.dumps(
+        {"name": "SUNLU PLA+ @BBL A1M", "inherits": "fdm_base", "instantiation": "true",
+         "compatible_printers": ["A1M 0.4"]}))
+    ix = ProfileIndex(tmp_path)
+    ents = {e["name"]: e for e in ix.entries("filament", flatten=True)}
+    assert set(ents) == {"SUNLU PLA+ @BBL A1M"}
+    e = ents["SUNLU PLA+ @BBL A1M"]
+    assert e["vendor"] == "SUNLU"
+    assert e["data"]["filament_type"] == ["PLA"]
+    assert e["printer_model"] == "A1 mini"
+    assert ix.entries("printer")[0]["vendor"] == "BBL"
