@@ -16,16 +16,9 @@ import { NoteItem } from "@/components/model-detail/NoteItem";
 import { ExpandCollapseAll } from "@/components/ExpandCollapseAll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -112,6 +105,15 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
     );
   }
 
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setName("");
+      setNote("");
+      createRevision.reset();
+    }
+  }
+
   const errorMessage =
     createRevision.error instanceof ApiError
       ? createRevision.error.detail
@@ -120,13 +122,16 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
         : null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm">
-          New revision
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
+    <>
+      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+        New revision
+      </Button>
+      <FormDialog
+        open={open}
+        onOpenChange={handleOpenChange}
+        dirty={name !== "" || note !== ""}
+        busy={createRevision.isPending}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>New revision</DialogTitle>
@@ -150,13 +155,18 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
             ) : null}
           </div>
           <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
             <Button type="submit" disabled={createRevision.isPending}>
               {createRevision.isPending ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </FormDialog>
+    </>
   );
 }
 
@@ -188,10 +198,7 @@ function RevisionNotes({
     event.preventDefault();
     const body = draft.trim();
     if (!body) return;
-    createNote.mutate(
-      { model_id: modelId, revision_id: revision.id, body },
-      { onSuccess: () => setDraft("") },
-    );
+    createNote.mutate({ model_id: modelId, revision_id: revision.id, body }, { onSuccess: () => setDraft("") });
   }
 
   return (

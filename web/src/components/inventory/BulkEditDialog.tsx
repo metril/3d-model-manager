@@ -12,7 +12,8 @@ import { useBulkUpdateSpools, useLocations } from "@/api/spoolAdmin";
 import type { BulkResult, BulkSpoolUpdate, MaterialKind } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -111,8 +112,7 @@ export function BulkEditDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={Object.values(on).some(Boolean)} busy={bulk.isPending} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("spoolAdmin.bulk.title", { count: ids.length })}</DialogTitle>
           <DialogDescription>{t("spoolAdmin.bulk.desc")}</DialogDescription>
@@ -211,14 +211,15 @@ export function BulkEditDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
             {result ? t("spoolAdmin.common.close") : t("spoolAdmin.common.cancel")}
           </Button>
+          </DialogClose>
           <Button type="button" disabled={nothing || bulk.isPending} onClick={submit}>
             {bulk.isPending ? t("spoolAdmin.common.saving") : t("spoolAdmin.bulk.apply_btn", { count: ids.length })}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

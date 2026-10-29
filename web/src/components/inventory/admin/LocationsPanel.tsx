@@ -21,7 +21,8 @@ import type { LocationSensor, SensorKind, StorageLocation } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -42,8 +43,13 @@ function LocationDialog({ open, onOpenChange, location }: { open: boolean; onOpe
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
 
+  const snapL = (n: string, i: string) => JSON.stringify([n, i]);
+  const [baseline, setBaseline] = useState(() => snapL(location?.name ?? "", location?.identifier ?? ""));
+  const dirty = snapL(name, identifier) !== baseline;
+
   useEffect(() => {
     if (open) {
+      setBaseline(snapL(location?.name ?? "", location?.identifier ?? ""));
       setName(location?.name ?? "");
       setIdentifier(location?.identifier ?? "");
       create.reset();
@@ -61,8 +67,7 @@ function LocationDialog({ open, onOpenChange, location }: { open: boolean; onOpe
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending} className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{location ? t("spoolAdmin.loc.editTitle") : t("spoolAdmin.loc.newTitle")}</DialogTitle>
@@ -87,8 +92,7 @@ function LocationDialog({ open, onOpenChange, location }: { open: boolean; onOpe
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 
@@ -115,8 +119,20 @@ function SensorDialog({
   const [notify, setNotify] = useState(false);
   const [showOnCard, setShowOnCard] = useState(true);
 
+  const sensorInitial = () => [
+    sensor?.entity_id ?? "",
+    sensor?.name ?? "",
+    sensor?.alert_above != null ? String(sensor.alert_above) : "",
+    sensor?.alert_below != null ? String(sensor.alert_below) : "",
+    sensor?.notify_on_alert ?? false,
+    sensor?.show_on_card ?? true,
+  ];
+  const [baseline, setBaseline] = useState(() => JSON.stringify(sensorInitial()));
+  const dirty = JSON.stringify([entityId, name, above, below, notify, showOnCard]) !== baseline;
+
   useEffect(() => {
     if (open) {
+      setBaseline(JSON.stringify(sensorInitial()));
       setEntityId(sensor?.entity_id ?? "");
       setName(sensor?.name ?? "");
       setAbove(sensor?.alert_above != null ? String(sensor.alert_above) : "");
@@ -154,8 +170,7 @@ function SensorDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending} className="sm:max-w-lg">
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogHeader>
             <DialogTitle>{sensor ? t("spoolAdmin.sensor.editTitle") : t("spoolAdmin.sensor.newTitle")}</DialogTitle>
@@ -217,8 +232,7 @@ function SensorDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }
 

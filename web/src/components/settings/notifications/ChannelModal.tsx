@@ -10,6 +10,7 @@ import {
 } from "@/api/notifications";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useDiscardGuard } from "@/components/ui/use-discard-guard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +38,9 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
   const [digest, setDigest] = useState(channel?.digest_cron ?? "");
   const [photo, setPhoto] = useState(channel?.attach_photo ?? false);
 
+  const snap = () => JSON.stringify([kind, name, config, events, quiet, qStart, qEnd, qTz, digest, photo]);
+  const [baseline] = useState(snap);
+
   const kindDef = catalog.kinds.find((k) => k.kind === kind);
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
@@ -50,6 +54,12 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
     return v;
   };
   const missing = (kindDef?.fields ?? []).some((f) => f.required && !effective(f).toString().trim());
+
+  const { requestChange, confirm } = useDiscardGuard({
+    onOpenChange: (o) => !o && onClose(),
+    dirty: snap() !== baseline,
+    busy: pending,
+  });
 
   function changeKind(k: string) {
     setKind(k);
@@ -81,8 +91,9 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
   }
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+    <>
+    <Dialog open onOpenChange={requestChange}>
+      <DialogContent dismissable={false} className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{channel ? "Edit channel" : "Add channel"}</DialogTitle>
         </DialogHeader>
@@ -212,7 +223,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
             </p>
           )}
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={() => requestChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={pending || !name.trim() || missing}>
@@ -222,5 +233,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
         </form>
       </DialogContent>
     </Dialog>
+    {confirm}
+    </>
   );
 }

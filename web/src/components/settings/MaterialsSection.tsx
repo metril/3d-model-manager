@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { normalizeHex } from "@/components/ui/filament-chip";
 import { ColorField } from "@/components/ui/color-field";
+import { useDiscardGuard } from "@/components/ui/use-discard-guard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +48,10 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
   const createMaterial = useCreateMaterial();
   const updateMaterial = useUpdateMaterial();
   const mutation = isEdit ? updateMaterial : createMaterial;
+
+  const dirty =
+    JSON.stringify([name, kind, color, vendor, notes]) !==
+    JSON.stringify([material?.name ?? "", material?.kind ?? DEFAULT_KIND, material?.color ?? "", material?.vendor ?? "", material?.notes ?? ""]);
 
   function reset() {
     setName(material?.name ?? "");
@@ -76,16 +81,21 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
     }
   }
 
+  const { requestChange, confirm } = useDiscardGuard({
+    onOpenChange: (next) => {
+      // Re-snapshot on every open and close: fresh props, no stale secrets.
+      reset();
+      setOpen(next);
+    },
+    dirty,
+    busy: mutation.isPending,
+  });
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
+    <>
+    <Dialog open={open} onOpenChange={requestChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? `Edit "${material.name}"` : "Add material"}</DialogTitle>
@@ -163,6 +173,8 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
         </form>
       </DialogContent>
     </Dialog>
+    {confirm}
+    </>
   );
 }
 

@@ -16,9 +16,9 @@ import { useSaveHaLink } from "@/api/homeAssistant";
 import { usePrinters } from "@/api/printers";
 import type { HaCondition, HaConditionOp, HaLink, HaRole } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { FormDialog } from "@/components/ui/form-dialog";
 import {
-  Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -95,6 +95,18 @@ export function HaLinkDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, link]);
 
+  const initialSnap = JSON.stringify([
+    link?.entity_id ?? "",
+    link?.printer_id != null ? String(link.printer_id) : ALL_PRINTERS,
+    link?.role ?? "door",
+    link?.alert_condition != null,
+    link?.alert_condition?.op ?? "eq",
+    conditionValueToString(link?.alert_condition ?? null),
+    link?.hold_queue ?? false,
+    link?.pause_print ?? false,
+  ]);
+  const dirty = JSON.stringify([entityId, printerId, role, hasCondition, op, value, holdQueue, pausePrint]) !== initialSnap;
+
   function selectRole(next: HaRole) {
     setRole(next);
     if (ALERT_DEFAULT_ROLES.includes(next) && !hasCondition) {
@@ -142,8 +154,7 @@ export function HaLinkDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={save.isPending}>
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit ${link.entity_id}` : "Add linked entity"}</DialogTitle>
           <DialogDescription>Wire a Home Assistant entity to the printer dispatcher.</DialogDescription>
@@ -241,14 +252,15 @@ export function HaLinkDialog({
           )}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
             Cancel
           </Button>
+          </DialogClose>
           <Button type="button" disabled={save.isPending} onClick={submit}>
             {isEdit ? "Save" : "Add link"}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

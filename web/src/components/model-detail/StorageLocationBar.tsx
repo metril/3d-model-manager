@@ -30,14 +30,8 @@ import { useStorageBackends } from "@/api/settings";
 import type { ModelDetail } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -95,80 +89,85 @@ export function StorageLocationBar({
         ))
       )}
 
-      <Dialog
+      <FormDialog
         open={open}
         onOpenChange={(next) => {
           onOpenChange(next);
           if (!next) reset();
         }}
+        dirty={targetId !== "" || mode !== "move"}
+        busy={relocate.isPending}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Move or copy to another backend</DialogTitle>
-            <DialogDescription>
-              Moves or replicates every file across every revision of this model onto the target backend, in the
-              background.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="relocate-target">Target backend</Label>
-              {/* `aria-label` on `Select` itself (in addition to the real
-               * one on `SelectTrigger` below) is a no-op on the real Radix
-               * root but lets a jsdom test's native-<select> stand-in find
-               * this control by accessible name even with more than one
-               * `<select>` on the page at once. */}
-              <Select
-                aria-label="Target backend"
-                value={targetId}
-                onValueChange={setTargetId}
-                disabled={relocate.isPending}
-              >
-                <SelectTrigger id="relocate-target" aria-label="Target backend">
-                  <SelectValue placeholder="Choose a backend" />
-                </SelectTrigger>
-                <SelectContent>
-                  {candidates.map((backend) => (
-                    <SelectItem key={backend.id} value={String(backend.id)}>
-                      {backend.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {backendsQuery.isSuccess && candidates.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No other backends are configured.</p>
-              ) : null}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="relocate-mode">Action</Label>
-              <Select
-                aria-label="Action"
-                value={mode}
-                onValueChange={(next) => setMode(next as RelocateMode)}
-                disabled={relocate.isPending}
-              >
-                <SelectTrigger id="relocate-mode" aria-label="Action">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="move">Move (remove from the current backend)</SelectItem>
-                  <SelectItem value="replicate">Replicate (keep a copy on the current backend)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {relocate.isError ? (
-              <p role="alert" className="text-sm text-destructive">
-                {relocate.error instanceof ApiError ? relocate.error.detail : "Could not start relocation"}
-              </p>
+        <DialogHeader>
+          <DialogTitle>Move or copy to another backend</DialogTitle>
+          <DialogDescription>
+            Moves or replicates every file across every revision of this model onto the target backend, in the
+            background.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="relocate-target">Target backend</Label>
+            {/* `aria-label` on `Select` itself (in addition to the real
+             * one on `SelectTrigger` below) is a no-op on the real Radix
+             * root but lets a jsdom test's native-<select> stand-in find
+             * this control by accessible name even with more than one
+             * `<select>` on the page at once. */}
+            <Select
+              aria-label="Target backend"
+              value={targetId}
+              onValueChange={setTargetId}
+              disabled={relocate.isPending}
+            >
+              <SelectTrigger id="relocate-target" aria-label="Target backend">
+                <SelectValue placeholder="Choose a backend" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((backend) => (
+                  <SelectItem key={backend.id} value={String(backend.id)}>
+                    {backend.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {backendsQuery.isSuccess && candidates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No other backends are configured.</p>
             ) : null}
           </div>
-          <DialogFooter>
-            <Button type="button" disabled={!targetId || relocate.isPending} onClick={handleStart}>
-              {relocate.isPending ? "Starting..." : "Start"}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="relocate-mode">Action</Label>
+            <Select
+              aria-label="Action"
+              value={mode}
+              onValueChange={(next) => setMode(next as RelocateMode)}
+              disabled={relocate.isPending}
+            >
+              <SelectTrigger id="relocate-mode" aria-label="Action">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="move">Move (remove from the current backend)</SelectItem>
+                <SelectItem value="replicate">Replicate (keep a copy on the current backend)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {relocate.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {relocate.error instanceof ApiError ? relocate.error.detail : "Could not start relocation"}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DialogClose>
+          <Button type="button" disabled={!targetId || relocate.isPending} onClick={handleStart}>
+            {relocate.isPending ? "Starting..." : "Start"}
+          </Button>
+        </DialogFooter>
+      </FormDialog>
 
       {jobId ? (
         <span className="text-xs text-muted-foreground">

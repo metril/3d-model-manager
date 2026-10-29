@@ -6,7 +6,8 @@ import { ApiError } from "@/api/client";
 import { useDownloadLabels, useLabelPreview } from "@/api/spoolAdmin";
 import type { LabelFormat, LabelPage, LabelTemplate } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -55,8 +56,7 @@ export function LabelsDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} busy={download.isPending} className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("spoolAdmin.labels.title", { count: ids.length })}</DialogTitle>
           <DialogDescription>{t("spoolAdmin.labels.desc")}</DialogDescription>
@@ -85,9 +85,11 @@ export function LabelsDialog({
           </p>
         ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
             {t("spoolAdmin.common.close")}
           </Button>
+          </DialogClose>
           <Button
             type="button"
             disabled={download.isPending || ids.length === 0}
@@ -96,7 +98,6 @@ export function LabelsDialog({
             {download.isPending ? t("spoolAdmin.common.saving") : t("spoolAdmin.labels.download")}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

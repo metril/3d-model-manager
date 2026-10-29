@@ -23,9 +23,8 @@ import { SupplierListEditor } from "@/components/inventory/SupplierListEditor";
 import { useAuth } from "@/api/auth";
 import { SpoolKProfilesSection } from "@/components/inventory/SpoolKProfilesSection";
 import { Button } from "@/components/ui/button";
+import { FormDialog } from "@/components/ui/form-dialog";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -87,9 +86,13 @@ export function SpoolForm({
   const [suppliers, setSuppliers] = useState<SpoolSupplierLink[]>(spool?.suppliers ?? []);
   const { t } = useTranslation();
   const putSuppliers = usePutSpoolSuppliers();
+  const snap = (f: unknown, g: string, s: unknown) => JSON.stringify([f, g, s]);
+  const [baseline, setBaseline] = useState(() => snap(fieldsFor(spool, prefill), "", spool?.suppliers ?? []));
+  const dirty = snap(fields, grossWeight, suppliers) !== baseline;
 
   useEffect(() => {
     if (open) {
+      setBaseline(snap(fieldsFor(spool, prefill), "", spool?.suppliers ?? []));
       setFields(fieldsFor(spool, prefill));
       setGrossWeight("");
       setSuppliers(spool?.suppliers ?? []);
@@ -171,8 +174,7 @@ export function SpoolForm({
   const rfidLocked = Boolean(spool?.tray_uuid) && isEdit;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending || putSuppliers.isPending} className="sm:max-w-xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit spool" : "New spool"}</DialogTitle>
@@ -390,7 +392,6 @@ export function SpoolForm({
             </DialogFooter>
           ) : null}
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

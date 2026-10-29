@@ -3,7 +3,7 @@
  * group isn't editable once created (`CostCenterPatchIn` has no such
  * field) -- only shown for a new center.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useSaveCostCenter } from "@/api/finance";
 import { ApiError } from "@/api/client";
@@ -19,6 +19,7 @@ function errText(e: unknown, fallback: string) {
 export function CostCenterForm({
   center,
   onSaved,
+  onStateChange,
 }: {
   /** `null` creates a new (owner-less) private-style center; pass an
    * explicit `owner_user_id`/`group_id` center creation flow isn't needed
@@ -26,6 +27,8 @@ export function CostCenterForm({
    * elsewhere, so this form only covers name/budgets. */
   center: CostCenter | null;
   onSaved?: () => void;
+  /** Reports unsaved edits / save-in-flight so a wrapping FormDialog can guard closing. */
+  onStateChange?: (state: { dirty: boolean; busy: boolean }) => void;
 }) {
   const [name, setName] = useState(center?.name ?? "");
   const [ownerUserId, setOwnerUserId] = useState("");
@@ -35,6 +38,13 @@ export function CostCenterForm({
     center?.budget_monthly != null ? String(center.budget_monthly) : "",
   );
   const save = useSaveCostCenter();
+  const [baseline] = useState(() => JSON.stringify([name, ownerUserId, groupId, budgetTotal, budgetMonthly]));
+  const dirty = JSON.stringify([name, ownerUserId, groupId, budgetTotal, budgetMonthly]) !== baseline;
+  const busy = save.isPending;
+  useEffect(() => {
+    onStateChange?.({ dirty, busy });
+  }, [dirty, busy, onStateChange]);
+  useEffect(() => () => onStateChange?.({ dirty: false, busy: false }), [onStateChange]);
 
   function parseBudget(v: string): number | null {
     const trimmed = v.trim();

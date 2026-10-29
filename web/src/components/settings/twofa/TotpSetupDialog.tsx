@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { BackupCodes } from "@/components/settings/twofa/BackupCodes";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { QrCode } from "@/components/ui/qr-code";
@@ -83,8 +84,14 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => (codes && !o ? onOpenChange(false) : onOpenChange(o))}>
-      <DialogContent className="sm:max-w-md">
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      dirty={code !== ""}
+      busy={codes !== null || enable.isPending}
+      showCloseButton={codes === null}
+      className="sm:max-w-md"
+    >
         <DialogHeader>
           <DialogTitle>{codes ? t("twofa.totp.codesTitle") : t("twofa.totp.setupTitle")}</DialogTitle>
           <DialogDescription>{codes ? t("twofa.totp.codesDesc") : t("twofa.totp.setupDesc")}</DialogDescription>
@@ -155,7 +162,6 @@ export function TotpSetupDialog({ open, onOpenChange }: { open: boolean; onOpenC
             </DialogFooter>
           </form>
         )}
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

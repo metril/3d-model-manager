@@ -32,29 +32,17 @@ import {
   type ProjectStatus,
 } from "@/api/projects";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/page-container";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  formatCost,
-  formatDateTime,
-  humanizeBytes,
-  humanizeDuration,
-  useDebouncedValue,
-} from "@/lib/format";
-
+import { formatCost, formatDateTime, humanizeBytes, humanizeDuration, useDebouncedValue } from "@/lib/format";
 
 function NumberCell({
   value,
@@ -88,7 +76,15 @@ function NumberCell({
   );
 }
 
-function AddPartDialog({ projectId, open, onOpenChange }: { projectId: number; open: boolean; onOpenChange: (o: boolean) => void }) {
+function AddPartDialog({
+  projectId,
+  open,
+  onOpenChange,
+}: {
+  projectId: number;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q, 250);
   const results = useModelSearchQuery(dq);
@@ -100,7 +96,13 @@ function AddPartDialog({ projectId, open, onOpenChange }: { projectId: number; o
         <DialogHeader>
           <DialogTitle>Add part</DialogTitle>
         </DialogHeader>
-        <Input autoFocus aria-label="Search models" placeholder="Search models…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input
+          autoFocus
+          aria-label="Search models"
+          placeholder="Search models…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
         <ul className="max-h-64 space-y-1 overflow-auto">
           {models.map((m) => (
             <li key={m.id}>
@@ -109,10 +111,7 @@ function AddPartDialog({ projectId, open, onOpenChange }: { projectId: number; o
                 className="w-full rounded px-2 py-1 text-left text-sm hover:bg-muted"
                 disabled={add.isPending}
                 onClick={() =>
-                  add.mutate(
-                    { kind: "part", model_id: m.id, quantity: 1 },
-                    { onSuccess: () => onOpenChange(false) },
-                  )
+                  add.mutate({ kind: "part", model_id: m.id, quantity: 1 }, { onSuccess: () => onOpenChange(false) })
                 }
               >
                 {m.name}
@@ -125,46 +124,90 @@ function AddPartDialog({ projectId, open, onOpenChange }: { projectId: number; o
   );
 }
 
-function AddPurchasedDialog({ projectId, open, onOpenChange }: { projectId: number; open: boolean; onOpenChange: (o: boolean) => void }) {
+function AddPurchasedDialog({
+  projectId,
+  open,
+  onOpenChange,
+}: {
+  projectId: number;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [cost, setCost] = useState("");
   const [url, setUrl] = useState("");
   const add = useAddItem(projectId);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add purchased item</DialogTitle>
-        </DialogHeader>
-        <Input aria-label="Item name" placeholder="Name (e.g. M3 screws)" value={name} onChange={(e) => setName(e.target.value)} />
-        <div className="flex gap-2">
-          <Input aria-label="Quantity" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
-          <Input aria-label="Unit cost" type="number" min={0} step="0.01" placeholder="Unit cost" value={cost} onChange={(e) => setCost(e.target.value)} />
-        </div>
-        <Input aria-label="Link" placeholder="Link (optional)" value={url} onChange={(e) => setUrl(e.target.value)} />
-        <DialogFooter>
-          <Button
-            type="button"
-            disabled={!name.trim() || add.isPending}
-            onClick={() =>
-              add.mutate(
-                {
-                  kind: "purchased",
-                  name: name.trim(),
-                  quantity: Math.max(1, Number(qty) || 1),
-                  unit_cost: cost === "" ? null : Number(cost),
-                  url: url.trim() || null,
-                },
-                { onSuccess: () => { onOpenChange(false); setName(""); setCost(""); setUrl(""); } },
-              )
-            }
-          >
-            Add
+    <FormDialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) {
+          setName("");
+          setQty("1");
+          setCost("");
+          setUrl("");
+        }
+      }}
+      dirty={name !== "" || qty !== "1" || cost !== "" || url !== ""}
+      busy={add.isPending}
+    >
+      <DialogHeader>
+        <DialogTitle>Add purchased item</DialogTitle>
+      </DialogHeader>
+      <Input
+        aria-label="Item name"
+        placeholder="Name (e.g. M3 screws)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <Input aria-label="Quantity" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+        <Input
+          aria-label="Unit cost"
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="Unit cost"
+          value={cost}
+          onChange={(e) => setCost(e.target.value)}
+        />
+      </div>
+      <Input aria-label="Link" placeholder="Link (optional)" value={url} onChange={(e) => setUrl(e.target.value)} />
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button type="button" variant="outline">
+            Cancel
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogClose>
+        <Button
+          type="button"
+          disabled={!name.trim() || add.isPending}
+          onClick={() =>
+            add.mutate(
+              {
+                kind: "purchased",
+                name: name.trim(),
+                quantity: Math.max(1, Number(qty) || 1),
+                unit_cost: cost === "" ? null : Number(cost),
+                url: url.trim() || null,
+              },
+              {
+                onSuccess: () => {
+                  onOpenChange(false);
+                  setName("");
+                  setCost("");
+                  setUrl("");
+                },
+              },
+            )
+          }
+        >
+          Add
+        </Button>
+      </DialogFooter>
+    </FormDialog>
   );
 }
 
@@ -299,7 +342,12 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
               {!a.explicit && <span className="text-muted-foreground"> (auto-matched)</span>}
             </span>
             {canWrite && a.explicit && (
-              <Button type="button" size="sm" variant="ghost" onClick={() => link.mutate({ ids: [a.id], unlink: true })}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => link.mutate({ ids: [a.id], unlink: true })}
+              >
                 Unlink
               </Button>
             )}
@@ -361,7 +409,13 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
                 e.target.value = "";
               }}
             />
-            <Button type="button" size="sm" variant="outline" disabled={upload.isPending} onClick={() => input.current?.click()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={upload.isPending}
+              onClick={() => input.current?.click()}
+            >
               <UploadIcon /> Upload
             </Button>
           </>
@@ -385,7 +439,13 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
               />
             </div>
             {canWrite && (
-              <Button type="button" size="icon" variant="ghost" aria-label={`Delete ${a.filename}`} onClick={() => del.mutate(a.id)}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={`Delete ${a.filename}`}
+                onClick={() => del.mutate(a.id)}
+              >
                 <Trash2Icon />
               </Button>
             )}
@@ -443,7 +503,9 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
                 queue.mutate(undefined, {
                   onSuccess: (r) => {
                     const n = r.enqueued.reduce((s, e) => s + e.copies, 0);
-                    toast.success(`Queued ${n} print${n === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}` : ""}`);
+                    toast.success(
+                      `Queued ${n} print${n === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}` : ""}`,
+                    );
                     r.skipped.forEach((s) => toast.warning(`${s.model}: ${s.reason}`));
                   },
                 })
@@ -521,32 +583,52 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
         description={`Removes the project, its ${project.items.length} BOM item(s) and ${project.attachments.length} attachment(s). Models and print runs are kept.`}
         confirmLabel="Delete project"
         destructive
-        onConfirm={() => del.mutate(project.id, { onSuccess: () => void navigate({ to: "/projects" }) })}
+        onConfirm={() =>
+          del.mutate(project.id, {
+            onSuccess: () => void navigate({ to: "/projects" }),
+          })
+        }
       />
-      <Dialog open={tplOpen} onOpenChange={setTplOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save as template</DialogTitle>
-          </DialogHeader>
-          <Input aria-label="Template name" placeholder="Template name" value={tplName} onChange={(e) => setTplName(e.target.value)} />
-          <DialogFooter>
-            <Button
-              type="button"
-              disabled={!tplName.trim() || makeTemplate.isPending}
-              onClick={() =>
-                makeTemplate.mutate(tplName.trim(), {
-                  onSuccess: () => {
-                    toast.success("Template saved");
-                    setTplOpen(false);
-                  },
-                })
-              }
-            >
-              Save
+      <FormDialog
+        open={tplOpen}
+        onOpenChange={(next) => {
+          setTplOpen(next);
+          if (!next) setTplName("");
+        }}
+        dirty={tplName !== ""}
+        busy={makeTemplate.isPending}
+      >
+        <DialogHeader>
+          <DialogTitle>Save as template</DialogTitle>
+        </DialogHeader>
+        <Input
+          aria-label="Template name"
+          placeholder="Template name"
+          value={tplName}
+          onChange={(e) => setTplName(e.target.value)}
+        />
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Cancel
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DialogClose>
+          <Button
+            type="button"
+            disabled={!tplName.trim() || makeTemplate.isPending}
+            onClick={() =>
+              makeTemplate.mutate(tplName.trim(), {
+                onSuccess: () => {
+                  toast.success("Template saved");
+                  setTplOpen(false);
+                },
+              })
+            }
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </FormDialog>
     </div>
   );
 }
