@@ -36,6 +36,7 @@ from app.config import Settings
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind, ProfileSource
 from app.services import bambu_auth
+from app.services.slicer_profiles import apply_meta, compat_entries, derive_profile_meta
 
 SOURCES = ("orca", "bambu")
 
@@ -250,6 +251,37 @@ def _inherited_model(
     return (row.printer_model, row.nozzle_mm) if row is not None else (None, None)
 
 
+def _meta_for(
+    session: Session, kind: ProfileKind, name: str, data: dict, model: str | None, nozzle
+):
+    """Scope metadata for a synced preset; an `inherits` parent's compat and
+    `compatible_printers` entries are resolved against local rows."""
+
+    def parent_lookup(pname: str) -> list[dict] | None:
+        row = session.scalar(
+            select(SlicerProfile).where(SlicerProfile.kind == kind, SlicerProfile.name == pname)
+        )
+        return compat_entries(row) if row is not None else None
+
+    def machine_lookup(mname: str) -> tuple[str | None, float | None] | None:
+        row = session.scalar(
+            select(SlicerProfile).where(
+                SlicerProfile.kind == ProfileKind.PRINTER, SlicerProfile.name == mname
+            )
+        )
+        return (row.printer_model, row.nozzle_mm) if row is not None else None
+
+    return derive_profile_meta(
+        kind,
+        data,
+        name=name,
+        parent_lookup=parent_lookup,
+        machine_lookup=machine_lookup,
+        printer_model=model,
+        nozzle_mm=nozzle,
+    )
+
+
 def upsert_remote(
     session: Session,
     remote: RemotePreset,
@@ -299,24 +331,25 @@ def _upsert_once(
     if model is None and nozzle is None:
         model, nozzle = _inherited_model(session, remote.kind, content)
     now = datetime.now(UTC)
+    meta = _meta_for(session, remote.kind, remote.name, data, model, nozzle)
     if row is None:
-        session.add(
-            SlicerProfile(
-                kind=remote.kind,
-                name=_unique_name(session, remote.kind, remote.name, remote.source),
-                printer_model=model,
-                nozzle_mm=nozzle,
-                data=data,
-                source=ProfileSource.IMPORT,
-                cloud_source=remote.source,
-                cloud_id=remote.preset_id,
-                cloud_hash=remote_hash,
-                cloud_updated=remote.updated_time,
-                data_hash=content_hash(data),
-                cloud_synced_at=now,
-                created_by_user_id=user_id,
-            )
+        new_row = SlicerProfile(
+            kind=remote.kind,
+            name=_unique_name(session, remote.kind, remote.name, remote.source),
+            printer_model=model,
+            nozzle_mm=nozzle,
+            data=data,
+            source=ProfileSource.IMPORT,
+            cloud_source=remote.source,
+            cloud_id=remote.preset_id,
+            cloud_hash=remote_hash,
+            cloud_updated=remote.updated_time,
+            data_hash=content_hash(data),
+            cloud_synced_at=now,
+            created_by_user_id=user_id,
         )
+        apply_meta(new_row, meta)
+        session.add(new_row)
         session.flush()
         return "created"
     row.printer_model = model
@@ -326,5 +359,6 @@ def _upsert_once(
     row.cloud_updated = remote.updated_time
     row.data_hash = content_hash(data)
     row.cloud_synced_at = now
+    apply_meta(row, meta)
     session.flush()
     return "updated"

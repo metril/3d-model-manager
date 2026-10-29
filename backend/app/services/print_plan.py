@@ -84,6 +84,40 @@ def recipe_compatibility_reason(
     return None
 
 
+def recipe_scope_reason(
+    recipe,
+    printer_key: str | None,
+    nozzle: float | None,
+    profiles: dict,
+    layer: float | None = None,
+) -> str | None:
+    """Why ``recipe`` is out of the Profiles-page scope (printer model key +
+    nozzle [+ layer height]); ``None`` when its printer, process and filament
+    profiles all fit. Used only by the list/picker endpoints -- the dispatcher
+    keeps ``recipe_compatibility_reason``. ``profiles`` maps id -> SlicerProfile."""
+    from app.services.slicer_profiles import profile_in_scope, scope_mismatch_reason
+
+    checks = [
+        ("printer", profiles.get(recipe.printer_profile_id)),
+        ("process", profiles.get(recipe.process_profile_id)),
+        *(("filament", profiles.get(fid)) for fid in recipe.filament_profile_ids or [] if fid),
+    ]
+    for label, prof in checks:
+        if prof is None:
+            continue
+        why = scope_mismatch_reason(prof, printer_key, nozzle)
+        if why:
+            return f"{label} profile {why}"
+    process = profiles.get(recipe.process_profile_id)
+    if (
+        layer is not None
+        and process is not None
+        and not profile_in_scope(process, None, None, layer)
+    ):
+        return "layer height differs"
+    return None
+
+
 class NotSendableError(ValueError):
     """A file/blob isn't in a state ``create_job``/``create_job_sync`` can
     send to a printer (wrong format, missing blob)."""

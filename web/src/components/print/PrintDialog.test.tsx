@@ -155,7 +155,7 @@ function mockApi({
       });
     }
     if (path.startsWith("/profiles")) {
-      return Promise.resolve([PRINTER_PROFILE]);
+      return Promise.resolve({ items: [PRINTER_PROFILE], total: 1, nozzle_source: null });
     }
     if (path === "/printers") {
       return Promise.resolve([{ id: 5, name: "Printer A", model: "A1" }]);

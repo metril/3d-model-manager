@@ -11,10 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
+from app.api.profiles import _ilike_escape, resolve_scope
 from app.api.queue import _notify_enqueued
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import PrintRecipe, SliceJob, SlicerPipeline
+from app.models import Printer, PrintRecipe, SliceJob, SlicerPipeline, SlicerProfile
 from app.schemas.pipelines import (
     PipelineIn,
     PipelineOut,
@@ -24,6 +25,7 @@ from app.schemas.pipelines import (
 )
 from app.schemas.slicing import SliceJobOut
 from app.services import pipelines, slice_jobs
+from app.services.print_plan import recipe_compatibility_reason, recipe_scope_reason
 
 router = APIRouter(prefix="/slicer-pipelines", tags=["slicer-pipelines"])
 
@@ -48,8 +50,49 @@ async def _check_recipe(db: AsyncSession, recipe_id: int) -> None:
 
 
 @router.get("", response_model=list[PipelineOut])
-async def list_pipelines(db: AsyncSession = Depends(get_db)) -> list[PipelineOut]:
-    rows = (await db.execute(select(SlicerPipeline).order_by(SlicerPipeline.name))).scalars().all()
+async def list_pipelines(
+    printer_id: int | None = None,
+    nozzle_mm: float | None = None,
+    q: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> list[PipelineOut]:
+    """Pipelines; with `printer_id`, only those that queue to that printer or
+    whose recipe fits it (model + nozzle scope)."""
+    stmt = select(SlicerPipeline).order_by(SlicerPipeline.name)
+    if q and q.strip():
+        stmt = stmt.where(SlicerPipeline.name.ilike(_ilike_escape(q.strip()), escape="\\"))
+    rows = (await db.execute(stmt)).scalars().all()
+    if printer_id is not None:
+        printer = await db.get(Printer, printer_id)
+        if printer is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+        printer_key, nozzle, _source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
+        profiles = {p.id: p for p in (await db.execute(select(SlicerProfile))).scalars().all()}
+        recipes = {r.id: r for r in (await db.execute(select(PrintRecipe))).scalars().all()}
+        names = {i: n for i, n in (await db.execute(select(Printer.id, Printer.name))).all()}
+
+        def keep(row: SlicerPipeline) -> bool:
+            for step in row.steps or []:
+                if step.get("kind") == "queue" and step.get("printer_id") == printer_id:
+                    return True
+            recipe = recipes.get(row.recipe_id)
+            if recipe is None:
+                return False
+            pp = profiles.get(recipe.printer_profile_id)
+            return (
+                recipe_compatibility_reason(
+                    recipe,
+                    pp.printer_model if pp else None,
+                    printer,
+                    names.get(recipe.target_printer_id),
+                )
+                is None
+                and recipe_scope_reason(recipe, printer_key, nozzle, profiles) is None
+            )
+
+        rows = [r for r in rows if keep(r)]
     return [await _out(db, r) for r in rows]
 
 

@@ -505,3 +505,48 @@ def test_status_of_and_diff_helpers() -> None:
         {"key": "b", "local": 2, "remote": None},
         {"key": "c", "local": None, "remote": 3},
     ]
+
+
+def test_upsert_remote_derives_scope_meta(_truncate_all_tables) -> None:
+    from app.models import SlicerProfile
+    from app.tasks import base
+
+    def remote(pid, kind, name, content):
+        return cloud_presets.RemotePreset(
+            source="orca", preset_id=pid, name=name, kind=kind, updated_time="t", content=content
+        )
+
+    kind = cloud_presets.ProfileKind
+    printer = remote(
+        "m1",
+        kind.PRINTER,
+        "My A1M",
+        {"printer_model": "N1", "nozzle_diameter": ["0.4"], "type": "machine"},
+    )
+    parent = remote(
+        "f0",
+        kind.FILAMENT,
+        "Base PLA",
+        {"type": "filament", "compatible_printers": ["My A1M"]},
+    )
+    child = remote("f1", kind.FILAMENT, "My PLA", {"inherits": "Base PLA", "type": "filament"})
+    multi = remote(
+        "p1",
+        kind.PROCESS,
+        "0.20mm multi",
+        {
+            "type": "process",
+            "layer_height": "0.2",
+            "compatible_printers": ["Bambu Lab A1 mini 0.4 nozzle", "Bambu Lab P1S 0.4 nozzle"],
+        },
+    )
+    with base.sync_session() as s:
+        for r in (printer, parent, child, multi):
+            assert cloud_presets.upsert_remote(s, r, r.content, None) == "created"
+        s.commit()
+        rows = {x.name: x for x in s.query(SlicerProfile).all()}
+    assert rows["My A1M"].compat == [{"model_key": "a1mini", "nozzle_mm": 0.4}]
+    assert rows["0.20mm multi"].printer_model_key is None
+    assert {c["model_key"] for c in rows["0.20mm multi"].compat} == {"a1mini", "p1s"}
+    assert rows["0.20mm multi"].layer_height_mm == 0.2
+    assert rows["My PLA"].compat == [{"model_key": "a1mini", "nozzle_mm": 0.4}]

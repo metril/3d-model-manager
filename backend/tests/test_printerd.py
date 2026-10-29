@@ -1121,3 +1121,16 @@ def test_write_public_publishes_no_data_snapshot_as_disconnected(worker):
     state = json.loads(client.get(state_key(pid)))
     assert state["connected"] is False and state["gcode_state"] is None
     assert state["nozzle_temper"] is None
+
+
+def test_persist_nozzle_writes_printer_row_on_change(worker):
+    from types import SimpleNamespace
+
+    w, _adapter, pid, _client = worker
+    w._persist_nozzle(SimpleNamespace(nozzle_mm=0.2))
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).nozzle_mm == 0.2
+    w._persist_nozzle(SimpleNamespace(nozzle_mm=None))  # unknown never clears the last seen
+    w._persist_nozzle(SimpleNamespace(nozzle_mm=0.0))
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).nozzle_mm == 0.2

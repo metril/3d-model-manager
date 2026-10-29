@@ -41,6 +41,13 @@ class ProfileOut(BaseModel):
     printer_model: str | None = None
     nozzle_mm: float | None = None
     source: ProfileSource
+    # System-derived scope metadata (read-only; see slicer_profiles.derive_profile_meta).
+    printer_model_key: str | None = None
+    compat: list[dict] | None = None
+    layer_height_mm: float | None = None
+    # Set only by ``GET /profiles?printer_id=``: whether the row is in scope.
+    in_scope: bool | None = None
+    scope_reason: str | None = None
     # "orca" / "bambu" for a profile synced from a cloud account, else None.
     cloud_source: str | None = None
     created_by_user_id: int | None = None
@@ -49,6 +56,16 @@ class ProfileOut(BaseModel):
     # Omitted from list responses unless ``?full=1``; always present on
     # ``GET /profiles/{id}``.
     data: dict | None = None
+
+
+class ProfileListOut(BaseModel):
+    items: list[ProfileOut]
+    # Rows matching ``kind``/``q`` before scope filtering ("N of M").
+    total: int
+    # "override" | "live" | "last_seen" | "assumed"; None without a printer/nozzle.
+    nozzle_source: str | None = None
+    # The nozzle the scope was resolved with (None when unscoped).
+    nozzle_mm: float | None = None
 
 
 class ProfileImportOut(BaseModel):

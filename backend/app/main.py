@@ -23,6 +23,7 @@ from app.services.server_config import (
     seed_server_config,
     warn_ignored_server_env,
 )
+from app.services.slicer_profiles import backfill_profile_meta_async
 from app.static import mount_spa
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         warn_ignored_server_env(settings, server_cfg)
         apply_level(server_cfg.log_level)
         await reencrypt_secrets_at_rest(session, settings)
+        await backfill_profile_meta_async(session)
     poll_task = asyncio.create_task(_poll_log_level())
     try:
         yield

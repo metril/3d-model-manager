@@ -150,7 +150,8 @@ beforeEach(() => {
         profile({ id: 2, kind: "process", name: "0.2mm Standard", printer_model: "A1 mini", data: {} }),
         profile({ id: 3, kind: "filament", name: "Bambu PLA Basic", printer_model: "A1 mini", data: {} }),
       ];
-      return Promise.resolve(kind ? all.filter((p) => p.kind === kind) : all);
+      const items = kind ? all.filter((p) => p.kind === kind) : all;
+      return Promise.resolve({ items, total: items.length, nozzle_source: null });
     }
     if (path === "/recipes") return Promise.resolve([recipe()]);
     if (path === "/printers") return Promise.resolve([]);
@@ -185,7 +186,7 @@ describe("ProfilesPage", () => {
   it("syncs Bambu system profiles from the sidecar (own printers by default, all on request)", async () => {
     getMock.mockImplementation((path: string) => {
       if (path === "/slicer/health") return Promise.resolve({ configured: true, ok: true, version: "v1" });
-      if (path.startsWith("/profiles?")) return Promise.resolve([]);
+      if (path.startsWith("/profiles?")) return Promise.resolve({ items: [], total: 0, nozzle_source: null });
       return Promise.resolve([]);
     });
     postMock.mockResolvedValue({ created: 5, updated: 1, skipped: 2 });
