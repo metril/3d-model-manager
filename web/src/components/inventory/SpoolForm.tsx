@@ -18,7 +18,6 @@ import { useMaterials } from "@/api/materials";
 import { usePutSpoolSuppliers } from "@/api/spoolAdmin";
 import { useCreateSpool, usePatchSpool } from "@/api/spools";
 import type { ColorCatalogEntry, MaterialKind, SpoolCreate, SpoolOut, SpoolSupplierLink } from "@/api/types";
-import { ColorCatalogPicker } from "@/components/inventory/ColorCatalogPicker";
 import { LocationCombobox } from "@/components/inventory/LocationCombobox";
 import { SupplierListEditor } from "@/components/inventory/SupplierListEditor";
 import { useAuth } from "@/api/auth";
@@ -32,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { normalizeHex } from "@/components/ui/filament-chip";
+import { ColorField } from "@/components/ui/color-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -169,7 +168,6 @@ export function SpoolForm({
     }));
   }
 
-  const swatch = normalizeHex(fields.colorHex);
   const rfidLocked = Boolean(spool?.tray_uuid) && isEdit;
 
   return (
@@ -240,20 +238,16 @@ export function SpoolForm({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="spool-color">Colour</Label>
-              <ColorCatalogPicker onPick={applyCatalog} disabled={!canWrite} />
               <div className="flex items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className="size-6 shrink-0 rounded-full border border-border/60"
-                  style={swatch ? { backgroundColor: swatch } : undefined}
-                />
-                <Input
+                <ColorField
                   id="spool-color"
-                  placeholder="#RRGGBB"
+                  label="Colour"
                   value={fields.colorHex}
-                  onChange={(e) => setFields((f) => ({ ...f, colorHex: e.target.value }))}
+                  onChange={(hex) => setFields((f) => ({ ...f, colorHex: hex }))}
+                  catalog
+                  onCatalogPick={applyCatalog}
                   disabled={!canWrite}
-                  className="w-32"
+                  className="w-36 shrink-0"
                 />
                 <Input
                   aria-label="Colour name"

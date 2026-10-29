@@ -111,7 +111,9 @@ describe("MaterialsSection -- add", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add material" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Clear PETG" } });
     fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "PETG" } });
-    fireEvent.change(screen.getByLabelText("Color"), { target: { value: "#ffffff" } });
+    fireEvent.click(screen.getByLabelText("Color"));
+    fireEvent.change(screen.getByLabelText("Hex color"), { target: { value: "#ffffff" } });
+    fireEvent.keyDown(screen.getByLabelText("Hex color"), { key: "Escape" });
     fireEvent.change(screen.getByLabelText("Vendor"), { target: { value: "Polymaker" } });
 
     const dialog = screen.getByRole("dialog");

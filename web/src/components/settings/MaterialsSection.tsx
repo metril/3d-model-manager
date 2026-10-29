@@ -23,6 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { normalizeHex } from "@/components/ui/filament-chip";
+import { ColorField } from "@/components/ui/color-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,7 +47,6 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
   const createMaterial = useCreateMaterial();
   const updateMaterial = useUpdateMaterial();
   const mutation = isEdit ? updateMaterial : createMaterial;
-  const swatch = normalizeHex(color);
 
   function reset() {
     setName(material?.name ?? "");
@@ -122,21 +122,13 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="material-color">Color</Label>
-              <div className="flex items-center gap-2">
-                <span
-                  aria-hidden="true"
-                  className="size-6 shrink-0 rounded-full border border-border/60"
-                  style={swatch ? { backgroundColor: swatch } : undefined}
-                />
-                <Input
-                  id="material-color"
-                  type="text"
-                  placeholder="#RRGGBB"
-                  value={color}
-                  onChange={(event) => setColor(event.target.value)}
-                  disabled={mutation.isPending}
-                />
-              </div>
+              <ColorField
+                id="material-color"
+                label="Color"
+                value={color}
+                onChange={setColor}
+                disabled={mutation.isPending}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="material-vendor">Vendor</Label>

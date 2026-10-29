@@ -60,9 +60,10 @@ describe("SpoolForm housekeeping", () => {
 
   it("fills colour hex, name and brand from a catalog pick", async () => {
     setup();
+    fireEvent.click(screen.getByLabelText("Colour"));
     fireEvent.change(screen.getByLabelText("Search colour catalog"), { target: { value: "jade" } });
     fireEvent.click(await screen.findByRole("option", { name: /Jade White/ }));
-    expect(screen.getByLabelText("Colour")).toHaveValue("#FFFFFF");
+    expect(screen.getByLabelText("Colour")).toHaveTextContent("#ffffff");
     expect(screen.getByLabelText("Colour name")).toHaveValue("Jade White");
     expect(screen.getByLabelText("Brand")).toHaveValue("Bambu Lab");
   });
