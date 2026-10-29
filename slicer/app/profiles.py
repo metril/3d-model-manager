@@ -9,6 +9,8 @@ from pathlib import Path
 KINDS = ("printer", "process", "filament")
 _DIR_BY_KIND = {"printer": "machine", "process": "process", "filament": "filament"}
 MAX_DEPTH = 16
+# Lookup tables shipped beside the presets; not presets themselves.
+_HELPER_STEMS = {"filament_name_map", "filaments_color_codes", "filament_id_map"}
 
 
 class ProfileError(ValueError):
@@ -25,19 +27,25 @@ def _nozzle(value) -> float | None:
 class ProfileIndex:
     def __init__(self, root: Path | None = None) -> None:
         self.by_kind: dict[str, dict[str, dict]] = {k: {} for k in KINDS}
+        self.vendor: dict[str, dict[str, str]] = {k: {} for k in KINDS}
         if root is None:
             return
         for kind in KINDS:
             folder = Path(root) / _DIR_BY_KIND[kind]
             if not folder.is_dir():
                 continue
-            for path in sorted(folder.glob("*.json")):
+            for path in sorted(folder.rglob("*.json")):
+                if path.stem in _HELPER_STEMS:
+                    continue
                 try:
                     raw = json.loads(path.read_text())
                 except (OSError, ValueError):
                     continue
                 if isinstance(raw, dict):
-                    self.by_kind[kind][str(raw.get("name", path.stem))] = raw
+                    name = str(raw.get("name", path.stem))
+                    rel = path.relative_to(folder).parts
+                    self.by_kind[kind][name] = raw
+                    self.vendor[kind][name] = rel[0] if len(rel) > 1 else "BBL"
 
     def flatten_dict(self, kind: str, raw: dict) -> dict:
         """Resolve `raw`'s `inherits` chain against the bundled presets of
@@ -90,7 +98,7 @@ class ProfileIndex:
                 merged = self.flatten_dict(kind, raw)
             except ProfileError:
                 continue
-            entry: dict = {"kind": kind, "name": name}
+            entry: dict = {"kind": kind, "name": name, "vendor": self.vendor[kind].get(name, "BBL")}
             if kind == "printer":
                 entry["printer_model"] = merged.get("printer_model")
                 entry["nozzle_mm"] = _nozzle(merged.get("nozzle_diameter"))

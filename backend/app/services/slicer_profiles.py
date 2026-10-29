@@ -86,16 +86,24 @@ def _is_instantiable(raw: dict) -> bool:
     return str(value).lower() == "true"
 
 
+# Lookup tables shipped beside the presets (vendor subfolders are recursed).
+_HELPER_STEMS = {"filament_name_map", "filaments_color_codes", "filament_id_map"}
+
+
 def _load_folder(root: Path, dirname: str) -> dict[str, dict]:
     by_name: dict[str, dict] = {}
     folder = root / dirname
     if not folder.is_dir():
         return by_name
-    for path in sorted(folder.glob("*.json")):
+    for path in sorted(folder.rglob("*.json")):
+        if path.stem in _HELPER_STEMS:
+            continue
         try:
             raw = json.loads(path.read_text())
         except json.JSONDecodeError as exc:
             raise ProfileImportError(f"{path.name!r} is not valid JSON: {exc}") from exc
+        if not isinstance(raw, dict):
+            continue
         name = raw.get("name", path.stem)
         by_name[name] = raw
     return by_name
