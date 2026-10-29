@@ -13,13 +13,12 @@ import { useRecipes } from "@/api/slicing";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -71,6 +70,7 @@ export function PipelineForm({
   }, [open, pipeline]);
 
   const isEdit = pipeline != null;
+  const dirty = JSON.stringify(f) !== JSON.stringify(fieldsFor(pipeline));
   const plateN = f.plate.trim() === "" ? null : Number(f.plate);
   const plateValid = plateN === null || (Number.isInteger(plateN) && plateN >= 1);
   const copiesN = Number(f.copies);
@@ -114,8 +114,7 @@ export function PipelineForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={save.isPending}>
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit pipeline" : "New pipeline"}</DialogTitle>
           <DialogDescription>
@@ -275,7 +274,6 @@ export function PipelineForm({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

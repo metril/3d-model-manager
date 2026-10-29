@@ -21,13 +21,12 @@ import type { Fanout, PlanOptions, PrintRecipe, PrintRecipeIn, SlicerProfile } f
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -103,6 +102,8 @@ export function RecipeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const dirty = JSON.stringify(fields) !== JSON.stringify(fieldsFor(recipe));
+
   const selectedPrinterProfile = (printerProfiles.data ?? []).find(
     (p) => p.id === fields.printerProfileId,
   );
@@ -149,8 +150,7 @@ export function RecipeForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={saveRecipe.isPending}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit recipe" : "New recipe"}</DialogTitle>
@@ -367,7 +367,6 @@ export function RecipeForm({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+    </FormDialog>
   );
 }

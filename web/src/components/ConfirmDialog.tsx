@@ -22,6 +22,7 @@ interface ConfirmDialogProps {
   title: string;
   description?: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   destructive?: boolean;
   onConfirm: () => void;
 }
@@ -34,6 +35,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Confirm",
+  cancelLabel,
   destructive,
   onConfirm,
 }: ConfirmDialogProps) {
@@ -50,7 +52,7 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <DialogFooter showCloseButton>
+        <DialogFooter showCloseButton closeLabel={cancelLabel}>
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}

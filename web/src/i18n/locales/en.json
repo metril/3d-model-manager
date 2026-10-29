@@ -1,4 +1,10 @@
 {
+  "formDialog": {
+    "discardTitle": "Discard changes?",
+    "discardDesc": "You have unsaved changes that will be lost.",
+    "discard": "Discard",
+    "keepEditing": "Keep editing"
+  },
   "nav": {
     "Print": "Print",
     "Library": "Library",
