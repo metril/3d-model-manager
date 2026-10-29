@@ -21,7 +21,7 @@ import { ProfileImportDialog } from "@/components/inventory/ProfileImportDialog"
 import { SyncProfilesButton } from "@/components/inventory/SyncProfilesButton";
 import { RecipeForm } from "@/components/inventory/RecipeForm";
 import { ProfileScopeBar, ScopeBadges, ScopeHeader } from "@/components/inventory/ProfileScopeBar";
-import { isUniversal } from "@/lib/profileScope";
+import { isUniversal, profileModelText, profileNozzleText } from "@/lib/profileScope";
 import { parseProfilesSearch, type ProfilesSearch } from "@/pages/profilesSearch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,6 +132,7 @@ function ProfilesTab({
                   <TableHead>Name</TableHead>
                   <TableHead>Printer model</TableHead>
                   <TableHead>Nozzle</TableHead>
+                  {kindFilter === "process" ? <TableHead>Layer height</TableHead> : null}
                   <TableHead>Source</TableHead>
                 </TableRow>
               </TableHeader>
@@ -144,10 +145,15 @@ function ProfilesTab({
                         <ScopeBadges universal={isUniversal(p)} reason={p.in_scope === false ? p.scope_reason : null} />
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{p.printer_model ?? "—"}</TableCell>
-                    <TableCell className="font-mono text-muted-foreground">
-                      {p.nozzle_mm != null ? `${p.nozzle_mm} mm` : "—"}
+                    <TableCell className="text-muted-foreground">
+                      {profileModelText(p) ?? <Badge variant="outline">Any printer</Badge>}
                     </TableCell>
+                    <TableCell className="font-mono text-muted-foreground">{profileNozzleText(p) ?? "—"}</TableCell>
+                    {kindFilter === "process" ? (
+                      <TableCell className="font-mono text-muted-foreground">
+                        {p.layer_height_mm != null ? `${p.layer_height_mm} mm` : "—"}
+                      </TableCell>
+                    ) : null}
                     <TableCell>
                       <Badge variant="outline">{p.cloud_source ? `${p.cloud_source} cloud` : p.source}</Badge>
                     </TableCell>

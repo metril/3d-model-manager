@@ -87,3 +87,41 @@ export function scopeMismatchReason(
   ].sort((a, b) => a - b);
   return `for ${nozzles.join("/")} mm nozzle`;
 }
+
+const MODEL_LABELS: Record<string, string> = {
+  a1mini: "A1 mini",
+  a1: "A1",
+  p1s: "P1S",
+  p1p: "P1P",
+  x1carbon: "X1 Carbon",
+  x1: "X1",
+  x1e: "X1E",
+  h2d: "H2D",
+  h2s: "H2S",
+  h2c: "H2C",
+  h2dpro: "H2D Pro",
+  p2s: "P2S",
+  x2d: "X2D",
+  a2l: "A2L",
+};
+
+export function modelLabel(key: string): string {
+  return MODEL_LABELS[key] ?? key.toUpperCase();
+}
+
+/** Printer-model cell text: legacy `printer_model`, else labels derived from compat; null = universal. */
+export function profileModelText(profile: ScopeProfile): string | null {
+  if (profile.printer_model) return profile.printer_model;
+  const entries = compatEntries(profile);
+  if (!entries) return null;
+  return [...new Set(entries.map((e) => e.model_key))].map(modelLabel).join(", ");
+}
+
+/** Nozzle cell text: legacy `nozzle_mm`, else compat nozzles ("0.6/0.8 mm"), "any" when unrestricted; null = nothing to show. */
+export function profileNozzleText(profile: ScopeProfile & Pick<SlicerProfile, "nozzle_mm">): string | null {
+  if (profile.nozzle_mm != null) return `${profile.nozzle_mm} mm`;
+  const entries = compatEntries(profile);
+  if (!entries) return null;
+  const nozzles = [...new Set(entries.map((e) => e.nozzle_mm).filter((n): n is number => n != null))].sort((a, b) => a - b);
+  return nozzles.length > 0 ? `${nozzles.join("/")} mm` : "any";
+}

@@ -294,6 +294,29 @@ describe("ProfilesPage scope bar", () => {
     expect(await screen.findAllByText("Any printer")).not.toHaveLength(0);
   });
 
+  it("derives printer model, nozzle and layer height from compat", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path.startsWith("/profiles?")) {
+        const items = [
+          profile({ id: 1, kind: "process", name: "Derived", printer_model: null, nozzle_mm: null, compat: [{ model_key: "a1mini", nozzle_mm: 0.6 }, { model_key: "a1mini", nozzle_mm: 0.8 }, { model_key: "x1carbon", nozzle_mm: 0.6 }], layer_height_mm: 0.28, in_scope: true }),
+          profile({ id: 2, kind: "process", name: "AnyNozzle", printer_model: null, nozzle_mm: null, compat: [{ model_key: "zz9", nozzle_mm: null }], layer_height_mm: null, in_scope: true }),
+        ];
+        return Promise.resolve({ items, total: 2, nozzle_source: null });
+      }
+      if (path === "/printers") return Promise.resolve([]);
+      if (path === "/slicer/health") return Promise.resolve({ configured: false, ok: false });
+      return Promise.resolve([]);
+    });
+    renderPage("/");
+    fireEvent.click(await screen.findByRole("button", { name: "Process" }));
+    expect(await screen.findByText("A1 mini, X1 Carbon")).toBeInTheDocument();
+    expect(screen.getByText("0.6/0.8 mm")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Layer height" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "0.28 mm" })).toBeInTheDocument();
+    expect(screen.getByText("ZZ9")).toBeInTheDocument();
+    expect(screen.getByText("any")).toBeInTheDocument();
+  });
+
   it("sends show_all and renders out-of-scope rows dimmed with a reason", async () => {
     mockScoped();
     renderPage("/?printer=7&all=1");
