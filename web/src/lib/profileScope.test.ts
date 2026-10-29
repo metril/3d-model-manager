@@ -8,6 +8,7 @@ describe("modelKey", () => {
     expect(modelKey("N1")).toBe("a1mini");
     expect(modelKey("Bambu Lab A1 mini")).toBe("a1mini");
     expect(modelKey("A1 mini")).toBe("a1mini");
+    expect(modelKey("Bambu Lab Bambulab A1 mini")).toBe("a1mini");
   });
 
   it("keeps A1 distinct from A1 mini (key equality, never substring)", () => {
@@ -48,10 +49,10 @@ describe("profileInScope", () => {
     expect(profileInScope(multi, "x1carbon", 0.4)).toBe(false);
   });
 
-  it("falls back to printer_model when compat is not derived yet", () => {
+  it("treats printer_model_key null + compat null as universal (matches backend)", () => {
     const legacy = { compat: null, printer_model_key: null, printer_model: "Bambu Lab A1 mini" };
-    expect(profileInScope(legacy, "a1mini", 0.4)).toBe(true);
-    expect(profileInScope(legacy, "a1", 0.4)).toBe(false);
+    expect(isUniversal(legacy)).toBe(true);
+    expect(profileInScope(legacy, "a1", 0.4)).toBe(true);
   });
 
   it("explains a mismatch", () => {

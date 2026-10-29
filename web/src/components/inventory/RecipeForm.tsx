@@ -128,6 +128,7 @@ export function RecipeForm({
       setFields(fieldsFor(recipe));
       setBaseline(JSON.stringify(fieldsFor(recipe)));
       setTouchedN(false);
+      setShowAll(false);
       saveRecipe.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

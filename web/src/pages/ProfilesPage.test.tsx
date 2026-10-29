@@ -304,6 +304,19 @@ describe("ProfilesPage scope bar", () => {
     expect(screen.getByTestId("profiles-count")).toHaveTextContent("Showing 2 of 3");
   });
 
+  it("replaces a stale ?printer= with the first printer", async () => {
+    mockScoped();
+    const router = renderPage("/?printer=99");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ printer: 7 }));
+  });
+
+  it("Auto nozzle clears the override", async () => {
+    mockScoped();
+    const router = renderPage("/?printer=7&nozzle=0.6");
+    fireEvent.change(await screen.findByLabelText("Nozzle"), { target: { value: "auto" } });
+    await waitFor(() => expect((router.state.location.search as { nozzle?: number }).nozzle).toBeUndefined());
+  });
+
   it("passes compatible_only on the recipes tab unless incompatible are shown", async () => {
     mockScoped();
     renderPage("/?printer=7&tab=recipes");

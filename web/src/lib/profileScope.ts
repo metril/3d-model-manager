@@ -33,8 +33,7 @@ const MODEL_ALIASES: Record<string, string> = {
 function normModel(text: string | null | undefined): string {
   return (text ?? "")
     .toLowerCase()
-    .replace("bambu lab", "")
-    .replace("bambulab", "")
+    .replace(/bambu ?lab/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
 
@@ -53,8 +52,7 @@ type ScopeProfile = Pick<SlicerProfile, "compat" | "printer_model_key" | "printe
 
 function compatEntries(profile: ScopeProfile): { model_key: string; nozzle_mm: number | null }[] | null {
   if (profile.compat && profile.compat.length > 0) return profile.compat;
-  // `printer_model` fallback covers rows listed before backfill.
-  const key = profile.printer_model_key ?? modelKey(profile.printer_model);
+  const key = profile.printer_model_key ?? null;
   return key ? [{ model_key: key, nozzle_mm: null }] : null;
 }
 

@@ -36,12 +36,13 @@ export function ProfileScopeBar({
   const printers = usePrinters();
   const [qDraft, setQDraft] = useState(search.q ?? "");
 
-  // Default to the first registered printer, written into the URL.
+  // Default to the first registered printer (also replaces a stale id), written into the URL.
   const firstPrinterId = printers.data?.[0]?.id;
   useEffect(() => {
-    if (search.printer == null && firstPrinterId != null) onPatch({ printer: firstPrinterId });
+    const known = printers.data?.some((p) => p.id === search.printer) ?? false;
+    if (firstPrinterId != null && (search.printer == null || !known)) onPatch({ printer: firstPrinterId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search.printer, firstPrinterId]);
+  }, [search.printer, firstPrinterId, printers.data]);
 
   // 250 ms debounce into `q`; resync when the URL changes elsewhere.
   useEffect(() => {
@@ -89,13 +90,15 @@ export function ProfileScopeBar({
         <Label htmlFor="scope-nozzle">Nozzle</Label>
         <div className="flex items-center gap-2">
           <Select
-            value={nozzle != null ? String(nozzle) : ""}
-            onValueChange={(v) => onPatch({ nozzle: Number(v) })}
+            aria-label="Nozzle"
+            value={search.nozzle != null ? String(search.nozzle) : "auto"}
+            onValueChange={(v) => onPatch({ nozzle: v === "auto" ? undefined : Number(v) })}
           >
             <SelectTrigger id="scope-nozzle" aria-label="Nozzle" className="w-28">
               <SelectValue placeholder="Any" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="auto">{nozzle != null ? `Auto (${nozzle} mm)` : "Auto"}</SelectItem>
               {nozzleOptions.map((n) => (
                 <SelectItem key={n} value={String(n)}>
                   {n} mm
