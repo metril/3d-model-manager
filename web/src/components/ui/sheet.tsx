@@ -58,8 +58,14 @@ function SheetContent({
   side = "right",
   container,
   showCloseButton = true,
+  dismissable = true,
+  onPointerDownOutside,
+  onInteractOutside,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
+  /** When false, outside clicks and Escape never close the sheet. */
+  dismissable?: boolean
   side?: "top" | "bottom" | "left" | "right"
   /** Portal target -- defaults to `document.body` (Radix's own default) when
    * omitted. The viewer's More sheet (narrow viewports) passes the
@@ -78,6 +84,18 @@ function SheetContent({
           SIDE_CLASS[side],
           className
         )}
+        onPointerDownOutside={(e) => {
+          if (!dismissable) e.preventDefault()
+          onPointerDownOutside?.(e)
+        }}
+        onInteractOutside={(e) => {
+          if (!dismissable) e.preventDefault()
+          onInteractOutside?.(e)
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!dismissable) e.preventDefault()
+          onEscapeKeyDown?.(e)
+        }}
         {...props}
       >
         {children}
