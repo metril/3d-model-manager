@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { appendTagParams, type TagMode } from "@/api/tags";
 import type {
+  RepriceResult,
   ArchiveOut,
   ArchivePatchIn,
   ArchivePhoto,
@@ -313,5 +314,21 @@ export function useArchiveGcodePlates(id: number | null, enabled = true) {
     enabled: enabled && id != null,
     retry: false,
     staleTime: 5 * 60_000,
+  });
+}
+
+/** Reprice past runs' filament cost at spools' current prices; `dryRun`
+ * only counts (feeds the count-confirm dialog). */
+export function useRepriceRuns() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dryRun: boolean) =>
+      api.post<RepriceResult>("/archives/reprice", { dry_run: dryRun }),
+    onSuccess: (res) => {
+      if (res.dry_run) return;
+      for (const key of ["archives", "prints", "stats", "finance"]) {
+        void qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
   });
 }

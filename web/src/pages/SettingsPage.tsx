@@ -28,6 +28,7 @@ import { NotificationsPanel } from "@/components/settings/notifications";
 import { OidcProvidersCard } from "@/components/settings/OidcProvidersCard";
 import { VirtualPrinterCard } from "@/components/settings/VirtualPrinterCard";
 import { PrinterEnabledCard } from "@/components/settings/PrinterEnabledCard";
+import { QueueBehaviourCard } from "@/components/settings/QueueBehaviourCard";
 import { QueuePreheatCard } from "@/components/settings/QueuePreheatCard";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { PrintablesAccountCard } from "@/components/settings/PrintablesAccountCard";
@@ -132,6 +133,7 @@ export function SettingsPage() {
               <VirtualPrinterCard />
               <DryingSettingsCard />
               <ScheduledDryingsList />
+              <QueueBehaviourCard />
               <QueuePreheatCard />
             </TabsContent>
           )}

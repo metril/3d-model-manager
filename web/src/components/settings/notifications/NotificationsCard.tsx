@@ -7,6 +7,8 @@ import {
   useChannels,
   useDeleteChannel,
   useNotificationCatalog,
+  useNotifySettings,
+  useSaveNotifySettings,
   useTestChannel,
   useUpdateChannel,
   type NotificationChannel,
@@ -14,6 +16,8 @@ import {
 import { ChannelModal } from "@/components/settings/notifications/ChannelModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
@@ -77,7 +81,46 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
   );
 }
 
+function HmsRenotify({ clearS, afterS }: { clearS: number; afterS: number }) {
+  const save = useSaveNotifySettings();
+  const [clear, setClear] = useState(String(clearS));
+  const [after, setAfter] = useState(String(afterS));
+  const valid = [clear, after].every((v) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= 0);
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm font-medium">Fault alert repeats</p>
+      <p className="text-xs text-muted-foreground">
+        A printer fault notifies once per episode. It notifies again only after it stays clear for the first interval, or
+        the episode lasts longer than the second.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="hms-clear">Re-notify after clear (s)</Label>
+          <Input id="hms-clear" type="number" min={0} value={clear} onChange={(e) => setClear(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="hms-after">Re-notify after episode (s)</Label>
+          <Input id="hms-after" type="number" min={0} value={after} onChange={(e) => setAfter(e.target.value)} />
+        </div>
+        <Button
+          variant="outline"
+          disabled={!valid || save.isPending}
+          onClick={() =>
+            save.mutate(
+              { hms_renotify_clear_s: Number(clear), hms_renotify_after_s: Number(after) },
+              { onSuccess: () => toast.success("Saved"), onError: () => toast.error("Couldn't save") },
+            )
+          }
+        >
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function NotificationsCard() {
+  const prefs = useNotifySettings();
   const list = useChannels();
   const catalog = useNotificationCatalog();
   const [editing, setEditing] = useState<NotificationChannel | "new" | null>(null);
@@ -111,6 +154,13 @@ export function NotificationsCard() {
         <Button variant="outline" onClick={() => setEditing("new")}>
           Add channel
         </Button>
+        {prefs.data && (
+          <HmsRenotify
+            key={`${prefs.data.hms_renotify_clear_s}-${prefs.data.hms_renotify_after_s}`}
+            clearS={prefs.data.hms_renotify_clear_s}
+            afterS={prefs.data.hms_renotify_after_s}
+          />
+        )}
         {editing && catalog.data && (
           <ChannelModal
             catalog={catalog.data}

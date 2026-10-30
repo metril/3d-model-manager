@@ -173,6 +173,10 @@ celery_app.conf.beat_schedule["trash-purge"] = {
     "task": "app.tasks.trash.purge_expired",
     "schedule": crontab(hour=3, minute=45),
 }
+celery_app.conf.beat_schedule["reap-unverified-files"] = {
+    "task": "app.tasks.trash.reap_unverified_files",
+    "schedule": 600,
+}
 
 # Additive: Q5 daily Bambu firmware feed refresh.
 from app.tasks import firmware as _firmware  # noqa: E402
