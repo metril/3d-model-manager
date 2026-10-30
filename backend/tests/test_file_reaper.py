@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import File
-from app.services import file_reaper
+from app.services import file_reaper, spool
 from app.storage.local import LocalStorageBackend
 from app.tasks import base
 
@@ -42,6 +42,19 @@ async def test_reaps_only_old_failed_unverified_files(
     old_running = await _upload(authenticated_client, m, "b.stl")
     new_failed = await _upload(authenticated_client, m, "c.stl")
     verified = await _upload(authenticated_client, m, "d.stl")
+    replacer = await _upload(authenticated_client, m, "e.stl")
+    await db_session.execute(
+        text(
+            "insert into files (revision_id, blob_hash, rel_path, storage_path, verified_at) "
+            "select revision_id, blob_hash, rel_path || '.replaced-abc', storage_path, verified_at "
+            "from files where id = :i"
+        ),
+        {"i": replacer},
+    )
+    await db_session.execute(
+        text("update jobs set created_at = :t where subject_id = :i"),
+        {"t": datetime.now(UTC) - timedelta(hours=2), "i": replacer},
+    )
     old = datetime.now(UTC) - timedelta(hours=2)
     recent = datetime.now(UTC) - timedelta(minutes=5)
     for fid, state, at, unverify in [
@@ -60,12 +73,20 @@ async def test_reaps_only_old_failed_unverified_files(
         )
     await db_session.commit()
     key = (await db_session.get(File, old_failed)).storage_path
+    job_id = await db_session.scalar(
+        text("select id from jobs where subject_id = :i"), {"i": old_failed}
+    )
+    spool_file = spool.spool_path(get_settings(), job_id)
+    spool_file.parent.mkdir(parents=True, exist_ok=True)
+    spool_file.write_bytes(b"x")
     assert backend.exists(key)
 
     with base.sync_session() as s:
-        assert file_reaper.reap_unverified_files_sync(s, get_settings()) == 1
+        assert file_reaper.reap_unverified_files_sync(s, get_settings()) == 2
 
     db_session.expire_all()
     left = set((await db_session.execute(select(File.id))).scalars())
-    assert left == {old_running, new_failed, verified}
+    assert left == {old_running, new_failed, verified, replacer}
     assert not backend.exists(key)
+    assert not spool_file.exists()
+    assert backend.exists((await db_session.get(File, replacer)).storage_path)
