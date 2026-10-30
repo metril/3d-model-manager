@@ -87,8 +87,12 @@ export function useDeletePipeline() {
 export function useRunPipeline() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, fileId, plate }: { id: number; fileId: number; plate?: number | null }) =>
-      api.post<PipelineRun>(`/slicer-pipelines/${id}/run`, { file_id: fileId, plate: plate ?? null }),
+    mutationFn: ({ id, fileId, plate, force }: { id: number; fileId: number; plate?: number | null; force?: boolean }) =>
+      api.post<PipelineRun>(`/slicer-pipelines/${id}/run`, {
+        file_id: fileId,
+        plate: plate ?? null,
+        ...(force ? { force: true } : {}),
+      }),
     onSuccess: (run) => {
       if (run.kind === "queue") void qc.invalidateQueries({ queryKey: ["queue"] });
     },

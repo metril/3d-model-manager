@@ -20,7 +20,7 @@ from app.config import Settings
 from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
 from app.services import library
-from app.services.bed_fit import bed_from_profile, fit_for_file
+from app.services.bed_fit import bed_from_profile, fit_for_file, rotation_allowed
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
 from app.services.slicer_client import client_from_config
@@ -66,7 +66,12 @@ async def create_job(
         )
     if not payload.force:
         bed = await bed_from_profile(db, recipe.printer_profile_id)
-        fit = await fit_for_file(db, file.blob_hash, bed)
+        fit = await fit_for_file(
+            db,
+            file.blob_hash,
+            bed,
+            rotation_allowed(recipe.options, options),
+        )
         if fit.status == "too_large":
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,

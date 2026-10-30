@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/api/client";
 import type { SliceJob } from "@/api/types";
 import { SliceDialog } from "@/components/slice/SliceDialog";
 import { SliceFileButton } from "@/components/slice/SliceFileButton";
@@ -102,6 +103,7 @@ describe("SliceDialog bed fit", () => {
           status: "fits",
           fits: true,
           rotated: false,
+          dims: [212, 100, 10],
           overflow: {},
           required_bed: null,
           required_height: 10,
@@ -123,7 +125,30 @@ describe("SliceDialog bed fit", () => {
   it("shows Fits when rotated", async () => {
     fit({ status: "rotated", rotated: true });
     open();
-    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Fits when rotated");
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Fits when rotated (auto-orient on)");
+  });
+
+  it("reports Z-only overflow as height and lists every axis", async () => {
+    fit({ status: "too_large", fits: false, dims: [100, 200, 260], overflow: { y: 21, z: 10 }, height: 250 });
+    open();
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent(
+      "Too large: 200 mm on Y (bed 180); Too large: height 260 mm (max 250)",
+    );
+  });
+
+  it("offers Slice anyway after a does_not_fit refusal when the chip was unknown", async () => {
+    fit({ status: "unknown" });
+    postMock.mockRejectedValueOnce(new ApiError(422, "part does not fit the printer bed", "does_not_fit"));
+    open();
+    fireEvent.click(await screen.findByLabelText("A1 PETG"));
+    fireEvent.click(screen.getByRole("button", { name: "Slice" }));
+    fireEvent.click(await screen.findByLabelText("Slice anyway"));
+    postMock.mockResolvedValue({ ...JOB, state: "queued" });
+    fireEvent.click(screen.getByRole("button", { name: "Slice" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenLastCalledWith("/files/5/slice", { recipe_id: 4, plate: null, force: true }),
+    );
+    untrackSlice("job-1");
   });
 
   it("shows nothing when unknown", async () => {
@@ -137,8 +162,8 @@ describe("SliceDialog bed fit", () => {
     fit({ status: "too_large", fits: false, overflow: { x: 33 } });
     postMock.mockResolvedValue({ ...JOB, state: "queued" });
     open();
-    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Too large: 213 mm on X (bed 180)");
     fireEvent.click(await screen.findByLabelText("A1 PETG"));
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Too large: 212 mm on X (bed 180)");
     expect(screen.getByRole("button", { name: "Slice" })).toBeDisabled();
     fireEvent.click(screen.getByLabelText("Slice anyway"));
     fireEvent.click(screen.getByRole("button", { name: "Slice" }));
@@ -207,6 +232,30 @@ describe("SliceDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
       await waitFor(() => expect(postMock).toHaveBeenCalledWith("/slicer-pipelines/7/run", { file_id: 5, plate: null }));
       await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+      untrackSlice("job-1");
+    });
+
+    it("blocks a too-large pipeline run until Slice anyway sends force", async () => {
+      withPipelines();
+      const base = getMock.getMockImplementation()!;
+      getMock.mockImplementation((path: string) =>
+        path === "/slicer-pipelines"
+          ? Promise.resolve([{ id: 7, name: "Orient", recipe_id: 3, recipe_name: "A1 PLA", steps: [] }])
+          : path.startsWith("/models/cube/files/5/bed-fit")
+            ? Promise.resolve({ status: "too_large", fits: false, rotated: false, dims: [212, 100, 10], overflow: { x: 33 }, bed: [180, 180], height: 180 })
+            : base(path),
+      );
+      postMock.mockResolvedValue({ kind: "slice", slice_job: { ...JOB, state: "queued" }, queue_entry: null });
+      ui(<SliceDialog open onOpenChange={() => {}} file={FILE} modelSlug="cube" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Pipeline" }));
+      fireEvent.click(await screen.findByLabelText(/Orient/));
+      await screen.findByTestId("bed-fit-chip");
+      expect(screen.getByRole("button", { name: "Run pipeline" })).toBeDisabled();
+      fireEvent.click(screen.getByLabelText("Slice anyway"));
+      fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith("/slicer-pipelines/7/run", { file_id: 5, plate: null, force: true }),
+      );
       untrackSlice("job-1");
     });
 

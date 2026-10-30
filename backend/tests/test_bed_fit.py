@@ -134,3 +134,49 @@ async def test_slice_guard_skips_sliced_blob(
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeClient(error=RuntimeError()))
     r = await authenticated_client.post(f"/api/files/{f.id}/slice", json={"recipe_id": recipe.id})
     assert r.status_code == 201, r.text
+
+
+def test_rotation_only_counts_when_slicer_orients() -> None:
+    r = check_fit((200, 100, 10), (120, 250), allow_rotate=False)
+    assert r.status == "too_large" and r.rotated and r.overflow == {"x": 81.0}
+    assert r.dims == (200, 100, 10)
+
+
+def test_every_overflowing_axis_listed() -> None:
+    r = check_fit((300, 300, 300), (180, 180), 180)
+    assert r.overflow == {"x": 121.0, "y": 121.0, "z": 120.0}
+
+
+async def test_endpoint_prefers_recipe_bed(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    model, f, recipe, p = await _prep(db_session, seed_file, "bf-recipe", [212, 100, 50])
+    r = await authenticated_client.get(
+        f"/api/models/{model.slug}/files/{f.id}/bed-fit", params={"recipe_id": recipe.id}
+    )
+    assert r.status_code == 200 and r.json()["status"] == "too_large"
+
+
+async def test_multi_plate_3mf_is_advisory_only(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file, monkeypatch
+) -> None:
+    from app.models.enums import BlobFormat, BlobKind
+    from app.models.library import Revision
+    from app.tasks import slicing
+    from tests.server_helpers import set_server
+
+    model, f, recipe, _ = await _prep(db_session, seed_file, "bf-3mf", None, False)
+    rev = await db_session.get(Revision, f.revision_id)
+    f3 = await seed_file(
+        model, rev, "proj.3mf", b"3mf", blob_format=BlobFormat.THREEMF, blob_kind=BlobKind.MESH
+    )
+    db_session.add(BlobMeta(blob_hash=f3.blob_hash, dims_mm=[900, 200, 50], plate_count=4))
+    await db_session.commit()
+    r = await authenticated_client.get(
+        f"/api/models/{model.slug}/files/{f3.id}/bed-fit", params={"recipe_id": recipe.id}
+    )
+    assert r.json()["status"] == "unknown"
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeClient(error=RuntimeError()))
+    r = await authenticated_client.post(f"/api/files/{f3.id}/slice", json={"recipe_id": recipe.id})
+    assert r.status_code == 201, r.text

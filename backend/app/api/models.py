@@ -21,6 +21,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind
 from app.models.library import Revision
+from app.models.slicing import PrintRecipe
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
     FileOut,
@@ -40,7 +41,14 @@ from app.services import layout, library, spool, zip_export
 from app.services import storage_backends as storage_backends_service
 from app.services import tags as tags_svc
 from app.services import trash as trash_service
-from app.services.bed_fit import FitResult, bed_for_printer, fit_for_file, unknown_fit
+from app.services.bed_fit import (
+    FitResult,
+    bed_for_printer,
+    bed_from_profile,
+    fit_for_file,
+    rotation_allowed,
+    unknown_fit,
+)
 from app.services.http_names import content_disposition_attachment
 from app.storage.base import StorageBackend
 from app.tasks.importing import redownload_model as redownload_model_task
@@ -202,7 +210,8 @@ async def list_model_files(
 async def file_bed_fit(
     slug: str,
     file_id: int,
-    printer_id: int,
+    printer_id: int | None = None,
+    recipe_id: int | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Does this file's bounding box fit the printer's bed? ``status`` is
@@ -214,8 +223,19 @@ async def file_bed_fit(
         or (await library.get_revision_or_404(db, file.revision_id)).model_id != model.id
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    bed = await bed_for_printer(db, printer_id)
-    result: FitResult = await fit_for_file(db, file.blob_hash, bed) if bed else unknown_fit()
+    # The recipe's own printer profile (what the slice guard uses) wins over
+    # the printer lookup, so the chip and the guard agree.
+    bed = None
+    allow_rotate = False
+    recipe = await db.get(PrintRecipe, recipe_id) if recipe_id is not None else None
+    if recipe is not None:
+        bed = await bed_from_profile(db, recipe.printer_profile_id)
+        allow_rotate = rotation_allowed(recipe.options)
+    elif printer_id is not None:
+        bed = await bed_for_printer(db, printer_id)
+    result: FitResult = (
+        await fit_for_file(db, file.blob_hash, bed, allow_rotate) if bed else unknown_fit()
+    )
     return result.model_dump()
 
 

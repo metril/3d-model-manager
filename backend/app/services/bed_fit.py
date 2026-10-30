@@ -54,8 +54,17 @@ class FitResult(BaseModel):
     overflow: dict[str, float] = {}  # axis -> mm over the usable bed
     required_bed: tuple[float, float] | None = None
     required_height: float | None = None
+    dims: tuple[float, float, float] | None = None
     bed: tuple[float, float] | None = None
     height: float | None = None
+
+
+def rotation_allowed(*options: dict | None) -> bool:
+    """The slicer orients/arranges the part itself (recipe + overrides)."""
+    merged: dict = {}
+    for o in options:
+        merged.update(o or {})
+    return bool(merged.get("auto_orient") or merged.get("arrange"))
 
 
 def unknown_fit() -> FitResult:
@@ -72,25 +81,37 @@ def check_fit(
     bed: tuple[float, float],
     height: float | None = None,
     margin_mm: float = 1.0,
+    allow_rotate: bool = True,
 ) -> FitResult:
-    """``margin_mm`` is the total clearance kept across each bed axis."""
+    """``margin_mm`` is the total clearance kept across each bed axis.
+    ``allow_rotate``: the slicer will orient/arrange the part itself; when
+    False a part that only fits turned 90 degrees is ``too_large`` (with
+    ``rotated`` set to say so)."""
     dx, dy, dz = dims_mm
     ux, uy = bed[0] - margin_mm, bed[1] - margin_mm
     over_z = max(0.0, dz - height) if height is not None else 0.0
     direct = (max(0.0, dx - ux), max(0.0, dy - uy))
     turned = (max(0.0, dy - ux), max(0.0, dx - uy))
     flip = sum(turned) < sum(direct)
+    needs_turn = flip and sum(turned) == 0
+    if flip and not allow_rotate:
+        flip = False
     best = turned if flip else direct
     w, d = (dy, dx) if flip else (dx, dy)
     common = {
         "required_bed": (round(w + margin_mm, 2), round(d + margin_mm, 2)),
         "required_height": round(dz, 2),
+        "dims": (dx, dy, dz),
         "bed": bed,
         "height": height,
     }
     if over_z > 0 or sum(best) > 0:
         return FitResult(
-            status="too_large", fits=False, overflow=_overflow(*best, over_z), **common
+            status="too_large",
+            fits=False,
+            rotated=needs_turn and not allow_rotate,
+            overflow=_overflow(*best, over_z),
+            **common,
         )
     if flip:
         return FitResult(status="rotated", fits=True, rotated=True, **common)
@@ -137,9 +158,15 @@ async def bed_for_printer(db: AsyncSession, printer_id: int) -> Bed | None:
     return None
 
 
-async def fit_for_file(db: AsyncSession, blob_hash: str, bed: Bed | None) -> FitResult:
-    """``unknown`` when there is no bed or no dims, or the blob is already
-    sliced (its geometry is baked into the plate)."""
+async def fit_for_file(
+    db: AsyncSession, blob_hash: str, bed: Bed | None, allow_rotate: bool = False
+) -> FitResult:
+    """``unknown`` when there is no bed or no dims, the blob is already
+    sliced, or the dims are not trustworthy: only STL/OBJ and single-plate
+    3MFs are checked (a multi-plate 3MF's stored extent merges every plate,
+    which sit side by side)."""
+    from app.models.enums import BlobFormat
+    from app.models.library import Blob
     from app.models.processing import BlobMeta
 
     if bed is None:
@@ -147,5 +174,13 @@ async def fit_for_file(db: AsyncSession, blob_hash: str, bed: Bed | None) -> Fit
     meta = await db.get(BlobMeta, blob_hash)
     if meta is None or meta.print_time_s is not None or not meta.dims_mm or len(meta.dims_mm) < 3:
         return unknown_fit()
+    blob = await db.get(Blob, blob_hash)
+    if blob is None:
+        return unknown_fit()
+    if blob.format is BlobFormat.THREEMF:
+        if meta.plate_count != 1:
+            return unknown_fit()
+    elif blob.format not in (BlobFormat.STL, BlobFormat.OBJ):
+        return unknown_fit()
     d = meta.dims_mm
-    return check_fit((d[0], d[1], d[2]), bed[0], bed[1])
+    return check_fit((d[0], d[1], d[2]), bed[0], bed[1], allow_rotate=allow_rotate)

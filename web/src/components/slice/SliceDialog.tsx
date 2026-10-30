@@ -6,6 +6,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
@@ -23,20 +25,26 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useDebouncedValue } from "@/lib/format";
 import { filterByName, sortPresets } from "@/lib/presetList";
 
-/** One-line bed-fit verdict for the chosen printer; null when unknown. */
-function bedFitMessage(fit: BedFit | undefined): string | null {
+/** One-line bed-fit verdict for the chosen recipe/printer; null when unknown. */
+function bedFitMessage(fit: BedFit | undefined, t: TFunction): string | null {
   if (!fit || fit.status === "unknown") return null;
-  const bed = fit.bed ? `${fit.bed[0]}×${fit.bed[1]}` : "";
-  if (fit.status === "fits") return `Fits ${bed}`.trim();
-  if (fit.status === "rotated") return "Fits when rotated";
-  const [axis, mm] = Object.entries(fit.overflow)[0] ?? ["", 0];
-  const limit = axis === "z" ? fit.height : fit.bed ? fit.bed[axis === "y" ? 1 : 0] : null;
-  const total = limit != null ? Math.round((limit + mm) * 10) / 10 : mm;
-  return `Too large: ${total} mm on ${axis.toUpperCase()}${limit != null ? ` (bed ${limit})` : ""}`;
+  if (fit.status === "fits") return t("bedFit.fits", { bed: fit.bed ? `${fit.bed[0]}×${fit.bed[1]}` : "" }).trim();
+  if (fit.status === "rotated") return t("bedFit.rotated");
+  const parts = Object.keys(fit.overflow).map((axis) => {
+    const idx = "xyz".indexOf(axis);
+    const dim = fit.dims ? Math.round(fit.dims[idx] * 10) / 10 : fit.overflow[axis];
+    const limit = axis === "z" ? fit.height : fit.bed ? fit.bed[idx] : null;
+    return axis === "z"
+      ? t("bedFit.tooLargeZ", { dim, limit })
+      : t("bedFit.tooLargeXY", { dim, axis: axis.toUpperCase(), limit });
+  });
+  const text = parts.join("; ");
+  return fit.rotated ? `${text} (${t("bedFit.needsRotate")})` : text;
 }
 
 function BedFitChip({ fit }: { fit: BedFit | undefined }) {
-  const text = bedFitMessage(fit);
+  const { t } = useTranslation();
+  const text = bedFitMessage(fit, t);
   if (!text) return null;
   const bad = fit?.status === "too_large";
   return (
@@ -65,10 +73,11 @@ export function SliceDialog({
   modelSlug?: string;
 }) {
   const [printerId, setPrinterId] = useState<number | null>(null);
+  const { t } = useTranslation();
   const [force, setForce] = useState(false);
-  const bedFit = useBedFit(modelSlug, file.id, printerId);
-  const tooLarge = bedFit.data?.status === "too_large";
-  const blocked = tooLarge && !force;
+  // Set when the server refused with `does_not_fit` though the chip had no
+  // verdict; keyed to the selection so changing it clears the flag.
+  const [serverRefused, setServerRefused] = useState<string | null>(null);
   const recipes = useRecipes(printerId ?? undefined);
   const printersQ = usePrinters();
   const health = useSlicerHealth();
@@ -99,6 +108,13 @@ export function SliceDialog({
   }, [printerId, recipeId, allRecipes]);
   const pipelineList = Array.isArray(pipelines.data) ? pipelines.data : [];
   const pipelineMode = mode === "pipeline" && pipelineList.length > 0;
+  const fitRecipeId = pipelineMode
+    ? (pipelineList.find((p) => p.id === pipelineId)?.recipe_id ?? null)
+    : recipeId;
+  const bedFit = useBedFit(modelSlug, file.id, { printerId, recipeId: fitRecipeId });
+  const selectionKey = `${pipelineMode ? "p" : "r"}${pipelineMode ? pipelineId : recipeId}`;
+  const tooLarge = bedFit.data?.status === "too_large" || serverRefused === selectionKey;
+  const blocked = tooLarge && !force;
   const plateN = plate.trim() === "" ? null : Number(plate);
   const plateValid = plateN === null || (Number.isInteger(plateN) && plateN >= 1);
   const slicerDown = health.data != null && health.data.ok !== true;
@@ -107,7 +123,7 @@ export function SliceDialog({
   function submitPipeline() {
     if (pipelineId == null || !plateValid) return;
     runPipeline.mutate(
-      { id: pipelineId, fileId: file.id, plate: plateN },
+      { id: pipelineId, fileId: file.id, plate: plateN, force: force && tooLarge },
       {
         onSuccess: (run) => {
           if (run.kind === "slice" && run.slice_job) {
@@ -117,7 +133,10 @@ export function SliceDialog({
           }
           onOpenChange(false);
         },
-        onError: (e) => toast.error(e instanceof ApiError ? e.detail : "Could not run the pipeline"),
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") setServerRefused(selectionKey);
+          toast.error(e instanceof ApiError ? e.detail : "Could not run the pipeline");
+        },
       },
     );
   }
@@ -132,7 +151,10 @@ export function SliceDialog({
           trackSlice({ id: job.id, fileName: name });
           onOpenChange(false);
         },
-        onError: (e) => toast.error(e instanceof ApiError ? e.detail : "Could not start the slice"),
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") setServerRefused(selectionKey);
+          toast.error(e instanceof ApiError ? e.detail : "Could not start the slice");
+        },
       },
     );
   }
@@ -150,6 +172,7 @@ export function SliceDialog({
           setSearch("");
           setPrinterId(null);
           setForce(false);
+          setServerRefused(null);
         }
       }}
       dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== "" || printerId !== null}
@@ -244,15 +267,15 @@ export function SliceDialog({
         <div className="grid gap-1.5">
           <Label>Printer (optional, prefers its recipes)</Label>
           <PrinterPicker printers={printerOptions} value={printerId} onChange={pickPrinter} idPrefix="slice-printer" />
-          <BedFitChip fit={bedFit.data} />
-          {tooLarge ? (
-            <div className="flex items-center gap-2">
-              <input id="slice-force" type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-              <Label htmlFor="slice-force" className="text-xs font-normal">
-                Slice anyway
-              </Label>
-            </div>
-          ) : null}
+        </div>
+      ) : null}
+      <BedFitChip fit={bedFit.data} />
+      {tooLarge ? (
+        <div className="flex items-center gap-2">
+          <input id="slice-force" type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+          <Label htmlFor="slice-force" className="text-xs font-normal">
+            {t("bedFit.slicePart")}
+          </Label>
         </div>
       ) : null}
       <div className="grid gap-1.5">
@@ -282,7 +305,7 @@ export function SliceDialog({
             start.isPending ||
             runPipeline.isPending ||
             slicerDown ||
-            (!pipelineMode && blocked)
+            blocked
           }
           onClick={submit}
         >

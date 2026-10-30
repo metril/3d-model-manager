@@ -1543,5 +1543,13 @@
     "unrecognised": "Not a recognised label",
     "assigned": "Spool #{{id}} assigned",
     "assignFailed": "Could not assign spool #{{id}}"
+  },
+  "bedFit": {
+    "fits": "Fits {{bed}}",
+    "rotated": "Fits when rotated (auto-orient on)",
+    "tooLargeXY": "Too large: {{dim}} mm on {{axis}} (bed {{limit}})",
+    "tooLargeZ": "Too large: height {{dim}} mm (max {{limit}})",
+    "needsRotate": "fits if rotated; enable auto-orient or arrange",
+    "slicePart": "Slice anyway"
   }
 }
