@@ -757,7 +757,8 @@ async def add_attachment(
     stored = f"{uuid.uuid4().hex}"
     d = _attachment_dir(settings, p.id)
     d.mkdir(parents=True, exist_ok=True)
-    (d / stored).write_bytes(data)
+    path = d / stored
+    path.write_bytes(data)
     a = ProjectAttachment(
         project_id=p.id,
         filename=name,
@@ -768,8 +769,12 @@ async def add_attachment(
     )
     db.add(a)
     await db.flush()
-    await log(db, ctx, p, "attachment_add", f"Attached {name}", {"attachment_id": a.id})
-    await db.commit()
+    try:
+        await log(db, ctx, p, "attachment_add", f"Attached {name}", {"attachment_id": a.id})
+        await db.commit()
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     await db.refresh(a)
     return a
 
