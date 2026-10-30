@@ -1816,6 +1816,8 @@ export interface StorageTreeOut {
   path: string;
   dirs: StorageTreeDir[];
   files: StorageTreeFile[];
+  /** Total files directly in this folder (the `files` list is paged). */
+  total_files?: number;
   model: ModelSummary | null;
 }
 
