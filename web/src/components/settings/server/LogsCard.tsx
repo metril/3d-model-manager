@@ -42,16 +42,21 @@ export function LogsCard() {
   const { service, level } = filter;
   const eff: LogFilter = { service, level, q: debouncedQ };
 
+  // Each load takes a token; a response is applied only if it is still the
+  // newest request (filter change or later poll supersedes it).
+  const token = useRef(0);
   const load = useCallback(
     async (reset: boolean) => {
+      const mine = ++token.current;
       try {
         const out = await fetchLogs({ service, level, q: debouncedQ }, reset ? { limit: 300 } : { after: lastId.current, limit: 300 });
+        if (mine !== token.current) return;
         setError(false);
         lastId.current = reset ? out.last_id : Math.max(lastId.current, out.last_id);
         if (reset) setEntries(out.entries);
         else if (out.entries.length) setEntries((prev) => [...prev, ...out.entries].slice(-MAX_LINES));
       } catch {
-        setError(true);
+        if (mine === token.current) setError(true);
       }
     },
     [service, level, debouncedQ],
@@ -62,10 +67,20 @@ export function LogsCard() {
     void load(true);
   }, [load]);
 
+  // Chained timeout (next poll scheduled only after the previous finishes).
   useEffect(() => {
     if (!live) return;
-    const id = setInterval(() => void load(false), POLL_MS);
-    return () => clearInterval(id);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await load(false);
+      if (!stopped) timer = setTimeout(() => void tick(), POLL_MS);
+    };
+    timer = setTimeout(() => void tick(), POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [live, load]);
 
   useEffect(() => {

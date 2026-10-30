@@ -156,17 +156,25 @@ def tick(
     return counts
 
 
-def _queue_wanted(session: Session, r: Redis) -> set[int] | None:
-    """Printers any READY/WAITING queue item could land on; ``None`` if the
-    queue can't be evaluated (then auto-off proceeds as before)."""
+def _queue_targets(session: Session, r: Redis) -> tuple[set[int], set[int]] | None:
+    """``(ready_ids, any_ids)`` -- printers a READY item could land on and,
+    additionally, any WAITING item; ``None`` if the queue can't be evaluated
+    (then auto-off proceeds as before)."""
     from app.services import dispatcher
 
     try:
-        return dispatcher.queue_target_ids(session, r, dispatcher.eligible_queue_items(session))[1]
+        return dispatcher.queue_target_ids(session, r, dispatcher.eligible_queue_items(session))
     except Exception:  # noqa: BLE001
         log.exception("queue evaluation failed")
         session.rollback()
         return None
+
+
+def _queue_wanted(session: Session, r: Redis) -> set[int] | None:
+    """Printers any READY/WAITING queue item could land on; ``None`` if the
+    queue can't be evaluated."""
+    targets = _queue_targets(session, r)
+    return targets[1] if targets is not None else None
 
 
 def _check_alert(plug: SmartPlug, st: PlugStatus, now: datetime) -> None:

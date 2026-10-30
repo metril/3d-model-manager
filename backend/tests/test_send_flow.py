@@ -456,3 +456,54 @@ def test_vp_enqueue_skips_trashed_model(printer_enabled, library_root, redis_url
         model_id = s.get(Revision, s.get(File, fid).revision_id).model_id
         assert intake._enqueue(s, settings, cfg, model_id, fid, {}) is None
         assert s.scalar(select(PrintQueueEntry.id)) is None
+
+
+def test_redelivery_is_noop(printer_enabled, library_root, redis_url, fake_adapter):
+    """acks_late redelivery: a job already claimed (no longer QUEUED) is not re-sent."""
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    send_to_printer(job_id, DEFAULT_OPTS)
+    send_to_printer(job_id, DEFAULT_OPTS)
+    assert len(fake_adapter.uploaded) == 1
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == PrintJobState.STARTING.value
+
+
+def test_canceled_before_send_never_uploads(printer_enabled, library_root, redis_url, fake_adapter):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).state = PrintJobState.CANCELED.value
+        s.commit()
+    send_to_printer(job_id, DEFAULT_OPTS)
+    assert fake_adapter.uploaded == []
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == PrintJobState.CANCELED.value
+
+
+def test_cancel_during_upload_stays_canceled(
+    printer_enabled, library_root, redis_url, fake_adapter, monkeypatch
+):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    orig = fake_adapter.upload_and_start
+
+    def _cancel_then_upload(spec):
+        with base.sync_session() as s:
+            s.get(PrintJob, job_id).state = PrintJobState.CANCELED.value
+            s.commit()
+        return orig(spec)
+
+    monkeypatch.setattr(fake_adapter, "upload_and_start", _cancel_then_upload)
+    send_to_printer(job_id, DEFAULT_OPTS)
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == PrintJobState.CANCELED.value

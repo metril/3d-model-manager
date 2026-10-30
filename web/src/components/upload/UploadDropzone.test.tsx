@@ -165,4 +165,19 @@ describe("UploadDropzone", () => {
     expect(uploadFileMock.mock.calls[1][0]).toMatchObject({ allowDuplicate: true });
     expect(await screen.findByText("Processing")).toBeInTheDocument();
   });
+
+  it("a double-click on Upload resolves the target and uploads only once", async () => {
+    uploadFileMock.mockResolvedValue(fakeUploadResult("job-dbl"));
+    let release: (t: UploadTarget) => void = () => {};
+    const resolveTarget = vi.fn(() => new Promise<UploadTarget>((r) => (release = r)));
+
+    const { container } = render(<UploadDropzone resolveTarget={resolveTarget} />);
+    addFileToQueue(container, "a.stl");
+    const button = screen.getByRole("button", { name: /Upload/ });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    release(TARGET);
+    await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(1));
+    expect(resolveTarget).toHaveBeenCalledTimes(1);
+  });
 });
