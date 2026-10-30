@@ -48,6 +48,7 @@ const run = {
   filament_cost: 5,
   machine_cost: 3,
   energy_cost: null,
+  wear_cost: null,
   total_cost: 8,
   created_by_user_id: 1,
 } as unknown as PrintEntry;

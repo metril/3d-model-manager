@@ -107,6 +107,7 @@ class PrinterUpdate(BaseModel):
     model: str | None = None
     enabled: bool | None = None
     power_off_when_drained: bool | None = None
+    wear_cost_per_hour: float | None = Field(default=None, ge=0)
     options: dict | None = None
     build_volume_mm: BuildVolumeMm | None = None
 
@@ -157,6 +158,7 @@ class PrinterOut(BaseModel):
     nozzle_mm: float | None = None
     enabled: bool
     power_off_when_drained: bool = False
+    wear_cost_per_hour: float | None = None
     options: dict
     access_code_set: bool  # NEVER the code or ciphertext
     build_volume_mm: BuildVolumeMm | None = None
@@ -181,6 +183,7 @@ class PrinterOut(BaseModel):
             nozzle_mm=getattr(p, "nozzle_mm", None),
             enabled=p.enabled,
             power_off_when_drained=bool(getattr(p, "power_off_when_drained", False)),
+            wear_cost_per_hour=getattr(p, "wear_cost_per_hour", None),
             maintenance_mode=bool(getattr(p, "maintenance_mode", False)),
             awaiting_plate_clear=bool(getattr(p, "awaiting_plate_clear", False)),
             options=redact_options(p.options),

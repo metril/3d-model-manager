@@ -597,6 +597,8 @@ export interface AppSettings {
   // P8 Task 7: prices a run's logged `energy_kwh` into `energy_cost` --
   // same currency-agnostic convention as the two rates above.
   energy_cost_per_kwh: number;
+  energy_price_source: "fixed" | "homeassistant";
+  energy_price_ha_entity: string;
   // Library trash: days a trashed model is kept before auto-purge (0 = never).
   trash_retention_days: number;
 }
@@ -683,6 +685,7 @@ export interface PrinterOut {
   options: Record<string, unknown>;
   access_code_set: boolean;
   power_off_when_drained?: boolean;
+  wear_cost_per_hour?: number | null;
   build_volume_mm: { x: number; y: number; z: number } | null;
   // Q1: model capability table + lifetime print hours (optional: older payloads omit them).
   capabilities?: PrinterCapabilities;
@@ -739,6 +742,7 @@ export interface PrinterUpdate {
   model?: string | null;
   enabled?: boolean;
   power_off_when_drained?: boolean;
+  wear_cost_per_hour?: number | null;
   options?: Record<string, unknown>;
   build_volume_mm?: { x: number; y: number; z: number } | null;
 }
@@ -1431,6 +1435,7 @@ export interface PrintEntry {
   machine_cost: number | null;
   energy_kwh: number | null;
   energy_cost: number | null;
+  wear_cost: number | null;
   total_cost: number | null;
   created_by_user_id: number | null;
   printed_at: string;

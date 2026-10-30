@@ -82,6 +82,7 @@ function run(overrides: Partial<ArchiveOut> = {}): ArchiveOut {
       machine_cost: null,
       energy_kwh: null,
       energy_cost: null,
+      wear_cost: null,
       total_cost: 1.25,
       created_by_user_id: 1,
       printed_at: "2026-10-22T10:00:00Z",

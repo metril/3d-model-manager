@@ -456,6 +456,7 @@ class Print(Base):
     failure_reason: Mapped[str | None] = mapped_column(Text)
     filament_cost: Mapped[float | None] = mapped_column(Float)
     machine_cost: Mapped[float | None] = mapped_column(Float)
+    wear_cost: Mapped[float | None] = mapped_column(Float)
     energy_kwh: Mapped[float | None] = mapped_column(Float)
     energy_cost: Mapped[float | None] = mapped_column(Float)
     total_cost: Mapped[float | None] = mapped_column(Float)

@@ -174,6 +174,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
           <CostRow label="Filament" value={run.filament_cost} />
           <CostRow label="Machine" value={run.machine_cost} />
           <CostRow label="Energy" value={run.energy_cost} />
+          <CostRow label="Wear" value={run.wear_cost} />
           <CostRow label="Total" value={run.total_cost} strong />
         </dl>
       ) : null}

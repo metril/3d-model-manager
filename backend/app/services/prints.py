@@ -147,7 +147,11 @@ async def patch_print(
         if "duration_min" in changes:
             row.machine_cost = cost.machine_cost
     if {"filament_g", "duration_min", "quality", "failure_reason"} & changes.keys():
-        parts = [c for c in (row.filament_cost, row.machine_cost, row.energy_cost) if c is not None]
+        parts = [
+            c
+            for c in (row.filament_cost, row.machine_cost, row.energy_cost, row.wear_cost)
+            if c is not None
+        ]
         row.total_cost = sum(parts) if parts else None
     await db.commit()
     await db.refresh(row)

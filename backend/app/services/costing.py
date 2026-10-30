@@ -28,6 +28,7 @@ class RunCost:
     machine_cost: float | None
     energy_cost: float | None
     total_cost: float | None
+    wear_cost: float | None = None
 
 
 def charged_grams(
@@ -59,16 +60,29 @@ def price_run(
     *,
     energy_cost: float | None = None,
     filament_cost: float | None = None,
+    wear_per_hour: float | None = None,
 ) -> RunCost:
     """``filament_cost``, when given (P5 spool tray plan: per-spool pricing),
-    replaces the flat ``filament_g/1000 x rate`` calculation entirely."""
+    replaces the flat ``filament_g/1000 x rate`` calculation entirely.
+    ``wear_per_hour`` is the printer's own wear rate, added on top of the
+    global machine rate; ``None`` (unset) charges no wear."""
     if filament_cost is not None:
         filament = filament_cost
     else:
         filament = None if filament_g is None else filament_g / 1000 * rates.filament_per_kg
     machine = None if duration_s is None else duration_s / 3600 * rates.machine_per_hour
-    parts = [c for c in (filament, machine, energy_cost) if c is not None]
-    return RunCost(filament, machine, energy_cost, sum(parts) if parts else None)
+    wear = (
+        None if duration_s is None or wear_per_hour is None else duration_s / 3600 * wear_per_hour
+    )
+    parts = [c for c in (filament, machine, energy_cost, wear) if c is not None]
+    return RunCost(filament, machine, energy_cost, sum(parts) if parts else None, wear)
+
+
+def effective_energy_price(fixed: float, start: float | None, end: float | None) -> float:
+    """Per-kWh price for a run: the mean of the HA-sampled start/end prices
+    (whichever exist), else the fixed configured price."""
+    samples = [p for p in (start, end) if p is not None]
+    return sum(samples) / len(samples) if samples else fixed
 
 
 def job_energy_kwh(start: float | None, end: float | None) -> float | None:
