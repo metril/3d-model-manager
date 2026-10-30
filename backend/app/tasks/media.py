@@ -133,6 +133,10 @@ def assemble_layer_timelapse(print_job_id: int) -> str:
                     arc.media_note = "layer timelapse failed; trying printer timelapse"
                     session.commit()
     finally:
+        with base.sync_session() as session:
+            job = session.get(PrintJob, print_job_id)
+            if job is not None:
+                layer_timelapse.clear(r, settings, job.printer_id, job.id)
         r.close()
     if not ok:
         from app.tasks.archive import fetch_timelapse
@@ -236,6 +240,8 @@ def timelapse_edit(
         else:
             old = arc.timelapse_blob
             arc.timelapse_blob = new_sha
+            arc.timelapse_frames = None
+            arc.timelapse_layers = None
             session.flush()
             if old and old != new_sha:
                 _freed, paths = release_blobs(session, settings, {old})

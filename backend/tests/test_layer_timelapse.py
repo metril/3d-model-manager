@@ -17,6 +17,7 @@ from app.services.archive_blobs import delete_archives
 
 pytestmark = pytest.mark.usefixtures("printer_enabled", "data_dir")
 
+S = get_settings
 JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
 
 
@@ -26,7 +27,7 @@ def r(redis_url):
 
 
 def _fresh(r, pid: int, jid: int) -> None:
-    lt.clear(r, pid, jid)
+    lt.clear(r, get_settings(), pid, jid)
     r.delete(cs.frame_key(pid))
 
 
@@ -47,21 +48,25 @@ def test_capture_once_per_layer(r):
     pid, jid = 901, 1
     _fresh(r, pid, jid)
     cs.put_frame(r, pid, JPEG)
-    assert lt.capture(r, pid, jid, 1) is True
-    assert lt.capture(r, pid, jid, 1) is False  # same layer, repeated reports
-    assert lt.capture(r, pid, jid, 2) is True
-    assert lt.capture(r, pid, jid, 1) is False  # never goes backwards
-    assert lt.capture(r, pid, jid, None) is False
-    assert lt.frame_count(r, pid, jid) == 2
+    assert lt.capture(r, S(), pid, jid, 1) is True
+    assert lt.capture(r, S(), pid, jid, 1) is False  # same layer, repeated reports
+    assert lt.capture(r, S(), pid, jid, 2) is True
+    assert lt.capture(r, S(), pid, jid, 1) is False  # never goes backwards
+    assert lt.capture(r, S(), pid, jid, None) is False
+    assert lt.frame_count(S(), pid, jid) == 2
+    d = lt.frames_dir(S(), pid, jid)
+    assert sorted(f.name for f in d.iterdir()) == ["000001.jpg", "000002.jpg"]
+    assert (d / "000001.jpg").read_bytes() == JPEG
+    assert not [k for k in r.keys(f"printer:{pid}:layertl:*") if not k.endswith(b":last")]
     _fresh(r, pid, jid)
 
 
 def test_capture_without_frame_retries_same_layer(r):
     pid, jid = 902, 1
     _fresh(r, pid, jid)
-    assert lt.capture(r, pid, jid, 3) is False
+    assert lt.capture(r, S(), pid, jid, 3) is False
     cs.put_frame(r, pid, JPEG)
-    assert lt.capture(r, pid, jid, 3) is True
+    assert lt.capture(r, S(), pid, jid, 3) is True
     _fresh(r, pid, jid)
 
 
@@ -75,21 +80,24 @@ def test_assemble_stores_timelapse_and_clears(seed, r, monkeypatch):
     _fresh(r, job.printer_id, job.id)
     cs.put_frame(r, job.printer_id, JPEG)
     for layer in (1, 2, 3):
-        assert lt.capture(r, job.printer_id, job.id, layer)
-    monkeypatch.setattr(lt, "stitch", lambda frames, dest, **k: dest.write_bytes(b"MP4") or True)
+        assert lt.capture(r, S(), job.printer_id, job.id, layer)
+    monkeypatch.setattr(lt, "stitch", lambda src, n, dest, **k: dest.write_bytes(b"MP4") or True)
 
     assert lt.assemble_for(seed.s, get_settings(), r, job.id) is True
     seed.s.refresh(arc)
     assert arc.timelapse_blob == hashlib.sha256(b"MP4").hexdigest()
     assert (arc.timelapse_frames, arc.timelapse_layers) == (3, 3)
-    assert lt.frame_count(r, job.printer_id, job.id) == 0
+    # frames stay until the task clears them; stitch read them from disk
+    lt.clear(r, get_settings(), job.printer_id, job.id)
+    assert lt.frame_count(S(), job.printer_id, job.id) == 0
+    assert not lt.frames_dir(get_settings(), job.printer_id, job.id).exists()
 
 
 def test_assemble_failure_leaves_archive(seed, r, monkeypatch):
     job, arc = _archive(seed, "LT2")
     _fresh(r, job.printer_id, job.id)
     cs.put_frame(r, job.printer_id, JPEG)
-    lt.capture(r, job.printer_id, job.id, 1)
+    lt.capture(r, S(), job.printer_id, job.id, 1)
     monkeypatch.setattr(lt, "stitch", lambda *a, **k: False)
     assert lt.assemble_for(seed.s, get_settings(), r, job.id) is False
     seed.s.refresh(arc)

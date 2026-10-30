@@ -11,6 +11,7 @@ archive step stitches them (``assemble_for``) into the archive's timelapse.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,15 +28,15 @@ from app.services.derivatives import publish_bytes
 
 VIEWER_ID = "layer-timelapse"
 FRAMES_TTL_S = 24 * 3600
-MAX_FRAMES = 3000
+MAX_FRAMES = 5000
 FPS = 30
 _SECONDS_PER_FRAME = 0.5
 _MIN_STITCH_S = 120.0
 _MAX_STITCH_S = 780.0  # inside the task's own soft limit
 
 
-def frames_key(printer_id: int, job_id: int) -> str:
-    return f"printer:{printer_id}:layertl:{job_id}:frames"
+def frames_dir(settings: Settings, printer_id: int, job_id: int) -> Path:
+    return settings.data_dir / "layer_timelapse" / str(printer_id) / str(job_id)
 
 
 def last_key(printer_id: int, job_id: int) -> str:
@@ -55,71 +56,72 @@ def release_camera(r, printer_id: int) -> None:
     camera_state.remove_viewer(r, printer_id, VIEWER_ID)
 
 
-def capture(r, printer_id: int, job_id: int, layer: int | None) -> bool:
-    """Store the current camera frame iff ``layer`` is a new, higher layer.
-    A missing frame leaves the layer uncaptured so the next report retries."""
+def frame_count(settings: Settings, printer_id: int, job_id: int) -> int:
+    d = frames_dir(settings, printer_id, job_id)
+    return len(list(d.glob("*.jpg"))) if d.is_dir() else 0
+
+
+def capture(r, settings: Settings, printer_id: int, job_id: int, layer: int | None) -> bool:
+    """Write the current camera frame to disk iff ``layer`` is a new, higher
+    layer (Redis holds only the last-layer counter). A missing frame leaves the
+    layer uncaptured so the next report retries."""
     if not layer or layer < 1:
         return False
     last = r.get(last_key(printer_id, job_id))
     if last is not None and layer <= int(last):
         return False
-    if r.llen(frames_key(printer_id, job_id)) >= MAX_FRAMES:
-        return False
     frame = camera_state.get_frame(r, printer_id)
     if not frame:
         return False
-    fk, lk = frames_key(printer_id, job_id), last_key(printer_id, job_id)
-    pipe = r.pipeline()
-    pipe.rpush(fk, frame)
-    pipe.set(lk, layer)
-    pipe.expire(fk, FRAMES_TTL_S)
-    pipe.expire(lk, FRAMES_TTL_S)
-    pipe.execute()
+    d = frames_dir(settings, printer_id, job_id)
+    d.mkdir(parents=True, exist_ok=True)
+    n = frame_count(settings, printer_id, job_id)
+    if n >= MAX_FRAMES:
+        return False
+    tmp = d / f".{n + 1:06d}.part"
+    tmp.write_bytes(frame)
+    tmp.rename(d / f"{n + 1:06d}.jpg")
+    r.set(last_key(printer_id, job_id), layer, ex=FRAMES_TTL_S)
     return True
 
 
-def frame_count(r, printer_id: int, job_id: int) -> int:
-    return int(r.llen(frames_key(printer_id, job_id)))
+def clear(r, settings: Settings, printer_id: int, job_id: int) -> None:
+    r.delete(last_key(printer_id, job_id))
+    shutil.rmtree(frames_dir(settings, printer_id, job_id), ignore_errors=True)
 
 
-def clear(r, printer_id: int, job_id: int) -> None:
-    r.delete(frames_key(printer_id, job_id), last_key(printer_id, job_id))
-
-
-def stitch(frames: list[bytes], dest: Path, *, fps: int = FPS) -> bool:
-    """Encode JPEG ``frames`` to an H.264 mp4. False on ffmpeg failure."""
-    if not frames:
+def stitch(src: Path, n_frames: int, dest: Path, *, fps: int = FPS) -> bool:
+    """Encode the ``%06d.jpg`` frames in ``src`` to an H.264 mp4 (ffmpeg reads
+    them from disk). False on ffmpeg failure."""
+    if n_frames < 1:
         return False
-    timeout = min(max(_MIN_STITCH_S, len(frames) * _SECONDS_PER_FRAME), _MAX_STITCH_S)
-    with tempfile.TemporaryDirectory(prefix="tdmm-ltl-") as td:
-        for i, f in enumerate(frames):
-            (Path(td) / f"{i:06d}.jpg").write_bytes(f)
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-y",
-                    "-framerate",
-                    str(fps),
-                    "-i",
-                    str(Path(td) / "%06d.jpg"),
-                    "-vf",
-                    "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    str(dest),
-                ],  # fmt: skip
-                check=True,
-                capture_output=True,
-                timeout=timeout,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return False
+    timeout = min(max(_MIN_STITCH_S, n_frames * _SECONDS_PER_FRAME), _MAX_STITCH_S)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-y",
+                "-framerate",
+                str(fps),
+                "-i",
+                str(src / "%06d.jpg"),
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(dest),
+            ],  # fmt: skip
+            check=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
     return True
 
 
@@ -137,21 +139,20 @@ def assemble_for(session: Session, settings: Settings, r, print_job_id: int) -> 
         return False
     if arc.timelapse_blob:
         return True
-    frames = r.lrange(frames_key(job.printer_id, job.id), 0, -1)
-    if not frames:
+    n = frame_count(settings, job.printer_id, job.id)
+    if n == 0:
         return False
     last = r.get(last_key(job.printer_id, job.id))
     with tempfile.TemporaryDirectory(prefix="tdmm-ltl-out-") as td:
         out = Path(td) / "timelapse.mp4"
-        if not stitch(list(frames), out):
+        if not stitch(frames_dir(settings, job.printer_id, job.id), n, out):
             return False
         data = out.read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     publish_bytes(data, archive_path(settings, sha, "mp4"))
     _ensure_blob(session, sha, len(data), BlobKind.VIDEO, BlobFormat.MP4)
     arc.timelapse_blob = sha
-    arc.timelapse_frames = len(frames)
-    arc.timelapse_layers = int(last) if last is not None else len(frames)
+    arc.timelapse_frames = n
+    arc.timelapse_layers = int(last) if last is not None else n
     session.commit()
-    clear(r, job.printer_id, job.id)
     return True

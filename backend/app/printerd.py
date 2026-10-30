@@ -299,17 +299,21 @@ class PrinterWorker:
             if self._layer_job_id is None and now - self._layer_loaded_at > 2:
                 self._layer_loaded_at = now
                 with base.sync_session() as s:
-                    printer = s.get(Printer, self.printer_id)
-                    self._layer_on = layer_timelapse.enabled(printer.options if printer else None)
-                    job = self._active_job(s) if self._layer_on else None
-                    self._layer_job_id = job.id if job is not None else None
+                    job = self._active_job(s)
+                    if job is not None:
+                        # Decided once per job; a toggle applies to the next job.
+                        printer = s.get(Printer, self.printer_id)
+                        self._layer_on = layer_timelapse.enabled(
+                            printer.options if printer else None
+                        )
+                        self._layer_job_id = job.id
             if not self._layer_on or self._layer_job_id is None:
                 return
             if now - self._layer_hold_at > 3:
                 self._layer_hold_at = now
                 layer_timelapse.hold_camera(self.redis, self.printer_id)
             layer_timelapse.capture(
-                self.redis, self.printer_id, self._layer_job_id, public.layer_num
+                self.redis, self.settings, self.printer_id, self._layer_job_id, public.layer_num
             )
         except Exception as exc:
             log.warning("printerd: layer tick failed: %s", type(exc).__name__)

@@ -75,11 +75,7 @@ def _has_layer_frames(settings: Settings, print_job_id: int) -> bool:
         printer_id = job.printer_id if job is not None else None
     if printer_id is None:
         return False
-    r = redis.Redis.from_url(settings.redis_url)
-    try:
-        return layer_timelapse.frame_count(r, printer_id, print_job_id) > 0
-    finally:
-        r.close()
+    return layer_timelapse.frame_count(settings, printer_id, print_job_id) > 0
 
 
 def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> None:
