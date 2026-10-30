@@ -36,6 +36,7 @@ import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/page-container";
+import { usePrintTitle } from "@/hooks/useDocumentTitle";
 import { filterItems, sortGroups, summarize } from "@/lib/printerDashboard";
 import { cn } from "@/lib/utils";
 import { DASH_SORTS, parsePrintDashSearch, type PrintDashSearch } from "@/pages/printerDashSearch";
@@ -59,6 +60,7 @@ export function PrintDashboardPage() {
   const reviewCount = useReviewCount({ enabled: canReview });
   const printers = useMemo(() => overview.data?.printers ?? [], [overview.data]);
   const [size, setSize] = useCardSize(printers.length > 0 && printers.length <= 2 ? "L" : "M");
+  usePrintTitle(printers);
   const summary = useMemo(() => summarize(printers), [printers]);
   const groups = useMemo(() => sortGroups(filterItems(printers, search), search.sort), [printers, search]);
   const upNext = overview.data?.up_next ?? [];
