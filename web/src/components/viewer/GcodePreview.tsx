@@ -36,6 +36,11 @@ function gcodeDownloadUrl(fileId: number): string {
  * `response.text()` on that risks hanging/crashing the tab. */
 const TOO_LARGE_TO_PREVIEW_BYTES = 150 * 1024 * 1024;
 
+/** Decoded text length (UTF-16 units) vs the size cap. */
+export function isTooLarge(textLength: number): boolean {
+  return textLength > TOO_LARGE_TO_PREVIEW_BYTES;
+}
+
 export function GcodePreview({
   fileId,
   buildVolume,
@@ -61,7 +66,15 @@ export function GcodePreview({
   const resolvedExtrusionColor =
     extrusionColor ?? (printerStatus.data?.trays ?? []).find((tray) => tray.color)?.color ?? undefined;
 
+  // Latest colour/volume are read at init time via refs so a tray colour
+  // change never re-fetches or re-parses the file.
+  const colorRef = useRef(resolvedExtrusionColor);
+  colorRef.current = resolvedExtrusionColor;
+  const volumeRef = useRef(resolvedBuildVolume);
+  volumeRef.current = resolvedBuildVolume;
+
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
@@ -69,23 +82,29 @@ export function GcodePreview({
       try {
         const [{ init }, response] = await Promise.all([
           import("gcode-preview"),
-          fetch(gcodeDownloadUrl(fileId), { credentials: "include" }),
+          fetch(gcodeDownloadUrl(fileId), { credentials: "include", signal: controller.signal }),
         ]);
         if (!response.ok) throw new Error(`gcode download failed: ${response.status}`);
 
         const contentLength = Number(response.headers.get("content-length"));
         if (Number.isFinite(contentLength) && contentLength > TOO_LARGE_TO_PREVIEW_BYTES) {
+          controller.abort();
           if (!cancelled) setStatus("too-large");
           return;
         }
 
         const text = await response.text();
         if (cancelled || !canvasRef.current) return;
+        // Chunked responses carry no content-length; guard on the real size.
+        if (isTooLarge(text.length)) {
+          setStatus("too-large");
+          return;
+        }
 
         const preview = init({
           canvas: canvasRef.current,
-          buildVolume: resolvedBuildVolume,
-          ...(resolvedExtrusionColor ? { extrusionColor: resolvedExtrusionColor } : {}),
+          buildVolume: volumeRef.current,
+          ...(colorRef.current ? { extrusionColor: colorRef.current } : {}),
         });
         preview.processGCode(text);
         preview.render();
@@ -103,14 +122,19 @@ export function GcodePreview({
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
       previewRef.current?.dispose();
       previewRef.current = null;
     };
-    // Deps use the resolved primitives (not the objects) so a printer status
-    // poll that returns an equal-valued build volume/color doesn't
-    // needlessly re-fetch and re-init the preview.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z, resolvedExtrusionColor]);
+    // Colour is applied by the effect below without re-parsing.
+  }, [fileId, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z]);
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview || status !== "ready" || !resolvedExtrusionColor) return;
+    preview.extrusionColor = resolvedExtrusionColor;
+    preview.render();
+  }, [resolvedExtrusionColor, status]);
 
   useEffect(() => {
     const preview = previewRef.current;

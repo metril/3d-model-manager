@@ -489,7 +489,8 @@ export function ViewerStage({
     a.href = url;
     a.download = `${slug}.png`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Revoking synchronously can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [viewerApiRef, slug]);
 
   // `F`/`R`/`W`/`G` shortcuts on the canvas wrapper -- ignored while any

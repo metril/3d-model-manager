@@ -72,24 +72,11 @@ function withParam(url: string, key: string, value: string | number): string {
   return `${url}${url.includes("?") ? "&" : "?"}${key}=${value}`;
 }
 
-/** Cheap content hash of the img's current frame; `null` when no frame is
- * decoded yet or canvas sampling is unavailable. */
-function sampleHash(img: HTMLImageElement | null): number | null {
-  if (!img || img.naturalWidth === 0) return null;
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 8;
-    canvas.height = 8;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.drawImage(img, 0, 0, 8, 8);
-    const data = ctx.getImageData(0, 0, 8, 8).data;
-    let h = 0;
-    for (let i = 0; i < data.length; i++) h = (h * 31 + data[i]!) | 0;
-    return h;
-  } catch {
-    return null;
-  }
+/** A stream is stalled only when it hasn't delivered any frame (nothing
+ * decoded) for longer than `stallMs`. Identical consecutive frames (static or
+ * dark scenes) are NOT a stall. */
+export function isStreamStalled(naturalWidth: number, sinceConnectMs: number, stallMs: number): boolean {
+  return naturalWidth === 0 && sinceConnectMs > stallMs;
 }
 
 interface View {
@@ -197,19 +184,11 @@ export function CameraTile({
   // Stall watchdog (stream mode only).
   useEffect(() => {
     if (!showImg || mode !== "stream") return;
-    let lastFrame = Date.now();
-    let lastHash: number | null = null;
+    const connectedAt = Date.now();
     const id = setInterval(() => {
-      const h = sampleHash(imgRef.current);
-      if (h !== null && h !== lastHash) {
-        // Frames only count as "advancing" once a second distinct hash is
-        // seen: the first sample after a reconnect may be the server's
-        // cached frame and must not reset the attempt budget.
-        if (lastHash !== null) attempts.current = 0;
-        lastHash = h;
-        lastFrame = Date.now();
-      }
-      if (Date.now() - lastFrame <= STALL_MS) return;
+      const w = imgRef.current?.naturalWidth ?? 0;
+      if (w > 0) attempts.current = 0;
+      if (!isStreamStalled(w, Date.now() - connectedAt, STALL_MS)) return;
       clearInterval(id);
       const a = attempts.current;
       if (a >= MAX_ATTEMPTS) {

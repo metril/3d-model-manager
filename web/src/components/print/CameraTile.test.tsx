@@ -202,29 +202,21 @@ describe("CameraTile", () => {
     expect(snap.style.transform).toBe("");
   });
 
-  it("still gives up when each reconnect serves a cached first frame", async () => {
+  it("does not reconnect a static scene that has delivered a frame", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    // First sample after every (re)connect differs from the last one, then freezes.
-    let n = 0;
-    const orig = HTMLCanvasElement.prototype.getContext;
-    HTMLCanvasElement.prototype.getContext = (() => ({
-      drawImage: () => {},
-      getImageData: () => ({ data: new Uint8ClampedArray([n++ < 1000 ? 1 : 1]) }),
-    })) as unknown as typeof orig;
     const nw = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth");
     Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { value: 10, configurable: true });
     try {
       renderTile();
       await screen.findByRole("img", { name: "Camera feed" });
-      for (let i = 0; i < 90; i++) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(1_000);
-        });
-        if (screen.queryByText("Camera offline")) break;
-      }
-      expect(screen.getByText("Camera offline")).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(screen.getByRole("img", { name: "Camera feed" })).toHaveAttribute(
+        "src",
+        "/api/printers/1/camera/stream?token=abc",
+      );
     } finally {
-      HTMLCanvasElement.prototype.getContext = orig;
       if (nw) Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", nw);
     }
   });
