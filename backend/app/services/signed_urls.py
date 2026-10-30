@@ -21,7 +21,7 @@ import time
 from hashlib import sha256
 
 from app.config import Settings
-from app.crypto import load_or_create_printer_key
+from app.crypto import derive_subkey
 
 DEFAULT_TTL_S = 600
 
@@ -35,9 +35,12 @@ def _b64decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + padding)
 
 
+def _subkey(settings: Settings) -> bytes:
+    return derive_subkey(settings, b"tdmm-signed-urls-v1")
+
+
 def _hmac(settings: Settings, payload: bytes) -> bytes:
-    key = load_or_create_printer_key(settings)
-    return hmac.new(key, payload, sha256).digest()
+    return hmac.new(_subkey(settings), payload, sha256).digest()
 
 
 def sign_file_download(settings: Settings, file_id: int, ttl_s: int = DEFAULT_TTL_S) -> str:

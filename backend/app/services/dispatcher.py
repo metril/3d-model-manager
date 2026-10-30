@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -613,7 +613,7 @@ def _dispatch(
     selected: list[int],
     fanout: Fanout,
     need: Needs,
-) -> None:
+) -> bool:
     """Copies-split (module docstring): the "sent row" (``item`` itself,
     mutated in place) carries exactly 1 copy on ``selected[0]``; any FURTHER
     selected printers (spread/first_n landing on more than one idle
@@ -629,6 +629,18 @@ def _dispatch(
     instead of a leftover clone (which would have inherited an arbitrary,
     none-sent copy count) appearing alongside it.
     """
+    # Re-select under a row lock: the item was read at the top of the tick and
+    # may since have been canceled/claimed. Whoever holds the lock sends; the
+    # loser skips (the lock is released by _send_one's commit).
+    fresh = session.scalars(
+        select(PrintQueueEntry)
+        .where(PrintQueueEntry.id == item.id, PrintQueueEntry.state == QueueState.READY)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).first()
+    if fresh is None:
+        session.rollback()
+        return False
     original_copies = item.copies
     # P7: the whole reservation posted at enqueue/slice time covers
     # `original_copies` copies -- each clone's own share (`unit *
@@ -645,7 +657,7 @@ def _dispatch(
     if item.state != QueueState.DISPATCHED:
         item.copies = original_copies
         session.commit()
-        return
+        return True
 
     for printer_id in selected[1:]:
         clone = _clone_entry(session, item, copies=1, state=QueueState.READY)
@@ -666,6 +678,7 @@ def _dispatch(
         if fanout == Fanout.SINGLE:
             rest.printer_id = primary
             session.commit()
+    return True
 
 
 def queue_target_ids(
@@ -733,7 +746,12 @@ def _housekeeping(session: Session, settings: Settings, client: Redis, cfg) -> N
         session.rollback()
 
 
-def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
+def dispatch_once(
+    session: Session,
+    client: Redis,
+    settings: Settings,
+    keepalive: Callable[[], bool] | None = None,
+) -> dict:
     counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0, "skipped": 0}
     _reconcile(session, counts, client)
     items = eligible_queue_items(session)
@@ -746,6 +764,8 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
 
     plate_cache: dict = {}
     for item in items:
+        if keepalive is not None and not keepalive():
+            break  # lost the dispatch lock: stop, another tick owns the queue
         plate_held = (
             item.state == QueueState.WAITING
             and item.last_error == pd.PLATE_NOT_EMPTY
@@ -811,7 +831,8 @@ def dispatch_once(session: Session, client: Redis, settings: Settings) -> dict:
             used_this_tick.add(selected[0])
             continue
 
-        _dispatch(session, settings, client, item, selected, fanout, need)
+        if not _dispatch(session, settings, client, item, selected, fanout, need):
+            continue
         used_this_tick.update(selected)
         counts["sent"] += 1
 
