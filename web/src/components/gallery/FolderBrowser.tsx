@@ -221,6 +221,16 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
               ))}
             </div>
           )}
+          {treeQuery.hasMore && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <span className="text-xs text-muted-foreground">
+                {files.length} of {treeQuery.data?.total_files ?? files.length} files shown
+              </span>
+              <Button type="button" variant="outline" size="sm" onClick={treeQuery.loadMore} disabled={treeQuery.loadingMore}>
+                {treeQuery.loadingMore ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>

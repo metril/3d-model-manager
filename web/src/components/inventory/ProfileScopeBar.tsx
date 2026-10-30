@@ -4,7 +4,7 @@
  * search. State lives in the URL (`profilesSearch.ts`); the nozzle shown is
  * server-resolved (live -> last seen -> assumed) unless the user overrides it.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePrinters } from "@/api/printers";
 import { useProfileList } from "@/api/slicing";
@@ -44,14 +44,26 @@ export function ProfileScopeBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.printer, firstPrinterId, printers.data]);
 
-  // 250 ms debounce into `q`; resync when the URL changes elsewhere.
+  // 250 ms debounce into `q`. URL -> draft only when the URL differs from
+  // both the draft and the last value we sent, so our own in-flight write
+  // (or a stale echo of it) can't clobber newer typing.
+  const lastSentQ = useRef(search.q ?? "");
   useEffect(() => {
     if ((search.q ?? "") === qDraft) return;
-    const timer = setTimeout(() => onPatch({ q: qDraft.trim() ? qDraft : undefined }), 250);
+    const timer = setTimeout(() => {
+      lastSentQ.current = qDraft.trim() ? qDraft : "";
+      onPatch({ q: qDraft.trim() ? qDraft : undefined });
+    }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qDraft]);
-  useEffect(() => setQDraft(search.q ?? ""), [search.q]);
+  useEffect(() => {
+    const urlQ = search.q ?? "";
+    if (urlQ === qDraft || urlQ === lastSentQ.current) return;
+    lastSentQ.current = urlQ;
+    setQDraft(urlQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.q]);
 
   // Light probes: the server-resolved nozzle, and the layer heights on offer.
   const scope = { printerId: search.printer, nozzle: search.nozzle };

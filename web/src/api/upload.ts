@@ -19,6 +19,19 @@ export interface UploadParams {
 
 export interface UploadCallbacks {
   onProgress?: (loaded: number, total: number) => void;
+  /** Aborts the in-flight request; the promise rejects with `UploadAbortedError`. */
+  signal?: AbortSignal;
+  /** Overall request timeout in ms (default `UPLOAD_TIMEOUT_MS`). */
+  timeoutMs?: number;
+}
+
+export const UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+
+export class UploadAbortedError extends Error {
+  constructor() {
+    super("upload cancelled");
+    this.name = "UploadAbortedError";
+  }
 }
 
 export type UploadFn = (params: UploadParams, callbacks?: UploadCallbacks) => Promise<UploadResult>;
@@ -66,6 +79,11 @@ function isDuplicateUploadBody(data: unknown): data is DuplicateUploadOut {
 
 export const uploadFile: UploadFn = (params, callbacks = {}) => {
   return new Promise((resolve, reject) => {
+    const { signal } = callbacks;
+    if (signal?.aborted) {
+      reject(new UploadAbortedError());
+      return;
+    }
     const searchParams = new URLSearchParams({
       model_id: String(params.modelId),
       revision_id: String(params.revisionId),
@@ -77,12 +95,22 @@ export const uploadFile: UploadFn = (params, callbacks = {}) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", `/api/uploads?${searchParams.toString()}`);
     xhr.withCredentials = true;
+    xhr.timeout = callbacks.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+    const onAbort = () => xhr.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         callbacks.onProgress?.(event.loaded, event.total);
       }
     };
     xhr.onload = () => {
+      cleanup();
+      if (xhr.status === 401) {
+        if (window.location.pathname !== "/login") window.location.assign("/login");
+        reject(new Error(extractErrorDetail(xhr) ?? "not authenticated"));
+        return;
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText) as UploadResult);
@@ -100,7 +128,18 @@ export const uploadFile: UploadFn = (params, callbacks = {}) => {
         reject(new Error(extractErrorDetail(xhr) ?? `upload failed with status ${xhr.status}`));
       }
     };
-    xhr.onerror = () => reject(new Error("network error during upload"));
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error("network error during upload"));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new Error("upload timed out"));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new UploadAbortedError());
+    };
     xhr.send(params.file);
   });
 };

@@ -37,3 +37,12 @@ describe("parseLibrarySearch", () => {
     expect(parseLibrarySearch({ path: 5 })).toEqual({ path: undefined });
   });
 });
+
+describe("parseLibrarySearch filters", () => {
+  it("keeps valid filter params and drops malformed ones", () => {
+    const out = parseLibrarySearch({ q: 123, tags: [1, "x", 2], tagMode: "all", format: ["stl"], fav: true, sliced: false, sort: "name" });
+    expect(out).toMatchObject({ q: "123", tags: [1, 2], tagMode: "all", format: ["stl"], fav: true, sort: "name" });
+    expect(out.sliced).toBeUndefined();
+    expect(parseLibrarySearch({ tagMode: "bogus", tags: "no" }).tagMode).toBeUndefined();
+  });
+});

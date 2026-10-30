@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { UploadCloudIcon } from "lucide-react";
 
-import { DuplicateUploadError, uploadFile } from "@/api/upload";
+import { DuplicateUploadError, UploadAbortedError, uploadFile } from "@/api/upload";
 import { Button } from "@/components/ui/button";
 import { UploadQueueItem, type QueueItem } from "@/components/upload/UploadQueueItem";
 import { useEvents } from "@/hooks/eventsContext";
@@ -105,6 +105,23 @@ export function UploadDropzone({
   // (fired well after `handleStartUpload`'s batch loop has moved on) still
   // knows where to PUT the file (R11-C item 18).
   const targetRef = useRef<UploadTarget | null>(null);
+  // Claimed synchronously (before the first await) so a double-click can't
+  // start two batches; `isUploading` state only flips after `resolveTarget`.
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Warn before the tab closes mid-upload.
+  useEffect(() => {
+    if (!isUploading) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isUploading]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     return events.subscribe((event) => {
@@ -194,6 +211,7 @@ export function UploadDropzone({
         {
           onProgress: (loaded, total) =>
             updateItem(item.id, { progress: total > 0 ? Math.round((loaded / total) * 100) : 0 }),
+          signal: abortRef.current?.signal,
         },
       );
       updateItem(item.id, { status: "processing", progress: 100, jobId: result.job_id });
@@ -208,6 +226,10 @@ export function UploadDropzone({
         }
       }
     } catch (error) {
+      if (error instanceof UploadAbortedError) {
+        updateItem(item.id, { status: "pending", progress: 0 });
+        return;
+      }
       if (error instanceof DuplicateUploadError) {
         updateItem(item.id, {
           status: "duplicate",
@@ -223,25 +245,35 @@ export function UploadDropzone({
   }
 
   async function handleStartUpload() {
-    const target = await resolveTarget();
-    if (!target) return;
-    targetRef.current = target;
-    setIsUploading(true);
-    onUploadingChange?.(true);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const target = await resolveTarget();
+      if (!target) return;
+      targetRef.current = target;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setIsUploading(true);
+      onUploadingChange?.(true);
 
-    for (const item of queue) {
-      if (item.status !== "pending") continue;
-      await uploadOne(item, target);
+      for (const item of queue) {
+        if (item.status !== "pending") continue;
+        if (controller.signal.aborted) break;
+        await uploadOne(item, target);
+      }
+
+      setIsUploading(false);
+      onUploadingChange?.(false);
+      onUploadComplete?.();
+    } finally {
+      inFlightRef.current = false;
     }
-
-    setIsUploading(false);
-    onUploadingChange?.(false);
-    onUploadComplete?.();
   }
 
   function handleUploadAnyway(item: QueueItem) {
     const target = targetRef.current;
     if (!target) return;
+    if (!abortRef.current || abortRef.current.signal.aborted) abortRef.current = new AbortController();
     void uploadOne(item, target, true);
   }
 
@@ -270,13 +302,20 @@ export function UploadDropzone({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Queue ({queue.length})</h3>
-            <Button
-              type="button"
-              onClick={() => void handleStartUpload()}
-              disabled={disabled || isUploading || pendingCount === 0}
-            >
-              {isUploading ? "Uploading..." : `Upload ${pendingCount || ""}`.trim()}
-            </Button>
+            <div className="flex gap-2">
+              {isUploading && (
+                <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
+                  Cancel
+                </Button>
+              )}
+              <Button
+                type="button"
+                onClick={() => void handleStartUpload()}
+                disabled={disabled || isUploading || pendingCount === 0}
+              >
+                {isUploading ? "Uploading..." : `Upload ${pendingCount || ""}`.trim()}
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             {queue.map((item) => (

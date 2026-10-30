@@ -8,11 +8,12 @@ import io
 import json
 import shutil
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import anyio
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -458,7 +459,9 @@ async def delete_project(
     )
     await db.delete(p)
     await db.commit()
-    shutil.rmtree(_attachment_dir(settings, project_id), ignore_errors=True)
+    await anyio.to_thread.run_sync(
+        lambda: shutil.rmtree(_attachment_dir(settings, project_id), ignore_errors=True)
+    )
 
 
 # ---------------------------------------------------------------- BOM
@@ -746,24 +749,36 @@ async def add_attachment(
     project_id: int,
     filename: str,
     content_type: str | None,
-    data: bytes,
+    body: AsyncIterator[bytes],
 ) -> ProjectAttachment:
+    """Stream ``body`` to disk (never buffered), enforcing ``MAX_ATTACHMENT``."""
     p = await get_owned(db, ctx, project_id)
     name = _safe_filename(filename)
-    if not data:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload body")
-    if len(data) > MAX_ATTACHMENT:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "attachment too large")
     stored = f"{uuid.uuid4().hex}"
     d = _attachment_dir(settings, p.id)
-    d.mkdir(parents=True, exist_ok=True)
-    (d / stored).write_bytes(data)
+    await anyio.to_thread.run_sync(lambda: d.mkdir(parents=True, exist_ok=True))
+    dest = d / stored
+    size = 0
+    fh = await anyio.to_thread.run_sync(lambda: dest.open("wb"))
+    try:
+        async for chunk in body:
+            size += len(chunk)
+            if size > MAX_ATTACHMENT:
+                raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "attachment too large")
+            await anyio.to_thread.run_sync(fh.write, chunk)
+        if size == 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload body")
+    except BaseException:
+        await anyio.to_thread.run_sync(fh.close)
+        await anyio.to_thread.run_sync(lambda: dest.unlink(missing_ok=True))
+        raise
+    await anyio.to_thread.run_sync(fh.close)
     a = ProjectAttachment(
         project_id=p.id,
         filename=name,
         stored_name=stored,
         content_type=content_type,
-        size=len(data),
+        size=size,
         created_by_user_id=ctx.user.id,
     )
     db.add(a)
@@ -781,7 +796,7 @@ async def get_attachment(
     if a is None or a.project_id != project_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attachment not found")
     path = _attachment_dir(settings, project_id) / a.stored_name
-    if not path.is_file():
+    if not await anyio.to_thread.run_sync(path.is_file):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attachment file missing")
     return a, path
 
@@ -793,7 +808,8 @@ async def delete_attachment(
     a = await db.get(ProjectAttachment, attachment_id)
     if a is None or a.project_id != p.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attachment not found")
-    (_attachment_dir(settings, p.id) / a.stored_name).unlink(missing_ok=True)
+    apath = _attachment_dir(settings, p.id) / a.stored_name
+    await anyio.to_thread.run_sync(lambda: apath.unlink(missing_ok=True))
     await log(db, ctx, p, "attachment_remove", f"Removed attachment {a.filename}")
     await db.delete(a)
     await db.commit()

@@ -280,6 +280,7 @@ class PrintQueueEntry(Base):
             unique=True,
             postgresql_where=text("file_id IS NULL"),
         ),
+        Index("ix_print_queue_state_position", "state", "position"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

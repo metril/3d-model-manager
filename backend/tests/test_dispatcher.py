@@ -1040,3 +1040,28 @@ def test_dispatch_once_stops_when_lock_lost(redis_url: str, fake_adapter):
     assert counts["sent"] == 0
     with base.sync_session() as s:
         assert s.get(PrintQueueEntry, entry_id).state == QueueState.READY
+
+
+@pytest.mark.parametrize(("n_items", "n_printers"), [(1, 1), (4, 3)])
+def test_acl_built_once_per_user_per_tick(
+    redis_url: str, fake_adapter, monkeypatch: pytest.MonkeyPatch, n_items: int, n_printers: int
+):
+    calls: list[int | None] = []
+    real = dispatcher.printer_acl_sync
+
+    def spy(session, user_id):
+        calls.append(user_id)
+        return real(session, user_id)
+
+    monkeypatch.setattr(dispatcher, "printer_acl_sync", spy)
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=f"acl-{n_items}-{n_printers}")
+        pids = [_seed_printer(s, name=f"AclP{i}").id for i in range(n_printers)]
+        member_id = _seed_member_with_access(s, pids)
+        for _ in range(n_items):
+            _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=member_id)
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, get_settings())
+    client.close()
+    assert calls == [member_id]

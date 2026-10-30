@@ -27,6 +27,7 @@ from app.schemas.stats import (
 )
 from app.services import stats as stats_service
 from app.services import stats_widgets as w
+from app.services.tz import parse_tz
 
 router = APIRouter(tags=["stats"])
 
@@ -42,6 +43,7 @@ async def get_stats(
 async def get_filament_stats(
     days: int = Query(90, ge=1, le=730),
     bucket: Literal["day", "week", "month"] = "week",
+    tz: str | None = None,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
@@ -51,7 +53,12 @@ async def get_filament_stats(
     to printers the caller can see, same as the archive routes (manual
     usage, which isn't tied to a printer, is always included)."""
     return await stats_service.filament_stats(
-        db, settings, days=days, bucket=bucket, visible=visible_printer_ids(ctx)
+        db,
+        settings,
+        days=days,
+        bucket=bucket,
+        visible=visible_printer_ids(ctx),
+        tz=parse_tz(tz).key,
     )
 
 
