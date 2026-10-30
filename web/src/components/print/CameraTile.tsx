@@ -10,9 +10,9 @@
  * `GET /camera/status` (CSS transform), fullscreen, a light toggle (control
  * perm only), stream/snapshot mode and fps selection, a "beta" badge, and a
  * stall watchdog: an `<img>` MJPEG has no per-frame event, so every second
- * the current frame is sampled onto an 8x8 canvas; 5 s with an unchanged
- * hash (or no first frame) reconnects with backoff 1s..30s, max 5 attempts,
- * then shows the offline state (which retries after 10 s as before).
+ * the current frame is sampled onto a 64x64 canvas; 20 s of byte-identical
+ * frames (or no first frame) reconnects with exponential backoff 5s..60s
+ * (reset when a frame changes).
  *
  * `urls` / `rotation` let token-only contexts (OBS overlay, camwall tiles)
  * bypass the session-only token + status calls.
@@ -37,9 +37,8 @@ import { useElementFullscreen } from "@/hooks/useElementFullscreen";
 import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
-const STALL_MS = 5_000;
-const MAX_ATTEMPTS = 5;
-const MAX_BACKOFF_MS = 30_000;
+const STALL_MS = 20_000;
+const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -72,11 +71,45 @@ function withParam(url: string, key: string, value: string | number): string {
   return `${url}${url.includes("?") ? "&" : "?"}${key}=${value}`;
 }
 
-/** A stream is stalled only when it hasn't delivered any frame (nothing
- * decoded) for longer than `stallMs`. Identical consecutive frames (static or
- * dark scenes) are NOT a stall. */
-export function isStreamStalled(naturalWidth: number, sinceConnectMs: number, stallMs: number): boolean {
-  return naturalWidth === 0 && sinceConnectMs > stallMs;
+/** Stalled when no frame has decoded for `stallMs` after connect, or the
+ * decoded frame has been byte-identical for `stallMs`. */
+export function isStreamStalled(
+  naturalWidth: number,
+  sinceConnectMs: number,
+  sinceChangeMs: number,
+  stallMs: number,
+): boolean {
+  if (naturalWidth === 0) return sinceConnectMs > stallMs;
+  return sinceChangeMs > stallMs;
+}
+
+/** Reconnect delay after the n-th (0-based) consecutive stall: 5,10,20,40,60s. */
+export function reconnectDelayMs(attempt: number): number {
+  return Math.min(5_000 * 2 ** attempt, 60_000);
+}
+
+/** Exact byte comparison of two frame samples. */
+export function framesEqual(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Downsampled RGBA of the img's current frame; `null` when nothing is
+ * decoded yet or canvas sampling is unavailable. */
+function sampleFrame(img: HTMLImageElement | null): Uint8ClampedArray | null {
+  if (!img || img.naturalWidth === 0) return null;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = SAMPLE_PX;
+    canvas.height = SAMPLE_PX;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, SAMPLE_PX, SAMPLE_PX);
+    return new Uint8ClampedArray(ctx.getImageData(0, 0, SAMPLE_PX, SAMPLE_PX).data);
+  } catch {
+    return null;
+  }
 }
 
 interface View {
@@ -185,25 +218,34 @@ export function CameraTile({
   useEffect(() => {
     if (!showImg || mode !== "stream") return;
     const connectedAt = Date.now();
+    let lastChange = connectedAt;
+    let last: Uint8ClampedArray | null = null;
     const id = setInterval(() => {
-      const w = imgRef.current?.naturalWidth ?? 0;
-      if (w > 0) attempts.current = 0;
-      if (!isStreamStalled(w, Date.now() - connectedAt, STALL_MS)) return;
+      const img = imgRef.current;
+      const w = img?.naturalWidth ?? 0;
+      const frame = sampleFrame(img);
+      if (frame) {
+        if (last && !framesEqual(last, frame)) {
+          // A changed frame (sensor noise counts) proves the stream is live.
+          attempts.current = 0;
+          lastChange = Date.now();
+        }
+        if (!last) lastChange = Date.now();
+        last = frame;
+      } else if (w > 0) {
+        // Sampling unavailable (tainted canvas): decoded frame is all we know.
+        lastChange = Date.now();
+        attempts.current = 0;
+      }
+      const now = Date.now();
+      if (!isStreamStalled(w, now - connectedAt, now - lastChange, STALL_MS)) return;
       clearInterval(id);
       const a = attempts.current;
-      if (a >= MAX_ATTEMPTS) {
-        attempts.current = 0;
-        setErrored(true);
-        return;
-      }
       attempts.current = a + 1;
-      reconnectTimer.current = setTimeout(
-        () => {
-          setLoaded(false);
-          setNonce((n) => n + 1);
-        },
-        Math.min(1000 * 2 ** a, MAX_BACKOFF_MS),
-      );
+      reconnectTimer.current = setTimeout(() => {
+        setLoaded(false);
+        setNonce((n) => n + 1);
+      }, reconnectDelayMs(a));
     }, 1000);
     return () => clearInterval(id);
   }, [showImg, mode, nonce]);

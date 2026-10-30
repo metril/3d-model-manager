@@ -128,37 +128,22 @@ describe("CameraTile", () => {
     expect(img).toHaveAttribute("src", "/api/printers/1/camera/stream?token=abc&fps=5");
   });
 
-  it("reconnects with backoff after a 5s stall", async () => {
+  it("reconnects with backoff after a 20s no-frame stall", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     renderTile();
     await screen.findByRole("img", { name: "Camera feed" });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_500);
+      await vi.advanceTimersByTimeAsync(21_500);
     });
-    // first backoff is 1s -> img remounted with a reconnect nonce
+    // first backoff is 5s -> img remounted with a reconnect nonce
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
+      await vi.advanceTimersByTimeAsync(5_500);
     });
     expect(screen.getByRole("img", { name: "Camera feed" })).toHaveAttribute(
       "src",
       "/api/printers/1/camera/stream?token=abc&_r=1",
     );
-  });
-
-  it("gives up after 5 failed reconnects and shows offline", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    renderTile();
-    await screen.findByRole("img", { name: "Camera feed" });
-
-    // 5 x (5s stall + backoff 1,2,4,8,16s) then the 6th stall errors out
-    for (let i = 0; i < 70; i++) {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_000);
-      });
-      if (screen.queryByText("Camera offline")) break;
-    }
-    expect(screen.getByText("Camera offline")).toBeInTheDocument();
   });
 
   it("drops the img src on unmount", async () => {
@@ -202,23 +187,37 @@ describe("CameraTile", () => {
     expect(snap.style.transform).toBe("");
   });
 
-  it("does not reconnect a static scene that has delivered a frame", async () => {
+  async function runWithFrames(frameFor: () => number[], ms: number) {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    const orig = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = (() => ({
+      drawImage: () => {},
+      getImageData: () => ({ data: new Uint8ClampedArray(frameFor()) }),
+    })) as unknown as typeof orig;
     const nw = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth");
     Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { value: 10, configurable: true });
     try {
       renderTile();
       await screen.findByRole("img", { name: "Camera feed" });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(ms);
       });
-      expect(screen.getByRole("img", { name: "Camera feed" })).toHaveAttribute(
-        "src",
-        "/api/printers/1/camera/stream?token=abc",
-      );
+      return screen.getByRole("img", { name: "Camera feed" }).getAttribute("src");
     } finally {
+      HTMLCanvasElement.prototype.getContext = orig;
       if (nw) Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", nw);
     }
+  }
+
+  it("does not reconnect a live scene whose frames differ by sensor noise", async () => {
+    let n = 0;
+    const src = await runWithFrames(() => [n++ % 7, 1, 2, 3], 60_000);
+    expect(src).toBe("/api/printers/1/camera/stream?token=abc");
+  });
+
+  it("reconnects when frames are byte-identical for 20s", async () => {
+    const src = await runWithFrames(() => [1, 2, 3, 4], 30_000);
+    expect(src).toContain("_r=1");
   });
 
   it("errored retry fires even when urls is a fresh object each render", async () => {
