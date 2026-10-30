@@ -43,9 +43,9 @@ describe("statusRefetchInterval (usePrinterStatus poll cadence, Task 11)", () =>
     }
   });
 
-  it("stops polling (false) once gcode_state is confirmed-terminal", () => {
+  it("backs off to 30s once gcode_state is confirmed-terminal", () => {
     for (const state of ["FINISH", "FAILED", "IDLE"]) {
-      expect(statusRefetchInterval(state)).toBe(false);
+      expect(statusRefetchInterval(state)).toBe(30_000);
     }
   });
 

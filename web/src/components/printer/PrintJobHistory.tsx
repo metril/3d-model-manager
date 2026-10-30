@@ -42,7 +42,18 @@ function RunRow({
   const { t } = useTranslation();
   const name = run.model_name ?? run.subtask_name ?? `Run #${run.id}`;
   return (
-    <TableRow className="cursor-pointer" onClick={onOpen}>
+    <TableRow
+      className="cursor-pointer"
+      onClick={onOpen}
+      tabIndex={0}
+      role="button"
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
       <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
         <Checkbox
           checked={selected}
