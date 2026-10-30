@@ -86,3 +86,27 @@ async def test_list_profiles_sorted_with_dedup(
     assert [p["name"] for p in items] == ["Bambu PLA - Copy", "Mine", "Zed PLA"]
     assert items[0]["overrides_stock"] is True
     assert items[1]["overrides_stock"] is None
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_dedup_keeps_stock_when_user_copy_out_of_scope(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    for name, source, nozzle in (
+        ("Bambu PLA", SYNCED, 0.4),
+        ("Bambu PLA - Copy", ProfileSource.IMPORT, 0.6),
+    ):
+        db_session.add(
+            SlicerProfile(
+                name=name,
+                kind=ProfileKind.FILAMENT,
+                data={"name": name},
+                source=source,
+                compat=[{"model_key": "a1mini", "nozzle_mm": nozzle}],
+            )
+        )
+    await db_session.commit()
+    r = await authenticated_client.get("/api/profiles?kind=filament&nozzle_mm=0.4&dedup=1")
+    items = r.json()["items"]
+    assert [p["name"] for p in items] == ["Bambu PLA"]
+    assert items[0]["overrides_stock"] is None

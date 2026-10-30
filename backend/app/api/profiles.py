@@ -222,16 +222,11 @@ async def list_profiles(
     total = len(rows)
 
     printer_key, nozzle, source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
-    overriding: set[int] = set()
-    if dedup:
-        rows, overriding = dedup_stock_profiles(rows)
     rows = sort_profiles(rows, printer_key, nozzle)
     scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
-    items: list[ProfileOut] = []
+    kept: list[tuple[SlicerProfile, ProfileOut]] = []
     for row in rows:
         out = _profile_out(row, with_data=full)
-        if row.id in overriding:
-            out.overrides_stock = True
         if printer_key is not None:
             out.preferred = profile_preferred(row, printer_key, nozzle)
         if scoped:
@@ -243,7 +238,16 @@ async def list_profiles(
                 out.scope_reason = scope_mismatch_reason(row, printer_key, nozzle) or (
                     "layer height differs"
                 )
-        items.append(out)
+        kept.append((row, out))
+    if dedup:
+        # After scoping: a stock row is hidden only by a user copy that is listed too.
+        survivors, overriding = dedup_stock_profiles([r for r, _ in kept])
+        alive = {r.id for r in survivors}
+        kept = [(r, o) for r, o in kept if r.id in alive]
+        for _, o in kept:
+            if o.id in overriding:
+                o.overrides_stock = True
+    items = [o for _, o in kept]
     return ProfileListOut(
         items=items,
         total=total,
