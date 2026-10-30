@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 
 import { usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
@@ -35,4 +35,20 @@ export function CameraView({ id }: { id: number }) {
 export function CameraPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   return <CameraView id={Number(id)} />;
+}
+
+/** `/camera?printer=ID` (PWA home-screen shortcut): without a printer id,
+ * falls back to the first printer once the overview loads. */
+export function CameraShortcutPage() {
+  const { printer } = useSearch({ strict: false }) as { printer?: number };
+  const overview = usePrintersOverview();
+  const id = printer ?? overview.data?.printers[0]?.printer.id;
+  if (id == null) {
+    return (
+      <div className="grid h-svh w-svw place-items-center bg-black text-sm text-white/70">
+        {overview.isPending ? "Loading..." : "No printers"}
+      </div>
+    );
+  }
+  return <CameraView id={id} />;
 }

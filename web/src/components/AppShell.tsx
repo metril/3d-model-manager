@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate } from "@tanstack/react-router";
 
+import { FloatingCamera } from "@/components/camera/FloatingCamera";
 import { PostPrintConfirmDialog } from "@/components/print/PostPrintConfirmDialog";
 import { authQueryOptions, useAuth } from "@/api/auth";
 import { ENROLL_2FA_EVENT } from "@/api/client";
@@ -98,6 +99,7 @@ export function AppShell() {
       </div>
       <PostPrintConfirmDialog />
       <SliceJobsHost />
+      <FloatingCamera />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </EventsProvider>
