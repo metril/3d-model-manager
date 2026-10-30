@@ -28,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, useDebouncedValue } from "@/lib/format";
 
 const EXTERNAL_UNIT = 255;
 const ALL = "all";
@@ -88,11 +88,12 @@ export function SpoolTable({
   const archiveAction = useBulkSpoolAction(showArchived ? "restore" : "archive");
   const deleteAction = useBulkSpoolAction("delete");
 
+  const debouncedQ = useDebouncedValue(q, 300);
   const spoolsQuery = useSpools({
     archived: showArchived,
     low_stock: lowStockOnly ? true : undefined,
     material_type: materialType === ALL ? undefined : materialType,
-    q: q || undefined,
+    q: debouncedQ || undefined,
   });
   const printers = usePrinters();
   const printerName = useMemo(() => {
@@ -267,7 +268,19 @@ export function SpoolTable({
           </TableHeader>
           <TableBody>
             {spools.map((spool) => (
-              <TableRow key={spool.id} className="cursor-pointer" onClick={() => onOpen(spool)}>
+              <TableRow
+                key={spool.id}
+                className="cursor-pointer"
+                onClick={() => onOpen(spool)}
+                tabIndex={0}
+                role="button"
+                onKeyDown={(e) => {
+                  if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    onOpen(spool);
+                  }
+                }}
+              >
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     aria-label={t("spoolAdmin.toolbar.selectRow", { name: `${spool.material_type} ${spool.color_name ?? ""}`.trim() })}

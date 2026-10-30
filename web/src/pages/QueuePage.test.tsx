@@ -12,9 +12,11 @@ import { QueuePage } from "@/pages/QueuePage";
 // plumbing (already covered by `api/queue.ts`'s own hook conventions).
 const {
   queueDataBox, moveMock, removeMock, retryMock, reviewMock, printersDataBox, includeDoneCalls, authCanBox,
-  startMock, cancelMock, resumeMock, patchMock,
+  startMock, cancelMock, resumeMock, patchMock, enqueueMock, toastMock,
 } =
   vi.hoisted(() => ({
+    enqueueMock: vi.fn(),
+    toastMock: vi.fn(),
     startMock: vi.fn(),
     cancelMock: vi.fn(),
     resumeMock: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock("@/api/queue", () => ({
     includeDoneCalls.push(!!includeDone);
     return { data: queueDataBox.current, isLoading: false, isError: false };
   },
+  useEnqueue: () => ({ mutate: enqueueMock, isPending: false }),
   useMoveQueueEntry: () => ({ mutate: moveMock, isPending: false }),
   useRemoveQueueEntry: () => ({ mutate: removeMock, isPending: false }),
   useRetryQueueEntry: () => ({ mutate: retryMock, isPending: false }),
@@ -45,6 +48,8 @@ vi.mock("@/api/queue", () => ({
   usePatchQueueEntry: () => ({ mutate: patchMock, isPending: false }),
   useBatches: () => ({ data: [], isLoading: false }),
 }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("@/api/printers", () => ({
   usePrinters: () => ({ data: printersDataBox.current }),
@@ -310,7 +315,25 @@ describe("QueuePage retry/remove", () => {
     renderQueuePage();
 
     fireEvent.click(await screen.findByRole("button", { name: "Remove Articulated Dragon" }));
-    await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(7));
+    await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(7, expect.anything()));
+  });
+});
+
+describe("QueuePage remove undo", () => {
+  it("offers an Undo toast that re-enqueues the removed entry", async () => {
+    queueDataBox.current = [entry({ id: 9, model_id: 4, copies: 3, plate: 2 })];
+    removeMock.mockImplementation((_id: number, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+    renderQueuePage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Articulated Dragon" }));
+    expect(toastMock).toHaveBeenCalledOnce();
+    const opts = toastMock.mock.calls[0][1] as { action: { label: string; onClick: () => void } };
+    expect(opts.action.label).toBe("Undo");
+    opts.action.onClick();
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model_id: 4, printer_id: null, copies: 3, plate: 2 }),
+    );
+    removeMock.mockReset();
   });
 });
 
