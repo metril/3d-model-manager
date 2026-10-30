@@ -4,13 +4,15 @@
  * (`POST /files/{id}/slice`). Progress then follows in a toast
  * (`SliceJobsHost`); nothing is queued or sent to a printer.
  */
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
 import { usePipelines, useRunPipeline } from "@/api/pipelines";
+import { usePrinters } from "@/api/printers";
 import { useRecipes, useSlicerHealth, useStartSlice } from "@/api/slicing";
+import { PrinterPicker } from "@/components/slice/PrinterPicker";
 import { trackSlice } from "@/components/slice/sliceTracker";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,6 +20,8 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useDebouncedValue } from "@/lib/format";
+import { filterByName, sortPresets } from "@/lib/presetList";
 
 export function SliceDialog({
   open,
@@ -28,7 +32,9 @@ export function SliceDialog({
   onOpenChange: (open: boolean) => void;
   file: { id: number; rel_path: string };
 }) {
-  const recipes = useRecipes();
+  const [printerId, setPrinterId] = useState<number | null>(null);
+  const recipes = useRecipes(printerId ?? undefined);
+  const printersQ = usePrinters();
   const health = useSlicerHealth();
   const start = useStartSlice();
   const pipelines = usePipelines();
@@ -37,8 +43,24 @@ export function SliceDialog({
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [recipeId, setRecipeId] = useState<number | null>(null);
   const [plate, setPlate] = useState("");
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 250);
 
-  const list = Array.isArray(recipes.data) ? recipes.data : [];
+  const allRecipes = useMemo(() => (Array.isArray(recipes.data) ? recipes.data : []), [recipes.data]);
+  // The chosen printer's own recipes float to the top; search narrows by name.
+  const list = useMemo(() => filterByName(sortPresets(allRecipes), debouncedSearch), [allRecipes, debouncedSearch]);
+  const printerOptions = useMemo(
+    () => (Array.isArray(printersQ.data) ? printersQ.data : []).map((p) => ({ id: p.id, name: p.name })),
+    [printersQ.data],
+  );
+  const pickPrinter = useCallback((id: number) => setPrinterId(id), []);
+
+  // Default the recipe from the chosen printer: its first compatible recipe.
+  useEffect(() => {
+    if (printerId == null || recipeId != null) return;
+    const first = sortPresets(allRecipes).find((r) => r.compatible === true);
+    if (first) setRecipeId(first.id);
+  }, [printerId, recipeId, allRecipes]);
   const pipelineList = Array.isArray(pipelines.data) ? pipelines.data : [];
   const pipelineMode = mode === "pipeline" && pipelineList.length > 0;
   const plateN = plate.trim() === "" ? null : Number(plate);
@@ -89,9 +111,11 @@ export function SliceDialog({
           setPipelineId(null);
           setRecipeId(null);
           setPlate("");
+          setSearch("");
+          setPrinterId(null);
         }
       }}
-      dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== ""}
+      dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== "" || printerId !== null}
       busy={start.isPending || runPipeline.isPending}
     >
       <DialogHeader>
@@ -141,9 +165,9 @@ export function SliceDialog({
             </div>
           ))}
         </RadioGroup>
-      ) : recipes.isLoading ? (
+      ) : recipes.isLoading && allRecipes.length === 0 ? (
         <p className="text-sm text-muted-foreground">Loading recipes…</p>
-      ) : list.length === 0 ? (
+      ) : allRecipes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No recipes yet.{" "}
           <Link to="/inventory/profiles" className="underline">
@@ -152,17 +176,39 @@ export function SliceDialog({
           .
         </p>
       ) : (
-        <RadioGroup value={recipeId != null ? String(recipeId) : ""} onValueChange={(v) => setRecipeId(Number(v))}>
-          {list.map((r) => (
-            <div key={r.id} className="flex items-center gap-2">
-              <RadioGroupItem value={String(r.id)} id={`slice-recipe-${r.id}`} />
-              <Label htmlFor={`slice-recipe-${r.id}`} className="font-normal">
-                {r.name}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
+        <div className="grid gap-2">
+          <Input
+            type="search"
+            aria-label="Search recipes"
+            placeholder="Search recipes"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {list.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No recipes match "{debouncedSearch.trim()}".</p>
+          ) : (
+            <RadioGroup value={recipeId != null ? String(recipeId) : ""} onValueChange={(v) => setRecipeId(Number(v))}>
+              {list.map((r) => (
+                <div key={r.id} className="flex items-center gap-2">
+                  <RadioGroupItem value={String(r.id)} id={`slice-recipe-${r.id}`} disabled={r.compatible === false} />
+                  <Label htmlFor={`slice-recipe-${r.id}`} className="font-normal">
+                    {r.name}
+                    {r.compatible === false && r.incompatible_reason ? (
+                      <span className="ml-1 text-xs text-muted-foreground">({r.incompatible_reason})</span>
+                    ) : null}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+          )}
+        </div>
       )}
+      {printerOptions.length > 0 ? (
+        <div className="grid gap-1.5">
+          <Label>Printer (optional, prefers its recipes)</Label>
+          <PrinterPicker printers={printerOptions} value={printerId} onChange={pickPrinter} idPrefix="slice-printer" />
+        </div>
+      ) : null}
       <div className="grid gap-1.5">
         <Label htmlFor="slice-plate">Plate (optional)</Label>
         <Input

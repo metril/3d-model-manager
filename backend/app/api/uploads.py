@@ -66,6 +66,7 @@ async def upload_file(
     token, path, blob_hash, size = await spool.stream_to_spool(
         request, settings, max_size=(await get_server_config(db)).max_upload_bytes
     )
+    replaced_ids: list[int] = []
     try:
         if size == 0:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload body")
@@ -98,6 +99,7 @@ async def upload_file(
             replace=replace,
             created_by_user_id=ctx.user.id,
             job_id=token,
+            replaced_ids=replaced_ids,
         )
         job = await jobs_service.get_job_or_404(db, token)
     except _DuplicateBlob as dup:
@@ -117,10 +119,22 @@ async def upload_file(
         orphan = await db.get(File, file.id)
         if orphan is not None:
             await db.delete(orphan)
+        await db.flush()
+        for old_id in replaced_ids:  # the replaced file survives a failed enqueue
+            old = await db.get(File, old_id)
+            if old is not None:
+                old.rel_path = rel_path
         await db.commit()
         await anyio.to_thread.run_sync(lambda: path.unlink(missing_ok=True))
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the upload; retry"
         ) from None
+
+    for old_id in replaced_ids:
+        old = await db.get(File, old_id)
+        if old is not None:
+            await db.delete(old)
+    if replaced_ids:
+        await db.commit()
 
     return UploadResult(file_id=file.id, blob_hash=blob_hash, size=size, job_id=job.id)

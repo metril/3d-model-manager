@@ -43,6 +43,7 @@ from app.schemas.queue import (
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
+from app.services.queue_filaments import details_for_entries
 from app.services.queue_settings import get_queue_config
 from app.services.server_config import get_server_config
 
@@ -234,6 +235,7 @@ async def _to_out(
             ).scalars()
         )
     sliced_meta_by_file = await _sliced_metas(db, entries)
+    details_by_entry = await details_for_entries(db, settings, entries)
     now = datetime.now(UTC)
 
     out = []
@@ -291,6 +293,11 @@ async def _to_out(
                 stage=e.stage,
                 skipped_reason=e.hold_reason if e.state == QueueState.SKIPPED else None,
                 waiting_reason=_waiting_reason(e, now, plate_blocked),
+                filaments=details_by_entry[e.id].filaments if e.id in details_by_entry else [],
+                colour_mismatch=e.id in details_by_entry and details_by_entry[e.id].colour_mismatch,
+                estimated_cost=details_by_entry[e.id].estimated_cost
+                if e.id in details_by_entry
+                else None,
                 batch_id=e.batch_id,
                 batch=BatchRefOut(id=e.batch_id, name=batches_by_id[e.batch_id].name)
                 if e.batch_id in batches_by_id
@@ -759,14 +766,20 @@ async def move_entry(
     outside their own ACL.
     """
     entry = await _get_entry_or_404(db, entry_id)
-    entries = await _ordered_entries(db)
-
-    others = [e for e in entries if e.id != entry_id]
-    clamped = max(1, min(position, len(entries)))
-    others.insert(clamped - 1, entry)
-
-    for new_position, reordered_entry in enumerate(others, start=1):
-        reordered_entry.position = new_position
+    total = await db.scalar(select(func.count()).select_from(PrintQueueEntry)) or 0
+    clamped = max(1, min(position, total))
+    old = entry.position
+    # Shift only the rows between the old and new slot by one (dense order kept).
+    pos = PrintQueueEntry.position
+    if clamped < old:
+        shift = update(PrintQueueEntry).where(pos >= clamped, pos < old).values(position=pos + 1)
+    elif clamped > old:
+        shift = update(PrintQueueEntry).where(pos > old, pos <= clamped).values(position=pos - 1)
+    else:
+        shift = None
+    if shift is not None:
+        await db.execute(shift, execution_options={"synchronize_session": "fetch"})
+        entry.position = clamped
     await db.commit()
 
     return await list_queue(db, settings, ctx)

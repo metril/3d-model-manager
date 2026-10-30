@@ -33,16 +33,20 @@ from app.printers.capabilities import capabilities_for
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.schemas.printer_ops import (
+    AmsBackupOut,
     AmsLabelIn,
     AmsLabelOut,
+    AmsRestoreOut,
     SdEntryOut,
     SdPrintIn,
     SdStorageOut,
 )
+from app.services import ams_backup, kprofiles
 from app.services.printer_state import read_state_async
 
 router = APIRouter(prefix="/printers", tags=["printer-ops"])
 _control = Depends(require_printer_access("control"))
+_view = Depends(require_printer_access("print"))
 
 
 def ams_label_key(printer_serial: str, ams_id: int, unit_serial: str | None) -> str:
@@ -148,6 +152,97 @@ async def _label_key(db: AsyncSession, settings: Settings, printer: Printer, ams
         None,
     )
     return ams_label_key(printer.serial, ams_id, (unit or {}).get("serial"))
+
+
+# -- AMS slot backup / restore ------------------------------------------------
+
+
+@router.get("/{printer_id}/ams/backup", response_model=AmsBackupOut | None, dependencies=[_view])
+async def get_ams_backup(printer_id: int, db: AsyncSession = Depends(get_db)) -> dict | None:
+    await _get_or_404(db, printer_id)
+    return await ams_backup.load(db, printer_id)
+
+
+@router.post("/{printer_id}/ams/backup", response_model=AmsBackupOut, dependencies=[_control])
+async def post_ams_backup(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> dict:
+    """Snapshot every configured slot's profile + K-profile ref (replaces the previous one)."""
+    printer = await _get_or_404(db, printer_id)
+    state = await _state(settings, printer.id)
+    if state is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "printer is offline")
+    slots = ams_backup.snapshot_slots(state.get("trays") or [])
+    value = await ams_backup.save(db, printer_id, slots)
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer_id,
+            action="ams_backup",
+            payload={"slots": len(slots)},
+        )
+    )
+    await db.commit()
+    return value
+
+
+@router.post("/{printer_id}/ams/restore", response_model=AmsRestoreOut, dependencies=[_control])
+async def post_ams_restore(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> AmsRestoreOut:
+    """Re-apply the stored snapshot through ``ams_slot_configure`` (+ K-profile select)."""
+    printer = await _get_or_404(db, printer_id)
+    snap = await ams_backup.load(db, printer_id)
+    if snap is None or not snap.get("slots"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no AMS backup")
+    state = await _state(settings, printer.id)
+    if state is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "printer is offline")
+    kp = capabilities_for(printer.model, printer.serial).kprofiles
+    nozzle = kprofiles.norm_nozzle(state.get("nozzle_mm")) or "0.4"
+    restored = failed = pending = 0
+    for slot in snap["slots"]:
+        resp = await run_command(
+            db,
+            settings,
+            ctx,
+            printer,
+            "ams_slot_configure",
+            ams_backup.configure_args(slot),
+            audit_extra={"source": "ams_restore"},
+        )
+        if resp.status_code == 202:
+            pending += 1
+        elif resp.status_code != 200:
+            failed += 1
+            continue
+        else:
+            restored += 1
+        cali, fid = slot.get("cali_idx"), slot.get("tray_info_idx")
+        if kp and cali is not None and cali >= 0 and fid:
+            await run_command(
+                db,
+                settings,
+                ctx,
+                printer,
+                "kprofile_select",
+                {
+                    "ams_id": slot["ams_id"],
+                    "tray_id": slot["tray_id"],
+                    "cali_idx": cali,
+                    "filament_id": fid,
+                    "nozzle_diameter": nozzle,
+                },
+                audit_extra={"source": "ams_restore"},
+            )
+    return AmsRestoreOut(restored=restored, failed=failed, pending=pending)
 
 
 # -- SD browser ---------------------------------------------------------------

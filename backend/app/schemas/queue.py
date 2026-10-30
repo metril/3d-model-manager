@@ -118,6 +118,21 @@ class SlicedMetaOut(BaseModel):
     file_name: str | None = None
 
 
+class QueueFilamentOut(BaseModel):
+    """One required filament slot of a queue item's sliced plate, with the
+    spool mapped onto it (if any)."""
+
+    slot: int
+    type: str | None = None
+    color: str | None = None
+    grams: float | None = None
+    tray: int | None = None
+    spool_id: int | None = None
+    spool_name: str | None = None
+    spool_color: str | None = None
+    colour_mismatch: bool = False
+
+
 class QueueEntryOut(BaseModel):
     id: int
     model_id: int
@@ -190,3 +205,9 @@ class QueueEntryOut(BaseModel):
     waiting_reason: str | None = None
     batch_id: int | None = None
     batch: BatchRefOut | None = None
+    # Queue-card details (computed on read from the sliced plate + mapping).
+    filaments: list[QueueFilamentOut] = []
+    colour_mismatch: bool = False
+    # Filament (mapped spools' prices) + machine + wear x predicted time,
+    # all copies; None until the item has a sliced file.
+    estimated_cost: float | None = None

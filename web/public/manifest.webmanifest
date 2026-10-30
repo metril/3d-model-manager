@@ -7,6 +7,10 @@
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#e8622c",
+  "shortcuts": [
+    { "name": "Camera", "short_name": "Camera", "url": "/camera", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Camera wall", "short_name": "Cam wall", "url": "/camwall", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ],
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },

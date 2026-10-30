@@ -2,6 +2,7 @@ import { ChevronDownIcon, VideoIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { openCameraWindow } from "@/lib/camWall";
+import { floatingCamera } from "@/lib/floatingCamera";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
@@ -40,6 +41,7 @@ export function CameraSplitButton({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => floatingCamera.toggle(printerId)}>Floating camera</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => openCameraWindow(printerId)}>Open in window</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => window.open("/camwall", "camwall", "popup")}>Open camera wall</DropdownMenuItem>
         </DropdownMenuContent>

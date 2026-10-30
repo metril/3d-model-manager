@@ -693,3 +693,44 @@ async def test_upload_over_max_upload_bytes_is_413(
     assert response.status_code == 413
     spool_dir = data_dir / "spool"
     assert not spool_dir.exists() or list(spool_dir.iterdir()) == []
+
+
+async def test_upload_replace_enqueue_failure_keeps_original_file(
+    authenticated_client: httpx.AsyncClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api import uploads as uploads_api
+
+    created = await _create_model(authenticated_client, "Replace Enqueue Fail")
+    revision_id = created["current_revision"]["id"]
+    first = await _upload(
+        authenticated_client,
+        model_id=created["id"],
+        revision_id=revision_id,
+        rel_path="a.stl",
+        content=b"original-bytes",
+    )
+    assert first.status_code == 201, first.text
+    original_id = first.json()["file_id"]
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr(uploads_api.store_to_backend, "apply_async", _boom)
+    response = await _upload(
+        authenticated_client,
+        model_id=created["id"],
+        revision_id=revision_id,
+        rel_path="a.stl",
+        content=b"replacement-bytes",
+        replace=True,
+    )
+
+    assert response.status_code == 503
+    rows = (
+        await db_session.execute(
+            select(File.id, File.rel_path).where(File.revision_id == revision_id)
+        )
+    ).all()
+    assert [(r.id, r.rel_path) for r in rows] == [(original_id, "a.stl")]

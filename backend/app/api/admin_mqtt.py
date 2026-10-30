@@ -133,6 +133,7 @@ class RelayIn(BaseModel):
     topic_prefix: str | None = Field(None, max_length=120)
     commands_enabled: bool | None = None
     actor_user_id: int | None = None
+    low_filament_pct: int | None = Field(None, ge=0, le=100)
 
     @field_validator("topic_prefix")
     @classmethod
@@ -160,6 +161,7 @@ class RelayOut(BaseModel):
     topic_prefix: str
     commands_enabled: bool
     actor_user_id: int | None
+    low_filament_pct: int
     actor_username: str | None
     actor_ok: bool
     actor_error: str | None
@@ -202,6 +204,7 @@ async def _relay_out(db: AsyncSession, settings: Settings) -> RelayOut:
         topic_prefix=c.topic_prefix,
         commands_enabled=c.commands_enabled,
         actor_user_id=c.actor_user_id,
+        low_filament_pct=c.low_filament_pct,
         actor_username=actor.username if actor else None,
         actor_ok=actor_ok,
         actor_error=actor_error,
@@ -223,7 +226,15 @@ async def put_relay(
     settings: Settings = Depends(get_settings),
 ) -> RelayOut:
     patch = payload.model_dump(exclude_unset=True)
-    for k in ("enabled", "tls", "tls_verify", "commands_enabled", "port", "topic_prefix"):
+    for k in (
+        "enabled",
+        "tls",
+        "tls_verify",
+        "commands_enabled",
+        "port",
+        "topic_prefix",
+        "low_filament_pct",
+    ):
         if patch.get(k) is None:
             patch.pop(k, None)
     for k in ("host", "username"):
