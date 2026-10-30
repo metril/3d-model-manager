@@ -118,6 +118,17 @@ class PurgeRunOut(BaseModel):
     bytes: int
 
 
+class RepriceIn(BaseModel):
+    dry_run: bool = False
+
+
+class RepriceOut(BaseModel):
+    candidates: int
+    repriced: int
+    delta: float
+    dry_run: bool
+
+
 class PurgeStatsOut(BaseModel):
     last_run_at: str | None
     last_deleted: int

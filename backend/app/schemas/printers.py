@@ -454,6 +454,8 @@ class ActiveJobOut(PrintJobOut):
     # Q12: the print's plate thumbnail (`/api/blobs/<hash>/plates/<n>/thumb`)
     # when the job's file is a stored 3MF; else None.
     thumbnail_url: str | None = None
+    # Up-front cost estimate of the queue item that started this job.
+    estimated_cost: float | None = None
 
 
 class PrinterOverviewItem(BaseModel):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,8 @@ from app.services.ha_config import get_ha_config_sync
 logger = logging.getLogger(__name__)
 
 _warned = False
+CACHE_TTL_S = 60.0
+_cache: dict[str, tuple[float, float]] = {}  # entity -> (monotonic ts, price)
 
 
 def _warn_once(msg: str) -> None:
@@ -32,6 +35,9 @@ def sample_energy_price(
     entity = cfg.energy_price_ha_entity.strip()
     if cfg.energy_price_source != "homeassistant" or not entity:
         return None
+    hit = _cache.get(entity)
+    if hit is not None and time.monotonic() - hit[0] < CACHE_TTL_S:
+        return hit[1]
     owns = client is None
     try:
         if client is None:
@@ -59,4 +65,5 @@ def sample_energy_price(
     if price != price or price < 0:
         _warn_once(f"energy price sensor {entity} is unavailable")
         return None
+    _cache[entity] = (time.monotonic(), price)
     return price

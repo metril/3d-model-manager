@@ -31,6 +31,7 @@ import { useCancelQueueSlice, useEnqueue, useMoveQueueEntry, useQueue, useRemove
 import type { PrinterOut, QueueEnqueueBody, QueueEntry, QueueState } from "@/api/types";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
+import { HoverPreview, QueueFilamentChips } from "@/components/print/QueueFilaments";
 import { QueueEntryDetail } from "@/components/print/QueueEntryDetail";
 import { LaneResumeButton, ScheduleChips } from "@/components/print/QueueScheduleChips";
 import { ReviewActions } from "@/components/print/ReviewActions";
@@ -341,15 +342,17 @@ function QueueRow({
       >
         {expanded ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
       </button>
-      <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
-        {model?.cover ? (
-          <img src={model.cover} alt="" className="size-full object-cover" />
-        ) : (
-          <span className="text-[10px] font-semibold text-muted-foreground">
-            {model?.formats[0] ? FORMAT_LABELS[model.formats[0]] : "—"}
-          </span>
-        )}
-      </div>
+      <HoverPreview src={model?.cover}>
+        <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+          {model?.cover ? (
+            <img src={model.cover} alt="" className="size-full object-cover" />
+          ) : (
+            <span className="text-[10px] font-semibold text-muted-foreground">
+              {model?.formats[0] ? FORMAT_LABELS[model.formats[0]] : "—"}
+            </span>
+          )}
+        </div>
+      </HoverPreview>
 
       <div className="min-w-0 flex-1">
         {model ? (
@@ -371,6 +374,7 @@ function QueueRow({
           <ReviewChips entry={entry} />
           <ScheduleChips entry={entry} />
         </div>
+        <QueueFilamentChips entry={entry} />
         {entry.review_state === "pending" && can("queue:review") ? (
           <div className="mt-1.5">
             <ReviewActions entryId={entry.id} />
