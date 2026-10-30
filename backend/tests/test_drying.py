@@ -858,7 +858,7 @@ def test_plug_auto_off_skipped_when_queue_wants_printer(rds, bus, monkeypatch):
     with base.sync_session() as s:
         pid = _db_printer(s).id
         _plug(s, pid, auto_off_after_drying=True)
-    monkeypatch.setattr(manager, "_queue_wanted", lambda s, r: {pid})
+    monkeypatch.setattr(manager, "_queue_targets", lambda s, r: ({pid}, {pid}))
     _put_state(rds, pid, ams_units=[{**UNIT, "dry_status": 2}])
     _tick(rds, t0)
     _put_state(rds, pid)
