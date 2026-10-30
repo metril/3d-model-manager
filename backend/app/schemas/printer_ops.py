@@ -132,3 +132,27 @@ class SdPrintIn(BaseModel):
     path: str
     plate: int | None = Field(default=None, ge=1, le=99)
     use_ams: bool = True
+
+
+class AmsBackupSlotOut(BaseModel):
+    ams_id: int
+    tray_id: int
+    tray_type: str
+    color: str | None = None
+    tray_info_idx: str | None = None
+    sub_brand: str | None = None
+    nozzle_min: int | None = None
+    nozzle_max: int | None = None
+    cali_idx: int | None = None
+    k_value: float | None = None
+
+
+class AmsBackupOut(BaseModel):
+    taken_at: str
+    slots: list[AmsBackupSlotOut]
+
+
+class AmsRestoreOut(BaseModel):
+    restored: int
+    failed: int
+    pending: int = 0
