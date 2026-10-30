@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import redis
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import Settings, get_settings
 from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
@@ -66,23 +66,39 @@ def _scrub(exc: Exception, conn: PrinterConnection | None) -> str:
     return message
 
 
+_LIVE_STATES = (PrintJobState.QUEUED, PrintJobState.UPLOADING, PrintJobState.STARTING)
+
+
 def _set_job_state(
-    settings: Settings, print_job_id: int, state: PrintJobState, *, error: str | None = None
-) -> None:
+    settings: Settings,
+    print_job_id: int,
+    state: PrintJobState,
+    *,
+    error: str | None = None,
+    expect: tuple[PrintJobState, ...] = _LIVE_STATES,
+) -> bool:
+    """Forward-only compare-and-set: the row moves to ``state`` only while it
+    is still in one of ``expect`` (default: the not-yet-printing states), so a
+    concurrent cancel/finish is never overwritten. Returns whether it moved."""
+    values: dict = {"state": state.value}
+    if error is not None:
+        values["printer_error"] = error
+    if state in (PrintJobState.FAILED, PrintJobState.CANCELED):
+        values["finished_at"] = datetime.now(UTC)
     with base.sync_session() as s:
-        job = s.get(PrintJob, print_job_id)
-        if job is None:
-            return
-        job.state = state.value
-        if error is not None:
-            job.printer_error = error
-        if state in (PrintJobState.FAILED, PrintJobState.CANCELED):
-            job.finished_at = datetime.now(UTC)
-        printer_id = job.printer_id
+        printer_id = s.execute(
+            update(PrintJob)
+            .where(PrintJob.id == print_job_id, PrintJob.state.in_([e.value for e in expect]))
+            .values(**values)
+            .returning(PrintJob.printer_id)
+        ).scalar_one_or_none()
         s.commit()
+    if printer_id is None:
+        return False
     publish_print_job_event_sync(
         settings.redis_url, print_job_id=print_job_id, printer_id=printer_id, state=state.value
     )
+    return True
 
 
 @celery_app.task(name="app.tasks.printing.send_to_printer")
@@ -98,6 +114,11 @@ def send_to_printer(print_job_id: int, options: dict) -> None:
 def _send_to_printer(
     settings: Settings, client: redis.Redis, print_job_id: int, options: dict
 ) -> None:
+    # Claim the job (acks_late redelivery / a cancel that landed first -> no-op).
+    if not _set_job_state(
+        settings, print_job_id, PrintJobState.UPLOADING, expect=(PrintJobState.QUEUED,)
+    ):
+        return
     with base.sync_session() as s:
         job = s.get(PrintJob, print_job_id)
         if job is None:
@@ -125,7 +146,6 @@ def _send_to_printer(
         printer_id, kind = printer.id, printer.kind
         blob_hash = blob.hash
         subtask = job.subtask_name or file.rel_path
-    _set_job_state(settings, print_job_id, PrintJobState.UPLOADING)
     conn: PrinterConnection | None = None
     try:
         # Decrypt HERE, inside the try: a rotated/corrupted Fernet key raises
@@ -176,7 +196,9 @@ def _send_to_printer(
             finally:
                 with contextlib.suppress(Exception):
                     adapter.close()
-        _set_job_state(settings, print_job_id, PrintJobState.STARTING)
+        _set_job_state(
+            settings, print_job_id, PrintJobState.STARTING, expect=(PrintJobState.UPLOADING,)
+        )
     except Exception as exc:
         _set_job_state(settings, print_job_id, PrintJobState.FAILED, error=_scrub(exc, conn))
         raise

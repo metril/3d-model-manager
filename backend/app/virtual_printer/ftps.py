@@ -20,7 +20,13 @@ from pathlib import Path
 log = logging.getLogger("virtual_printer.ftps")
 
 MAX_UPLOAD_BYTES = 4 * 1024**3
+MAX_LOGIN_ATTEMPTS = 3
 UploadCallback = Callable[[Path, str], Awaitable[None] | None]
+
+
+def _check_zip(path: Path) -> None:
+    with zipfile.ZipFile(path) as zf:
+        zf.namelist()
 
 
 class FtpsServer:
@@ -83,6 +89,7 @@ class _Session:
         self.remote_ip = peer[0] if peer else "unknown"
         self.user: str | None = None
         self.authed = False
+        self.failed_logins = 0
         self._data_server: asyncio.Server | None = None
         self._data_q: asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]] | None = None
 
@@ -129,14 +136,18 @@ class _Session:
             else self.send(530, "Invalid user")
         )
 
-    async def cmd_PASS(self, arg: str) -> None:
+    async def cmd_PASS(self, arg: str) -> str | None:
         if (self.user or "").lower() != "bblp":
             await self.send(503, "Login with USER first")
-        elif hmac.compare_digest(arg, self.srv.access_code):
+        elif hmac.compare_digest(arg.encode(), self.srv.access_code.encode()):
             self.authed = True
             await self.send(230, "Login successful")
         else:
+            self.failed_logins += 1
             await self.send(530, "Login incorrect")
+            if self.failed_logins >= MAX_LOGIN_ATTEMPTS:
+                return "quit"
+        return None
 
     async def cmd_SYST(self, _a: str) -> None:
         await self.send(215, "UNIX Type: L8")
@@ -279,12 +290,15 @@ class _Session:
             return
         total, failure = 0, None
         try:
-            with dest.open("wb") as fh:
+            fh = await asyncio.to_thread(dest.open, "wb")
+            try:
                 while chunk := await asyncio.wait_for(dr.read(65536), 60):
                     total += len(chunk)
                     if total > MAX_UPLOAD_BYTES:
                         raise OSError("upload too large")
-                    fh.write(chunk)
+                    await asyncio.to_thread(fh.write, chunk)
+            finally:
+                await asyncio.to_thread(fh.close)
         except (OSError, TimeoutError, ssl.SSLError) as exc:
             failure = exc
         finally:
@@ -293,12 +307,11 @@ class _Session:
             await self._close_data()
         if failure is None and name.lower().endswith(".3mf"):
             try:
-                with zipfile.ZipFile(dest) as zf:
-                    zf.namelist()
+                await asyncio.to_thread(_check_zip, dest)
             except (zipfile.BadZipFile, OSError) as exc:
                 failure = exc
         if failure is not None:
-            dest.unlink(missing_ok=True)
+            await asyncio.to_thread(dest.unlink, missing_ok=True)
             await self.send(426, "Transfer failed")
             return
         await self.send(226, "Transfer complete")

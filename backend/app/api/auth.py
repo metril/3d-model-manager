@@ -8,6 +8,7 @@ stay reachable without a session) and ``protected_router`` (``/auth/me``,
 
 from datetime import UTC, datetime
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ from app.db import get_db
 from app.models import Session as SessionModel
 from app.models import User
 from app.security import DUMMY_HASH, hash_password, verify_password
-from app.services import two_factor
+from app.services import login_throttle, two_factor
 from app.services.server_config import cookie_secure, get_server_config
 
 public_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -69,6 +70,8 @@ async def login(
     """Verify credentials, then either open a session (204 + cookie) or, when
     the account has a second factor, return 200 with a pre-auth token and NO
     session (finish with ``POST /auth/2fa/verify``)."""
+    ip = request.client.host if request.client else "unknown"
+    await login_throttle.guard(payload.username)
     user = (
         await db.execute(select(User).where(User.username == payload.username))
     ).scalar_one_or_none()
@@ -77,11 +80,14 @@ async def login(
         # Still pay the cost of a real argon2 verification so these branches
         # take roughly as long as the wrong-password branch below (see
         # app.security.DUMMY_HASH).
-        verify_password(payload.password, DUMMY_HASH)
+        await anyio.to_thread.run_sync(verify_password, payload.password, DUMMY_HASH)
+        await login_throttle.note_failure(payload.username, ip)
         raise _invalid_credentials()
 
-    if not verify_password(payload.password, user.password_hash):
+    if not await anyio.to_thread.run_sync(verify_password, payload.password, user.password_hash):
+        await login_throttle.note_failure(payload.username, ip)
         raise _invalid_credentials()
+    await login_throttle.clear(payload.username)
 
     st = await two_factor.status_for(db, user)
     if st.enabled:
@@ -218,15 +224,15 @@ async def change_password(
     deliberately kept so the caller isn't logged out by their own password
     change.
     """
-    if ctx.user.password_hash is None or not verify_password(
-        payload.current_password, ctx.user.password_hash
+    if ctx.user.password_hash is None or not await anyio.to_thread.run_sync(
+        verify_password, payload.current_password, ctx.user.password_hash
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Current password is incorrect",
         )
 
-    ctx.user.password_hash = hash_password(payload.new_password)
+    ctx.user.password_hash = await anyio.to_thread.run_sync(hash_password, payload.new_password)
     await db.execute(
         delete(SessionModel).where(
             SessionModel.user_id == ctx.user.id,

@@ -53,6 +53,7 @@ class VirtualPrinterService:
         self._uploads: dict[str, Path] = {}
         self._commands: dict[str, dict[str, Any]] = {}
         self._timers: dict[str, asyncio.TimerHandle] = {}
+        self._tasks: set[asyncio.Task] = set()
         cert, key = certs.ensure_cert(base / "certs", cfg.serial)
         self.mqtt = MqttBroker(
             serial=cfg.serial,
@@ -114,7 +115,7 @@ class VirtualPrinterService:
         key = self._command_key(subtask, options)
         self._cancel(key)
         path = self._uploads.pop(key, None)
-        if path is not None and path.exists():
+        if path is not None and await asyncio.to_thread(path.exists):
             await self._process(key, path, options)
             return
         self._commands[key] = options
@@ -132,7 +133,12 @@ class VirtualPrinterService:
 
     def _arm(self, key: str, delay: float, fn) -> None:
         loop = asyncio.get_running_loop()
-        self._timers[key] = loop.call_later(delay, lambda: asyncio.ensure_future(fn(key)))
+        self._timers[key] = loop.call_later(delay, lambda: self._spawn(fn(key)))
+
+    def _spawn(self, coro) -> None:
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def _cancel(self, key: str) -> None:
         t = self._timers.pop(key, None)
@@ -148,7 +154,7 @@ class VirtualPrinterService:
     async def _expire_upload(self, key: str) -> None:
         self._timers.pop(key, None)
         path = self._uploads.pop(key, None)
-        if path is not None and path.exists():
+        if path is not None and await asyncio.to_thread(path.exists):
             await self._process(key, path, None)
 
     async def _process(self, key: str, path: Path, options: dict[str, Any] | None) -> None:
@@ -159,7 +165,7 @@ class VirtualPrinterService:
             log.info("virtual printer ingested %s -> %s", name, res)
         except Exception:
             log.exception("virtual printer ingest failed for %s", name)
-            path.unlink(missing_ok=True)
+            await asyncio.to_thread(path.unlink, missing_ok=True)
             self.mqtt.set_state("FAILED", name)
         else:
             self.mqtt.set_state("FINISH", name, "100")
