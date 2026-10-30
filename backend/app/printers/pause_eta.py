@@ -74,7 +74,7 @@ def pause_points_from_3mf(source: bytes, plate: int) -> list[dict]:
             zf.open(f"Metadata/plate_{plate}.gcode") as fh,
         ):
             return parse_pause_points(io.TextIOWrapper(fh, encoding="utf-8", errors="replace"))
-    except (zipfile.BadZipFile, KeyError, OSError):
+    except Exception:  # noqa: BLE001 -- bad zip/zlib/EOF/unsupported: never fail a sendable print
         return []
 
 

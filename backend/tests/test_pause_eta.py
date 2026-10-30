@@ -130,3 +130,19 @@ def test_points_roundtrip(r):
     assert pause_eta.load_points(client, pid) == (7, pts)
     pause_eta.clear_points(client, pid)
     assert pause_eta.load_points(client, pid) == (None, [])
+
+
+def test_pause_points_from_3mf_swallows_corrupt_member():
+    import io
+    import zipfile
+
+    from app.printers.pause_eta import pause_points_from_3mf
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Metadata/plate_1.gcode", "G1 X1\n" * 200)
+    raw = bytearray(buf.getvalue())
+    # corrupt the deflate stream so reading raises zlib.error, not BadZipFile
+    for i in range(40, 80):
+        raw[i] ^= 0xFF
+    assert pause_points_from_3mf(bytes(raw), 1) == []

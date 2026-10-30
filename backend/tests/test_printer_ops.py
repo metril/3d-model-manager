@@ -125,14 +125,23 @@ async def test_printer_out_and_queue_settings(authenticated_client, printer_enab
     listing = await authenticated_client.get("/api/printers")
     assert listing.json()[0]["awaiting_plate_clear"] is False
     assert (await authenticated_client.get("/api/settings/queue")).json() == {
-        "require_plate_clear": False
+        "require_plate_clear": False,
+        "pause_heads_up_min": 5,
     }
     r = await authenticated_client.put("/api/settings/queue", json={"require_plate_clear": True})
-    assert r.json() == {"require_plate_clear": True}
+    assert r.json() == {"require_plate_clear": True, "pause_heads_up_min": 5}
     assert (await authenticated_client.get("/api/settings/queue")).json()[
         "require_plate_clear"
     ] is True
     assert pid
+
+
+async def test_queue_settings_partial_put_keeps_other_field(authenticated_client):
+    r = await authenticated_client.put("/api/settings/queue", json={"pause_heads_up_min": 12})
+    assert r.status_code == 200, r.text
+    r = await authenticated_client.put("/api/settings/queue", json={"require_plate_clear": True})
+    assert r.json()["pause_heads_up_min"] == 12
+    assert r.json()["require_plate_clear"] is True
 
 
 def test_dispatcher_plate_gate(redis_url, printer_enabled, migrated_db):
