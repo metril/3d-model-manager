@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Setting
+from app.printers.filament_ids import generic_filament_id
 
 _DEFAULT_RANGE = (190, 230)
 
@@ -48,7 +49,7 @@ def configure_args(slot: dict) -> dict:
     return {
         "ams_id": slot["ams_id"],
         "tray_id": slot["tray_id"],
-        "tray_info_idx": slot.get("tray_info_idx") or "",
+        "tray_info_idx": slot.get("tray_info_idx") or generic_filament_id(slot["tray_type"]),
         "tray_type": slot["tray_type"],
         "sub_brand": slot.get("sub_brand") or "",
         "color": slot.get("color") or "FFFFFF",
