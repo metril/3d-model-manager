@@ -16,14 +16,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import PrintArchive
 from app.models.enums import BlobFormat, BlobKind
 from app.services import camera_state
 from app.services.archive import _ensure_blob, archive_path
+from app.services.archive_lookup import archive_for_job
 from app.services.derivatives import publish_bytes
 
 VIEWER_ID = "layer-timelapse"
@@ -132,13 +131,11 @@ def assemble_for(session: Session, settings: Settings, r, print_job_id: int) -> 
     from app.models import PrintJob
 
     job = session.get(PrintJob, print_job_id)
-    arc = session.scalars(
-        select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
-    ).first()
+    arc = archive_for_job(session, print_job_id)
     if job is None or arc is None:
         return False
-    if arc.timelapse_blob:
-        return True
+    if arc.print_job_id != job.id or arc.timelapse_blob:
+        return True  # folded into a later run (media is the latest's), or done
     n = frame_count(settings, job.printer_id, job.id)
     if n == 0:
         return False

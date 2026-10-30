@@ -105,6 +105,24 @@ def test_assemble_failure_leaves_archive(seed, r, monkeypatch):
     _fresh(r, job.printer_id, job.id)
 
 
+def test_assemble_folded_job_does_not_touch_latest_run(seed, r, monkeypatch):
+    from app.models import Print
+
+    old, arc = _archive(seed, "F1")
+    new_id = seed.job(subtask="F2")
+    seed.s.add(Print(print_job_id=old.id, source="auto", result="success", archive_id=arc.id))
+    arc.print_job_id = new_id  # the archive now tracks the later reprint
+    seed.s.commit()
+    _fresh(r, old.printer_id, old.id)
+    cs.put_frame(r, old.printer_id, JPEG)
+    lt.capture(r, S(), old.printer_id, old.id, 1)
+    monkeypatch.setattr(lt, "stitch", lambda *a, **k: pytest.fail("must not stitch"))
+    assert lt.assemble_for(seed.s, get_settings(), r, old.id) is True
+    seed.s.refresh(arc)
+    assert arc.timelapse_blob is None
+    _fresh(r, old.printer_id, old.id)
+
+
 def test_purge_keeps_blob_shared_with_other_archive(seed):
     """Two archives (e.g. plates of one 3MF) holding the same timelapse blob:
     deleting one must not release the file the other still uses."""

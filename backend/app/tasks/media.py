@@ -23,6 +23,7 @@ from app.models.enums import BlobFormat, BlobKind
 from app.models.library import Blob
 from app.models.printing import PrintArchive
 from app.services.archive import _ensure_blob, archive_path
+from app.services.archive_lookup import archive_for_job
 from app.services.derivatives import publish_bytes
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -126,9 +127,7 @@ def assemble_layer_timelapse(print_job_id: int) -> str:
         with base.sync_session() as session:
             ok = layer_timelapse.assemble_for(session, settings, r, print_job_id)
             if not ok and session.get(PrintJob, print_job_id) is not None:
-                arc = session.scalars(
-                    select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
-                ).first()
+                arc = archive_for_job(session, print_job_id)
                 if arc is not None:
                     arc.media_note = "layer timelapse failed; trying printer timelapse"
                     session.commit()
