@@ -1490,6 +1490,7 @@
     "title": "Scan labels",
     "desc": "Scan a location label, then spool labels to put them there. Scan a spool on its own to open it.",
     "active": "Assigning to: {{name}}",
+    "count": "{{count}} spools assigned",
     "count_one": "{{count}} spool assigned",
     "count_other": "{{count}} spools assigned",
     "clear": "Clear",
