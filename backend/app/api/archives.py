@@ -24,7 +24,14 @@ from app.models import AuditLog, File, Model, Printer, PrintJob
 from app.models.enums import ArchiveResult, BlobFormat, VerdictSource
 from app.models.library import Blob, Print
 from app.models.printing import PrintArchive
-from app.schemas.archives import ArchiveOut, ArchivePatchIn, PhotoOut, VerdictIn
+from app.schemas.archives import (
+    ArchiveOut,
+    ArchivePatchIn,
+    ArchiveRunOut,
+    LatestRunOut,
+    PhotoOut,
+    VerdictIn,
+)
 from app.schemas.library import TagIdsIn, TagRef
 from app.schemas.print_flow import PlanIn, PlanOut
 from app.schemas.prints import PrintOut
@@ -100,6 +107,16 @@ def archive_out(row: Any) -> ArchiveOut:
         finished_at=job.finished_at,
         created_at=a.created_at,
         created_by_user_id=a.created_by_user_id,
+        run_count=a.run_count,
+        latest_run=LatestRunOut(
+            id=run.id,
+            outcome=a.result_override or a.result,
+            finished_at=job.finished_at,
+            duration_s=a.duration_s,
+            total_cost=run.total_cost,
+        )
+        if run
+        else None,
         run=PrintOut.from_model(
             run, model_slug=model.slug if model else None, model_name=model.name if model else None
         )
@@ -287,6 +304,45 @@ async def post_verdict(
     archive_confirm.apply_verdict(arc, run, body.verdict, VerdictSource(body.source), ctx.user.id)
     await db.commit()
     return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
+
+
+@router.get("/{archive_id}/runs", response_model=list[ArchiveRunOut])
+async def list_runs(
+    archive_id: int,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> list[ArchiveRunOut]:
+    """Every run of the archive, newest first."""
+    arc = (await _get_visible(db, ctx, archive_id))[0]
+    rows = (
+        await db.scalars(
+            select(Print)
+            .where(Print.archive_id == archive_id)
+            .order_by(Print.printed_at.desc(), Print.id.desc())
+        )
+    ).all()
+    return [
+        ArchiveRunOut(
+            id=r.id,
+            archive_id=archive_id,
+            print_job_id=r.print_job_id,
+            printer_id=r.printer_id,
+            printer_name=r.printer_name,
+            started_at=r.started_at,
+            finished_at=r.finished_at,
+            printed_at=r.printed_at,
+            outcome=r.result,
+            duration_min=r.duration_min,
+            filament_g=r.filament_g,
+            filament_cost=r.filament_cost,
+            machine_cost=r.machine_cost,
+            wear_cost=r.wear_cost,
+            energy_cost=r.energy_cost,
+            total_cost=r.total_cost,
+            is_latest=r.print_job_id == arc.print_job_id,
+        )
+        for r in rows
+    ]
 
 
 @router.get("/{archive_id}", response_model=ArchiveOut)

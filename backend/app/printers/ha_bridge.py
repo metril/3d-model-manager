@@ -29,7 +29,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import Settings
 from app.models import PrintArchive, Printer, PrintJob, PrintQueueEntry
@@ -112,7 +112,10 @@ def _load_printers(session) -> list[dict]:
             select(PrintJob.printer_id, PrintArchive.result)
             .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
             .distinct(PrintJob.printer_id)
-            .order_by(PrintJob.printer_id, PrintArchive.created_at.desc())
+            .order_by(
+                PrintJob.printer_id,
+                func.coalesce(PrintJob.finished_at, PrintArchive.created_at).desc(),
+            )
         ).all()
     }
 

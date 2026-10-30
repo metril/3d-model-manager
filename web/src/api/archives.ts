@@ -9,6 +9,7 @@ import type {
   ArchivePatchIn,
   ArchivePhoto,
   ArchivePurgeSettings,
+  ArchiveRun,
   ArchiveResult,
   ArchiveVerdict,
   CalendarDay,
@@ -64,6 +65,14 @@ export function useArchive(id: number | null) {
     queryFn: () => api.get<ArchiveOut>(`/archives/${id}`),
     enabled: id != null,
     refetchInterval: (q) => (q.state.data?.fetch_state === "pending" ? 5000 : false),
+  });
+}
+
+export function useArchiveRuns(id: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["archives", "runs", id] as const,
+    queryFn: () => api.get<ArchiveRun[]>(`/archives/${id}/runs`),
+    enabled: id != null && enabled,
   });
 }
 

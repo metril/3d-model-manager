@@ -46,8 +46,15 @@ from app.api.deps import AuthContext, require_perm, require_session, visible_pri
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AuditLog, PrintArchive, PrintJob
-from app.models.enums import ArchiveResult, ArchiveVerdict, BlobFormat, BlobKind, VerdictSource
-from app.models.library import Blob
+from app.models.enums import (
+    ArchiveResult,
+    ArchiveVerdict,
+    BlobFormat,
+    BlobKind,
+    PrintResult,
+    VerdictSource,
+)
+from app.models.library import Blob, Print
 from app.schemas.archives import (
     ArchiveOut,
     CalendarDayOut,
@@ -211,25 +218,29 @@ async def calendar(
     zone = parse_tz(tz)
     start = datetime(from_.year, from_.month, from_.day, tzinfo=zone)
     end = datetime(to.year, to.month, to.day, tzinfo=zone) + timedelta(days=1)
+    # One entry per run (not per archive): a reprint adds a run on its own day.
     stmt = (
-        select(PrintArchive)
-        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
-        .where(PrintArchive.created_at >= start, PrintArchive.created_at < end)
+        select(Print.printed_at, Print.result, Print.duration_min)
+        .join(PrintJob, PrintJob.id == Print.print_job_id)
+        .where(
+            Print.archive_id.is_not(None),
+            Print.printed_at >= start,
+            Print.printed_at < end,
+        )
     )
     visible = visible_printer_ids(ctx)
     if visible is not None:
         stmt = stmt.where(PrintJob.printer_id.in_(visible))
     days: dict[str, dict[str, float]] = {}
-    for a in (await db.execute(stmt)).scalars():
+    for printed_at, res, minutes in (await db.execute(stmt)).all():
         d = days.setdefault(
-            a.created_at.astimezone(zone).date().isoformat(),
+            printed_at.astimezone(zone).date().isoformat(),
             {"count": 0, "ok": 0, "failed": 0, "secs": 0},
         )
         d["count"] += 1
-        eff = _eff(a)
-        d["ok"] += eff == ArchiveResult.COMPLETED
-        d["failed"] += eff == ArchiveResult.FAILED
-        d["secs"] += a.duration_s or 0
+        d["ok"] += res == PrintResult.SUCCESS
+        d["failed"] += res == PrintResult.FAIL
+        d["secs"] += (minutes or 0) * 60
     return [
         CalendarDayOut(
             date=k,

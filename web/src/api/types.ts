@@ -1491,6 +1491,34 @@ export interface PrintPatchIn {
 
 // -- print archive (backend/app/schemas/archives.py, P2) -------------------
 
+export interface ArchiveLatestRun {
+  id: number;
+  outcome: ArchiveResult;
+  finished_at: string | null;
+  duration_s: number | null;
+  total_cost: number | null;
+}
+
+export interface ArchiveRun {
+  id: number;
+  archive_id: number;
+  print_job_id: number | null;
+  printer_id: number | null;
+  printer_name: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  printed_at: string;
+  outcome: PrintResult;
+  duration_min: number | null;
+  filament_g: number | null;
+  filament_cost: number | null;
+  machine_cost: number | null;
+  wear_cost: number | null;
+  energy_cost: number | null;
+  total_cost: number | null;
+  is_latest: boolean;
+}
+
 export interface ArchiveOut {
   id: number;
   tag_refs?: TagRef[];
@@ -1519,6 +1547,9 @@ export interface ArchiveOut {
   created_at: string;
   created_by_user_id: number | null;
   run: PrintEntry | null;
+  // W5 archive runs: a reprint of the same file+plate appends a run.
+  run_count?: number;
+  latest_run?: ArchiveLatestRun | null;
   // T7 archive extras (optional so older fixtures still type-check)
   recorded_result?: ArchiveResult;
   result_override?: ArchiveResult | null;

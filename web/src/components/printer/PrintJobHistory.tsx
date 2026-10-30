@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { archiveThumbnailUrl, useArchives } from "@/api/archives";
+import { RunCountBadge } from "@/components/print/ArchiveRuns";
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import type { ArchiveOut, ArchiveResult } from "@/api/types";
@@ -70,6 +71,7 @@ function RunRow({
       <TableCell>{run.printer_name}</TableCell>
       <TableCell>
         <Badge variant={run.result === "completed" ? "default" : "destructive"}>{run.result}</Badge>
+        <RunCountBadge count={run.run_count} />
       </TableCell>
       <TableCell className="font-mono tabular-nums">
         {run.duration_s != null ? humanizeDuration(run.duration_s) : "--"}

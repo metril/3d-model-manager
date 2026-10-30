@@ -12,6 +12,7 @@ from app.models.enums import (
     ArchiveResult,
     ArchiveVerdict,
     PrintJobOrigin,
+    PrintResult,
     VerdictSource,
 )
 from app.schemas.library import TagRef
@@ -23,6 +24,38 @@ class PhotoOut(BaseModel):
     kind: Literal["photo", "timelapse"]
     uploaded_by: int | None = None
     at: str | None = None
+
+
+class ArchiveRunOut(BaseModel):
+    """One run (print attempt) of an archive; the newest is ``is_latest``."""
+
+    id: int
+    archive_id: int
+    print_job_id: int | None
+    printer_id: int | None
+    printer_name: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    printed_at: datetime
+    outcome: PrintResult
+    duration_min: int | None
+    filament_g: float | None
+    filament_cost: float | None
+    machine_cost: float | None
+    wear_cost: float | None
+    energy_cost: float | None
+    total_cost: float | None
+    is_latest: bool = False
+
+
+class LatestRunOut(BaseModel):
+    """Compact latest-run summary carried by every archive list row."""
+
+    id: int
+    outcome: ArchiveResult
+    finished_at: datetime | None
+    duration_s: int | None
+    total_cost: float | None
 
 
 class ArchiveOut(BaseModel):
@@ -52,6 +85,8 @@ class ArchiveOut(BaseModel):
     created_at: datetime
     created_by_user_id: int | None
     run: PrintOut | None = None
+    run_count: int = 1
+    latest_run: LatestRunOut | None = None
     # T7
     recorded_result: ArchiveResult
     result_override: ArchiveResult | None = None

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.db import get_db
-from app.models import Model
+from app.models import Model, Print
 from app.models.enums import SpoolUsageSource
 from app.models.inventory import Spool, SpoolSlot, SpoolUsage, StorageLocation
 from app.models.printing import PrintArchive, PrintJob
@@ -128,7 +128,11 @@ async def get_spool(
         await db.execute(
             select(SpoolUsage, PrintArchive, Model)
             .outerjoin(PrintJob, PrintJob.id == SpoolUsage.print_job_id)
-            .outerjoin(PrintArchive, PrintArchive.print_job_id == PrintJob.id)
+            .outerjoin(Print, Print.print_job_id == PrintJob.id)
+            .outerjoin(
+                PrintArchive,
+                (PrintArchive.print_job_id == PrintJob.id) | (PrintArchive.id == Print.archive_id),
+            )
             .outerjoin(Model, Model.id == PrintArchive.model_id)
             .where(SpoolUsage.spool_id == spool_id)
             .order_by(SpoolUsage.created_at)

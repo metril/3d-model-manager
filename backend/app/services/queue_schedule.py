@@ -19,9 +19,10 @@ from app.config import Settings
 from app.models.audit_log import AuditLog
 from app.models.enums import ArchiveResult, PrintJobState, QueueState
 from app.models.library import Model, PrintQueueEntry
-from app.models.printing import PrintArchive, Printer, PrintJob
+from app.models.printing import Printer, PrintJob
 from app.printers.base import command_channel
 from app.printers.capabilities import capabilities_for
+from app.services.archive_lookup import archive_for_job
 from app.services.notify import events
 from app.services.printer_state import read_state_sync
 from app.services.queue_preheat import QueuePreheatConfig
@@ -88,7 +89,7 @@ def _verdict(session: Session, prev: PrintQueueEntry) -> str | None:
             return None  # a cancel is the operator's call, not a print fault
         return "failed"
     if job is not None:
-        archive = session.scalar(select(PrintArchive).where(PrintArchive.print_job_id == job.id))
+        archive = archive_for_job(session, job.id)
         if archive is not None and archive.result in _FAILED_ARCHIVE:
             return "failed"
     return "ok"
