@@ -185,6 +185,9 @@ class TimelapseInfoOut(BaseModel):
     width: int
     height: int
     bytes: int
+    # Layer timelapse only (None for a printer-recorded one).
+    frames: int | None = None
+    layers: int | None = None
 
 
 class TimelapseThumbsOut(BaseModel):

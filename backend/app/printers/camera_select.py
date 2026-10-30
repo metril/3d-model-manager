@@ -55,6 +55,8 @@ def normalize_options(settings: Settings, new: dict, existing: dict | None) -> d
     rot = out.get("camera_rotation")
     if rot is not None and rot not in ROTATIONS:
         raise ValueError("camera_rotation must be 0, 90, 180 or 270")
+    if "layer_timelapse" in out and not isinstance(out["layer_timelapse"], bool):
+        raise ValueError("layer_timelapse must be a boolean")
     from app.services.plate_detection import validate_options
 
     validate_options(out)

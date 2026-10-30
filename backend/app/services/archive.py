@@ -230,6 +230,8 @@ def _append_run(session: Session, arc: PrintArchive, job: PrintJob) -> None:
     arc.run_count += 1
     arc.snapshot_blob = None
     arc.timelapse_blob = None
+    arc.timelapse_frames = None
+    arc.timelapse_layers = None
     arc.media_note = None
     arc.fetch_error = None
     arc.confirm_requested = False

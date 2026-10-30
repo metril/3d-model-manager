@@ -638,6 +638,21 @@ async def test_timelapse_new_mode_redelivery_is_idempotent(
     assert len((await db_session.get(PrintArchive, aid)).photos) == 1
 
 
+async def test_timelapse_replace_clears_layer_counts(authenticated_client, db_session, tmp_path):
+    from app.tasks.media import timelapse_edit
+
+    a = await _arc_with_timelapse(db_session, tmp_path)
+    aid = a.id
+    a.timelapse_frames, a.timelapse_layers = 50, 50
+    await db_session.commit()
+    assert (
+        timelapse_edit.apply(args=(aid, "job-y", 0.0, None, 2.0, "replace", None)).get() == "done"
+    )
+    db_session.expire_all()
+    arc = await db_session.get(PrintArchive, aid)
+    assert (arc.timelapse_frames, arc.timelapse_layers) == (None, None)
+
+
 async def test_timelapse_requires_print_perm_and_media(
     authenticated_client, viewer_client, db_session
 ):

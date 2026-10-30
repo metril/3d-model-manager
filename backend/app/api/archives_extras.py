@@ -476,7 +476,7 @@ async def timelapse_info(
     ctx: AuthContext = Depends(require_session),
     settings: Settings = Depends(get_settings),
 ) -> TimelapseInfoOut:
-    _arc, blob, path = await _timelapse(db, ctx, settings, archive_id)
+    arc, blob, path = await _timelapse(db, ctx, settings, archive_id)
     info = await anyio.to_thread.run_sync(_probe, path)
     st = (info.get("streams") or [{}])[0]
     fmt = info.get("format") or {}
@@ -486,6 +486,8 @@ async def timelapse_info(
         width=int(st.get("width") or 0),
         height=int(st.get("height") or 0),
         bytes=int(fmt.get("size") or blob.size),
+        frames=arc.timelapse_frames,
+        layers=arc.timelapse_layers,
     )
 
 

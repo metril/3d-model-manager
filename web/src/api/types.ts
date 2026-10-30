@@ -2466,6 +2466,8 @@ export interface TimelapseInfo {
   width: number;
   height: number;
   bytes: number;
+  frames?: number | null;
+  layers?: number | null;
 }
 export interface TimelapseProcessIn {
   trim_start: number;

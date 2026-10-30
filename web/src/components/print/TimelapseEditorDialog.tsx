@@ -71,6 +71,11 @@ function Editor({ archive, onDone, onState }: { archive: ArchiveOut; onDone: () 
         poster={archive.has_snapshot ? archiveSnapshotUrl(archive.id) : undefined}
         className="aspect-video"
       />
+      {info.data?.frames ? (
+        <p className="text-xs text-muted-foreground" data-testid="layer-info">
+          {t("archiveX.timelapse.layerInfo", { frames: info.data.frames, layers: info.data.layers ?? info.data.frames })}
+        </p>
+      ) : null}
       {thumbs.data?.frames.length ? (
         <div className="flex gap-0.5 overflow-x-auto" data-testid="thumb-strip">
           {thumbs.data.frames.map((src, i) => (

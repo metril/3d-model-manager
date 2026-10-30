@@ -980,7 +980,8 @@
       "process": "Process",
       "processing": "Processing...",
       "done": "Timelapse updated",
-      "failed": "Timelapse processing failed"
+      "failed": "Timelapse processing failed",
+      "layerInfo": "Layer timelapse: {{frames}} frames, {{layers}} layers"
     },
     "purge": {
       "title": "Archive purge",

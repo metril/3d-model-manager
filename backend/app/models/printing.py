@@ -192,6 +192,10 @@ class PrintArchive(Base):
     timelapse_blob: Mapped[str | None] = mapped_column(
         CHAR(64), ForeignKey("blobs.hash", ondelete="SET NULL")
     )
+    # W5 layer timelapse: frames stitched / last layer captured (NULL for a
+    # printer-recorded timelapse).
+    timelapse_frames: Mapped[int | None] = mapped_column(Integer)
+    timelapse_layers: Mapped[int | None] = mapped_column(Integer)
     # P4 camera plan: a free-text note about the captured media (e.g. "camera
     # disconnected mid-print").
     media_note: Mapped[str | None] = mapped_column(Text)

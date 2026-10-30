@@ -23,6 +23,7 @@ from app.models.enums import BlobFormat, BlobKind
 from app.models.library import Blob
 from app.models.printing import PrintArchive
 from app.services.archive import _ensure_blob, archive_path
+from app.services.archive_lookup import archive_for_job
 from app.services.derivatives import publish_bytes
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -107,6 +108,41 @@ def transcode_timelapse(archive_id: int) -> str:
     if still_used is None:
         archive_path(settings, old_sha, "avi").unlink(missing_ok=True)
     return "transcoded"
+
+
+@celery_app.task(
+    name="app.tasks.media.assemble_layer_timelapse", soft_time_limit=900, time_limit=960
+)
+def assemble_layer_timelapse(print_job_id: int) -> str:
+    """Stitch a job's per-layer frames into its archive timelapse; if that
+    fails, fall back to fetching the printer's own timelapse from SD."""
+    import redis
+
+    from app.models import PrintJob
+    from app.services import layer_timelapse
+
+    settings = get_settings()
+    r = redis.Redis.from_url(settings.redis_url)
+    try:
+        with base.sync_session() as session:
+            ok = layer_timelapse.assemble_for(session, settings, r, print_job_id)
+            if not ok and session.get(PrintJob, print_job_id) is not None:
+                arc = archive_for_job(session, print_job_id)
+                if arc is not None:
+                    arc.media_note = "layer timelapse failed; trying printer timelapse"
+                    session.commit()
+    finally:
+        with base.sync_session() as session:
+            job = session.get(PrintJob, print_job_id)
+            if job is not None:
+                layer_timelapse.clear(r, settings, job.printer_id, job.id)
+        r.close()
+    if not ok:
+        from app.tasks.archive import fetch_timelapse
+
+        fetch_timelapse.apply_async(args=[print_job_id], countdown=60)
+        return "fallback"
+    return "stored"
 
 
 def _set_job(job_id: str, **fields: object) -> None:
@@ -203,6 +239,8 @@ def timelapse_edit(
         else:
             old = arc.timelapse_blob
             arc.timelapse_blob = new_sha
+            arc.timelapse_frames = None
+            arc.timelapse_layers = None
             session.flush()
             if old and old != new_sha:
                 _freed, paths = release_blobs(session, settings, {old})

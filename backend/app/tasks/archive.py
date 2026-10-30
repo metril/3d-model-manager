@@ -18,6 +18,7 @@ from app.config import Settings, get_settings
 from app.models import Print, PrintArchive, PrintJob
 from app.models.enums import ArchiveResult, BlobFormat, PrintJobState
 from app.models.library import Blob
+from app.services import layer_timelapse
 from app.services.archive import ArchiveFetchError, archive_job, mark_archive_error
 from app.services.archive_lookup import archive_for_job
 from app.services.archive_media import attach_snapshot, fetch_timelapse_for
@@ -69,6 +70,15 @@ def _claim_media_schedule(settings: Settings, print_job_id: int) -> bool:
         r.close()
 
 
+def _has_layer_frames(settings: Settings, print_job_id: int) -> bool:
+    with base.sync_session() as session:
+        job = session.get(PrintJob, print_job_id)
+        printer_id = job.printer_id if job is not None else None
+    if printer_id is None:
+        return False
+    return layer_timelapse.frame_count(settings, printer_id, print_job_id) > 0
+
+
 def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> None:
     """Best-effort: grab the run's camera snapshot now and schedule the
     delayed timelapse fetch. Neither half is allowed to fail the archive --
@@ -95,6 +105,16 @@ def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> N
                 session.commit()
     except Exception as e:  # noqa: BLE001 -- never fail the archive over the camera
         logger.warning("archive snapshot failed for job %s: %s", print_job_id, type(e).__name__)
+    try:
+        if _has_layer_frames(settings, print_job_id):
+            from app.tasks.media import assemble_layer_timelapse
+
+            assemble_layer_timelapse.delay(print_job_id)
+            return
+    except Exception as e:  # noqa: BLE001 -- fall through to the SD fetch
+        logger.warning(
+            "layer timelapse enqueue failed for job %s: %s", print_job_id, type(e).__name__
+        )
     try:
         fetch_timelapse.apply_async(args=[print_job_id], countdown=_TIMELAPSE_FETCH_DELAY_S)
     except Exception as e:  # noqa: BLE001 -- never fail the archive over enqueueing
