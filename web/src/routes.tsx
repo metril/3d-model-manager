@@ -296,11 +296,40 @@ const trashRoute = createRoute({
 const inventorySpoolsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/spools",
-  validateSearch: (search: Record<string, unknown>): { low?: string; tab?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { low?: string; tab?: string; spool?: string } => ({
     low: search.low != null ? String(search.low) : undefined,
+    spool: search.spool != null && /^\d+$/.test(String(search.spool)) ? String(search.spool) : undefined,
     tab: typeof search.tab === "string" ? search.tab : undefined,
   }),
   component: lazyRouteComponent(() => import("@/pages/SpoolsPage"), "SpoolsPage"),
+});
+
+const scanRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/scan",
+  validateSearch: (s: Record<string, unknown>): { location?: string } => ({
+    location: s.location != null && /^\d+$/.test(String(s.location)) ? String(s.location) : undefined,
+  }),
+  component: lazyRouteComponent(() => import("@/pages/ScanPage"), "ScanPage"),
+});
+
+// QR landing URLs printed on labels: a phone's stock camera app opens these.
+const scanSpoolRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/scan/spool/$id",
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/inventory/spools", search: { spool: params.id } });
+  },
+  component: () => null,
+});
+
+const scanLocationRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/scan/location/$id",
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/scan", search: { location: params.id } });
+  },
+  component: () => null,
 });
 
 const inventoryMaterialsRoute = createRoute({
@@ -379,6 +408,9 @@ export const routeTree = rootRoute.addChildren([
     duplicatesRoute,
     trashRoute,
     inventorySpoolsRoute,
+    scanRoute,
+    scanSpoolRoute,
+    scanLocationRoute,
     inventoryMaterialsRoute,
     inventoryProfilesRoute,
     systemJobsRoute,

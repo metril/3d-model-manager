@@ -76,12 +76,12 @@ const TABS = ["spools", "forecast", "suppliers", "locations", "colors"] as const
 export type SpoolsTab = (typeof TABS)[number];
 
 export function SpoolsPage() {
-  const { low, tab: tabParam } = routeApi.useSearch();
+  const { low, tab: tabParam, spool: spoolParam } = routeApi.useSearch();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const tab: SpoolsTab = TABS.find((x) => x === tabParam) ?? "spools";
   const { can } = useAuth();
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<number | null>(spoolParam ? Number(spoolParam) : null);
   const [addOpen, setAddOpen] = useState(false);
 
   return (
