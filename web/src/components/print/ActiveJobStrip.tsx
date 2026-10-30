@@ -54,6 +54,9 @@ export function ActiveJobStrip({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{name}</p>
           {job.plate != null ? <p className="text-xs text-muted-foreground">Plate {job.plate}</p> : null}
+          {job.estimated_cost != null ? (
+            <p className="text-xs text-muted-foreground">Est. cost {job.estimated_cost.toFixed(2)}</p>
+          ) : null}
         </div>
       </div>
 
