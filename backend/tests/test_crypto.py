@@ -127,3 +127,31 @@ def test_create_is_0600_under_permissive_umask(tmp_path, monkeypatch):
     assert path.is_file()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert path.read_bytes() == key
+
+
+def test_concurrent_key_creation_never_sees_empty_key(tmp_path):
+    import threading
+
+    from app.crypto import _key_cache
+
+    s = _settings(tmp_path)
+    _key_cache.clear()
+    results: list[bytes] = []
+    errors: list[Exception] = []
+    barrier = threading.Barrier(8)
+
+    def work():
+        barrier.wait()
+        try:
+            _key_cache.pop((str(printer_key_path(s)), ""), None)
+            results.append(load_or_create_printer_key(s))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    ts = [threading.Thread(target=work) for _ in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert not errors
+    assert len(set(results)) == 1
+    Fernet(results[0])
+    assert not list(printer_key_path(s).parent.glob("*.tmp"))

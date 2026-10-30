@@ -38,7 +38,11 @@ from app.services.imports import retry_failed_import, start_import
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 
-@router.get("/search", response_model=SearchResponse)
+@router.get(
+    "/search",
+    response_model=SearchResponse,
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def search_imports(
     q: str,
     site: Annotated[list[ImportSite] | None, Query()] = None,
@@ -114,7 +118,11 @@ async def search_imports(
     return SearchResponse(results=results, per_site=per_site)
 
 
-@router.get("/lists", response_model=list[RemoteListOut])
+@router.get(
+    "/lists",
+    response_model=list[RemoteListOut],
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def list_remote_lists(
     site: Annotated[list[ImportSite] | None, Query()] = None,
 ) -> list[RemoteListOut]:
@@ -147,7 +155,11 @@ async def list_remote_lists(
     ]
 
 
-@router.get("/lists/{site}/{list_id}/items", response_model=list[SearchResultOut])
+@router.get(
+    "/lists/{site}/{list_id}/items",
+    response_model=list[SearchResultOut],
+    dependencies=[Depends(require_perm("library:write"))],
+)
 async def list_remote_list_items(
     site: ImportSite, list_id: str, page: int = 1
 ) -> list[SearchResultOut]:

@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FolderBrowser } from "@/components/gallery/FolderBrowser";
 import type { ModelSummary, StorageTreeOut } from "@/api/types";
 
-const { treesBox, getMock } = vi.hoisted(() => {
+const { treesBox, getMock, loadMoreMock, moreBox } = vi.hoisted(() => {
   const model: ModelSummary = {
     id: 1,
     slug: "goblin",
@@ -64,6 +64,8 @@ const { treesBox, getMock } = vi.hoisted(() => {
         },
       } as Record<string, StorageTreeOut>,
     },
+    loadMoreMock: vi.fn(),
+    moreBox: { hasMore: false },
     getMock: vi.fn((path: string) => Promise.resolve(path === "/tags" ? [] : {})),
   };
 });
@@ -74,6 +76,9 @@ vi.mock("@/api/storageTree", () => ({
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
+    hasMore: moreBox.hasMore,
+    loadingMore: false,
+    loadMore: loadMoreMock,
   }),
 }));
 
@@ -114,6 +119,8 @@ function renderBrowser(path: string, onNavigate = vi.fn()) {
 
 beforeEach(() => {
   getMock.mockClear();
+  loadMoreMock.mockClear();
+  moreBox.hasMore = false;
 });
 
 describe("FolderBrowser", () => {
@@ -183,5 +190,24 @@ describe("FolderBrowser", () => {
     expect(await screen.findByText("Goblin")).toBeInTheDocument();
     expect(screen.getByText("Minis")).toBeInTheDocument();
     expect(screen.getByText("fantasy")).toBeInTheDocument();
+  });
+
+  it("offers Load more when the folder has more files than loaded", async () => {
+    moreBox.hasMore = true;
+    treesBox.current["figures/dnd/goblin"] = {
+      ...treesBox.current["figures/dnd/goblin"],
+      total_files: 700,
+    };
+    renderBrowser("figures/dnd/goblin");
+
+    expect(await screen.findByText("1 of 700 files shown")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    expect(loadMoreMock).toHaveBeenCalledOnce();
+  });
+
+  it("hides Load more when everything is loaded", async () => {
+    renderBrowser("figures/dnd/goblin");
+    await screen.findByText("goblin.stl");
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 });
