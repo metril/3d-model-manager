@@ -1,5 +1,7 @@
 import io
+import re
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -88,6 +90,37 @@ def test_warning_is_one_shot_per_job_and_layer(r):
     assert pause_eta.claim_warning(client, pid, 7, 2) is False
     assert pause_eta.claim_warning(client, pid, 7, 5) is True
     assert pause_eta.claim_warning(client, pid, 8, 2) is True
+
+
+REAL_3MF = Path(__file__).parent / "corpus_real" / "DotC parts - Part 1_plate_1.gcode.3mf"
+
+
+def _real_gcode() -> str:
+    with zipfile.ZipFile(REAL_3MF) as zf:
+        return zf.read("Metadata/plate_1.gcode").decode("utf-8", "replace")
+
+
+def test_real_bambu_slice_has_layers_and_decreasing_remaining_but_no_pauses():
+    text = _real_gcode()
+    layers = [int(m) for m in re.findall(r"^; layer num/total_layer_count: (\d+)/", text, re.M)]
+    remaining = [int(m) for m in re.findall(r"^M73 P\d+ R(\d+)", text, re.M)]
+    assert len(layers) == 474 and layers == sorted(layers)
+    assert remaining[0] == 374 and remaining == sorted(remaining, reverse=True)
+    assert pause_eta.parse_pause_points(text.splitlines()) == []
+    assert pause_eta.pause_points_from_3mf(REAL_3MF.read_bytes(), 1) == []
+
+
+def test_real_bambu_slice_with_injected_pause_is_picked_up():
+    lines = _real_gcode().splitlines()
+    idx = [i for i, ln in enumerate(lines) if ln.startswith("; layer num/total_layer_count: 200/")]
+    assert idx
+    lines.insert(idx[0] + 1, "M400 U1")
+    (pt,) = pause_eta.parse_pause_points(lines)
+    assert pt["layer"] == 200
+    last_r = [
+        int(m.group(1)) for ln in lines[: idx[0]] if (m := re.match(r"^M73 P\d+ R(\d+)", ln))
+    ][-1]
+    assert pt["remaining_min"] == last_r
 
 
 def test_points_roundtrip(r):
