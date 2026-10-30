@@ -88,6 +88,18 @@ const cameraWindowRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/CameraPage"), "CameraPage"),
 });
 
+// PWA shortcut target: `/camera?printer=ID` opens that printer full-screen.
+const cameraShortcutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/camera",
+  beforeLoad: sessionGuard,
+  validateSearch: (search: Record<string, unknown>): { printer?: number } => {
+    const n = Number(search.printer);
+    return { printer: Number.isInteger(n) && n > 0 ? n : undefined };
+  },
+  component: lazyRouteComponent(() => import("@/pages/CameraPage"), "CameraShortcutPage"),
+});
+
 const camWallRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/camwall",
@@ -357,6 +369,7 @@ export const routeTree = rootRoute.addChildren([
   loginRoute,
   viewerWindowRoute,
   cameraWindowRoute,
+  cameraShortcutRoute,
   camWallRoute,
   overlayRoute,
   authenticatedRoute.addChildren([

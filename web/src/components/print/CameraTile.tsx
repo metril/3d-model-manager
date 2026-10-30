@@ -25,6 +25,7 @@ import {
   VideoOffIcon,
   VideoIcon,
   ImageIcon,
+  PictureInPicture2Icon,
   ZoomInIcon,
   ZoomOutIcon,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { useCameraLight, useCameraStatus, useCameraUrls } from "@/api/printers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useElementFullscreen } from "@/hooks/useElementFullscreen";
 import { framesEqual, isStreamStalled, MAX_RECONNECTS, reconnectDelayMs } from "@/lib/cameraStall";
+import { floatingCamera, useOverlayOwnsStream } from "@/lib/floatingCamera";
 import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
@@ -111,6 +113,8 @@ export interface CameraTileProps {
   rotation?: number;
   /** Show the hover toolbar (default true). */
   controls?: boolean;
+  /** Rendered by the floating overlay itself (which owns the stream). */
+  overlay?: boolean;
 }
 
 export function CameraTile({
@@ -122,11 +126,15 @@ export function CameraTile({
   urls,
   rotation: rotationProp,
   controls = true,
+  overlay = false,
 }: CameraTileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const lastImg = useRef<HTMLImageElement | null>(null);
   const visible = useVisible(containerRef);
+  // One connection per printer: while the floating overlay streams this
+  // printer, inline tiles drop theirs.
+  const yielded = useOverlayOwnsStream(printerId) && !overlay;
   const fullscreen = useElementFullscreen(containerRef);
 
   const [loaded, setLoaded] = useState(false);
@@ -181,7 +189,7 @@ export function CameraTile({
   }, []);
 
   const offline = !online || errored;
-  const showImg = !offline && visible && effective != null && !noCamera;
+  const showImg = !offline && !yielded && visible && effective != null && !noCamera;
 
   // Snapshot mode: re-pull the still on an interval.
   useEffect(() => {
@@ -309,7 +317,7 @@ export function CameraTile({
       data-slot="camera-tile"
       className={cn("group relative size-full touch-none overflow-hidden bg-muted", className)}
       style={
-        !offline && effective && !noCamera
+        !offline && !yielded && effective && !noCamera
           ? {
               backgroundImage: `url(${effective.snapshot_url})`,
               backgroundSize: "cover",
@@ -324,7 +332,12 @@ export function CameraTile({
       onPointerCancel={onPointerUp}
       onDoubleClick={() => controls && setView({ s: 1, x: 0, y: 0 })}
     >
-      {offline || noCamera ? (
+      {yielded ? (
+        <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
+          <PictureInPicture2Icon className="size-6" aria-hidden="true" />
+          <span className="label-caps text-xs">Showing in floating camera</span>
+        </div>
+      ) : offline || noCamera ? (
         <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
           <VideoOffIcon className="size-6" aria-hidden="true" />
           <span className="label-caps text-xs">{noCamera && !offline ? "No camera" : "Camera offline"}</span>
@@ -354,7 +367,7 @@ export function CameraTile({
               />
             </div>
           ) : null}
-          {!loaded ? <Skeleton className="absolute inset-0 size-full rounded-none" /> : null}
+          {!loaded && !yielded ? <Skeleton className="absolute inset-0 size-full rounded-none" /> : null}
         </>
       )}
 
@@ -364,7 +377,7 @@ export function CameraTile({
         </span>
       ) : null}
 
-      {controls && !offline && !noCamera ? (
+      {controls && !offline && !noCamera && !yielded ? (
         <div
           role="toolbar"
           aria-label="Camera controls"
@@ -410,6 +423,11 @@ export function CameraTile({
           <ToolButton label="Reset zoom" onClick={() => setView({ s: 1, x: 0, y: 0 })}>
             <RotateCcwIcon className="size-4" />
           </ToolButton>
+          {!overlay && !urls ? (
+            <ToolButton label="Floating camera" onClick={() => floatingCamera.toggle(printerId)}>
+              <PictureInPicture2Icon className="size-4" />
+            </ToolButton>
+          ) : null}
           {fullscreen.supported ? (
             <ToolButton label={fullscreen.active ? "Exit fullscreen" : "Fullscreen"} onClick={fullscreen.toggle}>
               {fullscreen.active ? <MinimizeIcon className="size-4" /> : <ExpandIcon className="size-4" />}
