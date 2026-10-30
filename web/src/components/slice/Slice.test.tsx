@@ -91,6 +91,64 @@ describe("SliceFileButton", () => {
   });
 });
 
+describe("SliceDialog bed fit", () => {
+  const fit = (over: Record<string, unknown>) => {
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/printers") return Promise.resolve([{ id: 1, name: "A1 mini" }]);
+      if (path.startsWith("/recipes")) return Promise.resolve([{ id: 3, name: "A1 PLA" }, { id: 4, name: "A1 PETG" }]);
+      if (path.startsWith("/models/cube/files/5/bed-fit"))
+        return Promise.resolve({
+          status: "fits",
+          fits: true,
+          rotated: false,
+          overflow: {},
+          required_bed: null,
+          required_height: 10,
+          bed: [180, 180],
+          height: 180,
+          ...over,
+        });
+      return base(path);
+    });
+  };
+  const open = () => ui(<SliceDialog open onOpenChange={() => {}} file={FILE} modelSlug="cube" />);
+
+  it("shows Fits for a part that fits", async () => {
+    fit({});
+    open();
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Fits 180×180");
+  });
+
+  it("shows Fits when rotated", async () => {
+    fit({ status: "rotated", rotated: true });
+    open();
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Fits when rotated");
+  });
+
+  it("shows nothing when unknown", async () => {
+    fit({ status: "unknown" });
+    open();
+    await screen.findByLabelText("A1 PLA");
+    await waitFor(() => expect(screen.queryByTestId("bed-fit-chip")).toBeNull());
+  });
+
+  it("disables Slice when too large until 'Slice anyway' sends force", async () => {
+    fit({ status: "too_large", fits: false, overflow: { x: 33 } });
+    postMock.mockResolvedValue({ ...JOB, state: "queued" });
+    open();
+    expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Too large: 213 mm on X (bed 180)");
+    fireEvent.click(await screen.findByLabelText("A1 PETG"));
+    expect(screen.getByRole("button", { name: "Slice" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Slice anyway"));
+    fireEvent.click(screen.getByRole("button", { name: "Slice" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/files/5/slice", { recipe_id: 4, plate: null, force: true }),
+    );
+    untrackSlice("job-1");
+  });
+});
+
 describe("SliceDialog", () => {
   it("starts a slice job with the chosen recipe and plate, then tracks it", async () => {
     postMock.mockResolvedValue({ ...JOB, state: "queued" });

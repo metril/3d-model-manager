@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { usePipelines, useRunPipeline } from "@/api/pipelines";
 import { usePrinters } from "@/api/printers";
-import { useRecipes, useSlicerHealth, useStartSlice } from "@/api/slicing";
+import { useBedFit, useRecipes, useSlicerHealth, useStartSlice, type BedFit } from "@/api/slicing";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
 import { trackSlice } from "@/components/slice/sliceTracker";
 import { Button } from "@/components/ui/button";
@@ -23,16 +23,52 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useDebouncedValue } from "@/lib/format";
 import { filterByName, sortPresets } from "@/lib/presetList";
 
+/** One-line bed-fit verdict for the chosen printer; null when unknown. */
+function bedFitMessage(fit: BedFit | undefined): string | null {
+  if (!fit || fit.status === "unknown") return null;
+  const bed = fit.bed ? `${fit.bed[0]}×${fit.bed[1]}` : "";
+  if (fit.status === "fits") return `Fits ${bed}`.trim();
+  if (fit.status === "rotated") return "Fits when rotated";
+  const [axis, mm] = Object.entries(fit.overflow)[0] ?? ["", 0];
+  const limit = axis === "z" ? fit.height : fit.bed ? fit.bed[axis === "y" ? 1 : 0] : null;
+  const total = limit != null ? Math.round((limit + mm) * 10) / 10 : mm;
+  return `Too large: ${total} mm on ${axis.toUpperCase()}${limit != null ? ` (bed ${limit})` : ""}`;
+}
+
+function BedFitChip({ fit }: { fit: BedFit | undefined }) {
+  const text = bedFitMessage(fit);
+  if (!text) return null;
+  const bad = fit?.status === "too_large";
+  return (
+    <span
+      role={bad ? "alert" : "status"}
+      data-testid="bed-fit-chip"
+      className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs ${
+        bad ? "border-destructive text-destructive" : fit?.status === "rotated" ? "text-amber-600" : "text-muted-foreground"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
 export function SliceDialog({
   open,
   onOpenChange,
   file,
+  modelSlug,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   file: { id: number; rel_path: string };
+  /** Enables the pre-flight bed-fit check once a printer is chosen. */
+  modelSlug?: string;
 }) {
   const [printerId, setPrinterId] = useState<number | null>(null);
+  const [force, setForce] = useState(false);
+  const bedFit = useBedFit(modelSlug, file.id, printerId);
+  const tooLarge = bedFit.data?.status === "too_large";
+  const blocked = tooLarge && !force;
   const recipes = useRecipes(printerId ?? undefined);
   const printersQ = usePrinters();
   const health = useSlicerHealth();
@@ -90,7 +126,7 @@ export function SliceDialog({
     if (pipelineMode) return submitPipeline();
     if (recipeId == null || !plateValid) return;
     start.mutate(
-      { fileId: file.id, recipeId, plate: plateN },
+      { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge },
       {
         onSuccess: (job) => {
           trackSlice({ id: job.id, fileName: name });
@@ -113,6 +149,7 @@ export function SliceDialog({
           setPlate("");
           setSearch("");
           setPrinterId(null);
+          setForce(false);
         }
       }}
       dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== "" || printerId !== null}
@@ -207,6 +244,15 @@ export function SliceDialog({
         <div className="grid gap-1.5">
           <Label>Printer (optional, prefers its recipes)</Label>
           <PrinterPicker printers={printerOptions} value={printerId} onChange={pickPrinter} idPrefix="slice-printer" />
+          <BedFitChip fit={bedFit.data} />
+          {tooLarge ? (
+            <div className="flex items-center gap-2">
+              <input id="slice-force" type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+              <Label htmlFor="slice-force" className="text-xs font-normal">
+                Slice anyway
+              </Label>
+            </div>
+          ) : null}
         </div>
       ) : null}
       <div className="grid gap-1.5">
@@ -235,7 +281,8 @@ export function SliceDialog({
             !plateValid ||
             start.isPending ||
             runPipeline.isPending ||
-            slicerDown
+            slicerDown ||
+            (!pipelineMode && blocked)
           }
           onClick={submit}
         >

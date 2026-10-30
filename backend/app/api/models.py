@@ -40,6 +40,7 @@ from app.services import layout, library, spool, zip_export
 from app.services import storage_backends as storage_backends_service
 from app.services import tags as tags_svc
 from app.services import trash as trash_service
+from app.services.bed_fit import FitResult, bed_for_printer, fit_for_file, unknown_fit
 from app.services.http_names import content_disposition_attachment
 from app.storage.base import StorageBackend
 from app.tasks.importing import redownload_model as redownload_model_task
@@ -195,6 +196,27 @@ async def list_model_files(
         )
         files = [f for f in files if f.rel_path in paths]
     return files
+
+
+@router.get("/{slug}/files/{file_id}/bed-fit")
+async def file_bed_fit(
+    slug: str,
+    file_id: int,
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Does this file's bounding box fit the printer's bed? ``status`` is
+    ``unknown`` (never blocking) without a bed, dims or when already sliced."""
+    model = await library.get_model_by_slug(db, slug)
+    file = await library.get_live_file(db, file_id)
+    if (
+        file is None
+        or (await library.get_revision_or_404(db, file.revision_id)).model_id != model.id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
+    bed = await bed_for_printer(db, printer_id)
+    result: FitResult = await fit_for_file(db, file.blob_hash, bed) if bed else unknown_fit()
+    return result.model_dump()
 
 
 @router.get("/{slug}", response_model=ModelDetail)

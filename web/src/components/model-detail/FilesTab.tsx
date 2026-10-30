@@ -208,7 +208,7 @@ export function FilesTab({
               }
               actions={
                 <>
-                  <SliceFileButton file={file} />
+                  <SliceFileButton file={file} modelSlug={model.slug} />
                   <SendToPrinterButton file={file} />
                   {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
                   <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} />

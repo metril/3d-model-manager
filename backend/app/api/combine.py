@@ -23,11 +23,11 @@ from app.schemas.combine import BedIn, CombineIn, CombineOut, CombinePlacementOu
 from app.schemas.jobs import JobOut
 from app.services import jobs as jobs_service
 from app.services import library, spool
+from app.services.bed_fit import parse_printable_area
 from app.services.mesh_combine import (
     CombinePart,
     LayoutPlan,
     MeshCombineError,
-    parse_printable_area,
     plan_parts,
     write_3mf,
 )
