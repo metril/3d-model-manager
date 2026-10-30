@@ -267,3 +267,62 @@ def test_fetch_photo_caps_size(redis_url):
     assert delivery.fetch_photo(77, {}) == b"x" * 100
     r.set("printer:77:camera:frame", b"x" * (delivery.MAX_PHOTO_BYTES + 1), ex=30)
     assert delivery.fetch_photo(77, {}) is None
+
+
+def test_hms_dedup_fake_clock(redis_url):
+    from app.services.notify import hms_dedup as hd
+
+    r = redis_lib.Redis.from_url(redis_url)
+    r.delete("notify:hms:91:C")
+    cfg = hd.NotifySettings(hms_renotify_clear_s=300, hms_renotify_after_s=3600)
+    assert hd.should_notify(r, 91, "C", cfg, now=1000.0)
+    # flicker: clears and re-raises within seconds -> suppressed
+    hd.mark_cleared(r, 91, "C", now=1010.0)
+    assert not hd.should_notify(r, 91, "C", cfg, now=1020.0)
+    # clear again, stays clear >= clear_s -> notify
+    hd.mark_cleared(r, 91, "C", now=1100.0)
+    assert hd.should_notify(r, 91, "C", cfg, now=1100.0 + 300)
+    # episode older than after_s -> notify even without a clear
+    assert not hd.should_notify(r, 91, "C", cfg, now=1400.0 + 3599)
+    assert hd.should_notify(r, 91, "C", cfg, now=1400.0 + 3600)
+    r.delete("notify:hms:91:C")
+
+
+def test_printerd_suppresses_flickering_hms(worker, emitted):  # noqa: F811
+    w, adapter, pid, _c = worker
+    for k in w.redis.scan_iter(f"notify:hms:{pid}:*"):
+        w.redis.delete(k)
+    pub = adapter.public_state(cass.SNAPSHOT_IDLE)
+    pub.hms = []
+    w._write_public(pub)
+    pub.hms = [{"attr": 0x03000100, "code": 0x10001}]
+    w._write_public(pub)
+    pub.hms = []
+    w._write_public(pub)
+    pub.hms = [{"attr": 0x03000100, "code": 0x10001}]
+    w._write_public(pub)
+    assert [e[0] for e in emitted] == ["hms_error"]
+
+
+def test_send_one_attaches_photo_only_when_enabled(monkeypatch, sent):
+    monkeypatch.setattr(ntask, "fetch_photo", lambda pid, payload: b"JPEG")
+    on = _channel(attach_photo=True)
+    off = _channel(attach_photo=False)
+    ntask.send_one.run(on, "job_finished", None, {})
+    ntask.send_one.run(off, "job_finished", None, {})
+    assert {cid: m.photo for cid, m in sent} == {on: b"JPEG", off: None}
+    monkeypatch.setattr(ntask, "fetch_photo", lambda pid, payload: None)  # no frame: silent
+    sent.clear()
+    ntask.send_one.run(on, "job_finished", None, {})
+    assert sent[0][1].photo is None
+
+
+async def test_notify_settings_api(authenticated_client):
+    c = authenticated_client
+    body = (await c.get("/api/notifications/settings")).json()
+    assert body == {"hms_renotify_clear_s": 300, "hms_renotify_after_s": 3600}
+    body = (await c.patch("/api/notifications/settings", json={"hms_renotify_clear_s": 60})).json()
+    assert body == {"hms_renotify_clear_s": 60, "hms_renotify_after_s": 3600}
+    assert (
+        await c.patch("/api/notifications/settings", json={"hms_renotify_clear_s": -1})
+    ).status_code == 422
