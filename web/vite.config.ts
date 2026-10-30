@@ -29,6 +29,21 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined
+          // React core first so three's chunk never owns it (would force-load three eagerly).
+          if (/node_modules\/(react|react-dom|scheduler|use-sync-external-store|zustand)\//.test(id)) return 'vendor-react'
+          if (/node_modules\/(three|@react-three|three-stdlib|postprocessing|meshline|troika)/.test(id)) return 'vendor-three'
+          if (id.includes('node_modules/dockview')) return 'vendor-dockview'
+          if (id.includes('node_modules/@dnd-kit')) return 'vendor-dnd'
+          return undefined
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {
