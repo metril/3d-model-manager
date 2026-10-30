@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WebGLPreview } from "gcode-preview";
 
 import { usePrinters, usePrinterStatus } from "@/api/printers";
+import { isTooLarge, TOO_LARGE_TO_PREVIEW_BYTES } from "@/lib/gcodeLimits";
 
 const DEFAULT_BUILD_VOLUME = { x: 256, y: 256, z: 256 };
 
@@ -34,12 +35,6 @@ function gcodeDownloadUrl(fileId: number): string {
  * (review finding 1): `gcode-preview` needs the whole body as one string,
  * and a huge sliced-project plate can be hundreds of MB -- reading
  * `response.text()` on that risks hanging/crashing the tab. */
-const TOO_LARGE_TO_PREVIEW_BYTES = 150 * 1024 * 1024;
-
-/** Decoded text length (UTF-16 units) vs the size cap. */
-export function isTooLarge(textLength: number): boolean {
-  return textLength > TOO_LARGE_TO_PREVIEW_BYTES;
-}
 
 export function GcodePreview({
   fileId,

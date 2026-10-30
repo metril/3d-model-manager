@@ -6,17 +6,11 @@ import { fetchMqttHistory, mqttStreamUrl, type MqttDebugEntry } from "@/api/admi
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { withSeq, type MqttRow } from "@/lib/mqttRows";
 import { matchesFilter } from "@/lib/mqttFilter";
 import { cn } from "@/lib/utils";
 
 const MAX_ROWS = 500;
-
-export type MqttRow = MqttDebugEntry & { seq: number };
-
-/** Tag entries with a monotonic seq so row keys never collide. */
-export function withSeq(entries: MqttDebugEntry[], start: number): MqttRow[] {
-  return entries.map((e, i) => ({ ...e, seq: start + i }));
-}
 
 /** Admin: live raw MQTT report stream of one printer (from printerd via Redis/SSE). */
 export function MqttDebugModal({

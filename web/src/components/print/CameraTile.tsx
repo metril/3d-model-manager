@@ -34,13 +34,11 @@ import { useAuth } from "@/api/auth";
 import { useCameraLight, useCameraStatus, useCameraUrls } from "@/api/printers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useElementFullscreen } from "@/hooks/useElementFullscreen";
+import { framesEqual, isStreamStalled, MAX_RECONNECTS, reconnectDelayMs } from "@/lib/cameraStall";
 import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
 const STALL_MS = 20_000;
-/** Consecutive stall reconnects before giving up to the offline state (its
- * 10 s auto-retry then takes over). */
-export const MAX_RECONNECTS = 5;
 const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
 const MIN_ZOOM = 1;
@@ -72,30 +70,6 @@ function useVisible(target: React.RefObject<HTMLElement | null>): boolean {
 
 function withParam(url: string, key: string, value: string | number): string {
   return `${url}${url.includes("?") ? "&" : "?"}${key}=${value}`;
-}
-
-/** Stalled when no frame has decoded for `stallMs` after connect, or the
- * decoded frame has been byte-identical for `stallMs`. */
-export function isStreamStalled(
-  naturalWidth: number,
-  sinceConnectMs: number,
-  sinceChangeMs: number,
-  stallMs: number,
-): boolean {
-  if (naturalWidth === 0) return sinceConnectMs > stallMs;
-  return sinceChangeMs > stallMs;
-}
-
-/** Reconnect delay after the n-th (0-based) consecutive stall: 5,10,20,40,60s. */
-export function reconnectDelayMs(attempt: number): number {
-  return Math.min(5_000 * 2 ** attempt, 60_000);
-}
-
-/** Exact byte comparison of two frame samples. */
-export function framesEqual(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
 }
 
 /** Downsampled RGBA of the img's current frame; `null` when nothing is

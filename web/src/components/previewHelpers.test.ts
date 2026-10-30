@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { framesEqual, isStreamStalled, reconnectDelayMs } from "@/components/print/CameraTile";
-import { withSeq } from "@/components/printer/MqttDebugModal";
-import { isTooLarge } from "@/components/viewer/GcodePreview";
+import { framesEqual, isStreamStalled, reconnectDelayMs } from "@/lib/cameraStall";
+import { withSeq } from "@/lib/mqttRows";
+import { isTooLarge } from "@/lib/gcodeLimits";
 
 describe("w3 preview/camera helpers", () => {
   it("withSeq gives unique keys to same-ts same-topic entries", () => {
