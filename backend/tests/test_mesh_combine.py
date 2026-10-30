@@ -170,6 +170,30 @@ async def test_combine_rejects_when_not_fitting(authenticated_client: httpx.Asyn
 
 
 @pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_enqueue_failure_rolls_back(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+) -> None:
+    from sqlalchemy import select
+
+    from app.api import combine as combine_api
+    from app.models import File
+
+    created, file_id = await _model_with_stl(authenticated_client, "Broker Down")
+
+    def boom(*a, **k):
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr(combine_api.store_to_backend, "apply_async", boom)
+    response = await authenticated_client.post(
+        f"/api/models/{created['slug']}/combine",
+        json={"items": [{"file_id": file_id}], "bed": {"x_mm": 100, "y_mm": 100}, "name": "plate"},
+    )
+    assert response.status_code == 503
+    paths = (await db_session.execute(select(File.rel_path))).scalars().all()
+    assert "plate.3mf" not in paths
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
 async def test_combine_requires_bed_and_known_file(authenticated_client: httpx.AsyncClient) -> None:
     created, file_id = await _model_with_stl(authenticated_client, "Validation")
     slug = created["slug"]

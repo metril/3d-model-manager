@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import SlicerProfile
+from app.models import File, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, ProfileKind
 from app.schemas.combine import BedIn, CombineIn, CombineOut, CombinePlacementOut
 from app.schemas.jobs import JobOut
@@ -183,7 +183,22 @@ async def combine_files(
         raise
 
     file_id, revision_id = file.id, revision.id
-    store_to_backend.apply_async(args=[str(job.id), file_id, str(out_path)], task_id=str(job.id))
+    try:
+        store_to_backend.apply_async(
+            args=[str(job.id), file_id, str(out_path)], task_id=str(job.id)
+        )
+    except Exception:
+        # Broker down: drop the never-stored file row and the spooled bytes.
+        job.state = jobs_service.STATE_FAILED
+        job.error = "failed to enqueue store_to_backend"
+        orphan = await db.get(File, file_id)
+        if orphan is not None:
+            await db.delete(orphan)
+        await db.commit()
+        await anyio.to_thread.run_sync(lambda: out_path.unlink(missing_ok=True))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the combine; retry"
+        ) from None
     # Eager Celery (tests) ran the store through its own session; drop stale state.
     db.expire_all()
     revision = await library.get_revision_or_404(db, revision_id)
