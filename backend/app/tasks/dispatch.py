@@ -25,6 +25,7 @@ _LOCK_TIMEOUT_S = 60
 DISPATCH_INTERVAL_S = 10
 
 from redis import Redis  # noqa: E402
+from redis.exceptions import LockError  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services.app_config import get_app_config_sync  # noqa: E402
@@ -47,8 +48,18 @@ def dispatch_queue() -> dict | None:
         if not lock.acquire(blocking=False):
             return None  # another tick is still in flight; picked back up next tick
         try:
+
+            def _keepalive() -> bool:
+                # Re-arm the TTL per item: a slow tick must not outlive the lock
+                # and let a second worker dispatch the same entries.
+                try:
+                    lock.extend(_LOCK_TIMEOUT_S, replace_ttl=True)
+                except LockError:
+                    return False
+                return True
+
             with base.sync_session() as s:
-                return dispatch_once(s, client, settings)
+                return dispatch_once(s, client, settings, keepalive=_keepalive)
         finally:
             with contextlib.suppress(Exception):
                 lock.release()
