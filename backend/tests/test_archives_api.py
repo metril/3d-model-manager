@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -147,3 +148,32 @@ async def test_reprint_409_without_library_file(
     a = await _archive(db_session, await _printer(db_session, "p1"))
     r = await authenticated_client.post(f"/api/archives/{a.id}/reprint")
     assert r.status_code == 409
+
+
+async def test_runs_endpoint_and_list_summary(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+):
+    m = Model(slug="m", name="M")
+    db_session.add(m)
+    await db_session.commit()
+    a = await _archive(db_session, await _printer(db_session, "p1"), model=m)
+    old = await _archive(db_session, await _printer(db_session, "p2"), model=m, n=5)
+    # fold `old`'s job in as a prior run of `a`
+    run_old = (
+        await db_session.scalars(select(Print).where(Print.print_job_id == old.print_job_id))
+    ).one()
+    run_old.archive_id = a.id
+    run_new = (
+        await db_session.scalars(select(Print).where(Print.print_job_id == a.print_job_id))
+    ).one()
+    run_new.archive_id = a.id
+    a.run_count = 2
+    await db_session.commit()
+    c = authenticated_client
+    row = next(x for x in (await c.get("/api/archives")).json() if x["id"] == a.id)
+    assert row["run_count"] == 2
+    assert row["latest_run"]["outcome"] == "completed" and row["latest_run"]["total_cost"] == 1.5
+    runs = (await c.get(f"/api/archives/{a.id}/runs")).json()
+    assert len(runs) == 2 and [r["is_latest"] for r in runs].count(True) == 1
+    assert next(r for r in runs if r["is_latest"])["print_job_id"] == a.print_job_id
+    assert (await c.get("/api/archives/99999/runs")).status_code == 404

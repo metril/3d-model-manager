@@ -255,3 +255,6 @@ class PrintArchive(Base):
     f3d_name: Mapped[str | None] = mapped_column(Text)
     # True when the source was linked from the library model, not uploaded.
     source_linked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    # W5: runs (``prints.archive_id``) of this file+plate. The per-run columns
+    # above (result, media, verdict, ``print_job_id``) mirror the latest run.
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))

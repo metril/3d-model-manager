@@ -839,6 +839,17 @@
     }
   },
   "archiveX": {
+    "runs": {
+      "title": "Runs",
+      "count_one": "{{count}} run",
+      "count_other": "{{count}} runs",
+      "latest": "Latest",
+      "date": "Date",
+      "printer": "Printer",
+      "outcome": "Outcome",
+      "duration": "Duration",
+      "cost": "Cost"
+    },
     "toolpath": {
       "show": "Show toolpath",
       "hide": "Hide toolpath",

@@ -155,6 +155,66 @@ def _resolve_model(
     return None, None
 
 
+def _find_same_print(
+    session: Session, sha: str, plate: int | None, job_id: int
+) -> PrintArchive | None:
+    """The archive already holding this exact file (3MF content hash) + plate."""
+    stmt = select(PrintArchive).where(
+        PrintArchive.archive_blob == sha, PrintArchive.print_job_id != job_id
+    )
+    stmt = stmt.where(
+        PrintArchive.plate.is_(None) if plate is None else PrintArchive.plate == plate
+    )
+    return session.scalars(stmt.order_by(PrintArchive.id).limit(1)).first()
+
+
+def _append_run(session: Session, arc: PrintArchive, job: PrintJob) -> None:
+    """Make ``job`` the latest run of ``arc``. The per-run archive columns
+    (print job, result, media, verdict) roll over to the new run; the previous
+    run's snapshot/timelapse stay reachable as archive photos."""
+    prev = session.scalars(select(Print).where(Print.print_job_id == arc.print_job_id)).first()
+    if prev is not None and prev.archive_id is None:
+        prev.archive_id = arc.id
+    stamp = (arc.verdict_at or datetime.now(UTC)).isoformat()
+    kept = list(arc.photos or [])
+    for blob, kind, ext in (
+        (arc.snapshot_blob, "photo", "jpg"),
+        (arc.timelapse_blob, "timelapse", None),
+    ):
+        if not blob:
+            continue
+        if ext is None:
+            row = session.get(Blob, blob)
+            ext = "avi" if row is not None and row.format == BlobFormat.AVI else "mp4"
+        kept.append(
+            {
+                "filename": f"run{arc.run_count}-{kind}.{ext}",
+                "blob": blob,
+                "kind": kind,
+                "uploaded_by": None,
+                "at": stamp,
+            }
+        )
+    arc.photos = kept
+    arc.print_job_id = job.id
+    arc.run_count += 1
+    arc.created_at = datetime.now(UTC)
+    arc.snapshot_blob = None
+    arc.timelapse_blob = None
+    arc.media_note = None
+    arc.fetch_error = None
+    arc.confirm_requested = False
+    arc.confirm_token = None
+    arc.confirm_token_used_at = None
+    arc.confirm_expires_at = None
+    arc.user_verdict = None
+    arc.user_verdict_source = None
+    arc.verdict_at = None
+    arc.verdict_by_user_id = None
+    arc.result_override = None
+    session.flush()
+
+
 def archive_job(
     session: Session, settings: Settings, print_job_id: int, result: ArchiveResult
 ) -> PrintArchive:
@@ -167,10 +227,22 @@ def archive_job(
 
     arc = session.scalars(select(PrintArchive).where(PrintArchive.print_job_id == job.id)).first()
     if arc is None:
+        # Redelivery of a job whose archive was already repointed at a later
+        # reprint: its run exists, nothing more to do.
+        folded = session.scalars(
+            select(PrintArchive)
+            .join(Print, Print.archive_id == PrintArchive.id)
+            .where(Print.print_job_id == job.id)
+        ).first()
+        if folded is not None:
+            return folded
+    is_new = arc is None
+    if arc is None:
+        # Added to the session only once we know no existing archive of the
+        # same file+plate absorbs this job as a new run.
         arc = PrintArchive(
             print_job_id=job.id, result=result, fetch_state=ArchiveFetchState.PENDING
         )
-        session.add(arc)
     arc.result = result
     arc.created_by_user_id = job.created_by_user_id
 
@@ -206,6 +278,13 @@ def archive_job(
             arc.fetch_state = ArchiveFetchState.ERROR
             arc.fetch_error = f"unreadable 3MF: {e}"[:500]
         else:
+            if is_new:
+                existing = _find_same_print(session, sha, plate_no, job.id)
+                if existing is not None:
+                    _append_run(session, existing, job)
+                    arc, is_new = existing, False
+                    arc.result = result
+                    arc.created_by_user_id = job.created_by_user_id
             publish_bytes(data, archive_path(settings, sha, "gcode.3mf"))
             _ensure_blob(session, sha, len(data), BlobKind.SLICED, BlobFormat.GCODE_3MF)
             arc.archive_blob = sha
@@ -249,6 +328,8 @@ def archive_job(
             arc.fetch_state = ArchiveFetchState.DONE
             arc.fetch_error = None
 
+    if is_new:
+        session.add(arc)
     arc.plate = plate_no
     arc.est_filament = est
     model_id, revision_id = _resolve_model(session, job, sha)
@@ -305,6 +386,11 @@ def archive_job(
         filament_cost=filament_cost(usages, cfg.filament_cost_per_kg),
         wear_per_hour=printer.wear_cost_per_hour,
     )
+    session.flush()  # `arc.id` for the run link
+    run.archive_id = arc.id
+    run.printer_id = printer.id
+    run.started_at = job.started_at
+    run.finished_at = job.finished_at
     run.model_id = model_id
     run.created_by_user_id = job.created_by_user_id
     run.printer_name = printer.name

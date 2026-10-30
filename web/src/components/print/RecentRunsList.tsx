@@ -15,6 +15,7 @@ import { HistoryIcon } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CompareBar } from "@/components/print/ArchiveCompareDialog";
 import { useRunSelection } from "@/components/print/useRunSelection";
+import { RunCountBadge } from "@/components/print/ArchiveRuns";
 import { RunDetailSheet } from "@/components/print/RunDetailSheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -48,6 +49,7 @@ function RunRow({
       <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpen(run.id)}>
         <StateBadge tone={toneForResult(run.result)} label="" aria-hidden="true" className="shrink-0" />
         <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+        <RunCountBadge count={run.run_count} />
       </button>
       <span className="shrink-0 text-xs text-muted-foreground">{run.printer_name}</span>
       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">

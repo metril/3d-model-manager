@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { archiveFileUrl, archiveSnapshotUrl, archiveThumbnailUrl, useArchive, usePatchRun } from "@/api/archives";
 import { useAuth } from "@/api/auth";
 import type { ArchiveOut, PrintEntry } from "@/api/types";
+import { ArchiveRuns, RunCountBadge } from "@/components/print/ArchiveRuns";
 import { ArchiveToolpath } from "@/components/print/ArchiveToolpath";
 import { ArchiveEditor, PhotoGallery, VerdictCard } from "@/components/print/ArchiveExtras";
 import { SourceFiles } from "@/components/print/SourceFiles";
@@ -146,6 +147,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
       {archive.media_note ? <p className="text-muted-foreground">{archive.media_note}</p> : null}
       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
         <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{archive.result}</Badge>
+        <RunCountBadge count={archive.run_count} />
         <span>{archive.printer_name}</span>
         {archive.duration_s != null ? <span className="tabular-nums">{humanizeDuration(archive.duration_s)}</span> : null}
         <span>{formatDateTime(archive.finished_at ?? archive.created_at)}</span>
@@ -163,6 +165,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
           ))}
         </ul>
       ) : null}
+      {(archive.run_count ?? 1) > 1 ? <ArchiveRuns archiveId={archive.id} /> : null}
       {run ? (
         <dl className="space-y-1">
           {run.energy_kwh != null ? (

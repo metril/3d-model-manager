@@ -482,6 +482,16 @@ class Print(Base):
     duration_min: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # W5 archive runs: an auto-archived print is a run of its ``print_archives``
+    # row (a reprint of the same file+plate appends a run, not a sibling).
+    archive_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("print_archives.id", ondelete="SET NULL"), index=True
+    )
+    printer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("printers.id", ondelete="SET NULL")
+    )
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
 
     material: Mapped["Material | None"] = relationship()
 

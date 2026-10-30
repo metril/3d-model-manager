@@ -300,3 +300,38 @@ def test_archive_wear_and_sampled_energy_price(fake_adapter, sliced_3mf_bytes, s
     run = _run(s, job_id)
     assert run.wear_cost == pytest.approx(0.5)  # 1h x 0.5
     assert run.energy_cost == pytest.approx(2.0 * 0.3)
+
+
+def test_reprint_appends_run_to_same_archive(fake_adapter, sliced_3mf_bytes, seed):
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Same_plate_1.3mf"] = sliced_3mf_bytes
+    j1 = seed.job(subtask="Same_plate_1")
+    a1 = archive_job(s, settings, j1, ArchiveResult.COMPLETED)
+    a1.snapshot_blob = None
+    a1.confirm_requested = True
+    s.commit()
+    j2 = seed.job(subtask="Same_plate_1")
+    a2 = archive_job(s, settings, j2, ArchiveResult.FAILED)
+    assert a2.id == a1.id
+    assert s.scalars(select(PrintArchive)).all() == [a2]
+    assert a2.run_count == 2 and a2.print_job_id == j2 and a2.result == "failed"
+    assert a2.confirm_requested is False or a2.user_verdict is None
+    runs = s.scalars(select(Print).order_by(Print.id)).all()
+    assert [r.print_job_id for r in runs] == [j1, j2]
+    assert {r.archive_id for r in runs} == {a2.id}
+    assert [r.result for r in runs] == ["success", "fail"]
+    # redelivery of the older job is a no-op, not a repoint
+    again = archive_job(s, settings, j1, ArchiveResult.COMPLETED)
+    assert again.id == a2.id and again.print_job_id == j2 and again.run_count == 2
+
+
+def test_distinct_file_gets_new_archive(
+    fake_adapter, sliced_3mf_bytes, two_filament_3mf_bytes, seed
+):
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/A_plate_1.3mf"] = sliced_3mf_bytes
+    fake_adapter.files["/cache/B_plate_1.3mf"] = two_filament_3mf_bytes
+    a = archive_job(s, settings, seed.job(subtask="A_plate_1"), ArchiveResult.COMPLETED)
+    b = archive_job(s, settings, seed.job(subtask="B_plate_1"), ArchiveResult.COMPLETED)
+    assert a.id != b.id and a.run_count == b.run_count == 1
+    assert len(s.scalars(select(PrintArchive)).all()) == 2
