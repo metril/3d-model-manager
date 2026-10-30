@@ -308,11 +308,18 @@ async def _material_usage(db: AsyncSession) -> list[MaterialUsageOut]:
 
 
 async def filament_stats(
-    db: AsyncSession, settings: Settings, *, days: int, bucket: str, visible: set[int] | None
+    db: AsyncSession,
+    settings: Settings,
+    *,
+    days: int,
+    bucket: str,
+    visible: set[int] | None,
+    tz: str = "UTC",
 ) -> FilamentStatsOut:
     """``GET /stats/filament`` (P5 Task 8): per-material and per-spool
     filament usage over time, bucketed by ``date_trunc(bucket,
-    spool_usage.created_at)``. Not cached (unlike ``get_stats``) -- callers
+    spool_usage.created_at, tz)`` (calendar buckets in the caller's IANA
+    zone). Not cached (unlike ``get_stats``) -- callers
     vary ``days``/``bucket`` per request, so a shared TTL cache would either
     thrash or serve the wrong window.
 
@@ -334,7 +341,7 @@ async def filament_stats(
             func.coalesce(Material.name, Spool.material_type).label("material_name"),
             Spool.color_hex,
             Spool.cost_per_kg,
-            func.date_trunc(bucket, SpoolUsage.created_at).label("bucket"),
+            func.date_trunc(bucket, SpoolUsage.created_at, tz).label("bucket"),
             func.sum(SpoolUsage.grams).label("grams"),
         )
         .select_from(SpoolUsage)
