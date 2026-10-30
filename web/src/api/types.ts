@@ -1681,6 +1681,8 @@ export interface QueueEnqueueBody extends QueueSchedulingFields {
   options?: PlanOptions | null;
   front?: boolean;
   cost_center_id?: number | null;
+  /** Queue a recipe slice even when the part does not fit the printer bed. */
+  force?: boolean;
 }
 
 // -- review gate (backend/app/models/enums.py `ReviewState`, P7 review/

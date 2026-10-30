@@ -44,13 +44,14 @@ import { toast } from "sonner";
 import { useAuth } from "@/api/auth";
 import { api, ApiError } from "@/api/client";
 import { useCostCenters, useFinanceConfig } from "@/api/finance";
+import { BedFitChip } from "@/components/slice/BedFitChip";
 import { useCreateBatch, useDispatchBatch, useEnqueue } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
-import { useRecipes, useSlicerHealth } from "@/api/slicing";
+import { useFileBedFit, useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
@@ -377,6 +378,8 @@ export function PrintDialog({
   }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length]);
 
   const { t } = useTranslation();
+  const [forcedFor, setForcedFor] = useState<number | null>(null);
+  const [refusedFor, setRefusedFor] = useState<number | null>(null);
   const enqueueRaw = useEnqueue();
   const createBatch = useCreateBatch();
   const dispatchBatch = useDispatchBatch();
@@ -417,7 +420,15 @@ export function PrintDialog({
       return;
     }
     const withBatch = typeof batchChoice.mode === "number" ? { ...fields, batch_id: batchChoice.mode } : fields;
-    enqueueRaw.mutate({ ...body, ...withBatch }, { onSuccess });
+    enqueueRaw.mutate(
+      { ...body, ...withBatch },
+      {
+        onSuccess,
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") setRefusedFor(body.recipe_id ?? null);
+        },
+      },
+    );
   }
   const sendPrint = useSendPrint();
   const auth = useAuth();
@@ -491,6 +502,19 @@ export function PrintDialog({
   const allRecipesIncompatible = recipeList.length > 0 && recipeList.every((r) => r.compatible === false);
   const selectedRecipe = recipeList.find((r) => r.id === selectedRecipeId) ?? null;
   const recipeActionsDisabled = slicerHealth.data?.ok !== true;
+  // Pre-flight bed fit for the chosen recipe. `forcedFor` / `refusedFor` hold
+  // the recipe id they apply to, so switching recipe clears both.
+  const bedFit = useFileBedFit(
+    effectiveFileId,
+    { printerId: effectivePrinterId, recipeId: selectedRecipeId },
+    profileMode === "recipe" && selectedRecipeId != null,
+  );
+  const tooLarge =
+    profileMode === "recipe" &&
+    selectedRecipeId != null &&
+    (bedFit.data?.status === "too_large" || refusedFor === selectedRecipeId);
+  const forced = tooLarge && forcedFor === selectedRecipeId;
+  const fitBlocked = tooLarge && !forced;
   // The printer changed under a chosen recipe that no longer fits it.
   useEffect(() => {
     if (selectedRecipe?.compatible === false) setSelectedRecipeId(null);
@@ -626,6 +650,7 @@ export function PrintDialog({
         printer_id: effectivePrinterId ?? undefined,
         copies,
         front: true,
+        ...(forced ? { force: true } : {}),
       },
       () => {
         close();
@@ -644,6 +669,7 @@ export function PrintDialog({
         printer_id: effectivePrinterId ?? undefined,
         copies,
         front: false,
+        ...(forced ? { force: true } : {}),
       },
       () => {
         close();
@@ -830,6 +856,20 @@ export function PrintDialog({
                     .
                   </p>
                 ) : null}
+                {profileMode === "recipe" && !effectiveIsSliced ? <BedFitChip fit={bedFit.data} /> : null}
+                {tooLarge ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="print-dialog-force"
+                      type="checkbox"
+                      checked={forced}
+                      onChange={(e) => setForcedFor(e.target.checked ? selectedRecipeId : null)}
+                    />
+                    <Label htmlFor="print-dialog-force" className="text-xs font-normal">
+                      {t("bedFit.slicePart")}
+                    </Label>
+                  </div>
+                ) : null}
               </RadioGroup>
             ) : null}
 
@@ -952,7 +992,7 @@ export function PrintDialog({
                       <Button
                         type="button"
                         onClick={handleSliceAndSend}
-                        disabled={recipeActionsDisabled || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
+                        disabled={recipeActionsDisabled || fitBlocked || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                         title={
                           recipeActionsDisabled
                             ? "Slicer sidecar unavailable. Enable it with the compose `slicer` profile (--profile slicer) and set TDMM_SLICER_URL."
@@ -970,7 +1010,7 @@ export function PrintDialog({
                         type="button"
                         variant="outline"
                         onClick={handleQueueRecipe}
-                        disabled={selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
+                        disabled={fitBlocked || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                       >
                         Add to queue
                       </Button>
@@ -1041,7 +1081,7 @@ export function PrintDialog({
               Back
             </Button>
             {step < SEND ? (
-              <Button type="button" onClick={() => setStep((s) => Math.min(SEND, s + 1))}>
+              <Button type="button" disabled={step === PROFILE && fitBlocked} onClick={() => setStep((s) => Math.min(SEND, s + 1))}>
                 Next
               </Button>
             ) : null}

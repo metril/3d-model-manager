@@ -6,9 +6,14 @@ Pure math (``check_fit``) plus the bed lookups shared with ``mesh_combine``
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
+import zipfile
+from pathlib import Path
 from typing import Literal
 
+import anyio
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,8 +163,50 @@ async def bed_for_printer(db: AsyncSession, printer_id: int) -> Bed | None:
     return None
 
 
+_PLATE_JSON = re.compile(r"^Metadata/plate_\d+\.json$")
+
+
+def _count_plates(backend, storage_path: str) -> int:
+    """Plates in a 3MF from its zip namelist (Bambu projects carry one
+    ``Metadata/plate_<n>.json`` per plate; plain 3MFs count as 1)."""
+    fd, tmp_name = tempfile.mkstemp(prefix="tdmm-platecount-", suffix=".3mf")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            for chunk in backend.read(storage_path):
+                fh.write(chunk)
+        with zipfile.ZipFile(tmp) as zf:
+            n = sum(1 for name in zf.namelist() if _PLATE_JSON.match(name))
+        return max(1, n)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+async def _ensure_plate_count(db: AsyncSession, meta, file, settings) -> int | None:
+    """``meta.plate_count``, computed from the stored 3MF and persisted
+    (flushed; best-effort) when it was never recorded."""
+    if meta.plate_count is not None:
+        return meta.plate_count
+    if file is None or settings is None:
+        return None
+    try:
+        from app.services.storage_backends import resolve_backend_for_file
+
+        backend = await resolve_backend_for_file(db, settings, file)
+        count = await anyio.to_thread.run_sync(_count_plates, backend, file.storage_path)
+        meta.plate_count = count
+        await db.flush()
+        return count
+    except Exception:
+        return None
+
+
 async def fit_for_file(
-    db: AsyncSession, blob_hash: str, bed: Bed | None, allow_rotate: bool = False
+    db: AsyncSession,
+    file,
+    bed: Bed | None,
+    allow_rotate: bool = False,
+    settings=None,
 ) -> FitResult:
     """``unknown`` when there is no bed or no dims, the blob is already
     sliced, or the dims are not trustworthy: only STL/OBJ and single-plate
@@ -168,6 +215,8 @@ async def fit_for_file(
     from app.models.enums import BlobFormat
     from app.models.library import Blob
     from app.models.processing import BlobMeta
+
+    blob_hash = file.blob_hash
 
     if bed is None:
         return unknown_fit()
@@ -178,9 +227,46 @@ async def fit_for_file(
     if blob is None:
         return unknown_fit()
     if blob.format is BlobFormat.THREEMF:
-        if meta.plate_count != 1:
+        if await _ensure_plate_count(db, meta, file, settings) != 1:
             return unknown_fit()
     elif blob.format not in (BlobFormat.STL, BlobFormat.OBJ):
         return unknown_fit()
     d = meta.dims_mm
     return check_fit((d[0], d[1], d[2]), bed[0], bed[1], allow_rotate=allow_rotate)
+
+
+async def fit_for_selection(
+    db: AsyncSession, file, printer_id: int | None, recipe_id: int | None, settings=None
+) -> FitResult:
+    """Chip lookup: the recipe's own printer profile (what the slice guards
+    use) wins over the printer lookup, so chip and guard agree."""
+    from app.models.slicing import PrintRecipe
+
+    bed: Bed | None = None
+    allow_rotate = False
+    recipe = await db.get(PrintRecipe, recipe_id) if recipe_id is not None else None
+    if recipe is not None:
+        bed = await bed_from_profile(db, recipe.printer_profile_id)
+        allow_rotate = rotation_allowed(recipe.options)
+    elif printer_id is not None:
+        bed = await bed_for_printer(db, printer_id)
+    return await fit_for_file(db, file, bed, allow_rotate, settings) if bed else unknown_fit()
+
+
+async def guard_recipe_fit(
+    db: AsyncSession, recipe, file, options: dict | None = None, settings=None
+) -> None:
+    """422 ``does_not_fit`` when the part is too large for the recipe's printer."""
+    from fastapi import HTTPException, status
+
+    bed = await bed_from_profile(db, recipe.printer_profile_id)
+    fit = await fit_for_file(db, file, bed, rotation_allowed(recipe.options, options), settings)
+    if fit.status == "too_large":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "does_not_fit",
+                "message": "part does not fit the printer bed",
+                **fit.model_dump(),
+            },
+        )

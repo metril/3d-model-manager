@@ -63,6 +63,8 @@ class QueueEnqueueIn(BaseModel):
     preheat_override: Literal["on", "off"] | None = None
     preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
     batch_id: int | None = None
+    # Queue a recipe slice even when the part does not fit the printer bed.
+    force: bool = False
 
 
 class ReviewIn(BaseModel):

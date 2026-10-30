@@ -180,3 +180,80 @@ async def test_multi_plate_3mf_is_advisory_only(
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeClient(error=RuntimeError()))
     r = await authenticated_client.post(f"/api/files/{f3.id}/slice", json={"recipe_id": recipe.id})
     assert r.status_code == 201, r.text
+
+
+async def test_file_bed_fit_without_slug(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    _, f, recipe, _ = await _prep(db_session, seed_file, "bf-slugless", [212, 100, 50], False)
+    r = await authenticated_client.get(
+        f"/api/files/{f.id}/bed-fit", params={"recipe_id": recipe.id}
+    )
+    assert r.status_code == 200 and r.json()["status"] == "too_large"
+
+
+async def test_queue_guard_422_and_force(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    from tests.server_helpers import set_server
+
+    _, f, recipe, _ = await _prep(db_session, seed_file, "bf-queue", [212, 100, 50], False)
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    body = {"file_id": f.id, "recipe_id": recipe.id}
+    r = await authenticated_client.post("/api/queue", json=body)
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "does_not_fit"
+    r = await authenticated_client.post("/api/queue", json={**body, "force": True})
+    assert r.status_code == 201, r.text
+
+
+def _zip3mf(*names: str) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("3D/3dmodel.model", "<model/>")
+        for n in names:
+            zf.writestr(n, "{}")
+    return buf.getvalue()
+
+
+async def _seed_3mf(db, seed_file, slug, data, dims):
+    from app.models.enums import BlobFormat, BlobKind
+    from app.models.library import Revision
+
+    model, f, recipe, _ = await _prep(db, seed_file, slug, None, False)
+    rev = await db.get(Revision, f.revision_id)
+    f3 = await seed_file(
+        model, rev, "proj.3mf", data, blob_format=BlobFormat.THREEMF, blob_kind=BlobKind.MESH
+    )
+    db.add(BlobMeta(blob_hash=f3.blob_hash, dims_mm=dims))
+    await db.commit()
+    return model, f3, recipe
+
+
+async def test_3mf_without_plate_count_is_computed_and_persisted(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    model, f3, recipe = await _seed_3mf(db_session, seed_file, "bf-pc1", _zip3mf(), [315, 61, 31])
+    r = await authenticated_client.get(
+        f"/api/models/{model.slug}/files/{f3.id}/bed-fit", params={"recipe_id": recipe.id}
+    )
+    body = r.json()
+    assert body["status"] == "too_large" and body["height"] == 180.0 and body["bed"] == [180, 180]
+    meta = await db_session.get(BlobMeta, f3.blob_hash, populate_existing=True)
+    assert meta.plate_count == 1
+
+
+async def test_multi_plate_project_without_plate_count_is_unknown(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    data = _zip3mf("Metadata/plate_1.json", "Metadata/plate_2.json", "Metadata/plate_3.json")
+    model, f3, recipe = await _seed_3mf(db_session, seed_file, "bf-pc3", data, [900, 61, 31])
+    r = await authenticated_client.get(
+        f"/api/files/{f3.id}/bed-fit", params={"recipe_id": recipe.id}
+    )
+    assert r.json()["status"] == "unknown"
+    meta = await db_session.get(BlobMeta, f3.blob_hash, populate_existing=True)
+    assert meta.plate_count == 3

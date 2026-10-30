@@ -540,6 +540,55 @@ describe("PrintDialog", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Slicing, then sending to Printer A");
   });
 
+  describe("bed fit", () => {
+    const tooLarge = () => {
+      const base = getMock.getMockImplementation()!;
+      getMock.mockImplementation((path: string) =>
+        path.startsWith("/files/10/bed-fit")
+          ? Promise.resolve({
+              status: "too_large",
+              fits: false,
+              rotated: false,
+              dims: [315, 61, 31],
+              overflow: { x: 136 },
+              bed: [180, 180],
+              height: 180,
+            })
+          : base(path),
+      );
+    };
+
+    it("shows the chip, blocks Next, and Slice anyway sends force", async () => {
+      tooLarge();
+      renderDialog({ kind: "file", fileId: 10, format: "stl" });
+      fireEvent.click(await screen.findByLabelText("PLA fast"));
+      expect(await screen.findByTestId("bed-fit-chip")).toHaveTextContent("Too large: 315 mm on X (bed 180)");
+      expect(getMock).toHaveBeenCalledWith("/files/10/bed-fit?recipe_id=9");
+      expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+      fireEvent.click(screen.getByLabelText("Slice anyway"));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ recipe_id: 9, force: true })),
+      );
+    });
+
+    it("offers Slice anyway after a does_not_fit refusal with no chip verdict", async () => {
+      renderDialog({ kind: "file", fileId: 10, format: "stl" });
+      fireEvent.click(await screen.findByLabelText("PLA fast"));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      const base = postMock.getMockImplementation()!;
+      postMock.mockImplementation((path: string, body?: unknown) =>
+        path === "/queue"
+          ? Promise.reject(new ApiError(422, "part does not fit the printer bed", "does_not_fit"))
+          : base(path, body),
+      );
+      fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
+      expect(await screen.findByLabelText("Slice anyway")).toBeInTheDocument();
+    });
+  });
+
   it("as-sliced Add to queue posts the file/plate/printer/mapping", async () => {
     renderDialog({ kind: "file", fileId: 10 });
     await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
