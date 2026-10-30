@@ -262,3 +262,29 @@ async def test_spool_detail_usage_and_series(
     detail = (await authenticated_client.get(f"/api/spools/{sid}")).json()
     assert [u["grams"] for u in detail["usage"]] == [100, 50]
     assert [p["remaining_g"] for p in detail["series"]] == [1000.0, 900.0, 850.0]
+
+
+async def test_last_dried_patch_clears_and_needs_drying_filter(
+    authenticated_client: httpx.AsyncClient,
+):
+    never = await _create_spool(authenticated_client, color_name="never")
+    fresh = await _create_spool(authenticated_client, color_name="fresh")
+    old = await _create_spool(authenticated_client, color_name="old")
+    stamp = "2099-01-01T00:00:00Z"
+    r = await authenticated_client.patch(
+        f"/api/spools/{fresh['id']}",
+        json={"last_dried_at": stamp, "last_dried_temp_c": 55, "last_dried_hours": 6},
+    )
+    assert r.json()["last_dried_temp_c"] == 55 and r.json()["last_dried_hours"] == 6
+    # hand-editing the date alone drops the stale temp/hours
+    r = await authenticated_client.patch(
+        f"/api/spools/{fresh['id']}", json={"last_dried_at": stamp}
+    )
+    body = r.json()
+    assert body["last_dried_at"] and body["last_dried_temp_c"] is None
+    assert body["last_dried_hours"] is None
+    await authenticated_client.patch(
+        f"/api/spools/{old['id']}", json={"last_dried_at": "2020-01-01T00:00:00Z"}
+    )
+    r = await authenticated_client.get("/api/spools", params={"needs_drying": True})
+    assert sorted(s["id"] for s in r.json()) == sorted([never["id"], old["id"]])

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import AuditLog, Printer, ScheduledDrying, SmartPlug
+from app.models import AuditLog, Printer, ScheduledDrying, SmartPlug, Spool, SpoolSlot
 from app.printers.base import command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.commands import PRINTING_STATES
@@ -167,6 +167,18 @@ def _edges(
                 session.rollback()
 
 
+def _stamp_dried(session: Session, row: ScheduledDrying, now: datetime) -> None:
+    """Record the completed run on every spool seated in that AMS unit."""
+    spools = session.scalars(
+        select(Spool)
+        .join(SpoolSlot, SpoolSlot.spool_id == Spool.id)
+        .where(SpoolSlot.printer_id == row.printer_id, SpoolSlot.ams_unit == row.ams_id)
+    )
+    for sp in spools.all():
+        sp.last_dried_at, sp.last_dried_temp_c = now, row.temp
+        sp.last_dried_hours = float(row.duration_hours)
+
+
 def _update_running(
     session: Session, r: Redis, states: dict[int, dict | None], now: datetime, counts: dict
 ) -> None:
@@ -189,6 +201,7 @@ def _update_running(
         elif unit.get("dry_status") == 0:
             if r.get(_seen_key(row.id)):
                 row.status, row.finished_at = "done", now
+                _stamp_dried(session, row, now)
                 r.delete(_seen_key(row.id))
                 counts["done"] += 1
             elif row.started_at and (now - row.started_at).total_seconds() >= DID_NOT_START_S:
