@@ -21,7 +21,7 @@ export function FloatingCamera() {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const id = s.printerId;
-  const firstId = overview.data?.printers[0]?.printer.id;
+  const firstId = overview.data?.printers?.[0]?.printer.id;
 
   // Shift+C toggles the overlay (first printer when none is remembered).
   useHotkeys({
@@ -45,7 +45,7 @@ export function FloatingCamera() {
   }, [id]);
 
   if (id == null) return null;
-  const item = overview.data?.printers.find((p) => p.printer.id === id);
+  const item = overview.data?.printers?.find((p) => p.printer.id === id);
   const name = item?.printer.name ?? `Printer ${id}`;
   const online = item?.status?.online ?? false;
   const { rect } = s;
