@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import AuditLog, Printer, PrintJob, User
+from app.models import AuditLog, Print, Printer, PrintJob, User
 from app.models.enums import (
     ArchiveFetchState,
     ArchiveResult,
@@ -27,6 +27,8 @@ from app.models.enums import (
     PrinterKind,
     PrintJobOrigin,
     PrintJobState,
+    PrintResult,
+    PrintSource,
     VerdictSource,
 )
 from app.models.library import Blob
@@ -85,6 +87,20 @@ async def _arc(
         **cols,
     )
     db.add(a)
+    await db.flush()
+    db.add(
+        Print(
+            print_job_id=job.id,
+            archive_id=a.id,
+            source=PrintSource.AUTO,
+            result={
+                ArchiveResult.COMPLETED: PrintResult.SUCCESS,
+                ArchiveResult.FAILED: PrintResult.FAIL,
+            }.get(result, PrintResult.PARTIAL),
+            printed_at=a.created_at,
+            duration_min=duration_s // 60,
+        )
+    )
     await db.commit()
     await db.refresh(a)
     return a
@@ -447,7 +463,7 @@ async def test_defaults_sweep_and_plate_clear(db_session, emitted):
     with sync_session() as s:
         assert archive_confirm.apply_defaults(s) == 0  # too fresh
         arc = s.get(PrintArchive, aid)
-        arc.created_at = datetime.now(UTC) - timedelta(hours=25)
+        arc.confirm_expires_at = datetime.now(UTC) - timedelta(hours=25) + archive_confirm.TOKEN_TTL
         s.commit()
         assert archive_confirm.apply_defaults(s) == 1
         arc = s.get(PrintArchive, a.id)
@@ -803,6 +819,8 @@ async def test_list_filters_date_pending_mine(authenticated_client, db_session, 
 async def test_calendar_buckets_by_tz(authenticated_client, db_session):
     a = await _arc(db_session, await _printer(db_session))
     a.created_at = datetime(2026, 3, 10, 2, 0, tzinfo=UTC)  # 19:00 on 9 Mar in Los Angeles
+    run = (await db_session.scalars(select(Print).where(Print.archive_id == a.id))).one()
+    run.printed_at = a.created_at
     await db_session.commit()
     c = authenticated_client
     q = "from=2026-03-08&to=2026-03-11"
@@ -862,3 +880,36 @@ def test_reencode_rejects_oversize_pixels(monkeypatch):
     with pytest.raises(HTTPException) as e:
         ax._reencode(_png((8, 8)))
     assert e.value.status_code == 415
+
+
+async def test_calendar_counts_every_run_of_a_reprinted_archive(authenticated_client, db_session):
+    p = await _printer(db_session)
+    a = await _arc(db_session, p, age_days=3, duration_s=3600)
+    job = PrintJob(
+        printer_id=p.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="again",
+        state=PrintJobState.FINISHED,
+    )
+    db_session.add(job)
+    await db_session.flush()
+    db_session.add(
+        Print(
+            print_job_id=job.id,
+            archive_id=a.id,
+            source=PrintSource.AUTO,
+            result=PrintResult.FAIL,
+            printed_at=datetime.now(UTC),
+            duration_min=30,
+        )
+    )
+    a.run_count = 2
+    await db_session.commit()
+    today = datetime.now(UTC).date()
+    r = await authenticated_client.get(
+        f"/api/archives/calendar?from={today - timedelta(days=10)}&to={today}"
+    )
+    days = {d["date"]: d for d in r.json()}
+    assert len(days) == 2
+    assert days[today.isoformat()]["failed"] == 1
+    assert days[(today - timedelta(days=3)).isoformat()]["ok"] == 1

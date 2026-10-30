@@ -483,16 +483,21 @@ async def _run(
         slicer_meta={"print_time_s": est_s} if est_s else None,
     )
     db.add(arc)
-    if grams is not None or filament:
-        db.add(
-            Print(
-                print_job_id=job.id,
-                source=PrintSource.AUTO,
-                result=PrintResult.SUCCESS,
-                filament_g=grams,
-                filament=filament,
-            )
+    await db.flush()
+    db.add(
+        Print(
+            print_job_id=job.id,
+            archive_id=arc.id,
+            source=PrintSource.AUTO,
+            result={
+                ArchiveResult.COMPLETED: PrintResult.SUCCESS,
+                ArchiveResult.FAILED: PrintResult.FAIL,
+            }.get(result, PrintResult.PARTIAL),
+            filament_g=grams,
+            filament=filament,
+            duration_min=duration_s // 60,
         )
+    )
     await db.flush()
     return arc
 

@@ -8,7 +8,7 @@ import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -118,10 +118,13 @@ def apply_defaults(session: Session) -> int:
         return 0
     cutoff = datetime.now(UTC) - timedelta(hours=cfg.default_after_h)
     rows = session.scalars(
-        select(PrintArchive).where(
+        select(PrintArchive)
+        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
+        .where(
             PrintArchive.confirm_requested.is_(True),
             PrintArchive.user_verdict.is_(None),
-            PrintArchive.created_at <= cutoff,
+            func.coalesce(PrintArchive.confirm_expires_at - TOKEN_TTL, PrintArchive.created_at)
+            <= cutoff,
         )
     ).all()
     for arc in rows:

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import File, Model, Print, PrintArchive, Printer, PrintJob, Revision
+from app.models.auth import PrinterAccess
 from app.models.enums import (
     ArchiveFetchState,
     ArchiveResult,
@@ -35,6 +36,7 @@ from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
 from app.services import archive_confirm, billing, spool_inventory, spoolman
 from app.services.app_config import get_app_config_sync
+from app.services.archive_lookup import archive_for_job
 from app.services.costing import (
     CostRates,
     charged_grams,
@@ -155,17 +157,45 @@ def _resolve_model(
     return None, None
 
 
+def _printer_groups(session: Session, printer_id: int) -> frozenset[int]:
+    return frozenset(
+        session.scalars(
+            select(PrinterAccess.group_id).where(PrinterAccess.printer_id == printer_id)
+        )
+    )
+
+
 def _find_same_print(
-    session: Session, sha: str, plate: int | None, job_id: int
+    session: Session,
+    sha: str,
+    plate: int | None,
+    job_id: int,
+    owner_id: int | None,
+    printer_id: int,
 ) -> PrintArchive | None:
-    """The archive already holding this exact file (3MF content hash) + plate."""
+    """The archive already holding this exact file (3MF content hash) + plate,
+    owned by the same user on a printer the same groups can see (anything else
+    gets its own archive). The row is locked so concurrent same-file archiving
+    serializes on the run_count / photos rollover."""
     stmt = select(PrintArchive).where(
         PrintArchive.archive_blob == sha, PrintArchive.print_job_id != job_id
     )
     stmt = stmt.where(
         PrintArchive.plate.is_(None) if plate is None else PrintArchive.plate == plate
     )
-    return session.scalars(stmt.order_by(PrintArchive.id).limit(1)).first()
+    stmt = stmt.where(
+        PrintArchive.created_by_user_id.is_(None)
+        if owner_id is None
+        else PrintArchive.created_by_user_id == owner_id
+    )
+    acl = _printer_groups(session, printer_id)
+    for cand in session.scalars(
+        stmt.order_by(PrintArchive.id).with_for_update(of=PrintArchive)
+    ).all():
+        cj = session.get(PrintJob, cand.print_job_id)
+        if cj is not None and _printer_groups(session, cj.printer_id) == acl:
+            return cand
+    return None
 
 
 def _append_run(session: Session, arc: PrintArchive, job: PrintJob) -> None:
@@ -198,7 +228,6 @@ def _append_run(session: Session, arc: PrintArchive, job: PrintJob) -> None:
     arc.photos = kept
     arc.print_job_id = job.id
     arc.run_count += 1
-    arc.created_at = datetime.now(UTC)
     arc.snapshot_blob = None
     arc.timelapse_blob = None
     arc.timelapse_frames = None
@@ -231,11 +260,7 @@ def archive_job(
     if arc is None:
         # Redelivery of a job whose archive was already repointed at a later
         # reprint: its run exists, nothing more to do.
-        folded = session.scalars(
-            select(PrintArchive)
-            .join(Print, Print.archive_id == PrintArchive.id)
-            .where(Print.print_job_id == job.id)
-        ).first()
+        folded = archive_for_job(session, job.id)
         if folded is not None:
             return folded
     is_new = arc is None
@@ -280,10 +305,24 @@ def archive_job(
             arc.fetch_state = ArchiveFetchState.ERROR
             arc.fetch_error = f"unreadable 3MF: {e}"[:500]
         else:
-            if is_new:
-                existing = _find_same_print(session, sha, plate_no, job.id)
+            retried_first = (
+                not is_new
+                and arc.run_count == 1
+                and arc.fetch_state == ArchiveFetchState.ERROR
+                and arc.archive_blob is None
+            )
+            if is_new or retried_first:
+                existing = _find_same_print(
+                    session, sha, plate_no, job.id, job.created_by_user_id, job.printer_id
+                )
                 if existing is not None:
+                    carried = (arc.snapshot_blob, arc.timelapse_blob)
+                    if not is_new:
+                        # The earlier failed-fetch sibling folds into `existing`.
+                        session.delete(arc)
+                        session.flush()
                     _append_run(session, existing, job)
+                    existing.snapshot_blob, existing.timelapse_blob = carried
                     arc, is_new = existing, False
                     arc.result = result
                     arc.created_by_user_id = job.created_by_user_id

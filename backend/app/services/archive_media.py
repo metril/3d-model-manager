@@ -19,11 +19,10 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -34,6 +33,7 @@ from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.services import camera_state as cs
 from app.services.archive import _ensure_blob, archive_path
+from app.services.archive_lookup import archive_for_job
 from app.services.derivatives import publish_bytes
 
 TIMELAPSE_DIRS: tuple[str, ...] = ("/timelapse", "/timelapse/video")
@@ -121,10 +121,15 @@ def fetch_timelapse_for(
     job = session.get(PrintJob, print_job_id)
     if job is None or job.started_at is None:
         return "none"
-    arc = session.scalars(select(PrintArchive).where(PrintArchive.print_job_id == job.id)).first()
+    arc = archive_for_job(session, job.id)
     if arc is None:
         return "none"
-    if arc.timelapse_blob is not None:
+    folded = arc.print_job_id != job.id
+    fname_prefix = f"job{job.id}-timelapse."
+    if folded:
+        if any(str(p.get("filename", "")).startswith(fname_prefix) for p in arc.photos or []):
+            return "stored"
+    elif arc.timelapse_blob is not None:
         return "stored"
     printer = session.get(Printer, job.printer_id)
     if printer is None:
@@ -164,6 +169,19 @@ def fetch_timelapse_for(
     fmt = BlobFormat.MP4 if ext == "mp4" else BlobFormat.AVI
     publish_bytes(data, archive_path(settings, sha, ext))
     _ensure_blob(session, sha, len(data), BlobKind.VIDEO, fmt)
-    arc.timelapse_blob = sha
+    if folded:
+        # An earlier run: keep it as an archive photo, not the latest run's slot.
+        arc.photos = [
+            *(arc.photos or []),
+            {
+                "filename": f"{fname_prefix}{ext}",
+                "blob": sha,
+                "kind": "timelapse",
+                "uploaded_by": None,
+                "at": datetime.now(UTC).isoformat(),
+            },
+        ]
+    else:
+        arc.timelapse_blob = sha
     session.commit()
     return "stored"

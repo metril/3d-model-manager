@@ -335,3 +335,88 @@ def test_distinct_file_gets_new_archive(
     b = archive_job(s, settings, seed.job(subtask="B_plate_1"), ArchiveResult.COMPLETED)
     assert a.id != b.id and a.run_count == b.run_count == 1
     assert len(s.scalars(select(PrintArchive)).all()) == 2
+
+
+def test_other_owner_gets_own_archive(fake_adapter, sliced_3mf_bytes, seed):
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Own_plate_1.3mf"] = sliced_3mf_bytes
+    u1, u2 = seed.user("a"), seed.user("b")
+    a = archive_job(
+        s, settings, seed.job(subtask="Own_plate_1", user_id=u1), ArchiveResult.COMPLETED
+    )
+    b = archive_job(
+        s, settings, seed.job(subtask="Own_plate_1", user_id=u2), ArchiveResult.COMPLETED
+    )
+    c = archive_job(
+        s, settings, seed.job(subtask="Own_plate_1", user_id=u1), ArchiveResult.COMPLETED
+    )
+    assert a.id != b.id and c.id == a.id and a.run_count == 2 and b.run_count == 1
+    assert a.created_by_user_id == u1
+
+
+def test_different_printer_acl_gets_own_archive(fake_adapter, sliced_3mf_bytes, seed):
+    from app.models import Group
+    from app.models.auth import PrinterAccess
+
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Acl_plate_1.3mf"] = sliced_3mf_bytes
+    j1 = seed.job(subtask="Acl_plate_1")
+    a = archive_job(s, settings, j1, ArchiveResult.COMPLETED)
+    p1 = s.get(Printer, s.get(PrintJob, j1).printer_id)
+    p2 = Printer(
+        name="P2",
+        kind=p1.kind,
+        host="10.0.0.6",
+        serial="SN2",
+        access_code_enc=p1.access_code_enc,
+    )
+    g = Group(name="crew")
+    s.add_all([p2, g])
+    s.flush()
+    s.add(PrinterAccess(group_id=g.id, printer_id=p2.id))
+    s.commit()
+    seed.printer_id = p2.id
+    b = archive_job(s, settings, seed.job(subtask="Acl_plate_1"), ArchiveResult.COMPLETED)
+    assert b.id != a.id
+
+
+def test_sweep_skips_folded_jobs(fake_adapter, sliced_3mf_bytes, seed, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.tasks import archive as task_mod
+
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Sw_plate_1.3mf"] = sliced_3mf_bytes
+    j1 = seed.job(subtask="Sw_plate_1")
+    archive_job(s, settings, j1, ArchiveResult.COMPLETED)
+    j2 = seed.job(subtask="Sw_plate_1")
+    archive_job(s, settings, j2, ArchiveResult.COMPLETED)
+    for j in (j1, j2):
+        s.get(PrintJob, j).finished_at = datetime.now(UTC) - timedelta(minutes=10)
+    s.commit()
+    calls = []
+    monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
+    task_mod.archive_sweep.apply()
+    assert calls == []
+
+
+def test_reprint_keeps_first_date_and_locks_row(fake_adapter, sliced_3mf_bytes, seed):
+    from sqlalchemy import event
+
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Lk_plate_1.3mf"] = sliced_3mf_bytes
+    a = archive_job(s, settings, seed.job(subtask="Lk_plate_1"), ArchiveResult.COMPLETED)
+    first = a.created_at
+    stmts: list[str] = []
+    eng = s.get_bind()
+
+    def listener(conn, cur, stmt, *args):
+        stmts.append(stmt)
+
+    event.listen(eng, "before_cursor_execute", listener)
+    try:
+        b = archive_job(s, settings, seed.job(subtask="Lk_plate_1"), ArchiveResult.COMPLETED)
+    finally:
+        event.remove(eng, "before_cursor_execute", listener)
+    assert b.id == a.id and b.created_at == first
+    assert any("FOR UPDATE" in x and "print_archives" in x for x in stmts)

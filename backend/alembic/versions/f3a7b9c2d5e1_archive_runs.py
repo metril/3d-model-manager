@@ -59,14 +59,15 @@ def upgrade() -> None:
         """
         INSERT INTO prints (model_id, print_job_id, source, result, printed_at, printer_name,
                             duration_min, archive_id, printer_id, started_at, finished_at,
-                            created_by_user_id)
+                            created_by_user_id, notes)
         SELECT a.model_id, a.print_job_id, 'auto',
                CASE COALESCE(a.result_override, a.result)
                     WHEN 'completed' THEN 'success' WHEN 'failed' THEN 'fail' ELSE 'partial'
                END,
                COALESCE(j.finished_at, a.created_at), pr.name,
                CASE WHEN a.duration_s IS NULL THEN NULL ELSE round(a.duration_s / 60.0)::int END,
-               a.id, j.printer_id, j.started_at, j.finished_at, a.created_by_user_id
+               a.id, j.printer_id, j.started_at, j.finished_at, a.created_by_user_id,
+               'archive-runs-backfill'
         FROM print_archives a
         JOIN print_jobs j ON j.id = a.print_job_id
         LEFT JOIN printers pr ON pr.id = j.printer_id
@@ -76,6 +77,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DELETE FROM prints WHERE notes = 'archive-runs-backfill'")
     op.drop_column("print_archives", "run_count")
     op.drop_index("ix_prints_archive_id", table_name="prints")
     op.drop_constraint("fk_prints_printer_id_printers", "prints", type_="foreignkey")
