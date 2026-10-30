@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.printers.filament_ids import generic_filament_id
+
 
 class HmsFaultOut(BaseModel):
     code: str
@@ -91,7 +93,7 @@ class SlotConfigIn(BaseModel):
         if all(getattr(self, k) is None for k in keys):
             return None
         return {
-            "tray_info_idx": self.tray_info_idx or "",
+            "tray_info_idx": self.tray_info_idx or generic_filament_id(self.tray_type),
             "tray_type": self.tray_type,
             "sub_brand": self.sub_brand or "",
             "color": self.color,
