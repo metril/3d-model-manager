@@ -55,11 +55,14 @@ from app.services.slicer_client import (
 from app.services.slicer_profiles import (
     ProfileImportError,
     apply_meta,
+    dedup_stock_profiles,
     derive_profile_meta,
     filter_for_models,
     parse_bundle,
     profile_in_scope,
+    profile_preferred,
     scope_mismatch_reason,
+    sort_profiles,
     upsert_profiles,
     usable_models,
 )
@@ -197,6 +200,7 @@ async def list_profiles(
     layer_height_mm: float | None = None,
     q: str | None = None,
     show_all: bool = False,
+    dedup: bool = False,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
@@ -204,7 +208,9 @@ async def list_profiles(
     """Profiles, optionally scoped to a printer (+ nozzle, + layer height for
     process profiles). `total` counts rows matching `kind`/`q` before scope
     filtering; `show_all=1` keeps out-of-scope rows, flagged `in_scope=false`
-    with a `scope_reason`."""
+    with a `scope_reason`. Rows come back sorted (kind, printer-affinity matches
+    first as `preferred`, user before stock, vendor, material, name); `dedup=1`
+    drops a stock row that has a user copy (the copy gets `overrides_stock`)."""
     stmt = select(SlicerProfile).order_by(SlicerProfile.kind, SlicerProfile.name)
     if kind is not None:
         stmt = stmt.where(SlicerProfile.kind == kind)
@@ -212,14 +218,17 @@ async def list_profiles(
         stmt = stmt.where(SlicerProfile.printer_model == printer_model)
     if q and q.strip():
         stmt = stmt.where(SlicerProfile.name.ilike(_ilike_escape(q.strip()), escape="\\"))
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = list((await db.execute(stmt)).scalars().all())
     total = len(rows)
 
     printer_key, nozzle, source = await resolve_scope(db, settings, ctx, printer_id, nozzle_mm)
+    rows = sort_profiles(rows, printer_key, nozzle)
     scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
-    items: list[ProfileOut] = []
+    kept: list[tuple[SlicerProfile, ProfileOut]] = []
     for row in rows:
         out = _profile_out(row, with_data=full)
+        if printer_key is not None:
+            out.preferred = profile_preferred(row, printer_key, nozzle)
         if scoped:
             ok = profile_in_scope(row, printer_key, nozzle, layer_height_mm)
             if not ok and not show_all:
@@ -229,7 +238,16 @@ async def list_profiles(
                 out.scope_reason = scope_mismatch_reason(row, printer_key, nozzle) or (
                     "layer height differs"
                 )
-        items.append(out)
+        kept.append((row, out))
+    if dedup:
+        # After scoping: a stock row is hidden only by a user copy that is listed too.
+        survivors, overriding = dedup_stock_profiles([r for r, _ in kept])
+        alive = {r.id for r in survivors}
+        kept = [(r, o) for r, o in kept if r.id in alive]
+        for _, o in kept:
+            if o.id in overriding:
+                o.overrides_stock = True
+    items = [o for _, o in kept]
     return ProfileListOut(
         items=items,
         total=total,
