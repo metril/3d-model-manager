@@ -2518,6 +2518,11 @@ export type BatchPatch = Partial<
   Pick<BatchIn, "name" | "quantity" | "due_date" | "notes" | "plate_targets" | "recipe_id" | "printer_id">
 >;
 
+export interface QueueSettings {
+  require_plate_clear: boolean;
+  pause_heads_up_min: number;
+}
+
 export interface QueuePreheatSettings {
   enabled: boolean;
   chamber_targets: Record<string, number>;

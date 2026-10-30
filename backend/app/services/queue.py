@@ -766,14 +766,20 @@ async def move_entry(
     outside their own ACL.
     """
     entry = await _get_entry_or_404(db, entry_id)
-    entries = await _ordered_entries(db)
-
-    others = [e for e in entries if e.id != entry_id]
-    clamped = max(1, min(position, len(entries)))
-    others.insert(clamped - 1, entry)
-
-    for new_position, reordered_entry in enumerate(others, start=1):
-        reordered_entry.position = new_position
+    total = await db.scalar(select(func.count()).select_from(PrintQueueEntry)) or 0
+    clamped = max(1, min(position, total))
+    old = entry.position
+    # Shift only the rows between the old and new slot by one (dense order kept).
+    pos = PrintQueueEntry.position
+    if clamped < old:
+        shift = update(PrintQueueEntry).where(pos >= clamped, pos < old).values(position=pos + 1)
+    elif clamped > old:
+        shift = update(PrintQueueEntry).where(pos > old, pos <= clamped).values(position=pos - 1)
+    else:
+        shift = None
+    if shift is not None:
+        await db.execute(shift, execution_options={"synchronize_session": "fetch"})
+        entry.position = clamped
     await db.commit()
 
     return await list_queue(db, settings, ctx)
