@@ -1200,6 +1200,22 @@
       "title_one": "Labels for {{count}} spool",
       "title_other": "Labels for {{count}} spools",
       "desc": "Each label carries a QR code that opens the spool.",
+      "locTitle": "Labels for {{count}} locations",
+      "locTitle_one": "Label for {{count}} location",
+      "locTitle_other": "Labels for {{count}} locations",
+      "locDesc": "Scanning a location label, then spool labels, assigns those spools to the location.",
+      "locPreview": "Location labels render when you download.",
+      "print": "Print label",
+      "contents": "Label contents",
+      "offset": "Skip cells (partly used sheet)",
+      "field": {
+        "name": "Colour name",
+        "material": "Brand and material",
+        "swatch": "Colour swatch",
+        "weight": "Weight",
+        "qr": "QR code",
+        "number": "Label number"
+      },
       "template": "Template",
       "page": "Page",
       "format": "Format",
@@ -1509,5 +1525,22 @@
       "cmd": "command",
       "in": "report"
     }
+  },
+  "scan": {
+    "title": "Scan labels",
+    "desc": "Scan a location label, then spool labels to put them there. Scan a spool on its own to open it.",
+    "active": "Assigning to: {{name}}",
+    "count": "{{count}} spools assigned",
+    "count_one": "{{count}} spool assigned",
+    "count_other": "{{count}} spools assigned",
+    "clear": "Clear",
+    "noLocation": "No location selected. Scan a location label first.",
+    "noCamera": "This browser has no camera access. Enter a code below.",
+    "cameraDenied": "Camera unavailable. Enter a code below.",
+    "manual": "Label link or number",
+    "go": "Go",
+    "unrecognised": "Not a recognised label",
+    "assigned": "Spool #{{id}} assigned",
+    "assignFailed": "Could not assign spool #{{id}}"
   }
 }

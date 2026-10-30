@@ -210,4 +210,52 @@ describe("FolderBrowser", () => {
     await screen.findByText("goblin.stl");
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
+
+  it("switches to the column view and lists each path segment's column", async () => {
+    localStorage.clear();
+    renderBrowser("figures/dnd");
+    await screen.findByText("dnd");
+    fireEvent.click(screen.getByRole("button", { name: "Column view" }));
+    const cols = await screen.findByTestId("column-view");
+    expect(cols.querySelectorAll('[role="listbox"]').length).toBe(3);
+    expect(localStorage.getItem("folder-browser-view")).toBe("columns");
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.queryByTestId("column-view")).not.toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("opens a zoomable preview for a file", async () => {
+    renderBrowser("figures/dnd/goblin");
+    fireEvent.click(await screen.findByRole("button", { name: "Preview goblin.stl" }));
+    const img = await screen.findByAltText("goblin.stl");
+    expect(img).toHaveAttribute("src", "/api/blobs/abc123/thumb?size=1024");
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(screen.getByRole("button", { name: "Reset zoom" })).toHaveTextContent("125%");
+    fireEvent.click(screen.getByRole("button", { name: "Fullscreen" }));
+    expect(await screen.findByAltText("goblin.stl (fullscreen)")).toBeInTheDocument();
+  });
+
+  it("offers Move only for folders inside a revision and picks a destination", async () => {
+    treesBox.current["m/rev-001_x"] = {
+      path: "m/rev-001_x",
+      dirs: [
+        { name: "a", path: "m/rev-001_x/a", file_count: 1, model_count: 1 },
+        { name: "b", path: "m/rev-001_x/b", file_count: 1, model_count: 1 },
+      ],
+      files: [],
+      model: null,
+    };
+    renderBrowser("m/rev-001_x");
+    fireEvent.click(await screen.findByRole("button", { name: "Move a" }));
+    expect(await screen.findByText("Move “a” to…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move here" })).toBeDisabled(); // already there
+    fireEvent.click(screen.getByRole("button", { name: /^b/ }));
+    expect(screen.getByRole("button", { name: "Move here" })).toBeEnabled();
+  });
+
+  it("does not offer Move on model/revision level folders", async () => {
+    renderBrowser("figures");
+    await screen.findByText("dnd");
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
+  });
 });
