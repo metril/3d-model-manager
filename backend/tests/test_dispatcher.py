@@ -981,3 +981,62 @@ def test_no_off_on_cycle_when_queue_wants_printer(redis_url: str, fake_adapter):
             manager.tick(s, client, settings, now=t0 + timedelta(minutes=5))
         assert not off.called  # queue needs it
     client.close()
+
+
+def _ready_item(redis_url: str, slug: str):
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=slug)
+        printer = _seed_printer(s, name=f"P-{slug}")
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        ids = (entry.id, printer.id)
+    _seed_state(redis_url, ids[1], IDLE_STATE)
+    return ids
+
+
+def test_dispatch_same_item_twice_sends_once(redis_url: str, fake_adapter):
+    """A stale in-memory READY item (e.g. from an overlapping tick) must not send twice."""
+    from sqlalchemy import func, select
+
+    settings = get_settings()
+    entry_id, pid = _ready_item(redis_url, "dbl")
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s1, base.sync_session() as s2:
+        a = s1.get(PrintQueueEntry, entry_id)
+        b = s2.get(PrintQueueEntry, entry_id)
+        need = dispatcher._needs_for_item(s1, a)
+        assert dispatcher._dispatch(s1, settings, client, a, [pid], Fanout.SINGLE, need) is True
+        assert dispatcher._dispatch(s2, settings, client, b, [pid], Fanout.SINGLE, need) is False
+    client.close()
+    with base.sync_session() as s:
+        assert s.scalar(select(func.count()).select_from(PrintJob)) == 1
+
+
+def test_dispatch_skips_item_canceled_after_selection(redis_url: str, fake_adapter):
+    from sqlalchemy import func, select
+
+    settings = get_settings()
+    entry_id, pid = _ready_item(redis_url, "cxl")
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s1, base.sync_session() as s2:
+        a = s1.get(PrintQueueEntry, entry_id)
+        need = dispatcher._needs_for_item(s1, a)
+        s2.get(PrintQueueEntry, entry_id).state = QueueState.FAILED
+        s2.commit()
+        assert dispatcher._dispatch(s1, settings, client, a, [pid], Fanout.SINGLE, need) is False
+    client.close()
+    with base.sync_session() as s:
+        assert s.scalar(select(func.count()).select_from(PrintJob)) == 0
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.FAILED
+
+
+def test_dispatch_once_stops_when_lock_lost(redis_url: str, fake_adapter):
+    settings = get_settings()
+    entry_id, _ = _ready_item(redis_url, "lck")
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings, keepalive=lambda: False)
+    client.close()
+    assert counts["sent"] == 0
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.READY
