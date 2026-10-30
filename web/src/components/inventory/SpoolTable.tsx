@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDateTime, useDebouncedValue } from "@/lib/format";
+import { driedDetail } from "@/lib/spoolDried";
 
 const EXTERNAL_UNIT = 255;
 const ALL = "all";
@@ -73,6 +74,7 @@ export function SpoolTable({
   const [q, setQ] = useState("");
   const [materialType, setMaterialType] = useState<string>(ALL);
   const [lowStockOnly, setLowStockOnly] = useState(initialLowStock);
+  const [needsDrying, setNeedsDrying] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [locationFilter, setLocationFilter] = useState<string>(ALL);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -93,6 +95,7 @@ export function SpoolTable({
     archived: showArchived,
     low_stock: lowStockOnly ? true : undefined,
     material_type: materialType === ALL ? undefined : materialType,
+    needs_drying: needsDrying || undefined,
     q: debouncedQ || undefined,
   });
   const printers = usePrinters();
@@ -188,6 +191,10 @@ export function SpoolTable({
           Low stock
         </label>
         <label className="flex items-center gap-2 pb-2 text-sm">
+          <Checkbox checked={needsDrying} onCheckedChange={(c) => setNeedsDrying(c === true)} />
+          Needs drying
+        </label>
+        <label className="flex items-center gap-2 pb-2 text-sm">
           <Checkbox checked={showArchived} onCheckedChange={(c) => setShowArchived(c === true)} />
           Show archived
         </label>
@@ -264,6 +271,7 @@ export function SpoolTable({
               <TableHead>Location</TableHead>
               <TableHead>Slot</TableHead>
               <TableHead>Last used</TableHead>
+              <TableHead>Last dried</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -315,6 +323,9 @@ export function SpoolTable({
                 <TableCell className="text-muted-foreground">{spool.location ?? "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{slotLabel(spool, printerName)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatDateTime(spool.last_used_at)}</TableCell>
+                <TableCell className="text-muted-foreground" title={driedDetail(spool)}>
+                  {formatDateTime(spool.last_dried_at)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

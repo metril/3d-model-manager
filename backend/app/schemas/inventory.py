@@ -70,6 +70,9 @@ class SpoolUpdate(BaseModel):
     low_stock_g: float | None = None
     tray_uuid: str | None = None
     archived: bool | None = None
+    last_dried_at: datetime | None = None
+    last_dried_temp_c: int | None = None
+    last_dried_hours: float | None = None
 
     _hex = field_validator("color_hex")(_validate_hex)
     _nn = field_validator(
@@ -95,6 +98,9 @@ class SpoolOut(BaseModel):
     spoolman_id: int | None = None
     archived_at: datetime | None
     last_used_at: datetime | None
+    last_dried_at: datetime | None = None
+    last_dried_temp_c: int | None = None
+    last_dried_hours: float | None = None
     created_by_user_id: int | None
     created_at: datetime
     remaining_g: float
@@ -121,6 +127,9 @@ class SpoolOut(BaseModel):
             spoolman_id=s.spoolman_id,
             archived_at=s.archived_at,
             last_used_at=s.last_used_at,
+            last_dried_at=s.last_dried_at,
+            last_dried_temp_c=s.last_dried_temp_c,
+            last_dried_hours=s.last_dried_hours,
             created_by_user_id=s.created_by_user_id,
             created_at=s.created_at,
             remaining_g=remaining_g(s),

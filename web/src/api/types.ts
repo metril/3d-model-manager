@@ -820,6 +820,9 @@ export interface SpoolOut {
   spoolman_id?: number | null;
   archived_at: string | null;
   last_used_at: string | null;
+  last_dried_at?: string | null;
+  last_dried_temp_c?: number | null;
+  last_dried_hours?: number | null;
   created_by_user_id: number | null;
   created_at: string;
   remaining_g: number;
@@ -856,6 +859,9 @@ export interface SpoolUpdate {
   low_stock_g?: number;
   tray_uuid?: string | null;
   archived?: boolean;
+  last_dried_at?: string | null;
+  last_dried_temp_c?: number | null;
+  last_dried_hours?: number | null;
 }
 
 export interface SpoolUsageRow {
