@@ -122,6 +122,7 @@ async def patch_print(
     only the fields present in the request body change.
     """
     row = await _get_print_or_404(db, print_id)
+    old_duration = row.duration_min
     if "material_id" in changes:
         await _check_material_id(db, changes["material_id"])
     for field in (
@@ -146,6 +147,14 @@ async def patch_print(
             row.filament_cost = cost.filament_cost
         if "duration_min" in changes:
             row.machine_cost = cost.machine_cost
+            # Wear is a per-printer rate x time, and the printer's rate isn't
+            # known here: scale the stored wear by the new/old duration.
+            if row.wear_cost is not None:
+                row.wear_cost = (
+                    row.wear_cost * row.duration_min / old_duration
+                    if old_duration and row.duration_min is not None
+                    else None
+                )
     if {"filament_g", "duration_min", "quality", "failure_reason"} & changes.keys():
         parts = [
             c
