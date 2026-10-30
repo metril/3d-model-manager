@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { normalizeHex } from "@/components/ui/filament-chip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+import { AmsBackupBar } from "./AmsBackupBar";
 import { AmsRenameDialog } from "./AmsRenameDialog";
 import { KProfilesModal } from "@/components/print/modals/KProfilesModal";
 import { printerNozzle } from "@/components/print/modals/kprofileUtils";
@@ -253,6 +254,7 @@ export function FilamentsSection({
           {t("card.filaments.backup")}
         </Badge>
       ) : null}
+      {canControl && ams.length > 0 ? <AmsBackupBar printerId={printer.id} busy={busy} /> : null}
       <div className="flex flex-wrap gap-2">
         {[...byUnit.entries()].map(([unitId, trays]) => (
           <div key={unitId} className="flex min-w-0 flex-1 flex-col gap-1 rounded-md border p-2" data-slot="ams-unit">

@@ -609,3 +609,32 @@ describe("PrintDashboardPage review inbox rail card (P7 Task 9)", () => {
     expect(screen.queryByText("Review inbox")).not.toBeInTheDocument();
   });
 });
+
+describe("PrintDashboardPage dock", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {},
+    }));
+    overviewBox.current = { printers: [printerItem(1)], up_next: [], recent_runs: [] };
+  });
+
+  it("keeps the classic page by default; Customize layout switches to the dock and remembers it", async () => {
+    renderPage();
+    await screen.findByText("Printer 1");
+    expect(screen.queryByTestId("print-dock")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Customize layout" }));
+    expect(await screen.findByTestId("print-dock")).toBeInTheDocument();
+    expect(localStorage.getItem("tdmm.printDashDock.v1")).toBe("1");
+    fireEvent.click(await screen.findByRole("button", { name: "Classic layout" }));
+    await waitFor(() => expect(screen.queryByTestId("print-dock")).toBeNull());
+    expect(localStorage.getItem("tdmm.printDashDock.v1")).toBeNull();
+    expect(await screen.findByText("Printer 1")).toBeInTheDocument();
+  });
+
+  it("opens straight into the dock when the preference is stored", async () => {
+    localStorage.setItem("tdmm.printDashDock.v1", "1");
+    renderPage();
+    expect(await screen.findByTestId("print-dock")).toBeInTheDocument();
+  });
+});

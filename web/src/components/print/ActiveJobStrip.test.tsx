@@ -74,6 +74,14 @@ describe("ActiveJobStrip", () => {
     expect(screen.getByText("Plate 1")).toBeInTheDocument();
   });
 
+  it("shows the per-job estimated cost with the shared cost format", () => {
+    render(
+      <ActiveJobStrip job={job({ estimated_cost: 1.5 })} status={status()} printerId={1} canControl={true} />,
+    );
+
+    expect(screen.getByText("Est. cost 1.50")).toBeInTheDocument();
+  });
+
   it("falls back to subtask_name when model_name is null", () => {
     render(
       <ActiveJobStrip

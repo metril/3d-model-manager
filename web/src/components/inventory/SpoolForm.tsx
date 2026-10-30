@@ -17,7 +17,7 @@ import { ApiError } from "@/api/client";
 import { useMaterials } from "@/api/materials";
 import { usePutSpoolSuppliers } from "@/api/spoolAdmin";
 import { useCreateSpool, usePatchSpool } from "@/api/spools";
-import type { ColorCatalogEntry, MaterialKind, SpoolCreate, SpoolOut, SpoolSupplierLink } from "@/api/types";
+import type { ColorCatalogEntry, MaterialKind, SpoolCreate, SpoolOut, SpoolSupplierLink, SpoolUpdate } from "@/api/types";
 import { LocationCombobox } from "@/components/inventory/LocationCombobox";
 import { SupplierListEditor } from "@/components/inventory/SupplierListEditor";
 import { useAuth } from "@/api/auth";
@@ -43,6 +43,15 @@ export interface SpoolFormPrefill {
   tray_uuid?: string | null;
 }
 
+/** ISO timestamp -> `datetime-local` value in the viewer's timezone. */
+function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function fieldsFor(spool: SpoolOut | undefined, prefill: SpoolFormPrefill | undefined) {
   return {
     materialId: spool?.material_id ?? null,
@@ -57,6 +66,7 @@ function fieldsFor(spool: SpoolOut | undefined, prefill: SpoolFormPrefill | unde
     locationId: spool?.location_id ?? null,
     lowStockG: String(spool?.low_stock_g ?? 100),
     trayUuid: spool?.tray_uuid ?? prefill?.tray_uuid ?? "",
+    lastDried: toLocalInput(spool?.last_dried_at),
   };
 }
 
@@ -143,6 +153,11 @@ export function SpoolForm({
       low_stock_g: Number(fields.lowStockG) || 0,
       tray_uuid: fields.trayUuid.trim() || null,
     };
+    // Only a hand-edited stamp is sent: the server then drops the stale temp/hours.
+    const dryingEdited = isEdit && fields.lastDried !== toLocalInput(spool.last_dried_at);
+    const patch: SpoolUpdate = dryingEdited
+      ? { ...payload, last_dried_at: fields.lastDried ? new Date(fields.lastDried).toISOString() : null }
+      : payload;
     const finish = async (saved: SpoolOut) => {
       const before = JSON.stringify(spool?.suppliers ?? []);
       if (JSON.stringify(suppliers) !== before) {
@@ -156,7 +171,7 @@ export function SpoolForm({
       onOpenChange(false);
     };
     if (isEdit) {
-      patchSpool.mutate({ id: spool.id, payload }, { onSuccess: finish });
+      patchSpool.mutate({ id: spool.id, payload: patch }, { onSuccess: finish });
     } else {
       createSpool.mutate(payload, { onSuccess: finish });
     }
@@ -344,6 +359,19 @@ export function SpoolForm({
                 />
               </div>
             </div>
+
+            {isEdit ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="spool-last-dried">Last dried</Label>
+                <Input
+                  id="spool-last-dried"
+                  type="datetime-local"
+                  value={fields.lastDried}
+                  onChange={(e) => setFields((f) => ({ ...f, lastDried: e.target.value }))}
+                  disabled={!canWrite}
+                />
+              </div>
+            ) : null}
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="spool-location">Location</Label>

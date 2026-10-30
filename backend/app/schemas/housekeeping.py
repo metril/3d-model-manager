@@ -202,6 +202,7 @@ class BulkUpdateFields(BaseModel):
     low_stock_g: float | None = None
     location_id: int | None = None
     archived: bool | None = None
+    last_dried_at: datetime | None = None
 
 
 class BulkUpdateIn(BaseModel):

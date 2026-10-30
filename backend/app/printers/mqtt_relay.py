@@ -7,6 +7,8 @@ Topics (``<p>`` = configured prefix, ``<serial>`` = printer serial):
   ``<p>/<serial>/availability`` online/offline (retained)
   ``<p>/<serial>/state``        full state JSON (rate-gated, not retained)
   ``<p>/<serial>/progress``     {state, progress, remaining, layer, job}
+  ``<p>/<serial>/ams/<unit>/<slot>/low_filament`` true/false (retained):
+                                remaining % below the configured threshold
   ``<p>/<serial>/event``        print lifecycle events (started/paused/...)
   ``<p>/<serial>/command``      IN: ``pause|resume|stop`` or ``{"command": ..}``
   ``<p>/<serial>/command_result`` OUT: accepted / rejected + reason
@@ -108,6 +110,7 @@ class MqttRelay:
         self._tokens: dict[int, tuple[float, float]] = {}
         self._last_state: dict[int, str | None] = {}
         self._last_progress: dict[int, bytes] = {}
+        self._low: dict[tuple[int, int, int], bool] = {}
         self._connected = False
         self._error: str | None = None
         self._actor_ok = False
@@ -211,6 +214,7 @@ class MqttRelay:
     def _connect(self) -> None:
         cfg = self._config
         self._avail = {}
+        self._low = {}
         self._rate = RateGate(clock=self.clock)
         client = self.client_factory()
         client.will_set(self._t("status"), "offline", qos=1, retain=True)
@@ -246,6 +250,7 @@ class MqttRelay:
         rc = next((a for a in reversed(args) if isinstance(a, int)), None)
         self._connected, self._error = False, f"disconnected: rc={rc!r}"
         self._avail = {}
+        self._low = {}
 
     def _bucket(self, pid: int) -> bool:
         """Per-printer token bucket (broker clients are untrusted): bursts of
@@ -318,6 +323,23 @@ class MqttRelay:
             self._client.publish(topic, payload, qos=qos, retain=retain)
             self._published += 1
 
+    def _publish_low_filament(self, pid: int, serial: str, public: dict | None) -> None:
+        threshold = self._config.low_filament_pct
+        for tray in (public or {}).get("trays") or []:
+            unit, slot, pct = tray.get("ams_unit"), tray.get("tray"), tray.get("remain_pct")
+            if unit is None or slot is None or pct is None or pct < 0:
+                continue
+            low = pct < threshold
+            if self._low.get((pid, unit, slot)) is low:
+                continue
+            self._low[(pid, unit, slot)] = low
+            self._pub(
+                self._t(serial, "ams", str(unit), str(slot), "low_filament"),
+                "true" if low else "false",
+                retain=True,
+                qos=1,
+            )
+
     def _publish_live(self) -> None:
         if not self._connected:
             return
@@ -336,6 +358,7 @@ class MqttRelay:
                     qos=1,
                 )
             public = read_state_sync(self.r, pid)
+            self._publish_low_filament(pid, serial, public)
             body = state_payload(
                 public, last_result=printer["last_result"], queue_length=printer["queue_length"]
             )

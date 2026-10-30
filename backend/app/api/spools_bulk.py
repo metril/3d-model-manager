@@ -108,6 +108,9 @@ async def bulk_update(payload: BulkUpdateIn, db: AsyncSession = Depends(get_db))
     except ValidationError as e:
         raise HTTPException(422, e.errors(include_url=False, include_context=False)) from e
     archived = fields.pop("archived", None)
+    if "last_dried_at" in fields:  # hand-edited stamp: old temp/hours no longer describe it
+        fields.setdefault("last_dried_temp_c", None)
+        fields.setdefault("last_dried_hours", None)
     if fields.get("location_id") is not None and (
         await db.get(StorageLocation, fields["location_id"]) is None
     ):

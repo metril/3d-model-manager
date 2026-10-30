@@ -111,6 +111,19 @@ describe("LocationsPanel", () => {
     );
   });
 
+  it("shows humidity in the table row with humid + stale flags", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/storage-locations") return Promise.resolve([{ ...location, sensors: [sensor] }]);
+      if (path === "/settings/drying") return Promise.resolve({ ams_humidity_good: 10, ams_humidity_fair: 20 });
+      return Promise.resolve([]);
+    });
+    wrap(<LocationsPanel />);
+    const chip = await screen.findByTestId("location-climate");
+    expect(chip).toHaveTextContent("21%");
+    await waitFor(() => expect(chip).toHaveTextContent("Humid"));
+    expect(chip).toHaveTextContent("Stale");
+  });
+
   it("deletes a location after confirming", async () => {
     wrap(<LocationsPanel />);
     await screen.findByText("Dry box");

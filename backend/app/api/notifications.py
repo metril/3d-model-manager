@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from jinja2 import TemplateError
@@ -20,13 +22,15 @@ from app.schemas.notifications import (
     ChannelPatch,
     LogOut,
     LogPage,
+    NotifySettingsOut,
+    NotifySettingsPatch,
     PreviewOut,
     TemplateIn,
     TemplateOut,
     TemplatePatch,
     TestResult,
 )
-from app.services.notify import PROVIDERS, Message, ProviderError
+from app.services.notify import PROVIDERS, Message, ProviderError, hms_dedup
 from app.services.notify import catalog as cat
 from app.services.notify.delivery import (
     dump_config,
@@ -91,6 +95,19 @@ async def events_catalog(_: AuthContext = Depends(require_session)) -> dict:
         ],
         "template_vars": cat.TEMPLATE_VARS,
     }
+
+
+@router.get("/settings", response_model=NotifySettingsOut)
+async def get_notify_settings(db: AsyncSession = Depends(get_db)) -> NotifySettingsOut:
+    return NotifySettingsOut(**asdict(await hms_dedup.get_settings_async(db)))
+
+
+@router.patch("/settings", response_model=NotifySettingsOut)
+async def patch_notify_settings(
+    body: NotifySettingsPatch, db: AsyncSession = Depends(get_db)
+) -> NotifySettingsOut:
+    cfg = await hms_dedup.set_settings(db, body.model_dump(exclude_none=True))
+    return NotifySettingsOut(**asdict(cfg))
 
 
 @router.get("/channels", response_model=list[ChannelOut])
