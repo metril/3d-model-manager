@@ -57,6 +57,8 @@ from app.schemas.archives import (
     PurgeCountOut,
     PurgeRunOut,
     PurgeStatsOut,
+    RepriceIn,
+    RepriceOut,
     SettingsDiffOut,
     TimelapseInfoOut,
     TimelapseJobOut,
@@ -65,9 +67,11 @@ from app.schemas.archives import (
     TimeOut,
 )
 from app.services import archive_confirm, archive_purge, archive_settings, archive_sources
+from app.services.app_config import get_app_config
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_blobs import blob_ext, release_blobs, unlink_all
 from app.services.derivatives import publish_bytes
+from app.services.repricing import reprice_runs
 from app.services.tz import parse_tz
 from app.tasks.base import sync_session
 
@@ -278,6 +282,32 @@ async def purge_run(
     )
     await db.commit()
     return PurgeRunOut(deleted=deleted, bytes=size)
+
+
+@router.post("/reprice", response_model=RepriceOut, dependencies=[Depends(require_perm("admin"))])
+async def reprice(
+    body: RepriceIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
+) -> RepriceOut:
+    """Recompute past runs' filament cost from each spool's current price per
+    kg (``dry_run`` only counts). Machine/wear/energy costs are untouched."""
+    cfg = await get_app_config(db, settings)
+    res = await reprice_runs(db, cfg.filament_cost_per_kg, dry_run=body.dry_run)
+    if not body.dry_run:
+        db.add(
+            AuditLog(
+                user_id=ctx.user.id,
+                created_by_user_id=ctx.user.id,
+                action="archive.reprice",
+                payload={"repriced": res.repriced, "delta": res.delta},
+            )
+        )
+        await db.commit()
+    return RepriceOut(
+        candidates=res.candidates, repriced=res.repriced, delta=res.delta, dry_run=body.dry_run
+    )
 
 
 @router.get("/purge/stats", response_model=PurgeStatsOut)

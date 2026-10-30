@@ -11,6 +11,10 @@
  */
 import { useEffect, useState } from "react";
 
+import { toast } from "sonner";
+
+import { useRepriceRuns } from "@/api/archives";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useHaEntities } from "@/api/spoolAdmin";
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
@@ -54,6 +58,8 @@ export function PrintCostCard() {
   const [priceSource, setPriceSource] = useState<"fixed" | "homeassistant" | null>(null);
   const [priceEntity, setPriceEntity] = useState<string | null>(null);
   const haEntities = useHaEntities(priceSource === "homeassistant");
+  const reprice = useRepriceRuns();
+  const [repriceCount, setRepriceCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (settings.data && draft === null) {
@@ -220,6 +226,44 @@ export function PrintCostCard() {
           </Button>
           {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
         </div>
+        <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={reprice.isPending}
+            onClick={() =>
+              reprice.mutate(true, {
+                onSuccess: (res) =>
+                  res.repriced === 0
+                    ? toast("No past runs need repricing.")
+                    : setRepriceCount(res.repriced),
+                onError: () => toast.error("Could not check past runs."),
+              })
+            }
+          >
+            Reprice past runs
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Recompute past runs&apos; filament cost from each spool&apos;s current price. Machine,
+            wear and energy costs are kept.
+          </p>
+        </div>
+        <ConfirmDialog
+          open={repriceCount !== null}
+          onOpenChange={(o) => !o && setRepriceCount(null)}
+          title={`Reprice ${repriceCount ?? 0} past run${repriceCount === 1 ? "" : "s"}?`}
+          description="Their filament cost is replaced using the spools' current price per kg. This can't be undone."
+          confirmLabel={`Reprice ${repriceCount ?? 0}`}
+          onConfirm={() =>
+            reprice.mutate(false, {
+              onSuccess: (res) =>
+                toast.success(
+                  `Repriced ${res.repriced} run${res.repriced === 1 ? "" : "s"} (${res.delta >= 0 ? "+" : ""}${res.delta.toFixed(2)})`,
+                ),
+              onError: () => toast.error("Repricing failed."),
+            })
+          }
+        />
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
             {update.error instanceof ApiError ? update.error.detail : "Could not save these settings."}
