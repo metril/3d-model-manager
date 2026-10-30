@@ -22,7 +22,7 @@ from app.services import derivatives
 
 router = APIRouter(prefix="/blobs", tags=["blobs"])
 
-_IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+_IMMUTABLE_CACHE_CONTROL = "private, max-age=31536000, immutable"
 
 
 class ThumbSize(IntEnum):
