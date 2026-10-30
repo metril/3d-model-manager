@@ -930,6 +930,8 @@ export interface PrinterStatusOut {
   dev_mode_reason?: string | null;
   last_report_at?: string | null;
   awaiting_plate_clear?: boolean;
+  /** Slicer-inserted pause ahead; `eta_s` null while the time is unknown. */
+  next_pause?: { layer: number; eta_s: number | null } | null;
   print_options?: PrintOptions | null;
   /** Dual nozzle (H2D): per-nozzle state; empty on single-nozzle printers. */
   extruders?: ExtruderState[];
