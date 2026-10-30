@@ -41,7 +41,7 @@ from app.services import plate_detection as pd
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.notify import events
-from app.services.permissions import can_print_sync
+from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
 from app.services.queue_preheat import get_preheat_config_sync
@@ -453,6 +453,7 @@ def _candidate_printers(
     need: Needs,
     busy: set[int],
     used_this_tick: set[int],
+    acl_cache: dict[int | None, dict[int, PrinterAcl]] | None = None,
 ) -> tuple[list[Candidate], bool, str | None]:
     """Returns ``(candidates, had_any_permitted, reason)``. An empty
     candidate list with ``had_any_permitted=False`` means "hold" (no
@@ -487,7 +488,14 @@ def _candidate_printers(
         # a permission problem, so never `held`.
         return [], True, "no matching printer"
 
-    permitted = [p for p in printers if can_print_sync(session, item.created_by_user_id, p.id)]
+    uid = item.created_by_user_id
+    if acl_cache is None:
+        acl = printer_acl_sync(session, uid)
+    else:
+        if uid not in acl_cache:
+            acl_cache[uid] = printer_acl_sync(session, uid)
+        acl = acl_cache[uid]
+    permitted = [p for p in printers if p.id in acl and acl[p.id].can_print]
     if not permitted:
         return [], False, None
 
@@ -682,7 +690,11 @@ def _dispatch(
 
 
 def queue_target_ids(
-    session: Session, client: Redis, items: Sequence[PrintQueueEntry]
+    session: Session,
+    client: Redis,
+    items: Sequence[PrintQueueEntry],
+    acl_cache: dict[int | None, dict[int, PrinterAcl]] | None = None,
+    memo: dict[int, tuple[set[int], set[int]]] | None = None,
 ) -> tuple[set[int], set[int]]:
     """``(ready_ids, any_ids)``: printers a READY item could be placed on
     (ignoring busy/idle, via ``_candidate_printers``) and, additionally, the
@@ -691,25 +703,41 @@ def queue_target_ids(
     ready: set[int] = set()
     waiting: set[int] = set()
     for item in items:
-        if item.state == QueueState.READY:
-            need = _needs_for_item(session, item)
-            if need is None:
-                continue
-            recipe = (
-                session.get(PrintRecipe, item.recipe_id) if item.recipe_id is not None else None
-            )
-            cands, _, _ = _candidate_printers(session, client, item, recipe, need, set(), set())
-            ready.update(c.id for c in cands)
-        elif item.state == QueueState.WAITING:
-            stmt = select(Printer.id).where(Printer.maintenance_mode.is_(False))
-            if item.printer_id is not None:
-                stmt = stmt.where(Printer.id == item.printer_id)
-            waiting.update(session.scalars(stmt).all())
+        if memo is not None and item.id in memo:
+            r_ids, w_ids = memo[item.id]
+        else:
+            r_ids, w_ids = set(), set()
+            if item.state == QueueState.READY:
+                need = _needs_for_item(session, item)
+                if need is not None:
+                    recipe = (
+                        session.get(PrintRecipe, item.recipe_id)
+                        if item.recipe_id is not None
+                        else None
+                    )
+                    cands, _, _ = _candidate_printers(
+                        session, client, item, recipe, need, set(), set(), acl_cache
+                    )
+                    r_ids = {c.id for c in cands}
+            elif item.state == QueueState.WAITING:
+                stmt = select(Printer.id).where(Printer.maintenance_mode.is_(False))
+                if item.printer_id is not None:
+                    stmt = stmt.where(Printer.id == item.printer_id)
+                w_ids = set(session.scalars(stmt).all())
+            if memo is not None:
+                memo[item.id] = (r_ids, w_ids)
+        ready.update(r_ids)
+        waiting.update(w_ids)
     return ready, ready | waiting
 
 
 def _wake_plugs(
-    session: Session, settings: Settings, client: Redis, items: Sequence[PrintQueueEntry]
+    session: Session,
+    settings: Settings,
+    client: Redis,
+    items: Sequence[PrintQueueEntry],
+    acl_cache: dict | None = None,
+    memo: dict | None = None,
 ) -> None:
     """Q7: power on ``auto_on_before_print`` plugs, only for printers a READY
     item may actually be placed on (a powered-off printer never reports idle
@@ -719,14 +747,21 @@ def _wake_plugs(
     from app.services.smart_plugs.manager import wake_for_queue
 
     try:
-        ready, _ = queue_target_ids(session, client, items)
+        ready, _ = queue_target_ids(session, client, items, acl_cache, memo)
         if ready:
             wake_for_queue(session, settings, client, ready)
     except Exception:  # noqa: BLE001 -- a plug failure must never stall dispatch
         session.rollback()
 
 
-def _housekeeping(session: Session, settings: Settings, client: Redis, cfg) -> None:
+def _housekeeping(
+    session: Session,
+    settings: Settings,
+    client: Redis,
+    cfg,
+    acl_cache: dict | None = None,
+    memo: dict | None = None,
+) -> None:
     """T4: bed keep-warm + auto power-off. Both ask "is more work queued for
     this printer?" over the deferred-inclusive queue; a failure here must
     never stall dispatch."""
@@ -737,9 +772,9 @@ def _housekeeping(session: Session, settings: Settings, client: Redis, cfg) -> N
     try:
         horizon = datetime.now(UTC) + timedelta(minutes=cfg.keep_warm_max_min)
         queued = eligible_queue_items(session, include_deferred=True)
-        _, wanted = queue_target_ids(session, client, queued)
+        _, wanted = queue_target_ids(session, client, queued, acl_cache, memo)
         soon = [i for i in queued if i.scheduled_at is None or i.scheduled_at <= horizon]
-        _, pending = queue_target_ids(session, client, soon)
+        _, pending = queue_target_ids(session, client, soon, acl_cache, memo)
         queue_schedule.run_keep_warm(session, client, cfg, pending)
         queue_schedule.process_auto_off(session, settings, client, wanted)
     except Exception:  # noqa: BLE001
@@ -755,10 +790,12 @@ def dispatch_once(
     counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0, "skipped": 0}
     _reconcile(session, counts, client)
     items = eligible_queue_items(session)
-    _wake_plugs(session, settings, client, items)
+    acl_cache: dict = {}
+    memo: dict = {}
+    _wake_plugs(session, settings, client, items, acl_cache, memo)
     preheat_cfg = get_preheat_config_sync(session)
     queue_schedule.release_abandoned_preheats(session, client, preheat_cfg, {i.id for i in items})
-    _housekeeping(session, settings, client, preheat_cfg)
+    _housekeeping(session, settings, client, preheat_cfg, acl_cache, memo)
     busy = _busy_printer_ids(session, client)
     used_this_tick: set[int] = set()
 
@@ -797,7 +834,7 @@ def dispatch_once(
 
         recipe = session.get(PrintRecipe, item.recipe_id) if item.recipe_id is not None else None
         candidates, had_permitted, reason = _candidate_printers(
-            session, client, item, recipe, need, busy, used_this_tick
+            session, client, item, recipe, need, busy, used_this_tick, acl_cache
         )
         if not had_permitted:
             item.state = QueueState.HELD
