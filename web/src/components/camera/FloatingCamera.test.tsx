@@ -85,6 +85,18 @@ describe("FloatingCamera", () => {
     expect(screen.queryByTestId("floating-camera")).toBeNull();
   });
 
+  it("Shift+C toggles the overlay", async () => {
+    render(wrap(<FloatingCamera />));
+    await screen.findByTestId("floating-camera", {}, { timeout: 50 }).catch(() => null);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    fireEvent.keyDown(document, { key: "C", shiftKey: true });
+    expect(screen.getByTestId("floating-camera")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "C", shiftKey: true });
+    expect(screen.queryByTestId("floating-camera")).toBeNull();
+  });
+
   it("persists across remount (route change) and minimises", async () => {
     const { unmount } = render(wrap(<FloatingCamera />));
     await act(async () => floatingCamera.open(1));

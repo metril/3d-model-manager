@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 
 import { usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
+import { useHotkeys } from "@/hooks/useHotkeys";
 import { floatingCamera, MIN_H, MIN_W, useFloatingCamera, type FloatingRect } from "@/lib/floatingCamera";
 import { pipSupported, popOutElement } from "@/lib/pip";
 
@@ -20,6 +21,15 @@ export function FloatingCamera() {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const id = s.printerId;
+  const firstId = overview.data?.printers[0]?.printer.id;
+
+  // Shift+C toggles the overlay (first printer when none is remembered).
+  useHotkeys({
+    "shift+C": () => {
+      if (floatingCamera.get().printerId != null) floatingCamera.close();
+      else if (firstId != null) floatingCamera.open(firstId);
+    },
+  });
 
   useEffect(() => {
     if (id == null) return;
