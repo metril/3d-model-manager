@@ -43,6 +43,7 @@ from app.schemas.queue import (
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.print_plan import estimate_item_sync
+from app.services.queue_filaments import details_for_entries
 from app.services.queue_settings import get_queue_config
 from app.services.server_config import get_server_config
 
@@ -234,6 +235,7 @@ async def _to_out(
             ).scalars()
         )
     sliced_meta_by_file = await _sliced_metas(db, entries)
+    details_by_entry = await details_for_entries(db, settings, entries)
     now = datetime.now(UTC)
 
     out = []
@@ -291,6 +293,11 @@ async def _to_out(
                 stage=e.stage,
                 skipped_reason=e.hold_reason if e.state == QueueState.SKIPPED else None,
                 waiting_reason=_waiting_reason(e, now, plate_blocked),
+                filaments=details_by_entry[e.id].filaments if e.id in details_by_entry else [],
+                colour_mismatch=e.id in details_by_entry and details_by_entry[e.id].colour_mismatch,
+                estimated_cost=details_by_entry[e.id].estimated_cost
+                if e.id in details_by_entry
+                else None,
                 batch_id=e.batch_id,
                 batch=BatchRefOut(id=e.batch_id, name=batches_by_id[e.batch_id].name)
                 if e.batch_id in batches_by_id
