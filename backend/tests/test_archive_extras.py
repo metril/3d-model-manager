@@ -780,3 +780,70 @@ async def test_list_filters_date_pending_mine(authenticated_client, db_session, 
     assert await got("confirm_pending=1") == {ids["pend"]}
     assert await got("mine=1") == {ids["mine"]}
     assert uid
+
+
+# --- tz / limiter / concurrency (audit wave 2) ---------------------------------
+
+
+async def test_calendar_buckets_by_tz(authenticated_client, db_session):
+    a = await _arc(db_session, await _printer(db_session))
+    a.created_at = datetime(2026, 3, 10, 2, 0, tzinfo=UTC)  # 19:00 on 9 Mar in Los Angeles
+    await db_session.commit()
+    c = authenticated_client
+    q = "from=2026-03-08&to=2026-03-11"
+    utc = (await c.get(f"/api/archives/calendar?{q}")).json()
+    assert [d["date"] for d in utc] == ["2026-03-10"]
+    la = (await c.get(f"/api/archives/calendar?{q}&tz=America/Los_Angeles")).json()
+    assert [d["date"] for d in la] == ["2026-03-09"]
+    edge = "/api/archives/calendar?from=2026-03-10&to=2026-03-10&tz=America/Los_Angeles"
+    assert (await c.get(edge)).json() == []
+    assert (await c.get(f"/api/archives/calendar?{q}&tz=Not/AZone")).status_code == 422
+
+
+async def test_confirm_rate_limit_fails_closed(client, monkeypatch):
+    import redis.asyncio as aioredis
+
+    def boom(*_a, **_k):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(aioredis.Redis, "from_url", boom)
+    assert (await client.get("/api/archives/confirm/x/good")).status_code == 429
+
+
+async def test_rate_limit_keyed_per_token(client, redis_client):
+    await redis_client.flushdb()
+    for _ in range(30):
+        await client.get("/api/archives/confirm/aaa/good")
+    assert (await client.get("/api/archives/confirm/aaa/good")).status_code == 429
+    assert (await client.get("/api/archives/confirm/bbb/good")).status_code == 404
+
+
+async def test_concurrent_photo_uploads_keep_both(authenticated_client, db_session):
+    import asyncio
+
+    a = await _arc(db_session, await _printer(db_session))
+    aid = a.id
+    c = authenticated_client
+    rs = await asyncio.gather(
+        *(
+            c.post(
+                f"/api/archives/{aid}/photos",
+                files={"file": ("x.png", _png((8 + i, 8)), "image/png")},
+            )
+            for i in range(4)
+        )
+    )
+    assert [r.status_code for r in rs] == [201] * 4
+    db_session.expire_all()
+    assert len((await db_session.get(PrintArchive, aid)).photos) == 4
+
+
+def test_reencode_rejects_oversize_pixels(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api import archives_extras as ax
+
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 40)  # 64px: between 1x and 2x => warning
+    with pytest.raises(HTTPException) as e:
+        ax._reencode(_png((8, 8)))
+    assert e.value.status_code == 415

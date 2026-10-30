@@ -5,6 +5,7 @@
 import {
   queryOptions,
   useInfiniteQuery,
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -199,6 +200,7 @@ export function useModelSearchQuery(q: string) {
     queryKey: ["models", "search", q] as const,
     queryFn: () => api.get<GalleryPage>(buildModelsUrl({ q, sort: "name" }, undefined, 10)),
     enabled: q.trim().length > 0,
+    placeholderData: keepPreviousData,
   });
 }
 
