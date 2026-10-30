@@ -7,7 +7,7 @@ see that module.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
@@ -68,6 +68,8 @@ async def list_spools(
     low_stock: bool | None = None,
     material_type: str | None = None,
     q: str | None = Query(default=None),
+    needs_drying: bool = False,
+    drying_days: int = Query(default=30, ge=1),
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[SpoolOut]:
@@ -78,6 +80,9 @@ async def list_spools(
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Spool.brand.ilike(like), Spool.color_name.ilike(like)))
+    if needs_drying:
+        cutoff = datetime.now(UTC) - timedelta(days=drying_days)
+        stmt = stmt.where(or_(Spool.last_dried_at.is_(None), Spool.last_dried_at < cutoff))
     rows = (await db.execute(stmt.order_by(Spool.id))).scalars().all()
     out = [await _out(db, s) for s in rows]
     if low_stock is not None:
@@ -173,6 +178,9 @@ async def update_spool(
     data = payload.model_dump(exclude_unset=True)
     archived = data.pop("archived", None)
     await _check_location(db, data.get("location_id"))
+    if "last_dried_at" in data:  # hand-edited stamp: old temp/hours no longer describe it
+        data.setdefault("last_dried_temp_c", None)
+        data.setdefault("last_dried_hours", None)
     for key, value in data.items():
         setattr(spool, key, value)
     if archived is True and spool.archived_at is None:

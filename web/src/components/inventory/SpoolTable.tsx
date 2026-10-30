@@ -42,6 +42,15 @@ function slotLabel(spool: SpoolOut, printerName: (id: number) => string): string
   return `${printerName(spool.slot.printer_id)} · AMS ${spool.slot.ams_unit + 1}-${spool.slot.slot + 1}`;
 }
 
+export function driedDetail(spool: SpoolOut): string | undefined {
+  if (!spool.last_dried_at) return undefined;
+  const parts = [
+    spool.last_dried_temp_c != null ? `${spool.last_dried_temp_c} °C` : null,
+    spool.last_dried_hours != null ? `${spool.last_dried_hours} h` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 function RemainingBar({ spool }: { spool: SpoolOut }) {
   const remaining = Math.max(0, spool.remaining_g);
   const fraction = spool.label_weight_g > 0 ? Math.min(1, remaining / spool.label_weight_g) : 0;
@@ -73,6 +82,7 @@ export function SpoolTable({
   const [q, setQ] = useState("");
   const [materialType, setMaterialType] = useState<string>(ALL);
   const [lowStockOnly, setLowStockOnly] = useState(initialLowStock);
+  const [needsDrying, setNeedsDrying] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [locationFilter, setLocationFilter] = useState<string>(ALL);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -93,6 +103,7 @@ export function SpoolTable({
     low_stock: lowStockOnly ? true : undefined,
     material_type: materialType === ALL ? undefined : materialType,
     q: q || undefined,
+    needs_drying: needsDrying || undefined,
   });
   const printers = usePrinters();
   const printerName = useMemo(() => {
@@ -189,6 +200,10 @@ export function SpoolTable({
           Low stock
         </label>
         <label className="flex items-center gap-2 pb-2 text-sm">
+          <Checkbox checked={needsDrying} onCheckedChange={(c) => setNeedsDrying(c === true)} />
+          Needs drying
+        </label>
+        <label className="flex items-center gap-2 pb-2 text-sm">
           <Checkbox checked={showArchived} onCheckedChange={(c) => setShowArchived(c === true)} />
           Show archived
         </label>
@@ -265,6 +280,7 @@ export function SpoolTable({
               <TableHead>Location</TableHead>
               <TableHead>Slot</TableHead>
               <TableHead>Last used</TableHead>
+              <TableHead>Last dried</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -304,6 +320,9 @@ export function SpoolTable({
                 <TableCell className="text-muted-foreground">{spool.location ?? "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{slotLabel(spool, printerName)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatDateTime(spool.last_used_at)}</TableCell>
+                <TableCell className="text-muted-foreground" title={driedDetail(spool)}>
+                  {formatDateTime(spool.last_dried_at)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

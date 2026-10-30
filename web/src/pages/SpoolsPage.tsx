@@ -17,7 +17,8 @@ import { SpoolForm } from "@/components/inventory/SpoolForm";
 import { ColorCatalogPanel } from "@/components/inventory/admin/ColorCatalogPanel";
 import { LocationsPanel } from "@/components/inventory/admin/LocationsPanel";
 import { SuppliersPanel } from "@/components/inventory/admin/SuppliersPanel";
-import { SpoolTable } from "@/components/inventory/SpoolTable";
+import { SpoolTable, driedDetail } from "@/components/inventory/SpoolTable";
+import { formatDateTime } from "@/lib/format";
 import { SpoolmanLink } from "@/components/inventory/SpoolmanLink";
 import { SpoolUsageHistory } from "@/components/inventory/SpoolUsageHistory";
 import { useSpool } from "@/api/spools";
@@ -54,6 +55,10 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
                     Edit
                   </Button>
                 ) : null}
+                <p className="text-sm text-muted-foreground">
+                  Last dried: {formatDateTime(spool.data.last_dried_at)}
+                  {driedDetail(spool.data) ? ` (${driedDetail(spool.data)})` : ""}
+                </p>
                 <SpoolmanLink spool={spool.data} />
                 <SpoolUsageHistory spool={spool.data} />
               </>
