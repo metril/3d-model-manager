@@ -89,3 +89,29 @@ def make_thumbs_from_image(
     _publish_thumb(image, _THUMB_1024_PX, p1024)
     _publish_thumb(image, _THUMB_256_PX, p256)
     return p1024, p256
+
+
+def render_pdf_first_page(src: Path, dest: Path, *, size: int = _THUMB_1024_PX) -> Path:
+    """Rasterise page 1 of the PDF at ``src`` to a PNG at ``dest`` (long edge
+    ~``size`` px). An unreadable/empty PDF is a deterministic ``ValueError``
+    (not retried as a transient I/O error)."""
+    import pypdfium2 as pdfium
+
+    try:
+        doc = pdfium.PdfDocument(str(src))
+    except Exception as exc:
+        raise ValueError(f"cannot read pdf: {exc}") from exc
+    try:
+        if len(doc) == 0:
+            raise ValueError("pdf has no pages")
+        page = doc[0]
+        w, h = page.get_size()
+        scale = size / max(w, h, 1.0)
+        page.render(scale=scale).to_pil().convert("RGB").save(dest, format="PNG")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"cannot render pdf: {exc}") from exc
+    finally:
+        doc.close()
+    return dest

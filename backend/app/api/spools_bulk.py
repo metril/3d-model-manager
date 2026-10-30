@@ -319,7 +319,8 @@ async def _label_items(
             color_name=found[i].color_name,
             color_hex=found[i].color_hex,
             location=found[i].location,
-            url=f"{base}/inventory/spools?spool={i}",
+            weight_g=found[i].label_weight_g,
+            url=f"{base}/scan/spool/{i}",
         )
         for i in dict.fromkeys(ids)
     ]
@@ -330,24 +331,19 @@ async def labels(
     payload: LabelsIn, request: Request, db: AsyncSession = Depends(get_db)
 ) -> Response:
     items = await _label_items(db, payload.ids, str(request.base_url))
-    pdf = await run_in_threadpool(spool_labels.render_pdf, items, payload.template, payload.page)
-    if payload.format == "pdf":
-        return Response(
-            pdf,
-            media_type="application/pdf",
-            headers={"Content-Disposition": 'attachment; filename="spool-labels.pdf"'},
-        )
-    pngs = await run_in_threadpool(spool_labels.pdf_to_pngs, pdf)
-    if len(pngs) == 1:
-        return Response(
-            pngs[0],
-            media_type="image/png",
-            headers={"Content-Disposition": 'attachment; filename="spool-labels.png"'},
-        )
+    pdf = await run_in_threadpool(
+        spool_labels.render_pdf,
+        items,
+        payload.template,
+        payload.page,
+        frozenset(payload.fields),
+        payload.offset,
+    )
+    body, media, name = await run_in_threadpool(
+        spool_labels.encode_output, pdf, payload.format, "spool-labels"
+    )
     return Response(
-        spool_labels.zip_pngs(pngs),
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="spool-labels.zip"'},
+        body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'}
     )
 
 
@@ -356,6 +352,13 @@ async def labels_preview(
     payload: LabelsPreviewIn, request: Request, db: AsyncSession = Depends(get_db)
 ) -> Response:
     items = await _label_items(db, payload.ids[:60], str(request.base_url))
-    pdf = await run_in_threadpool(spool_labels.render_pdf, items, payload.template, payload.page)
+    pdf = await run_in_threadpool(
+        spool_labels.render_pdf,
+        items,
+        payload.template,
+        payload.page,
+        frozenset(payload.fields),
+        payload.offset,
+    )
     pngs = await run_in_threadpool(spool_labels.pdf_to_pngs, pdf, 2.0, True)
     return Response(pngs[0], media_type="image/png")

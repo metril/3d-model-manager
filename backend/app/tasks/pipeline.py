@@ -83,7 +83,7 @@ PIPELINE_STEPS: dict[BlobFormat, tuple[str, ...]] = {
     BlobFormat.JPG: ("render_thumb",),
     BlobFormat.WEBP: ("render_thumb",),
     # R13c: doc kinds never enter the GLB/thumb pipeline.
-    BlobFormat.PDF: (),
+    BlobFormat.PDF: ("render_thumb",),
     BlobFormat.MD: (),
     BlobFormat.TXT: (),
     BlobFormat.DOCX: (),
@@ -1030,6 +1030,23 @@ def _render_thumb_step(
                 session, settings, blob.hash, Path(tmp), f".{blob.format.value}"
             )
             _publish_image_thumbs(session, settings, blob.hash, path, "pillow")
+        return "done"
+
+    if blob.format == BlobFormat.PDF:
+        # First page via pypdfium2 (already a dependency for label PNGs).
+        with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
+            path = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".pdf")
+            page_png = Path(tmp) / "page1.png"
+            try:
+                thumbs.render_pdf_first_page(path, page_png)
+            except ValueError as exc:
+                for kind in (DerivativeKind.THUMB_1024, DerivativeKind.THUMB_256):
+                    d = derivatives.upsert_derivative(session, blob.hash, kind)
+                    derivatives.mark_derivative(
+                        session, d, status=DerivativeStatus.FAILED, tool="pdfium", error=str(exc)
+                    )
+                raise
+            _publish_image_thumbs(session, settings, blob.hash, page_png, "pdfium")
         return "done"
 
     glb_deriv = _glb_derivative(session, blob.hash)

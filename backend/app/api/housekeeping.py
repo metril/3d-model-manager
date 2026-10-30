@@ -3,7 +3,7 @@ colour catalog. Reads: session. Writes: ``inventory:write``."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +28,7 @@ from app.schemas.housekeeping import (
     CatalogPatch,
     HaEntityOut,
     LocationIn,
+    LocationLabelsIn,
     LocationOut,
     LocationPatch,
     ReadingOut,
@@ -38,11 +39,13 @@ from app.schemas.housekeeping import (
     SupplierOut,
     SupplierPatch,
 )
+from app.services import spool_labels
 from app.services.ams_match import delta_e_ok
 from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import get_ha_config
 from app.services.housekeeping import load_default_catalog, name_key
 from app.services.library import _escape_like
+from app.services.server_config import get_server_config
 
 _write = Depends(require_perm_on_write("inventory:write"))
 
@@ -309,6 +312,48 @@ async def delete_sensor(sensor_id: int, db: AsyncSession = Depends(get_db)) -> N
         raise _404("sensor")
     await db.delete(s)
     await db.commit()
+
+
+@locations_router.post("/labels")
+async def location_labels(
+    payload: LocationLabelsIn, request: Request, db: AsyncSession = Depends(get_db)
+) -> Response:
+    """Location labels whose QR encodes ``/scan/location/<id>`` (scan-to-assign)."""
+    ids = list(dict.fromkeys(payload.ids))
+    locs = {
+        loc.id: loc
+        for loc in (
+            await db.execute(select(StorageLocation).where(StorageLocation.id.in_(ids)))
+        ).scalars()
+    }
+    missing = [i for i in ids if i not in locs]
+    if missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"location(s) not found: {missing}")
+    cfg = await get_server_config(db)
+    base = (cfg.public_url or str(request.base_url)).rstrip("/")
+    items = [
+        spool_labels.LabelData(
+            spool_id=i,
+            material="",
+            brand=None,
+            color_name=None,
+            color_hex=None,
+            location=locs[i].identifier,
+            url=f"{base}/scan/location/{i}",
+            kind="location",
+            title=locs[i].name,
+        )
+        for i in ids
+    ]
+    pdf = await run_in_threadpool(
+        spool_labels.render_pdf, items, payload.template, payload.page, None, payload.offset
+    )
+    body, media, name = await run_in_threadpool(
+        spool_labels.encode_output, pdf, payload.format, "location-labels"
+    )
+    return Response(
+        body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'}
+    )
 
 
 @locations_router.patch("/{location_id}", response_model=LocationOut)

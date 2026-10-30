@@ -79,7 +79,11 @@ async def list_spools(
         stmt = stmt.where(Spool.material_type == material_type)
     if q:
         like = f"%{q}%"
-        stmt = stmt.where(or_(Spool.brand.ilike(like), Spool.color_name.ilike(like)))
+        num = q.strip().lstrip("#")
+        conds = [Spool.brand.ilike(like), Spool.color_name.ilike(like)]
+        if num.isdigit() and len(num) < 18:
+            conds.append(Spool.id == int(num))  # "find by label number"
+        stmt = stmt.where(or_(*conds))
     if needs_drying:
         cutoff = datetime.now(UTC) - timedelta(days=drying_days)
         stmt = stmt.where(or_(Spool.last_dried_at.is_(None), Spool.last_dried_at < cutoff))
