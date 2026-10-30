@@ -27,6 +27,24 @@ function hasModOrCtrlOrMeta(spec: string): boolean {
   return parts.some((modifier) => modifier === "mod" || modifier === "ctrl" || modifier === "meta");
 }
 
+/** Text-editing chords (select all, copy, ...) must never be hijacked while
+ * the user is typing in a field, even though they carry a mod modifier. */
+const TEXT_EDIT_KEYS = new Set(["a", "c", "v", "x", "z", "y"]);
+
+function isTextEditChord(spec: string): boolean {
+  return TEXT_EDIT_KEYS.has((spec.split("+").pop() ?? "").toLowerCase());
+}
+
+const OVERLAY_SELECTOR = "[role=dialog],[role=menu],[role=listbox],[role=combobox]";
+
+/** True when the event originates inside, or while, a dialog/menu/select
+ * is open -- bare-key shortcuts must not fire behind a modal layer. */
+function isOverlayActive(target: EventTarget | null, doc: Document): boolean {
+  const el = target as HTMLElement | null;
+  if (el && typeof el.closest === "function" && el.closest(OVERLAY_SELECTOR)) return true;
+  return doc.querySelector("[role=dialog][data-state=open]") !== null;
+}
+
 /** Parses a spec like `"mod+a"` or `"F"` and reports whether `event` matches
  * it. `mod` is Ctrl on Linux/Windows, Meta (Cmd) on macOS. Modifiers not
  * named in the spec (ctrl/meta/alt) must be unpressed, so a bare `"a"`
@@ -83,10 +101,13 @@ export function useHotkeys(
     function handleKeyDown(event: KeyboardEvent) {
       if (event.repeat) return;
       const editable = event.key !== "Escape" && isEditableTarget(event.target);
+      const overlay = event.key !== "Escape" && isOverlayActive(event.target, doc ?? document);
 
       for (const [spec, handler] of Object.entries(bindingsRef.current)) {
         if (!matchesSpec(spec, event)) continue;
-        if (editable && !hasModOrCtrlOrMeta(spec)) continue;
+        const modded = hasModOrCtrlOrMeta(spec);
+        if (editable && (!modded || isTextEditChord(spec))) continue;
+        if (overlay && !modded) continue;
         event.preventDefault();
         handler(event);
         return;

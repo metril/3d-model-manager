@@ -311,6 +311,11 @@ class ExtruderOut(BaseModel):
     type: str | None = None
 
 
+class NextPauseOut(BaseModel):
+    layer: int
+    eta_s: int | None = None
+
+
 class PrinterStatusOut(BaseModel):
     online: bool
     gcode_state: str | None = None
@@ -355,6 +360,8 @@ class PrinterStatusOut(BaseModel):
     extruders: list[ExtruderOut] = Field(default_factory=list)
     active_extruder: int | None = None
     ams_extruder_map: dict[str, int] = Field(default_factory=dict)
+    # Slicer-inserted pause ahead (layer + seconds to it); None when none.
+    next_pause: NextPauseOut | None = None
     # T3: from the DB (printers.awaiting_plate_clear), overlaid by the status route.
     awaiting_plate_clear: bool = False
     # T1: firmware-aware capabilities (set by the status route; None offline).

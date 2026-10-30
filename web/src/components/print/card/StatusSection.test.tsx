@@ -90,6 +90,16 @@ describe("StatusSection", () => {
     expect(await screen.findByRole("progressbar", { name: "Print progress" })).toBeInTheDocument();
   });
 
+  it("shows the next-pause chip with its ETA, or just the layer while the time is unknown", async () => {
+    const withEta = a1Mini({}, { ...PRINTING, next_pause: { layer: 42, eta_s: 1500 } });
+    const { unmount } = renderCard(<StatusSection printerId={1} status={withEta.status} activeJob={JOB} lastRuns={[]} canControl />);
+    expect(await screen.findByTestId("next-pause")).toHaveTextContent("Pause in 25m (layer 42)");
+    unmount();
+    const noEta = a1Mini({}, { ...PRINTING, next_pause: { layer: 42, eta_s: null } });
+    renderCard(<StatusSection printerId={1} status={noEta.status} activeJob={JOB} lastRuns={[]} canControl />);
+    expect(await screen.findByTestId("next-pause")).toHaveTextContent("Pause at layer 42");
+  });
+
   it("etaClock formats null / valid", () => {
     expect(etaClock(null)).toBeNull();
     expect(etaClock(30, new Date("2026-01-01T10:00:00"))).toMatch(/10:30/);

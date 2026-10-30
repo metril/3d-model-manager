@@ -226,22 +226,14 @@ def _auto_candidates(
     states: dict[int, dict | None],
     now: datetime,
     counts: dict,
+    ready_ids: set[int] | None = None,
 ) -> None:
     """Ambient (sustained humidity, idle) and queue (humid unit on a printer
     the queue is about to use) auto-drying: both create a schedule that the
     due step starts in the same tick."""
     if not (cfg.ambient_drying_enabled or cfg.queue_drying_enabled):
         return
-    wanted: set[int] = set()
-    if cfg.queue_drying_enabled:
-        from app.services import dispatcher
-
-        try:
-            items = dispatcher.eligible_queue_items(session)
-            wanted = dispatcher.queue_target_ids(session, r, items)[0]  # READY items only
-        except Exception:  # noqa: BLE001
-            log.exception("drying: queue evaluation failed")
-            session.rollback()
+    wanted: set[int] = ready_ids if (cfg.queue_drying_enabled and ready_ids) else set()
     open_units = _open_units(session)
     ts = now.timestamp()
     for pid, printer in printers.items():
@@ -433,8 +425,11 @@ def tick(
     session.commit()
     from app.services.smart_plugs import manager
 
-    _edges(session, r, settings, states, counts, manager._queue_wanted(session, r))
-    _auto_candidates(session, r, cfg, printers, states, now, counts)
+    targets = manager._queue_targets(session, r)  # one evaluation: (ready, any) | None
+    _edges(session, r, settings, states, counts, targets[1] if targets else None)
+    _auto_candidates(
+        session, r, cfg, printers, states, now, counts, targets[0] if targets else None
+    )
     _start_due(session, r, printers, states, now, counts)
     _expire_stuck(session, now, counts)
     session.execute(
