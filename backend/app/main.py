@@ -78,7 +78,10 @@ async def _poll_log_level() -> None:
     poller = LevelPoller(ttl_s=0)
     while True:
         await asyncio.sleep(_LEVEL_POLL_INTERVAL_S)
-        await poller.maybe_apply(get_sessionmaker())
+        try:
+            await poller.maybe_apply(get_sessionmaker())
+        except Exception:  # noqa: BLE001 -- a transient DB error must not end the poll loop
+            logger.warning("log-level poll failed", exc_info=True)
 
 
 def create_app() -> FastAPI:

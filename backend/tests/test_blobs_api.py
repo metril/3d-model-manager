@@ -117,7 +117,7 @@ async def test_get_thumb_ok_serves_bytes_with_immutable_headers(
 
     assert response.status_code == 200
     assert response.content == _PNG_BYTES
-    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
     assert response.headers["etag"] == f'"{blob.hash}:thumb_256"'
 
 
@@ -276,7 +276,7 @@ async def test_get_plate_thumb_ok_serves_bytes_with_own_etag(
     assert response.status_code == 200
     assert response.content == _PNG_BYTES
     assert response.headers["etag"] == f'"{blob.hash}:plate2"'
-    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
 
 
 async def test_get_plate_thumb_negative_index_is_422(
@@ -356,7 +356,7 @@ async def test_get_glb_serves_raw_derivative_when_web_missing(
     assert response.status_code == 200
     assert response.content == b"raw-glb-bytes"
     assert response.headers["content-type"] == "model/gltf-binary"
-    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
 
 
 async def test_get_glb_ok_derivative_missing_file_on_disk_is_404(

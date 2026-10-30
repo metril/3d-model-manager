@@ -25,6 +25,19 @@ export function EventsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const source = new EventSource("/api/events");
+    let opened = false;
+
+    // A re-open (not the first) means events may have been lost while the
+    // connection was down -- refetch everything the stream keeps fresh.
+    source.onopen = () => {
+      if (!opened) {
+        opened = true;
+        return;
+      }
+      for (const key of ["queue", "jobs", "models", "printers", "print-jobs"]) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    };
 
     source.onmessage = (event: MessageEvent<string>) => {
       let parsed: AppEvent;
@@ -46,6 +59,9 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         // embeds each printer's active job + recent runs, P3 Task 3) is
         // already covered by this one invalidation.
         void queryClient.invalidateQueries({ queryKey: ["printers"] }); // status polled separately
+        void queryClient.invalidateQueries({ queryKey: ["queue"] });
+        void queryClient.invalidateQueries({ queryKey: ["archives"] });
+        void queryClient.invalidateQueries({ queryKey: ["spools"] });
         return;
       }
 

@@ -375,29 +375,36 @@ async def list_queue(
         entries = await _up_next_entries(db, printer_ids, limit_per_printer)
         return await _to_out(db, settings, entries, redis)
 
-    entries = await _ordered_entries(db, limit)
+    stmt = select(PrintQueueEntry).order_by(PrintQueueEntry.position)
     if ctx is not None:
         visible = visible_printer_ids(ctx)
         if visible is not None:
-            entries = [
-                e
-                for e in entries
-                if (e.printer_id is None or e.printer_id in visible)
-                and (e.assigned_printer_id is None or e.assigned_printer_id in visible)
-            ]
+            stmt = stmt.where(
+                or_(
+                    PrintQueueEntry.printer_id.is_(None),
+                    PrintQueueEntry.printer_id.in_(list(visible)),
+                ),
+                or_(
+                    PrintQueueEntry.assigned_printer_id.is_(None),
+                    PrintQueueEntry.assigned_printer_id.in_(list(visible)),
+                ),
+            )
     if not include_done:
-        entries = [e for e in entries if e.state != QueueState.DONE]
+        stmt = stmt.where(PrintQueueEntry.state != QueueState.DONE)
     if batch_id is not None:
-        entries = [e for e in entries if e.batch_id == batch_id]
+        stmt = stmt.where(PrintQueueEntry.batch_id == batch_id)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    entries = list((await db.execute(stmt)).scalars().all())
     return await _to_out(db, settings, entries, redis)
 
 
 async def _append_position(db: AsyncSession, *, front: bool) -> int:
     if front:
-        others = await _ordered_entries(db)
-        for other in others:
-            other.position += 1
-        await db.flush()
+        await db.execute(
+            update(PrintQueueEntry).values(position=PrintQueueEntry.position + 1),
+            execution_options={"synchronize_session": "fetch"},
+        )
         return 1
     max_position = await db.scalar(select(func.max(PrintQueueEntry.position)))
     return (max_position or 0) + 1
@@ -724,12 +731,16 @@ async def remove_entry(db: AsyncSession, entry_id: int) -> None:
 
     await db.run_sync(_release)
 
+    removed_position = entry.position
     await db.delete(entry)
     await db.flush()
 
-    remaining = await _ordered_entries(db)
-    for position, remaining_entry in enumerate(remaining, start=1):
-        remaining_entry.position = position
+    await db.execute(
+        update(PrintQueueEntry)
+        .where(PrintQueueEntry.position > removed_position)
+        .values(position=PrintQueueEntry.position - 1),
+        execution_options={"synchronize_session": "fetch"},
+    )
     await db.commit()
 
 

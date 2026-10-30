@@ -64,6 +64,13 @@ describe("PrintJobHistory", () => {
     fireEvent.click(screen.getByText("Benchy"));
     expect(screen.getByRole("dialog")).toHaveTextContent("Run 3");
   });
+  it("opens the sheet from the keyboard (Enter on a focused row)", () => {
+    render(<PrintJobHistory />);
+    const row = screen.getByText("Benchy").closest("tr")!;
+    expect(row).toHaveAttribute("tabindex", "0");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(screen.getByRole("dialog")).toHaveTextContent("Run 3");
+  });
   it("result filter narrows the query", () => {
     render(<PrintJobHistory />);
     fireEvent.change(screen.getByLabelText("Result filter"), { target: { value: "failed" } });

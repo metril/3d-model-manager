@@ -65,7 +65,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SpecRow } from "@/components/ui/spec-row";
 import { draftToFields, EMPTY_SCHEDULE, isScheduleSet, NO_BATCH, type BatchChoice, type ScheduleDraft } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
-import { formatCost, humanizeDuration } from "@/lib/format";
+import { formatCost, humanizeDuration, useDebouncedValue } from "@/lib/format";
 
 export type PrintSource =
   | { kind: "file"; fileId: number; format?: string }
@@ -462,7 +462,8 @@ export function PrintDialog({
   );
 
   const recent = useRecentModelsQuery(source.kind === "pick" && modelQuery.trim().length === 0);
-  const modelSearch = useModelSearchQuery(modelQuery);
+  const debouncedModelQuery = useDebouncedValue(modelQuery, 300);
+  const modelSearch = useModelSearchQuery(debouncedModelQuery);
   const searchResults = modelQuery.trim().length > 0 ? modelSearch.data?.items ?? [] : [];
 
   // Profile step: every recipe, annotated by the backend (the single source

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -16,7 +16,11 @@ router = APIRouter(prefix="/storage", tags=["storage"])
 @router.get("/tree", response_model=StorageTreeOut)
 async def get_storage_tree(
     path: str = "",
+    limit: int = Query(storage_tree_service.DEFAULT_FILE_LIMIT, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> StorageTreeOut:
-    return await storage_tree_service.get_storage_tree(db, settings, path)
+    return await storage_tree_service.get_storage_tree(
+        db, settings, path, limit=limit, offset=offset
+    )
