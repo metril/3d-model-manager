@@ -148,7 +148,7 @@ export function SpoolTable({
           <Label htmlFor="spool-search">Search</Label>
           <Input
             id="spool-search"
-            placeholder="Brand or color"
+            placeholder="Brand, color or label #"
             value={q}
             onChange={(event) => setQ(event.target.value)}
             className="w-48"

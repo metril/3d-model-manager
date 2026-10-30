@@ -2677,10 +2677,16 @@ export interface CsvImportResult {
 export type LabelTemplate = "tight" | "roomy";
 export type LabelPage = "a4" | "letter" | "roll_62mm";
 export type LabelFormat = "pdf" | "png";
+export type LabelField = "name" | "material" | "swatch" | "weight" | "qr" | "number";
+export const LABEL_FIELDS: LabelField[] = ["name", "material", "swatch", "weight", "qr", "number"];
 export interface LabelRequest {
   ids: number[];
   template: LabelTemplate;
   page: LabelPage;
+  /** Content blocks to print (spool labels only). */
+  fields?: LabelField[];
+  /** Leading sheet cells to skip (partly used label sheet). */
+  offset?: number;
 }
 
 // ---- T3 printer ops ----

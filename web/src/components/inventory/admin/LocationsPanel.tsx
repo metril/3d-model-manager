@@ -19,6 +19,7 @@ import {
 } from "@/api/spoolAdmin";
 import type { LocationSensor, SensorKind, StorageLocation } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { LabelsDialog } from "@/components/inventory/LabelsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -347,6 +348,7 @@ export function LocationsPanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<StorageLocation | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [labelIds, setLabelIds] = useState<number[] | null>(null);
 
   return (
     <div className="flex flex-col gap-3">
@@ -365,6 +367,12 @@ export function LocationsPanel() {
           </Button>
         ) : null}
       </div>
+      <LabelsDialog
+        kind="location"
+        ids={labelIds ?? []}
+        open={labelIds != null}
+        onOpenChange={(o) => !o && setLabelIds(null)}
+      />
       {locations.isLoading ? (
         <Skeleton className="h-24 w-full rounded-lg" />
       ) : (locations.data ?? []).length === 0 ? (
@@ -402,6 +410,15 @@ export function LocationsPanel() {
                       </Button>
                       {canWrite ? (
                         <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`${t("spoolAdmin.labels.print")}: ${l.name}`}
+                            onClick={() => setLabelIds([l.id])}
+                          >
+                            {t("spoolAdmin.labels.print")}
+                          </Button>
                           <Button
                             type="button"
                             size="sm"

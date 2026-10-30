@@ -51,10 +51,12 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.models import File, FileLocation, Revision
 from app.services import jobs
+from app.services.library import _escape_like
 from app.services.storage_backends import (
     backend_for_id_sync,
     resolve_default_backend_sync,
 )
+from app.services.storage_tree import rewrite_folder_path
 from app.storage.base import StorageBackend
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -223,3 +225,77 @@ def _relocate_one_file(
             s.delete(source_location)
         s.commit()
         source_backend.delete(storage_path)
+
+
+@celery_app.task(name="app.tasks.relocate.move_storage_folder")
+def move_storage_folder(job_id: str, src: str, new_prefix: str) -> None:
+    """Re-root every file under folder ``src`` to ``new_prefix`` (same
+    revision; see ``storage_tree.plan_folder_move``). Same verify-before-delete
+    discipline as ``_relocate_one_file``: per file the bytes are copied to the
+    new key on EVERY backend holding a copy and hash-checked, the DB row is
+    repointed in one commit, and only then are the old objects deleted -- a
+    crash before the commit leaves the old key authoritative, after it leaves
+    at worst a stray old object."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        jobs.mark_running(s, job_id)
+    try:
+        with base.sync_session() as s:
+            file_ids = list(
+                s.execute(
+                    select(File.id)
+                    .where(File.storage_path.like(f"{_escape_like(src)}/%", escape="\\"))
+                    .order_by(File.id)
+                ).scalars()
+            )
+        for file_id in file_ids:
+            with base.sync_session() as s:
+                _move_one_file(s, settings, file_id, src, new_prefix)
+    except Exception as exc:
+        with base.sync_session() as s:
+            jobs.mark_failed(s, job_id, str(exc))
+        raise
+    try:
+        with base.sync_session() as s:
+            jobs.mark_done(s, job_id)
+    except Exception:
+        logger.warning("move_folder %s: succeeded but marking done failed", job_id, exc_info=True)
+
+
+def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_prefix: str) -> None:
+    file = s.get(File, file_id)
+    if file is None or not file.storage_path.startswith(src + "/"):
+        return  # deleted, or already moved by a previous (retried) run
+    old = file.storage_path
+    new = rewrite_folder_path(old, src, new_prefix)
+    expected = file.blob_hash
+
+    holders: list[tuple[StorageBackend, str]] = []
+    if file.backend_id is not None:
+        primary_id = file.backend_id
+        holders.append((backend_for_id_sync(s, settings, primary_id), old))
+    else:
+        primary_backend, primary_id = resolve_default_backend_sync(s, settings)
+        holders.append((primary_backend, old))
+    for loc in s.execute(
+        select(FileLocation).where(
+            FileLocation.file_id == file.id, FileLocation.backend_id != primary_id
+        )
+    ).scalars():
+        holders.append((backend_for_id_sync(s, settings, loc.backend_id), old))
+
+    for backend, _ in holders:
+
+        def _chunks(backend=backend, old=old):
+            yield from backend.read(old)
+
+        result = backend.write(new, _chunks())
+        if result.hash != expected:
+            backend.delete(new)
+            raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
+
+    file.storage_path = new
+    file.rel_path = new.split("/", 2)[2]
+    s.commit()
+    for backend, _ in holders:
+        backend.delete(old)

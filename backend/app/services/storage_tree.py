@@ -135,3 +135,51 @@ async def get_storage_tree(
             model = summaries[0] if summaries else None
 
     return StorageTreeOut(path=path, dirs=dirs, files=files, total_files=total_files, model=model)
+
+
+class FolderMoveError(Exception):
+    """A folder move that can never run; ``status`` is the HTTP code to use."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+def rewrite_folder_path(path: str, src: str, new_prefix: str) -> str:
+    """``path`` (a file key under ``src/``) re-rooted under ``new_prefix``."""
+    assert path.startswith(src + "/")
+    return f"{new_prefix}/{path[len(src) + 1 :]}"
+
+
+async def plan_folder_move(db: AsyncSession, src: str, dest_parent: str) -> str:
+    """Validate moving folder ``src`` into ``dest_parent`` and return the new
+    folder prefix. Only folders *inside a revision* (``slug/rev/sub...``) may
+    move, and only within that same revision: ``rel_path`` is derived from the
+    key, so crossing a revision or model boundary would change what the file
+    *is*, not just where it sits."""
+    src, dest_parent = src.strip("/"), dest_parent.strip("/")
+    s_parts, d_parts = src.split("/"), dest_parent.split("/") if dest_parent else []
+    if len(s_parts) < 3 or any(p in ("", ".", "..") for p in s_parts + d_parts):
+        raise FolderMoveError(422, "only folders inside a revision can be moved")
+    if len(d_parts) < 2 or d_parts[:2] != s_parts[:2]:
+        raise FolderMoveError(422, "a folder can only move within its own revision")
+    if dest_parent == src or dest_parent.startswith(src + "/"):
+        raise FolderMoveError(422, "cannot move a folder into itself")
+    if dest_parent == "/".join(s_parts[:-1]):
+        raise FolderMoveError(422, "folder is already there")
+    new_prefix = f"{dest_parent}/{s_parts[-1]}"
+    user_files = ~File.rel_path.like(f"{_escape_like(SNAPSHOT_PREFIX)}%", escape="\\")
+    if not await db.scalar(
+        select(func.count())
+        .select_from(File)
+        .where(File.storage_path.like(f"{_escape_like(src)}/%", escape="\\"), user_files)
+    ):
+        raise FolderMoveError(404, "folder not found")
+    if await db.scalar(
+        select(func.count())
+        .select_from(File)
+        .where(File.storage_path.like(f"{_escape_like(new_prefix)}/%", escape="\\"))
+    ):
+        raise FolderMoveError(409, "destination already has a folder with that name")
+    return new_prefix

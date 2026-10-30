@@ -303,14 +303,15 @@ export function useLabelPreview(req: LabelRequest | null) {
     gcTime: 0,
   });
 }
-export function useDownloadLabels() {
+export function useDownloadLabels(kind: "spool" | "location" = "spool") {
   return useMutation({
     mutationFn: async ({ req, format }: { req: LabelRequest; format: LabelFormat }) =>
     {
-      const blob = await fetchBlob("/spools/labels", { method: "POST", body: { ...req, format } });
+      const path = kind === "location" ? "/storage-locations/labels" : "/spools/labels";
+      const blob = await fetchBlob(path, { method: "POST", body: { ...req, format } });
       // png comes back as a zip when the sheet spans several pages
       const ext = blob.type.includes("zip") ? "zip" : format;
-      downloadBlob(blob, `labels.${ext}`);
+      downloadBlob(blob, `${kind}-labels.${ext}`);
     },
   });
 }

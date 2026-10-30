@@ -265,9 +265,25 @@ class LabelsIn(BaseModel):
     template: Literal["tight", "roomy"] = "roomy"
     page: Literal["a4", "letter", "roll_62mm"] = "a4"
     format: Literal["pdf", "png"] = "pdf"
+    fields: list[Literal["name", "material", "swatch", "weight", "qr", "number"]] = Field(
+        default_factory=lambda: ["name", "material", "swatch", "weight", "qr", "number"]
+    )
+    offset: int = Field(default=0, ge=0, le=299)
 
 
 class LabelsPreviewIn(BaseModel):
     ids: list[int]
     template: Literal["tight", "roomy"] = "roomy"
     page: Literal["a4", "letter", "roll_62mm"] = "a4"
+    fields: list[Literal["name", "material", "swatch", "weight", "qr", "number"]] = Field(
+        default_factory=lambda: ["name", "material", "swatch", "weight", "qr", "number"]
+    )
+    offset: int = Field(default=0, ge=0, le=299)
+
+
+class LocationLabelsIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=300)
+    template: Literal["tight", "roomy"] = "roomy"
+    page: Literal["a4", "letter", "roll_62mm"] = "a4"
+    format: Literal["pdf", "png"] = "pdf"
+    offset: int = Field(default=0, ge=0, le=299)

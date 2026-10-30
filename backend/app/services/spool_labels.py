@@ -31,6 +31,12 @@ class LabelData:
     color_hex: str | None
     location: str | None
     url: str
+    weight_g: float | None = None
+    kind: str = "spool"  # "spool" | "location"
+    title: str | None = None  # location labels: the location name
+
+
+LABEL_FIELDS = ("name", "material", "swatch", "weight", "qr", "number")
 
 
 def _qr(url: str) -> ImageReader:
@@ -47,39 +53,69 @@ def _fit(c: rl_canvas.Canvas, text: str, font: str, size: float, max_w: float) -
 
 
 def _draw_label(
-    c: rl_canvas.Canvas, d: LabelData, x: float, y: float, w: float, h: float, template: str
+    c: rl_canvas.Canvas,
+    d: LabelData,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    template: str,
+    fields: frozenset[str] = frozenset(LABEL_FIELDS),
 ) -> None:
     """Draw one label with its lower-left corner at (x, y)."""
     c.setStrokeColor(_BORDER)
     c.setLineWidth(0.3)
     c.rect(x, y, w, h)
-    sw = 4 * mm
-    try:
-        c.setFillColor(HexColor(d.color_hex or "#CCCCCC"))
-    except (ValueError, TypeError):
-        c.setFillColor(HexColor("#CCCCCC"))
-    c.rect(x, y, sw, h, stroke=0, fill=1)
     pad = 2 * mm
-    qr_size = min(h - 2 * pad, w * 0.4)
-    c.drawImage(_qr(d.url), x + w - qr_size - pad, y + (h - qr_size) / 2, qr_size, qr_size)
+    sw = 0.0
+    if "swatch" in fields and d.kind == "spool":
+        sw = 4 * mm
+        try:
+            c.setFillColor(HexColor(d.color_hex or "#CCCCCC"))
+        except (ValueError, TypeError):
+            c.setFillColor(HexColor("#CCCCCC"))
+        c.rect(x, y, sw, h, stroke=0, fill=1)
+    qr_size = 0.0
+    if "qr" in fields:
+        qr_size = min(h - 2 * pad, w * 0.4)
+        c.drawImage(_qr(d.url), x + w - qr_size - pad, y + (h - qr_size) / 2, qr_size, qr_size)
     tx = x + sw + pad
-    tw = w - sw - qr_size - 3 * pad
+    tw = w - sw - qr_size - (3 if qr_size else 2) * pad
     c.setFillColor(black)
-    idtxt = f"#{d.spool_id}"
-    size = _fit(c, idtxt, "Helvetica-Bold", 20 if template == "roomy" else 14, tw)
-    c.setFont("Helvetica-Bold", size)
-    cy = y + h - pad - size
-    c.drawString(tx, cy, idtxt)
-    lines = [" ".join(p for p in (d.brand, d.material) if p)]
-    if d.color_name:
-        lines.append(d.color_name)
-    if template == "roomy":
-        if d.color_hex:
-            lines.append(d.color_hex.upper())
+    cy = y + h - pad
+    big = 20 if template == "roomy" else 14
+    head = (
+        d.title or "" if d.kind == "location" else (f"#{d.spool_id}" if "number" in fields else "")
+    )
+    if d.kind == "location" and "number" in fields:
+        head = f"{head} (#{d.spool_id})" if head else f"#{d.spool_id}"
+    if head:
+        size = _fit(c, head, "Helvetica-Bold", big, tw)
+        c.setFont("Helvetica-Bold", size)
+        cy -= size
+        c.drawString(tx, cy, head)
+    lines: list[str] = []
+    if d.kind == "location":
         if d.location:
             lines.append(d.location)
+    else:
+        if "material" in fields:
+            lines.append(" ".join(p for p in (d.brand, d.material) if p))
+        if "name" in fields and d.color_name:
+            lines.append(d.color_name)
+        if template == "roomy":
+            if "name" in fields and d.color_hex:
+                lines.append(d.color_hex.upper())
+            if "weight" in fields and d.weight_g is not None:
+                lines.append(f"{d.weight_g:g} g")
+            if d.location:
+                lines.append(d.location)
+        elif "weight" in fields and d.weight_g is not None:
+            lines.append(f"{d.weight_g:g} g")
     fs = 8 if template == "roomy" else 6.5
     for line in lines:
+        if not line:
+            continue
         cy -= fs + 2
         if cy < y + 1:
             break
@@ -89,14 +125,24 @@ def _draw_label(
     c.setFillColor(white)
 
 
-def render_pdf(items: list[LabelData], template: str, page: str) -> bytes:
+def render_pdf(
+    items: list[LabelData],
+    template: str,
+    page: str,
+    fields: frozenset[str] | None = None,
+    offset: int = 0,
+) -> bytes:
+    """``fields`` picks which content blocks print; ``offset`` skips that many
+    leading cells on a sheet page (a partly used Avery sheet). Roll pages
+    ignore the offset."""
+    fields = frozenset(LABEL_FIELDS) if fields is None else fields
     lh, sheet_w = _TEMPLATES[template]
     buf = io.BytesIO()
     if page == "roll_62mm":
         w, h = ROLL_WIDTH_MM * mm, lh * mm
         c = rl_canvas.Canvas(buf, pagesize=(w, h))
         for d in items:
-            _draw_label(c, d, 0, 0, w, h, template)
+            _draw_label(c, d, 0, 0, w, h, template, fields)
             c.showPage()
         c.save()
         return buf.getvalue()
@@ -106,14 +152,16 @@ def render_pdf(items: list[LabelData], template: str, page: str) -> bytes:
     rows = max(1, int((ph - 2 * _MARGIN + _GAP) // (lhh + _GAP)))
     c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
     per_page = cols * rows
-    for i, d in enumerate(items):
+    offset = max(0, offset) % per_page  # whole skipped pages are meaningless
+    for n, d in enumerate(items):
+        i = n + offset
         slot = i % per_page
         if i and slot == 0:
             c.showPage()
         col, row = slot % cols, slot // cols
         x = _MARGIN + col * (lw + _GAP)
         y = ph - _MARGIN - (row + 1) * lhh - row * _GAP
-        _draw_label(c, d, x, y, lw, lhh, template)
+        _draw_label(c, d, x, y, lw, lhh, template, fields)
     c.showPage()
     c.save()
     return buf.getvalue()
@@ -143,3 +191,13 @@ def zip_pngs(pngs: list[bytes]) -> bytes:
         for i, p in enumerate(pngs, 1):
             z.writestr(f"labels-{i:02d}.png", p)
     return b.getvalue()
+
+
+def encode_output(pdf: bytes, fmt: str, stem: str) -> tuple[bytes, str, str]:
+    """(body, media type, filename) for a rendered label PDF in ``fmt``."""
+    if fmt == "pdf":
+        return pdf, "application/pdf", f"{stem}.pdf"
+    pngs = pdf_to_pngs(pdf)
+    if len(pngs) == 1:
+        return pngs[0], "image/png", f"{stem}.png"
+    return zip_pngs(pngs), "application/zip", f"{stem}.zip"

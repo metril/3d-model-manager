@@ -370,7 +370,7 @@ async def test_label_qr_encodes_spool_url(authenticated_client: httpx.AsyncClien
         "/api/spools/labels", json={"ids": [sp["id"]], "format": "pdf"}
     )
     assert r.status_code == 200
-    assert seen and seen[0].endswith(f"/inventory/spools?spool={sp['id']}")
+    assert seen and seen[0].endswith(f"/scan/spool/{sp['id']}")
 
 
 # --------------------------------------------------------------- HA sensors

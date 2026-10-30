@@ -51,7 +51,7 @@ def test_pipeline_steps_matches_global_constraints_table() -> None:
         BlobFormat.JPG: ("render_thumb",),
         BlobFormat.WEBP: ("render_thumb",),
         # R13c: doc kinds never enter the GLB/thumb pipeline.
-        BlobFormat.PDF: (),
+        BlobFormat.PDF: ("render_thumb",),
         BlobFormat.MD: (),
         BlobFormat.TXT: (),
         BlobFormat.DOCX: (),
