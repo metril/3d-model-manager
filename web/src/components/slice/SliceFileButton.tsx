@@ -17,9 +17,11 @@ import { Button } from "@/components/ui/button";
 export function SliceFileButton({
   file,
   size = "icon-sm",
+  modelSlug,
 }: {
   file: Pick<FileOut, "id" | "rel_path" | "format" | "verified_at">;
   size?: "icon-sm" | "default";
+  modelSlug?: string;
 }) {
   const features = useFeatures();
   const { can } = useAuth();
@@ -37,7 +39,7 @@ export function SliceFileButton({
           <ScissorsIcon className="size-4" />
         </Button>
       )}
-      <SliceDialog open={open} onOpenChange={setOpen} file={file} />
+      <SliceDialog open={open} onOpenChange={setOpen} file={file} modelSlug={modelSlug} />
     </>
   );
 }

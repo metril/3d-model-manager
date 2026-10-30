@@ -154,8 +154,55 @@ const ACTIVE_SLICE_STATES = ["queued", "running"];
 /** `POST /files/{id}/slice` -- slices a file with a recipe, no queue entry. */
 export function useStartSlice() {
   return useMutation({
-    mutationFn: ({ fileId, recipeId, plate }: { fileId: number; recipeId: number; plate?: number | null }) =>
-      api.post<SliceJob>(`/files/${fileId}/slice`, { recipe_id: recipeId, plate: plate ?? null }),
+    mutationFn: ({
+      fileId,
+      recipeId,
+      plate,
+      force,
+    }: {
+      fileId: number;
+      recipeId: number;
+      plate?: number | null;
+      force?: boolean;
+    }) =>
+      api.post<SliceJob>(`/files/${fileId}/slice`, {
+        recipe_id: recipeId,
+        plate: plate ?? null,
+        ...(force ? { force: true } : {}),
+      }),
+  });
+}
+
+export interface BedFit {
+  status: "fits" | "rotated" | "too_large" | "unknown";
+  fits: boolean;
+  /** Fits only turned 90 degrees (a too_large result when the slicer won't orient). */
+  rotated: boolean;
+  dims: [number, number, number] | null;
+  /** axis -> mm over the usable bed. */
+  overflow: Record<string, number>;
+  required_bed: [number, number] | null;
+  required_height: number | null;
+  bed: [number, number] | null;
+  height: number | null;
+}
+
+/** `GET /models/{slug}/files/{id}/bed-fit?printer_id=` -- does the part fit the printer's bed? */
+export function useBedFit(
+  slug: string | undefined,
+  fileId: number,
+  { printerId, recipeId }: { printerId: number | null; recipeId: number | null },
+) {
+  return useQuery({
+    queryKey: ["bed-fit", slug, fileId, printerId, recipeId] as const,
+    queryFn: () => {
+      // The recipe's own printer profile is what the slice guard checks.
+      const q = recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`;
+      return api.get<BedFit>(`/models/${slug}/files/${fileId}/bed-fit?${q}`);
+    },
+    enabled: !!slug && (recipeId != null || printerId != null),
+    retry: false,
+    staleTime: 60_000,
   });
 }
 

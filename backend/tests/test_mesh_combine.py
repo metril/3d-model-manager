@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind
-from app.services.mesh_combine import parse_printable_area, plan_layout
+from app.services.bed_fit import parse_printable_area
+from app.services.mesh_combine import plan_layout
 from tests.corpus import box_stl
 
 # -- pure layout math (no fixtures) -----------------------------------------

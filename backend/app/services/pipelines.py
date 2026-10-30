@@ -118,6 +118,7 @@ async def run_pipeline(
     pipeline_id: int,
     file_id: int,
     plate: int | None,
+    force: bool = False,
 ) -> PipelineRunOut:
     pipeline = await db.get(SlicerPipeline, pipeline_id)
     if pipeline is None:
@@ -132,7 +133,7 @@ async def run_pipeline(
             db,
             settings,
             file_id,
-            SliceJobIn(recipe_id=pipeline.recipe_id, plate=plate),
+            SliceJobIn(recipe_id=pipeline.recipe_id, plate=plate, force=force),
             ctx.user.id,
             pipeline_id=pipeline.id,
             options=overrides,

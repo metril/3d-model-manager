@@ -139,6 +139,8 @@ class SlicerHealthOut(BaseModel):
 class SliceJobIn(BaseModel):
     recipe_id: int
     plate: int | None = None
+    # Slice even when the part doesn't fit the recipe's printer bed.
+    force: bool = False
 
 
 class SliceJobOut(BaseModel):

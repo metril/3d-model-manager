@@ -262,11 +262,11 @@ export function ModelHeader({
           {canSlice && slicerFile ? (
             <>
               <OpenInSlicerButton file={slicerFile} size="default" onSlice={() => setSliceOpen(true)} />
-              <SliceDialog open={sliceOpen} onOpenChange={setSliceOpen} file={sliceableFile!} />
+              <SliceDialog open={sliceOpen} onOpenChange={setSliceOpen} file={sliceableFile!} modelSlug={model.slug} />
             </>
           ) : (
             <>
-              {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" /> : null}
+              {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" modelSlug={model.slug} /> : null}
               {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
             </>
           )}

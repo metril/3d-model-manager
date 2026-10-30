@@ -108,6 +108,8 @@ class PipelineOut(BaseModel):
 class PipelineRunIn(BaseModel):
     file_id: int
     plate: int | None = Field(None, ge=1)
+    # Slice even when the part does not fit the recipe's printer bed.
+    force: bool = False
 
 
 class PipelineRunOut(BaseModel):

@@ -20,6 +20,7 @@ from app.config import Settings
 from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
 from app.services import library
+from app.services.bed_fit import bed_from_profile, fit_for_file, rotation_allowed
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
 from app.services.slicer_client import client_from_config
@@ -55,13 +56,31 @@ async def create_job(
     file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {file_id} not found")
-    if await db.get(PrintRecipe, payload.recipe_id) is None:
+    recipe = await db.get(PrintRecipe, payload.recipe_id)
+    if recipe is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"recipe {payload.recipe_id} not found")
     blob = await db.get(Blob, file.blob_hash)
     if blob is None or blob.format not in SLICEABLE_FORMATS:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "file is not in a format the slicer can accept"
         )
+    if not payload.force:
+        bed = await bed_from_profile(db, recipe.printer_profile_id)
+        fit = await fit_for_file(
+            db,
+            file.blob_hash,
+            bed,
+            rotation_allowed(recipe.options, options),
+        )
+        if fit.status == "too_large":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {
+                    "code": "does_not_fit",
+                    "message": "part does not fit the printer bed",
+                    **fit.model_dump(),
+                },
+            )
     job_id = uuid.uuid4()
     job = SliceJob(
         id=job_id,

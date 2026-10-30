@@ -188,7 +188,7 @@ async def run_pipeline(
     ctx: AuthContext = Depends(require_session),
 ) -> PipelineRunOut:
     result = await pipelines.run_pipeline(
-        db, settings, ctx, pipeline_id, payload.file_id, payload.plate
+        db, settings, ctx, pipeline_id, payload.file_id, payload.plate, payload.force
     )
     if result.queue_entry is not None:
         _notify_enqueued(result.queue_entry, ctx)

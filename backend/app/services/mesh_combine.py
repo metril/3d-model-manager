@@ -143,24 +143,6 @@ def plan_layout(
     return build([off[i] for i in range(n)], used_w, used_d, False)
 
 
-def parse_printable_area(data: dict) -> tuple[float, float] | None:
-    """Bed (x, y) mm from a slicer printer profile's ``printable_area``
-    (``["0x0", "180x0", "180x180", "0x180"]``), or None when absent."""
-    area = data.get("printable_area") or data.get("bed_shape")
-    if not isinstance(area, list | tuple) or not area:
-        return None
-    xs: list[float] = []
-    ys: list[float] = []
-    for pt in area:
-        m = re.fullmatch(r"\s*(-?[\d.]+)\s*[x,]\s*(-?[\d.]+)\s*", str(pt))
-        if not m:
-            return None
-        xs.append(float(m.group(1)))
-        ys.append(float(m.group(2)))
-    x, y = max(xs) - min(xs), max(ys) - min(ys)
-    return (x, y) if x > 0 and y > 0 else None
-
-
 @dataclass(frozen=True)
 class LoadedPart:
     name: str
