@@ -58,6 +58,9 @@ class Spool(Base):
     spoolman_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     archived_at: Mapped[datetime | None]
     last_used_at: Mapped[datetime | None]
+    last_dried_at: Mapped[datetime | None]
+    last_dried_temp_c: Mapped[int | None] = mapped_column(Integer)
+    last_dried_hours: Mapped[float | None] = mapped_column(Float)
     created_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

@@ -24,6 +24,7 @@ export interface SpoolFilters {
   low_stock?: boolean;
   material_type?: string;
   q?: string;
+  needs_drying?: boolean;
 }
 
 function spoolsQueryKey(filters?: SpoolFilters) {
@@ -36,6 +37,7 @@ function spoolsSearch(filters?: SpoolFilters): string {
   if (filters?.low_stock != null) params.set("low_stock", String(filters.low_stock));
   if (filters?.material_type) params.set("material_type", filters.material_type);
   if (filters?.q) params.set("q", filters.q);
+  if (filters?.needs_drying) params.set("needs_drying", "true");
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }

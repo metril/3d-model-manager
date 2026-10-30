@@ -870,3 +870,79 @@ def test_humidity_good_must_not_exceed_fair():
     with pytest.raises(ValueError):
         DryingConfig(ams_humidity_good=70, ams_humidity_fair=60)
     assert DryingConfig(ams_humidity_good=60, ams_humidity_fair=60)
+
+
+def test_running_row_with_missing_unit_fails_after_timeout(rds, bus):
+    t0 = datetime.now(UTC)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        s.add(
+            ScheduledDrying(
+                printer_id=pid,
+                ams_id=0,
+                temp=65,
+                duration_hours=4,
+                status="running",
+                started_at=t0 - timedelta(hours=2),
+            )
+        )
+        s.commit()
+    _put_state(rds, pid, ams_units=[{**UNIT, "dry_status": 2}])
+    _tick(rds, t0)  # unit seen
+    _put_state(rds, pid, ams_units=[])  # printer drops the unit
+    _tick(rds, t0 + timedelta(minutes=1))
+    _tick(rds, t0 + timedelta(minutes=14))
+    with base.sync_session() as s:
+        assert s.scalars(select(ScheduledDrying)).one().status == "running"
+    counts = _tick(rds, t0 + timedelta(minutes=16))
+    with base.sync_session() as s:
+        row = s.scalars(select(ScheduledDrying)).one()
+    assert (row.status, row.error_code, counts["failed"]) == ("failed", "unit_missing", 1)
+
+
+def test_drying_task_skips_when_lock_held(rds, monkeypatch):
+    from app.tasks import ops
+
+    monkeypatch.setattr(ops.Redis, "from_url", lambda *_a, **_k: rds)
+    monkeypatch.setattr(rds, "close", lambda: None)
+    called = []
+    monkeypatch.setattr(ops.drying_tick, "tick", lambda *a, **k: called.append(1) or {"x": 1})
+    held = rds.lock(ops.DRYING_LOCK_KEY, timeout=30)
+    assert held.acquire(blocking=False)
+    assert ops.drying_tick_task() == {} and not called
+    held.release()
+    assert ops.drying_tick_task() == {"x": 1} and called
+
+
+def test_done_run_stamps_spools_in_that_unit(rds, bus):
+    from app.models import Spool, SpoolSlot
+
+    t0 = datetime.now(UTC)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        a = Spool(material_type="PETG")
+        b = Spool(material_type="PLA")
+        c = Spool(material_type="ABS")
+        s.add_all([a, b, c])
+        s.flush()
+        s.add_all(
+            [
+                SpoolSlot(printer_id=pid, ams_unit=0, slot=0, spool_id=a.id),
+                SpoolSlot(printer_id=pid, ams_unit=0, slot=1, spool_id=b.id),
+                SpoolSlot(printer_id=pid, ams_unit=1, slot=0, spool_id=c.id),
+            ]
+        )
+        s.add(ScheduledDrying(printer_id=pid, ams_id=0, temp=65, duration_hours=2))
+        s.commit()
+        ids = (a.id, b.id, c.id)
+    _put_state(rds, pid)
+    _tick(rds, t0)
+    _put_state(rds, pid, ams_units=[{**UNIT, "dry_status": 2}])
+    _tick(rds, t0 + timedelta(minutes=1))
+    _put_state(rds, pid)
+    _tick(rds, t0 + timedelta(minutes=130))
+    with base.sync_session() as s:
+        a, b, c = (s.get(Spool, i) for i in ids)
+        assert a.last_dried_at is not None and b.last_dried_at is not None
+        assert (a.last_dried_temp_c, a.last_dried_hours) == (65, 2.0)
+        assert c.last_dried_at is None

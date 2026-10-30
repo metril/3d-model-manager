@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import AuditLog, Printer, ScheduledDrying, SmartPlug
+from app.models import AuditLog, Printer, ScheduledDrying, SmartPlug, Spool, SpoolSlot
 from app.printers.base import command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.commands import PRINTING_STATES
@@ -29,6 +29,7 @@ from app.services.printer_state import read_state_sync
 log = logging.getLogger(__name__)
 
 DID_NOT_START_S = 90
+UNIT_MISSING_S = DID_NOT_START_S * 10  # running row whose AMS unit stopped reporting
 QUEUE_WAIT_MAX_S = 30 * 60
 HOLD_TTL_S = 130
 COOLDOWN_S = 6 * 3600  # per unit, after an automated cycle was created
@@ -52,6 +53,10 @@ def _active_key(pid: int, ams: int) -> str:
 
 def _seen_key(sid: int) -> str:
     return f"drying:seen:{sid}"
+
+
+def _unit_seen_key(sid: int) -> str:
+    return f"drying:unit_seen:{sid}"
 
 
 def _humid_key(pid: int, ams: int) -> str:
@@ -162,6 +167,18 @@ def _edges(
                 session.rollback()
 
 
+def _stamp_dried(session: Session, row: ScheduledDrying, now: datetime) -> None:
+    """Record the completed run on every spool seated in that AMS unit."""
+    spools = session.scalars(
+        select(Spool)
+        .join(SpoolSlot, SpoolSlot.spool_id == Spool.id)
+        .where(SpoolSlot.printer_id == row.printer_id, SpoolSlot.ams_unit == row.ams_id)
+    )
+    for sp in spools.all():
+        sp.last_dried_at, sp.last_dried_temp_c = now, row.temp
+        sp.last_dried_hours = float(row.duration_hours)
+
+
 def _update_running(
     session: Session, r: Redis, states: dict[int, dict | None], now: datetime, counts: dict
 ) -> None:
@@ -169,12 +186,22 @@ def _update_running(
     for row in rows.all():
         unit = drying.find_ams_unit(states.get(row.printer_id), row.ams_id)
         if unit is None:
-            continue  # offline mid-run: resolve when it reports again
+            # offline mid-run: resolve when it reports again, but not forever
+            raw = r.get(_unit_seen_key(row.id))
+            if raw is None:
+                r.set(_unit_seen_key(row.id), str(now.timestamp()), ex=3 * 86400)
+            elif now.timestamp() - float(raw) > UNIT_MISSING_S:
+                _fail(row, "unit_missing", now)
+                counts["failed"] += 1
+                r.delete(_unit_seen_key(row.id))
+            continue
+        r.set(_unit_seen_key(row.id), str(now.timestamp()), ex=3 * 86400)
         if _is_active(unit):
             r.set(_seen_key(row.id), "1", ex=3 * 86400)
         elif unit.get("dry_status") == 0:
             if r.get(_seen_key(row.id)):
                 row.status, row.finished_at = "done", now
+                _stamp_dried(session, row, now)
                 r.delete(_seen_key(row.id))
                 counts["done"] += 1
             elif row.started_at and (now - row.started_at).total_seconds() >= DID_NOT_START_S:
