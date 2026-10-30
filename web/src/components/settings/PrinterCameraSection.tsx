@@ -22,11 +22,12 @@ export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
   const [kind, setKind] = useState<CameraKind>((existing?.kind as CameraKind | undefined) ?? "");
   const [url, setUrl] = useState("");
   const [rotation, setRotation] = useState(Number(printer.options.camera_rotation ?? 0));
+  const [layerTl, setLayerTl] = useState(Boolean(printer.options.layer_timelapse));
   const update = useUpdatePrinter(printer.id);
   const id = `printer-${printer.id}-camera`;
 
   function save() {
-    const options: Record<string, unknown> = { ...printer.options, camera_rotation: rotation };
+    const options: Record<string, unknown> = { ...printer.options, camera_rotation: rotation, layer_timelapse: layerTl };
     delete options.camera;
     if (kind) options.camera = url.trim() ? { kind, url: url.trim() } : { kind };
     update.mutate({ options }, { onSuccess: () => setUrl("") });
@@ -77,6 +78,15 @@ export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
           </select>
         </div>
       </div>
+      <label className="flex items-center gap-2 text-sm" htmlFor={`${id}-layer-tl`}>
+        <input
+          id={`${id}-layer-tl`}
+          type="checkbox"
+          checked={layerTl}
+          onChange={(e) => setLayerTl(e.target.checked)}
+        />
+        Layer timelapse (one frame per layer instead of the printer&apos;s own recording)
+      </label>
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" onClick={save} disabled={update.isPending}>
           {update.isPending ? "Saving..." : "Save camera"}

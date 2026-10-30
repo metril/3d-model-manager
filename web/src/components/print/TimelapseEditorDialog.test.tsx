@@ -44,6 +44,16 @@ describe("TimelapseEditorDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("shows frame and layer counts for a layer timelapse", async () => {
+    m.get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/info")) return { duration_s: 20, fps: 30, width: 1, height: 1, bytes: 1, frames: 120, layers: 120 };
+      if (path.includes("/thumbnails")) return { frames: [] };
+      return {};
+    });
+    renderQ(<TimelapseEditorDialog archive={arch({ id: 8, has_timelapse: true })} open onOpenChange={vi.fn()} />);
+    expect(await screen.findByTestId("layer-info")).toHaveTextContent("120 frames, 120 layers");
+  });
+
   it("stops polling and toasts when the job status request fails", async () => {
     const jobCalls = () => m.get.mock.calls.filter((c) => String(c[0]).includes("/jobs/")).length;
     m.get.mockImplementation(async (path: string) => {

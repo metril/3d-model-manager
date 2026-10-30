@@ -62,11 +62,12 @@ describe("PrinterCameraSection", () => {
     fireEvent.change(screen.getByLabelText("External camera"), { target: { value: "mjpeg" } });
     fireEvent.change(screen.getByLabelText("URL"), { target: { value: "http://cam/stream" } });
     fireEvent.change(screen.getByLabelText("Rotation"), { target: { value: "180" } });
+    fireEvent.click(screen.getByLabelText(/Layer timelapse/));
     fireEvent.click(screen.getByRole("button", { name: "Save camera" }));
 
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith("/printers/1", {
-        options: { foo: 1, camera_rotation: 180, camera: { kind: "mjpeg", url: "http://cam/stream" } },
+        options: { foo: 1, camera_rotation: 180, layer_timelapse: true, camera: { kind: "mjpeg", url: "http://cam/stream" } },
       }),
     );
   });

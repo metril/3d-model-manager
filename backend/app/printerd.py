@@ -51,7 +51,15 @@ from app.printers.ha_bridge import HaBridge
 from app.printers.mqtt_relay import MqttRelay
 from app.printers.obico_watcher import ObicoSupervisor
 from app.printers.registry import build_adapter
-from app.services import camera_state, ha_state, hms, kprofiles, mqtt_debug, spool_inventory
+from app.services import (
+    camera_state,
+    ha_state,
+    hms,
+    kprofiles,
+    layer_timelapse,
+    mqtt_debug,
+    spool_inventory,
+)
 from app.services.app_config import get_app_config_sync
 from app.services.energy_price import sample_energy_price
 from app.services.events import publish_print_job_event_sync
@@ -223,6 +231,10 @@ class PrinterWorker:
         self._pause_loaded_at = -1e9
         self._heads_up_min = pause_eta.DEFAULT_HEADS_UP_MIN
         self._heads_up_at = -1e9
+        self._layer_job_id: int | None = None
+        self._layer_on = False
+        self._layer_loaded_at = -1e9
+        self._layer_hold_at = -1e9
         self._sensor_next = 0.0
         self._sensor_last_report: str | None = None
         self._sensor_thread: threading.Thread | None = None
@@ -262,6 +274,7 @@ class PrinterWorker:
         public.dev_mode_reason = self.devmode.reason
         public.connected = bool(public.connected) and not _is_stale(public.last_report_at)
         self._pause_tick(public)
+        self._layer_tick(public)
         self._notify_changes(public)
         self._public = public
         self.redis.set(
@@ -269,6 +282,37 @@ class PrinterWorker:
             json.dumps(dataclasses.asdict(public)),
             ex=STATE_TTL_S,
         )
+
+    def _layer_tick(self, public: PrinterPublicState) -> None:
+        """Layer timelapse: while a layer-timelapse printer is RUNNING, keep a
+        camera viewer registered and capture one frame per new layer. Never
+        raises."""
+        try:
+            now = time.monotonic()
+            if public.gcode_state != "RUNNING":
+                if self._layer_hold_at > -1e9:
+                    layer_timelapse.release_camera(self.redis, self.printer_id)
+                    self._layer_hold_at = -1e9
+                self._layer_job_id = None
+                self._layer_loaded_at = -1e9
+                return
+            if self._layer_job_id is None and now - self._layer_loaded_at > 2:
+                self._layer_loaded_at = now
+                with base.sync_session() as s:
+                    printer = s.get(Printer, self.printer_id)
+                    self._layer_on = layer_timelapse.enabled(printer.options if printer else None)
+                    job = self._active_job(s) if self._layer_on else None
+                    self._layer_job_id = job.id if job is not None else None
+            if not self._layer_on or self._layer_job_id is None:
+                return
+            if now - self._layer_hold_at > 3:
+                self._layer_hold_at = now
+                layer_timelapse.hold_camera(self.redis, self.printer_id)
+            layer_timelapse.capture(
+                self.redis, self.printer_id, self._layer_job_id, public.layer_num
+            )
+        except Exception as exc:
+            log.warning("printerd: layer tick failed: %s", type(exc).__name__)
 
     def _pause_tick(self, public: PrinterPublicState) -> None:
         """Expose ``next_pause`` and send the one-shot heads-up when the next

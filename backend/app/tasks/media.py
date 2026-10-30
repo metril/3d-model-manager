@@ -109,6 +109,39 @@ def transcode_timelapse(archive_id: int) -> str:
     return "transcoded"
 
 
+@celery_app.task(
+    name="app.tasks.media.assemble_layer_timelapse", soft_time_limit=900, time_limit=960
+)
+def assemble_layer_timelapse(print_job_id: int) -> str:
+    """Stitch a job's per-layer frames into its archive timelapse; if that
+    fails, fall back to fetching the printer's own timelapse from SD."""
+    import redis
+
+    from app.models import PrintJob
+    from app.services import layer_timelapse
+
+    settings = get_settings()
+    r = redis.Redis.from_url(settings.redis_url)
+    try:
+        with base.sync_session() as session:
+            ok = layer_timelapse.assemble_for(session, settings, r, print_job_id)
+            if not ok and session.get(PrintJob, print_job_id) is not None:
+                arc = session.scalars(
+                    select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
+                ).first()
+                if arc is not None:
+                    arc.media_note = "layer timelapse failed; trying printer timelapse"
+                    session.commit()
+    finally:
+        r.close()
+    if not ok:
+        from app.tasks.archive import fetch_timelapse
+
+        fetch_timelapse.apply_async(args=[print_job_id], countdown=60)
+        return "fallback"
+    return "stored"
+
+
 def _set_job(job_id: str, **fields: object) -> None:
     import json
 
