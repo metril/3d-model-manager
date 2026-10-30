@@ -13,9 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_perm, require_session
+from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.models import File
 from app.schemas.uploads import DuplicateUploadOut, ExistingUploadModel, UploadResult
 from app.services import jobs as jobs_service
 from app.services import library, spool
@@ -57,6 +58,7 @@ async def upload_file(
     model, revision = await library.validate_upload_target(
         db, model_id=model_id, revision_id=revision_id, rel_path=rel_path, replace=replace
     )
+    require_owner_or_admin(ctx, model.created_by_user_id)
 
     # Any failure between here and the job dispatch below must not orphan
     # the spool file (once dispatched, the spool's lifecycle belongs to
@@ -95,11 +97,9 @@ async def upload_file(
             format_=format_,
             replace=replace,
             created_by_user_id=ctx.user.id,
+            job_id=token,
         )
-
-        job = await jobs_service.create_job(
-            db, id=token, type="store_to_backend", subject_type="file", subject_id=file.id
-        )
+        job = await jobs_service.get_job_or_404(db, token)
     except _DuplicateBlob as dup:
         await anyio.to_thread.run_sync(lambda: path.unlink(missing_ok=True))
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=dup.body.model_dump())
@@ -107,6 +107,20 @@ async def upload_file(
         await anyio.to_thread.run_sync(lambda: path.unlink(missing_ok=True))
         raise
 
-    store_to_backend.apply_async(args=[str(job.id), file.id, str(path)], task_id=str(job.id))
+    try:
+        store_to_backend.apply_async(args=[str(job.id), file.id, str(path)], task_id=str(job.id))
+    except Exception:
+        # Broker down: nothing will ever settle this job. Fail it and drop the
+        # never-stored file row so the client can simply retry the upload.
+        job.state = jobs_service.STATE_FAILED
+        job.error = "failed to enqueue store_to_backend"
+        orphan = await db.get(File, file.id)
+        if orphan is not None:
+            await db.delete(orphan)
+        await db.commit()
+        await anyio.to_thread.run_sync(lambda: path.unlink(missing_ok=True))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the upload; retry"
+        ) from None
 
     return UploadResult(file_id=file.id, blob_hash=blob_hash, size=size, job_id=job.id)

@@ -167,3 +167,40 @@ describe("useHotkeys", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 });
+
+describe("useHotkeys guards", () => {
+  it("mod+a does not fire inside a text input but mod+k still does", () => {
+    const a = vi.fn();
+    const k = vi.fn();
+    const { getByLabelText } = render(<Bound bindings={{ "ctrl+a": a, "ctrl+k": k }} />);
+    const input = getByLabelText("text-input");
+    fireKey({ key: "a", ctrlKey: true }, input);
+    fireKey({ key: "k", ctrlKey: true }, input);
+    expect(a).not.toHaveBeenCalled();
+    expect(k).toHaveBeenCalledTimes(1);
+  });
+
+  it("bare keys are skipped inside a menu and while a dialog is open", () => {
+    const f = vi.fn();
+    render(<Bound bindings={{ f }} />);
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("button");
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+    fireKey({ key: "f" }, item);
+    expect(f).not.toHaveBeenCalled();
+    menu.remove();
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("data-state", "open");
+    document.body.appendChild(dialog);
+    fireKey({ key: "f" });
+    expect(f).not.toHaveBeenCalled();
+    dialog.remove();
+
+    fireKey({ key: "f" });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});

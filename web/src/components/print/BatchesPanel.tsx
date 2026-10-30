@@ -34,6 +34,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useDebouncedValue } from "@/lib/format";
 import { draftToFields, EMPTY_SCHEDULE, type ScheduleDraft } from "@/lib/schedule";
 
 export function BatchProgressBar({ batch }: { batch: Batch }) {
@@ -95,7 +96,7 @@ function BatchDialog({
   const [plates, setPlates] = useState<PlateRow[]>([]);
   const [sched, setSched] = useState<ScheduleDraft>(EMPTY_SCHEDULE);
   const [error, setError] = useState<string | null>(null);
-  const search = useModelSearchQuery(query);
+  const search = useModelSearchQuery(useDebouncedValue(query, 300));
 
   useEffect(() => {
     if (!open) return;

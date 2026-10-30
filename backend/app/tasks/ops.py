@@ -10,6 +10,7 @@ DRYING_INTERVAL_S = 60
 BEAT_TICK_INTERVAL_S = 30
 BEAT_TICK_TASK = "app.tasks.ops.beat_tick"
 
+import contextlib  # noqa: E402
 import json  # noqa: E402
 import time  # noqa: E402
 
@@ -59,13 +60,24 @@ def plugs_tick() -> dict:
         r.close()
 
 
+DRYING_LOCK_KEY = "tdmm:drying:tick:lock"
+_DRYING_LOCK_TIMEOUT_S = 60
+
+
 @celery_app.task(name="app.tasks.drying.tick", soft_time_limit=50, time_limit=55)
 def drying_tick_task() -> dict:
     settings = get_settings()
     r = Redis.from_url(settings.redis_url)
     try:
-        with base.sync_session() as s:
-            return drying_tick.tick(s, r, settings)
+        lock = r.lock(DRYING_LOCK_KEY, timeout=_DRYING_LOCK_TIMEOUT_S, blocking=False)
+        if not lock.acquire(blocking=False):
+            return {}  # an overlapping tick is still running
+        try:
+            with base.sync_session() as s:
+                return drying_tick.tick(s, r, settings)
+        finally:
+            with contextlib.suppress(Exception):
+                lock.release()
     finally:
         r.close()
 
