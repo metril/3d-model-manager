@@ -126,7 +126,6 @@ export function SpoolTable({
         toast.success(t(showArchived ? "spoolAdmin.toolbar.restored" : "spoolAdmin.toolbar.archived", { count: ids.length }));
         clear();
       },
-      onError: () => toast.error(t("spoolAdmin.toolbar.actionFailed")),
     });
   }
   function runDelete() {
@@ -135,7 +134,6 @@ export function SpoolTable({
         toast.success(t("spoolAdmin.toolbar.deleted", { count: ids.length }));
         clear();
       },
-      onError: () => toast.error(t("spoolAdmin.toolbar.actionFailed")),
     });
   }
 
