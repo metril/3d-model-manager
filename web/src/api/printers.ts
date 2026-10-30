@@ -55,7 +55,7 @@ export function statusRefetchInterval(gcodeState: string | null | undefined): nu
  * off to a slow heartbeat otherwise -- mirrors `statusRefetchInterval`'s
  * policy but evaluated across every printer in the dashboard at once. */
 export function overviewRefetchInterval(data?: PrintersOverviewOut): number {
-  const active = data?.printers.some((p) => ACTIVE_GCODE.includes(p.status.gcode_state ?? ""));
+  const active = data?.printers?.some((p) => ACTIVE_GCODE.includes(p.status.gcode_state ?? ""));
   return active ? 2500 : 8000;
 }
 

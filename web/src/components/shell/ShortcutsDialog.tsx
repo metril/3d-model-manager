@@ -18,6 +18,8 @@ const SHORTCUTS: Array<{ keys: string; description: string }> = [
   { keys: "Delete", description: "Move the selected models to trash" },
   { keys: "F", description: "Toggle favorite (model page)" },
   { keys: "Shift + F", description: "Toggle fullscreen (3D viewer)" },
+  { keys: "Shift + C", description: "Toggle the floating camera" },
+  { keys: "Esc", description: "Close the floating camera (when focused)" },
   { keys: "Ctrl/Cmd + K", description: "Open the command palette" },
   { keys: "Ctrl/Cmd + B", description: "Collapse/expand the sidebar" },
   { keys: "1 – 9", description: "Jump to the first nine sidebar items" },

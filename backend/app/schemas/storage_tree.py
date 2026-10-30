@@ -6,7 +6,7 @@ canonical storage layout (`<slug>/<rev-dir>/<rel_path>`, see
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import BlobFormat, BlobKind
 from app.schemas.library import ModelSummary
@@ -37,3 +37,8 @@ class StorageTreeOut(BaseModel):
     files: list[StorageTreeFileOut]
     total_files: int = 0
     model: ModelSummary | None = None
+
+
+class FolderMoveIn(BaseModel):
+    src: str = Field(min_length=1)
+    dest: str = Field(min_length=1)

@@ -33,10 +33,10 @@ describe("LabelsDialog", () => {
 
   it("requests a preview with the chosen template/page and re-requests on change", async () => {
     setup();
-    await waitFor(() => expect(lastCall("/api/spools/labels/preview")).toEqual({ ids: [1, 2], template: "tight", page: "a4" }));
+    await waitFor(() => expect(lastCall("/api/spools/labels/preview")).toMatchObject({ ids: [1, 2], template: "tight", page: "a4", offset: 0 }));
     expect(await screen.findByAltText("Label preview")).toHaveAttribute("src", "blob:preview");
     fireEvent.change(screen.getByLabelText("Template"), { target: { value: "roomy" } });
-    await waitFor(() => expect(lastCall("/api/spools/labels/preview")).toEqual({ ids: [1, 2], template: "roomy", page: "a4" }));
+    await waitFor(() => expect(lastCall("/api/spools/labels/preview")).toMatchObject({ ids: [1, 2], template: "roomy", page: "a4" }));
   });
 
   it("downloads in the selected format", async () => {
@@ -45,7 +45,32 @@ describe("LabelsDialog", () => {
     fireEvent.change(screen.getByLabelText("Format"), { target: { value: "png" } });
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await waitFor(() =>
-      expect(lastCall("/api/spools/labels")).toEqual({ ids: [1, 2], template: "tight", page: "a4", format: "png" }),
+      expect(lastCall("/api/spools/labels")).toMatchObject({ ids: [1, 2], template: "tight", page: "a4", format: "png" }),
     );
+  });
+
+  it("sends the chosen content fields and sheet offset", async () => {
+    setup();
+    await screen.findByAltText("Label preview");
+    fireEvent.click(screen.getByLabelText("Colour swatch"));
+    fireEvent.change(screen.getByLabelText("Skip cells (partly used sheet)"), { target: { value: "4" } });
+    await waitFor(() =>
+      expect(lastCall("/api/spools/labels/preview")).toMatchObject({
+        offset: 4,
+        fields: ["name", "material", "weight", "qr", "number"],
+      }),
+    );
+  });
+
+  it("prints location labels through the location endpoint", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <LabelsDialog ids={[3]} kind="location" open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByLabelText("Colour swatch")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() => expect(lastCall("/api/storage-locations/labels")).toMatchObject({ ids: [3] }));
   });
 });

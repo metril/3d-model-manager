@@ -22,6 +22,7 @@ STATUS_TTL_S = 30
 KEEP_SENTINEL = "***"
 COMMANDS = ("pause", "resume", "stop")
 DEFAULT_PREFIX = "tdmm"
+DEFAULT_LOW_FILAMENT_PCT = 10
 _PREFIX_RE = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
 _PLAIN = (
     "enabled",
@@ -33,6 +34,7 @@ _PLAIN = (
     "topic_prefix",
     "commands_enabled",
     "actor_user_id",
+    "low_filament_pct",
 )
 
 
@@ -52,6 +54,7 @@ class MqttRelayConfig:
     topic_prefix: str = DEFAULT_PREFIX
     commands_enabled: bool = False
     actor_user_id: int | None = None
+    low_filament_pct: int = DEFAULT_LOW_FILAMENT_PCT
 
     def __repr__(self) -> str:
         return (
@@ -97,6 +100,7 @@ def _to_config(settings: Settings, value: dict | None) -> MqttRelayConfig:
         topic_prefix=v.get("topic_prefix") or DEFAULT_PREFIX,
         commands_enabled=bool(v.get("commands_enabled", False)),
         actor_user_id=v.get("actor_user_id"),
+        low_filament_pct=int(v.get("low_filament_pct", DEFAULT_LOW_FILAMENT_PCT)),
     )
 
 

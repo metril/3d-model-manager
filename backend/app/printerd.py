@@ -63,6 +63,7 @@ from app.services import (
 from app.services.app_config import get_app_config_sync
 from app.services.energy_price import sample_energy_price
 from app.services.events import publish_print_job_event_sync
+from app.services.notify import hms_dedup
 from app.services.notify.events import emit_bg
 from app.services.queue_settings import get_queue_config_sync
 from app.services.server_config import seed_all_sync_safe
@@ -380,8 +381,15 @@ class PrinterWorker:
             self._hms_seen = codes
             if seen is None:
                 return
-            for code in sorted(codes - seen):
-                emit_bg("hms_error", self.printer_id, hms_payload(code))
+            for code in sorted(seen - codes):
+                hms_dedup.mark_cleared(self.redis, self.printer_id, code)
+            fresh = sorted(codes - seen)
+            if fresh:
+                with base.sync_session() as s:
+                    cfg = hms_dedup.get_settings_sync(s)
+                for code in fresh:
+                    if hms_dedup.should_notify(self.redis, self.printer_id, code, cfg):
+                        emit_bg("hms_error", self.printer_id, hms_payload(code))
         except Exception as exc:
             log.warning("printerd: notify diff failed: %s", type(exc).__name__)
 

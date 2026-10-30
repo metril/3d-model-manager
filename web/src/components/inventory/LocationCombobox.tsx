@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useCreateLocation, useLocations } from "@/api/spoolAdmin";
+import { LocationClimate } from "@/components/inventory/LocationClimate";
 import { Input } from "@/components/ui/input";
 
 export function LocationCombobox({
@@ -79,7 +80,10 @@ export function LocationCombobox({
                 className="w-full rounded px-2 py-1 text-left hover:bg-accent"
                 onClick={() => pick(l.id, l.name)}
               >
-                {l.name}
+                <span className="flex items-center justify-between gap-2">
+                  {l.name}
+                  <LocationClimate sensors={l.sensors} />
+                </span>
               </button>
             </li>
           ))}

@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronRightIcon, DownloadIcon, FolderIcon, SearchIcon } from "lucide-react";
+import { ChevronRightIcon, ColumnsIcon, DownloadIcon, EyeIcon, FolderIcon, FolderInputIcon, ListIcon, SearchIcon } from "lucide-react";
+import { toast } from "sonner";
 
 import { TagChip } from "@/components/tags/TagChip";
 import { tagRefsOf } from "@/components/tags/tagRefs";
 import { useStorageTree } from "@/api/storageTree";
+import { canMoveFolder, useMoveFolder } from "@/api/storageMove";
+import { ColumnView } from "@/components/gallery/ColumnView";
+import { FilePreview } from "@/components/gallery/FilePreview";
+import { MoveFolderDialog } from "@/components/gallery/MoveFolderDialog";
 import { ApiError } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +35,9 @@ function joinPath(segments: string[]): string {
 
 function FileRow({ file }: { file: StorageTreeFile }) {
   const Icon = formatIcon(file.format);
+  const [preview, setPreview] = useState(false);
   return (
+    <div>
     <div className="flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 hover:border-border hover:bg-muted/50">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
         <Icon className="size-4" />
@@ -48,13 +55,41 @@ function FileRow({ file }: { file: StorageTreeFile }) {
       >
         Open model
       </Link>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Preview ${file.name}`}
+        aria-pressed={preview}
+        onClick={() => setPreview((p) => !p)}
+      >
+        <EyeIcon className="size-4" />
+      </Button>
       <Button asChild variant="ghost" size="icon-sm" aria-label={`Download ${file.name}`}>
         <a href={`/api/files/${file.id}/download`}>
           <DownloadIcon className="size-4" />
         </a>
       </Button>
     </div>
+    {preview && (
+      <div className="px-2 pb-2">
+        <FilePreview file={file} />
+      </div>
+    )}
+    </div>
   );
+}
+
+const DRAG_TYPE = "application/x-tdmm-folder";
+const VIEW_KEY = "folder-browser-view";
+type BrowserView = "list" | "columns";
+
+function loadView(): BrowserView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "columns" ? "columns" : "list";
+  } catch {
+    return "list";
+  }
 }
 
 /** Header strip shown above the file list when `GET /storage/tree`'s
@@ -97,7 +132,42 @@ function ModelHeaderStrip({ model }: { model: ModelSummary }) {
  * navigating away/back preserves it. */
 export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: (path: string) => void }) {
   const [filter, setFilter] = useState("");
+  const [view, setView] = useState<BrowserView>(loadView);
+  const [moveSrc, setMoveSrc] = useState<string | null>(null);
+  const move = useMoveFolder();
   const treeQuery = useStorageTree(path);
+
+  function changeView(next: BrowserView) {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // storage unavailable -- the choice just doesn't persist
+    }
+  }
+
+  function dropOn(destPath: string, event: React.DragEvent) {
+    const src = event.dataTransfer.getData(DRAG_TYPE);
+    if (!src) return;
+    event.preventDefault();
+    if (!canMoveFolder(src, destPath)) {
+      toast.error("Folders can only move within their own revision");
+      return;
+    }
+    move.mutate(
+      { src, dest: destPath },
+      {
+        onSuccess: () => toast.success(`Moved ${src.split("/").at(-1)}`),
+        onError: (e) => toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Move failed"),
+      },
+    );
+  }
+  const dropProps = (destPath: string) => ({
+    onDragOver: (event: React.DragEvent) => {
+      if (event.dataTransfer.types.includes(DRAG_TYPE)) event.preventDefault();
+    },
+    onDrop: (event: React.DragEvent) => dropOn(destPath, event),
+  });
   const segments = pathSegments(path);
 
   const dirs = treeQuery.data?.dirs ?? [];
@@ -132,6 +202,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
             type="button"
             onClick={goToRoot}
             className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            {...dropProps("")}
           >
             Library
           </button>
@@ -143,6 +214,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
                 onClick={() => goToSegment(index)}
                 className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground aria-current:text-foreground aria-current:font-medium"
                 aria-current={index === segments.length - 1 ? "page" : undefined}
+                {...dropProps(joinPath(segments.slice(0, index + 1)))}
               >
                 {segment}
               </button>
@@ -159,9 +231,34 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
             aria-label="Filter this folder"
           />
         </div>
+        <div role="group" aria-label="Folder view" className="ml-auto flex gap-1">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={view === "list" ? "secondary" : "ghost"}
+            aria-label="List view"
+            aria-pressed={view === "list"}
+            onClick={() => changeView("list")}
+          >
+            <ListIcon className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={view === "columns" ? "secondary" : "ghost"}
+            aria-label="Column view"
+            aria-pressed={view === "columns"}
+            onClick={() => changeView("columns")}
+          >
+            <ColumnsIcon className="size-4" />
+          </Button>
+        </div>
       </div>
+      <MoveFolderDialog src={moveSrc} onClose={() => setMoveSrc(null)} />
 
-      {treeQuery.isLoading ? (
+      {view === "columns" ? (
+        <ColumnView path={path} onNavigate={onNavigate} />
+      ) : treeQuery.isLoading ? (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
             <Skeleton key={index} className="h-24 w-full rounded-xl" />
@@ -195,23 +292,45 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
           {model && <ModelHeaderStrip model={model} />}
           {filteredDirs.length > 0 && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {filteredDirs.map((dir) => (
-                <button
-                  key={dir.path}
-                  type="button"
-                  onClick={() => openDir(dir.path)}
-                  className="flex items-center gap-2 rounded-xl border border-border bg-card p-3 text-left hover:bg-muted"
-                >
-                  <FolderIcon className="size-8 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{dir.name}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {dir.file_count} {dir.file_count === 1 ? "file" : "files"}, {dir.model_count}{" "}
-                      {dir.model_count === 1 ? "model" : "models"}
-                    </span>
-                  </span>
-                </button>
-              ))}
+              {filteredDirs.map((dir) => {
+                const movable = dir.path.split("/").length >= 3;
+                return (
+                  <div
+                    key={dir.path}
+                    draggable={movable}
+                    onDragStart={(event) => event.dataTransfer.setData(DRAG_TYPE, dir.path)}
+                    {...dropProps(dir.path)}
+                    className="flex items-center rounded-xl border border-border bg-card hover:bg-muted"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openDir(dir.path)}
+                      className="flex min-w-0 flex-1 items-center gap-2 p-3 text-left"
+                    >
+                      <FolderIcon className="size-8 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{dir.name}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {dir.file_count} {dir.file_count === 1 ? "file" : "files"}, {dir.model_count}{" "}
+                          {dir.model_count === 1 ? "model" : "models"}
+                        </span>
+                      </span>
+                    </button>
+                    {movable && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mr-2 shrink-0"
+                        aria-label={`Move ${dir.name}`}
+                        onClick={() => setMoveSrc(dir.path)}
+                      >
+                        <FolderInputIcon className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           {filteredFiles.length > 0 && (

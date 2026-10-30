@@ -263,6 +263,9 @@ class AmsTrayOut(BaseModel):
     cali_idx: int | None = None
     k_value: float | None = None
     tray_info_idx: str | None = None
+    sub_brand: str | None = None
+    nozzle_min: int | None = None
+    nozzle_max: int | None = None
     spool: SpoolBriefOut | None = None
 
 
@@ -451,6 +454,8 @@ class ActiveJobOut(PrintJobOut):
     # Q12: the print's plate thumbnail (`/api/blobs/<hash>/plates/<n>/thumb`)
     # when the job's file is a stored 3MF; else None.
     thumbnail_url: str | None = None
+    # Up-front cost estimate of the queue item that started this job.
+    estimated_cost: float | None = None
 
 
 class PrinterOverviewItem(BaseModel):

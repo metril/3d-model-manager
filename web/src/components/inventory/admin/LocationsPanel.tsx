@@ -19,9 +19,11 @@ import {
 } from "@/api/spoolAdmin";
 import type { LocationSensor, SensorKind, StorageLocation } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { LabelsDialog } from "@/components/inventory/LabelsDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LocationClimate } from "@/components/inventory/LocationClimate";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -346,6 +348,7 @@ export function LocationsPanel() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<StorageLocation | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [labelIds, setLabelIds] = useState<number[] | null>(null);
 
   return (
     <div className="flex flex-col gap-3">
@@ -364,6 +367,12 @@ export function LocationsPanel() {
           </Button>
         ) : null}
       </div>
+      <LabelsDialog
+        kind="location"
+        ids={labelIds ?? []}
+        open={labelIds != null}
+        onOpenChange={(o) => !o && setLabelIds(null)}
+      />
       {locations.isLoading ? (
         <Skeleton className="h-24 w-full rounded-lg" />
       ) : (locations.data ?? []).length === 0 ? (
@@ -374,6 +383,7 @@ export function LocationsPanel() {
             <TableRow>
               <TableHead>{t("spoolAdmin.common.name")}</TableHead>
               <TableHead>{t("spoolAdmin.loc.identifier")}</TableHead>
+              <TableHead>{t("spoolAdmin.climate.column")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -383,6 +393,9 @@ export function LocationsPanel() {
                 <TableRow>
                   <TableCell className="font-medium">{l.name}</TableCell>
                   <TableCell className="font-mono text-xs">{l.identifier ?? "—"}</TableCell>
+                  <TableCell>
+                    <LocationClimate sensors={l.sensors} />
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button
@@ -397,6 +410,15 @@ export function LocationsPanel() {
                       </Button>
                       {canWrite ? (
                         <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`${t("spoolAdmin.labels.print")}: ${l.name}`}
+                            onClick={() => setLabelIds([l.id])}
+                          >
+                            {t("spoolAdmin.labels.print")}
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -425,7 +447,7 @@ export function LocationsPanel() {
                 </TableRow>
                 {expanded === l.id ? (
                   <TableRow>
-                    <TableCell colSpan={3} className="bg-muted/20">
+                    <TableCell colSpan={4} className="bg-muted/20">
                       <SensorSection location={l} canWrite={canWrite} />
                     </TableCell>
                   </TableRow>

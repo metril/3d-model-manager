@@ -14,6 +14,7 @@ import type {
   QueueEnqueueBody,
   QueueEntry,
   QueuePreheatSettings,
+  QueueSettings,
   QueueSchedulingFields,
   ReviewCountOut,
   ReviewIn,
@@ -284,5 +285,24 @@ export function useUpdateQueuePreheatSettings() {
   return useMutation({
     mutationFn: (body: QueuePreheatSettings) => api.put<QueuePreheatSettings>("/settings/queue-preheat", body),
     onSuccess: (data) => queryClient.setQueryData(PREHEAT_KEY, data),
+  });
+}
+
+// -- queue behaviour settings (`settings:write` to PUT) ---------------------
+
+const QUEUE_SETTINGS_KEY = ["settings", "queue"] as const;
+
+export function useQueueSettings() {
+  return useQuery({
+    queryKey: QUEUE_SETTINGS_KEY,
+    queryFn: () => api.get<QueueSettings>("/settings/queue"),
+  });
+}
+
+export function useUpdateQueueSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<QueueSettings>) => api.put<QueueSettings>("/settings/queue", body),
+    onSuccess: (data) => queryClient.setQueryData(QUEUE_SETTINGS_KEY, data),
   });
 }

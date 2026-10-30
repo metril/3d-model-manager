@@ -13,41 +13,43 @@
  * cards link to the detail page's camera instead of streaming N feeds).
  */
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { PrinterIcon } from "lucide-react";
+import type { DockviewApi } from "dockview-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { usePrintersOverview } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
-import { CameraTile } from "@/components/print/CameraTile";
-import { HaAlertBadge } from "@/components/print/HaAlertBadge";
-import { PlateStallBadge } from "@/components/print/PlateStallBadge";
-import { EmptyState } from "@/components/ui/empty-state";
-import { BulkPrinterToolbar } from "@/components/print/BulkPrinterToolbar";
-import { CARD_SIZES, gridStyle, useCardSize } from "@/components/print/card/cardSize";
-import { ManagedPrinterCard } from "@/components/print/ManagedPrinterCard";
-import { RecentRunsList } from "@/components/print/RecentRunsList";
+import { useCardSize } from "@/components/print/card/cardSize";
+import { PrintDock } from "@/components/print/dock/PrintDock";
+import { PanelsMenu } from "@/components/print/dock/PanelsMenu";
+import { PrintDashProvider, type PrintDashValue } from "@/components/print/dock/PrintDashContext";
+import { PrintersPanel } from "@/components/print/dock/PrintersPanel";
+import { RailStack } from "@/components/print/dock/RailPanels";
+import { readDockMode, writeDockMode } from "@/components/print/dock/layoutStore";
 import { ReviewInboxCard } from "@/components/print/ReviewInboxCard";
-import { StatusSummaryBar } from "@/components/print/StatusSummaryBar";
-import { UpNextList } from "@/components/print/UpNextList";
 import { PrinterSetupCard } from "@/components/settings/PrinterSetupCard";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/ui/page-container";
+import { parsePrintDashSearch, type PrintDashSearch } from "@/pages/printerDashSearch";
 import { usePrintTitle } from "@/hooks/useDocumentTitle";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { filterItems, sortGroups, summarize } from "@/lib/printerDashboard";
-import { cn } from "@/lib/utils";
-import { DASH_SORTS, parsePrintDashSearch, type PrintDashSearch } from "@/pages/printerDashSearch";
 
 export function PrintDashboardPage() {
-  const { t } = useTranslation();
   const overview = usePrintersOverview();
   const navigate = useNavigate();
   const search = parsePrintDashSearch(useSearch({ strict: false }) as Record<string, unknown>);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // >=900px: the customisable dock is available (opt-in; the classic page is the default).
+  const canDock = useMediaQuery("(min-width: 900px)");
+  const [dockPref, setDockPref] = useState(readDockMode);
+  const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
+  const dockOn = canDock && dockPref;
+  function toggleDock() {
+    writeDockMode(!dockPref);
+    setDockPref(!dockPref);
+    setDockApi(null);
+  }
   function patchSearch(patch: Partial<PrintDashSearch>) {
     void navigate({
       to: ".",
@@ -72,6 +74,20 @@ export function PrintDashboardPage() {
   if (canReview && (reviewCount.data?.count ?? 0) > 0) {
     railExtras.push(<ReviewInboxCard key="review-inbox" />);
   }
+
+  const dash: PrintDashValue = {
+    printers,
+    groups,
+    summary,
+    search,
+    patchSearch,
+    size,
+    setSize,
+    upNext,
+    recentRuns,
+    railExtras,
+    refetch: () => void overview.refetch(),
+  };
 
   if (overview.isError && !overview.data) {
     return (
@@ -105,153 +121,33 @@ export function PrintDashboardPage() {
 
   return (
     <PageContainer width="fluid">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
-        <p className="text-sm text-muted-foreground">A live overview of your printers.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
+          <p className="text-sm text-muted-foreground">A live overview of your printers.</p>
+        </div>
+        {canDock ? (
+          <div className="flex items-center gap-2">
+            {dockOn && dockApi ? <PanelsMenu api={dockApi} /> : null}
+            <Button type="button" size="sm" variant="outline" aria-pressed={dockOn} onClick={toggleDock}>
+              {dockOn ? "Classic layout" : "Customize layout"}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="flex flex-col gap-6 xl:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <StatusSummaryBar summary={summary} active={search.status} onSelect={(status) => patchSearch({ status })} />
-
-          <div className="flex flex-wrap items-center gap-2" data-slot="dash-toolbar">
-            <Input
-              type="search"
-              className="h-8 w-48"
-              placeholder="Search printers"
-              aria-label="Search printers"
-              defaultValue={search.q ?? ""}
-              onChange={(e) => patchSearch({ q: e.target.value || undefined })}
-            />
-            <label className="flex items-center gap-1.5 text-sm">
-              <input
-                type="checkbox"
-                checked={search.offline === "hide"}
-                onChange={(e) => patchSearch({ offline: e.target.checked ? "hide" : undefined })}
-              />
-              Hide offline
-            </label>
-            <label className="flex items-center gap-1.5 text-sm">
-              Sort
-              <select
-                aria-label="Sort printers"
-                className="h-8 rounded-md border bg-card px-2 text-sm"
-                value={search.sort ?? "name"}
-                onChange={(e) => patchSearch({ sort: e.target.value === "name" ? undefined : (e.target.value as PrintDashSearch["sort"]) })}
-              >
-                {DASH_SORTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s === "eta" ? "ETA" : s[0].toUpperCase() + s.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              type="button"
-              size="sm"
-              variant={selectMode ? "default" : "outline"}
-              aria-pressed={selectMode}
-              onClick={() => {
-                setSelectMode((v) => !v);
-                setSelected(new Set());
-              }}
-            >
-              Select
-            </Button>
-            <div role="radiogroup" aria-label="Card size" className="ml-auto inline-flex overflow-hidden rounded-md border">
-              {CARD_SIZES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="radio"
-                  aria-checked={size === s}
-                  className={cn("px-2.5 py-1 text-xs", size === s ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
-                  onClick={() => setSize(s)}
-                >
-                  {s}
-                </button>
-              ))}
+      <PrintDashProvider value={dash}>
+        {dockOn ? (
+          <PrintDock onApi={setDockApi} />
+        ) : (
+          <div className="flex flex-col gap-6 xl:flex-row">
+            <PrintersPanel />
+            <div className="xl:w-80 xl:shrink-0">
+              <RailStack />
             </div>
           </div>
-
-          {selectMode && selected.size > 0 ? (
-            <BulkPrinterToolbar
-              selected={printers.filter((p) => selected.has(p.printer.id))}
-              onDone={() => {
-                setSelected(new Set());
-                void overview.refetch();
-              }}
-              onClear={() => setSelected(new Set())}
-            />
-          ) : null}
-
-          {groups.every((g) => g.items.length === 0) ? (
-            <EmptyState
-              icon={PrinterIcon}
-              title={t("dash.empty.filters")}
-              action={
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => patchSearch({ status: undefined, offline: undefined, q: undefined })}
-                >
-                  {t("dash.empty.clearFilters")}
-                </Button>
-              }
-            />
-          ) : null}
-          {groups.map((group) => (
-            <section key={group.key} className="flex flex-col gap-2">
-              {group.label ? (
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {group.label} <span className="font-mono">({group.items.length})</span>
-                </h2>
-              ) : null}
-              <div className={cn("grid gap-4", size === "L" || size === "XL" ? "gap-6" : "")} style={gridStyle(size)}>
-                {group.items.map((item) => (
-                  <ManagedPrinterCard
-                    key={item.printer.id}
-                    item={item}
-                    size={size}
-                    selected={selectMode ? selected.has(item.printer.id) : undefined}
-                    onSelectedChange={
-                      selectMode
-                        ? (on) =>
-                            setSelected((prev) => {
-                              const next = new Set(prev);
-                              if (on) next.add(item.printer.id);
-                              else next.delete(item.printer.id);
-                              return next;
-                            })
-                        : undefined
-                    }
-                    camera={
-                      item.can_print && (size === "L" || size === "XL") ? (
-                        <CameraTile printerId={item.printer.id} online={item.status.online} />
-                      ) : undefined
-                    }
-                    badge={
-                      item.ha_alert || item.plate_check_stalled ? (
-                        <>
-                          {item.ha_alert ? <HaAlertBadge reason={item.ha_alert} held={item.ha_held ?? false} /> : null}
-                          {item.plate_check_stalled ? <PlateStallBadge /> : null}
-                        </>
-                      ) : undefined
-                    }
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-6 xl:w-80 xl:shrink-0">
-          <UpNextList entries={upNext} />
-          <RecentRunsList runs={recentRuns} />
-          {railExtras}
-        </div>
-      </div>
+        )}
+      </PrintDashProvider>
     </PageContainer>
   );
 }
