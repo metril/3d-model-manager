@@ -18,6 +18,7 @@ import { usePrinterCommand } from "@/api/printers";
 import type { ActiveJobOut, PrinterStatusOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { formatCost } from "@/lib/format";
 import { formatEta } from "@/lib/formatEta";
 import { toneForGcode } from "@/lib/printerState";
 
@@ -55,7 +56,7 @@ export function ActiveJobStrip({
           <p className="truncate text-sm font-medium">{name}</p>
           {job.plate != null ? <p className="text-xs text-muted-foreground">Plate {job.plate}</p> : null}
           {job.estimated_cost != null ? (
-            <p className="text-xs text-muted-foreground">Est. cost {job.estimated_cost.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Est. cost {formatCost(job.estimated_cost)}</p>
           ) : null}
         </div>
       </div>

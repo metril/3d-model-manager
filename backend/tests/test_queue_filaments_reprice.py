@@ -104,3 +104,30 @@ async def test_reprice_changes_only_filament_cost(
     assert run.total_cost == pytest.approx(11.75)
     r = await authenticated_client.post("/api/archives/reprice", json={})
     assert r.json()["repriced"] == 0
+
+
+async def test_reprice_ams_delta_does_not_add_remainder(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    p = Printer(name="p2", kind=PrinterKind.BAMBU_LAN, host="h", serial="s2", access_code_enc="x")
+    db_session.add(p)
+    await db_session.flush()
+    job = PrintJob(
+        printer_id=p.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="j",
+        state=PrintJobState.FINISHED,
+    )
+    spool = _spool("#FF0000", 100.0)
+    db_session.add_all([job, spool])
+    await db_session.flush()
+    db_session.add(
+        SpoolUsage(
+            spool_id=spool.id, print_job_id=job.id, grams=50, source=SpoolUsageSource.AMS_DELTA
+        )
+    )
+    # filament_g (100) exceeds usage (50) but the remainder was never charged.
+    db_session.add(Print(print_job_id=job.id, filament_g=100, filament_cost=5.0, total_cost=5.0))
+    await db_session.commit()
+    r = await authenticated_client.post("/api/archives/reprice", json={})
+    assert r.json()["repriced"] == 0
