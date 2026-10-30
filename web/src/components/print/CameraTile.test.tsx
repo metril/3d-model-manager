@@ -146,6 +146,19 @@ describe("CameraTile", () => {
     );
   });
 
+  it("gives up to the offline state after repeated stalls", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderTile();
+    await screen.findByRole("img", { name: "Camera feed" });
+    // 5 reconnects (20s stall + 5/10/20/40/60s backoff each) then the 6th stall.
+    for (let t = 0; t < 400 && !screen.queryByText("Camera offline"); t += 2) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+    }
+    expect(screen.getByText("Camera offline")).toBeInTheDocument();
+  });
+
   it("drops the img src on unmount", async () => {
     const { unmount } = renderTile();
     const img = await screen.findByRole("img", { name: "Camera feed" });

@@ -38,6 +38,9 @@ import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
 const STALL_MS = 20_000;
+/** Consecutive stall reconnects before giving up to the offline state (its
+ * 10 s auto-retry then takes over). */
+export const MAX_RECONNECTS = 5;
 const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
 const MIN_ZOOM = 1;
@@ -241,6 +244,10 @@ export function CameraTile({
       if (!isStreamStalled(w, now - connectedAt, now - lastChange, STALL_MS)) return;
       clearInterval(id);
       const a = attempts.current;
+      if (a >= MAX_RECONNECTS) {
+        setErrored(true);
+        return;
+      }
       attempts.current = a + 1;
       reconnectTimer.current = setTimeout(() => {
         setLoaded(false);
