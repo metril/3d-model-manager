@@ -1980,6 +1980,10 @@ export interface SlicerProfile {
   /** Set only when listed with `?printer_id=`. */
   in_scope?: boolean | null;
   scope_reason?: string | null;
+  /** Names the selected printer's model (+ nozzle) explicitly. */
+  preferred?: boolean | null;
+  /** `?dedup=1`: this user copy replaced a stock preset of the same name. */
+  overrides_stock?: boolean | null;
   created_by_user_id: number | null;
   created_at: string;
   updated_at: string;

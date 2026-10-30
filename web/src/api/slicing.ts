@@ -25,6 +25,8 @@ export interface ProfileScope {
   q?: string;
   /** Include out-of-scope rows (flagged `in_scope: false`). */
   all?: boolean;
+  /** Hide stock presets that have a user copy. */
+  dedup?: boolean;
 }
 
 function profilesQueryKey(kind?: ProfileKind, scope?: ProfileScope, full = true) {
@@ -46,6 +48,7 @@ export function useProfileList(kind?: ProfileKind, scope?: ProfileScope, options
       if (scope?.layer != null) params.set("layer_height_mm", String(scope.layer));
       if (scope?.q) params.set("q", scope.q);
       if (scope?.all) params.set("show_all", "1");
+      if (scope?.dedup) params.set("dedup", "1");
       return api.get<ProfileListOut>(`/profiles?${params.toString()}`);
     },
     placeholderData: keepPreviousData,
