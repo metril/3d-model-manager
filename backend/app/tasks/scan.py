@@ -24,6 +24,7 @@ itself (which could drift out of sync with the lock's real timeout).
 from __future__ import annotations
 
 import contextlib
+import threading
 from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
@@ -39,6 +40,15 @@ from app.tasks.celery_app import celery_app
 
 SCAN_LOCK_KEY = "tdmm:scan:lock"
 _LOCK_TIMEOUT_S = 3600
+_LOCK_EXTEND_EVERY_S = 300.0
+
+
+def _extend_lock_until(lock, stop: threading.Event, every_s: float = _LOCK_EXTEND_EVERY_S) -> None:
+    """Heartbeat: keep the singleton lock alive for as long as the scan runs."""
+    while not stop.wait(every_s):
+        with contextlib.suppress(Exception):
+            lock.reacquire()
+
 
 # Short note stashed on a reclaimed run's `report` (Finding 2) -- there's no
 # dedicated error column on `scan_runs`, and `report` is already the
@@ -74,7 +84,11 @@ def scan_library(scan_run_id: int) -> None:
     if not lock.acquire(blocking=False):
         with base.sync_session() as s:
             scanner.mark_scan_state(s, scan_run_id, "skipped")  # another run holds the lock
+        client.close()
         return
+    stop = threading.Event()
+    beat = threading.Thread(target=_extend_lock_until, args=(lock, stop), daemon=True)
+    beat.start()
     try:
         with base.sync_session() as s:
             scanner.mark_scan_state(s, scan_run_id, "running")
@@ -89,8 +103,12 @@ def scan_library(scan_run_id: int) -> None:
             publish_scan_event_sync(settings.redis_url, scan_run_id, "failed")
         raise
     finally:
+        stop.set()
+        beat.join(timeout=5)
         with contextlib.suppress(Exception):
             lock.release()
+        with contextlib.suppress(Exception):
+            client.close()
 
 
 @celery_app.task(name="app.tasks.scan.schedule_scan_library")

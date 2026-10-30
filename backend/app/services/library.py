@@ -18,6 +18,7 @@ the scanner (SPEC M3 "Rescan/reconcile") -- not handled here.
 from __future__ import annotations
 
 import contextlib
+import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -1846,6 +1847,7 @@ async def finalize_upload(
     replace: bool,
     after_blob_flush: Callable[[], None] | None = None,
     created_by_user_id: int | None = None,
+    job_id: uuid.UUID | None = None,
 ) -> File:
     """Upsert the ``Blob`` by hash (dedupe) and create/replace the ``File``
     row once the upload's bytes are fully spooled and hashed (Task 6
@@ -1920,6 +1922,20 @@ async def finalize_upload(
         created_by_user_id=created_by_user_id,
     )
     db.add(file)
+    if job_id is not None:
+        # File + its store job commit atomically: a crash can never leave an
+        # unverified File with no job to settle it.
+        await db.flush()
+        db.add(
+            Job(
+                id=job_id,
+                celery_id=str(job_id),
+                type="store_to_backend",
+                subject_type="file",
+                subject_id=file.id,
+                state="queued",
+            )
+        )
     # Backlog fold: touch the model's `updated_at` so it sorts correctly in
     # the gallery's default `-updated_at` order. The column's own
     # `onupdate=func.now()` only fires when an UPDATE is actually issued for
