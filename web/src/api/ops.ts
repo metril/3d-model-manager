@@ -175,8 +175,14 @@ export function useRunBackup() {
 }
 
 export function useRestoreSettings() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.post<{ restored: number }>(`/admin/backups/${id}/restore-settings`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+      void qc.invalidateQueries({ queryKey: ["features"] });
+      void qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    },
   });
 }
 
