@@ -35,4 +35,5 @@ class StorageTreeOut(BaseModel):
     path: str
     dirs: list[StorageTreeDirOut]
     files: list[StorageTreeFileOut]
+    total_files: int = 0
     model: ModelSummary | None = None

@@ -230,7 +230,7 @@ class MqttBroker:
             pw = p[i + 2 : i + 2 + pl].decode()
         except (IndexError, UnicodeDecodeError):
             return False
-        return user == "bblp" and hmac.compare_digest(pw, self.access_code)
+        return user == "bblp" and hmac.compare_digest(pw.encode(), self.access_code.encode())
 
     async def _client(self, r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
         sock = w.get_extra_info("socket")

@@ -42,6 +42,7 @@ from app.services.ams_match import delta_e_ok
 from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import get_ha_config
 from app.services.housekeeping import load_default_catalog, name_key
+from app.services.library import _escape_like
 
 _write = Depends(require_perm_on_write("inventory:write"))
 
@@ -222,7 +223,11 @@ async def create_location(
     return (await _location_outs(db, [loc]))[0]
 
 
-@locations_router.get("/sensors/entities", response_model=list[HaEntityOut])
+@locations_router.get(
+    "/sensors/entities",
+    response_model=list[HaEntityOut],
+    dependencies=[Depends(require_perm("settings:write"))],
+)
 async def ha_entities(
     q: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
@@ -425,6 +430,7 @@ async def list_catalog(
     manufacturer: str | None = None,
     material: str | None = None,
     q: str | None = None,
+    limit: int = Query(default=2000, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[CatalogOut]:
@@ -434,18 +440,18 @@ async def list_catalog(
     if material:
         stmt = stmt.where(func.lower(ColorCatalogEntry.material) == material.lower())
     if q:
-        like = f"%{q}%"
+        like = f"%{_escape_like(q)}%"
         stmt = stmt.where(
             or_(
-                ColorCatalogEntry.color_name.ilike(like),
-                ColorCatalogEntry.manufacturer.ilike(like),
-                ColorCatalogEntry.material.ilike(like),
+                ColorCatalogEntry.color_name.ilike(like, escape="\\"),
+                ColorCatalogEntry.manufacturer.ilike(like, escape="\\"),
+                ColorCatalogEntry.material.ilike(like, escape="\\"),
             )
         )
     rows = await db.execute(
         stmt.order_by(
             ColorCatalogEntry.manufacturer, ColorCatalogEntry.material, ColorCatalogEntry.color_name
-        )
+        ).limit(limit)
     )
     return [_cat_out(e) for e in rows.scalars().all()]
 

@@ -5,6 +5,7 @@ queue, the startup port pre-flight, and the CRUD routes."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ftplib
 import io
 import json
@@ -542,3 +543,43 @@ async def test_run_seeds_before_polling(vp_env):
         make_service=h.make,
     )
     assert order[0] == "seed" and "poll" in order
+
+
+def _ftp_logins(port: int, codes: list[str]) -> list[str]:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ftp = ImplicitFTPS(context=ctx)
+    ftp.connect("127.0.0.1", port)
+    out = []
+    try:
+        for c in codes:
+            try:
+                ftp.login("bblp", c)
+                out.append("ok")
+            except ftplib.error_perm:
+                out.append("denied")
+            except (EOFError, ConnectionError, ssl.SSLError, OSError):
+                out.append("closed")
+                break
+    finally:
+        with contextlib.suppress(OSError):
+            ftp.close()
+    return out
+
+
+async def test_non_ascii_password_is_rejected_not_crashed(make_service):
+    svc = await make_service()
+    res = await asyncio.to_thread(_ftp_logins, svc.ftps.port, ["pässwörd✓"])
+    assert res == ["denied"]
+    s = MqttSession(svc.mqtt.port, code="pässwörd✓")
+    assert await asyncio.to_thread(s.open)
+    assert s.rc not in (0, None)
+    s.close()
+
+
+async def test_ftp_login_lockout_closes_connection(make_service):
+    svc = await make_service()
+    res = await asyncio.to_thread(_ftp_logins, svc.ftps.port, ["bad1", "bad2", "bad3", "bad4"])
+    assert res[:3] == ["denied"] * 3
+    assert res[3] == "closed"
