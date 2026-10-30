@@ -870,3 +870,23 @@ def test_humidity_good_must_not_exceed_fair():
     with pytest.raises(ValueError):
         DryingConfig(ams_humidity_good=70, ams_humidity_fair=60)
     assert DryingConfig(ams_humidity_good=60, ams_humidity_fair=60)
+
+
+def test_running_row_with_missing_unit_fails_after_timeout(rds, bus):
+    t0 = datetime.now(UTC)
+    with base.sync_session() as s:
+        pid = _db_printer(s).id
+        s.add(
+            ScheduledDrying(
+                printer_id=pid, ams_id=5, temp=65, duration_hours=2, status="running", started_at=t0
+            )
+        )
+        s.commit()
+    _put_state(rds, pid)  # unit 5 absent
+    _tick(rds, t0 + timedelta(seconds=drying_tick.UNIT_MISSING_S - 10))
+    with base.sync_session() as s:
+        assert s.scalars(select(ScheduledDrying)).one().status == "running"
+    counts = _tick(rds, t0 + timedelta(seconds=drying_tick.UNIT_MISSING_S + 1))
+    with base.sync_session() as s:
+        row = s.scalars(select(ScheduledDrying)).one()
+    assert (row.status, row.error_code, counts["failed"]) == ("failed", "unit_missing", 1)

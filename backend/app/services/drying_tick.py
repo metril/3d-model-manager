@@ -29,6 +29,7 @@ from app.services.printer_state import read_state_sync
 log = logging.getLogger(__name__)
 
 DID_NOT_START_S = 90
+UNIT_MISSING_S = DID_NOT_START_S * 10  # running row whose AMS unit never reports
 QUEUE_WAIT_MAX_S = 30 * 60
 HOLD_TTL_S = 130
 COOLDOWN_S = 6 * 3600  # per unit, after an automated cycle was created
@@ -169,7 +170,11 @@ def _update_running(
     for row in rows.all():
         unit = drying.find_ams_unit(states.get(row.printer_id), row.ams_id)
         if unit is None:
-            continue  # offline mid-run: resolve when it reports again
+            # offline mid-run: resolve when it reports again, but not forever
+            if row.started_at and (now - row.started_at).total_seconds() >= UNIT_MISSING_S:
+                _fail(row, "unit_missing", now)
+                counts["failed"] += 1
+            continue
         if _is_active(unit):
             r.set(_seen_key(row.id), "1", ex=3 * 86400)
         elif unit.get("dry_status") == 0:
