@@ -1212,6 +1212,7 @@
       "entity": "Home Assistant entity",
       "pickEntity": "Pick an entity",
       "entitiesFailed": "Could not load Home Assistant entities",
+      "entityManualHint": "type the entity id by hand",
       "alertAbove": "Alert above",
       "alertBelow": "Alert below",
       "showOnCard": "Show on spool card",

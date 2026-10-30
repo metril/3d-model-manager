@@ -181,9 +181,20 @@ function SensorDialog({
             {sensor ? (
               <Input id="sensor-entity" value={entityId} readOnly />
             ) : entities.isError ? (
-              <p role="alert" className="text-sm text-destructive">
-                {entities.error instanceof ApiError ? entities.error.detail : t("spoolAdmin.sensor.entitiesFailed")}
-              </p>
+              <>
+                <Input
+                  id="sensor-entity"
+                  value={entityId}
+                  onChange={(e) => setEntityId(e.target.value.trim())}
+                  placeholder="sensor.example_temperature"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {entities.error instanceof ApiError ? entities.error.detail : t("spoolAdmin.sensor.entitiesFailed")}
+                  {" — "}
+                  {t("spoolAdmin.sensor.entityManualHint")}
+                </p>
+              </>
             ) : (
               <Select aria-label={t("spoolAdmin.sensor.entity")} value={entityId} onValueChange={pickEntity}>
                 <SelectTrigger id="sensor-entity" aria-label={t("spoolAdmin.sensor.entity")} className="w-full">
