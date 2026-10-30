@@ -371,7 +371,7 @@ async def _active_objects(db: AsyncSession, settings: Settings, printer_id: int)
     try:
         objects = await anyio.to_thread.run_sync(printable_objects, tmp, job.plate)
     finally:
-        Path(tmp).unlink(missing_ok=True)
+        await anyio.to_thread.run_sync(lambda: Path(tmp).unlink(missing_ok=True))
     return {"job_id": job.id, "plate": job.plate, "objects": objects}
 
 
