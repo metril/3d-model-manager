@@ -1,8 +1,16 @@
 """Failed-login throttle: Redis counters per username and per client IP.
 
-Checked before the (expensive) password verification; only failures count and
-a success clears the username counter. Fails open if Redis is unreachable so
-the throttle can never lock everyone out.
+The per-username counter is checked before the (expensive) password
+verification. The per-IP counter is NOT a pre-check: it only turns a *wrong*
+password into a 429 once the IP has racked up ``IP_LIMIT`` failures, so a
+correct password always gets through. That matters behind a reverse proxy:
+unless uvicorn trusts the proxy's ``X-Forwarded-For`` every request carries
+the proxy's IP, and a pre-check would let anyone lock every user out. Set
+``FORWARDED_ALLOW_IPS`` (uvicorn; e.g. the proxy container's address or
+``*`` on a private network) so ``request.client.host`` is the real client.
+
+Only failures count and a success clears the username counter. Fails open if
+Redis is unreachable so the throttle can never lock everyone out.
 """
 
 from __future__ import annotations
@@ -29,18 +37,21 @@ def _client() -> Redis:
     return Redis.from_url(get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2)
 
 
-async def guard(username: str, ip: str) -> None:
-    """429 + ``Retry-After`` once either counter has reached its limit."""
+def _too_many(ttl: int) -> HTTPException:
+    return HTTPException(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "too many failed logins; try again later",
+        headers={"Retry-After": str(ttl if ttl > 0 else WINDOW_S)},
+    )
+
+
+async def guard(username: str) -> None:
+    """429 + ``Retry-After`` once the username counter has reached its limit."""
     r = _client()
     try:
-        for key, limit in ((_user_key(username), USER_LIMIT), (_ip_key(ip), IP_LIMIT)):
-            if int(await r.get(key) or 0) >= limit:
-                ttl = await r.ttl(key)
-                raise HTTPException(
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "too many failed logins; try again later",
-                    headers={"Retry-After": str(ttl if ttl > 0 else WINDOW_S)},
-                )
+        key = _user_key(username)
+        if int(await r.get(key) or 0) >= USER_LIMIT:
+            raise _too_many(await r.ttl(key))
     except HTTPException:
         raise
     except Exception:  # noqa: BLE001 -- fail open
@@ -50,11 +61,19 @@ async def guard(username: str, ip: str) -> None:
 
 
 async def note_failure(username: str, ip: str) -> None:
+    """Count a failed login; raise 429 instead of 401 once the IP is over limit."""
     r = _client()
+    ip_count = 0
     try:
         for key in (_user_key(username), _ip_key(ip)):
-            if await r.incr(key) == 1:
+            n = await r.incr(key)
+            if n == 1:
                 await r.expire(key, WINDOW_S)
+            ip_count = n
+        if ip_count > IP_LIMIT:
+            raise _too_many(await r.ttl(_ip_key(ip)))
+    except HTTPException:
+        raise
     except Exception:  # noqa: BLE001 -- fail open
         return
     finally:

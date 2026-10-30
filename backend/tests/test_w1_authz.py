@@ -52,6 +52,17 @@ async def test_login_throttle_per_ip(
         assert r.status_code == 401
     r = await client.post("/api/auth/login", json={"username": "c", "password": "x"})
     assert r.status_code == 429
+    assert int(r.headers["retry-after"]) > 0
+
+
+async def test_login_ip_limit_never_blocks_correct_password(
+    client: httpx.AsyncClient, admin_user, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(login_throttle, "IP_LIMIT", 2)
+    for name in ("a", "b", "c"):
+        await client.post("/api/auth/login", json={"username": name, "password": "x"})
+    ok = await client.post("/api/auth/login", json={"username": USERNAME, "password": PASSWORD})
+    assert ok.status_code == 204
 
 
 async def _admin_model(admin: httpx.AsyncClient) -> tuple[dict, int]:

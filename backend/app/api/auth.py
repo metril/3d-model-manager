@@ -71,7 +71,7 @@ async def login(
     the account has a second factor, return 200 with a pre-auth token and NO
     session (finish with ``POST /auth/2fa/verify``)."""
     ip = request.client.host if request.client else "unknown"
-    await login_throttle.guard(payload.username, ip)
+    await login_throttle.guard(payload.username)
     user = (
         await db.execute(select(User).where(User.username == payload.username))
     ).scalar_one_or_none()
