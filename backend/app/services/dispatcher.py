@@ -62,6 +62,10 @@ SLICES_PER_TICK = 3
 # never got a result back (worker crash/kill mid-slice) -- `_reconcile`
 # bounces it back to `waiting` rather than leaving it stuck forever.
 SLICING_STALE_S = 900
+# A job claimed into UPLOADING that never reached the printer (`started_at IS
+# NULL`) for this long lost its worker (OOM / redeploy between claim and
+# upload); `_reconcile` fails it so the printer unblocks and the item retries.
+UPLOADING_STALE_S = 900
 
 
 @dataclass(frozen=True)
@@ -320,7 +324,23 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
     -- bounced back to `waiting` so the next tick re-slices it. This does
     NOT consume an attempt, same as `SlicerUnavailable` -- the slice itself
     never ran to completion either way.
+
+    Step 0: a job stuck in UPLOADING (`started_at IS NULL`) for over
+    `UPLOADING_STALE_S` is failed first, so step 1 retries its item.
     """
+    upload_cutoff = datetime.now(UTC) - timedelta(seconds=UPLOADING_STALE_S)
+    for stuck in session.scalars(
+        select(PrintJob).where(
+            PrintJob.state == PrintJobState.UPLOADING,
+            PrintJob.started_at.is_(None),
+            PrintJob.created_at < upload_cutoff,
+        )
+    ).all():
+        stuck.state = PrintJobState.FAILED
+        stuck.printer_error = stuck.printer_error or "upload interrupted (worker lost)"
+        stuck.finished_at = datetime.now(UTC)
+    session.flush()
+
     items = session.scalars(
         select(PrintQueueEntry).where(
             PrintQueueEntry.state == QueueState.DISPATCHED,

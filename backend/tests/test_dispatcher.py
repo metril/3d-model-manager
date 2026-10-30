@@ -6,6 +6,7 @@ lock + off-switch.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import redis as redis_lib
@@ -458,6 +459,52 @@ def test_send_failure_retry_job_failed_before_start(redis_url: str, fake_adapter
         assert refreshed.attempts == 1
         assert refreshed.state == QueueState.READY
         assert refreshed.last_error == "upload failed"
+
+
+def test_reconcile_fails_stale_uploading_job_and_retries(redis_url: str, fake_adapter):
+    """A worker lost between claim and upload leaves the job UPLOADING; once
+    stale, reconcile fails it so the item retries and the printer unblocks."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="stale-uploading")
+        printer = _seed_printer(s, name="StaleUploadingP")
+        admin_id = _seed_admin(s)
+        stale = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.UPLOADING,
+            created_at=datetime.now(UTC) - timedelta(seconds=dispatcher.UPLOADING_STALE_S + 60),
+        )
+        fresh = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.UPLOADING,
+        )
+        s.add_all([stale, fresh])
+        s.flush()
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.DISPATCHED, created_by=admin_id
+        )
+        entry.print_job_id = stale.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid, stale_id, fresh_id = entry.id, printer.id, stale.id, fresh.id
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "RUNNING"})
+
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+
+    assert counts["retried"] == 1
+    with base.sync_session() as s:
+        assert s.get(PrintJob, stale_id).state == PrintJobState.FAILED
+        assert s.get(PrintJob, fresh_id).state == PrintJobState.UPLOADING
+        refreshed = s.get(PrintQueueEntry, entry_id)
+        assert refreshed.attempts == 1
+        assert refreshed.state == QueueState.READY
 
 
 def test_create_job_sync_marks_job_failed_on_apply_async_error(
