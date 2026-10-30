@@ -855,6 +855,7 @@
   "archiveX": {
     "runs": {
       "title": "Runs",
+      "count": "{{count}} runs",
       "count_one": "{{count}} run",
       "count_other": "{{count}} runs",
       "latest": "Latest",
