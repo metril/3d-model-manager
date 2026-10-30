@@ -546,3 +546,23 @@ async def test_sensor_entity_change_resets_state_and_unreachable_entity_continue
     ).json()
     assert p["alerting"] is False and p["last_state"] is None
     assert p["last_changed_at"] is None and p["unit"] is None and p["device_class"] is None
+
+
+async def test_bulk_update_last_dried_clears_temp_and_hours(
+    authenticated_client: httpx.AsyncClient,
+):
+    c = authenticated_client
+    a = await _spool(c)
+    stamp = "2099-01-01T00:00:00Z"
+    await c.patch(
+        f"/api/spools/{a['id']}",
+        json={"last_dried_at": stamp, "last_dried_temp_c": 55, "last_dried_hours": 6},
+    )
+    r = await c.post(
+        "/api/spools/bulk-update",
+        json={"ids": [a["id"]], "update": {"last_dried_at": "2099-02-02T00:00:00Z"}},
+    )
+    assert r.status_code == 200 and r.json()["results"][0]["ok"]
+    body = (await c.get(f"/api/spools/{a['id']}")).json()
+    assert body["last_dried_at"].startswith("2099-02-02")
+    assert body["last_dried_temp_c"] is None and body["last_dried_hours"] is None

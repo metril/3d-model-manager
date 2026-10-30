@@ -27,6 +27,13 @@ const MATERIALS: Record<string, { idx: string; min: number; max: number }> = {
   PA: { idx: "GFN99", min: 260, max: 300 },
   PC: { idx: "GFC99", min: 250, max: 290 },
   PVA: { idx: "GFS99", min: 190, max: 230 },
+  HIPS: { idx: "GFS98", min: 230, max: 270 },
+  "PLA-CF": { idx: "GFL98", min: 210, max: 250 },
+  "PETG-CF": { idx: "GFG98", min: 230, max: 270 },
+  "PA-CF": { idx: "GFN98", min: 260, max: 300 },
+  PCTG: { idx: "GFG97", min: 220, max: 260 },
+  PE: { idx: "GFP99", min: 200, max: 240 },
+  PP: { idx: "GFP97", min: 200, max: 240 },
 };
 
 export function SlotConfigDialog({

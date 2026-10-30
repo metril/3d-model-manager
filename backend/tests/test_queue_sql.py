@@ -100,3 +100,23 @@ async def test_remove_compacts(db_session: AsyncSession) -> None:
         )
     ).all()
     assert [(r.id, r.position) for r in rows] == [(a.id, 1), (c.id, 2)]
+
+
+@pytest.mark.parametrize(
+    ("src", "dst", "expected"),
+    [(1, 3, [2, 3, 1]), (3, 1, [3, 1, 2]), (2, 2, [1, 2, 3]), (1, 99, [2, 3, 1])],
+)
+async def test_move_entry_keeps_dense_order(
+    db_session: AsyncSession, src: int, dst: int, expected: list[int]
+) -> None:
+    ents = [await _entry(db_session, i) for i in (1, 2, 3)]
+    await db_session.commit()
+    ids = [e.id for e in ents]
+    await queue_svc.move_entry(db_session, get_settings(), ids[src - 1], dst)
+    rows = (
+        await db_session.execute(
+            select(PrintQueueEntry.id, PrintQueueEntry.position).order_by("position")
+        )
+    ).all()
+    assert [r.position for r in rows] == [1, 2, 3]
+    assert [r.id for r in rows] == [ids[i - 1] for i in expected]

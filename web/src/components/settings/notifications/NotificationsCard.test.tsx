@@ -22,7 +22,15 @@ describe("NotificationsCard", () => {
   beforeEach(() => {
     for (const m of [getMock, postMock, patchMock, deleteMock]) m.mockReset();
     getMock.mockImplementation((p: string) =>
-      Promise.resolve(p === "/notifications/events" ? catalog : p === "/notifications/channels" ? [fakeChannel()] : {}),
+      Promise.resolve(
+        p === "/notifications/events"
+          ? catalog
+          : p === "/notifications/channels"
+            ? [fakeChannel()]
+            : p === "/notifications/settings"
+              ? { hms_renotify_clear_s: 300, hms_renotify_after_s: 3600 }
+              : {},
+      ),
     );
   });
 
@@ -32,6 +40,19 @@ describe("NotificationsCard", () => {
     expect(await screen.findByText("Phone")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: "Enable Phone" }));
     await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/notifications/channels/1", { enabled: false }));
+  });
+
+  it("saves the HMS re-notify intervals", async () => {
+    patchMock.mockResolvedValue({ hms_renotify_clear_s: 60, hms_renotify_after_s: 3600 });
+    renderWithQuery(<NotificationsCard />);
+    fireEvent.change(await screen.findByLabelText("Re-notify after clear (s)"), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith("/notifications/settings", {
+        hms_renotify_clear_s: 60,
+        hms_renotify_after_s: 3600,
+      }),
+    );
   });
 
   it("test-send shows a toast with the result", async () => {
