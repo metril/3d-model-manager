@@ -9,10 +9,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import ArchiveResult
+from app.models.enums import ArchiveResult, PrintResult
 from app.models.inventory import Spool, SpoolUsage
 from app.models.library import Material, Print
 from app.models.printing import PrintArchive, Printer, PrintJob
@@ -74,16 +74,25 @@ def _int(v: object) -> int | None:
 
 
 async def load_rows(db: AsyncSession, *, days: int, visible: set[int] | None) -> list[Row]:
-    when = func.coalesce(PrintJob.finished_at, PrintArchive.created_at)
+    when = func.coalesce(PrintJob.finished_at, Print.printed_at)
+    # Runs are the unit: map the run's outcome back onto archive-result terms.
+    result = case(
+        (Print.result == PrintResult.SUCCESS, ArchiveResult.COMPLETED.value),
+        (Print.result == PrintResult.FAIL, ArchiveResult.FAILED.value),
+        else_=ArchiveResult.CANCELED.value,
+    )
     stmt = (
         select(
-            PrintArchive.id,
+            Print.archive_id,
             PrintJob.printer_id,
             Printer.name,
             when.label("when"),
             PrintJob.started_at,
-            PrintArchive.result,
-            PrintArchive.duration_s,
+            result,
+            func.coalesce(
+                func.extract("epoch", PrintJob.finished_at - PrintJob.started_at),
+                Print.duration_min * 60,
+            ),
             PrintArchive.slicer_meta["print_time_s"].astext,
             PrintJob.subtask_name,
             PrintJob.printer_error,
@@ -91,11 +100,11 @@ async def load_rows(db: AsyncSession, *, days: int, visible: set[int] | None) ->
             Print.filament_g,
             Print.filament,
         )
-        .select_from(PrintArchive)
-        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
+        .select_from(Print)
+        .join(PrintJob, PrintJob.id == Print.print_job_id)
         .join(Printer, Printer.id == PrintJob.printer_id)
-        .outerjoin(Print, Print.print_job_id == PrintJob.id)
-        .where(when >= _since(days))
+        .outerjoin(PrintArchive, PrintArchive.id == Print.archive_id)
+        .where(Print.archive_id.is_not(None), when >= _since(days))
         .order_by(when)
     )
     if visible is not None:
@@ -110,7 +119,7 @@ async def load_rows(db: AsyncSession, *, days: int, visible: set[int] | None) ->
                 when=r[3],
                 started_at=r[4],
                 result=getattr(r[5], "value", r[5]),
-                duration_s=r[6],
+                duration_s=int(r[6]) if r[6] is not None else None,
                 est_s=_int(r[7]),
                 name=r[8],
                 error=r[9],

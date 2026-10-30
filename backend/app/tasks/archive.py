@@ -15,10 +15,11 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
 
 from app.config import Settings, get_settings
-from app.models import PrintArchive, PrintJob
+from app.models import Print, PrintArchive, PrintJob
 from app.models.enums import ArchiveResult, BlobFormat, PrintJobState
 from app.models.library import Blob
 from app.services.archive import ArchiveFetchError, archive_job, mark_archive_error
+from app.services.archive_lookup import archive_for_job
 from app.services.archive_media import attach_snapshot, fetch_timelapse_for
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -83,10 +84,9 @@ def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> N
     try:
         with base.sync_session() as session:
             job = session.get(PrintJob, print_job_id)
-            arc = session.scalars(
-                select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
-            ).first()
-            if job is not None and arc is not None:
+            arc = archive_for_job(session, print_job_id)
+            # A folded (older) run's snapshot would clobber the latest run's.
+            if job is not None and arc is not None and arc.print_job_id == print_job_id:
                 r = redis.Redis.from_url(settings.redis_url)
                 try:
                     attach_snapshot(session, settings, r, job, arc)
@@ -151,9 +151,8 @@ def fetch_timelapse(self, print_job_id: int) -> str:
     settings = get_settings()
     with base.sync_session() as session:
         outcome = fetch_timelapse_for(session, settings, print_job_id)
-        arc = session.scalars(
-            select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
-        ).first()
+        arc = archive_for_job(session, print_job_id)
+        folded = arc is not None and arc.print_job_id != print_job_id
         if outcome == "retry":
             if self.request.retries < self.max_retries:
                 raise self.retry(countdown=_TIMELAPSE_RETRY_DELAY_S)
@@ -161,7 +160,12 @@ def fetch_timelapse(self, print_job_id: int) -> str:
                 arc.media_note = "no timelapse found"
                 session.commit()
             return "none"
-        if outcome == "stored" and arc is not None and arc.timelapse_blob is not None:
+        if (
+            outcome == "stored"
+            and arc is not None
+            and not folded
+            and arc.timelapse_blob is not None
+        ):
             blob = session.get(Blob, arc.timelapse_blob)
             if blob is not None and blob.format == BlobFormat.AVI:
                 from app.tasks.media import transcode_timelapse
@@ -179,10 +183,12 @@ def archive_sweep() -> int:
         rows = session.execute(
             select(PrintJob.id, PrintJob.state)
             .outerjoin(PrintArchive, PrintArchive.print_job_id == PrintJob.id)
+            .outerjoin(Print, (Print.print_job_id == PrintJob.id) & Print.archive_id.is_not(None))
             .where(
                 PrintJob.state.in_([s.value for s in _SWEEP_RESULT]),
                 PrintJob.finished_at < cutoff,
                 PrintArchive.id.is_(None),
+                Print.id.is_(None),
             )
         ).all()
     for job_id, state in rows:

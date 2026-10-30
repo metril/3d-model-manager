@@ -57,6 +57,8 @@ async def test_archive_runs_backfill_round_trip(scratch_db) -> None:
     conn = await asyncpg.connect(dsn)
     try:
         assert await conn.fetchval("SELECT count(*) FROM print_archives") == 2
+        # the legacy run the upgrade inserted is removed again
+        assert await conn.fetchval("SELECT count(*) FROM prints") == 1
         assert (
             await conn.fetchval(
                 "select count(*) from information_schema.columns"
