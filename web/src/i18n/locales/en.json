@@ -157,6 +157,18 @@
       "nameRequired": "Name is required",
       "qtyRange": "Quantity must be 1-500"
     },
+    "behaviour_card": {
+      "title": "Queue behaviour",
+      "description": "How the print queue hands work to printers.",
+      "plateClear": "Require plate clear before the next queued print",
+      "headsUp": "Pause heads-up (min)",
+      "headsUpHint": "Warn this many minutes before a slicer-inserted pause (1-120).",
+      "errHeadsUp": "Heads-up must be 1-120",
+      "save": "Save",
+      "saved": "Saved.",
+      "loadError": "Couldn't load these settings.",
+      "saveError": "Couldn't save."
+    },
     "preheat_card": {
       "title": "Queue preheat and keep-warm",
       "description": "Heat the chamber (or soak the bed on printers without a heater) before a queued print starts.",
