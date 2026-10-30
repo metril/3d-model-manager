@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Literal
 import anyio
 from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import exists, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
@@ -582,12 +582,11 @@ async def hard_delete_model(
             )
         ).scalars()
     )
-    for file in files:
-        if await _file_store_pending(db, file):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "a file is still processing; retry once stored",
-            )
+    if await _files_store_pending(db, files):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "a file is still processing; retry once stored",
+        )
 
     def _delete_sidecar() -> None:
         with contextlib.suppress(StorageKeyNotFound):
@@ -683,10 +682,8 @@ async def bulk_hard_delete_models(
             .where(Revision.model_id.in_(unique_ids))
         )
     ).all()
-    blocked: set[int] = set()
-    for file, model_id in files_with_model_id:
-        if await _file_store_pending(db, file):
-            blocked.add(model_id)
+    pending_file_ids = await _files_store_pending(db, [f for f, _ in files_with_model_id])
+    blocked = {model_id for file, model_id in files_with_model_id if file.id in pending_file_ids}
     if blocked:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -1258,23 +1255,19 @@ async def list_models(
         stmt = stmt.where(tags_svc.file_tag_filter(Model.id, file_tag_ids, file_tag_mode))
     if format_:
         stmt = stmt.where(
-            Model.current_revision_id.in_(
-                select(File.revision_id)
-                .join(Blob, Blob.hash == File.blob_hash)
-                .where(Blob.format.in_(format_))
-            )
+            exists()
+            .where(File.revision_id == Model.current_revision_id)
+            .where(Blob.hash == File.blob_hash, Blob.format.in_(format_))
         )
     if has_sliced is not None:
-        sliced_revision_ids = (
-            select(File.revision_id)
-            .join(BlobMeta, BlobMeta.blob_hash == File.blob_hash)
-            .where(BlobMeta.print_time_s.is_not(None))
+        # Correlated EXISTS is NULL-safe: a model with no current revision
+        # simply has no sliced file (unlike ``NOT IN``, which drops it).
+        has_sliced_file = (
+            exists()
+            .where(File.revision_id == Model.current_revision_id)
+            .where(BlobMeta.blob_hash == File.blob_hash, BlobMeta.print_time_s.is_not(None))
         )
-        stmt = stmt.where(
-            Model.current_revision_id.in_(sliced_revision_ids)
-            if has_sliced
-            else Model.current_revision_id.not_in(sliced_revision_ids)
-        )
+        stmt = stmt.where(has_sliced_file if has_sliced else ~has_sliced_file)
     if collection is not None:
         stmt = stmt.where(Model.source_collection_id == collection)
     if favorite:
@@ -1776,6 +1769,22 @@ async def _file_store_pending(db: AsyncSession, file: File) -> bool:
         .limit(1)
     )
     return latest_state in (jobs_service.STATE_QUEUED, jobs_service.STATE_RUNNING)
+
+
+async def _files_store_pending(db: AsyncSession, files: list[File]) -> set[int]:
+    """Batched ``_file_store_pending``: ids of ``files`` whose latest
+    ``store_to_backend`` job is still queued/running, in one query."""
+    candidate_ids = [f.id for f in files if f.verified_at is None]
+    if not candidate_ids:
+        return set()
+    rows = await db.execute(
+        select(Job.subject_id, Job.state)
+        .where(Job.subject_type == "file", Job.subject_id.in_(candidate_ids))
+        .distinct(Job.subject_id)
+        .order_by(Job.subject_id, Job.created_at.desc())
+    )
+    live = (jobs_service.STATE_QUEUED, jobs_service.STATE_RUNNING)
+    return {subject_id for subject_id, state in rows if state in live}
 
 
 def file_store_pending_sync(session: SyncSession, file: File) -> bool:
