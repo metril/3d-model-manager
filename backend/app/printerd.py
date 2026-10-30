@@ -53,6 +53,7 @@ from app.printers.obico_watcher import ObicoSupervisor
 from app.printers.registry import build_adapter
 from app.services import camera_state, ha_state, hms, kprofiles, mqtt_debug, spool_inventory
 from app.services.app_config import get_app_config_sync
+from app.services.energy_price import sample_energy_price
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
 from app.services.queue_settings import get_queue_config_sync
@@ -568,6 +569,7 @@ class PrinterWorker:
                 energy_start_kwh = None
                 with contextlib.suppress(Exception):
                     energy_start_kwh = ha_state.energy_acc(self.redis, self.printer_id)
+                price_start = sample_energy_price(session, self.settings)
                 job = PrintJob(
                     printer_id=self.printer_id,
                     file_id=None,
@@ -583,6 +585,7 @@ class PrinterWorker:
                     raw_status=self._merged,
                     tray_snapshot={"start": _tray_pcts(public.trays)},
                     energy_start_kwh=energy_start_kwh,
+                    energy_price_start=price_start,
                 )
                 session.add(job)
                 session.commit()
@@ -634,6 +637,7 @@ class PrinterWorker:
                 job.started_at = now
                 with contextlib.suppress(Exception):
                     job.energy_start_kwh = ha_state.energy_acc(self.redis, self.printer_id)
+                job.energy_price_start = sample_energy_price(session, self.settings)
             if new_state == PrintJobState.PRINTING and job.tray_snapshot is None:
                 job.tray_snapshot = {"start": _tray_pcts(public.trays)}
             if new_state in _TERMINAL:
@@ -642,6 +646,7 @@ class PrinterWorker:
                 job.finished_at = now
                 with contextlib.suppress(Exception):
                     job.energy_end_kwh = ha_state.energy_acc(self.redis, self.printer_id)
+                job.energy_price_end = sample_energy_price(session, self.settings)
                 job.tray_snapshot = {
                     **(job.tray_snapshot or {}),
                     "end": _tray_pcts(public.trays),

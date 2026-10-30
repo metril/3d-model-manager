@@ -129,6 +129,7 @@ function printEntry(overrides: Partial<PrintEntry> = {}): PrintEntry {
     machine_cost: null,
     energy_kwh: null,
     energy_cost: null,
+    wear_cost: null,
     total_cost: null,
     created_by_user_id: null,
     printed_at: "2026-07-01T10:00:00Z",

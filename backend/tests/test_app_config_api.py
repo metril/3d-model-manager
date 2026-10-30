@@ -66,6 +66,8 @@ async def test_put_persists_all_five_fields_and_get_reflects_them(authenticated_
         "filament_cost_per_kg": 25.0,
         "machine_cost_per_hour": 2.5,
         "energy_cost_per_kwh": 0.35,
+        "energy_price_source": "homeassistant",
+        "energy_price_ha_entity": "sensor.tariff",
         "sensor_history_days": 14,
         "trash_retention_days": 7,
     }

@@ -35,7 +35,14 @@ from app.printers.gcode3mf import NotSendableError, plates_in_gcode_3mf
 from app.printers.registry import build_adapter
 from app.services import archive_confirm, billing, spool_inventory, spoolman
 from app.services.app_config import get_app_config_sync
-from app.services.costing import CostRates, charged_grams, filament_cost, job_energy_kwh, price_run
+from app.services.costing import (
+    CostRates,
+    charged_grams,
+    effective_energy_price,
+    filament_cost,
+    job_energy_kwh,
+    price_run,
+)
 from app.services.derivatives import fetch_blob_to_temp, publish_bytes
 from app.services.slicer_intake import _find_model_by_name_ci_sync
 from app.services.slicer_naming import _safe_basename, model_name_from_filename
@@ -286,15 +293,17 @@ def archive_job(
         run.filament_g = filament_g
     if inserting or run.energy_kwh is None:
         run.energy_kwh = job_energy_kwh(job.energy_start_kwh, job.energy_end_kwh)
-    energy_cost = (
-        None if run.energy_kwh is None else round(run.energy_kwh * cfg.energy_cost_per_kwh, 4)
+    energy_price = effective_energy_price(
+        cfg.energy_cost_per_kwh, job.energy_price_start, job.energy_price_end
     )
+    energy_cost = None if run.energy_kwh is None else round(run.energy_kwh * energy_price, 4)
     cost = price_run(
         filament_g,
         duration_s,
         CostRates.from_config(cfg),
         energy_cost=energy_cost,
         filament_cost=filament_cost(usages, cfg.filament_cost_per_kg),
+        wear_per_hour=printer.wear_cost_per_hour,
     )
     run.model_id = model_id
     run.created_by_user_id = job.created_by_user_id
@@ -305,6 +314,7 @@ def archive_job(
     run.filament_cost = cost.filament_cost
     run.machine_cost = cost.machine_cost
     run.energy_cost = cost.energy_cost
+    run.wear_cost = cost.wear_cost
     run.total_cost = cost.total_cost
     if inserting and model_id is not None:
         model = session.get(Model, model_id)

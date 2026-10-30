@@ -55,6 +55,9 @@ class Printer(Base):
     model: Mapped[str | None] = mapped_column(String)
     # Last nozzle diameter printerd saw (live value lives in Redis state).
     nozzle_mm: Mapped[float | None] = mapped_column(Float)
+    # Per-hour wear/depreciation rate added on top of the global machine rate
+    # (NULL = no printer-specific wear charge).
+    wear_cost_per_hour: Mapped[float | None] = mapped_column(Float)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
     # Cut the printer's power plug(s) when the queue drains (no more work).
     power_off_when_drained: Mapped[bool] = mapped_column(
@@ -155,6 +158,10 @@ class PrintJob(Base):
     # through an intervening counter reset.
     energy_start_kwh: Mapped[float | None] = mapped_column(Float)
     energy_end_kwh: Mapped[float | None] = mapped_column(Float)
+    # Electricity price (per kWh) sampled from the configured HA sensor at job
+    # start/finish; NULL when the source is fixed or the sensor was unavailable.
+    energy_price_start: Mapped[float | None] = mapped_column(Float)
+    energy_price_end: Mapped[float | None] = mapped_column(Float)
 
 
 class PrintArchive(Base):

@@ -596,6 +596,18 @@ async def test_patch_run_ownership_and_cost(
     assert body["total_cost"] == 4.0
 
 
+async def test_patch_duration_rescales_wear_cost(
+    authenticated_client: httpx.AsyncClient, make_auto_run
+) -> None:
+    rid = await make_auto_run(
+        None, duration_min=60, machine_cost=1.0, wear_cost=0.5, total_cost=1.5
+    )
+    r = await authenticated_client.patch(f"/api/prints/{rid}", json={"duration_min": 120})
+    body = r.json()
+    assert body["wear_cost"] == pytest.approx(1.0)
+    assert body["total_cost"] == pytest.approx(body["machine_cost"] + 1.0)
+
+
 async def test_delete_model_less_run(
     authenticated_client: httpx.AsyncClient, make_auto_run
 ) -> None:

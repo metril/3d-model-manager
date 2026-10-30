@@ -55,6 +55,7 @@ interface PrinterDraft {
   buildVolumeX: string;
   buildVolumeY: string;
   buildVolumeZ: string;
+  wearCost: string;
 }
 
 // `buildVolume` isn't a `PrinterDraft` key -- the partial-fill validation
@@ -73,6 +74,7 @@ function emptyDraft(): PrinterDraft {
     buildVolumeX: "",
     buildVolumeY: "",
     buildVolumeZ: "",
+    wearCost: "",
   };
 }
 
@@ -89,6 +91,7 @@ function seedDraft(printer: PrinterOut): PrinterDraft {
     buildVolumeX: printer.build_volume_mm?.x != null ? String(printer.build_volume_mm.x) : "",
     buildVolumeY: printer.build_volume_mm?.y != null ? String(printer.build_volume_mm.y) : "",
     buildVolumeZ: printer.build_volume_mm?.z != null ? String(printer.build_volume_mm.z) : "",
+    wearCost: printer.wear_cost_per_hour != null ? String(printer.wear_cost_per_hour) : "",
   };
 }
 
@@ -253,6 +256,9 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
       if (draft.host.trim() === "") next.host = "Host is required.";
       if (draft.access_code.trim() === "") next.access_code = "Access code is required.";
     }
+    if (draft.wearCost.trim() !== "" && !(Number(draft.wearCost) >= 0)) {
+      next.wearCost = "Must be a number 0 or greater.";
+    }
     const volumeFilled = [draft.buildVolumeX, draft.buildVolumeY, draft.buildVolumeZ].filter(
       (v) => v.trim() !== "",
     ).length;
@@ -316,6 +322,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
         host: draft.host,
         serial: draft.serial,
         model: draft.model.trim() === "" ? null : draft.model,
+        wear_cost_per_hour: draft.wearCost.trim() === "" ? null : Number(draft.wearCost),
       };
       if (code !== "") body.access_code = code;
       if (buildVolume) body.build_volume_mm = buildVolume;
@@ -457,6 +464,30 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             </p>
           ) : null}
         </div>
+        {printer ? (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`${idPrefix}-wear`}>Wear cost (per hour)</Label>
+            <Input
+              id={`${idPrefix}-wear`}
+              type="number"
+              min={0}
+              step="any"
+              value={draft.wearCost}
+              onChange={(e) => setField("wearCost", e.target.value)}
+              disabled={busy}
+              aria-invalid={Boolean(errors.wearCost)}
+            />
+            {errors.wearCost ? (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.wearCost}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Added to the machine rate for this printer. Blank = no extra wear charge.
+              </p>
+            )}
+          </div>
+        ) : null}
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <span className="text-sm font-medium text-foreground">Build volume (mm)</span>
           <div className="grid gap-3 sm:grid-cols-3">

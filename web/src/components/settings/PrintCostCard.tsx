@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 
+import { useHaEntities } from "@/api/spoolAdmin";
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
 import type { AppSettings } from "@/api/types";
@@ -50,9 +51,16 @@ export function PrintCostCard() {
   const update = useUpdateAppSettings();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [errors, setErrors] = useState<DraftErrors>({});
+  const [priceSource, setPriceSource] = useState<"fixed" | "homeassistant" | null>(null);
+  const [priceEntity, setPriceEntity] = useState<string | null>(null);
+  const haEntities = useHaEntities(priceSource === "homeassistant");
 
   useEffect(() => {
-    if (settings.data && draft === null) setDraft(seedDraft(settings.data));
+    if (settings.data && draft === null) {
+      setDraft(seedDraft(settings.data));
+      setPriceSource(settings.data.energy_price_source);
+      setPriceEntity(settings.data.energy_price_ha_entity);
+    }
   }, [settings.data, draft]);
 
   if (settings.isLoading || draft === null) return <Skeleton className="h-56 w-full rounded-xl" />;
@@ -93,6 +101,8 @@ export function PrintCostCard() {
       filament_cost_per_kg: Number(draft.filament_cost_per_kg),
       machine_cost_per_hour: Number(draft.machine_cost_per_hour),
       energy_cost_per_kwh: Number(draft.energy_cost_per_kwh),
+      energy_price_source: priceSource ?? "fixed",
+      energy_price_ha_entity: (priceEntity ?? "").trim(),
     });
   }
 
@@ -159,9 +169,49 @@ export function PrintCostCard() {
                 {errors.energy_cost_per_kwh}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">0 = don&apos;t price Home Assistant energy readings.</p>
+              <p className="text-xs text-muted-foreground">
+                {priceSource === "homeassistant"
+                  ? "Fallback when the Home Assistant price sensor is unavailable."
+                  : "0 = don't price Home Assistant energy readings."}
+              </p>
             )}
           </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="energy-price-source">Energy price source</Label>
+            <select
+              id="energy-price-source"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={priceSource ?? "fixed"}
+              onChange={(e) => setPriceSource(e.target.value as "fixed" | "homeassistant")}
+            >
+              <option value="fixed">Fixed price</option>
+              <option value="homeassistant">Home Assistant sensor</option>
+            </select>
+          </div>
+          {priceSource === "homeassistant" ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="energy-price-entity">Price sensor entity</Label>
+              <Input
+                id="energy-price-entity"
+                list="energy-price-entities"
+                placeholder="sensor.electricity_price"
+                value={priceEntity ?? ""}
+                onChange={(e) => setPriceEntity(e.target.value)}
+              />
+              <datalist id="energy-price-entities">
+                {(haEntities.data ?? []).map((ent) => (
+                  <option key={ent.entity_id} value={ent.entity_id}>
+                    {ent.friendly_name ?? ent.entity_id}
+                  </option>
+                ))}
+              </datalist>
+              <p className="text-xs text-muted-foreground">
+                {haEntities.isError
+                  ? "Couldn't list Home Assistant entities -- type the entity id."
+                  : "Sampled at print start and end; the average prices the run."}
+              </p>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-3">

@@ -71,6 +71,8 @@ class AppSettingsIn(BaseModel):
     filament_cost_per_kg: float = Field(default=20.0, ge=0)
     machine_cost_per_hour: float = Field(default=0.0, ge=0)
     energy_cost_per_kwh: float = Field(default=0.0, ge=0)
+    energy_price_source: Literal["fixed", "homeassistant"] = "fixed"
+    energy_price_ha_entity: str = Field(default="", max_length=255)
     sensor_history_days: int = Field(default=30, ge=1, le=3650)
     trash_retention_days: int = Field(default=30, ge=0, le=3650)
 
@@ -84,6 +86,8 @@ class AppSettingsOut(BaseModel):
     filament_cost_per_kg: float
     machine_cost_per_hour: float
     energy_cost_per_kwh: float
+    energy_price_source: Literal["fixed", "homeassistant"]
+    energy_price_ha_entity: str
     sensor_history_days: int
     trash_retention_days: int
 

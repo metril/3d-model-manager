@@ -1,7 +1,16 @@
 from dataclasses import dataclass
 
+import pytest
+
 from app.models.enums import ArchiveResult
-from app.services.costing import CostRates, RunCost, charged_grams, filament_cost, price_run
+from app.services.costing import (
+    CostRates,
+    RunCost,
+    charged_grams,
+    effective_energy_price,
+    filament_cost,
+    price_run,
+)
 
 R = CostRates(filament_per_kg=20.0, machine_per_hour=1.5)
 
@@ -69,3 +78,19 @@ def test_charged_grams_falls_back_to_progress_when_layer_missing():
         charged_grams(100.0, ArchiveResult.FAILED, layer=None, total_layers=100, progress_pct=40)
         == 40.0
     )
+
+
+def test_price_run_per_printer_wear_added():
+    c = price_run(None, 7200, R, wear_per_hour=0.25)
+    assert (c.machine_cost, c.wear_cost, c.total_cost) == (3.0, 0.5, 3.5)
+
+
+def test_price_run_no_wear_without_printer_rate():
+    c = price_run(None, 7200, R, wear_per_hour=None)
+    assert (c.machine_cost, c.wear_cost, c.total_cost) == (3.0, None, 3.0)
+
+
+def test_effective_energy_price():
+    assert effective_energy_price(0.3, None, None) == 0.3
+    assert effective_energy_price(0.3, 0.2, None) == 0.2
+    assert effective_energy_price(0.3, 0.2, 0.4) == pytest.approx(0.3)

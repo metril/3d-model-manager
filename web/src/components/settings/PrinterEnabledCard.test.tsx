@@ -32,6 +32,8 @@ function fakeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     filament_cost_per_kg: 20,
     machine_cost_per_hour: 0,
     energy_cost_per_kwh: 0,
+    energy_price_source: "fixed",
+    energy_price_ha_entity: "",
     trash_retention_days: 30,
     ...overrides,
   };

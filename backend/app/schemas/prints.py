@@ -88,6 +88,7 @@ class PrintOut(BaseModel):
     machine_cost: float | None = None
     energy_kwh: float | None = None
     energy_cost: float | None = None
+    wear_cost: float | None = None
     total_cost: float | None = None
     created_by_user_id: int | None = None
     printed_at: datetime
@@ -135,6 +136,7 @@ class PrintOut(BaseModel):
             machine_cost=row.machine_cost,
             energy_kwh=row.energy_kwh,
             energy_cost=row.energy_cost,
+            wear_cost=row.wear_cost,
             total_cost=row.total_cost,
             created_by_user_id=row.created_by_user_id,
             printed_at=row.printed_at,

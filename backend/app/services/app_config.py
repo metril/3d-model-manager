@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Literal
 
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -80,6 +81,10 @@ class AppConfig(BaseModel):
     # way `filament_cost_per_kg`/`machine_cost_per_hour` are -- no env
     # backing, a fresh row always seeds this literal default.
     energy_cost_per_kwh: float = 0.0
+    # "fixed" uses `energy_cost_per_kwh`; "homeassistant" samples the price from
+    # the HA entity below at print start/end (fixed price is the fallback).
+    energy_price_source: Literal["fixed", "homeassistant"] = "fixed"
+    energy_price_ha_entity: str = ""
     # Q8b: how many days of printer_sensor_samples the daily prune keeps.
     sensor_history_days: int = 30
     # Library trash: days a trashed model is kept before the daily purge

@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models import Model, Print, PrintArchive, PrintJob, Spool, SpoolUsage
+from app.models import Model, Print, PrintArchive, Printer, PrintJob, Spool, SpoolUsage
 from app.models.enums import ArchiveResult, SpoolUsageSource
 from app.services import archive as archive_mod
 from app.services.archive import ArchiveFetchError, archive_job, archive_path
@@ -285,3 +285,18 @@ def test_archive_missing_3mf_uses_ams_delta(fake_adapter, seed):
     assert run.filament_cost == pytest.approx(500.0 / 1000 * 40.0)
     spool = seed.s.get(Spool, spool_id)
     assert spool.weight_used_g == pytest.approx(500.0)
+
+
+def test_archive_wear_and_sampled_energy_price(fake_adapter, sliced_3mf_bytes, seed):
+    s = seed.s
+    job_id = seed.job(subtask="X_plate_1")
+    s.get(Printer, seed.printer_id).wear_cost_per_hour = 0.5
+    fake_adapter.files["/cache/X_plate_1.3mf"] = sliced_3mf_bytes
+    job = s.get(PrintJob, job_id)
+    job.energy_start_kwh, job.energy_end_kwh = 1.0, 3.0
+    job.energy_price_start, job.energy_price_end = 0.2, 0.4
+    s.commit()
+    archive_job(s, get_settings(), job_id, ArchiveResult.COMPLETED)
+    run = _run(s, job_id)
+    assert run.wear_cost == pytest.approx(0.5)  # 1h x 0.5
+    assert run.energy_cost == pytest.approx(2.0 * 0.3)
