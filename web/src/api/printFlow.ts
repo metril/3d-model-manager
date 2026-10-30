@@ -26,6 +26,9 @@ export function useSendPrint() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: SendIn) => api.post<PrintJobOut>("/print/send", body),
+    // The expected 409 `queue_required` is handled by the dialog (falls back
+    // to enqueue); other failures render inline there -- no global toast.
+    meta: { silentError: true },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["print-jobs"] });
       void qc.invalidateQueries({ queryKey: ["printers", "overview"] });

@@ -1134,3 +1134,23 @@ def test_persist_nozzle_writes_printer_row_on_change(worker):
     w._persist_nozzle(SimpleNamespace(nozzle_mm=0.0))
     with base.sync_session() as s:
         assert s.get(Printer, pid).nozzle_mm == 0.2
+
+
+def test_next_pause_in_status_and_one_shot_heads_up(worker, monkeypatch):
+    from app.printers import pause_eta
+
+    w, _adapter, pid, client = worker
+    sent = []
+    monkeypatch.setattr(printerd_module, "emit_bg", lambda *a, **k: sent.append(a))
+    # PRINTING snapshot: layer 66, 21 min left -> a pause at 18 min left is 3 min away.
+    pause_eta.store_points(client, pid, 99, [{"layer": 70, "remaining_min": 18}])
+    try:
+        for _ in range(3):
+            w.handle_report(cass.SNAPSHOT_PRINTING)
+        state = json.loads(client.get(state_key(pid)))
+        assert state["next_pause"] == {"layer": 70, "eta_s": 180}
+        pauses = [a for a in sent if a[0] == "pause_upcoming"]
+        assert len(pauses) == 1
+        assert pauses[0][2]["minutes"] == 3 and pauses[0][2]["layer"] == 70
+    finally:
+        client.delete(pause_eta.warned_key(pid, 99), pause_eta.points_key(pid))

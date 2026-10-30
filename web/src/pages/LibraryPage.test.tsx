@@ -481,10 +481,11 @@ describe("LibraryPage", () => {
     renderLibraryPage();
     const tagList = await screen.findByRole("list", { name: "Tags filter" });
     fireEvent.click(await within(tagList).findByRole("button", { name: /fantasy/ }));
-    fireEvent.click(within(tagList).getByRole("button", { name: /dragon/ }));
-
     const modelCalls = () =>
       getMock.mock.calls.map((call: unknown[]) => String(call[0])).filter((path: string) => path.startsWith("/models?"));
+    // The filter lives in the URL, so let the first click's navigation land.
+    await waitFor(() => expect(modelCalls().at(-1)).toContain("tags=1"));
+    fireEvent.click(within(tagList).getByRole("button", { name: /dragon/ }));
     await waitFor(() => expect(modelCalls().at(-1)).toContain("tags=1&tags=2"));
     expect(modelCalls().at(-1)).not.toContain("tag_mode");
 
@@ -528,6 +529,40 @@ describe("LibraryPage", () => {
     await waitFor(() =>
       expect(lastBulkCall()).toEqual({ path: "/models/bulk", body: { ids: [1], favorite: true } }),
     );
+  });
+
+  it("bulk-unfavoriting the selection POSTs favorite:false", async () => {
+    mockGalleryOkWithModels([GALLERY_MODEL]);
+    renderLibraryPage();
+    await screen.findByText("Test Model");
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select Test Model" }));
+    await screen.findByText("1 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Unfavorite" }));
+
+    await waitFor(() =>
+      expect(lastBulkCall()).toEqual({ path: "/models/bulk", body: { ids: [1], favorite: false } }),
+    );
+  });
+
+  it("round-trips filters through the URL and clears the selection when a filter changes", async () => {
+    mockGalleryOkWithModels([GALLERY_MODEL]);
+    const { router } = renderLibraryPage(["/library?fav=true&sort=name&format=%5B%22stl%22%5D&q=cube"]);
+    await screen.findByText("Test Model");
+    // Seeded from the URL.
+    await waitFor(() => expect(lastModelsCall()).toContain("favorite=true"));
+    expect(lastModelsCall()).toContain("sort=name");
+    expect(lastModelsCall()).toContain("format=stl");
+    expect(lastModelsCall()).toContain("q=cube");
+    expect(screen.getByLabelText("Search models")).toHaveValue("cube");
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select Test Model" }));
+    await screen.findByText("1 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty("fav"));
+    expect(router.state.location.search).toMatchObject({ sort: "name", q: "cube" });
+    await waitFor(() => expect(screen.queryByText(/selected/)).not.toBeInTheDocument());
   });
 
   it("toasts an error, and no success toast, when every add-to-queue call in the selection fails", async () => {

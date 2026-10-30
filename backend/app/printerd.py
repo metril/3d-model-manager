@@ -35,6 +35,7 @@ from app.logging_config import LevelPoller, configure_logging
 from app.models import Printer, PrintJob
 from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
 from app.printers import commands as cmds
+from app.printers import pause_eta
 from app.printers.base import (
     CMD_RESULT_TTL_S,
     PrinterAdapter,
@@ -54,6 +55,7 @@ from app.services import camera_state, ha_state, hms, kprofiles, mqtt_debug, spo
 from app.services.app_config import get_app_config_sync
 from app.services.events import publish_print_job_event_sync
 from app.services.notify.events import emit_bg
+from app.services.queue_settings import get_queue_config_sync
 from app.services.server_config import seed_all_sync_safe
 from app.services.service_status import PRINTERD_KEY as PRINTERD_HEARTBEAT_KEY
 from app.tasks import base
@@ -215,6 +217,11 @@ class PrinterWorker:
         self._hms_seen: set[str] | None = None
         self._dev_mode_prev: bool | None = None
 
+        self._pause_job_id: int | None = None
+        self._pause_points: list[dict] = []
+        self._pause_loaded_at = -1e9
+        self._heads_up_min = pause_eta.DEFAULT_HEADS_UP_MIN
+        self._heads_up_at = -1e9
         self._sensor_next = 0.0
         self._sensor_last_report: str | None = None
         self._sensor_thread: threading.Thread | None = None
@@ -253,6 +260,7 @@ class PrinterWorker:
         public.dev_mode = self.devmode.state
         public.dev_mode_reason = self.devmode.reason
         public.connected = bool(public.connected) and not _is_stale(public.last_report_at)
+        self._pause_tick(public)
         self._notify_changes(public)
         self._public = public
         self.redis.set(
@@ -260,6 +268,51 @@ class PrinterWorker:
             json.dumps(dataclasses.asdict(public)),
             ex=STATE_TTL_S,
         )
+
+    def _pause_tick(self, public: PrinterPublicState) -> None:
+        """Expose ``next_pause`` and send the one-shot heads-up when the next
+        slicer-inserted pause is within the configured lead. Never raises."""
+        try:
+            now = time.monotonic()
+            if public.gcode_state != "RUNNING":
+                self._pause_points = []
+                self._pause_loaded_at = -1e9
+                public.next_pause = None
+                return
+            if now - self._pause_loaded_at > 10:
+                self._pause_loaded_at = now
+                self._pause_job_id, self._pause_points = pause_eta.load_points(
+                    self.redis, self.printer_id
+                )
+            nxt = pause_eta.next_pause(public, self._pause_points)
+            public.next_pause = nxt
+            if nxt is None or nxt["eta_s"] is None or self._pause_job_id is None:
+                return
+            if nxt["eta_s"] > pause_eta.MAX_HEADS_UP_MIN * 60:
+                return
+            if now - self._heads_up_at > 30:
+                self._heads_up_at = now
+                with base.sync_session() as s:
+                    self._heads_up_min = pause_eta.heads_up_minutes(
+                        get_queue_config_sync(s).pause_heads_up_min
+                    )
+            if nxt["eta_s"] > self._heads_up_min * 60:
+                return
+            if pause_eta.claim_warning(
+                self.redis, self.printer_id, self._pause_job_id, nxt["layer"]
+            ):
+                emit_bg(
+                    "pause_upcoming",
+                    self.printer_id,
+                    {
+                        "job_id": self._pause_job_id,
+                        "subtask_name": public.subtask_name,
+                        "minutes": max(1, round(nxt["eta_s"] / 60)),
+                        "layer": nxt["layer"],
+                    },
+                )
+        except Exception as exc:
+            log.warning("printerd: pause tick failed: %s", type(exc).__name__)
 
     def _notify_changes(self, public: PrinterPublicState) -> None:
         """Q6: dev mode flipped off, and HMS codes not in the previous report
@@ -510,6 +563,8 @@ class PrinterWorker:
                 if new_state != PrintJobState.PRINTING:
                     return
                 self._stop_requested = False
+                with contextlib.suppress(Exception):
+                    pause_eta.clear_points(self.redis, self.printer_id)
                 energy_start_kwh = None
                 with contextlib.suppress(Exception):
                     energy_start_kwh = ha_state.energy_acc(self.redis, self.printer_id)
@@ -582,6 +637,8 @@ class PrinterWorker:
             if new_state == PrintJobState.PRINTING and job.tray_snapshot is None:
                 job.tray_snapshot = {"start": _tray_pcts(public.trays)}
             if new_state in _TERMINAL:
+                with contextlib.suppress(Exception):
+                    pause_eta.clear_points(self.redis, self.printer_id)
                 job.finished_at = now
                 with contextlib.suppress(Exception):
                     job.energy_end_kwh = ha_state.energy_acc(self.redis, self.printer_id)

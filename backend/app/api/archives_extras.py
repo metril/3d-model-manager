@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import warnings
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
@@ -67,6 +68,7 @@ from app.services import archive_confirm, archive_purge, archive_settings, archi
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_blobs import blob_ext, release_blobs, unlink_all
 from app.services.derivatives import publish_bytes
+from app.services.tz import parse_tz
 from app.tasks.base import sync_session
 
 router = APIRouter(prefix="/archives", tags=["archives"])
@@ -196,13 +198,15 @@ async def compare_archives(
 async def calendar(
     from_: Annotated[date, Query(alias="from")],
     to: date,
+    tz: str | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[CalendarDayOut]:
     if to < from_ or (to - from_).days > 400:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "range must be 0-400 days")
-    start = datetime(from_.year, from_.month, from_.day, tzinfo=UTC)
-    end = datetime(to.year, to.month, to.day, tzinfo=UTC) + timedelta(days=1)
+    zone = parse_tz(tz)
+    start = datetime(from_.year, from_.month, from_.day, tzinfo=zone)
+    end = datetime(to.year, to.month, to.day, tzinfo=zone) + timedelta(days=1)
     stmt = (
         select(PrintArchive)
         .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
@@ -214,7 +218,7 @@ async def calendar(
     days: dict[str, dict[str, float]] = {}
     for a in (await db.execute(stmt)).scalars():
         d = days.setdefault(
-            a.created_at.astimezone(UTC).date().isoformat(),
+            a.created_at.astimezone(zone).date().isoformat(),
             {"count": 0, "ok": 0, "failed": 0, "secs": 0},
         )
         d["count"] += 1
@@ -292,16 +296,18 @@ RATE_LIMIT = 30
 
 async def _rate_limit(request: Request, settings: Settings = Depends(get_settings)) -> None:
     ip = request.client.host if request.client else "unknown"
-    key = f"confirm:rl:{ip}:{int(time.time() // 60)}"
-    client = aioredis.Redis.from_url(settings.redis_url)
+    tok = archive_confirm.hash_token(request.path_params.get("token", ""))[:16]
+    key = f"confirm:rl:{tok}:{ip}:{int(time.time() // 60)}"
     try:
-        n = await client.incr(key)
-        if n == 1:
-            await client.expire(key, 120)
-    except Exception:  # noqa: BLE001 - fail open on a Redis blip
-        return
-    finally:
-        await client.aclose()
+        client = aioredis.Redis.from_url(settings.redis_url)
+        try:
+            n = await client.incr(key)
+            if n == 1:
+                await client.expire(key, 120)
+        finally:
+            await client.aclose()
+    except Exception as e:  # noqa: BLE001 - fail closed when the limiter is down
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many requests") from e
     if n > RATE_LIMIT:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many requests")
 
@@ -576,6 +582,7 @@ async def timelapse_job(
 
 MAX_PHOTO_BYTES = 15 * 1024 * 1024
 MAX_PHOTO_PX = 4096
+MAX_PHOTO_PIXELS = 40_000_000
 _PHOTO_FORMATS = {
     "JPEG": ("jpg", BlobFormat.JPG),
     "PNG": ("png", BlobFormat.PNG),
@@ -587,12 +594,23 @@ _MEDIA = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp", "mp4": 
 def _reencode(data: bytes) -> tuple[bytes, str, BlobFormat]:
     """Validate + re-encode (strips EXIF/metadata), capped at 4096 px."""
     try:
-        img = Image.open(BytesIO(data))
-        fmt = img.format or ""
-        if fmt not in _PHOTO_FORMATS:
-            raise ValueError(fmt)
-        img.load()
-    except (UnidentifiedImageError, ValueError, OSError, Image.DecompressionBombError) as e:
+        with warnings.catch_warnings():
+            # Pillow only warns between 1x and 2x MAX_IMAGE_PIXELS; make that fatal too.
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            img = Image.open(BytesIO(data))
+            fmt = img.format or ""
+            if fmt not in _PHOTO_FORMATS:
+                raise ValueError(fmt)
+            if img.width * img.height > MAX_PHOTO_PIXELS:
+                raise ValueError("too many pixels")
+            img.load()
+    except (
+        UnidentifiedImageError,
+        ValueError,
+        OSError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+    ) as e:
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "only jpeg, png or webp images"
         ) from e
@@ -612,12 +630,9 @@ def _reencode(data: bytes) -> tuple[bytes, str, BlobFormat]:
     return buf.getvalue(), ext, bfmt
 
 
-def _store_photo(data: bytes, settings: Settings, bfmt: BlobFormat, ext: str, sess: Any) -> str:
-    import hashlib
-
+def _publish_photo(data: bytes, settings: Settings, ext: str) -> str:
     sha = hashlib.sha256(data).hexdigest()
     publish_bytes(data, archive_path(settings, sha, ext))
-    _ensure_blob(sess, sha, len(data), BlobKind.IMAGE, bfmt)
     return sha
 
 
@@ -635,7 +650,10 @@ async def upload_photo(
     if len(data) > MAX_PHOTO_BYTES:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "photo exceeds 15 MB")
     out, ext, bfmt = await anyio.to_thread.run_sync(_reencode, data)
-    sha = await db.run_sync(lambda s: _store_photo(out, settings, bfmt, ext, s))
+    sha = await anyio.to_thread.run_sync(_publish_photo, out, settings, ext)
+    await db.run_sync(lambda s: _ensure_blob(s, sha, len(out), BlobKind.IMAGE, bfmt))
+    # Lock the row so concurrent uploads/deletes don't lose each other's writes.
+    await db.refresh(arc, with_for_update=True)
     item = {
         "filename": f"{secrets.token_hex(6)}.{ext}",
         "blob": sha,
@@ -694,6 +712,7 @@ async def delete_photo(
 ) -> Response:
     arc, job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
     require_writer(ctx, job, printer)
+    await db.refresh(arc, with_for_update=True)
     item = _find_photo(arc, filename)
     arc.photos = [p for p in arc.photos if p.get("filename") != filename]
     await db.flush()

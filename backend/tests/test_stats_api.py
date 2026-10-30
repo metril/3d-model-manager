@@ -614,3 +614,27 @@ async def test_stats_dashboard_visibility_filtered(
     d = (await client.get("/api/stats/dashboard")).json()
     assert d["success_rate"]["total"] == 1 and d["success_rate"]["failed"] == 0
     assert [p["printer_id"] for p in d["printers"]] == [a.id]
+
+
+async def test_filament_stats_buckets_day_in_tz(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    spool = Spool(material_type="PLA")
+    db_session.add(spool)
+    await db_session.flush()
+    # 02:00 UTC is 18:00/19:00 the previous evening in Los Angeles
+    at = datetime.now(UTC).replace(hour=2, minute=0, second=0, microsecond=0) - timedelta(days=2)
+    db_session.add(
+        SpoolUsage(spool_id=spool.id, grams=10.0, source=SpoolUsageSource.MANUAL, created_at=at)
+    )
+    await db_session.commit()
+    base = "/api/stats/filament?days=30&bucket=day"
+    utc = (await authenticated_client.get(base)).json()["by_spool"][0]["points"][0]["t"]
+    la = (await authenticated_client.get(base + "&tz=America/Los_Angeles")).json()
+    la_t = la["by_spool"][0]["points"][0]["t"]
+    assert datetime.fromisoformat(utc).astimezone(UTC).date() == at.date()
+    la_day = datetime.fromisoformat(la_t).astimezone(ZoneInfo("America/Los_Angeles")).date()
+    assert la_day == at.date() - timedelta(days=1)
+    assert (await authenticated_client.get(base + "&tz=Nope/Zone")).status_code == 422

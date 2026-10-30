@@ -1,5 +1,6 @@
 """Admin-only user management (``/admin/*``, gated by the ``admin`` perm)."""
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -91,7 +92,11 @@ async def list_users(db: AsyncSession = Depends(get_db)) -> list[UserAdminOut]:
 async def create_user(payload: UserCreateIn, db: AsyncSession = Depends(get_db)) -> UserAdminOut:
     user = User(
         username=payload.username,
-        password_hash=hash_password(payload.password) if payload.password else None,
+        password_hash=(
+            await anyio.to_thread.run_sync(hash_password, payload.password)
+            if payload.password
+            else None
+        ),
         display_name=payload.display_name,
         email=payload.email or None,
         role=payload.role,
@@ -139,7 +144,7 @@ async def reset_password(
     user_id: int, payload: PasswordResetIn, db: AsyncSession = Depends(get_db)
 ) -> None:
     user = await _get(db, user_id)
-    user.password_hash = hash_password(payload.new_password)
+    user.password_hash = await anyio.to_thread.run_sync(hash_password, payload.new_password)
     await db.execute(delete(SessionModel).where(SessionModel.user_id == user.id))
     await db.commit()
 

@@ -151,6 +151,8 @@ class PrinterPublicState:
     extruders: list[dict] = field(default_factory=list)
     active_extruder: int | None = None
     ams_extruder_map: dict = field(default_factory=dict)
+    # Slicer-inserted pause ahead: {"layer": int, "eta_s": int | None}.
+    next_pause: dict | None = None
 
 
 def public_state_from(merged: dict) -> PrinterPublicState:

@@ -30,7 +30,7 @@ async def get_queue_settings(db: AsyncSession = Depends(get_db)) -> QueueConfig:
 async def put_queue_settings(
     payload: QueueSettingsIn, db: AsyncSession = Depends(get_db)
 ) -> QueueConfig:
-    return await set_queue_config(db, payload.model_dump())
+    return await set_queue_config(db, payload.model_dump(exclude_unset=True))
 
 
 preheat_router = APIRouter(prefix="/settings/queue-preheat", tags=["queue-settings"])

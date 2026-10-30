@@ -35,6 +35,14 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "{{ printer_name }} paused {{ subtask_name|default('a print') }}.",
         {"subtask_name": "benchy.3mf", "job_id": 1},
     ),
+    "pause_upcoming": (
+        "Pause coming up",
+        "A slicer-inserted pause is about to be reached (lead time: queue settings).",
+        "Pause in {{ minutes }} min: {{ subtask_name|default('print') }}",
+        "{{ printer_name }} pauses {{ subtask_name|default('a print') }} in about "
+        "{{ minutes }} min (layer {{ layer }}).",
+        {"subtask_name": "benchy.3mf", "job_id": 1, "minutes": 5, "layer": 42},
+    ),
     "hms_error": (
         "Printer fault (HMS)",
         "The printer reported a new HMS fault code.",

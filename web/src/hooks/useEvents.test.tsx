@@ -27,6 +27,7 @@ class FakeEventSource {
   static instances: FakeEventSource[] = [];
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: (() => void) | null = null;
+  onopen: (() => void) | null = null;
   readonly url: string;
   constructor(url: string) {
     this.url = url;
@@ -229,5 +230,47 @@ describe("EventsProvider onerror session probe", () => {
     vi.advanceTimersByTime(5000);
     source.onerror?.();
     expect(getMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("EventsProvider replay + print_job.updated", () => {
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function setup() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EventsProvider>
+          <div>ready</div>
+        </EventsProvider>
+      </QueryClientProvider>,
+    );
+    return { source: FakeEventSource.instances[0], spy };
+  }
+
+  it("invalidates on a re-open but not on the first open", () => {
+    const { source, spy } = setup();
+    source.onopen?.();
+    expect(spy).not.toHaveBeenCalled();
+    source.onopen?.();
+    for (const key of ["queue", "jobs", "models", "printers", "print-jobs"]) {
+      expect(spy).toHaveBeenCalledWith({ queryKey: [key] });
+    }
+  });
+
+  it("print_job.updated also invalidates queue, archives and spools", () => {
+    const { source, spy } = setup();
+    source.onmessage?.({ data: JSON.stringify({ type: "print_job.updated" }) } as MessageEvent<string>);
+    for (const key of ["print-jobs", "printers", "queue", "archives", "spools"]) {
+      expect(spy).toHaveBeenCalledWith({ queryKey: [key] });
+    }
   });
 });
