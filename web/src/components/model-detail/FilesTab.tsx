@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { PlusIcon } from "lucide-react";
+import { CombineIcon, PlusIcon } from "lucide-react";
 
 import { modelQueryOptions } from "@/api/library";
 import { EntityTags } from "@/components/tags/EntityTags";
 import { TagFilter } from "@/components/tags/TagFilter";
 import { EMPTY_TAG_FILTER, matchesTagFilter, type TagFilterValue } from "@/components/tags/tagFilter";
+import { CombineDialog } from "@/components/model-detail/CombineDialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
@@ -46,6 +48,11 @@ function fileMetaLine(file: FileOut): string | null {
   if (file.kind === "mesh" || file.kind === "cad") return meshMetaLine(file.meta);
   if (file.kind === "sliced") return slicedMetaLine(file.meta);
   return null;
+}
+
+/** STL/OBJ/3MF meshes that finished storing can be laid out on one plate. */
+function isCombinable(file: FileOut): boolean {
+  return file.verified_at !== null && (file.format === "stl" || file.format === "obj" || file.format === "3mf");
 }
 
 function FileThumb({ file }: { file: FileOut }) {
@@ -89,12 +96,24 @@ export function FilesTab({
   // The upload API is owner-or-admin only (NULL-creator models: admin only).
   const canUpload = can("admin") || (!!me && model.created_by_user_id === me.id);
   const [showAddFiles, setShowAddFiles] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showCombine, setShowCombine] = useState(false);
   const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // Doc-kind files (README, license, etc.) surface only in the Docs tab --
   // exclude them here so they don't also clutter the Files list.
   const allFiles = (model.current_revision?.files ?? []).filter((file) => file.kind !== "doc");
   const files = allFiles.filter((file) => matchesTagFilter(file.tag_refs, tagFilter));
   const currentRevision = model.current_revision;
+  const selectedFiles = allFiles.filter((file) => selectedIds.has(file.id) && isCombinable(file));
+
+  function toggleSelected(id: number, on: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   // Uploads (Task 10, correctness map §B4) always target the model's
   // CURRENT revision through the existing `PUT /api/uploads` seam -- never
@@ -135,6 +154,21 @@ export function FilesTab({
         <UploadDropzone resolveTarget={resolveTarget} onUploadComplete={handleUploadComplete} />
       ) : null}
 
+      {canUpload && selectedFiles.length > 0 ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          <span>{selectedFiles.length} selected</span>
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={() => setShowCombine(true)}>
+              <CombineIcon className="size-4" />
+              Combine onto one plate
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {files.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
           {allFiles.length > 0 ? "No files match this tag filter." : "No files on the current revision yet."}
@@ -145,6 +179,15 @@ export function FilesTab({
             <FileRow
               key={file.id}
               thumb={<FileThumb file={file} />}
+              leading={
+                canUpload && isCombinable(file) ? (
+                  <Checkbox
+                    checked={selectedIds.has(file.id)}
+                    onCheckedChange={(v) => toggleSelected(file.id, v === true)}
+                    aria-label={`Select ${file.rel_path}`}
+                  />
+                ) : null
+              }
               path={file.rel_path}
               meta={fileMetaLine(file)}
               facts={
@@ -175,6 +218,18 @@ export function FilesTab({
           ))}
         </ul>
       )}
+
+      {showCombine ? (
+        <CombineDialog
+          open
+          onOpenChange={(open) => {
+            setShowCombine(open);
+            if (!open) setSelectedIds(new Set());
+          }}
+          slug={model.slug}
+          files={selectedFiles}
+        />
+      ) : null}
     </div>
   );
 }
