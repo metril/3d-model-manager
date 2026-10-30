@@ -383,6 +383,8 @@
         "password": "Password",
         "prefix": "Topic prefix",
         "prefixHint": "Topics: {{prefix}}/<serial>/state, /progress, /event, /availability",
+        "lowFilament": "Low filament threshold (%)",
+        "lowFilamentHint": "Publishes true/false (retained) to {{prefix}}/<serial>/ams/<unit>/<slot>/low_filament",
         "tls": "Use TLS",
         "tlsVerify": "Verify certificate",
         "commands": "Accept commands",

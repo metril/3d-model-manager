@@ -26,6 +26,7 @@ function Form({ data }: { data: MqttRelay }) {
   const [username, setUsername] = useState(data.username ?? "");
   const [password, setPassword] = useState(data.has_password ? MASK : "");
   const [prefix, setPrefix] = useState(data.topic_prefix);
+  const [lowPct, setLowPct] = useState(String(data.low_filament_pct));
   const [commands, setCommands] = useState(data.commands_enabled);
   const [actor, setActor] = useState(data.actor_user_id != null ? String(data.actor_user_id) : "");
 
@@ -35,7 +36,7 @@ function Form({ data }: { data: MqttRelay }) {
 
   const portN = Number(port);
   const valid =
-    Number.isInteger(portN) && portN >= 1 && portN <= 65535 && /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(prefix) && (!enabled || host.trim() !== "") && (!commands || actor !== "");
+    Number.isInteger(portN) && portN >= 1 && portN <= 65535 && /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(prefix) && Number.isInteger(Number(lowPct)) && Number(lowPct) >= 0 && Number(lowPct) <= 100 && (!enabled || host.trim() !== "") && (!commands || actor !== "");
   const body = (): MqttRelayIn => ({
     enabled,
     host: host.trim() || null,
@@ -46,6 +47,7 @@ function Form({ data }: { data: MqttRelay }) {
     password,
     topic_prefix: prefix,
     commands_enabled: commands,
+    low_filament_pct: Number(lowPct),
     actor_user_id: actor ? Number(actor) : null,
   });
   const st = data.status;
@@ -100,6 +102,11 @@ function Form({ data }: { data: MqttRelay }) {
             <Label htmlFor="relay-prefix">{t("settings.server.relay.prefix")}</Label>
             <Input id="relay-prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)} />
             <p className="text-xs text-muted-foreground">{t("settings.server.relay.prefixHint", { prefix })}</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="relay-low">{t("settings.server.relay.lowFilament")}</Label>
+            <Input id="relay-low" type="number" min={0} max={100} value={lowPct} onChange={(e) => setLowPct(e.target.value)} />
+            <p className="text-xs text-muted-foreground">{t("settings.server.relay.lowFilamentHint", { prefix })}</p>
           </div>
           <div className="flex flex-col justify-end gap-2 text-sm">
             <label className="flex items-center gap-2">
