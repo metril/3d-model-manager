@@ -114,6 +114,24 @@ export function useCreateChannel() {
   });
 }
 
+export interface NotifySettings {
+  hms_renotify_clear_s: number;
+  hms_renotify_after_s: number;
+}
+const settingsKey = ["notifications", "settings"] as const;
+
+export function useNotifySettings() {
+  return useQuery({ queryKey: settingsKey, queryFn: () => api.get<NotifySettings>(`${BASE}/settings`) });
+}
+
+export function useSaveNotifySettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<NotifySettings>) => api.patch<NotifySettings>(`${BASE}/settings`, body),
+    onSuccess: (data) => qc.setQueryData(settingsKey, data),
+  });
+}
+
 export function useUpdateChannel() {
   const qc = useQueryClient();
   return useMutation({

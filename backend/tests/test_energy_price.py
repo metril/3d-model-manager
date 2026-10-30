@@ -28,6 +28,7 @@ def _patch_cfg(monkeypatch, **kw):
     )
     monkeypatch.setattr(energy_price, "get_app_config_sync", lambda s, st: cfg)
     monkeypatch.setattr(energy_price, "_warned", False)
+    monkeypatch.setattr(energy_price, "_cache", {})
 
 
 def test_fixed_source_skips_sampling(monkeypatch):
@@ -49,3 +50,23 @@ def test_unavailable_falls_back_and_logs_once(monkeypatch, caplog, result):
         assert energy_price.sample_energy_price(None, None, _Client(result)) is None
         assert energy_price.sample_energy_price(None, None, _Client(result)) is None
     assert len([r for r in caplog.records if "fixed energy price" in r.message]) == 1
+
+
+def test_price_cached_for_60s(monkeypatch):
+    _patch_cfg(monkeypatch, **HA)
+    calls = []
+
+    class _Counting(_Client):
+        def state(self, entity_id):
+            calls.append(entity_id)
+            return super().state(entity_id)
+
+    c = _Counting({"state": "0.3"})
+    assert energy_price.sample_energy_price(None, None, c) == 0.3
+    assert energy_price.sample_energy_price(None, None, c) == 0.3
+    assert len(calls) == 1
+    key = "sensor.tariff"
+    ts, price = energy_price._cache[key]
+    energy_price._cache[key] = (ts - 61, price)
+    energy_price.sample_energy_price(None, None, c)
+    assert len(calls) == 2

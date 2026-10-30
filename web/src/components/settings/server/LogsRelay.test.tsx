@@ -22,7 +22,7 @@ vi.mock("sonner", () => ({ toast: toastMock }));
 
 const RELAY = {
   enabled: true, host: "broker.local", port: 1883, tls: false, tls_verify: true, username: "u", has_password: true,
-  topic_prefix: "tdmm", commands_enabled: false, actor_user_id: null, actor_username: null, actor_ok: true, actor_error: null,
+  topic_prefix: "tdmm", commands_enabled: false, actor_user_id: null, low_filament_pct: 10, actor_username: null, actor_ok: true, actor_error: null,
   status: { enabled: true, connected: true, error: null, actor_ok: true, actor_error: null, published: 12, at: 1 },
 };
 
@@ -64,7 +64,7 @@ describe("MqttRelayCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const body = putMock.mock.calls[0][1];
-    expect(body).toMatchObject({ host: "broker.local", password: "***", topic_prefix: "tdmm", commands_enabled: false });
+    expect(body).toMatchObject({ host: "broker.local", password: "***", topic_prefix: "tdmm", commands_enabled: false, low_filament_pct: 10 });
   });
 
   it("requires a service user when commands are on", async () => {

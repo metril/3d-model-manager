@@ -157,6 +157,18 @@
       "nameRequired": "Name is required",
       "qtyRange": "Quantity must be 1-500"
     },
+    "behaviour_card": {
+      "title": "Queue behaviour",
+      "description": "How the print queue hands work to printers.",
+      "plateClear": "Require plate clear before the next queued print",
+      "headsUp": "Pause heads-up (min)",
+      "headsUpHint": "Warn this many minutes before a slicer-inserted pause (1-120).",
+      "errHeadsUp": "Heads-up must be 1-120",
+      "save": "Save",
+      "saved": "Saved.",
+      "loadError": "Couldn't load these settings.",
+      "saveError": "Couldn't save."
+    },
     "preheat_card": {
       "title": "Queue preheat and keep-warm",
       "description": "Heat the chamber (or soak the bed on printers without a heater) before a queued print starts.",
@@ -383,6 +395,8 @@
         "password": "Password",
         "prefix": "Topic prefix",
         "prefixHint": "Topics: {{prefix}}/<serial>/state, /progress, /event, /availability",
+        "lowFilament": "Low filament threshold (%)",
+        "lowFilamentHint": "Publishes true/false (retained) to {{prefix}}/<serial>/ams/<unit>/<slot>/low_filament",
         "tls": "Use TLS",
         "tlsVerify": "Verify certificate",
         "commands": "Accept commands",
@@ -1036,7 +1050,14 @@
       "renameTitle": "Rename AMS",
       "label": "Label",
       "clear": "Clear label",
-      "saved": "AMS renamed"
+      "saved": "AMS renamed",
+      "backupSave": "Back up slots",
+      "backupSaved": "Backed up {{count}} slots",
+      "restore": "Restore slots",
+      "restoreTitle": "Restore AMS slots?",
+      "restoreDesc": "Rewrites {{count}} slots from the backup taken {{when}}. Current slot settings are overwritten.",
+      "restoreDone": "Restored {{count}} slots",
+      "restorePartial": "Restored {{ok}} slots, {{failed}} failed"
     },
     "files": {
       "button": "Files",
@@ -1184,6 +1205,13 @@
         "pdf": "PDF",
         "png": "PNG"
       }
+    },
+    "climate": {
+      "updated": "Updated {{when}}",
+      "never": "No reading yet",
+      "humid": "Humid",
+      "stale": "Stale",
+      "column": "Climate"
     },
     "loc": {
       "unassignedHint": "Not linked to a location. Pick or create one to assign.",

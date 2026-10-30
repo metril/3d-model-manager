@@ -1848,6 +1848,7 @@ async def finalize_upload(
     after_blob_flush: Callable[[], None] | None = None,
     created_by_user_id: int | None = None,
     job_id: uuid.UUID | None = None,
+    replaced_ids: list[int] | None = None,
 ) -> File:
     """Upsert the ``Blob`` by hash (dedupe) and create/replace the ``File``
     row once the upload's bytes are fully spooled and hashed (Task 6
@@ -1857,6 +1858,10 @@ async def finalize_upload(
     ``File`` row; ``storage_path`` is rel_path-derived so the new file's
     backend write naturally overwrites the same object regardless of
     content.
+
+    ``replaced_ids``: when given, the replaced ``File`` is parked under a
+    tombstone ``rel_path`` instead of deleted and its id appended here, so the
+    caller can delete it once the store job is enqueued (or restore it).
 
     ``after_blob_flush`` (R13a's ``POST /models/{slug}/cover``) runs once
     the ``Blob`` row is guaranteed to exist in this transaction -- a caller
@@ -1910,7 +1915,11 @@ async def finalize_upload(
                     status.HTTP_409_CONFLICT,
                     f"rel_path {rel_path!r} is still processing; retry once stored",
                 )
-            await db.delete(existing)
+            if replaced_ids is None:
+                await db.delete(existing)
+            else:
+                existing.rel_path = f"{rel_path}.replaced-{uuid.uuid4().hex}"
+                replaced_ids.append(existing.id)
             await db.flush()
 
     file = File(

@@ -11,8 +11,11 @@ export function FileRow({
   facts,
   actions,
   below,
+  leading,
 }: {
   thumb: ReactNode;
+  /** Optional control (e.g. a select checkbox) shown before the path. */
+  leading?: ReactNode;
   path: string;
   pathTitle?: string;
   /** Optional secondary line directly under the path (mesh/sliced stats). */
@@ -27,8 +30,11 @@ export function FileRow({
     <li className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 py-3">
       <div className="row-span-2 self-center">{thumb}</div>
       <div className="min-w-0">
-        <div className="truncate font-mono text-xs" title={pathTitle ?? path}>
-          {path}
+        <div className="flex items-center gap-2">
+          {leading}
+          <div className="min-w-0 truncate font-mono text-xs" title={pathTitle ?? path}>
+            {path}
+          </div>
         </div>
         {meta ? (
           <div className="truncate text-[11px] text-muted-foreground" title={meta}>

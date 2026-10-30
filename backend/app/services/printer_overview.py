@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.archives import archive_out, archive_select
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models.library import File, Model, Revision
+from app.models.library import File, Model, PrintQueueEntry, Revision
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.printers.base import state_key
 from app.schemas.archives import ArchiveOut
@@ -36,6 +36,7 @@ from app.schemas.printers import (
 from app.services import ha_state
 from app.services import queue as queue_service
 from app.services import spool_inventory as sinv
+from app.services.queue_filaments import details_for_entries
 
 _ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
 
@@ -117,7 +118,9 @@ def _plate_thumb_url(blob_hash: str | None, rel_path: str | None, plate: int | N
     return f"/api/blobs/{blob_hash}/plates/{plate if plate and plate > 0 else 1}/thumb"
 
 
-async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, ActiveJobOut]:
+async def _active_jobs(
+    db: AsyncSession, settings: Settings, printer_ids: list[int]
+) -> dict[int, ActiveJobOut]:
     """Latest ``print_jobs`` row per printer whose state is still "in
     flight", resolved onto its file's model via ``DISTINCT ON
     (printer_id)`` -- one query regardless of printer count."""
@@ -134,6 +137,19 @@ async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, Ac
         .order_by(PrintJob.printer_id, PrintJob.id.desc())
     )
     rows = (await db.execute(stmt)).all()
+    entries = list(
+        (
+            await db.execute(
+                select(PrintQueueEntry).where(
+                    PrintQueueEntry.print_job_id.in_([r[0].id for r in rows])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    details = await details_for_entries(db, settings, entries)
+    cost_by_job = {e.print_job_id: details[e.id].estimated_cost for e in entries if e.id in details}
     out: dict[int, ActiveJobOut] = {}
     for job, model, blob_hash, rel_path in rows:
         base = PrintJobOut.from_model(job).model_dump()
@@ -144,6 +160,7 @@ async def _active_jobs(db: AsyncSession, printer_ids: list[int]) -> dict[int, Ac
             model_slug=model.slug if model else None,
             model_name=model.name if model else None,
             thumbnail_url=_plate_thumb_url(blob_hash, rel_path, job.plate),
+            estimated_cost=cost_by_job.get(job.id),
         )
     return out
 
@@ -207,7 +224,7 @@ async def build_overview(
     printer_ids = [p.id for p in printers]
 
     statuses = await _statuses(db, redis, printer_ids)
-    active_jobs = await _active_jobs(db, printer_ids)
+    active_jobs = await _active_jobs(db, settings, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
     ha_alerts = await _ha_alerts(redis, printer_ids)
     stalled = (

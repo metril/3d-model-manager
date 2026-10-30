@@ -12,6 +12,16 @@ class QuietHours(BaseModel):
     tz: str = "UTC"
 
 
+class NotifySettingsOut(BaseModel):
+    hms_renotify_clear_s: int
+    hms_renotify_after_s: int
+
+
+class NotifySettingsPatch(BaseModel):
+    hms_renotify_clear_s: int | None = Field(default=None, ge=0, le=86400)
+    hms_renotify_after_s: int | None = Field(default=None, ge=0, le=604800)
+
+
 class ChannelIn(BaseModel):
     kind: str
     name: str = Field(min_length=1, max_length=100)
