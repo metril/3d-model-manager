@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDateTime, useDebouncedValue } from "@/lib/format";
+import { driedDetail } from "@/lib/spoolDried";
 
 const EXTERNAL_UNIT = 255;
 const ALL = "all";
@@ -40,15 +41,6 @@ function slotLabel(spool: SpoolOut, printerName: (id: number) => string): string
   if (!spool.slot) return "—";
   if (spool.slot.ams_unit === EXTERNAL_UNIT) return "Ext";
   return `${printerName(spool.slot.printer_id)} · AMS ${spool.slot.ams_unit + 1}-${spool.slot.slot + 1}`;
-}
-
-export function driedDetail(spool: SpoolOut): string | undefined {
-  if (!spool.last_dried_at) return undefined;
-  const parts = [
-    spool.last_dried_temp_c != null ? `${spool.last_dried_temp_c} °C` : null,
-    spool.last_dried_hours != null ? `${spool.last_dried_hours} h` : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : undefined;
 }
 
 function RemainingBar({ spool }: { spool: SpoolOut }) {
