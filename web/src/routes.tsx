@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { Outlet, createRootRouteWithContext, createRoute, redirect } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext, createRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
 
 import type { Me } from "@/api/auth";
 import { authQueryOptions } from "@/api/auth";
@@ -8,32 +8,8 @@ import { printersQueryOptions } from "@/api/printers";
 import type { Features, PrinterOut } from "@/api/types";
 import { can } from "@/lib/permissions";
 import { AppShell } from "@/components/AppShell";
-import { AddPage } from "@/pages/AddPage";
-import { CollectionsPage } from "@/pages/CollectionsPage";
-import { DuplicatesPage } from "@/pages/DuplicatesPage";
-import { TrashPage } from "@/pages/TrashPage";
-import { CameraPage } from "@/pages/CameraPage";
-import { CamWallPage } from "@/pages/CamWallPage";
-import { OverlayPage } from "@/pages/OverlayPage";
-import { ExternalLinkPage } from "@/pages/ExternalLinkPage";
-import { FinancePage } from "@/pages/FinancePage";
-import { JobsPage } from "@/pages/JobsPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
-import { MaterialsPage } from "@/pages/MaterialsPage";
-import { ModelDetailPage } from "@/pages/ModelDetailPage";
-import { PrintDashboardPage } from "@/pages/PrintDashboardPage";
-import { PrinterDetailPage } from "@/pages/PrinterDetailPage";
-import { PrintHistoryPage } from "@/pages/PrintHistoryPage";
-import { ProfilesPage } from "@/pages/ProfilesPage";
-import { PlugsPage } from "@/pages/PlugsPage";
-import { ProjectDetailPage } from "@/pages/ProjectDetailPage";
-import { ProjectsPage } from "@/pages/ProjectsPage";
-import { QueuePage } from "@/pages/QueuePage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { StatsPage } from "@/pages/StatsPage";
-import { SpoolsPage } from "@/pages/SpoolsPage";
-import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
 import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
 import { parsePrintHistorySearch } from "@/pages/printHistorySearch";
@@ -88,7 +64,7 @@ const viewerWindowRoute = createRoute({
   path: "/viewer/$slug",
   beforeLoad: (args) => sessionGuard(args),
   validateSearch: parseViewerWindowSearch,
-  component: ViewerWindowPage,
+  component: lazyRouteComponent(() => import("@/pages/ViewerWindowPage"), "ViewerWindowPage"),
 });
 
 // Q4 camera surfaces, all OUTSIDE the AppShell layout. `/camera/$id` and
@@ -109,14 +85,14 @@ const cameraWindowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/camera/$id",
   beforeLoad: sessionGuard,
-  component: CameraPage,
+  component: lazyRouteComponent(() => import("@/pages/CameraPage"), "CameraPage"),
 });
 
 const camWallRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/camwall",
   beforeLoad: sessionGuard,
-  component: CamWallPage,
+  component: lazyRouteComponent(() => import("@/pages/CamWallPage"), "CamWallPage"),
 });
 
 const overlayRoute = createRoute({
@@ -125,7 +101,7 @@ const overlayRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
     token: typeof search.token === "string" ? search.token : undefined,
   }),
-  component: OverlayPage,
+  component: lazyRouteComponent(() => import("@/pages/OverlayPage"), "OverlayPage"),
 });
 
 /** Pure redirect policy for `/` (P3 Task 5): print-first by default, but
@@ -167,7 +143,7 @@ const indexRoute = createRoute({
     const target = redirectForIndex({ features, printers, me, search });
     if (target) throw redirect(target);
   },
-  component: PrintDashboardPage,
+  component: lazyRouteComponent(() => import("@/pages/PrintDashboardPage"), "PrintDashboardPage"),
 });
 
 const libraryRoute = createRoute({
@@ -180,13 +156,13 @@ const libraryRoute = createRoute({
 const modelDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/models/$slug",
-  component: ModelDetailPage,
+  component: lazyRouteComponent(() => import("@/pages/ModelDetailPage"), "ModelDetailPage"),
 });
 
 const addRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/add",
-  component: AddPage,
+  component: lazyRouteComponent(() => import("@/pages/AddPage"), "AddPage"),
 });
 
 // /upload and /import were consolidated into /add (M8 E2). Keep the old paths
@@ -213,19 +189,19 @@ const collectionsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/collections",
   validateSearch: parseCollectionsSearch,
-  component: CollectionsPage,
+  component: lazyRouteComponent(() => import("@/pages/CollectionsPage"), "CollectionsPage"),
 });
 
 const projectsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects",
-  component: ProjectsPage,
+  component: lazyRouteComponent(() => import("@/pages/ProjectsPage"), "ProjectsPage"),
 });
 
 const projectDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects/$id",
-  component: ProjectDetailPage,
+  component: lazyRouteComponent(() => import("@/pages/ProjectDetailPage"), "ProjectDetailPage"),
 });
 
 // /dashboard redirects to /stats (library stats page).
@@ -242,26 +218,26 @@ const printHistoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/print/history",
   validateSearch: parsePrintHistorySearch,
-  component: PrintHistoryPage,
+  component: lazyRouteComponent(() => import("@/pages/PrintHistoryPage"), "PrintHistoryPage"),
 });
 
 const statsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/stats",
-  component: StatsPage,
+  component: lazyRouteComponent(() => import("@/pages/StatsPage"), "StatsPage"),
 });
 
 const printQueueRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/print/queue",
   validateSearch: parseQueueSearch,
-  component: QueuePage,
+  component: lazyRouteComponent(() => import("@/pages/QueuePage"), "QueuePage"),
 });
 
 const printPlugsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/print/plugs",
-  component: PlugsPage,
+  component: lazyRouteComponent(() => import("@/pages/PlugsPage"), "PlugsPage"),
 });
 
 // /queue moved under /print/queue (P3 Task 5).
@@ -302,19 +278,19 @@ const printerRedirectRoute = createRoute({
 const printerDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/printers/$id",
-  component: PrinterDetailPage,
+  component: lazyRouteComponent(() => import("@/pages/PrinterDetailPage"), "PrinterDetailPage"),
 });
 
 const duplicatesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/duplicates",
-  component: DuplicatesPage,
+  component: lazyRouteComponent(() => import("@/pages/DuplicatesPage"), "DuplicatesPage"),
 });
 
 const trashRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/trash",
-  component: TrashPage,
+  component: lazyRouteComponent(() => import("@/pages/TrashPage"), "TrashPage"),
 });
 
 const inventorySpoolsRoute = createRoute({
@@ -324,32 +300,32 @@ const inventorySpoolsRoute = createRoute({
     low: search.low != null ? String(search.low) : undefined,
     tab: typeof search.tab === "string" ? search.tab : undefined,
   }),
-  component: SpoolsPage,
+  component: lazyRouteComponent(() => import("@/pages/SpoolsPage"), "SpoolsPage"),
 });
 
 const inventoryMaterialsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/materials",
-  component: MaterialsPage,
+  component: lazyRouteComponent(() => import("@/pages/MaterialsPage"), "MaterialsPage"),
 });
 
 const inventoryProfilesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory/profiles",
   validateSearch: (search: Record<string, unknown>) => parseProfilesSearch(search),
-  component: ProfilesPage,
+  component: lazyRouteComponent(() => import("@/pages/ProfilesPage"), "ProfilesPage"),
 });
 
 const systemJobsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/system/jobs",
-  component: JobsPage,
+  component: lazyRouteComponent(() => import("@/pages/JobsPage"), "JobsPage"),
 });
 
 const systemFinanceRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/system/finance",
-  component: FinancePage,
+  component: lazyRouteComponent(() => import("@/pages/FinancePage"), "FinancePage"),
 });
 
 // /jobs moved under /system/jobs (P3 Task 5).
@@ -368,13 +344,13 @@ const settingsRoute = createRoute({
   validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
   }),
-  component: SettingsPage,
+  component: lazyRouteComponent(() => import("@/pages/SettingsPage"), "SettingsPage"),
 });
 
 const externalLinkRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/external/$id",
-  component: ExternalLinkPage,
+  component: lazyRouteComponent(() => import("@/pages/ExternalLinkPage"), "ExternalLinkPage"),
 });
 
 export const routeTree = rootRoute.addChildren([
