@@ -17,6 +17,7 @@ import {
   SlidersHorizontalIcon,
   SquareLibraryIcon,
   StarIcon,
+  StarOffIcon,
   TagIcon,
   Trash2Icon,
   XIcon,
@@ -184,16 +185,54 @@ export function LibraryPage() {
   const navigate = useNavigate();
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [searchInput, setSearchInput] = useState("");
+  // Filters/sort live in the URL (like collection/category/path) so Back from
+  // a model detail restores them. Only the search box keeps a local draft,
+  // debounced into `q`.
+  const urlQ = search.q ?? "";
+  const [searchInput, setSearchInput] = useState(urlQ);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
-  const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
-  const [fileTagFilter, setFileTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
+  const lastSentQ = useRef(urlQ);
+  function patchSearch(patch: Partial<LibrarySearch>) {
+    void navigate({ to: "/library", replace: true, search: (prev: LibrarySearch) => ({ ...prev, ...patch }) });
+  }
+  const tagFilter = useMemo<TagFilterValue>(
+    () => (search.tags ? { tags: search.tags, mode: search.tagMode ?? "any" } : EMPTY_TAG_FILTER),
+    [search.tags, search.tagMode],
+  );
+  const fileTagFilter = useMemo<TagFilterValue>(
+    () => (search.fileTags ? { tags: search.fileTags, mode: search.fileTagMode ?? "any" } : EMPTY_TAG_FILTER),
+    [search.fileTags, search.fileTagMode],
+  );
+  function setTagFilter(next: TagFilterValue) {
+    patchSearch({ tags: next.tags.length ? next.tags : undefined, tagMode: next.tags.length ? next.mode : undefined });
+  }
+  function setFileTagFilter(next: TagFilterValue) {
+    patchSearch({
+      fileTags: next.tags.length ? next.tags : undefined,
+      fileTagMode: next.tags.length ? next.mode : undefined,
+    });
+  }
   // The backend's `format` filter takes a comma-separated list. The quick
   // chips set exactly one ("All" clears it); the Type multi-select holds several.
-  const [activeFormats, setActiveFormats] = useState<BlobFormat[]>([]);
-  const [slicedOnly, setSlicedOnly] = useState(false);
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [archivedOnly, setArchivedOnly] = useState(false);
+  const activeFormats = useMemo(
+    () => (search.format ?? []).filter((f): f is BlobFormat => (BLOB_FORMATS as readonly string[]).includes(f)),
+    [search.format],
+  );
+  function setActiveFormats(next: BlobFormat[]) {
+    patchSearch({ format: next.length ? next : undefined });
+  }
+  const slicedOnly = search.sliced === true;
+  const favoritesOnly = search.fav === true;
+  const archivedOnly = search.archived === true;
+  function setSlicedOnly(next: boolean) {
+    patchSearch({ sliced: next || undefined });
+  }
+  function setFavoritesOnly(next: boolean) {
+    patchSearch({ fav: next || undefined });
+  }
+  function setArchivedOnly(next: boolean) {
+    patchSearch({ archived: next || undefined });
+  }
   // The collection and category facets are derived LIVE from the search
   // params every render -- a sidebar collection/category link clicked while
   // already on `/library` only changes the search params (same route), so a
@@ -211,7 +250,26 @@ export function LibraryPage() {
   function goToCategory(next: number | undefined) {
     void navigate({ to: "/library", search: (prev: LibrarySearch) => ({ ...prev, category: next }) });
   }
-  const [sort, setSort] = useState<string>("-updated_at");
+  const sort = SORT_OPTIONS.some((o) => o.value === search.sort) ? (search.sort as string) : "-updated_at";
+  function setSort(next: string) {
+    patchSearch({ sort: next === "-updated_at" ? undefined : next });
+  }
+
+  // Draft -> URL (debounced), and URL -> draft only for external changes
+  // (Back, sidebar link, clear): skip when the URL value is what we just sent
+  // or already equals the draft, so a slow debounce can't be clobbered.
+  useEffect(() => {
+    if (debouncedSearch === urlQ || debouncedSearch === lastSentQ.current) return;
+    lastSentQ.current = debouncedSearch;
+    patchSearch({ q: debouncedSearch || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+  useEffect(() => {
+    if (urlQ === searchInput || urlQ === lastSentQ.current) return;
+    lastSentQ.current = urlQ;
+    setSearchInput(urlQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlQ]);
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
   // Folder view's current directory DOES live in the URL bidirectionally
   // (unlike the one-way-seed facets above) -- breadcrumbs and deep links
@@ -323,6 +381,16 @@ export function LibraryPage() {
     () => modelsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [modelsQuery.data],
   );
+  // Selection is per filter set: ids/anchor index from a previous result set
+  // must not survive a filter or sort change.
+  const filtersKey = JSON.stringify(filters);
+  const prevFiltersKey = useRef(filtersKey);
+  useEffect(() => {
+    if (prevFiltersKey.current === filtersKey) return;
+    prevFiltersKey.current = filtersKey;
+    clearSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey]);
   const selectedItems = useMemo(() => items.filter((model) => selectedIds.has(model.id)), [items, selectedIds]);
 
   function selectAll() {
@@ -465,18 +533,20 @@ export function LibraryPage() {
   const hasActiveFilters = extraFilterCount > 0 || activeFormats.length > 0 || debouncedSearch.length > 0;
   function clearFilters() {
     setSearchInput("");
-    setTagFilter(EMPTY_TAG_FILTER);
-    setFileTagFilter(EMPTY_TAG_FILTER);
-    setActiveFormats([]);
-    setSlicedOnly(false);
-    setFavoritesOnly(false);
-    setArchivedOnly(false);
-    if (activeCollection !== undefined || activeCategory !== undefined) {
-      void navigate({
-        to: "/library",
-        search: (prev: LibrarySearch) => ({ ...prev, collection: undefined, category: undefined }),
-      });
-    }
+    lastSentQ.current = "";
+    patchSearch({
+      q: undefined,
+      tags: undefined,
+      tagMode: undefined,
+      fileTags: undefined,
+      fileTagMode: undefined,
+      format: undefined,
+      sliced: undefined,
+      fav: undefined,
+      archived: undefined,
+      collection: undefined,
+      category: undefined,
+    });
   }
 
   const secondaryFilters = (
@@ -505,11 +575,11 @@ export function LibraryPage() {
         <Checkbox checked={slicedOnly} onCheckedChange={(checked) => setSlicedOnly(checked === true)} />
         Sliced only
       </Label>
-      <FilterChip active={favoritesOnly} onClick={() => setFavoritesOnly((prev) => !prev)}>
+      <FilterChip active={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}>
         <StarIcon className={favoritesOnly ? "fill-current" : undefined} />
         Favorites
       </FilterChip>
-      <FilterChip active={archivedOnly} onClick={() => setArchivedOnly((prev) => !prev)}>
+      <FilterChip active={archivedOnly} onClick={() => setArchivedOnly(!archivedOnly)}>
         <ArchiveIcon />
         Include archived
       </FilterChip>
@@ -831,14 +901,14 @@ function SelectionActionBar({
     );
   }
 
-  function favoriteSelection() {
+  function favoriteSelection(favorite: boolean) {
     if (!claim()) return;
     bulkUpdate.mutate(
-      { ids, favorite: true },
+      { ids, favorite },
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`Favorited ${result.updated} model${result.updated === 1 ? "" : "s"}`);
+          toast.success(`${favorite ? "Favorited" : "Unfavorited"} ${result.updated} model${result.updated === 1 ? "" : "s"}`);
           // Non-destructive -- keep the selection live instead of exiting.
         },
       },
@@ -922,8 +992,12 @@ function SelectionActionBar({
         }
       />
 
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={favoriteSelection}>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => favoriteSelection(true)}>
         <StarIcon /> Favorite
+      </Button>
+
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => favoriteSelection(false)}>
+        <StarOffIcon /> Unfavorite
       </Button>
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void addToQueue()}>
