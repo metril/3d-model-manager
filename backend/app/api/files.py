@@ -33,6 +33,7 @@ from app.models import Blob, File
 from app.models.enums import BlobFormat
 from app.pipeline import slicedmeta
 from app.services import library, signed_urls
+from app.services.bed_fit import fit_for_selection
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
 from app.services.server_config import ServerConfig, get_server_config, public_origin
 from app.services.storage_backends import resolve_backend_for_file
@@ -67,6 +68,24 @@ async def get_file_format(file_id: int, db: AsyncSession = Depends(get_db)) -> F
     if blob is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     return FileFormatOut(id=file.id, rel_path=file.rel_path, format=blob.format)
+
+
+@router.get("/{file_id}/bed-fit")
+async def file_bed_fit(
+    file_id: int,
+    printer_id: int | None = None,
+    recipe_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Slug-free twin of ``GET /models/{slug}/files/{id}/bed-fit`` (the print
+    wizard only knows a file id)."""
+    file = await library.get_live_file(db, file_id)
+    if file is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
+    result = await fit_for_selection(db, file, printer_id, recipe_id, settings)
+    await db.commit()  # persist a freshly computed plate_count
+    return result.model_dump()
 
 
 @router.delete(

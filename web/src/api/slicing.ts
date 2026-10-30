@@ -230,3 +230,21 @@ export function useCancelSliceJob() {
     onSuccess: (job) => queryClient.setQueryData(["slice-job", job.id], job),
   });
 }
+
+/** `GET /files/{id}/bed-fit` -- slug-free twin of `useBedFit` for the print wizard. */
+export function useFileBedFit(
+  fileId: number | null,
+  { printerId, recipeId }: { printerId: number | null; recipeId: number | null },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["bed-fit", "file", fileId, printerId, recipeId] as const,
+    queryFn: () => {
+      const q = recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`;
+      return api.get<BedFit>(`/files/${fileId}/bed-fit?${q}`);
+    },
+    enabled: enabled && fileId != null && (recipeId != null || printerId != null),
+    retry: false,
+    staleTime: 60_000,
+  });
+}
