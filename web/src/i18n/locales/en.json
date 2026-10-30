@@ -1050,7 +1050,14 @@
       "renameTitle": "Rename AMS",
       "label": "Label",
       "clear": "Clear label",
-      "saved": "AMS renamed"
+      "saved": "AMS renamed",
+      "backupSave": "Back up slots",
+      "backupSaved": "Backed up {{count}} slots",
+      "restore": "Restore slots",
+      "restoreTitle": "Restore AMS slots?",
+      "restoreDesc": "Rewrites {{count}} slots from the backup taken {{when}}. Current slot settings are overwritten.",
+      "restoreDone": "Restored {{count}} slots",
+      "restorePartial": "Restored {{ok}} slots, {{failed}} failed"
     },
     "files": {
       "button": "Files",
@@ -1198,6 +1205,13 @@
         "pdf": "PDF",
         "png": "PNG"
       }
+    },
+    "climate": {
+      "updated": "Updated {{when}}",
+      "never": "No reading yet",
+      "humid": "Humid",
+      "stale": "Stale",
+      "column": "Climate"
     },
     "loc": {
       "unassignedHint": "Not linked to a location. Pick or create one to assign.",

@@ -121,6 +121,39 @@ export function useAmsLabel(printerId: number) {
   });
 }
 
+// ---- AMS slot backup / restore ----
+export interface AmsBackup {
+  taken_at: string;
+  slots: Array<{ ams_id: number; tray_id: number; tray_type: string; color: string | null }>;
+}
+const amsBackupKey = (printerId: number) => ["printers", printerId, "ams-backup"] as const;
+
+export function useAmsBackup(printerId: number, enabled = true) {
+  return useQuery({
+    queryKey: amsBackupKey(printerId),
+    queryFn: () => api.get<AmsBackup | null>(`/printers/${printerId}/ams/backup`),
+    enabled,
+  });
+}
+
+export function useAmsBackupSave(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<AmsBackup>(`/printers/${printerId}/ams/backup`),
+    onSuccess: (data) => qc.setQueryData(amsBackupKey(printerId), data),
+    onError: toastControlError,
+  });
+}
+
+export function useAmsRestore(printerId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ restored: number; failed: number; pending: number }>(`/printers/${printerId}/ams/restore`),
+    onSuccess: () => invalidateStatus(qc, printerId),
+    onError: toastControlError,
+  });
+}
+
 // ---- SD card ----
 const filesKey = (printerId: number) => ["printers", printerId, "files"] as const;
 
