@@ -556,6 +556,80 @@ def profile_in_scope(
     )
 
 
+_COPY_SUFFIX = re.compile(r"\s*(?:[-\u2013]\s*copy|\(copy(?:\s*\d+)?\)|copy(?:\s*\d+)?)\s*$", re.I)
+_SUPPORT_MATERIAL = re.compile(r"\b(support|pva|bvoh|hips)\b", re.I)
+_NUM_SPLIT = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def _dedup_key(name: str) -> str:
+    stripped = _COPY_SUFFIX.sub("", name)
+    return " ".join(stripped.casefold().split())
+
+
+def dedup_stock_profiles(profiles: list) -> tuple[list, set[int]]:
+    """Drops a stock (``SYNCED``) profile when a user-owned copy of the same
+    name exists (same kind; a trailing "copy" marker is ignored) -- the user
+    copy wins. Returns ``(kept, ids of user copies that replaced a stock row)``."""
+    user: dict[tuple, int] = {}
+    for p in profiles:
+        if p.source is not ProfileSource.SYNCED:
+            user.setdefault((p.kind, _dedup_key(p.name)), p.id)
+    kept, overriding = [], set()
+    for p in profiles:
+        owner = user.get((p.kind, _dedup_key(p.name)))
+        if p.source is ProfileSource.SYNCED and owner is not None:
+            overriding.add(owner)
+            continue
+        kept.append(p)
+    return kept, overriding
+
+
+def profile_preferred(profile, printer_key: str | None, nozzle: float | None) -> bool:
+    """True when `profile` names the printer's model (and, if both sides state
+    one, its nozzle) explicitly -- universal profiles are in scope but not preferred."""
+    if printer_key is None:
+        return False
+    return any(
+        e["model_key"] == printer_key
+        and (
+            nozzle is None
+            or (e.get("nozzle_mm") is not None and nozzle_fits(e["nozzle_mm"], nozzle))
+        )
+        for e in compat_entries(profile) or []
+    )
+
+
+def _natural(text: str) -> list:
+    return [
+        float(part) if i % 2 else part.casefold() for i, part in enumerate(_NUM_SPLIT.split(text))
+    ]
+
+
+def sort_profiles(
+    profiles: list, printer_key: str | None = None, nozzle: float | None = None
+) -> list:
+    """Stable display order: by kind, then printer-affinity matches first, user
+    presets before stock, vendor (Bambu, Generic, others A-Z), real filaments
+    before support materials, then natural name order ("PA6" before "PA12")."""
+    kinds = {k: i for i, k in enumerate(ProfileKind)}
+
+    def key(p):
+        first = p.name.split(" ", 1)[0].casefold()
+        vendor = 0 if first == "bambu" else 1 if first == "generic" else 2
+        support = 1 if p.kind is ProfileKind.FILAMENT and _SUPPORT_MATERIAL.search(p.name) else 0
+        return (
+            kinds[p.kind],
+            0 if profile_preferred(p, printer_key, nozzle) else 1,
+            1 if p.source is ProfileSource.SYNCED else 0,
+            support,
+            vendor,
+            first if vendor == 2 else "",
+            _natural(p.name),
+        )
+
+    return sorted(profiles, key=key)
+
+
 def scope_mismatch_reason(profile, printer_key: str | None, nozzle: float | None) -> str | None:
     """Why `profile` is out of model/nozzle scope (None when it fits)."""
     if profile_in_scope(profile, printer_key, nozzle):

@@ -149,7 +149,14 @@ async def _active_jobs(
         .all()
     )
     details = await details_for_entries(db, settings, entries)
-    cost_by_job = {e.print_job_id: details[e.id].estimated_cost for e in entries if e.id in details}
+    # The entry's estimate covers every copy; a job is one copy.
+    cost_by_job = {
+        e.print_job_id: None
+        if details[e.id].estimated_cost is None
+        else details[e.id].estimated_cost / max(e.copies, 1)
+        for e in entries
+        if e.id in details
+    }
     out: dict[int, ActiveJobOut] = {}
     for job, model, blob_hash, rel_path in rows:
         base = PrintJobOut.from_model(job).model_dump()

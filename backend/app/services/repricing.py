@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Spool, SpoolUsage
+from app.models.enums import SpoolUsageSource
 from app.models.library import Print
 
 
@@ -29,14 +30,14 @@ async def reprice_runs(
 ) -> RepriceResult:
     usage_rows = (
         await db.execute(
-            select(SpoolUsage.print_job_id, SpoolUsage.grams, Spool.cost_per_kg)
+            select(SpoolUsage.print_job_id, SpoolUsage.grams, Spool.cost_per_kg, SpoolUsage.source)
             .join(Spool, Spool.id == SpoolUsage.spool_id)
             .where(SpoolUsage.print_job_id.is_not(None))
         )
     ).all()
-    by_job: dict[int, list[tuple[float, float | None]]] = defaultdict(list)
-    for job_id, grams, per_kg in usage_rows:
-        by_job[job_id].append((grams, per_kg))
+    by_job: dict[int, list[tuple[float, float | None, SpoolUsageSource]]] = defaultdict(list)
+    for job_id, grams, per_kg, source in usage_rows:
+        by_job[job_id].append((grams, per_kg, source))
     out = RepriceResult()
     if not by_job:
         return out
@@ -44,10 +45,12 @@ async def reprice_runs(
     out.candidates = len(runs)
     for run in runs:
         rows = by_job[run.print_job_id]
-        new_fc = sum(g / 1000 * (p if p is not None else global_per_kg) for g, p in rows)
-        used = sum(g for g, _ in rows)
-        if run.filament_g is not None and run.filament_g > used:
-            # Spool-less remainder (tray with no spool) stays at the global rate.
+        new_fc = sum(g / 1000 * (p if p is not None else global_per_kg) for g, p, _ in rows)
+        used = sum(g for g, _, _ in rows)
+        # The spool-less remainder was only ever charged for 3mf-sourced usage;
+        # AMS-delta usage never priced it, so don't add it there.
+        three_mf = any(src == SpoolUsageSource.THREE_MF for _, _, src in rows)
+        if three_mf and run.filament_g is not None and run.filament_g > used:
             new_fc += (run.filament_g - used) / 1000 * global_per_kg
         old_fc = run.filament_cost or 0.0
         if abs(new_fc - old_fc) < 1e-6:
