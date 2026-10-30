@@ -2006,6 +2006,10 @@ export interface SlicerProfile {
   /** Set only when listed with `?printer_id=`. */
   in_scope?: boolean | null;
   scope_reason?: string | null;
+  /** Names the selected printer's model (+ nozzle) explicitly. */
+  preferred?: boolean | null;
+  /** `?dedup=1`: this user copy replaced a stock preset of the same name. */
+  overrides_stock?: boolean | null;
   created_by_user_id: number | null;
   created_at: string;
   updated_at: string;
@@ -2517,6 +2521,11 @@ export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
 export type BatchPatch = Partial<
   Pick<BatchIn, "name" | "quantity" | "due_date" | "notes" | "plate_targets" | "recipe_id" | "printer_id">
 >;
+
+export interface QueueSettings {
+  require_plate_clear: boolean;
+  pause_heads_up_min: number;
+}
 
 export interface QueuePreheatSettings {
   enabled: boolean;

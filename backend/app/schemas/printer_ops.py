@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.printers.filament_ids import generic_filament_id
+
 
 class HmsFaultOut(BaseModel):
     code: str
@@ -91,7 +93,7 @@ class SlotConfigIn(BaseModel):
         if all(getattr(self, k) is None for k in keys):
             return None
         return {
-            "tray_info_idx": self.tray_info_idx or "",
+            "tray_info_idx": self.tray_info_idx or generic_filament_id(self.tray_type),
             "tray_type": self.tray_type,
             "sub_brand": self.sub_brand or "",
             "color": self.color,
@@ -130,3 +132,27 @@ class SdPrintIn(BaseModel):
     path: str
     plate: int | None = Field(default=None, ge=1, le=99)
     use_ams: bool = True
+
+
+class AmsBackupSlotOut(BaseModel):
+    ams_id: int
+    tray_id: int
+    tray_type: str
+    color: str | None = None
+    tray_info_idx: str | None = None
+    sub_brand: str | None = None
+    nozzle_min: int | None = None
+    nozzle_max: int | None = None
+    cali_idx: int | None = None
+    k_value: float | None = None
+
+
+class AmsBackupOut(BaseModel):
+    taken_at: str
+    slots: list[AmsBackupSlotOut]
+
+
+class AmsRestoreOut(BaseModel):
+    restored: int
+    failed: int
+    pending: int = 0

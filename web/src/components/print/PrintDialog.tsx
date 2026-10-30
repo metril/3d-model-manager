@@ -34,7 +34,7 @@
  * sliced file -- collapse to "Mapped after slicing" instead of calling
  * `/print/plan`.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ImageIcon } from "lucide-react";
@@ -53,6 +53,8 @@ import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useRecipes, useSlicerHealth } from "@/api/slicing";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { SchedulingSection } from "@/components/print/SchedulingSection";
+import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
+import { PrinterPicker } from "@/components/slice/PrinterPicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -64,6 +66,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SpecRow } from "@/components/ui/spec-row";
 import { draftToFields, EMPTY_SCHEDULE, isScheduleSet, NO_BATCH, type BatchChoice, type ScheduleDraft } from "@/lib/schedule";
+import { filterByName, isLoadedTray, sortPresets } from "@/lib/presetList";
 import { cn } from "@/lib/utils";
 import { formatCost, humanizeDuration, useDebouncedValue } from "@/lib/format";
 
@@ -152,7 +155,7 @@ function FilamentRow({
   onOverride,
 }: {
   filament: PlanFilament;
-  trays: { slot: number; label: string }[];
+  trays: TrayChoice[];
   onOverride: (filamentId: number, tray: number) => void;
 }) {
   return (
@@ -175,22 +178,12 @@ function FilamentRow({
         </span>
       ) : null}
       <div className="ml-auto">
-        <Select
-          value={filament.tray != null ? String(filament.tray) : ""}
-          onValueChange={(v) => onOverride(filament.filament_id, Number(v))}
-          aria-label={`Tray for ${filament.type ?? "filament"}`}
-        >
-          <SelectTrigger className="h-8 w-36">
-            <SelectValue placeholder="Choose tray" />
-          </SelectTrigger>
-          <SelectContent>
-            {trays.map((t) => (
-              <SelectItem key={t.slot} value={String(t.slot)}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <TrayPicker
+          trays={trays}
+          selected={filament.tray ?? null}
+          onChange={(tray) => onOverride(filament.filament_id, tray)}
+          ariaLabel={`Tray for ${filament.type ?? "filament"}`}
+        />
       </div>
     </div>
   );
@@ -236,6 +229,8 @@ export function PrintDialog({
   const [modelQuery, setModelQuery] = useState("");
   const [profileMode, setProfileMode] = useState<"as-sliced" | "recipe">("as-sliced");
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
+  const [recipeSearch, setRecipeSearch] = useState("");
+  const debouncedRecipeSearch = useDebouncedValue(recipeSearch, 250);
   const [copies, setCopies] = useState(1);
   const [costCenterId, setCostCenterId] = useState<number | null>(null);
   const [costCenterSeeded, setCostCenterSeeded] = useState(false);
@@ -445,6 +440,7 @@ export function PrintDialog({
   const trays = (printerStatus.data?.trays ?? []).map((t) => ({
     slot: t.slot,
     label: t.ams_unit === EXTERNAL_UNIT ? "External" : `AMS ${t.ams_unit}·${t.tray}`,
+    loaded: isLoadedTray(t),
   }));
 
   // Recipe mode has no plan to list printers from, so offer every printer
@@ -461,6 +457,21 @@ export function PrintDialog({
     [profileMode, printerList, plan?.printers, canPrinter],
   );
 
+  const pickerPrinters = useMemo(
+    () =>
+      planPrinters.map((p) => ({
+        id: p.id,
+        name: p.name,
+        disabled: !(p.idle && p.compatible),
+        reason: p.reason,
+      })),
+    [planPrinters],
+  );
+  const handlePickPrinter = useCallback((id: number, auto: boolean) => {
+    if (!auto) setTouched(true);
+    setPrinterId(id);
+  }, []);
+
   const recent = useRecentModelsQuery(source.kind === "pick" && modelQuery.trim().length === 0);
   const debouncedModelQuery = useDebouncedValue(modelQuery, 300);
   const modelSearch = useModelSearchQuery(debouncedModelQuery);
@@ -472,7 +483,11 @@ export function PrintDialog({
   const recipes = useRecipes(effectivePrinterId ?? undefined);
   const slicerHealth = useSlicerHealth();
   const selectedPrinterModel = planPrinters.find((p) => p.id === effectivePrinterId)?.model ?? null;
-  const recipeList = Array.isArray(recipes.data) ? recipes.data : [];
+  const recipeList = useMemo(() => (Array.isArray(recipes.data) ? recipes.data : []), [recipes.data]);
+  const shownRecipes = useMemo(
+    () => filterByName(sortPresets(recipeList), debouncedRecipeSearch),
+    [recipeList, debouncedRecipeSearch],
+  );
   const allRecipesIncompatible = recipeList.length > 0 && recipeList.every((r) => r.compatible === false);
   const selectedRecipe = recipeList.find((r) => r.id === selectedRecipeId) ?? null;
   const recipeActionsDisabled = slicerHealth.data?.ok !== true;
@@ -780,7 +795,16 @@ export function PrintDialog({
                     </Label>
                   </div>
                 )}
-                {!effectiveIsSliced && !formatUnknown && recipeList.map((r) => (
+                {!effectiveIsSliced && !formatUnknown && recipeList.length > 1 ? (
+                  <Input
+                    type="search"
+                    aria-label="Search recipes"
+                    placeholder="Search recipes"
+                    value={recipeSearch}
+                    onChange={(e) => setRecipeSearch(e.target.value)}
+                  />
+                ) : null}
+                {!effectiveIsSliced && !formatUnknown && shownRecipes.map((r) => (
                   <div key={r.id} className="flex items-center gap-2">
                     <RadioGroupItem
                       value={String(r.id)}
@@ -831,25 +855,12 @@ export function PrintDialog({
 
             {step === SEND ? (
               <div className="space-y-4">
-                <RadioGroup
-                  value={effectivePrinterId != null ? String(effectivePrinterId) : ""}
-                  onValueChange={(v) => { setTouched(true); setPrinterId(Number(v)); }}
-                >
-                  {planPrinters.map((p) => {
-                    const disabled = !(p.idle && p.compatible);
-                    return (
-                      <div key={p.id} className="flex items-center gap-2">
-                        <RadioGroupItem value={String(p.id)} id={`print-dialog-printer-${p.id}`} disabled={disabled} />
-                        <Label htmlFor={`print-dialog-printer-${p.id}`} className="font-normal">
-                          {p.name}
-                          {disabled && p.reason ? (
-                            <span className="ml-1 text-xs text-muted-foreground">({p.reason})</span>
-                          ) : null}
-                        </Label>
-                      </div>
-                    );
-                  })}
-                </RadioGroup>
+                <PrinterPicker
+                  idPrefix="print-dialog-printer"
+                  value={effectivePrinterId}
+                  printers={pickerPrinters}
+                  onChange={handlePickPrinter}
+                />
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={bedLevelling} onCheckedChange={(v) => { setTouched(true); setBedLevelling(v === true); }} />

@@ -48,6 +48,10 @@ class ProfileOut(BaseModel):
     # Set only by ``GET /profiles?printer_id=``: whether the row is in scope.
     in_scope: bool | None = None
     scope_reason: str | None = None
+    # Set with a printer: names that printer's model (+ nozzle) explicitly.
+    preferred: bool | None = None
+    # ``?dedup=1``: this user copy replaced a stock row of the same name.
+    overrides_stock: bool | None = None
     # "orca" / "bambu" for a profile synced from a cloud account, else None.
     cloud_source: str | None = None
     created_by_user_id: int | None = None

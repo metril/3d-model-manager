@@ -1005,6 +1005,10 @@ def _tray_entry(tray: dict, ams_unit: int, tray_num: int) -> dict:
         "cali_idx": _as_int(tray.get("cali_idx")),
         "k_value": _as_float(tray.get("k")),
         "tray_info_idx": tray.get("tray_info_idx") or None,
+        # D2: what a restore needs to rewrite the slot.
+        "sub_brand": tray.get("tray_sub_brands") or None,
+        "nozzle_min": _as_int(tray.get("nozzle_temp_min")),
+        "nozzle_max": _as_int(tray.get("nozzle_temp_max")),
     }
 
 
