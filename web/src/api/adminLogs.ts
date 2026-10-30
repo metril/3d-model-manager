@@ -80,6 +80,7 @@ export interface MqttRelay {
   topic_prefix: string;
   commands_enabled: boolean;
   actor_user_id: number | null;
+  low_filament_pct: number;
   actor_username: string | null;
   actor_ok: boolean;
   actor_error: string | null;
@@ -98,6 +99,7 @@ export interface MqttRelayIn {
   topic_prefix?: string;
   commands_enabled?: boolean;
   actor_user_id?: number | null;
+  low_filament_pct?: number;
 }
 
 export const relayQueryOptions = queryOptions({

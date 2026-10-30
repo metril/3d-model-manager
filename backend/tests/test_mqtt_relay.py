@@ -235,6 +235,12 @@ async def test_relay_settings_api(authenticated_client: httpx.AsyncClient, redis
     assert (
         await c.put("/api/settings/mqtt-relay", json={"actor_user_id": 99999})
     ).status_code == 422
+    assert body["low_filament_pct"] == 10
+    body = (await c.put("/api/settings/mqtt-relay", json={"low_filament_pct": 25})).json()
+    assert body["low_filament_pct"] == 25
+    assert (
+        await c.put("/api/settings/mqtt-relay", json={"low_filament_pct": 101})
+    ).status_code == 422
     body = (await c.put("/api/settings/mqtt-relay", json={"password": ""})).json()
     assert body["has_password"] is False
 
@@ -262,3 +268,29 @@ async def test_relay_test_endpoint_reports_failure(authenticated_client: httpx.A
 
 async def test_relay_admin_only(viewer_client: httpx.AsyncClient):
     assert (await viewer_client.get("/api/settings/mqtt-relay")).status_code == 403
+
+
+def test_low_filament_retained_and_threshold(r):
+    trays = [
+        {"ams_unit": 0, "tray": 1, "remain_pct": 5},
+        {"ams_unit": 0, "tray": 2, "remain_pct": 50},
+        {"ams_unit": 0, "tray": 3, "remain_pct": None},
+    ]
+    r.set("printer:1:state", json.dumps({"gcode_state": "IDLE", "trays": trays}))
+    relay = _relay(r, low_filament_pct=10)
+    relay._publish_live()
+    got = {t: (p, rt) for t, p, rt in relay._client.published if t.endswith("low_filament")}
+    assert got == {
+        "x/y/SER1/ams/0/1/low_filament": ("true", True),
+        "x/y/SER1/ams/0/2/low_filament": ("false", True),
+    }
+    relay._client.published.clear()
+    relay._publish_live()  # unchanged -> not republished
+    assert not [t for t, _, _ in relay._client.published if t.endswith("low_filament")]
+    trays[1]["remain_pct"] = 9
+    r.set("printer:1:state", json.dumps({"gcode_state": "IDLE", "trays": trays}))
+    relay._publish_live()
+    assert [(t, p) for t, p, _ in relay._client.published if t.endswith("low_filament")] == [
+        ("x/y/SER1/ams/0/2/low_filament", "true")
+    ]
+    r.delete("printer:1:state")

@@ -5,16 +5,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSettings } from "@/api/types";
 import { PrintCostCard } from "@/components/settings/PrintCostCard";
 
-const { getMock, putMock } = vi.hoisted(() => ({
+const { getMock, putMock, postMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   putMock: vi.fn(),
+  postMock: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return {
     ...actual,
-    api: { ...actual.api, get: getMock, put: putMock },
+    api: { ...actual.api, get: getMock, put: putMock, post: postMock },
   };
 });
 
@@ -55,6 +58,7 @@ describe("PrintCostCard", () => {
   beforeEach(() => {
     getMock.mockReset();
     putMock.mockReset();
+    postMock.mockReset();
   });
 
   it("renders the two rate fields pre-filled from GET /settings/app", async () => {
@@ -147,5 +151,22 @@ describe("PrintCostCard", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("0 or greater");
     expect(putMock).not.toHaveBeenCalled();
+  });
+
+  it("reprices past runs only after a count-confirm", async () => {
+    mockGet(fakeSettings());
+    postMock.mockImplementation((_p: string, body: { dry_run: boolean }) =>
+      Promise.resolve({ candidates: 4, repriced: 3, delta: 1.5, dry_run: body.dry_run }),
+    );
+
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Reprice past runs" }));
+
+    expect(await screen.findByText("Reprice 3 past runs?")).toBeInTheDocument();
+    expect(postMock).toHaveBeenCalledTimes(1);
+    expect(postMock).toHaveBeenCalledWith("/archives/reprice", { dry_run: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reprice 3" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/archives/reprice", { dry_run: false }));
   });
 });
