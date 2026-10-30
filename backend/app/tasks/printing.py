@@ -32,7 +32,7 @@ from sqlalchemy import select, update
 from app.config import Settings, get_settings
 from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
 from app.models.enums import PrintJobState, QueueState
-from app.printers import gcode3mf
+from app.printers import gcode3mf, pause_eta
 from app.printers.base import PrinterConnection, PrintSpec
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
@@ -173,7 +173,9 @@ def _send_to_printer(
             # than one backend) rather than a caller-supplied default.
             path = derivatives.fetch_blob_to_temp(s2, settings, blob_hash, Path(tmp), ".gcode.3mf")
             try:
-                gcode3mf.assert_plate_available(path.read_bytes(), options["plate"])
+                data = path.read_bytes()
+                gcode3mf.assert_plate_available(data, options["plate"])
+                pause_points = pause_eta.pause_points_from_3mf(data, options["plate"])
             except gcode3mf.NotSendableError as e:
                 raise SendError(str(e)) from e
             spec = PrintSpec(
@@ -196,6 +198,8 @@ def _send_to_printer(
             finally:
                 with contextlib.suppress(Exception):
                     adapter.close()
+            with contextlib.suppress(Exception):
+                pause_eta.store_points(client, printer_id, print_job_id, pause_points)
         _set_job_state(
             settings, print_job_id, PrintJobState.STARTING, expect=(PrintJobState.UPLOADING,)
         )

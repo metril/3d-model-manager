@@ -164,6 +164,13 @@ export function StatusSection({
         {remaining ? <span>{t("card.status.left", { t: remaining })}</span> : null}
         <span className="ml-auto">{t("card.status.layer", { n: status.layer_num ?? 0, total: status.total_layer_num ?? 0 })}</span>
       </div>
+      {status.gcode_state === "RUNNING" && status.next_pause ? (
+        <Badge variant="secondary" className="self-start" data-testid="next-pause">
+          {status.next_pause.eta_s != null
+            ? t("card.status.nextPause", { t: formatEta(status.next_pause.eta_s / 60), n: status.next_pause.layer })
+            : t("card.status.nextPauseLayer", { n: status.next_pause.layer })}
+        </Badge>
+      ) : null}
     </div>
   );
 }

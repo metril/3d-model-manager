@@ -662,6 +662,8 @@
       "skip": "Skip objects",
       "left": "{{t}} left",
       "eta": "ETA {{t}}",
+      "nextPause": "Pause in {{t}} (layer {{n}})",
+      "nextPauseLayer": "Pause at layer {{n}}",
       "layer": "Layer {{n}}/{{total}}",
       "startedApp": "Started from the app",
       "startedPrinter": "Started on the printer"
