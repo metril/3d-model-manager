@@ -13,6 +13,8 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { PrinterIcon } from "lucide-react";
 
+import { usePrintTitle } from "@/hooks/useDocumentTitle";
+
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
 import { usePrinters, usePrintersOverview } from "@/api/printers";
@@ -81,6 +83,7 @@ function PrinterDetailBody({
   overviewItem: PrintersOverviewOut["printers"][number];
 }) {
   const { canPrinter } = useAuth();
+  usePrintTitle([overviewItem]);
 
   return (
     <PageContainer width="fluid">

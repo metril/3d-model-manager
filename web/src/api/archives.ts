@@ -129,7 +129,10 @@ export function useArchiveCompare(ids: number[], enabled = true) {
 export function useArchiveCalendar(from: string, to: string) {
   return useQuery({
     queryKey: ["archives", "calendar", from, to] as const,
-    queryFn: () => api.get<CalendarDay[]>(`/archives/calendar?from=${from}&to=${to}`),
+    queryFn: () =>
+      api.get<CalendarDay[]>(
+        `/archives/calendar?from=${from}&to=${to}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
+      ),
   });
 }
 

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from app.api.deps import AuthContext, require_printer_access, require_session
 from app.api.printer_control import run_command
@@ -228,13 +229,13 @@ async def sd_storage(
     return SdStorageOut()
 
 
-def _stream_and_cleanup(path: Path) -> Iterator[bytes]:
-    try:
-        with path.open("rb") as fh:
-            while chunk := fh.read(256 * 1024):
-                yield chunk
-    finally:
-        path.unlink(missing_ok=True)
+MAX_SD_DOWNLOAD = 2 * 1024**3  # refuse to relay anything larger than 2 GiB
+
+
+def _stream_file(path: Path) -> Iterator[bytes]:
+    with path.open("rb") as fh:
+        while chunk := fh.read(256 * 1024):
+            yield chunk
 
 
 @router.get("/{printer_id}/files/download", dependencies=[_control])
@@ -256,13 +257,18 @@ async def download_sd(
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    size = tmp.stat().st_size
+    if size > MAX_SD_DOWNLOAD:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "file too large to download")
     name = norm.rsplit("/", 1)[-1]
     return StreamingResponse(
-        _stream_and_cleanup(tmp),
+        _stream_file(tmp),
+        background=BackgroundTask(lambda: tmp.unlink(missing_ok=True)),
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
-            "Content-Length": str(tmp.stat().st_size),
+            "Content-Length": str(size),
         },
     )
 

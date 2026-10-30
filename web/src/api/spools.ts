@@ -6,7 +6,7 @@
  * `SlotAssignPopover`, Task 10, is its only caller). Mirrors
  * `materials.ts`'s hooks shape.
  */
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import type {
@@ -44,6 +44,7 @@ export function useSpools(filters?: SpoolFilters) {
   return useQuery({
     queryKey: spoolsQueryKey(filters),
     queryFn: () => api.get<SpoolOut[]>(`/spools${spoolsSearch(filters)}`),
+    placeholderData: keepPreviousData,
   });
 }
 

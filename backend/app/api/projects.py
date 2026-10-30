@@ -218,13 +218,14 @@ async def upload_attachment(
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > svc.MAX_ATTACHMENT:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "attachment too large")
-    data = bytearray()
-    async for chunk in request.stream():
-        data += chunk
-        if len(data) > svc.MAX_ATTACHMENT:
-            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "attachment too large")
     a = await svc.add_attachment(
-        db, settings, ctx, project_id, filename, request.headers.get("content-type"), bytes(data)
+        db,
+        settings,
+        ctx,
+        project_id,
+        filename,
+        request.headers.get("content-type"),
+        request.stream(),
     )
     return s.AttachmentOut(
         id=a.id,

@@ -20,14 +20,15 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
-import { useCancelQueueSlice, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
-import type { PrinterOut, QueueEntry, QueueState } from "@/api/types";
+import { useCancelQueueSlice, useEnqueue, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
+import type { PrinterOut, QueueEnqueueBody, QueueEntry, QueueState } from "@/api/types";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 import { QueueEntryDetail } from "@/components/print/QueueEntryDetail";
@@ -284,6 +285,28 @@ function QueueLane({ title, entries, printerId }: { title: string; entries: Queu
   );
 }
 
+/** What `POST /queue` needs to recreate a removed entry. Position is not
+ * restorable (the backend appends), and `ams_mapping`/`options` are not on the
+ * entry payload, so those fall back to defaults. */
+function entryToEnqueueBody(entry: QueueEntry): QueueEnqueueBody {
+  return {
+    model_id: entry.model_id,
+    file_id: entry.file_id ?? null,
+    plate: entry.plate ?? null,
+    printer_id: entry.printer_id ?? null,
+    recipe_id: entry.recipe_id ?? null,
+    copies: entry.copies,
+    cost_center_id: entry.cost_center_id ?? null,
+    scheduled_at: entry.scheduled_at ?? null,
+    manual_start: entry.manual_start,
+    require_previous_success: entry.require_previous_success,
+    auto_off_after: entry.auto_off_after,
+    preheat_override: entry.preheat_override ?? null,
+    preheat_chamber_target: entry.preheat_chamber_target ?? null,
+    batch_id: entry.batch_id ?? null,
+  };
+}
+
 function QueueRow({
   entry,
   prev,
@@ -295,6 +318,7 @@ function QueueRow({
 }) {
   const moveEntry = useMoveQueueEntry();
   const removeEntry = useRemoveQueueEntry();
+  const reEnqueue = useEnqueue();
   const retryEntry = useRetryQueueEntry();
   const cancelSlice = useCancelQueueSlice();
   const [expanded, setExpanded] = useState(false);
@@ -405,7 +429,15 @@ function QueueRow({
           size="icon-sm"
           aria-label={`Remove ${name}`}
           disabled={removeEntry.isPending}
-          onClick={() => removeEntry.mutate(entry.id)}
+          onClick={() =>
+            removeEntry.mutate(entry.id, {
+              onSuccess: () =>
+                toast(`Removed ${name} from the queue`, {
+                  description: "Undo re-adds it at the end of the queue.",
+                  action: { label: "Undo", onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
+                }),
+            })
+          }
         >
           <Trash2Icon className="size-4" />
         </Button>

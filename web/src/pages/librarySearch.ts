@@ -14,7 +14,29 @@ export interface LibrarySearch {
   collection?: number;
   category?: number;
   path?: string;
+  /** Gallery filters/sort (round-tripped so Back from a detail page restores them). */
+  q?: string;
+  tags?: number[];
+  tagMode?: "any" | "all";
+  fileTags?: number[];
+  fileTagMode?: "any" | "all";
+  format?: string[];
+  sliced?: boolean;
+  fav?: boolean;
+  archived?: boolean;
+  sort?: string;
 }
+
+const numberList = (v: unknown): number[] | undefined => {
+  const list = Array.isArray(v) ? v.filter((x): x is number => typeof x === "number") : typeof v === "number" ? [v] : [];
+  return list.length ? list : undefined;
+};
+const stringList = (v: unknown): string[] | undefined => {
+  const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [];
+  return list.length ? list : undefined;
+};
+const mode = (v: unknown): "any" | "all" | undefined => (v === "any" || v === "all" ? v : undefined);
+const flag = (v: unknown): boolean | undefined => (v === true ? true : undefined);
 
 /** TanStack's default search parser runs `JSON.parse` on each value, so a
  * numeric `?collection=5` already arrives as the NUMBER 5 (see
@@ -33,5 +55,17 @@ export function parseLibrarySearch(search: Record<string, unknown>): LibrarySear
     collection: typeof collection === "number" ? collection : undefined,
     category: typeof category === "number" ? category : undefined,
     path: typeof path === "string" ? path : undefined,
+    // The default parser JSON.parses values, so a numeric-looking query
+    // (`?q=123`) arrives as a number -- stringify it back.
+    q: typeof search.q === "string" && search.q ? search.q : typeof search.q === "number" ? String(search.q) : undefined,
+    tags: numberList(search.tags),
+    tagMode: mode(search.tagMode),
+    fileTags: numberList(search.fileTags),
+    fileTagMode: mode(search.fileTagMode),
+    format: stringList(search.format),
+    sliced: flag(search.sliced),
+    fav: flag(search.fav),
+    archived: flag(search.archived),
+    sort: typeof search.sort === "string" ? search.sort : undefined,
   };
 }

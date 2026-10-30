@@ -26,7 +26,10 @@ export interface FilamentStatsFilters {
 export function useFilamentStats({ days, bucket }: FilamentStatsFilters) {
   return useQuery({
     queryKey: ["stats", "filament", days, bucket] as const,
-    queryFn: () => api.get<FilamentStatsOut>(`/stats/filament?days=${days}&bucket=${bucket}`),
+    queryFn: () =>
+      api.get<FilamentStatsOut>(
+        `/stats/filament?days=${days}&bucket=${bucket}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
+      ),
   });
 }
 

@@ -40,13 +40,13 @@ const TERMINAL_GCODE = ["FINISH", "FAILED", "IDLE"];
 const ACTIVE_JOB = ["queued", "uploading", "starting", "printing", "paused"];
 
 /** The `usePrinterStatus` poll cadence for a given `gcode_state`: fast while
- * actively printing, stopped (`false`) once confirmed-terminal, slow
+ * actively printing, 30s once confirmed-terminal, slow
  * heartbeat for anything else (incl. unknown/empty). Exported as a pure
  * function so the cadence policy is unit-testable without driving the hook. */
-export function statusRefetchInterval(gcodeState: string | null | undefined): number | false {
+export function statusRefetchInterval(gcodeState: string | null | undefined): number {
   const state = gcodeState ?? "";
   if (ACTIVE_GCODE.includes(state)) return 2500;
-  if (TERMINAL_GCODE.includes(state)) return false;
+  if (TERMINAL_GCODE.includes(state)) return 30_000;
   return 8000;
 }
 

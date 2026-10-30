@@ -29,6 +29,7 @@ from app.services.printer_state import read_state_sync
 log = logging.getLogger(__name__)
 
 DID_NOT_START_S = 90
+UNIT_MISSING_S = DID_NOT_START_S * 10  # running row whose AMS unit stopped reporting
 QUEUE_WAIT_MAX_S = 30 * 60
 HOLD_TTL_S = 130
 COOLDOWN_S = 6 * 3600  # per unit, after an automated cycle was created
@@ -52,6 +53,10 @@ def _active_key(pid: int, ams: int) -> str:
 
 def _seen_key(sid: int) -> str:
     return f"drying:seen:{sid}"
+
+
+def _unit_seen_key(sid: int) -> str:
+    return f"drying:unit_seen:{sid}"
 
 
 def _humid_key(pid: int, ams: int) -> str:
@@ -169,7 +174,16 @@ def _update_running(
     for row in rows.all():
         unit = drying.find_ams_unit(states.get(row.printer_id), row.ams_id)
         if unit is None:
-            continue  # offline mid-run: resolve when it reports again
+            # offline mid-run: resolve when it reports again, but not forever
+            raw = r.get(_unit_seen_key(row.id))
+            if raw is None:
+                r.set(_unit_seen_key(row.id), str(now.timestamp()), ex=3 * 86400)
+            elif now.timestamp() - float(raw) > UNIT_MISSING_S:
+                _fail(row, "unit_missing", now)
+                counts["failed"] += 1
+                r.delete(_unit_seen_key(row.id))
+            continue
+        r.set(_unit_seen_key(row.id), str(now.timestamp()), ex=3 * 86400)
         if _is_active(unit):
             r.set(_seen_key(row.id), "1", ex=3 * 86400)
         elif unit.get("dry_status") == 0:
@@ -199,22 +213,14 @@ def _auto_candidates(
     states: dict[int, dict | None],
     now: datetime,
     counts: dict,
+    ready_ids: set[int] | None = None,
 ) -> None:
     """Ambient (sustained humidity, idle) and queue (humid unit on a printer
     the queue is about to use) auto-drying: both create a schedule that the
     due step starts in the same tick."""
     if not (cfg.ambient_drying_enabled or cfg.queue_drying_enabled):
         return
-    wanted: set[int] = set()
-    if cfg.queue_drying_enabled:
-        from app.services import dispatcher
-
-        try:
-            items = dispatcher.eligible_queue_items(session)
-            wanted = dispatcher.queue_target_ids(session, r, items)[0]  # READY items only
-        except Exception:  # noqa: BLE001
-            log.exception("drying: queue evaluation failed")
-            session.rollback()
+    wanted: set[int] = ready_ids if (cfg.queue_drying_enabled and ready_ids) else set()
     open_units = _open_units(session)
     ts = now.timestamp()
     for pid, printer in printers.items():
@@ -406,8 +412,11 @@ def tick(
     session.commit()
     from app.services.smart_plugs import manager
 
-    _edges(session, r, settings, states, counts, manager._queue_wanted(session, r))
-    _auto_candidates(session, r, cfg, printers, states, now, counts)
+    targets = manager._queue_targets(session, r)  # one evaluation: (ready, any) | None
+    _edges(session, r, settings, states, counts, targets[1] if targets else None)
+    _auto_candidates(
+        session, r, cfg, printers, states, now, counts, targets[0] if targets else None
+    )
     _start_due(session, r, printers, states, now, counts)
     _expire_stuck(session, now, counts)
     session.execute(

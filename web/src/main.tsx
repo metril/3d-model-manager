@@ -8,11 +8,14 @@ import { AppProviders } from "@/AppProviders";
 import { Toaster } from "@/components/ui/sonner";
 import { queryClient } from "@/queryClient";
 import { AppearanceProvider } from "@/lib/appearance";
+import { installPreloadErrorReload } from "@/lib/preloadError";
 import { registerServiceWorker } from "@/lib/pwa";
 import { router } from "@/router";
 import "@/i18n";
 
 import "./index.css";
+
+installPreloadErrorReload();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
