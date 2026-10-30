@@ -10,9 +10,9 @@
  * `GET /camera/status` (CSS transform), fullscreen, a light toggle (control
  * perm only), stream/snapshot mode and fps selection, a "beta" badge, and a
  * stall watchdog: an `<img>` MJPEG has no per-frame event, so every second
- * the current frame is sampled onto an 8x8 canvas; 5 s with an unchanged
- * hash (or no first frame) reconnects with backoff 1s..30s, max 5 attempts,
- * then shows the offline state (which retries after 10 s as before).
+ * the current frame is sampled onto a 64x64 canvas; 20 s of byte-identical
+ * frames (or no first frame) reconnects with exponential backoff 5s..60s
+ * (reset when a frame changes).
  *
  * `urls` / `rotation` let token-only contexts (OBS overlay, camwall tiles)
  * bypass the session-only token + status calls.
@@ -34,12 +34,12 @@ import { useAuth } from "@/api/auth";
 import { useCameraLight, useCameraStatus, useCameraUrls } from "@/api/printers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useElementFullscreen } from "@/hooks/useElementFullscreen";
+import { framesEqual, isStreamStalled, MAX_RECONNECTS, reconnectDelayMs } from "@/lib/cameraStall";
 import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
-const STALL_MS = 5_000;
-const MAX_ATTEMPTS = 5;
-const MAX_BACKOFF_MS = 30_000;
+const STALL_MS = 20_000;
+const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -72,21 +72,18 @@ function withParam(url: string, key: string, value: string | number): string {
   return `${url}${url.includes("?") ? "&" : "?"}${key}=${value}`;
 }
 
-/** Cheap content hash of the img's current frame; `null` when no frame is
+/** Downsampled RGBA of the img's current frame; `null` when nothing is
  * decoded yet or canvas sampling is unavailable. */
-function sampleHash(img: HTMLImageElement | null): number | null {
+function sampleFrame(img: HTMLImageElement | null): Uint8ClampedArray | null {
   if (!img || img.naturalWidth === 0) return null;
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = 8;
-    canvas.height = 8;
+    canvas.width = SAMPLE_PX;
+    canvas.height = SAMPLE_PX;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
-    ctx.drawImage(img, 0, 0, 8, 8);
-    const data = ctx.getImageData(0, 0, 8, 8).data;
-    let h = 0;
-    for (let i = 0; i < data.length; i++) h = (h * 31 + data[i]!) | 0;
-    return h;
+    ctx.drawImage(img, 0, 0, SAMPLE_PX, SAMPLE_PX);
+    return new Uint8ClampedArray(ctx.getImageData(0, 0, SAMPLE_PX, SAMPLE_PX).data);
   } catch {
     return null;
   }
@@ -197,34 +194,39 @@ export function CameraTile({
   // Stall watchdog (stream mode only).
   useEffect(() => {
     if (!showImg || mode !== "stream") return;
-    let lastFrame = Date.now();
-    let lastHash: number | null = null;
+    const connectedAt = Date.now();
+    let lastChange = connectedAt;
+    let last: Uint8ClampedArray | null = null;
     const id = setInterval(() => {
-      const h = sampleHash(imgRef.current);
-      if (h !== null && h !== lastHash) {
-        // Frames only count as "advancing" once a second distinct hash is
-        // seen: the first sample after a reconnect may be the server's
-        // cached frame and must not reset the attempt budget.
-        if (lastHash !== null) attempts.current = 0;
-        lastHash = h;
-        lastFrame = Date.now();
+      const img = imgRef.current;
+      const w = img?.naturalWidth ?? 0;
+      const frame = sampleFrame(img);
+      if (frame) {
+        if (last && !framesEqual(last, frame)) {
+          // A changed frame (sensor noise counts) proves the stream is live.
+          attempts.current = 0;
+          lastChange = Date.now();
+        }
+        if (!last) lastChange = Date.now();
+        last = frame;
+      } else if (w > 0) {
+        // Sampling unavailable (tainted canvas): decoded frame is all we know.
+        lastChange = Date.now();
+        attempts.current = 0;
       }
-      if (Date.now() - lastFrame <= STALL_MS) return;
+      const now = Date.now();
+      if (!isStreamStalled(w, now - connectedAt, now - lastChange, STALL_MS)) return;
       clearInterval(id);
       const a = attempts.current;
-      if (a >= MAX_ATTEMPTS) {
-        attempts.current = 0;
+      if (a >= MAX_RECONNECTS) {
         setErrored(true);
         return;
       }
       attempts.current = a + 1;
-      reconnectTimer.current = setTimeout(
-        () => {
-          setLoaded(false);
-          setNonce((n) => n + 1);
-        },
-        Math.min(1000 * 2 ** a, MAX_BACKOFF_MS),
-      );
+      reconnectTimer.current = setTimeout(() => {
+        setLoaded(false);
+        setNonce((n) => n + 1);
+      }, reconnectDelayMs(a));
     }, 1000);
     return () => clearInterval(id);
   }, [showImg, mode, nonce]);
