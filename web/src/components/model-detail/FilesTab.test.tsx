@@ -6,9 +6,14 @@ import { modelQueryOptions } from "@/api/library";
 import { FilesTab } from "@/components/model-detail/FilesTab";
 import type { FileOut, Features, ModelDetail, PrinterOut } from "@/api/types";
 
+const authState = vi.hoisted(() => ({ admin: true }));
 vi.mock("@/api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/auth")>()),
-  useAuth: () => ({ data: { id: 1, username: "tester" }, can: () => true, canPrinter: () => true }),
+  useAuth: () => ({
+    data: { id: 1, username: "tester" },
+    can: (p?: string) => (p === "admin" ? authState.admin : true),
+    canPrinter: () => true,
+  }),
 }));
 
 
@@ -448,5 +453,27 @@ describe("FilesTab -- Add files", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Add files" })).not.toBeInTheDocument();
+  });
+
+  it("hides Add files for a non-owner non-admin, shows it for the owner", () => {
+    const base = buildModel([]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    authState.admin = false;
+    try {
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <FilesTab model={{ ...base, created_by_user_id: null }} />
+        </QueryClientProvider>,
+      );
+      expect(screen.queryByRole("button", { name: "Add files" })).not.toBeInTheDocument();
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <FilesTab model={{ ...base, created_by_user_id: 1 }} />
+        </QueryClientProvider>,
+      );
+      expect(screen.getByRole("button", { name: "Add files" })).toBeInTheDocument();
+    } finally {
+      authState.admin = true;
+    }
   });
 });

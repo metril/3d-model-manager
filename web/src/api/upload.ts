@@ -21,11 +21,12 @@ export interface UploadCallbacks {
   onProgress?: (loaded: number, total: number) => void;
   /** Aborts the in-flight request; the promise rejects with `UploadAbortedError`. */
   signal?: AbortSignal;
-  /** Overall request timeout in ms (default `UPLOAD_TIMEOUT_MS`). */
+  /** Abort when no upload progress arrives for this long, in ms (default `UPLOAD_IDLE_TIMEOUT_MS`). */
   timeoutMs?: number;
 }
 
-export const UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+/** Idle watchdog, not an absolute cap: slow links may upload for hours as long as bytes keep flowing. */
+export const UPLOAD_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class UploadAbortedError extends Error {
   constructor() {
@@ -95,11 +96,25 @@ export const uploadFile: UploadFn = (params, callbacks = {}) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", `/api/uploads?${searchParams.toString()}`);
     xhr.withCredentials = true;
-    xhr.timeout = callbacks.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+    const idleMs = callbacks.timeoutMs ?? UPLOAD_IDLE_TIMEOUT_MS;
+    let timedOut = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        timedOut = true;
+        xhr.abort();
+      }, idleMs);
+    };
     const onAbort = () => xhr.abort();
     signal?.addEventListener("abort", onAbort, { once: true });
-    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const cleanup = () => {
+      clearTimeout(idleTimer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    armIdle();
     xhr.upload.onprogress = (event) => {
+      armIdle();
       if (event.lengthComputable) {
         callbacks.onProgress?.(event.loaded, event.total);
       }
@@ -132,13 +147,9 @@ export const uploadFile: UploadFn = (params, callbacks = {}) => {
       cleanup();
       reject(new Error("network error during upload"));
     };
-    xhr.ontimeout = () => {
-      cleanup();
-      reject(new Error("upload timed out"));
-    };
     xhr.onabort = () => {
       cleanup();
-      reject(new UploadAbortedError());
+      reject(timedOut ? new Error("upload timed out") : new UploadAbortedError());
     };
     xhr.send(params.file);
   });

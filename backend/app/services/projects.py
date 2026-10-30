@@ -782,9 +782,13 @@ async def add_attachment(
         created_by_user_id=ctx.user.id,
     )
     db.add(a)
-    await db.flush()
-    await log(db, ctx, p, "attachment_add", f"Attached {name}", {"attachment_id": a.id})
-    await db.commit()
+    try:
+        await db.flush()
+        await log(db, ctx, p, "attachment_add", f"Attached {name}", {"attachment_id": a.id})
+        await db.commit()
+    except BaseException:
+        await anyio.to_thread.run_sync(lambda: dest.unlink(missing_ok=True))
+        raise
     await db.refresh(a)
     return a
 

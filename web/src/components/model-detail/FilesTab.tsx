@@ -11,6 +11,7 @@ import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
 import { SliceFileButton } from "@/components/slice/SliceFileButton";
+import { useAuth } from "@/api/auth";
 import { UploadDropzone, type UploadTarget } from "@/components/upload/UploadDropzone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,6 +85,9 @@ export function FilesTab({
   onViewIn3D?: (file: FileOut) => void;
 }) {
   const queryClient = useQueryClient();
+  const { data: me, can } = useAuth();
+  // The upload API is owner-or-admin only (NULL-creator models: admin only).
+  const canUpload = can("admin") || (!!me && model.created_by_user_id === me.id);
   const [showAddFiles, setShowAddFiles] = useState(false);
   const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // Doc-kind files (README, license, etc.) surface only in the Docs tab --
@@ -118,14 +122,16 @@ export function FilesTab({
           ) : (
             <span />
           )}
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowAddFiles((prev) => !prev)}>
-            <PlusIcon className="size-4" />
-            Add files
-          </Button>
+          {canUpload ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAddFiles((prev) => !prev)}>
+              <PlusIcon className="size-4" />
+              Add files
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
-      {showAddFiles && currentRevision ? (
+      {canUpload && showAddFiles && currentRevision ? (
         <UploadDropzone resolveTarget={resolveTarget} onUploadComplete={handleUploadComplete} />
       ) : null}
 
