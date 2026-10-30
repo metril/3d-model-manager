@@ -1185,6 +1185,13 @@
         "png": "PNG"
       }
     },
+    "climate": {
+      "updated": "Updated {{when}}",
+      "never": "No reading yet",
+      "humid": "Humid",
+      "stale": "Stale",
+      "column": "Climate"
+    },
     "loc": {
       "unassignedHint": "Not linked to a location. Pick or create one to assign.",
       "dialogDesc": "A storage place for spools.",
