@@ -257,3 +257,61 @@ async def test_multi_plate_project_without_plate_count_is_unknown(
     assert r.json()["status"] == "unknown"
     meta = await db_session.get(BlobMeta, f3.blob_hash, populate_existing=True)
     assert meta.plate_count == 3
+
+
+async def test_batch_dispatch_guard_lists_files_and_force(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    from tests.server_helpers import set_server
+
+    _, f, recipe, _ = await _prep(db_session, seed_file, "bf-batch", [212, 100, 50], False)
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    r = await authenticated_client.post(
+        "/api/batches",
+        json={"name": "b", "file_id": f.id, "recipe_id": recipe.id, "quantity": 2},
+    )
+    assert r.status_code == 201, r.text
+    bid = r.json()["id"]
+    r = await authenticated_client.post(f"/api/batches/{bid}/dispatch")
+    assert r.status_code == 422
+    d = r.json()["detail"]
+    assert d["code"] == "does_not_fit"
+    assert [(x["id"], x["fit"]["status"]) for x in d["files"]] == [(f.id, "too_large")]
+    assert d["files"][0]["name"]
+    r = await authenticated_client.post(f"/api/batches/{bid}/dispatch", json={"force": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "active"
+
+
+async def test_guard_files_fit_lists_every_offender(db_session, seed_file) -> None:
+    from fastapi import HTTPException
+
+    from app.models.slicing import PrintRecipe
+    from app.services.bed_fit import guard_files_fit
+
+    _, f, recipe, _ = await _prep(db_session, seed_file, "bf-many", [212, 100, 50], False)
+    recipe = await db_session.get(PrintRecipe, recipe.id)
+    with pytest.raises(HTTPException) as ei:
+        await guard_files_fit(db_session, recipe, [f, f])
+    assert ei.value.detail["code"] == "does_not_fit"
+    assert [x["id"] for x in ei.value.detail["files"]] == [f.id, f.id]
+
+
+async def test_pipeline_queue_step_guard_and_force(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    from tests.server_helpers import set_server
+
+    _, f, recipe, _ = await _prep(db_session, seed_file, "bf-pipe", [212, 100, 50], False)
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    r = await authenticated_client.post(
+        "/api/slicer-pipelines",
+        json={"name": "q", "recipe_id": recipe.id, "steps": [{"kind": "queue"}]},
+    )
+    pid = r.json()["id"]
+    r = await authenticated_client.post(f"/api/slicer-pipelines/{pid}/run", json={"file_id": f.id})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "does_not_fit"
+    r = await authenticated_client.post(
+        f"/api/slicer-pipelines/{pid}/run", json={"file_id": f.id, "force": True}
+    )
+    assert r.status_code == 201 and r.json()["kind"] == "queue", r.text
