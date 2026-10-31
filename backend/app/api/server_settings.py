@@ -196,6 +196,9 @@ async def _probe_slicer(url: str) -> tuple[bool, str, dict | None]:
         body = resp.json()
         if isinstance(body, dict):
             info = {k: body.get(k) for k in SLICER_INFO_KEYS if body.get(k) is not None}
+            # Pre-OrcaSlicer sidecars only report `bambu_version`.
+            if "slicer_version" not in info and body.get("bambu_version"):
+                info["slicer_version"] = body["bambu_version"]
     except ValueError:
         pass
     return True, "ok", info

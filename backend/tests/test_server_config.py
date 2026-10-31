@@ -545,3 +545,17 @@ async def test_studio_token_masked_and_kept_on_put(authenticated_client) -> None
     assert cleared.json()["config"]["studio_launcher_token"] is None
     bad = await authenticated_client.put("/api/settings/server", json={**cfg, "studio_url": "nope"})
     assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_probe_slicer_falls_back_to_bambu_version():
+    from app.api.server_settings import _probe_slicer
+
+    with respx.mock:
+        respx.get("http://old:1/health").mock(
+            return_value=httpx.Response(
+                200, json={"status": "ok", "version": "v1", "bambu_version": "v02.08.02.61"}
+            )
+        )
+        ok, _, info = await _probe_slicer("http://old:1/health")
+    assert ok and info["slicer_version"] == "v02.08.02.61"

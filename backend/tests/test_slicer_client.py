@@ -159,7 +159,7 @@ def test_slice_error_json_surfaces_error_and_message_but_not_log_tail():
             422,
             json={
                 "error": "slice_failed",
-                "message": "bambu-studio exited 3",
+                "message": "slicer exited 3",
                 "exit_code": 3,
                 "log_tail": "secret-log-tail",
             },
@@ -175,7 +175,7 @@ def test_slice_error_json_surfaces_error_and_message_but_not_log_tail():
             bed_type="textured_plate",
             options=SliceOptions(),
         )
-    assert "slice_failed: bambu-studio exited 3" in str(exc_info.value)
+    assert "slice_failed: slicer exited 3" in str(exc_info.value)
     assert "secret-log-tail" not in str(exc_info.value)
 
 
