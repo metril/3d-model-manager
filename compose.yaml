@@ -79,6 +79,9 @@ services:
       PGID: ${PGID:-}
     env_file:
       - .env
+    networks:
+      - default
+      - studio_net
     volumes:
       - tdmm_data:/data
       - ./library:/library
@@ -308,6 +311,11 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+
+# Private network shared only by api and the studio sidecar, so a desktop user
+# in Studio cannot reach db/redis/broker.
+networks:
+  studio_net:
 
 volumes:
   pgdata:

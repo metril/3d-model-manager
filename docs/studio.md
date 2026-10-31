@@ -3,7 +3,7 @@
 The real Bambu Studio GUI, streamed to the browser (Selkies over WebSocket, labwc + Xwayland) from a `studio` container, so models can be edited in the full app. The api reverse-proxies `/studio/` behind our login. Opt-in: nothing runs unless the `studio` profile is on.
 
 ## Security
-The Selkies desktop includes a terminal with passwordless sudo. Only our login protects it. **Never publish ports 3000/3001/3010** (`compose.studio.yaml` uses `expose` only). `STUDIO_LAUNCHER_TOKEN` adds a shared secret on the launcher API (`X-Launcher-Token`).
+The Selkies desktop includes a terminal with passwordless sudo. Only our login protects it. **Never publish ports 3000/3001/3010** (`compose.studio.yaml` uses `expose` only). `TDMM_STUDIO_LAUNCHER_TOKEN` adds a shared secret on the launcher API (`X-Launcher-Token`). Studio sits on its own `studio_net` network shared only with `api`, so the desktop cannot reach db/redis. The Selkies file manager is disabled (`SELKIES_FILE_TRANSFERS=`); `STUDIO_ALLOWED_ORIGINS` restricts WebSocket origins to your public URL.
 
 ## Enable
 ```
@@ -39,5 +39,5 @@ The stream uses WebCodecs, which needs a secure context: serve the app over HTTP
 - **First run**: a fresh `/config` (`studio_config` volume) shows a modal Setup Wizard in the stream. Complete it once (pick a printer and filaments); it persists. It cannot be skipped by a config flag.
 - **Relaunch semantics**: Studio's native single-instance handoff is broken (D-Bus abort), so opening a file kills the running Studio and starts a new one on that file (~5 s to first window). **Unsaved work in the open session is lost.** Non-Bambu 3MFs raise a "Standard 3mf Import color" dialog to answer in the stream.
 - **Launcher API** (`:3010`, internal): `GET /health`, `POST /open {"path": "/exchange/..."}` (202; 400 if outside `/exchange` or missing; 409 while relaunching), `POST /stop`.
-- **Exchange folder**: `STUDIO_EXCHANGE_HOST_DIR` (default `./studio-exchange`) is mounted at `/exchange` in api, worker-io and studio. Studio runs as `PUID:PGID` and writes there as that user; run all three with the same PUID/PGID so each can read, delete and chmod what the others wrote. Studio's save/export dialogs default to `/exchange`.
+- **Exchange folder**: `STUDIO_EXCHANGE_HOST_DIR` (default `./studio-exchange`) is mounted at `/exchange` in api, worker-io and studio. Studio runs as `PUID:PGID` and writes there as that user; run all three with the same PUID/PGID so each can read, delete and chmod what the others wrote. On each open the launcher chowns the session folder `/exchange/<token>` to Studio's user and points Studio's save/export dialogs at it (`/exchange` is the fallback default).
 - Memory cap `STUDIO_MEM_LIMIT` (default 4g); the image is ~6 GB on disk.
