@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bash
+# Launcher API (relaunch Studio on a file). Runs as root so it can signal and
+# respawn Studio; Studio itself is started as abc.
+exec python3 /app/launcher.py

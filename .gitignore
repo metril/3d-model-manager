@@ -35,3 +35,4 @@ slicer-watch/
 # Playwright MCP / ad-hoc screenshots
 .playwright-mcp/
 /*.png
+studio-exchange/

@@ -1,0 +1,10 @@
+# Intel/AMD (VA-API/Mesa) GPU for the studio sidecar -- dev host.
+#   docker compose -f compose.yaml -f compose.studio.dri.yaml --profile studio up -d studio
+# Pick the render node with STUDIO_DRINODE (default /dev/dri/renderD128).
+services:
+  studio:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      DRINODE: ${STUDIO_DRINODE:-/dev/dri/renderD128}
+      DRI_NODE: ${STUDIO_DRINODE:-/dev/dri/renderD128}
