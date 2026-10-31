@@ -1,0 +1,11 @@
+#!/usr/bin/with-contenv bash
+# Runs as root before services. The NVIDIA container toolkit injects
+# libnvidia-egl-gbm.so.1 but not the Mesa GBM backend symlink that libgbm
+# looks for (<drm driver>_gbm.so). Without it the Wayland compositor falls
+# back to dumb buffers on the render node (EACCES) and renders in Pixman.
+LIBDIR=/usr/lib/x86_64-linux-gnu
+if [ -e "$LIBDIR/libnvidia-egl-gbm.so.1" ]; then
+  mkdir -p "$LIBDIR/gbm"
+  ln -sfn "$LIBDIR/libnvidia-egl-gbm.so.1" "$LIBDIR/gbm/nvidia-drm_gbm.so"
+  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so"
+fi

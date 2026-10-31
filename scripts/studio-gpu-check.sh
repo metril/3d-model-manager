@@ -14,7 +14,8 @@ NAME="tdmm-studio-gpucheck"
 PORT="${STUDIO_CHECK_PORT:-3000}"
 LOG="$(mktemp)"
 FAILS=0
-cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -f "$LOG"; }
+INITD=""
+cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -f "$LOG"; [ -n "$INITD" ] && rm -rf "$INITD"; }
 trap cleanup EXIT
 
 hdr() { printf '\n== %s ==\n' "$1"; }
@@ -54,9 +55,23 @@ fi
 
 hdr "Studio container (${SECS}s, 127.0.0.1:${PORT} only)"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+# Same init hook as docker/studio/root/custom-cont-init.d/20-nvidia-gbm: the
+# toolkit injects libnvidia-egl-gbm.so.1 but not the libgbm backend symlink.
+INITD="$(mktemp -d)"
+cat >"$INITD/20-nvidia-gbm" <<'HOOK'
+#!/usr/bin/with-contenv bash
+LIBDIR=/usr/lib/x86_64-linux-gnu
+if [ -e "$LIBDIR/libnvidia-egl-gbm.so.1" ]; then
+  mkdir -p "$LIBDIR/gbm"
+  ln -sfn "$LIBDIR/libnvidia-egl-gbm.so.1" "$LIBDIR/gbm/nvidia-drm_gbm.so"
+  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so"
+fi
+HOOK
+chmod 755 "$INITD/20-nvidia-gbm"
 docker run -d --name "$NAME" \
   --runtime nvidia --gpus all \
   --device /dev/dri --device /dev/nvidia-modeset \
+  -v "$INITD/20-nvidia-gbm:/custom-cont-init.d/20-nvidia-gbm:ro" \
   -e NVIDIA_DRIVER_CAPABILITIES=all \
   -e PIXELFLUX_WAYLAND=true \
   -e DRINODE="$NODE" -e DRI_NODE="$NODE" \
@@ -79,7 +94,7 @@ sleep 20
 docker logs "$NAME" >"$LOG" 2>&1 || true
 
 hdr "encoder / EGL lines from the Selkies log"
-grep -E '\[pixelflux\]|\[Wayland\] Renderer|INFO:main:Selkies|nvenc|NVENC|nvidia|EGL|egl' "$LOG" | cut -c1-240 || true
+grep -E '\[nvidia-gbm\]|\[pixelflux\]|\[Wayland\] Renderer|INFO:main:Selkies|nvenc|NVENC|nvidia|EGL|egl' "$LOG" | cut -c1-240 || true
 
 hdr "full verdict"
 if grep -qE '\[Wayland\] Renderer: .* on /dev/dri/' "$LOG"; then
@@ -118,7 +133,7 @@ docker exec "$NAME" sh -c '
   echo "-- nvidia egl/gbm libs:"; ldconfig -p | grep -iE "nvidia-egl|egl-gbm|libgbm" || echo "none"
   echo "-- /dev/dri:"; ls -ln /dev/dri
   echo "-- abc user:"; id abc 2>/dev/null || id
-  echo "-- card0 open as abc:"; su -s /bin/sh abc -c "cat /dev/dri/card0 </dev/null >/dev/null 2>&1 && echo ok || echo DENIED" 2>/dev/null || echo "n/a"
+  echo "-- card0 open as abc:"; su -s /bin/sh abc -c "exec 3<>/dev/dri/card0 && echo ok" 2>/dev/null || echo DENIED
 ' 2>&1 | cut -c1-200 || true
 
 hdr "RESULT"
