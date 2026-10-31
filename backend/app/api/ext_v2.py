@@ -250,6 +250,14 @@ async def printer_status(
 # -- printers: camera + plate thumbnail (read) --------------------------------
 
 
+def _camera_access(auth: KeyAuth, printer_id: int) -> None:
+    """Allowlist 404, then the session camera routes' bar: the key owner
+    needs per-printer print access (a read scope alone is not enough)."""
+    _visible(auth, printer_id)
+    if not auth.ctx.printer_acl[printer_id].can_print:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "printer access denied")
+
+
 async def _camera_options(db: AsyncSession, settings: Settings, printer_id: int) -> dict:
     """Printer ``options`` (rotation etc.) for a camera route; 503 while the
     printer integration is off, 404 for an unknown printer."""
@@ -268,7 +276,7 @@ async def camera_snapshot(
     settings: Settings = Depends(get_settings),
     auth: KeyAuth = Depends(_READ),
 ) -> Response:
-    _visible(auth, printer_id)
+    _camera_access(auth, printer_id)
     options = await _camera_options(db, settings, printer_id)
     return await camera_http.snapshot_response(settings, printer_id, options)
 
@@ -281,8 +289,10 @@ async def camera_stream(
     settings: Settings = Depends(get_settings),
     auth: KeyAuth = Depends(_READ),
 ) -> StreamingResponse:
-    _visible(auth, printer_id)
+    _camera_access(auth, printer_id)
     options = await _camera_options(db, settings, printer_id)
+    # Release the pooled connection now: the stream outlives the request.
+    await db.close()
     return await camera_http.stream_response(settings, printer_id, options, fps)
 
 
@@ -294,7 +304,7 @@ async def camera_token(
     auth: KeyAuth = Depends(_READ),
 ) -> CameraUrlsOut:
     """Signed, short-lived stream/snapshot URLs for a cookie-less ``<img>``."""
-    _visible(auth, printer_id)
+    _camera_access(auth, printer_id)
     return await printers_api.mint_camera_token(printer_id, db, settings, auth.ctx)
 
 

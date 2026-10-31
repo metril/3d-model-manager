@@ -709,3 +709,48 @@ async def test_ext_print_requires_queue_scope_and_allowlist(
     assert r.status_code == 404
     r = await client.post(f"/api/ext/v2/printers/{a}/print", json=body, headers=_h(q))
     assert r.status_code in (404, 409, 422)  # reaches the shared start-print service
+
+
+async def test_ext_camera_requires_owner_print_access(
+    make_user, make_group, login_as, authenticated_client, client, rds, printer_enabled
+):
+    from app.services import camera_state as cs
+
+    pid = await _printer(authenticated_client)
+    owner = await make_user("member")
+    await make_group(
+        "ro", permissions=[], members=[owner], printer_access={pid: (False, True, False)}
+    )
+    c = await login_as(owner)
+    key = (await _mint(c))["key"]
+    cs.put_frame(rds, pid, JPEG)
+    for method, path in (
+        ("get", "camera/snapshot"),
+        ("get", "camera/stream"),
+        ("post", "camera/token"),
+    ):
+        r = await getattr(client, method)(f"/api/ext/v2/printers/{pid}/{path}", headers=_h(key))
+        assert r.status_code == 403, (path, r.status_code)
+
+
+async def test_ext_camera_stream_releases_db_connection(
+    authenticated_client, client, printer_enabled, monkeypatch
+):
+    from fastapi.responses import Response
+
+    from app.db import get_engine
+    from app.services import camera_http
+
+    a = await _printer(authenticated_client)
+    key = (await _mint(authenticated_client))["key"]
+    seen: list[tuple[int, int]] = []
+    baseline = get_engine().pool.checkedout()
+
+    async def fake(settings, printer_id, options, fps=None):
+        seen.append((baseline, get_engine().pool.checkedout()))
+        return Response(b"x")
+
+    monkeypatch.setattr(camera_http, "stream_response", fake)
+    r = await client.get(f"/api/ext/v2/printers/{a}/camera/stream", headers=_h(key))
+    assert r.status_code == 200 and seen
+    assert seen[0][1] <= seen[0][0]
