@@ -7,11 +7,17 @@ import type { FileOut } from "@/api/types";
 export interface CombineItem {
   file_id: number;
   copies: number;
+  /** manual layout only: footprint centre on the bed, mm. */
+  x_mm?: number;
+  y_mm?: number;
+  rot_z_deg?: number;
+  scale?: number;
+  copy_index?: number;
 }
 
 export interface CombineRequest {
   items: CombineItem[];
-  layout: "grid" | "auto";
+  layout: "grid" | "auto" | "manual";
   spacing_mm: number;
   printer_profile_id?: number | null;
   bed?: { x_mm: number; y_mm: number } | null;
@@ -27,11 +33,34 @@ export interface CombinePlacement {
   d_mm: number;
 }
 
+export interface CombinePose {
+  file_id: number;
+  x_mm: number;
+  y_mm: number;
+  rot_z_deg: number;
+  scale: number;
+  copy_index: number;
+  fits: boolean;
+}
+
+/** Source mesh AABB in mm; the pose pivot is (min_x + w/2, min_y + d/2, min_z). */
+export interface CombinePart {
+  file_id: number;
+  min_x: number;
+  min_y: number;
+  min_z: number;
+  w_mm: number;
+  d_mm: number;
+  h_mm: number;
+}
+
 export interface CombineResult {
   fits: boolean;
   bed: { x_mm: number; y_mm: number };
   required_bed: { x_mm: number; y_mm: number };
   placements: CombinePlacement[];
+  poses: CombinePose[];
+  parts: CombinePart[];
   file: FileOut | null;
 }
 
@@ -71,5 +100,13 @@ export function useCombine(slug: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: modelQueryOptions(slug).queryKey });
     },
+  });
+}
+
+/** `?auto=1`: the server's grid/auto layout as poses (plus each file's AABB), nothing written. */
+export function useAutoArrange(slug: string) {
+  return useMutation({
+    mutationFn: (request: CombineRequest) =>
+      api.post<CombineResult>(`/models/${encodeURIComponent(slug)}/combine?auto=1`, request),
   });
 }

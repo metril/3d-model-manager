@@ -11,7 +11,7 @@
  * down the dialog with it) for no real benefit here.
  */
 import { useState } from "react";
-import { DownloadIcon, EyeIcon, ImageIcon, MoreVerticalIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { DownloadIcon, EyeIcon, LayoutGridIcon, ImageIcon, MoreVerticalIcon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { useDeleteFile, usePatchModel } from "@/api/library";
@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { canArrange } from "@/components/plate/arrangeable";
 import { isStudioViewable } from "@/components/viewer/viewable";
 import type { FileOut, ModelDetail } from "@/api/types";
 
@@ -31,6 +32,7 @@ export function FileActionsMenu({
   file,
   model,
   onViewIn3D,
+  onArrange,
   isDoc = false,
 }: {
   file: FileOut;
@@ -38,6 +40,8 @@ export function FileActionsMenu({
   /** R13c "View in 3D" hand-off -- see `FilesTab.tsx`. Never applicable for
    * doc files (`isDoc`), which are never studio-viewable. */
   onViewIn3D?: (file: FileOut) => void;
+  /** Opens the plate editor on this single file (STL/OBJ/3MF with a 3D preview). */
+  onArrange?: (file: FileOut) => void;
   /** Docs never offer "View in 3D" -- their own row already has an inline
    * preview toggle (`DocsTab.tsx`) instead of a menu-driven one. */
   isDoc?: boolean;
@@ -78,6 +82,12 @@ export function FileActionsMenu({
             <DropdownMenuItem aria-label={`View ${file.rel_path} in 3D`} onSelect={() => onViewIn3D?.(file)}>
               <EyeIcon className="size-4" />
               View in 3D
+            </DropdownMenuItem>
+          ) : null}
+          {!isDoc && onArrange && canArrange(file) ? (
+            <DropdownMenuItem aria-label={`Arrange ${file.rel_path} on plate`} onSelect={() => onArrange(file)}>
+              <LayoutGridIcon className="size-4" />
+              Arrange on plate…
             </DropdownMenuItem>
           ) : null}
           {file.verified_at ? (

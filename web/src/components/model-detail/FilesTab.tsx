@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CombineIcon, PlusIcon } from "lucide-react";
+import { CombineIcon, LayoutGridIcon, PlusIcon } from "lucide-react";
 
 import { modelQueryOptions } from "@/api/library";
 import { EntityTags } from "@/components/tags/EntityTags";
 import { TagFilter } from "@/components/tags/TagFilter";
 import { EMPTY_TAG_FILTER, matchesTagFilter, type TagFilterValue } from "@/components/tags/tagFilter";
 import { CombineDialog } from "@/components/model-detail/CombineDialog";
+import { canArrange } from "@/components/plate/arrangeable";
+import { PlateEditorDialog } from "@/components/plate/PlateEditorDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
@@ -98,6 +100,7 @@ export function FilesTab({
   const [showAddFiles, setShowAddFiles] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showCombine, setShowCombine] = useState(false);
+  const [arrangeFiles, setArrangeFiles] = useState<FileOut[] | null>(null);
   const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   // Doc-kind files (README, license, etc.) surface only in the Docs tab --
   // exclude them here so they don't also clutter the Files list.
@@ -162,6 +165,12 @@ export function FilesTab({
               <CombineIcon className="size-4" />
               Combine onto one plate
             </Button>
+            {selectedFiles.some(canArrange) ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => setArrangeFiles(selectedFiles.filter(canArrange))}>
+                <LayoutGridIcon className="size-4" />
+                Arrange on plate…
+              </Button>
+            ) : null}
             <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
               Clear
             </Button>
@@ -211,13 +220,27 @@ export function FilesTab({
                   <SliceFileButton file={file} modelSlug={model.slug} />
                   <SendToPrinterButton file={file} />
                   {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
-                  <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} />
+                  <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} onArrange={canUpload ? (f) => setArrangeFiles([f]) : undefined} />
                 </>
               }
             />
           ))}
         </ul>
       )}
+
+      {arrangeFiles ? (
+        <PlateEditorDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setArrangeFiles(null);
+              setSelectedIds(new Set());
+            }
+          }}
+          slug={model.slug}
+          files={arrangeFiles}
+        />
+      ) : null}
 
       {showCombine ? (
         <CombineDialog
