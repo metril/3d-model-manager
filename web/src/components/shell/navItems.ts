@@ -60,7 +60,7 @@ export interface NavItem {
    * everyone else only once billing is on -- `AppSidebar` resolves this
    * with `useFinanceConfig()`, since it isn't a plain permission check. */
   billingGated?: boolean;
-  /** Hidden unless the Bambu Studio sidecar is enabled (`useStudioEnabled`). */
+  /** Hidden unless the OrcaSlicer sidecar is enabled (`useStudioEnabled`). */
   studioGated?: boolean;
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
    * rendered as a plain `<a target="_blank">` instead of a router Link. */
@@ -87,7 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/print/history", label: "History", icon: ListChecks },
       { to: "/print/plugs", label: "Plugs", icon: Plug },
       { to: "/stats", label: "Stats", icon: BarChart3 },
-      { to: "/studio", label: "Bambu Studio", icon: Boxes, studioGated: true },
+      { to: "/studio", label: "OrcaSlicer", icon: Boxes, studioGated: true },
     ],
   },
   {

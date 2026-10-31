@@ -1,4 +1,4 @@
-"""Reverse proxy for the Bambu Studio (Selkies) sidecar under ``/studio/``.
+"""Reverse proxy for the OrcaSlicer (Selkies) Studio sidecar under ``/studio/``.
 
 Registered OUTSIDE ``/api`` and before the SPA catch-all. HTTP is streamed
 through ``httpx``; WebSockets (``/studio/api/websockets`` etc.) are bridged

@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 const MASK = "***";
 const DOCS_URL = "https://github.com/metril/3d-model-manager/blob/main/docs/studio.md";
 
-/** Bambu Studio sidecar (streamed GUI). The launcher token is write-only: "***" = keep. */
+/** OrcaSlicer sidecar (streamed GUI). The launcher token is write-only: "***" = keep. */
 export function StudioServerCard({ data }: { data: ServerSettingsOut }) {
   const { t } = useTranslation();
   const save = useUpdateServerSettings();

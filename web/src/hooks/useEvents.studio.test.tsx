@@ -47,7 +47,7 @@ describe("studio events", () => {
     send({ type: "studio.file_returned", model_slug: "m", model_id: 1, file_id: 5, name: "a.3mf", sliced: false });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["models", "detail", "m"] });
     expect(spy).not.toHaveBeenCalledWith({ queryKey: ["models", "list"] });
-    expect(toastMock).toHaveBeenCalledWith("a.3mf returned from Bambu Studio", expect.objectContaining({ action: expect.objectContaining({ label: "View model" }) }));
+    expect(toastMock).toHaveBeenCalledWith("a.3mf returned from OrcaSlicer", expect.objectContaining({ action: expect.objectContaining({ label: "View model" }) }));
   });
 
   it("also refreshes the library list when the returned file is sliced", () => {

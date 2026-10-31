@@ -1,10 +1,11 @@
 """Smoke test against a running sidecar: slices a 20 mm cube with the
 bundled A1 mini / 0.20mm Standard / Bambu PLA Basic profiles and checks the
-result is a .gcode.3mf. Usage: python smoke.py [base_url]. Stdlib only."""
+result is a .gcode.3mf with slice_info.config and a non-blank plate thumbnail. Usage: python smoke.py [base_url]. Stdlib only."""
 
 import io
 import json
 import struct
+import zlib
 import sys
 import urllib.request
 import uuid
@@ -58,6 +59,30 @@ body, ctype = multipart(
 req = urllib.request.Request(BASE + "/slice", data=body, headers={"Content-Type": ctype})
 with urllib.request.urlopen(req, timeout=600) as r:
     out = r.read()
-names = zipfile.ZipFile(io.BytesIO(out)).namelist()
+zf = zipfile.ZipFile(io.BytesIO(out))
+names = zf.namelist()
 assert "Metadata/plate_1.gcode" in names, names
-print(f"smoke ok: bambu {health['version']}, {len(out)} bytes, plate_1.gcode present")
+assert "Metadata/slice_info.config" in names, names
+assert b"<plate>" in zf.read("Metadata/slice_info.config"), "slice_info.config has no plate"
+thumb = next((n for n in names if n.startswith("Metadata/plate_") and n.endswith(".png")), None)
+
+
+def png_distinct_bytes(png: bytes) -> int:
+    pos, idat = 8, b""
+    while pos < len(png):
+        n, kind = struct.unpack(">I4s", png[pos:pos + 8])
+        if kind == b"IDAT":
+            idat += png[pos + 8:pos + 8 + n]
+        pos += 12 + n
+    return len(set(zlib.decompress(idat)))
+
+
+# OrcaSlicer v2.4.2's CLI renders no plate thumbnails (verified, with and
+# without a display); the backend renders its own. So: check when present.
+thumb_note = "no plate thumbnail (expected for OrcaSlicer CLI)"
+if thumb:
+    distinct = png_distinct_bytes(zf.read(thumb))
+    assert distinct > 8, f"{thumb} looks blank ({distinct} distinct byte values)"
+    thumb_note = f"{thumb} ({distinct} distinct bytes)"
+print(f"smoke ok: {health.get('slicer_name')} {health.get('slicer_version')}, {len(out)} bytes, "
+      f"plate_1.gcode + slice_info.config, {thumb_note}")

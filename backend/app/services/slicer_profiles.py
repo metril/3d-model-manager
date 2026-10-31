@@ -1,6 +1,7 @@
-"""Bambu Studio `BBL` profile bundle import (P6 "slicer, profiles, recipes
+"""OrcaSlicer / Bambu Studio vendor profile bundle import (`BBL` and others)
+(P6 "slicer, profiles, recipes
 and dispatch" plan, Task 3). A bundle (directory or zip, Bambu Studio's
-`system/BBL` layout) has a `BBL.json` manifest plus `machine/`, `process/`,
+`system/BBL` layout) has a `<Vendor>.json` manifest plus `machine/`, `process/`,
 and `filament/` folders of JSON presets, each carrying its own `name` and
 an optional `inherits` (the NAME of another preset in the SAME folder,
 never across kinds). Only presets with `instantiation: "true"` are real,
@@ -88,6 +89,12 @@ def _is_instantiable(raw: dict) -> bool:
 
 # Lookup tables shipped beside the presets (vendor subfolders are recursed).
 _HELPER_STEMS = {"filament_name_map", "filaments_color_codes", "filament_id_map"}
+
+
+def has_vendor_manifest(root: Path) -> bool:
+    """A vendor bundle (`BBL`, `Creality`, ...) carries a top-level
+    `<Vendor>.json` manifest next to `machine/`, `process/`, `filament/`."""
+    return any(p.is_file() for p in root.glob("*.json") if p.stem not in _HELPER_STEMS)
 
 
 def _load_folder(root: Path, dirname: str) -> dict[str, dict]:

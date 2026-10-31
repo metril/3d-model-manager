@@ -1,4 +1,4 @@
-"""``scan_studio_exchange``: ingest files Bambu Studio saved under
+"""``scan_studio_exchange``: ingest files the Studio sidecar (OrcaSlicer) saved under
 ``<studio_exchange_dir>/<token>/`` back into the model/revision the session
 was opened from, and sweep expired session directories.
 

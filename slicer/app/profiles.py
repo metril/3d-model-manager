@@ -1,4 +1,4 @@
-"""Index of Bambu Studio's bundled `resources/profiles/BBL` presets and
+"""Index of OrcaSlicer's bundled `resources/profiles/<Vendor>` presets and
 `inherits` flattening (same-kind, by name; cycle- and depth-guarded)."""
 
 from __future__ import annotations
@@ -25,13 +25,22 @@ def _nozzle(value) -> float | None:
 
 
 class ProfileIndex:
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, vendors: list[str] | None = None) -> None:
+        """`root` is one vendor dir (e.g. .../BBL) or, with `vendors`, the
+        profiles dir holding one folder per vendor."""
         self.by_kind: dict[str, dict[str, dict]] = {k: {} for k in KINDS}
         self.vendor: dict[str, dict[str, str]] = {k: {} for k in KINDS}
         if root is None:
             return
+        if vendors is None:
+            self._load(Path(root), Path(root).name or "BBL")
+        else:
+            for v in vendors:
+                self._load(Path(root) / v, v)
+
+    def _load(self, root: Path, vendor: str) -> None:
         for kind in KINDS:
-            folder = Path(root) / _DIR_BY_KIND[kind]
+            folder = root / _DIR_BY_KIND[kind]
             if not folder.is_dir():
                 continue
             for path in sorted(folder.rglob("*.json")):
@@ -45,7 +54,7 @@ class ProfileIndex:
                     name = str(raw.get("name", path.stem))
                     rel = path.relative_to(folder).parts
                     self.by_kind[kind][name] = raw
-                    self.vendor[kind][name] = rel[0] if len(rel) > 1 else "BBL"
+                    self.vendor[kind][name] = rel[0] if len(rel) > 1 else vendor
 
     def flatten_dict(self, kind: str, raw: dict) -> dict:
         """Resolve `raw`'s `inherits` chain against the bundled presets of

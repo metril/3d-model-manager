@@ -31,7 +31,7 @@ else:
 
 @pytest.fixture
 def fake_cli(tmp_path) -> Path:
-    path = tmp_path / "fake-bambu"
+    path = tmp_path / "fake-slicer"
     path.write_text(FAKE_CLI.replace("#!/usr/bin/env python3", f"#!{sys.executable}"))
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return path

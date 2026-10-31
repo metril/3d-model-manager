@@ -1,4 +1,4 @@
-"""Bambu Studio sidecar sessions (Redis-backed, one active at a time).
+"""OrcaSlicer (Studio) sidecar sessions (Redis-backed, one active at a time).
 
 ``create`` copies a library file to ``<exchange>/<token>/in/<name>``, records
 the session under ``tdmm:studio:session:<token>`` (24 h TTL), asks the

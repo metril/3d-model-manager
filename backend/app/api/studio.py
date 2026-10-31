@@ -1,4 +1,4 @@
-"""Bambu Studio sidecar sessions: open a library file in Studio, inspect/end
+"""OrcaSlicer (Studio) sidecar sessions: open a library file in Studio, inspect/end
 the active session. Returned files are ingested by ``app.tasks.studio_exchange``.
 Error bodies follow the house convention ``{"detail": {"code": ...}}``.
 """

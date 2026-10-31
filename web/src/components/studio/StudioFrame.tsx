@@ -25,7 +25,7 @@ function StudioStage() {
   );
 }
 
-/** The streamed Bambu Studio GUI (same-origin `/studio/`) with a session strip on top.
+/** The streamed OrcaSlicer GUI (same-origin `/studio/`) with a session strip on top.
  * NOTE: moving an iframe in the DOM reloads it, so switching between the dock panel
  * and the `/studio` page restarts the stream (the Studio process keeps running). */
 export function StudioFrame() {

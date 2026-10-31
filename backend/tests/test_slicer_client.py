@@ -52,7 +52,8 @@ def test_health_contract():
         "running": None,
         "job_timeout_s": None,
         "mem_limit": None,
-        "bambu_version": None,
+        "slicer_name": None,
+        "slicer_version": "v02.08",
     }
 
 
@@ -69,13 +70,15 @@ def test_health_forwards_limits():
                 "running": 1,
                 "job_timeout_s": 600.0,
                 "mem_limit": 4294967296,
-                "bambu_version": "v02.08.02.61",
+                "slicer_name": "OrcaSlicer",
+                "slicer_version": "v2.4.2",
             },
         )
     )
     result = SlicerClient(BASE_URL).health()
     assert result["running"] == 1 and result["job_timeout_s"] == 600.0
-    assert result["mem_limit"] == 4294967296 and result["bambu_version"] == "v02.08.02.61"
+    assert result["mem_limit"] == 4294967296 and result["slicer_version"] == "v2.4.2"
+    assert result["slicer_name"] == "OrcaSlicer"
 
 
 @respx.mock
@@ -156,7 +159,7 @@ def test_slice_error_json_surfaces_error_and_message_but_not_log_tail():
             422,
             json={
                 "error": "slice_failed",
-                "message": "bambu-studio exited 3",
+                "message": "slicer exited 3",
                 "exit_code": 3,
                 "log_tail": "secret-log-tail",
             },
@@ -172,7 +175,7 @@ def test_slice_error_json_surfaces_error_and_message_but_not_log_tail():
             bed_type="textured_plate",
             options=SliceOptions(),
         )
-    assert "slice_failed: bambu-studio exited 3" in str(exc_info.value)
+    assert "slice_failed: slicer exited 3" in str(exc_info.value)
     assert "secret-log-tail" not in str(exc_info.value)
 
 
@@ -395,3 +398,13 @@ def test_slice_timeout_exceeds_job_timeout_by_grace():
     with pytest.raises(SlicerError):
         client.slice(b"x", "m.stl", {}, {}, [], "textured_plate", SliceOptions())
     assert route.calls.last.request.extensions["timeout"]["read"] == 160
+
+
+@respx.mock
+def test_health_legacy_bambu_version_alias():
+    respx.get(f"{BASE_URL}/health").mock(
+        return_value=httpx.Response(
+            200, json={"version": "v1", "status": "ok", "bambu_version": "v02.08.02.61"}
+        )
+    )
+    assert SlicerClient(BASE_URL).health()["slicer_version"] == "v02.08.02.61"

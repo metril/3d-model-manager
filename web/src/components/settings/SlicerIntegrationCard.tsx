@@ -1,5 +1,5 @@
 /**
- * Slicer integration card (Round 8 T6): documents the two Bambu Studio ->
+ * Slicer integration card (Round 8 T6): documents the two OrcaSlicer ->
  * library loops and mints/lists/revokes the API tokens they authenticate
  * with.
  *
@@ -14,7 +14,7 @@
  * self-contained, and the two cards' label inputs need distinct DOM ids
  * since both render on the same Accounts tab at once.
  *
- * Script download: `web/public/bambu_postprocess.py` IS served in
+ * Script download: `web/public/slicer_postprocess.py` IS served in
  * production (`docker/Dockerfile` builds `web/dist`, which Vite populates
  * with `public/`'s contents verbatim, and `app/static.py` serves any real
  * file under the static root -- confirmed in the Round 8 T4 report). But
@@ -50,7 +50,7 @@ export function SlicerIntegrationCard() {
     <Card>
       <CardHeader>
         <CardTitle>Slicer integration</CardTitle>
-        <CardDescription>Send sliced files straight from Bambu Studio to your library.</CardDescription>
+        <CardDescription>Send sliced files straight from OrcaSlicer to your library.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
@@ -73,8 +73,8 @@ export function SlicerIntegrationCard() {
           <div className="space-y-1">
             <h3 className="font-medium text-foreground">1. Auto-upload every slice (metadata)</h3>
             <p className="text-muted-foreground">
-              Bambu Studio → <strong>Process → Others → Post-processing scripts</strong>:{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">python3 /path/to/bambu_postprocess.py</code>,
+              OrcaSlicer → <strong>Process → Others → Post-processing scripts</strong>:{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">python3 /path/to/slicer_postprocess.py</code>,
               with <code className="rounded bg-muted px-1 py-0.5 text-xs">INTAKE_URL</code> (e.g.{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 http://&lt;this host&gt;:8080/api/slicer/intake
@@ -116,15 +116,15 @@ export function SlicerIntegrationCard() {
 function ScriptDownloadLink() {
   // Recomputed every render (not memoized) so each fresh page load/render
   // mints a new cache-busting query value -- see the module docstring.
-  const href = `/bambu_postprocess.py?v=${Date.now()}`;
+  const href = `/slicer_postprocess.py?v=${Date.now()}`;
 
   return (
     <a
       href={href}
-      download="bambu_postprocess.py"
+      download="slicer_postprocess.py"
       className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-4 hover:no-underline"
     >
-      <DownloadIcon className="size-4" /> Download bambu_postprocess.py
+      <DownloadIcon className="size-4" /> Download slicer_postprocess.py
     </a>
   );
 }
@@ -157,7 +157,7 @@ function WatchedFolderStatus() {
 }
 
 function MintForm() {
-  const [label, setLabel] = useState("Bambu Studio");
+  const [label, setLabel] = useState("OrcaSlicer");
   const [minted, setMinted] = useState<{ label: string; token: string } | null>(null);
   const createToken = useCreateApiToken();
 
@@ -185,7 +185,7 @@ function MintForm() {
           <Label htmlFor="slicer-api-token-label">Token label</Label>
           <Input
             id="slicer-api-token-label"
-            placeholder="e.g. Bambu Studio"
+            placeholder="e.g. OrcaSlicer"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             disabled={createToken.isPending}

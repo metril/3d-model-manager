@@ -16,6 +16,8 @@ from app.services.slicer_naming import _safe_basename, model_name_from_filename,
         ("Thing_PETG-CF_12h3m.gcode", "Thing"),
         ("Widget.3mf", "Widget"),
         ("X_plate_2.gcode.3mf", "X"),
+        ("Orca Cube_PLA+_1h20m30s.gcode.3mf", "Orca Cube"),  # OrcaSlicer export names
+        ("Bracket_ABS-GF_45m.gcode", "Bracket"),
         ("Foo_PLA.gcode", "Foo_PLA"),  # material without duration: untouched
         ("Model.stl", "Model"),
         ("sub/dir/Benchy.gcode.3mf", "Benchy"),

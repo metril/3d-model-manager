@@ -60,7 +60,7 @@ export type VpState = "idle" | "running" | "error" | "offline";
 
 export interface SlicerProbeInfo {
   version?: string;
-  bambu_version?: string;
+  slicer_version?: string;
   busy?: boolean;
   running?: number;
   max_concurrency?: number;

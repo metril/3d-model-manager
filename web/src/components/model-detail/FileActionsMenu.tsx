@@ -98,7 +98,7 @@ export function FileActionsMenu({
             </DropdownMenuItem>
           ) : null}
           {showStudio ? (
-            <DropdownMenuItem aria-label={`Open ${file.rel_path} in Bambu Studio`} onSelect={() => studio.launch(file)}>
+            <DropdownMenuItem aria-label={`Open ${file.rel_path} in OrcaSlicer`} onSelect={() => studio.launch(file)}>
               <BoxesIcon className="size-4" />
               {t("studio.open")}
             </DropdownMenuItem>

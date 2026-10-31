@@ -272,11 +272,24 @@ async def test_import_path_forbidden_for_non_admin(member_client: httpx.AsyncCli
     assert r.status_code == 403
 
 
-async def test_import_path_requires_bbl_json(authenticated_client: httpx.AsyncClient, tmp_path):
+async def test_import_path_requires_vendor_manifest(
+    authenticated_client: httpx.AsyncClient, tmp_path
+):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     r = await authenticated_client.post("/api/profiles/import", json={"path": str(empty_dir)})
     assert r.status_code == 422
+
+
+async def test_import_path_accepts_non_bbl_vendor_manifest(
+    authenticated_client: httpx.AsyncClient, tmp_path
+):
+    from tests.slicer_fixtures import write_bundle
+
+    root = write_bundle(tmp_path / "bundle")
+    (root / "BBL.json").rename(root / "Creality.json")
+    r = await authenticated_client.post("/api/profiles/import", json={"path": str(root)})
+    assert r.status_code == 200, r.text
 
 
 async def test_import_path_admin_ok(authenticated_client: httpx.AsyncClient, tmp_path):

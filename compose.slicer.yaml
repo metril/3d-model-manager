@@ -1,12 +1,12 @@
-# Slicer sidecar -- our own FastAPI wrapper (./slicer) around the Bambu Studio
+# Slicer sidecar -- our own FastAPI wrapper (./slicer) around the OrcaSlicer
 # CLI. Always on (no profile); Settings -> Server enables/disables the
 # integration and sets its URL (default http://slicer:3001).
 #
 # `app.services.slicer_client.SlicerClient` talks to it. The release workflow
 # publishes ghcr.io/metril/3d-model-manager-slicer (:edge, :sha-<short>,
-# :<bambu-version>-<sha>, :latest, and :X.Y.Z/:X.Y/:X on releases);
+# :<orca-version>-<sha>, :latest, and :X.Y.Z/:X.Y/:X on releases);
 # compose.prod.yaml pulls it. Standalone, set SLICER_IMAGE to use a published
-# tag instead of the local build. The Bambu Studio AppImage is pinned
+# tag instead of the local build. The OrcaSlicer AppImage is pinned
 # (version + sha256) in slicer/Dockerfile.
 services:
   slicer:
@@ -18,7 +18,8 @@ services:
     environment:
       SLICER_MAX_JOBS: ${SLICER_MAX_JOBS:-1}
       SLICER_JOB_TIMEOUT_S: ${SLICER_JOB_TIMEOUT_S:-600}
-      SLICER_USE_XVFB: ${SLICER_USE_XVFB:-0}
+      SLICER_USE_XVFB: ${SLICER_USE_XVFB:-1}
+      SLICER_PROFILE_VENDORS: ${SLICER_PROFILE_VENDORS:-BBL}
     mem_limit: ${SLICER_MEM_LIMIT:-4g}
     read_only: true
     tmpfs:

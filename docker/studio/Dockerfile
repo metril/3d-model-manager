@@ -1,11 +1,11 @@
-# Bambu Studio GUI sidecar: the linuxserver Selkies image (labwc + Xwayland,
-# streamed over WebSocket) plus a tiny launcher service that relaunches Studio
-# on a file under /exchange. Pinned by digest; this is
-# lscr.io/linuxserver/bambustudio:latest as of 2026-10-31 (Selkies 2.1.0).
-FROM lscr.io/linuxserver/bambustudio@sha256:857e937fe1c3451244cb178952e0e7a00241ab48c32cb1ce9ea6b27e4fd729e5
+# OrcaSlicer GUI sidecar: the linuxserver Selkies image (labwc + Xwayland,
+# streamed over WebSocket) plus a tiny launcher service that relaunches the
+# slicer on a file under /exchange. Pinned by digest; this is
+# lscr.io/linuxserver/orcaslicer:v2.4.2-ls46 (OrcaSlicer v2.4.2).
+FROM lscr.io/linuxserver/orcaslicer@sha256:b8806fab27725e26ddd14a24f22990bf0780bc7fdadb43e23120b9a1c16c8b88
 
 COPY root/ /
-RUN chmod +x /app/launcher.py /custom-cont-init.d/10-studio-prefs /custom-cont-init.d/20-nvidia-gbm \
+RUN chmod +x /app/launcher.py /custom-cont-init.d/10-studio-prefs /custom-cont-init.d/15-studio-autostart /custom-cont-init.d/20-nvidia-gbm \
     /etc/s6-overlay/s6-rc.d/svc-launcher/run \
  && mkdir -p /exchange
 
