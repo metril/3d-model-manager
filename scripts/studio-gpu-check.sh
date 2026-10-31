@@ -56,15 +56,21 @@ fi
 hdr "Studio container (${SECS}s, 127.0.0.1:${PORT} only)"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 # Same init hook as docker/studio/root/custom-cont-init.d/20-nvidia-gbm: the
-# toolkit injects libnvidia-egl-gbm.so.1 but not the libgbm backend symlink.
+# toolkit injects libnvidia-allocator but not the libgbm backend symlink.
 INITD="$(mktemp -d)"
 cat >"$INITD/20-nvidia-gbm" <<'HOOK'
 #!/usr/bin/with-contenv bash
 LIBDIR=/usr/lib/x86_64-linux-gnu
-if [ -e "$LIBDIR/libnvidia-egl-gbm.so.1" ]; then
+# The GBM backend symbol (gbmint_get_backend) lives in libnvidia-allocator,
+# not in libnvidia-egl-gbm (that one is only the EGL platform shim).
+TARGET="$LIBDIR/libnvidia-allocator.so.1"
+[ -e "$TARGET" ] || TARGET="$(ls "$LIBDIR"/libnvidia-allocator.so.* 2>/dev/null | head -1)"
+if [ -n "$TARGET" ] && [ -e "$TARGET" ]; then
   mkdir -p "$LIBDIR/gbm"
-  ln -sfn "$LIBDIR/libnvidia-egl-gbm.so.1" "$LIBDIR/gbm/nvidia-drm_gbm.so"
-  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so"
+  ln -sfn "$TARGET" "$LIBDIR/gbm/nvidia-drm_gbm.so"
+  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so -> $TARGET"
+else
+  echo "[nvidia-gbm] libnvidia-allocator not present; no GBM backend link"
 fi
 HOOK
 chmod 755 "$INITD/20-nvidia-gbm"
@@ -116,7 +122,7 @@ fi
 if grep -qiE 'rendering in software \(Pixman\)|GPU renderer failed to initialize' "$LOG"; then
   fail "compositor fell back to software (Pixman): $(grep -iE 'GPU renderer failed|Pixman' "$LOG" | head -1 | cut -c1-160)"
   grep -qE 'DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied' "$LOG" && \
-    echo "  hint: EACCES on CREATE_DUMB = mesa GBM fell back to dumb buffers on a render node; the NVIDIA GBM backend (nvidia-drm_gbm.so / libnvidia-egl-gbm) is not loaded in the container"
+    echo "  hint: EACCES on CREATE_DUMB = mesa GBM fell back to dumb buffers on a render node; the NVIDIA GBM backend (gbm/nvidia-drm_gbm.so -> libnvidia-allocator) is not loaded in the container"
 fi
 if grep -qiE 'error|failed|cannot' "$LOG"; then
   echo "note: log contains error/failed lines (informational):"
@@ -125,12 +131,18 @@ fi
 
 hdr "GBM / EGL backend diagnostics (host)"
 ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
+if ldconfig -p | grep -q libnvidia-allocator; then
+  ldconfig -p | grep libnvidia-allocator | head -2
+else
+  fail "host has no libnvidia-allocator (NVIDIA GBM backend); install the driver's allocator package (Debian: libnvidia-allocator1 or libnvidia-gl-<ver>) and rerun"
+  dpkg -l 2>/dev/null | awk '/nvidia/ {print "  installed:", $2, $3}' | head -12
+fi
 dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2, $3}' || true
 hdr "GBM / EGL backend diagnostics (container)"
 docker exec "$NAME" sh -c '
   echo "-- gbm backends:"; ls -l /usr/lib/x86_64-linux-gnu/gbm/ 2>&1
   echo "-- egl vendors:"; ls /usr/share/glvnd/egl_vendor.d/ /etc/glvnd/egl_vendor.d/ 2>&1
-  echo "-- nvidia egl/gbm libs:"; ldconfig -p | grep -iE "nvidia-egl|egl-gbm|libgbm" || echo "none"
+  echo "-- nvidia egl/gbm libs:"; ldconfig -p | grep -iE "nvidia-egl|egl-gbm|libgbm|nvidia-allocator" || echo "none"
   echo "-- /dev/dri:"; ls -ln /dev/dri
   echo "-- abc user:"; id abc 2>/dev/null || id
   echo "-- card0 open as abc:"; su -s /bin/sh abc -c "exec 3<>/dev/dri/card0 && echo ok" 2>/dev/null || echo DENIED
