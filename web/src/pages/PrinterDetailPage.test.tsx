@@ -63,7 +63,7 @@ const STATUS: PrinterStatusOut = {
   nozzle_temper: 210,
   bed_temper: 60,
   subtask_name: "benchy.gcode",
-  wifi_signal: "-50dBm",
+  wifi_signal: -50,
   trays: [],
 };
 

@@ -9,6 +9,7 @@ happens ONLY inside the test-probe path via
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -342,7 +343,7 @@ class PrinterStatusOut(BaseModel):
     nozzle_temper: float | None = None
     bed_temper: float | None = None
     subtask_name: str | None = None
-    wifi_signal: str | None = None
+    wifi_signal: int | None = None  # dBm (parsed from the printer's "-52dBm")
     trays: list[AmsTrayOut] = Field(default_factory=list)
     # Q1 status schema v2 (all optional; fan values are percent).
     nozzle_target: float | None = None
@@ -386,6 +387,16 @@ class PrinterStatusOut(BaseModel):
     active_tray: AmsTrayOut | None = None
     # DB overlay: the in-flight print job, or None.
     print_job: StatusPrintJobOut | None = None
+
+    @field_validator("wifi_signal", mode="before")
+    @classmethod
+    def _parse_wifi(cls, v: object) -> int | None:
+        if v is None or isinstance(v, bool):
+            return None
+        if isinstance(v, (int, float)):
+            return round(v)
+        m = re.search(r"-?\d+(?:\.\d+)?", str(v))
+        return round(float(m.group())) if m else None
 
 
 # Everything in PrinterStatusOut that is copied verbatim from the Redis state.

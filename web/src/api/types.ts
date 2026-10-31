@@ -923,7 +923,7 @@ export interface PrinterStatusOut {
   nozzle_temper: number | null;
   bed_temper: number | null;
   subtask_name: string | null;
-  wifi_signal: string | null;
+  wifi_signal: number | null; // dBm
   trays: AmsTray[];
   // Q1 status schema v2 -- all optional (fan values are percent).
   nozzle_target?: number | null;

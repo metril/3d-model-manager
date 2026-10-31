@@ -98,6 +98,40 @@ async def _job_overlay(
     )
 
 
+_TEMP_FIELDS = (
+    "nozzle_temper",
+    "bed_temper",
+    "nozzle_target",
+    "bed_target",
+    "chamber_temper",
+    "chamber_target",
+)
+
+
+def _r1(v: float | None) -> float | None:
+    return None if v is None else round(v, 1)
+
+
+def normalize_status(out: PrinterStatusOut) -> PrinterStatusOut:
+    """Stable ordering + rounding so consumers (and the SSE delta diff) never
+    see churn from reordered lists or sub-0.1 sensor jitter. In place."""
+    for f in _TEMP_FIELDS:
+        setattr(out, f, _r1(getattr(out, f)))
+    if out.mc_remaining_time is not None:
+        out.mc_remaining_time = round(out.mc_remaining_time)
+    out.trays.sort(key=lambda t: (-1 if t.ams_unit is None else t.ams_unit, t.slot))
+    out.hms.sort(key=lambda h: (h.attr, h.code))
+    out.ams_units.sort(key=lambda u: u.id)
+    out.extruders.sort(key=lambda e: e.id)
+    for u in out.ams_units:
+        u.temp = _r1(u.temp)
+        u.humidity = _r1(u.humidity)
+    for e in out.extruders:
+        e.temp = _r1(e.temp)
+        e.target = _r1(e.target)
+    return out
+
+
 async def build_status(
     db: AsyncSession, settings: Settings, printer: Printer, state: dict | None
 ) -> PrinterStatusOut:
@@ -125,4 +159,4 @@ async def build_status(
     row = (await active_job_rows(db, [printer.id])).get(printer.id)
     if row is not None:
         out.print_job, out.print_thumbnail_key = await _job_overlay(settings, *row)
-    return out
+    return normalize_status(out)
