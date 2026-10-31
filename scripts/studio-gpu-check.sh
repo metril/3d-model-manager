@@ -131,6 +131,13 @@ fi
 
 hdr "GBM / EGL backend diagnostics (host)"
 ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
+for lib in libEGL_nvidia.so.0 libGLESv2_nvidia.so.2 libnvidia-eglcore.so libnvidia-egl-wayland.so.1; do
+  if ldconfig -p | grep -q "$lib"; then
+    echo "host has $lib"
+  else
+    fail "host has no $lib; the container toolkit only mounts what the host has. Debian-style packages: libegl-nvidia0 libnvidia-eglcore libgles-nvidia2 libnvidia-egl-wayland1 (apt-cache search nvidia | grep -iE 'egl|gles')"
+  fi
+done
 if ldconfig -p | grep -q libnvidia-allocator; then
   ldconfig -p | grep libnvidia-allocator | head -2
 else
