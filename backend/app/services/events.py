@@ -156,3 +156,27 @@ def publish_slice_event_sync(redis_url: str, **kwargs: object) -> None:
             client.close()
     except redis.RedisError:
         pass
+
+
+def publish_event_sync(redis_url: str, payload: dict) -> None:
+    """Best-effort generic publish (studio events); a Redis blip never raises."""
+    try:
+        client = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        try:
+            client.publish(CHANNEL, json.dumps(payload))
+        finally:
+            client.close()
+    except redis.RedisError:
+        pass
+
+
+async def publish_event(redis_url: str, payload: dict) -> None:
+    """Async twin of ``publish_event_sync``."""
+    try:
+        client = aioredis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        try:
+            await client.publish(CHANNEL, json.dumps(payload))
+        finally:
+            await client.aclose()
+    except redis.RedisError:
+        pass
