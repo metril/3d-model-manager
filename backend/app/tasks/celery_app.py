@@ -60,6 +60,7 @@ celery_app.conf.update(
         "app.tasks.importing",
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
+        "app.tasks.studio_exchange",
         "app.tasks.scheduler",
         "app.tasks.slicing",
         "app.tasks.dispatch",
@@ -131,6 +132,14 @@ celery_app.conf.beat_schedule["slice-job-sweep"] = {
 celery_app.conf.beat_schedule["billing-recompute"] = {
     "task": "app.tasks.billing.recompute_balances",
     "schedule": crontab(hour=0, minute=5),
+}
+
+# Additive: Bambu Studio exchange ingest + sweeper. Its own 5 s entry (the
+# shared `dispatch_scheduled` tick is 15 s); the task is a no-op unless
+# `studio_enabled` (DB-backed, re-read every tick).
+celery_app.conf.beat_schedule["studio-exchange"] = {
+    "task": "app.tasks.studio_exchange.scan_studio_exchange",
+    "schedule": 5.0,
 }
 
 # Additive: P8 Task 4's HA REST poller -- writes `ha:alert:*`/`ha:energy:*`
