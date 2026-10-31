@@ -380,6 +380,8 @@ export function PrintDialog({
   const { t } = useTranslation();
   const [forcedFor, setForcedFor] = useState<number | null>(null);
   const [refusedFor, setRefusedFor] = useState<number | null>(null);
+  // The draft batch a refused dispatch left behind; a retry re-dispatches it.
+  const [draftBatchId, setDraftBatchId] = useState<number | null>(null);
   const enqueueRaw = useEnqueue();
   const createBatch = useCreateBatch();
   const dispatchBatch = useDispatchBatch();
@@ -393,6 +395,15 @@ export function PrintDialog({
   function submitQueue(body: QueueEnqueueBody, onSuccess: () => void) {
     const fields = draftToFields(sched);
     if (batchChoice.mode === "new") {
+      const dispatchDraft = (batchId: number) =>
+        dispatchBatch.mutateAsync({ batchId, force: body.force }).then(onSuccess, (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") setRefusedFor(body.recipe_id ?? null);
+          toast.error(t("queueSched.batchDraftOnly"));
+        });
+      if (draftBatchId != null) {
+        void dispatchDraft(draftBatchId);
+        return;
+      }
       const name =
         batchChoice.name.trim() || t("queueSched.defaultBatchName", { date: new Date().toLocaleDateString() });
       createBatch
@@ -411,11 +422,8 @@ export function PrintDialog({
         })
         .then((b) => {
           // Created: a failed dispatch must not let a retry create a 2nd batch.
-          setBatchChoice({ ...batchChoice, mode: b.id });
-          return dispatchBatch.mutateAsync({ batchId: b.id, force: body.force }).then(onSuccess, (e) => {
-            if (e instanceof ApiError && e.code === "does_not_fit") setRefusedFor(body.recipe_id ?? null);
-            toast.error(t("queueSched.batchDraftOnly"));
-          });
+          setDraftBatchId(b.id);
+          return dispatchDraft(b.id);
         })
         .catch(() => undefined);
       return;

@@ -573,6 +573,39 @@ describe("PrintDialog", () => {
       );
     });
 
+    it("a refused new-batch dispatch is retried on the same draft batch with force", async () => {
+      authDataBox.current = { id: 1, role: "member", permissions: ["queue:review"], printer_access: null };
+      const base = getMock.getMockImplementation()!;
+      getMock.mockImplementation((path: string) =>
+        path === "/batches" ? Promise.resolve([]) : path === "/printers/plugs/summary" ? Promise.resolve({ plugs: {} }) : base(path),
+      );
+      renderDialog({ kind: "file", fileId: 10, format: "stl" });
+      fireEvent.click(await screen.findByLabelText("PLA fast"));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      const basePost = postMock.getMockImplementation()!;
+      postMock.mockImplementation((path: string, body?: unknown) =>
+        path === "/batches"
+          ? Promise.resolve({ id: 9 })
+          : path === "/batches/9/dispatch"
+            ? body
+              ? Promise.resolve({ id: 9 })
+              : Promise.reject(new ApiError(422, "part does not fit", "does_not_fit", [{ id: 10, name: "a.stl" }]))
+            : basePost(path, body as never),
+      );
+      fireEvent.click(await screen.findByRole("button", { name: /^Scheduling/ }));
+      fireEvent.change(await screen.findByLabelText("Batch"), { target: { value: "new" } });
+      fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "4" } });
+      fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/batches/9/dispatch"));
+      fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
+      fireEvent.click(await screen.findByLabelText("Slice anyway"));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith("/batches/9/dispatch", { force: true }));
+      expect(postMock.mock.calls.filter((c) => c[0] === "/batches")).toHaveLength(1);
+      expect(postMock.mock.calls.some((c) => c[0] === "/queue")).toBe(false);
+    });
+
     it("offers Slice anyway after a does_not_fit refusal with no chip verdict", async () => {
       renderDialog({ kind: "file", fileId: 10, format: "stl" });
       fireEvent.click(await screen.findByLabelText("PLA fast"));
