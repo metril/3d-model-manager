@@ -43,9 +43,25 @@ async def test_requires_session(client: httpx.AsyncClient) -> None:
     assert (await client.get("/studio/")).status_code == 401
 
 
-async def test_requires_library_write(viewer_client: httpx.AsyncClient, db_session) -> None:
+async def test_requires_admin(
+    viewer_client: httpx.AsyncClient, member_client: httpx.AsyncClient, db_session
+) -> None:
     await _enable(db_session)
     assert (await viewer_client.get("/studio/")).status_code == 403
+    # member has library:write but is not admin -> still 403
+    assert (await member_client.get("/studio/")).status_code == 403
+
+
+@respx.mock
+async def test_admin_ok_and_dotdot_rejected(
+    authenticated_client: httpx.AsyncClient, db_session
+) -> None:
+    await _enable(db_session)
+    respx.get(f"{UPSTREAM}/studio/ok").respond(200, text="hi")
+    assert (await authenticated_client.get("/studio/ok")).status_code == 200
+    for bad in ("/studio/a/%2e%2e/x", "/studio/a/%252e%252e/x"):
+        r = await authenticated_client.get(bad)
+        assert r.status_code == 400, bad
 
 
 async def test_disabled_is_404(authenticated_client: httpx.AsyncClient) -> None:
@@ -161,10 +177,10 @@ async def test_ws_bridge(authenticated_client: httpx.AsyncClient, db_session) ->
 
 
 async def test_ws_rejects_without_perm_and_when_disabled(
-    authenticated_client: httpx.AsyncClient, viewer_client: httpx.AsyncClient, db_session
+    authenticated_client: httpx.AsyncClient, member_client: httpx.AsyncClient, db_session
 ) -> None:
     admin = authenticated_client.cookies[SESSION_COOKIE_NAME]
-    viewer = viewer_client.cookies[SESSION_COOKIE_NAME]
+    viewer = member_client.cookies[SESSION_COOKIE_NAME]
 
     async def attempt(port: int, cookie: str) -> int:
         with pytest.raises(InvalidStatus) as exc:
@@ -178,4 +194,17 @@ async def test_ws_rejects_without_perm_and_when_disabled(
     async with _serve_app() as port:
         assert await attempt(port, admin) == 403  # studio disabled
         await _enable(db_session, "http://127.0.0.1:1")
-        assert await attempt(port, viewer) == 403  # no library:write
+        assert await attempt(port, viewer) == 403  # member: library:write but not admin
+
+
+def test_upstream_url_rejects_dotdot() -> None:
+    from fastapi import HTTPException
+
+    from app.services.server_config import ServerConfig
+
+    cfg = ServerConfig()
+    for bad in ("../x", "a/../x", "a/%2e%2e/x", "a/%252e%252e/x", "a\\..\\x"):
+        with pytest.raises(HTTPException) as exc:
+            studio_proxy._upstream_url(cfg, bad, "")
+        assert exc.value.status_code == 400
+    assert studio_proxy._upstream_url(cfg, "a..b/c", "").endswith("/studio/a..b/c")

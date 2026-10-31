@@ -2,9 +2,12 @@
 
 Registered OUTSIDE ``/api`` and before the SPA catch-all. HTTP is streamed
 through ``httpx``; WebSockets (``/studio/api/websockets`` etc.) are bridged
-with the ``websockets`` library. Both require a ``library:write`` session;
-the session cookie and ``Authorization`` header are never forwarded, so the
-sidecar cannot see our credentials. 404 while ``studio_enabled`` is off.
+with the ``websockets`` library. Both require an ``admin`` session: the Studio
+desktop is a root shell on the compose network, so it must not be reachable by
+members. WebSocket auth is checked at connect only (not re-validated while the
+socket stays open). The session cookie and ``Authorization`` header are never
+forwarded, so the sidecar cannot see our credentials. 404 while
+``studio_enabled`` is off.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 import websockets
@@ -59,7 +62,7 @@ def get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
         _client = httpx.AsyncClient(
-            timeout=None,
+            timeout=httpx.Timeout(None, pool=10),
             follow_redirects=False,
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
         )
@@ -74,6 +77,9 @@ async def close_client() -> None:
 
 
 def _upstream_url(cfg: ServerConfig, path: str, query: str) -> str:
+    decoded = unquote(unquote(path)).replace("\\", "/")
+    if any(seg == ".." for seg in decoded.split("/")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid path")
     url = f"{cfg.studio_url.rstrip('/')}/studio/{quote(path, safe='/:@!$&()*+,;=-._~%')}"
     return f"{url}?{query}" if query else url
 
@@ -86,7 +92,7 @@ async def _body(request: Request) -> AsyncIterator[bytes]:
 @router.api_route(
     "/studio/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
-    dependencies=[Depends(require_perm("library:write"))],
+    dependencies=[Depends(require_perm("admin"))],
 )
 async def proxy_http(
     path: str, request: Request, db: AsyncSession = Depends(get_db)
@@ -116,6 +122,7 @@ async def proxy_http(
             if k.lower() not in ("content-security-policy", "x-frame-options")
         ]
         raw += [
+            # Always 'self': there is no server-config field for frame-ancestors.
             ("Content-Security-Policy", "frame-ancestors 'self'"),
             ("X-Frame-Options", "SAMEORIGIN"),
         ]
@@ -129,7 +136,7 @@ async def proxy_http(
 
 
 async def _ws_auth(websocket: WebSocket) -> AuthContext | None:
-    """Cookie-based equivalent of ``require_perm("library:write")``."""
+    """Cookie-based equivalent of ``require_perm("admin")``."""
     cookie = websocket.cookies.get(SESSION_COOKIE_NAME)
     if cookie is None:
         return None
@@ -138,7 +145,7 @@ async def _ws_auth(websocket: WebSocket) -> AuthContext | None:
             ctx = await require_session(None, cookie, db)  # type: ignore[arg-type]
         except HTTPException:
             return None
-    return ctx if ctx.can("library:write") else None
+    return ctx if ctx.can("admin") else None
 
 
 def _same_origin(websocket: WebSocket) -> bool:
@@ -168,7 +175,11 @@ async def proxy_ws(websocket: WebSocket, path: str) -> None:
 
     base = urlsplit(cfg.studio_url)
     scheme = "wss" if base.scheme == "https" else "ws"
-    uri = _upstream_url(cfg, path, websocket.url.query).replace(base.scheme, scheme, 1)
+    try:
+        uri = _upstream_url(cfg, path, websocket.url.query).replace(base.scheme, scheme, 1)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
     offered = list(websocket.scope.get("subprotocols") or [])
     try:
         upstream = await websockets.connect(
