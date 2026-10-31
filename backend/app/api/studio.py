@@ -46,7 +46,7 @@ async def _studio_running(cfg: ServerConfig) -> bool:
 @router.post(
     "/models/{slug}/files/{file_id}/studio",
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_perm("library:write"))],
+    dependencies=[Depends(require_perm("admin"))],
 )
 async def open_in_studio(
     slug: str,
@@ -89,7 +89,7 @@ async def open_in_studio(
 @router.get(
     "/studio/session",
     response_model=None,
-    dependencies=[Depends(require_perm("library:write"))],
+    dependencies=[Depends(require_perm("admin"))],
 )
 async def get_session(
     db: AsyncSession = Depends(get_db), r: aioredis.Redis = Depends(_redis)
@@ -113,7 +113,7 @@ async def get_session(
 @router.delete(
     "/studio/session",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_perm("library:write"))],
+    dependencies=[Depends(require_perm("admin"))],
 )
 async def end_session(
     db: AsyncSession = Depends(get_db), r: aioredis.Redis = Depends(_redis)

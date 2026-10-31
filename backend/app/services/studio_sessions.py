@@ -34,6 +34,7 @@ SESSION_TTL_S = 24 * 3600
 ACTIVE_KEY = "tdmm:studio:active"
 ARRANGEABLE_EXTS = (".3mf", ".stl", ".obj", ".step", ".stp")
 LAUNCHER_TIMEOUT_S = 10.0
+CREATE_LOCK_KEY = "tdmm:studio:create-lock"
 
 
 def session_key(token: str) -> str:
@@ -83,6 +84,15 @@ async def create(
     file: File,
     user_id: int,
 ) -> CreatedSession:
+    if not await r.set(CREATE_LOCK_KEY, "1", nx=True, ex=30):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"code": "studio_busy"})
+    try:
+        return await _create(db, settings, cfg, r, model, revision, file, user_id)
+    finally:
+        await r.delete(CREATE_LOCK_KEY)
+
+
+async def _create(db, settings, cfg, r, model, revision, file, user_id) -> CreatedSession:
     token = secrets.token_urlsafe(16)
     name = _safe_basename(file.rel_path)
     root = settings.studio_exchange_dir / token
@@ -93,6 +103,7 @@ async def create(
         "revision_id": revision.id,
         "file_id": file.id,
         "file_name": name,
+        "source_hash": file.blob_hash,
         "user_id": user_id,
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -133,13 +144,10 @@ async def get_active(r: aioredis.Redis) -> dict | None:
 
 
 async def end(cfg: ServerConfig, r: aioredis.Redis) -> None:
-    """Stop Studio and clear the active session + its record. Exchange files
-    stay on disk for the sweeper."""
-    token = await r.get(ACTIVE_KEY)
+    """Stop Studio and clear the active pointer. The session record stays
+    (until its TTL) so a late save still lands; files stay for the sweeper."""
     if cfg.studio_enabled:
         # clearing our state matters more than a dead launcher
         with contextlib.suppress(HTTPException):
             await _launcher(cfg, "POST", "/stop")
     await r.delete(ACTIVE_KEY)
-    if token is not None:
-        await r.delete(session_key(token.decode() if isinstance(token, bytes) else token))

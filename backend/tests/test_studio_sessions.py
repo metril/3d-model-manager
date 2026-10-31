@@ -78,6 +78,7 @@ def _plant(rds, token: str, model: Model, rev: Revision, file: File) -> None:
         "revision_id": rev.id,
         "file_id": file.id,
         "file_name": file.rel_path,
+        "source_hash": file.blob_hash,
         "user_id": 1,
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -169,7 +170,8 @@ async def test_get_and_delete_session(
 
     assert (await authenticated_client.delete("/api/studio/session")).status_code == 204
     assert stop.called and stop.calls.last.request.headers["X-Launcher-Token"] == "tok"
-    assert rds.get(ss.ACTIVE_KEY) is None and rds.get(ss.session_key(token)) is None
+    assert rds.get(ss.ACTIVE_KEY) is None
+    assert rds.get(ss.session_key(token)) is not None  # kept so a late save still lands
     assert (exchange / token / "in" / "part.stl").exists()  # left for the sweeper
     assert (await authenticated_client.get("/api/studio/session")).status_code == 204
 
@@ -177,19 +179,26 @@ async def test_get_and_delete_session(
 async def test_scan_attaches_returned_file(db_session, seed_file, exchange, rds) -> None:
     model, rev, f = await _model(db_session, seed_file, "st-scan")
     await _enable()
-    _plant(rds, "tokA", model, rev, f)
+    _plant(rds, "tokAxxxxxxxxxxxxxxxxxx", model, rev, f)
     pubsub = rds.pubsub()
     pubsub.subscribe("tdmm:events")
-    out = _drop(exchange / "tokA" / "result.3mf", b"3mf-bytes-1")
-    _drop(exchange / "tokA" / "in" / "part.stl")  # input copy is never scanned
-    _drop(exchange / "tokA" / "fresh.3mf", age=0)  # unstable
-    _drop(exchange / "tokA" / "x.3mf.tmp")  # temp name
+    out = _drop(exchange / "tokAxxxxxxxxxxxxxxxxxx" / "result.3mf", b"3mf-bytes-1")
+    _drop(
+        exchange / "tokAxxxxxxxxxxxxxxxxxx" / "in" / "part.stl", b"solid x\nendsolid x\n"
+    )  # input copy is never scanned
+    _drop(exchange / "tokAxxxxxxxxxxxxxxxxxx" / "fresh.3mf", age=0)  # unstable
+    _drop(exchange / "tokAxxxxxxxxxxxxxxxxxx" / "x.3mf.tmp")  # temp name
 
     scan_studio_exchange()
 
-    assert not out.exists() and (exchange / "tokA" / ".imported" / "result.3mf").exists()
-    assert (exchange / "tokA" / "fresh.3mf").exists() and (exchange / "tokA" / "x.3mf.tmp").exists()
-    assert (exchange / "tokA" / "in" / "part.stl").exists()
+    assert (
+        not out.exists()
+        and (exchange / "tokAxxxxxxxxxxxxxxxxxx" / ".imported" / "result.3mf").exists()
+    )
+    assert (exchange / "tokAxxxxxxxxxxxxxxxxxx" / "fresh.3mf").exists() and (
+        exchange / "tokAxxxxxxxxxxxxxxxxxx" / "x.3mf.tmp"
+    ).exists()
+    assert (exchange / "tokAxxxxxxxxxxxxxxxxxx" / "in" / "part.stl").exists()
     names = set(
         (
             await db_session.execute(select(File.rel_path).where(File.revision_id == rev.id))
@@ -217,13 +226,15 @@ async def test_scan_attaches_returned_file(db_session, seed_file, exchange, rds)
 async def test_scan_sliced_and_duplicate(db_session, seed_file, exchange, rds) -> None:
     model, rev, f = await _model(db_session, seed_file, "st-dup")
     await _enable()
-    _plant(rds, "tokB", model, rev, f)
-    _drop(exchange / "tokB" / "plate.gcode.3mf", b"sliced-bytes")
-    _drop(exchange / "tokB" / "same.stl", b"solid x\nendsolid x\n")  # == seeded blob
+    _plant(rds, "tokBxxxxxxxxxxxxxxxxxx", model, rev, f)
+    _drop(exchange / "tokBxxxxxxxxxxxxxxxxxx" / "plate.gcode.3mf", b"sliced-bytes")
+    _drop(
+        exchange / "tokBxxxxxxxxxxxxxxxxxx" / "same.stl", b"solid x\nendsolid x\n"
+    )  # == seeded blob
 
     scan_studio_exchange()
 
-    imported = exchange / "tokB" / ".imported"
+    imported = exchange / "tokBxxxxxxxxxxxxxxxxxx" / ".imported"
     assert (imported / "plate.gcode.3mf").exists() and (imported / "same.stl").exists()
     rows = (
         await db_session.execute(select(File.rel_path).where(File.revision_id == rev.id))
@@ -234,8 +245,8 @@ async def test_scan_sliced_and_duplicate(db_session, seed_file, exchange, rds) -
 async def test_scan_renames_on_name_clash(db_session, seed_file, exchange, rds) -> None:
     model, rev, f = await _model(db_session, seed_file, "st-clash")
     await _enable()
-    _plant(rds, "tokC", model, rev, f)
-    _drop(exchange / "tokC" / "part.stl", b"solid y\nendsolid y\n")
+    _plant(rds, "tokCxxxxxxxxxxxxxxxxxx", model, rev, f)
+    _drop(exchange / "tokCxxxxxxxxxxxxxxxxxx" / "part.stl", b"solid y\nendsolid y\n")
 
     scan_studio_exchange()
 
@@ -248,25 +259,25 @@ async def test_scan_renames_on_name_clash(db_session, seed_file, exchange, rds) 
 async def test_scan_unknown_token_and_unsupported(db_session, seed_file, exchange, rds) -> None:
     model, rev, f = await _model(db_session, seed_file, "st-fail")
     await _enable()
-    _plant(rds, "tokD", model, rev, f)
-    _drop(exchange / "ghost" / "a.3mf")
-    _drop(exchange / "tokD" / "notes.txt")
+    _plant(rds, "tokDxxxxxxxxxxxxxxxxxx", model, rev, f)
+    _drop(exchange / ("g" * 22) / "a.3mf")
+    _drop(exchange / "tokDxxxxxxxxxxxxxxxxxx" / "notes.txt")
 
     scan_studio_exchange()
 
-    assert (exchange / "ghost" / ".failed" / "a.3mf").exists()
-    assert (exchange / "tokD" / ".failed" / "notes.txt").exists()
+    assert (exchange / ("g" * 22) / ".failed" / "a.3mf").exists()
+    assert (exchange / "tokDxxxxxxxxxxxxxxxxxx" / ".failed" / "notes.txt").exists()
 
 
 async def test_scan_noop_when_disabled(db_session, exchange) -> None:
-    out = _drop(exchange / "tokE" / "a.3mf")
+    out = _drop(exchange / "tokExxxxxxxxxxxxxxxxxx" / "a.3mf")
     scan_studio_exchange()
     assert out.exists()
 
 
 async def test_sweeper_removes_expired_dirs(db_session, exchange) -> None:
     await _enable()
-    old, new = exchange / "oldtok", exchange / "newtok"
+    old, new = exchange / ("o" * 22), exchange / ("n" * 22)
     _drop(old / "in" / "a.stl")
     _drop(new / "in" / "a.stl")
     past = time.time() - ss.SESSION_TTL_S - 60
@@ -275,3 +286,102 @@ async def test_sweeper_removes_expired_dirs(db_session, exchange) -> None:
     scan_studio_exchange()
 
     assert not old.exists() and new.exists()
+
+
+def _tok(c: str) -> str:
+    return c * 22
+
+
+async def test_sweeper_ignores_non_token_dirs(db_session, exchange) -> None:
+    await _enable()
+    past = time.time() - ss.SESSION_TTL_S - 60
+    keep = [exchange / "important", exchange / "short", exchange / ("a" * 30), exchange / ".hidden"]
+    for d in keep:
+        _drop(d / "f.txt")
+        os.utime(d, (past, past))
+    scan_studio_exchange()
+    assert all(d.exists() for d in keep)
+
+
+async def test_input_save_is_ingested_once_and_kept(db_session, seed_file, exchange, rds) -> None:
+    model, rev, f = await _model(db_session, seed_file, "st-save")
+    await _enable()
+    tok = _tok("s")
+    _plant(rds, tok, model, rev, f)
+    inp = exchange / tok / "in" / "part.stl"
+    _drop(inp, b"solid x\nendsolid x\n")  # unchanged copy: never ingested
+    scan_studio_exchange()
+    assert await _names(db_session, rev) == {"part.stl"}
+
+    _drop(inp, b"solid edited\nendsolid edited\n")  # Ctrl+S
+    scan_studio_exchange()
+    scan_studio_exchange()  # same content: not re-ingested
+    assert inp.exists()
+    assert await _names(db_session, rev) == {"part.stl", "part (studio).stl"}
+
+    _drop(inp, b"solid edited again\nendsolid\n")
+    scan_studio_exchange()
+    assert len(await _names(db_session, rev)) == 3
+
+
+async def _names(db, rev) -> set[str]:
+    rows = await db.execute(select(File.rel_path).where(File.revision_id == rev.id))
+    return set(rows.scalars())
+
+
+async def test_stray_root_file_goes_to_active_session(db_session, seed_file, exchange, rds) -> None:
+    model, rev, f = await _model(db_session, seed_file, "st-stray")
+    await _enable()
+    stray = _drop(exchange / "loose.3mf", b"loose-bytes")
+    scan_studio_exchange()
+    assert stray.exists()  # no active session: left alone
+
+    tok = _tok("t")
+    _plant(rds, tok, model, rev, f)
+    rds.set(ss.ACTIVE_KEY, tok)
+    scan_studio_exchange()
+    assert not stray.exists() and (exchange / tok / ".imported" / "loose.3mf").exists()
+    assert "loose.3mf" in await _names(db_session, rev)
+
+
+@respx.mock
+async def test_concurrent_open_is_rejected(
+    authenticated_client, db_session, seed_file, exchange, rds
+) -> None:
+    model, _, f = await _model(db_session, seed_file, "st-lock")
+    await _enable()
+    opened = respx.post(f"{LAUNCHER}/open").respond(202, json={})
+    rds.set(ss.CREATE_LOCK_KEY, "1", ex=30)
+    r = await authenticated_client.post(f"/api/models/{model.slug}/files/{f.id}/studio")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "studio_busy"
+    assert not opened.called
+    rds.delete(ss.CREATE_LOCK_KEY)
+    assert (
+        await authenticated_client.post(f"/api/models/{model.slug}/files/{f.id}/studio")
+    ).status_code == 201
+    assert rds.get(ss.CREATE_LOCK_KEY) is None  # released
+
+
+async def test_endpoints_admin_only(viewer_client, db_session, seed_file) -> None:
+    model, _, f = await _model(db_session, seed_file, "st-perm")
+    assert (
+        await viewer_client.post(f"/api/models/{model.slug}/files/{f.id}/studio")
+    ).status_code == 403
+    assert (await viewer_client.get("/api/studio/session")).status_code == 403
+    assert (await viewer_client.delete("/api/studio/session")).status_code == 403
+
+
+async def test_dispatch_gates_studio_scan(db_session, monkeypatch) -> None:
+    from app.tasks import scheduler, studio_exchange
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        studio_exchange.scan_studio_exchange,
+        "apply_async",
+        lambda countdown=0, **kw: calls.append(countdown),
+    )
+    scheduler.dispatch_scheduled()
+    assert calls == []  # studio disabled: nothing enqueued
+    await _enable()
+    scheduler.dispatch_scheduled()
+    assert calls == [0, 5, 10]
