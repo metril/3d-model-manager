@@ -131,6 +131,12 @@ fi
 
 hdr "GBM / EGL backend diagnostics (host)"
 ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
+if ldconfig -p | grep -q libnvidia-allocator; then
+  ldconfig -p | grep libnvidia-allocator | head -2
+else
+  fail "host has no libnvidia-allocator (NVIDIA GBM backend); install the driver's allocator package (Debian: libnvidia-allocator1 or libnvidia-gl-<ver>) and rerun"
+  dpkg -l 2>/dev/null | awk '/nvidia/ {print "  installed:", $2, $3}' | head -12
+fi
 dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2, $3}' || true
 hdr "GBM / EGL backend diagnostics (container)"
 docker exec "$NAME" sh -c '
