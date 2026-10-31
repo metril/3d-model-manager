@@ -3,6 +3,7 @@ import { useExternalLinks } from "@/api/externalLinks";
 import { useFeatures } from "@/api/features";
 import { useFinanceConfig } from "@/api/finance";
 import { usePrinters } from "@/api/printers";
+import { useStudioEnabled } from "@/api/studio";
 import {
   NAV_GROUPS,
   SYSTEM_ITEMS,
@@ -26,6 +27,7 @@ export function useVisibleNav(): {
   const financeConfig = useFinanceConfig();
   const externalLinks = useExternalLinks();
   const printerEnabled = !!features.data?.printer_enabled;
+  const studioEnabled = useStudioEnabled();
   const printers = usePrinters({ enabled: printerEnabled });
 
   // Finance (P7): a manager always, everyone else only once billing is on.
@@ -35,6 +37,7 @@ export function useVisibleNav(): {
   const groups = filterNavGroups(NAV_GROUPS, {
     printerEnabled,
     can,
+    studioEnabled,
     hasPrinter: (printers.data?.length ?? 0) > 0,
   });
   const externalItems = externalNavItems(externalLinks.data);

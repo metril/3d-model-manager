@@ -12,6 +12,7 @@ export const PANEL_IDS = [
   "notes",
   "printTips",
   "specs",
+  "studio",
 ] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
@@ -28,7 +29,16 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   notes: "Notes",
   printTips: "Print tips",
   specs: "Specs",
+  studio: "Bambu Studio",
 };
+
+/** Panels that exist only while their feature is on: never in the default
+ * layout or the "new panel" auto-add, and hidden from the Panels menu when
+ * the feature is off. Added on demand ("Open in Bambu Studio" / Panels menu). */
+export const OPTIONAL_PANELS: readonly PanelId[] = ["studio"];
+
+/** Panels whose DOM must survive tab switches (an iframe reloads if detached). */
+export const ALWAYS_RENDERED_PANELS: readonly PanelId[] = ["viewer", "studio"];
 
 /** Today's two-column order: elastic left column, then the right card stack. */
 export const LEFT_PANELS: readonly PanelId[] = ["viewer", "description", "tagsLinks", "related"];
@@ -49,7 +59,7 @@ export const DEFAULT_GROUPS = {
   leftTop: ["viewer"],
   leftBottom: ["description", "tagsLinks", "related"],
   rightTop: ["gcodeProfiles", "printHistory", "filesDocs"],
-  rightBottom: ["revisions", "notes", "printTips", "specs"],
+  rightBottom: ["revisions", "notes", "printTips", "specs", "studio"],
 } as const satisfies Record<string, readonly PanelId[]>;
 export type DefaultGroup = keyof typeof DEFAULT_GROUPS;
 /** The tab that starts active in each default group. */

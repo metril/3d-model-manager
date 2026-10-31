@@ -8,9 +8,11 @@
  */
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { api } from "@/api/client";
 import type { AppEvent } from "@/api/types";
+import i18n from "@/i18n";
 import { EventsContext, type EventsContextValue, type Listener } from "@/hooks/eventsContext";
 
 // Minimum time between session probes triggered by `onerror` (below) --
@@ -76,6 +78,26 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           void queryClient.invalidateQueries({ queryKey: ["models"] });
           void queryClient.invalidateQueries({ queryKey: ["revisions"] });
         }
+        return;
+      }
+
+      if (parsed.type === "studio.file_returned") {
+        const slug = parsed.model_slug;
+        void queryClient.invalidateQueries({ queryKey: ["models", "detail", slug] });
+        if (parsed.sliced) void queryClient.invalidateQueries({ queryKey: ["models", "list"] });
+        toast(i18n.t("studio.returned", { name: parsed.name }), {
+          action: {
+            label: i18n.t("studio.viewModel"),
+            onClick: () => {
+              void import("@/router").then((m) => m.router.navigate({ to: "/models/$slug", params: { slug } }));
+            },
+          },
+        });
+        return;
+      }
+
+      if (parsed.type === "studio.session_started") {
+        void queryClient.invalidateQueries({ queryKey: ["studio", "session"] });
         return;
       }
 

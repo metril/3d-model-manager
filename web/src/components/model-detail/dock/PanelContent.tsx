@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 
 import { RelatedModels } from "@/components/model-detail/RelatedModels";
+import { StudioFrame } from "@/components/studio/StudioFrame";
 import { StudioWorkspace } from "@/components/model-detail/StudioWorkspace";
 import { DescriptionCard } from "@/components/model-detail/cards/DescriptionCard";
 import { FilesDocsCard } from "@/components/model-detail/cards/FilesDocsCard";
@@ -74,6 +75,10 @@ function SpecsContent() {
   return <SpecsCard model={useModelDetail().model} />;
 }
 
+function StudioContent() {
+  return <StudioFrame />;
+}
+
 const CONTENT: Record<PanelId, ComponentType<{ fill?: boolean }>> = {
   viewer: ViewerContent,
   description: DescriptionContent,
@@ -86,6 +91,7 @@ const CONTENT: Record<PanelId, ComponentType<{ fill?: boolean }>> = {
   notes: NotesContent,
   printTips: PrintTipsContent,
   specs: SpecsContent,
+  studio: StudioContent,
 };
 
 /** Bare panel body for `id`; also used directly by the stacked (<900px) fallback. */
@@ -123,13 +129,15 @@ function PanelFrame({ api, fill, children }: { api: IDockviewPanelProps["api"]; 
   );
 }
 
+const FILL_PANELS: readonly PanelId[] = ["viewer", "studio"];
+
 /** The single dockview component behind every panel; dockview passes the panel
  * id as `api.id`. */
 export function DockPanel(props: IDockviewPanelProps) {
   const id = props.api.id as PanelId;
   return (
-    <PanelFrame api={props.api} fill={id === "viewer"}>
-      <PanelContent id={id} fill={id === "viewer"} />
+    <PanelFrame api={props.api} fill={FILL_PANELS.includes(id)}>
+      <PanelContent id={id} fill={FILL_PANELS.includes(id)} />
     </PanelFrame>
   );
 }

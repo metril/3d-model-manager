@@ -233,6 +233,14 @@ const printHistoryRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/PrintHistoryPage"), "PrintHistoryPage"),
 });
 
+// Bare `/studio` is this client route; the Studio GUI itself is served
+// same-origin at `/studio/` (api reverse proxy), which the iframe loads.
+const studioRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/studio",
+  component: lazyRouteComponent(() => import("@/pages/StudioPage"), "StudioPage"),
+});
+
 const statsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/stats",
@@ -430,6 +438,7 @@ export const routeTree = rootRoute.addChildren([
     systemFinanceRoute,
     jobsRedirectRoute,
     statsRoute,
+    studioRoute,
     settingsRoute,
     externalLinkRoute,
   ]),

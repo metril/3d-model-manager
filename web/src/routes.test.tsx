@@ -217,3 +217,13 @@ describe("printerRedirect", () => {
     expect(printerRedirect([fakePrinter({ id: 1 }), fakePrinter({ id: 2 })])).toEqual({ to: "/" });
   });
 });
+
+describe("studio route", () => {
+  it("registers /studio inside the shell, session-guarded", async () => {
+    mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
+    const router = makeRouter("/studio");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/studio");
+    expect(router.state.matches.map((m) => m.routeId)).toContain("/authenticated/studio");
+  });
+});

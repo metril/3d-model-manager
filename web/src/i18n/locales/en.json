@@ -19,6 +19,7 @@
     "History": "History",
     "Plugs": "Plugs",
     "Stats": "Stats",
+    "Bambu Studio": "Bambu Studio",
     "Models": "Models",
     "Collections": "Collections",
     "Projects": "Projects",
@@ -270,6 +271,18 @@
         "memLimit": "Memory limit",
         "unlimited": "unlimited",
         "timeoutWarn": "The sidecar kills jobs after {{sidecar}}s, before the {{app}}s slice timeout set here, so long slices will fail. Raise SLICER_JOB_TIMEOUT_S on the sidecar or lower the timeout."
+      },
+      "studio": {
+        "title": "Bambu Studio",
+        "desc": "Full Bambu Studio GUI streamed into the browser from a sidecar container, for editing models in the real app.",
+        "docs": "Setup guide",
+        "enable": "Enable Bambu Studio",
+        "url": "Studio URL",
+        "launcherUrl": "Launcher URL",
+        "launcherToken": "Launcher token",
+        "tokenKeep": "A token is set. Leave as is to keep it; clear the field to remove it.",
+        "tokenUnset": "No token set (matches an unset STUDIO_LAUNCHER_TOKEN on the sidecar).",
+        "invalid": "Studio URL and launcher URL are required while enabled."
       },
       "obico": {
         "title": "Failure detection",
@@ -1425,6 +1438,28 @@
       "desc": "Sign-in requirements for all accounts.",
       "require": "Require two-factor for all users"
     }
+  },
+  "studio": {
+    "title": "Bambu Studio",
+    "open": "Open in Bambu Studio",
+    "opening": "Opening {{name}} in Bambu Studio",
+    "returned": "{{name}} returned from Bambu Studio",
+    "viewModel": "View model",
+    "editing": "Editing",
+    "end": "End session",
+    "ended": "Studio session ended",
+    "endError": "Could not end the Studio session",
+    "noSession": "No active session. Use \"Open in Bambu Studio\" on a model file.",
+    "disabled": "Bambu Studio is not enabled. An admin can turn it on in Settings, Server.",
+    "insecure": "Bambu Studio streams video with WebCodecs, which needs HTTPS (or localhost). Open this app over HTTPS.",
+    "replaceTitle": "Replace the current Studio session?",
+    "replaceDesc": "Studio will restart and unsaved work there is lost. Continue?",
+    "replaceConfirm": "Continue",
+    "errDisabled": "Bambu Studio is disabled on the server",
+    "errLauncher": "Cannot reach the Bambu Studio launcher",
+    "errBusy": "Studio is restarting, try again in a few seconds",
+    "errFormat": "Bambu Studio cannot open this file format",
+    "errGeneric": "Could not open the file in Bambu Studio"
   },
   "smtp": {
     "title": "Outgoing email (SMTP)",
