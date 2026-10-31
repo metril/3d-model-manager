@@ -27,7 +27,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 
 _API_PREFIX = "api"
-_DECLINED_PREFIXES = (_API_PREFIX, "studio")
+_DECLINED_PREFIXES = (f"{_API_PREFIX}/", "studio/")
 
 
 _NO_CACHE_FILES = {"sw.js", "manifest.webmanifest"}
@@ -43,7 +43,9 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        if any(full_path == p or full_path.startswith(f"{p}/") for p in _DECLINED_PREFIXES):
+        # Bare `/studio` is a client-side route (full-page embed); only
+        # `/studio/...` belongs to the proxy.
+        if full_path == _API_PREFIX or full_path.startswith(_DECLINED_PREFIXES):
             # Never serve the SPA shell for an unmatched /api/* (or /studio/*,
             # owned by the Studio proxy) path -- it keeps 404ing as normal
             # JSON, via FastAPI's default handler.
