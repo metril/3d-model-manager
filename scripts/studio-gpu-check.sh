@@ -145,6 +145,14 @@ else
   dpkg -l 2>/dev/null | awk '/nvidia/ {print "  installed:", $2, $3}' | head -12
 fi
 dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2, $3}' || true
+hdr "injection path (host)"
+docker info --format 'docker {{.ServerVersion}} cdi-spec-dirs={{.CDISpecDirs}}' 2>/dev/null || true
+ls -l /etc/cdi/ /var/run/cdi/ 2>/dev/null | grep -v '^total' || echo "no CDI specs"
+grep -vE '^\s*#|^\s*$' /etc/nvidia-container-runtime/config.toml 2>/dev/null | grep -iE 'mode|ldconfig|no-cgroups|cdi' || true
+echo "-- nvidia-container-cli list (legacy path would mount):"
+nvidia-container-cli list 2>/dev/null | grep -iE 'EGL|GLES|eglcore|allocator|egl-gbm|wayland' || echo "  (none / cli missing)"
+hdr "NVIDIA files actually inside the container"
+docker exec "$NAME" sh -c "ls -l /usr/lib/x86_64-linux-gnu/ | grep -iE 'nvidia|EGL' ; echo '-- cache:'; ldconfig -p | grep -icE 'nvidia|EGL_'" 2>&1 | cut -c1-160 || true
 hdr "GBM / EGL backend diagnostics (container)"
 docker exec "$NAME" sh -c '
   echo "-- gbm backends:"; ls -l /usr/lib/x86_64-linux-gnu/gbm/ 2>&1
