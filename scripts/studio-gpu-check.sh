@@ -148,6 +148,16 @@ dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2,
 hdr "injection path (host)"
 docker info --format 'docker {{.ServerVersion}} cdi-spec-dirs={{.CDISpecDirs}}' 2>/dev/null || true
 ls -l /etc/cdi/ /var/run/cdi/ 2>/dev/null | grep -v '^total' || echo "no CDI specs"
+# Docker >=28 routes --gpus through CDI when a spec exists; /var/run/cdi beats
+# /etc/cdi. A spec generated before the EGL libs were installed is stale.
+for spec in /var/run/cdi/*.yaml /etc/cdi/*.yaml; do
+  [ -e "$spec" ] || continue
+  if grep -q libEGL_nvidia "$spec"; then
+    echo "CDI spec $spec has libEGL_nvidia"
+  else
+    fail "CDI spec $spec lacks libEGL_nvidia (stale; regenerate: systemctl restart nvidia-cdi-refresh.service, or nvidia-ctk cdi generate --output=$spec)"
+  fi
+done
 grep -vE '^\s*#|^\s*$' /etc/nvidia-container-runtime/config.toml 2>/dev/null | grep -iE 'mode|ldconfig|no-cgroups|cdi' || true
 echo "-- nvidia-container-cli list (legacy path would mount):"
 nvidia-container-cli list 2>/dev/null | grep -iE 'EGL|GLES|eglcore|allocator|egl-gbm|wayland' || echo "  (none / cli missing)"
