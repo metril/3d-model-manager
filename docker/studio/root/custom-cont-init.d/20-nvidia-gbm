@@ -1,11 +1,17 @@
 #!/usr/bin/with-contenv bash
 # Runs as root before services. The NVIDIA container toolkit injects
-# libnvidia-egl-gbm.so.1 but not the Mesa GBM backend symlink that libgbm
-# looks for (<drm driver>_gbm.so). Without it the Wayland compositor falls
+# the NVIDIA libs but not the Mesa GBM backend symlink that libgbm looks
+# for (<drm driver>_gbm.so -> libnvidia-allocator). Without it the Wayland compositor falls
 # back to dumb buffers on the render node (EACCES) and renders in Pixman.
 LIBDIR=/usr/lib/x86_64-linux-gnu
-if [ -e "$LIBDIR/libnvidia-egl-gbm.so.1" ]; then
+# The GBM backend symbol (gbmint_get_backend) lives in libnvidia-allocator,
+# not in libnvidia-egl-gbm (that one is only the EGL platform shim).
+TARGET="$LIBDIR/libnvidia-allocator.so.1"
+[ -e "$TARGET" ] || TARGET="$(ls "$LIBDIR"/libnvidia-allocator.so.* 2>/dev/null | head -1)"
+if [ -n "$TARGET" ] && [ -e "$TARGET" ]; then
   mkdir -p "$LIBDIR/gbm"
-  ln -sfn "$LIBDIR/libnvidia-egl-gbm.so.1" "$LIBDIR/gbm/nvidia-drm_gbm.so"
-  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so"
+  ln -sfn "$TARGET" "$LIBDIR/gbm/nvidia-drm_gbm.so"
+  echo "[nvidia-gbm] linked $LIBDIR/gbm/nvidia-drm_gbm.so -> $TARGET"
+else
+  echo "[nvidia-gbm] libnvidia-allocator not present; no GBM backend link"
 fi
