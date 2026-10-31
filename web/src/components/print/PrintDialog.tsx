@@ -412,7 +412,8 @@ export function PrintDialog({
         .then((b) => {
           // Created: a failed dispatch must not let a retry create a 2nd batch.
           setBatchChoice({ ...batchChoice, mode: b.id });
-          return dispatchBatch.mutateAsync(b.id).then(onSuccess, () => {
+          return dispatchBatch.mutateAsync({ batchId: b.id, force: body.force }).then(onSuccess, (e) => {
+            if (e instanceof ApiError && e.code === "does_not_fit") setRefusedFor(body.recipe_id ?? null);
             toast.error(t("queueSched.batchDraftOnly"));
           });
         })

@@ -256,7 +256,8 @@ export function useDeleteBatch() {
 export function useDispatchBatch() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (batchId: number) => api.post<Batch>(`/batches/${batchId}/dispatch`),
+    mutationFn: ({ batchId, force }: { batchId: number; force?: boolean }) =>
+      force ? api.post<Batch>(`/batches/${batchId}/dispatch`, { force: true }) : api.post<Batch>(`/batches/${batchId}/dispatch`),
     onSuccess: () => invalidateBatches(queryClient),
   });
 }
