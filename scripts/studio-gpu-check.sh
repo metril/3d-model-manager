@@ -98,10 +98,28 @@ fi
 if grep -qiE 'llvmpipe|softpipe|swrast' "$LOG"; then
   fail "software GL renderer mentioned in log (llvmpipe/swrast)"
 fi
+if grep -qiE 'rendering in software \(Pixman\)|GPU renderer failed to initialize' "$LOG"; then
+  fail "compositor fell back to software (Pixman): $(grep -iE 'GPU renderer failed|Pixman' "$LOG" | head -1 | cut -c1-160)"
+  grep -qE 'DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied' "$LOG" && \
+    echo "  hint: EACCES on CREATE_DUMB = mesa GBM fell back to dumb buffers on a render node; the NVIDIA GBM backend (nvidia-drm_gbm.so / libnvidia-egl-gbm) is not loaded in the container"
+fi
 if grep -qiE 'error|failed|cannot' "$LOG"; then
   echo "note: log contains error/failed lines (informational):"
   grep -iE 'error|failed|cannot' "$LOG" | head -10 | cut -c1-200
 fi
+
+hdr "GBM / EGL backend diagnostics (host)"
+ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
+dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2, $3}' || true
+hdr "GBM / EGL backend diagnostics (container)"
+docker exec "$NAME" sh -c '
+  echo "-- gbm backends:"; ls -l /usr/lib/x86_64-linux-gnu/gbm/ 2>&1
+  echo "-- egl vendors:"; ls /usr/share/glvnd/egl_vendor.d/ /etc/glvnd/egl_vendor.d/ 2>&1
+  echo "-- nvidia egl/gbm libs:"; ldconfig -p | grep -iE "nvidia-egl|egl-gbm|libgbm" || echo "none"
+  echo "-- /dev/dri:"; ls -ln /dev/dri
+  echo "-- abc user:"; id abc 2>/dev/null || id
+  echo "-- card0 open as abc:"; su -s /bin/sh abc -c "cat /dev/dri/card0 </dev/null >/dev/null 2>&1 && echo ok || echo DENIED" 2>/dev/null || echo "n/a"
+' 2>&1 | cut -c1-200 || true
 
 hdr "RESULT"
 if [ "$FAILS" -eq 0 ]; then
