@@ -91,13 +91,14 @@ Docker's layer cache and are much faster.
 
 Either path brings up the same stack.
 
-This starts every service, always — there are no compose profiles to opt
-into: `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
+This starts every service below, always (the opt-in `studio` sidecar aside): `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
 metadata/GLB-conversion/thumbnail pipeline, one process per core,
 memory-recycled -- see "Worker split" below), `beat` (ticks the scan/
 collection-sync/watched-folder dispatcher), `printerd` (the Bambu LAN MQTT
 supervisor), `slicer` and `obico-ml` (sidecars), `virtual-printer` (a fake
-LAN Bambu printer), `db` (Postgres 16), and `redis`. `beat`, `printerd`,
+LAN Bambu printer), `db` (Postgres 16), and `redis`. One more sidecar, `studio`
+(the real Bambu Studio GUI streamed to the browser), is **opt-in**: set
+`COMPOSE_PROFILES=studio`; x86-64 only, see [docs/studio.md](docs/studio.md). `beat`, `printerd`,
 `virtual-printer` and the sidecars idle harmlessly when their features are off
 in Settings — see "Scheduled scan" and "Printer integration" below. The
 sidecars are **always-on**: they cost RAM (the slicer is capped at 4 GiB) and
@@ -720,6 +721,17 @@ Both loops authenticate with the **same bearer-token plane the browser
 extension uses** — mint or revoke tokens from **Settings → Accounts →
 Slicer integration** (or **Browser extension**; either card manages the
 same token list, so a token from one works for the other).
+
+### Embedded Bambu Studio (sidecar)
+
+An opt-in `studio` container (`COMPOSE_PROFILES=studio`, x86-64 only) runs the
+real Bambu Studio GUI and streams it into the browser, so a model can be edited
+in the full app without installing anything. It is **admin-only** (the api
+proxies `/studio/` behind login) and **export-only**: it never holds printer
+credentials. "Open in Bambu Studio" on a model copies the file into a per-session
+exchange folder; files you save or export there are ingested back under the
+originating model. Setup, GPU options, security and troubleshooting:
+[docs/studio.md](docs/studio.md).
 
 ## Gallery importers
 
