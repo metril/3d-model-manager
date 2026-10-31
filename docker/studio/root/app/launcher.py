@@ -37,12 +37,38 @@ def kill(grace: float = 10.0) -> None:
         time.sleep(0.2)
     if running():
         subprocess.run(["pkill", "-9", "-f", PATTERN])
-        while running():
+        end = time.time() + 15
+        while running() and time.time() < end:
             time.sleep(0.2)
+        if running():
+            raise RuntimeError("studio did not exit")
+
+
+CONF = "/config/.config/BambuStudioBeta/BambuStudio.conf"
+
+
+def prepare_session(path: str) -> None:
+    """Chown the session dir (parent of in/) to abc; point Studio's last dirs at it."""
+    d = os.path.dirname(path)
+    sess = os.path.dirname(d) if os.path.basename(d) == "in" else d
+    if sess == ROOT:
+        sess = d
+    subprocess.run(["chown", "-R", "abc:abc", sess])
+    try:
+        with open(CONF) as f:
+            c = json.load(f)
+        a = c.setdefault("app", {})
+        a["last_opened_folder"] = a["last_export_path"] = sess
+        with open(CONF, "w") as f:
+            json.dump(c, f, indent=4)
+        subprocess.run(["chown", "abc:abc", CONF])
+    except (OSError, ValueError) as e:
+        print(f"conf rewrite skipped: {e}", flush=True)
 
 
 def relaunch(path: str) -> int:
-    kill()
+    kill()  # Studio must be dead first: it rewrites the conf on exit
+    prepare_session(path)
     p = subprocess.Popen(
         ["s6-setuidgid", "abc", "nohup", BIN, path], env=ENV, cwd="/config",
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -98,12 +124,17 @@ class H(BaseHTTPRequestHandler):
         def work():
             try:
                 out["pid"] = relaunch(real)
+            except Exception as e:  # noqa: BLE001
+                out["error"] = str(e)
+                print(f"relaunch failed: {e}", flush=True)
             finally:
                 lock.release()
 
         t = threading.Thread(target=work, daemon=True)
         t.start()
         t.join(timeout=1.0)  # report the pid when the old instance dies quickly
+        if "error" in out:
+            return self._send(500, {"error": out["error"]})
         self._send(202, {"pid": out.get("pid")})
 
 

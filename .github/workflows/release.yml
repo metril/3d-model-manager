@@ -346,7 +346,7 @@ jobs:
           load: true
           tags: tdmm-studio:smoke
           cache-from: type=gha,scope=tdmm-studio
-          cache-to: type=gha,mode=max,scope=tdmm-studio,ignore-error=true
+          cache-to: type=gha,mode=min,scope=tdmm-studio,ignore-error=true
       - name: Smoke
         run: |
           docker run -d --name studio --shm-size=1gb -e SUBFOLDER=/studio/ \
