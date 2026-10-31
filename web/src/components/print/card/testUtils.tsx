@@ -52,7 +52,7 @@ export function status(overrides: Partial<PrinterStatusOut> = {}): PrinterStatus
     nozzle_temper: 25,
     bed_temper: 24,
     subtask_name: null,
-    wifi_signal: "-48dBm",
+    wifi_signal: -48,
     trays: [],
     nozzle_target: 0,
     bed_target: 0,
