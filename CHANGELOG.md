@@ -1,5 +1,73 @@
 # Changelog
 
+## [0.10.0](https://github.com/metril/3d-model-manager/compare/v0.9.2...v0.10.0) (2026-10-31)
+
+
+### Features
+
+* AMS generic filament ids, location humidity, AMS slot backup, dockable print dashboard ([#153](https://github.com/metril/3d-model-manager/issues/153)) ([102d48a](https://github.com/metril/3d-model-manager/commit/102d48ac858677daf93c104afcd6d2dc7251786c))
+* **archive:** runs - reprints append to the existing archive ([#148](https://github.com/metril/3d-model-manager/issues/148)) ([d8f1b15](https://github.com/metril/3d-model-manager/commit/d8f1b15d2f03a802e5f6ef0d89f24d1278fa3682))
+* **costing:** per-printer wear cost and HA electricity price ([#142](https://github.com/metril/3d-model-manager/issues/142)) ([5658287](https://github.com/metril/3d-model-manager/commit/56582873c20a125b722aa6dfaf094598f81299e8))
+* force path for oversize batches and pipeline queue steps ([#157](https://github.com/metril/3d-model-manager/issues/157)) ([08e63b4](https://github.com/metril/3d-model-manager/commit/08e63b405cd22b7c0e62627dd89a44d0c4b145c6))
+* HMS dedup, MQTT low-filament topics ([#145](https://github.com/metril/3d-model-manager/issues/145)) ([d7cfd7a](https://github.com/metril/3d-model-manager/commit/d7cfd7a4a112928d9cb2e70817af47f89fbdecda))
+* **inventory:** spool last-dried tracking ([#140](https://github.com/metril/3d-model-manager/issues/140)) ([53cad17](https://github.com/metril/3d-model-manager/commit/53cad171d500a83f1ad4d7047233a01d7a1c00db))
+* label options, scan-to-location, folder move, column view, PDF thumbnails ([#152](https://github.com/metril/3d-model-manager/issues/152)) ([16ef177](https://github.com/metril/3d-model-manager/commit/16ef1774a3a4077b6c734d00c193b210d29b9cfe))
+* **library:** combine STLs onto one plate ([#151](https://github.com/metril/3d-model-manager/issues/151)) ([14baff8](https://github.com/metril/3d-model-manager/commit/14baff883808a66db40dd781c5f9e246547c09e6))
+* **plate:** in-viewer plate editor ([#158](https://github.com/metril/3d-model-manager/issues/158)) ([cdb444d](https://github.com/metril/3d-model-manager/commit/cdb444d98840844e0c789e35a95846275e945cfc))
+* **print:** bed-fit chip and force in the print wizard ([#156](https://github.com/metril/3d-model-manager/issues/156)) ([1a0f18f](https://github.com/metril/3d-model-manager/commit/1a0f18fdfe5080fd15910737a8148e9b4a2d24fd))
+* **printers:** pause ETA and heads-up before slicer pauses ([#141](https://github.com/metril/3d-model-manager/issues/141)) ([32e0076](https://github.com/metril/3d-model-manager/commit/32e0076b805a06ec4d9054e0c33afc9d65994431))
+* **profiles:** printer/nozzle/layer scope for profiles, recipes, pipelines ([#117](https://github.com/metril/3d-model-manager/issues/117)) ([bf761bf](https://github.com/metril/3d-model-manager/commit/bf761bf098cb90748e5e0ed2a5f68b4d8792ba55))
+* **queue:** filament chips, colour mismatch, cost estimate, repricing ([#144](https://github.com/metril/3d-model-manager/issues/144)) ([72360f7](https://github.com/metril/3d-model-manager/commit/72360f758b5b9a9f1d9055d17af335fe8c0c9639))
+* slice and print dialog UX (search, online printers, loaded trays, printer affinity) ([#147](https://github.com/metril/3d-model-manager/issues/147)) ([e84c219](https://github.com/metril/3d-model-manager/commit/e84c2199c66809ed266daaa405c604a8a10f2037))
+* **slice:** pre-flight bed-fit check ([#155](https://github.com/metril/3d-model-manager/issues/155)) ([b4842e3](https://github.com/metril/3d-model-manager/commit/b4842e3b9e02614ec1fa93144df10f48ffe77834))
+* **studio:** Bambu Studio sidecar image, compose and release ([#160](https://github.com/metril/3d-model-manager/issues/160)) ([8dd2ae2](https://github.com/metril/3d-model-manager/commit/8dd2ae266f5673c4b452d429034545ec3fbc490a))
+* **studio:** config, /studio/ proxy and health probe ([#161](https://github.com/metril/3d-model-manager/issues/161)) ([7658fa0](https://github.com/metril/3d-model-manager/commit/7658fa0d2211133d705347f289e55eb895792c41))
+* **studio:** expose studio_configured feature flag ([#167](https://github.com/metril/3d-model-manager/issues/167)) ([b916264](https://github.com/metril/3d-model-manager/commit/b916264f20b70d96acef12335f01bc745ce297f8))
+* **studio:** sessions API and exchange return ingest ([#162](https://github.com/metril/3d-model-manager/issues/162)) ([b95a895](https://github.com/metril/3d-model-manager/commit/b95a895a5e202c101c82648102409f3a6578478b))
+* **studio:** web UI for the Bambu Studio sidecar ([#163](https://github.com/metril/3d-model-manager/issues/163)) ([d83f3ef](https://github.com/metril/3d-model-manager/commit/d83f3ef4b621de0ebf0cb9054f012b56f11220ed))
+* **timelapse:** per-layer camera timelapse mode ([#150](https://github.com/metril/3d-model-manager/issues/150)) ([c1d50e4](https://github.com/metril/3d-model-manager/commit/c1d50e4593518a8332aefa195cbf8ed119cf116e))
+* **web:** colour picker for materials, spools, colour catalog and tags ([#122](https://github.com/metril/3d-model-manager/issues/122)) ([174fdc1](https://github.com/metril/3d-model-manager/commit/174fdc1c01cfb7eb970b04c5db6820865c394b18))
+* **web:** floating camera overlay with PiP and PWA shortcut ([#149](https://github.com/metril/3d-model-manager/issues/149)) ([6175cd6](https://github.com/metril/3d-model-manager/commit/6175cd65dcdfefd9e49005c073560a9356995f34))
+* **web:** library filters/sort in URL, bulk unfavorite, polling races ([#137](https://github.com/metril/3d-model-manager/issues/137)) ([fd1797d](https://github.com/metril/3d-model-manager/commit/fd1797dd137805e39b9191cb51f9c54bfbc97f09))
+* **web:** printer/nozzle/layer scope bar for profiles, recipes, pipelines ([#119](https://github.com/metril/3d-model-manager/issues/119)) ([f6f30fd](https://github.com/metril/3d-model-manager/commit/f6f30fd4e799f7732812e74b36f3ccf56363211e))
+* **web:** remaining print time in tab title ([#139](https://github.com/metril/3d-model-manager/issues/139)) ([9aef2e6](https://github.com/metril/3d-model-manager/commit/9aef2e6fb74460f0c2cabf1142e6bcd3deafa047))
+
+
+### Bug Fixes
+
+* **archives:** photo/limiter/download hardening and tz-aware day buckets ([#134](https://github.com/metril/3d-model-manager/issues/134)) ([12062e9](https://github.com/metril/3d-model-manager/commit/12062e904b3396fb82703498d197237640e5db97))
+* **authz:** login throttle, upload ownership, imports/sensors perms ([#129](https://github.com/metril/3d-model-manager/issues/129)) ([7c065e2](https://github.com/metril/3d-model-manager/commit/7c065e26ccd453040bf498bfb1c13ba1f64d8318))
+* **costing:** reprice remainder only for 3mf usage; per-job active estimate ([#154](https://github.com/metril/3d-model-manager/issues/154)) ([f1fcb3b](https://github.com/metril/3d-model-manager/commit/f1fcb3b7cadda791ca6eee6f6db3083ec7138c74))
+* **dispatch:** make the send path race-safe ([#126](https://github.com/metril/3d-model-manager/issues/126)) ([00fb4de](https://github.com/metril/3d-model-manager/commit/00fb4de77dc866923f33b422ecee2d9ffb229b15))
+* roadmap review follow-ups ([#143](https://github.com/metril/3d-model-manager/issues/143)) ([c758efb](https://github.com/metril/3d-model-manager/commit/c758efbd9480ee504cd22be75e96e89f6f92f5b3))
+* **security:** atomic printer key creation, HKDF signing subkey, FTPS/MQTT auth hardening ([#125](https://github.com/metril/3d-model-manager/issues/125)) ([d7814a0](https://github.com/metril/3d-model-manager/commit/d7814a045639fde5ca332da7c81fa453e10aeea3))
+* **slicer:** index vendor subfolder filament profiles (SUNLU etc.) ([#121](https://github.com/metril/3d-model-manager/issues/121)) ([1499c64](https://github.com/metril/3d-model-manager/commit/1499c643270ba511819ad07f595b759cfe4abca9))
+* **studio:** admin-only Studio proxy, harden path and timeouts ([#164](https://github.com/metril/3d-model-manager/issues/164)) ([e7f13d2](https://github.com/metril/3d-model-manager/commit/e7f13d254259ede358bb6eb78d3a0a53f566509e))
+* **studio:** GBM backend symlink -&gt; libnvidia-allocator ([#169](https://github.com/metril/3d-model-manager/issues/169)) ([f909a53](https://github.com/metril/3d-model-manager/commit/f909a53b173bd559cc13c7f8a860d523499b52dd))
+* **studio:** gpu-check replays EGL display creation ([#170](https://github.com/metril/3d-model-manager/issues/170)) ([9a8dc19](https://github.com/metril/3d-model-manager/commit/9a8dc19a151f327c4b3e00a2cd80bbb07aa3faf9))
+* **studio:** ingest in-place saves, harden sweeper, admin-only sessions ([#165](https://github.com/metril/3d-model-manager/issues/165)) ([7efd013](https://github.com/metril/3d-model-manager/commit/7efd0137af58bfdb9d8af2ba6d691e0d481b816f))
+* **studio:** NVIDIA GBM backend symlink + gpu-check Pixman FAIL ([#168](https://github.com/metril/3d-model-manager/issues/168)) ([d7014a7](https://github.com/metril/3d-model-manager/commit/d7014a7e901faea5023745deba32ec36379a9edf))
+* **studio:** require NVIDIA GLX libs for Studio's own 3D view ([#171](https://github.com/metril/3d-model-manager/issues/171)) ([63c9e1d](https://github.com/metril/3d-model-manager/commit/63c9e1dca084324997d44283e30b3549b5c882c9))
+* **studio:** session-dir saves, ownership, network isolation, hardening ([#160](https://github.com/metril/3d-model-manager/issues/160)) ([1299ec2](https://github.com/metril/3d-model-manager/commit/1299ec29d58286f42a2e8d21976cc118906704bb))
+* w5 audit leftovers (queue settings UI, last-dried, file reaper, upload replace, energy cache) ([#146](https://github.com/metril/3d-model-manager/issues/146)) ([40d9c08](https://github.com/metril/3d-model-manager/commit/40d9c086762e72351b26fd059ef4428e02f30f79))
+* **web:** g-code preview, MQTT debug, camera stall, screenshot revoke ([#135](https://github.com/metril/3d-model-manager/issues/135)) ([70ae741](https://github.com/metril/3d-model-manager/commit/70ae7414d435e2bf9bc6d712e76d3dcad8e08df5))
+* **web:** hotkey guards and upload hardening ([#128](https://github.com/metril/3d-model-manager/issues/128)) ([0f74446](https://github.com/metril/3d-model-manager/commit/0f744466c00a9daa7b0caa53bd5a99795fcc9fd4))
+* **web:** keep every input dialog open on outside click; confirm discarding edits ([#123](https://github.com/metril/3d-model-manager/issues/123)) ([f396b24](https://github.com/metril/3d-model-manager/commit/f396b24f96b577d4a1928c0f4c6e9400a6772e85))
+* **web:** keep profile/recipe dialogs open on outside click; confirm discarding edits ([#116](https://github.com/metril/3d-model-manager/issues/116)) ([8ff6ce2](https://github.com/metril/3d-model-manager/commit/8ff6ce208b51ba762244ccbef367f3f523d36512))
+* **web:** keep the colour picker popover inside the viewport ([#124](https://github.com/metril/3d-model-manager/issues/124)) ([0e2d475](https://github.com/metril/3d-model-manager/commit/0e2d475acab8e69388e14c671d5b3b282202358d))
+* **web:** show derived printer model, nozzle and layer height in the profiles table ([#120](https://github.com/metril/3d-model-manager/issues/120)) ([7c55528](https://github.com/metril/3d-model-manager/commit/7c5552831572d3278e39b87d9129c680ca604df7))
+* **web:** SSE reconnect replay, print-event invalidation, toast dedupe ([#133](https://github.com/metril/3d-model-manager/issues/133)) ([64c175a](https://github.com/metril/3d-model-manager/commit/64c175a9f51349dc9d4ee939fa81f7d5ac020a25))
+* **web:** undo queue removal, keyboard rows, debounced searches ([#136](https://github.com/metril/3d-model-manager/issues/136)) ([7649ef6](https://github.com/metril/3d-model-manager/commit/7649ef652625311846e4f417c981567b8225ca3e))
+* **workers:** drying/scan/log-level robustness ([#127](https://github.com/metril/3d-model-manager/issues/127)) ([d6499ca](https://github.com/metril/3d-model-manager/commit/d6499cad5fa21fbe1e0bb10b2bef05a486351c97))
+
+
+### Performance Improvements
+
+* **dispatch:** cache printer ACL per user and queue targets per tick ([#130](https://github.com/metril/3d-model-manager/issues/130)) ([7d224c5](https://github.com/metril/3d-model-manager/commit/7d224c507cf5e5c7e59a95b47c7c460c0d507e38))
+* **library:** SQL-aggregated storage tree, batched pending check, NULL-safe list filters ([#131](https://github.com/metril/3d-model-manager/issues/131)) ([1e7dece](https://github.com/metril/3d-model-manager/commit/1e7dece1752f60b3f2914f4691e90add59794380))
+* **queue:** push queue filters and renumbering into SQL ([#132](https://github.com/metril/3d-model-manager/issues/132)) ([6c29090](https://github.com/metril/3d-model-manager/commit/6c290901bd4aca09c6a2e1aec8b5217a05781ec0))
+* **web:** lazy route pages and vendor chunk splitting ([#138](https://github.com/metril/3d-model-manager/issues/138)) ([7a21756](https://github.com/metril/3d-model-manager/commit/7a217565808d34b35aef67a4cefd834e201feced))
+
 ## [0.9.2](https://github.com/metril/3d-model-manager/compare/v0.9.1...v0.9.2) (2026-10-28)
 
 
