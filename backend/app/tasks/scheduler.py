@@ -66,6 +66,7 @@ _LOCK_TIMEOUT_S = 60
 
 from app.config import get_settings  # noqa: E402
 from app.services.app_config import get_app_config_sync  # noqa: E402
+from app.services.server_config import get_server_config_sync  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
 
@@ -103,6 +104,7 @@ def dispatch_scheduled() -> None:
     """
     from app.tasks.scan import schedule_scan_library
     from app.tasks.slicer_watch import scan_slicer_watch
+    from app.tasks.studio_exchange import scan_studio_exchange
     from app.tasks.sync_collections import schedule_sync_all
 
     settings = get_settings()
@@ -114,6 +116,7 @@ def dispatch_scheduled() -> None:
         try:
             with base.sync_session() as s:
                 cfg = get_app_config_sync(s, settings)
+                studio_on = get_server_config_sync(s, settings).studio_enabled
             now = time.time()
 
             if _due(client, "scan", cfg.scan_interval_s, now):
@@ -122,6 +125,11 @@ def dispatch_scheduled() -> None:
                 schedule_sync_all.apply_async()
             if settings.watch_dir is not None and _due(client, "watch", cfg.watch_interval_s, now):
                 scan_slicer_watch.apply_async()
+            if studio_on:
+                # 5 s ingest cadence off the 15 s tick; the task's Redis lock
+                # keeps overlapping runs harmless.
+                for delay in range(0, _CADENCE_S, 5):
+                    scan_studio_exchange.apply_async(countdown=delay)
         finally:
             with contextlib.suppress(Exception):
                 lock.release()
