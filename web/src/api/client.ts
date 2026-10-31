@@ -18,13 +18,16 @@ export class ApiError extends Error {
   readonly detail: string;
   /** Machine code from `{code, detail}` bodies (printer control routes), else undefined. */
   readonly code?: string;
+  /** Offending files of a `does_not_fit` refusal (batch dispatch). */
+  readonly files?: { id: number; name: string }[];
 
-  constructor(status: number, detail: string, code?: string) {
+  constructor(status: number, detail: string, code?: string, files?: { id: number; name: string }[]) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
     this.code = code;
+    this.files = files;
   }
 }
 
@@ -38,7 +41,7 @@ function isUnauthenticatedRedirectExempt(): boolean {
   return window.location.pathname === "/login";
 }
 
-async function extractError(response: Response): Promise<{ detail: string; code?: string }> {
+async function extractError(response: Response): Promise<{ detail: string; code?: string; files?: { id: number; name: string }[] }> {
   try {
     const data: unknown = await response.json();
     if (data !== null && typeof data === "object" && "detail" in data) {
@@ -48,10 +51,11 @@ async function extractError(response: Response): Promise<{ detail: string; code?
       }
       // Coded errors from the 2FA routes: `detail: {code, message}`.
       if (detail !== null && typeof detail === "object") {
-        const d = detail as { code?: unknown; message?: unknown };
+        const d = detail as { code?: unknown; message?: unknown; files?: unknown };
         return {
           detail: typeof d.message === "string" ? d.message : response.statusText || `Request failed with status ${response.status}`,
           code: typeof d.code === "string" ? d.code : undefined,
+          files: Array.isArray(d.files) ? (d.files as { id: number; name: string }[]) : undefined,
         };
       }
     }
@@ -75,11 +79,11 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    const { detail, code } = await extractError(response);
+    const { detail, code, files } = await extractError(response);
     if (response.status === 403 && code === "2fa_enrollment_required") {
       window.dispatchEvent(new Event(ENROLL_2FA_EVENT));
     }
-    throw new ApiError(response.status, detail, code);
+    throw new ApiError(response.status, detail, code, files);
   }
 
   if (response.status === 204 || response.headers.get("content-length") === "0") {

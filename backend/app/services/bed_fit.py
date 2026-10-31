@@ -270,3 +270,26 @@ async def guard_recipe_fit(
                 **fit.model_dump(),
             },
         )
+
+
+async def guard_files_fit(
+    db: AsyncSession, recipe, files: list, options: dict | None = None, settings=None
+) -> None:
+    """Like ``guard_recipe_fit`` for several files: one 422 listing every
+    offender as ``files: [{id, name, fit}]``."""
+    from pathlib import PurePath
+
+    from fastapi import HTTPException, status
+
+    bed = await bed_from_profile(db, recipe.printer_profile_id)
+    allow_rotate = rotation_allowed(recipe.options, options)
+    bad = []
+    for f in files:
+        fit = await fit_for_file(db, f, bed, allow_rotate, settings)
+        if fit.status == "too_large":
+            bad.append({"id": f.id, "name": PurePath(f.rel_path).name, "fit": fit.model_dump()})
+    if bad:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "does_not_fit", "message": "part does not fit the printer bed", "files": bad},
+        )

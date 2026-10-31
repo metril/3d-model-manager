@@ -13,10 +13,12 @@ from app.config import Settings
 from app.models.audit_log import AuditLog
 from app.models.enums import QueueState
 from app.models.library import File, Model, PrintBatch, PrintQueueEntry, Revision
+from app.models.slicing import PrintRecipe
 from app.schemas.batches import BatchIn, BatchOut, BatchPatch, BatchProgress
 from app.schemas.queue import QueueEnqueueIn
 from app.services import library
 from app.services import queue as queue_service
+from app.services.bed_fit import guard_files_fit
 
 _SCHEDULING = (
     "scheduled_at",
@@ -207,13 +209,18 @@ async def _resolve_file_id(db: AsyncSession, settings: Settings, batch: PrintBat
 
 
 async def dispatch_batch(
-    db: AsyncSession, settings: Settings, batch_id: int, ctx: AuthContext
+    db: AsyncSession, settings: Settings, batch_id: int, ctx: AuthContext, force: bool = False
 ) -> BatchOut:
     batch = await get_or_404(db, batch_id)
     if batch.status != "draft":
         raise HTTPException(status.HTTP_409_CONFLICT, "batch already dispatched")
     file_id = await _resolve_file_id(db, settings, batch)
     opts = batch.options or {}
+    if batch.recipe_id is not None and not force:
+        recipe = await db.get(PrintRecipe, batch.recipe_id)
+        file = await library.get_live_file(db, file_id)
+        if recipe is not None and file is not None:
+            await guard_files_fit(db, recipe, [file], None, settings)
     created: list[int] = []
     try:
         for plate in _plate_sequence(batch):
@@ -230,6 +237,7 @@ async def dispatch_batch(
                     options=opts.get("print_options"),
                     cost_center_id=batch.cost_center_id,
                     batch_id=batch.id,
+                    force=force,
                     **{k: opts[k] for k in _SCHEDULING if opts.get(k) is not None},
                 ),
                 ctx,
