@@ -33,6 +33,9 @@ _CORE_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 
 LayoutMode = Literal["grid", "auto"]
 
+# Total clearance kept across each bed axis; mirrors ``bed_fit.check_fit``.
+FIT_MARGIN_MM = 1.0
+
 
 class MeshCombineError(ValueError):
     """A source could not be combined; the message is user-facing."""
@@ -151,6 +154,85 @@ class LoadedPart:
     width: float
     depth: float
     copies: int
+    height: float = 0.0
+    # Min corner of the source mesh's AABB before it was shifted to the origin.
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+@dataclass(frozen=True)
+class Pose:
+    """One instance placed by hand. ``x``/``y`` is where the footprint centre
+    of the source mesh lands on the bed (bed corner = origin); z is always on
+    the bed. Matrix = T(x,y,0) Rz(rot) S(scale) T(-cx,-cy,-zmin)."""
+
+    owner: int
+    x: float
+    y: float
+    rot_deg: float = 0.0
+    scale: float = 1.0
+
+
+@dataclass(frozen=True)
+class PoseFit:
+    """Transformed footprint AABB of one pose and whether it is on the bed."""
+
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+    fits: bool
+
+
+def pose_half_extents(
+    width: float, depth: float, rot_deg: float, scale: float
+) -> tuple[float, float]:
+    """Half extents of the scaled, Z-rotated footprint's AABB (it stays
+    centred on the pose x/y, since rotation pivots on the footprint centre)."""
+    rad = math.radians(rot_deg)
+    c, s = abs(math.cos(rad)), abs(math.sin(rad))
+    return scale * (c * width + s * depth) / 2, scale * (s * width + c * depth) / 2
+
+
+def pose_transform(part: LoadedPart, pose: Pose) -> str:
+    """The 3MF ``transform`` (row-vector convention, 12 numbers) for ``pose``.
+    ``part`` vertices have their footprint min at (0, 0) and z min at 0, so the
+    pivot is (width/2, depth/2, 0)."""
+    rad = math.radians(pose.rot_deg)
+    c, s = math.cos(rad) * pose.scale, math.sin(rad) * pose.scale
+    cx, cy = part.width / 2, part.depth / 2
+    tx = pose.x - (c * cx - s * cy)
+    ty = pose.y - (s * cx + c * cy)
+    vals = [c, s, 0.0, -s, c, 0.0, 0.0, 0.0, pose.scale, tx, ty, 0.0]
+    return " ".join(_fmt(v) for v in vals)
+
+
+def check_poses(
+    loaded: list[LoadedPart],
+    poses: list[Pose],
+    bed: tuple[float, float],
+    margin_mm: float = FIT_MARGIN_MM,
+) -> list[PoseFit]:
+    """Transformed AABB of every pose against the bed (half the margin kept on
+    each side)."""
+    m = margin_mm / 2
+    out: list[PoseFit] = []
+    for pose in poses:
+        part = loaded[pose.owner]
+        hx, hy = pose_half_extents(part.width, part.depth, pose.rot_deg, pose.scale)
+        lo_x, lo_y, hi_x, hi_y = pose.x - hx, pose.y - hy, pose.x + hx, pose.y + hy
+        ok = (
+            lo_x >= m - 1e-6
+            and lo_y >= m - 1e-6
+            and hi_x <= bed[0] - m + 1e-6
+            and hi_y <= bed[1] - m + 1e-6
+        )
+        out.append(PoseFit(lo_x, lo_y, hi_x, hi_y, ok))
+    return out
+
+
+def placements_to_poses(plan: LayoutPlan) -> list[Pose]:
+    """Pose (footprint centre) of every auto/grid placement."""
+    return [Pose(p.owner, p.x + p.w / 2, p.y + p.d / 2) for p in plan.placements]
 
 
 def _object_name(filename: str) -> str:
@@ -183,6 +265,8 @@ def _load_part(part: CombinePart) -> LoadedPart:
         width=float(hi[0] - lo[0]),
         depth=float(hi[1] - lo[1]),
         copies=part.copies,
+        height=float(hi[2] - lo[2]),
+        origin=(float(lo[0]), float(lo[1]), float(lo[2])),
     )
 
 
@@ -218,6 +302,11 @@ def _load_parts(parts: list[CombinePart]) -> list[LoadedPart]:
             )
         loaded.append(item)
     return loaded
+
+
+def load_parts(parts: list[CombinePart]) -> list[LoadedPart]:
+    """Load ``parts`` without laying them out (manual poses). Blocking."""
+    return _load_parts(parts)
 
 
 def plan_parts(
@@ -267,8 +356,21 @@ _RELS = (
 )
 
 
-def write_3mf(loaded: list[LoadedPart], plan: LayoutPlan) -> bytes:
-    """Zip bytes of a 3MF: one ``<object>`` per source, one build item per copy."""
+def write_3mf(
+    loaded: list[LoadedPart],
+    plan: LayoutPlan | None = None,
+    *,
+    poses: list[Pose] | None = None,
+) -> bytes:
+    """Zip bytes of a 3MF: one ``<object>`` per source, one build item per copy
+    (from ``plan`` placements, or the 3x4 transform of each manual ``pose``)."""
+    if poses is not None:
+        build_items = [(p.owner, pose_transform(loaded[p.owner], p)) for p in poses]
+    else:
+        assert plan is not None
+        build_items = [
+            (p.owner, f"1 0 0 0 1 0 0 0 1 {_fmt(p.x)} {_fmt(p.y)} 0") for p in plan.placements
+        ]
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
@@ -298,8 +400,7 @@ def write_3mf(loaded: list[LoadedPart], plan: LayoutPlan) -> bytes:
             out.write(b"</resources><build>")
             out.write(
                 "".join(
-                    f'<item objectid="{p.owner + 1}" transform="1 0 0 0 1 0 0 0 1 {_fmt(p.x)} {_fmt(p.y)} 0"/>'
-                    for p in plan.placements
+                    f'<item objectid="{owner + 1}" transform="{tf}"/>' for owner, tf in build_items
                 ).encode("utf-8")
             )
             out.write(b"</build></model>")
