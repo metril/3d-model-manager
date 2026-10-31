@@ -272,7 +272,9 @@ async def test_import_path_forbidden_for_non_admin(member_client: httpx.AsyncCli
     assert r.status_code == 403
 
 
-async def test_import_path_requires_vendor_manifest(authenticated_client: httpx.AsyncClient, tmp_path):
+async def test_import_path_requires_vendor_manifest(
+    authenticated_client: httpx.AsyncClient, tmp_path
+):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     r = await authenticated_client.post("/api/profiles/import", json={"path": str(empty_dir)})

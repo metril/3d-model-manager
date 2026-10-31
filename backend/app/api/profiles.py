@@ -53,12 +53,12 @@ from app.services.slicer_client import (
     client_from_config,
 )
 from app.services.slicer_profiles import (
-    has_vendor_manifest,
     ProfileImportError,
     apply_meta,
     dedup_stock_profiles,
     derive_profile_meta,
     filter_for_models,
+    has_vendor_manifest,
     parse_bundle,
     profile_in_scope,
     profile_preferred,
