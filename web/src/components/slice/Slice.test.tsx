@@ -259,6 +259,21 @@ describe("SliceDialog", () => {
       untrackSlice("job-1");
     });
 
+    it("offers Slice anyway after a pipeline run is refused does_not_fit, then sends force", async () => {
+      withPipelines();
+      postMock.mockRejectedValueOnce(new ApiError(422, "part does not fit the printer bed", "does_not_fit"));
+      ui(<SliceDialog open onOpenChange={() => {}} file={FILE} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Pipeline" }));
+      fireEvent.click(await screen.findByLabelText(/Orient/));
+      fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
+      fireEvent.click(await screen.findByLabelText("Slice anyway"));
+      postMock.mockResolvedValue({ kind: "queue", slice_job: null, queue_entry: { id: 1 } });
+      fireEvent.click(screen.getByRole("button", { name: "Run pipeline" }));
+      await waitFor(() =>
+        expect(postMock).toHaveBeenLastCalledWith("/slicer-pipelines/7/run", { file_id: 5, plate: null, force: true }),
+      );
+    });
+
     it("toasts when a queue pipeline enqueues instead", async () => {
       withPipelines();
       postMock.mockResolvedValue({ kind: "queue", slice_job: null, queue_entry: { id: 3 } });

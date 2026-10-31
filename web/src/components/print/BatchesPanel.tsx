@@ -372,10 +372,25 @@ export function BatchesPanel({ openBatchId = null }: { openBatchId?: number | nu
   const del = useDeleteBatch();
   const [dialog, setDialog] = useState<{ batch: Batch | null } | null>(null);
   const [detail, setDetail] = useState<number | null>(openBatchId);
+  const [noFit, setNoFit] = useState<{ batch: Batch; names: string[] } | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "delete" | "ungroup"; batch: Batch } | null>(null);
   const canReview = can("queue:review");
 
   useEffect(() => setDetail(openBatchId), [openBatchId]);
+
+  function dispatchBatch(batch: Batch, force = false) {
+    dispatch.mutate(
+      { batchId: batch.id, force },
+      {
+        onSuccess: () => toast.success(t("queueSched.batches.dispatched")),
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") {
+            setNoFit({ batch, names: (e.files ?? []).map((f) => f.name) });
+          } else err(e);
+        },
+      },
+    );
+  }
 
   function err(e: unknown) {
     toast.error(e instanceof ApiError ? e.detail : t("queueSched.batches.requestFailed"));
@@ -446,9 +461,7 @@ export function BatchesPanel({ openBatchId = null }: { openBatchId?: number | nu
                           size="sm"
                           variant="outline"
                           disabled={dispatch.isPending}
-                          onClick={() =>
-                            dispatch.mutate(b.id, { onSuccess: () => toast.success(t("queueSched.batches.dispatched")), onError: err })
-                          }
+                          onClick={() => dispatchBatch(b)}
                         >
                           {t("queueSched.batches.dispatch")}
                         </Button>
@@ -475,6 +488,24 @@ export function BatchesPanel({ openBatchId = null }: { openBatchId?: number | nu
 
       <BatchDialog open={dialog != null} onOpenChange={(o) => !o && setDialog(null)} batch={dialog?.batch ?? null} />
       <BatchDetailSheet batchId={detail} onClose={() => setDetail(null)} />
+      <ConfirmDialog
+        open={noFit != null}
+        onOpenChange={(o) => !o && setNoFit(null)}
+        title={t("queueSched.batches.noFitTitle")}
+        description={t("queueSched.batches.noFit", {
+          n: noFit?.names.length ?? 0,
+          m: noFit?.names.length ?? 0,
+          names: noFit?.names.join(", ") ?? "",
+        })}
+        confirmLabel={t("queueSched.batches.queueAnyway")}
+        destructive
+        onConfirm={() => {
+          if (!noFit) return;
+          const { batch } = noFit;
+          setNoFit(null);
+          dispatchBatch(batch, true);
+        }}
+      />
       <ConfirmDialog
         open={confirm != null}
         onOpenChange={(o) => !o && setConfirm(null)}

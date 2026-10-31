@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AuthContext, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.schemas.batches import BatchIn, BatchOut, BatchPatch
+from app.schemas.batches import BatchDispatchIn, BatchIn, BatchOut, BatchPatch
 from app.services import batches as svc
 
 router = APIRouter(
@@ -55,11 +55,14 @@ async def delete_batch(
 @router.post("/{batch_id}/dispatch", response_model=BatchOut)
 async def dispatch_batch(
     batch_id: int,
+    payload: BatchDispatchIn | None = None,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> BatchOut:
-    return await svc.dispatch_batch(db, settings, batch_id, ctx)
+    return await svc.dispatch_batch(
+        db, settings, batch_id, ctx, force=payload.force if payload else False
+    )
 
 
 @router.post("/{batch_id}/ungroup", response_model=BatchOut)

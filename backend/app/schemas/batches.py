@@ -50,6 +50,11 @@ class BatchIn(_SchedulingIn):
     _plates = field_validator("plate_targets")(_check_plates)
 
 
+class BatchDispatchIn(BaseModel):
+    # Queue even when the part does not fit the recipe's printer bed.
+    force: bool = False
+
+
 class BatchPatch(BaseModel):
     """Only keys present are applied. Structural fields (``quantity``,
     ``plate_targets``, ``recipe_id``, ``printer_id``) require ``draft``."""

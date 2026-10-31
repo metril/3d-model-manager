@@ -167,6 +167,7 @@ async def run_pipeline(
             copies=step.copies,
             front=step.front,
             manual_start=step.manual_start,
+            force=force,
         ),
         ctx,
         slice_options=overrides or None,

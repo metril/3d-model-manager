@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/api/client";
 import type { Batch } from "@/api/types";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 
@@ -103,6 +104,20 @@ describe("BatchesPanel", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Dispatch" }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/batches/1/dispatch"));
+  });
+
+  it("confirms before re-dispatching with force after a does_not_fit refusal", async () => {
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path.endsWith("/dispatch") && !body
+        ? Promise.reject(new ApiError(422, "part does not fit", "does_not_fit", [{ id: 9, name: "big.stl" }]))
+        : Promise.resolve(batch({ status: "active" })),
+    );
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Dispatch" }));
+    const dlg = await screen.findByRole("dialog");
+    expect(within(dlg).getByText(/1 of 1 parts don't fit the bed: big\.stl/)).toBeInTheDocument();
+    fireEvent.click(within(dlg).getByRole("button", { name: "Queue anyway" }));
+    await waitFor(() => expect(postMock).toHaveBeenLastCalledWith("/batches/1/dispatch", { force: true }));
   });
 
   it("ungroups an active batch after confirming", async () => {

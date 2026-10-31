@@ -97,6 +97,9 @@
       "batches": "Batches"
     },
     "batches": {
+      "noFitTitle": "Parts don't fit the bed",
+      "noFit": "{{n}} of {{m}} parts don't fit the bed: {{names}}. Queue anyway?",
+      "queueAnyway": "Queue anyway",
       "title": "Batches",
       "create": "Create batch",
       "empty": "No batches yet.",
