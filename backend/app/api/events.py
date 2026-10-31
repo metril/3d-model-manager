@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 import anyio
@@ -27,12 +27,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ext_v2
-from app.api.deps import SESSION_COOKIE_NAME, require_session, visible_printer_ids
+from app.api.deps import (
+    SESSION_COOKIE_NAME,
+    extract_credential,
+    require_session,
+    visible_printer_ids,
+)
 from app.config import Settings, get_settings
-from app.db import get_db
+from app.db import get_db, get_sessionmaker
+from app.models import User
 from app.models.printing import Printer
 from app.services import api_tokens, printer_stream
 from app.services.events import CHANNEL
+from app.services.permissions import load_grants
 from app.services.printer_stream import PrinterStream
 from app.services.server_config import get_server_config
 
@@ -40,6 +47,7 @@ router = APIRouter(tags=["events"])
 
 
 PING_MAX_S = 15.0
+RECHECK_S = printer_stream.KEEPALIVE_S  # key re-verification cadence
 
 
 async def _event_stream(
@@ -49,6 +57,7 @@ async def _event_stream(
     settings: Settings | None = None,
     printer_ids: list[int] | None = None,
     key_stream: bool = False,
+    recheck: Callable[[], Awaitable[set[int] | None]] | None = None,
 ) -> AsyncIterator[bytes]:
     """``printer_ids`` (already ACL-intersected) enables ``printer.*`` events;
     ``key_stream`` restricts the stream to ``print_job.updated`` + ``printer.*``
@@ -61,10 +70,14 @@ async def _event_stream(
     heartbeat = min(heartbeat_interval, PING_MAX_S)
     last_out = time.monotonic()
     next_tick = last_out  # poll immediately: initial printer.status
+    next_recheck = last_out + RECHECK_S
+    filter_ids = key_stream or bool(ids)
     try:
         while True:
             now = time.monotonic()
             due = min(next_tick if streamer else now + heartbeat, last_out + heartbeat)
+            if recheck:
+                due = min(due, next_recheck)
             message = await pubsub.get_message(
                 ignore_subscribe_messages=True, timeout=max(0.0, due - now)
             )
@@ -72,9 +85,17 @@ async def _event_stream(
                 data = message["data"]
                 if isinstance(data, bytes):
                     data = data.decode()
-                if _forward(data, ids, key_stream):
+                if _forward(data, ids, key_stream, filter_ids):
                     last_out = time.monotonic()
                     yield f"data: {data}\n\n".encode()
+            if recheck and time.monotonic() >= next_recheck:
+                next_recheck = time.monotonic() + RECHECK_S
+                allowed = await recheck()
+                if allowed is None:
+                    return  # key revoked / expired / owner deactivated
+                ids &= allowed
+                if streamer and set(streamer.ids) != ids:
+                    streamer.narrow(ids)
             if streamer and time.monotonic() >= next_tick:
                 next_tick = time.monotonic() + printer_stream.TICK_S
                 for ev in await streamer.poll():
@@ -98,20 +119,45 @@ async def _event_stream(
             await client.aclose()
 
 
-def _forward(data: str, ids: set[int], key_stream: bool) -> bool:
-    """Whether a pub/sub payload goes out on this stream. Session streams are
-    unfiltered; key streams get only allowed printers' print/printer events."""
-    if not key_stream:
-        return True
+def _forward(data: str, ids: set[int], key_stream: bool, filter_ids: bool) -> bool:
+    """Whether a pub/sub payload goes out on this stream. Streams with a
+    printer set (always for keys) get only allowed printers' print/printer
+    events; others are unfiltered."""
     try:
         ev = json.loads(data)
     except ValueError:
-        return False
-    typ = ev.get("type", "")
+        return not key_stream
+    typ = ev.get("type", "") if isinstance(ev, dict) else ""
     if typ == "print_job.updated":
         printer_stream.invalidate(ev.get("printer_id"))
-        return ev.get("printer_id") in ids
+        return not filter_ids or ev.get("printer_id") in ids
+    if not key_stream:
+        return True
     return typ.startswith("printer.") and ev.get("printer_id") in ids
+
+
+def _key_recheck(token: str) -> Callable[[], Awaitable[set[int] | None]]:
+    """Re-verify a key mid-stream: the current allowlist, or None if the key
+    is revoked/expired/lost ``read`` or its owner is inactive."""
+
+    async def check() -> set[int] | None:
+        async with get_sessionmaker()() as db:
+            key = await api_tokens.verify(db, token)
+            if key is None or "read" not in (key.scopes or []):
+                return None
+            owner = await db.get(User, key.user_id)
+            if owner is None or not owner.is_active:
+                return None
+            _, perms, acl = await load_grants(db, owner)
+            if "admin" in perms:
+                acl = dict.fromkeys((await db.execute(select(Printer.id))).scalars().all(), 1)
+            if not api_tokens.SCOPE_PERMS["read"] <= (perms & api_tokens.scope_perms(key.scopes)):
+                return None
+            if key.printer_ids:
+                acl = {p: a for p, a in acl.items() if p in key.printer_ids}
+            return set(acl)
+
+    return check
 
 
 async def _heartbeat_s(db: AsyncSession) -> float:
@@ -122,6 +168,8 @@ async def _heartbeat_s(db: AsyncSession) -> float:
 class StreamAuth:
     is_key: bool
     allowed: set[int] | None  # None = unrestricted (admin session)
+    token: str | None = None
+    headers: dict[str, str] | None = None
 
 
 async def stream_auth(
@@ -141,7 +189,13 @@ async def stream_auth(
             raise HTTPException(status.HTTP_403_FORBIDDEN, "missing scope: read")
         if not api_tokens.SCOPE_PERMS["read"] <= auth.ctx.perms:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "key owner lacks the permission")
-        return StreamAuth(True, set(auth.ctx.printer_acl))
+        hdrs = {k: v for k, v in response.headers.items() if k.lower().startswith("x-ratelimit")}
+        return StreamAuth(
+            True,
+            set(auth.ctx.printer_acl),
+            extract_credential(authorization, x_api_key),
+            hdrs,
+        )
     ctx = await require_session(request, tdmm_session, db)
     return StreamAuth(False, visible_printer_ids(ctx))
 
@@ -185,7 +239,12 @@ async def sse_events(
             settings=settings,
             printer_ids=sorted(ids),
             key_stream=auth.is_key,
+            recheck=_key_recheck(auth.token) if auth.is_key and auth.token else None,
         ),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            **(auth.headers or {}),
+        },
     )

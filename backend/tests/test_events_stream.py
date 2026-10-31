@@ -181,7 +181,6 @@ async def test_delta_only_on_real_change(live_client, fast):  # noqa: F811
     _set(fast, pid, gcode_state="IDLE", nozzle_temper=200.0, trays=trays, last_report_at="t0")
     key = await _mint(live_client)
     h = {"X-API-Key": key}
-    seen: list[dict] = []
 
     async def mutate():
         await asyncio.sleep(0.4)
@@ -208,7 +207,6 @@ async def test_delta_only_on_real_change(live_client, fast):  # noqa: F811
         "printer_id": pid,
         "patch": {"gcode_state": "RUNNING"},
     }
-    seen.extend(evs)
 
 
 async def test_print_job_event_filtered_by_allowlist(live_client, fast, redis_url):  # noqa: F811
@@ -249,3 +247,43 @@ async def test_ping_interval(live_client, fast):  # noqa: F811
     key = await _mint(live_client)
     _, pings = await _events(live_client, {"X-API-Key": key}, until=lambda e, p: p >= 2)
     assert pings >= 2
+
+
+async def test_session_with_printer_ids_drops_foreign_print_job(live_client, fast):  # noqa: F811
+    p1 = await _mk_printer(live_client, "SERF1XYZ")
+    p2 = await _mk_printer(live_client, "SERF2XYZ")
+
+    async def publish():
+        await asyncio.sleep(0.4)
+        for pid, jid in ((p2, 1), (p1, 2)):
+            ev = {"type": "print_job.updated", "print_job_id": jid, "printer_id": pid, "state": "x"}
+            fast.publish(CHANNEL, json.dumps(ev))
+
+    task = asyncio.create_task(publish())
+    evs, _ = await _events(
+        live_client,
+        params={"printer_ids": str(p1)},
+        until=lambda e, p: any(x["type"] == "print_job.updated" for x in e),
+    )
+    await task
+    assert [e["print_job_id"] for e in evs if e["type"] == "print_job.updated"] == [2]
+
+
+async def test_revoked_key_ends_stream_and_ratelimit_headers(live_client, monkeypatch):  # noqa: F811
+    from app.api import events
+
+    monkeypatch.setattr(events, "RECHECK_S", 0.2)
+    await _mk_printer(live_client, "SERR1XYZ")
+    r = await live_client.post("/api/settings/api-keys", json={"label": "rv", "scopes": ["read"]})
+    key, kid = r.json()["key"], r.json()["id"]
+    async with live_client.stream("GET", "/api/events", headers={"X-API-Key": key}) as resp:
+        assert resp.status_code == 200
+        assert "x-ratelimit-limit" in resp.headers
+        d = await live_client.delete(f"/api/settings/api-keys/{kid}")
+        assert d.status_code in (200, 204), d.text
+
+        async def drain():
+            async for _ in resp.aiter_lines():
+                pass
+
+        await asyncio.wait_for(drain(), 10)  # stream ends on its own

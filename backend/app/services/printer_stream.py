@@ -17,8 +17,8 @@ from app.config import Settings
 from app.db import get_sessionmaker
 from app.models.printing import Printer
 from app.printers.base import state_key
-from app.schemas.printers import PrinterStatusOut
-from app.services.printer_status import build_status
+from app.schemas.printers import PrinterStatusOut, status_from_state
+from app.services.printer_status import build_status, normalize_status
 
 TICK_S = 1.0  # poll cadence == max delta rate per printer
 KEEPALIVE_S = 300.0  # full status resend
@@ -76,10 +76,12 @@ def apply_merge_patch(target, patch):
 
 
 def _fingerprint(state: dict | None) -> str:
+    """Hash of the normalized (rounded/sorted) state-derived fields, so
+    jitter/reorders/volatile fields don't force a DB overlay rebuild."""
     if state is None:
         return "-"
-    s = {k: v for k, v in state.items() if k not in VOLATILE}
-    return hashlib.sha1(json.dumps(s, sort_keys=True, default=str).encode()).hexdigest()
+    doc = normalize_status(status_from_state(state)).model_dump(mode="json", exclude=set(VOLATILE))
+    return hashlib.sha1(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
 
 
 async def _status_for(settings: Settings, pid: int, state: dict | None) -> PrinterStatusOut | None:
@@ -110,6 +112,13 @@ class PrinterStream:
         self.ids = sorted(printer_ids)
         self._sent: dict[int, dict] = {}
         self._full_at: dict[int, float] = {}
+
+    def narrow(self, ids: set[int]) -> None:
+        self.ids = sorted(ids)
+        for pid in list(self._sent):
+            if pid not in ids:
+                self._sent.pop(pid, None)
+                self._full_at.pop(pid, None)
 
     async def poll(self) -> list[dict]:
         if not self.ids:
