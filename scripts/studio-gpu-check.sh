@@ -164,7 +164,7 @@ PY
 docker cp "$INITD/probe.py" "$NAME:/tmp/probe.py" >/dev/null 2>&1 || true
 docker exec "$NAME" sh -c "
   echo '-- external platform json:'; ls /usr/share/egl/egl_external_platform.d/ /etc/egl/egl_external_platform.d/ 2>&1
-  echo '-- compositor env:'; pid=\$(pgrep -f 'selkies' | head -1); [ -n \"\$pid\" ] && tr '\\\\0' '\\\\n' </proc/\$pid/environ | grep -E 'GBM|EGL|__GL|DRI|NVIDIA|LD_|MESA' || echo none
+  echo '-- compositor env:'; pid=\$(pgrep -f 'selkies' | head -1); [ -n \"\$pid\" ] && tr '\\0' '\\n' </proc/\$pid/environ | grep -E 'GBM|EGL|__GL|DRI|NVIDIA|LD_|MESA' || echo none
   echo '-- probe:'; su -s /bin/sh abc -c 'LD_DEBUG=libs python3 /tmp/probe.py $NODE' 2>&1 | grep -E 'gbm_|backend:|nvidia|EGL|libgbm|error|cannot' | grep -v 'calling init\\|calling fini' | sed 's/^ *[0-9]*:\\s*//' | head -40
 " 2>&1 | cut -c1-200 || true
 
