@@ -51,7 +51,7 @@ export function ModelDetailPage() {
   // >=900px: dockable panels. Below: the stacked cards, no dock.
   const docked = useMediaQuery("(min-width: 900px)");
   const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
-  // Lets "Open in Bambu Studio" reveal the dock's Studio panel instead of leaving the page.
+  // Lets "Open in OrcaSlicer" reveal the dock's Studio panel instead of leaving the page.
   useEffect(() => {
     if (!dockApi || !docked) return;
     return registerStudioDock(() => {

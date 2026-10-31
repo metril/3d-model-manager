@@ -2139,7 +2139,7 @@ export interface SlicerHealth {
   max_concurrency?: number | null;
   job_timeout_s?: number | null;
   mem_limit?: number | null;
-  bambu_version?: string | null;
+  slicer_version?: string | null;
 }
 
 export interface SlicedMeta {

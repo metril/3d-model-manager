@@ -147,7 +147,7 @@ _EVENTS: dict[str, tuple[str, str, str, str, dict[str, Any]]] = {
         "A slice job (queued print or standalone) failed or was cancelled.",
         "Slice failed: {{ name|default('file') }}",
         "Slicing {{ name|default('a file') }} failed{% if error %}: {{ error }}{% endif %}.",
-        {"name": "benchy.3mf", "error": "bambu-studio exited 3"},
+        {"name": "benchy.3mf", "error": "slicer exited 3"},
     ),
     "backup_failed": (
         "Backup failed",

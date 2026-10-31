@@ -302,7 +302,7 @@ describe("SettingsPage tabs", () => {
 
     expect(await screen.findByText("Slicer integration")).toBeInTheDocument();
     expect(
-      screen.getByText("Send sliced files straight from Bambu Studio to your library."),
+      screen.getByText("Send sliced files straight from OrcaSlicer to your library."),
     ).toBeInTheDocument();
   });
 

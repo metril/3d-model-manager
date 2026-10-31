@@ -1,4 +1,4 @@
-/** Navigation + dock hand-off for Bambu Studio (usable outside a router context). */
+/** Navigation + dock hand-off for OrcaSlicer (usable outside a router context). */
 
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
 

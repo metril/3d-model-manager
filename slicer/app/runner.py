@@ -1,9 +1,14 @@
-"""Runs the Bambu Studio CLI for one slice job.
+"""Runs the OrcaSlicer CLI for one slice job.
 
-Verified against v02.08.02.61: the CLI exits 0 even when it produced nothing
-(e.g. no display), so success == the exported `.gcode.3mf` exists and
-`result.json`'s `return_code` is 0. No X display is needed; `use_xvfb` is a
-fallback (`xvfb-run -a`).
+Verified against OrcaSlicer v2.4.2: the CLI can exit 0 even when it produced
+nothing, so success == the exported `.gcode.3mf` exists and `result.json`'s
+`return_code` (when written) is 0. Plate thumbnails need a GL context, so the
+sidecar runs it under `xvfb-run -a` (`use_xvfb`, SLICER_USE_XVFB=1). v2.4.2
+does NOT render plate thumbnails in CLI mode (no Metadata/plate_N.png, with or
+without a display); the backend renders its own. Bed names (`--curr-bed-type`)
+verified: Cool / Textured Cool / Engineering / High Temp / Textured PEI /
+Supertack Plate; a plate the filament does not support fails with
+return_code -61 in result.json (and a non-zero exit).
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ OUT_NAME = "out.gcode.3mf"
 # Our bed_type vocabulary -> the names `--curr-bed-type` takes.
 BED_TYPES = {
     "cool_plate": "Cool Plate",
+    "textured_cool_plate": "Textured Cool Plate",
     "engineering_plate": "Engineering Plate",
     "high_temp_plate": "High Temp Plate",
     "textured_plate": "Textured PEI Plate",
@@ -187,7 +193,7 @@ async def run_slice(
         raise SliceCancelled("cancelled", proc.returncode, tail)
     result = job.dir / "out" / OUT_NAME
     if proc.returncode != 0:
-        raise SliceFailed(f"bambu-studio exited {proc.returncode}", proc.returncode, tail)
+        raise SliceFailed(f"slicer exited {proc.returncode}", proc.returncode, tail)
     rc_file = job.dir / "out" / "result.json"
     if rc_file.is_file():
         with contextlib.suppress(OSError, ValueError):
@@ -197,5 +203,5 @@ async def run_slice(
                     str(info.get("error_string") or "slice failed"), info["return_code"], tail
                 )
     if not result.is_file():
-        raise SliceFailed("bambu-studio produced no output", proc.returncode, tail)
+        raise SliceFailed("slicer produced no output", proc.returncode, tail)
     return result.read_bytes()

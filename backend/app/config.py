@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # importing a slicer export that's still being written mid-poll.
     # Env: `WATCH_STABLE` (seconds).
     watch_stable_s: float = Field(default=10.0, validation_alias=AliasChoices("WATCH_STABLE"))
-    # Bambu Studio sidecar exchange dir (shared with the studio container as
+    # OrcaSlicer (Studio) sidecar exchange dir (shared with the studio container as
     # `/exchange`): per-session `<token>/in/` inputs, `<token>/*` returns.
     studio_exchange_dir: Path = Field(
         default=Path("/exchange"), validation_alias=AliasChoices("STUDIO_EXCHANGE_DIR")

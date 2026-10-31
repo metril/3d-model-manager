@@ -1,4 +1,4 @@
-/** Bambu Studio sidecar: open a file in the streamed GUI, track the active session. */
+/** OrcaSlicer sidecar: open a file in the streamed GUI, track the active session. */
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/api/auth";

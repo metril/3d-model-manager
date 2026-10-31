@@ -60,7 +60,7 @@ describe("SlicerIntegrationCard", () => {
     renderCard();
 
     expect(await screen.findByText("No tokens yet.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Token label")).toHaveValue("Bambu Studio");
+    expect(screen.getByLabelText("Token label")).toHaveValue("OrcaSlicer");
     expect(
       screen.getByText("Uses the same API tokens as the browser extension — a token from either works for both."),
     ).toBeInTheDocument();
@@ -68,12 +68,12 @@ describe("SlicerIntegrationCard", () => {
 
   it("lists existing tokens", async () => {
     mockGet(featuresOut(), [
-      { id: 1, label: "Bambu Studio", created_at: "2026-07-01T00:00:00Z", last_used_at: null },
+      { id: 1, label: "OrcaSlicer", created_at: "2026-07-01T00:00:00Z", last_used_at: null },
     ]);
 
     renderCard();
 
-    expect(await screen.findByText("Bambu Studio")).toBeInTheDocument();
+    expect(await screen.findByText("OrcaSlicer")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeInTheDocument();
   });
 
@@ -81,7 +81,7 @@ describe("SlicerIntegrationCard", () => {
     mockGet(featuresOut());
     postMock.mockResolvedValue({
       id: 9,
-      label: "Bambu Studio",
+      label: "OrcaSlicer",
       token: "tdmm_secret_plaintext",
       created_at: "2026-07-10T00:00:00Z",
     });
@@ -92,7 +92,7 @@ describe("SlicerIntegrationCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create token" }));
 
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith("/settings/api-tokens", { label: "Bambu Studio" }),
+      expect(postMock).toHaveBeenCalledWith("/settings/api-tokens", { label: "OrcaSlicer" }),
     );
     expect(await screen.findByText("tdmm_secret_plaintext")).toBeInTheDocument();
     expect(screen.getByText(/Set it as/)).toHaveTextContent("INTAKE_TOKEN");
@@ -106,7 +106,7 @@ describe("SlicerIntegrationCard", () => {
 
     expect(screen.getByText("1. Auto-upload every slice (metadata)")).toBeInTheDocument();
     expect(screen.getByText(/Process → Others → Post-processing scripts/)).toBeInTheDocument();
-    expect(screen.getByText("python3 /path/to/bambu_postprocess.py")).toBeInTheDocument();
+    expect(screen.getByText("python3 /path/to/slicer_postprocess.py")).toBeInTheDocument();
     expect(screen.getByText("INTAKE_URL")).toBeInTheDocument();
     expect(screen.getByText("INTAKE_TOKEN")).toBeInTheDocument();
     expect(screen.getByText(/This path uploads plain \.gcode/)).toBeInTheDocument();
@@ -121,9 +121,9 @@ describe("SlicerIntegrationCard", () => {
     renderCard();
     await screen.findByText("No tokens yet.");
 
-    const link = screen.getByRole("link", { name: /Download bambu_postprocess\.py/ });
-    expect(link).toHaveAttribute("href", expect.stringMatching(/^\/bambu_postprocess\.py\?v=\d+$/));
-    expect(link).toHaveAttribute("download", "bambu_postprocess.py");
+    const link = screen.getByRole("link", { name: /Download slicer_postprocess\.py/ });
+    expect(link).toHaveAttribute("href", expect.stringMatching(/^\/slicer_postprocess\.py\?v=\d+$/));
+    expect(link).toHaveAttribute("download", "slicer_postprocess.py");
   });
 
   it("shows the watched-folder path and 'active' when the feature is enabled", async () => {

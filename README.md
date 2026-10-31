@@ -97,7 +97,7 @@ memory-recycled -- see "Worker split" below), `beat` (ticks the scan/
 collection-sync/watched-folder dispatcher), `printerd` (the Bambu LAN MQTT
 supervisor), `slicer` and `obico-ml` (sidecars), `virtual-printer` (a fake
 LAN Bambu printer), `db` (Postgres 16), and `redis`. One more sidecar, `studio`
-(the real Bambu Studio GUI streamed to the browser), is **opt-in**: set
+(the real OrcaSlicer GUI streamed to the browser), is **opt-in**: set
 `COMPOSE_PROFILES=studio`; x86-64 only, see [docs/studio.md](docs/studio.md). `beat`, `printerd`,
 `virtual-printer` and the sidecars idle harmlessly when their features are off
 in Settings — see "Scheduled scan" and "Printer integration" below. The
@@ -459,13 +459,13 @@ profile, a process profile and (optionally) filament profiles into one
 named preset, so **Files → Print**'s Profile step can offer "slice and
 send" for an unsliced source file (3MF/STL/STEP/OBJ) instead of requiring
 an already-sliced `.gcode.3mf`. The `slicer` sidecar (`./slicer`, a
-FastAPI wrapper around a pinned Bambu Studio CLI, `compose.slicer.yaml`)
+FastAPI wrapper around a pinned OrcaSlicer v2.4.2 CLI, `compose.slicer.yaml`)
 starts with the stack and is enabled by default; **Settings → Server**
 holds the on/off switch, URL (default `http://slicer:3001`), timeout, a
 health badge and a Test button. No env var is needed. With
 `compose.prod.yaml` the published image
 `ghcr.io/metril/3d-model-manager-slicer` (tags `edge`, `latest`, `sha-<short>`,
-`<bambu>-<sha>`, and `X.Y.Z`/`X.Y`/`X` per release; amd64 only) is
+`<orca>-<sha>`, and `X.Y.Z`/`X.Y`/`X` per release; amd64 only) is
 pulled; a source build uses `tdmm-slicer:local`. Set `SLICER_IMAGE` in `.env`
 to pin another tag. With the slicer disabled, recipe actions stay off
 (`GET /api/slicer/health` reports `configured: false`).
@@ -473,10 +473,10 @@ to pin another tag. With the slicer disabled, recipe actions stay off
 **Profiles** (`/inventory/profiles`) are the raw printer/process/filament
 JSON a slicer bundle exports, each tagged with a `kind` and (for printer
 profiles) the `printer_model` string recipes filter by. Import them either
-from a Bambu Studio **profile bundle** (`.zip`/folder containing a
-`BBL.json` manifest — the same tree Bambu Studio writes under its own
-config directory, e.g. `~/.config/BambuStudio/system/`\* on Linux or
-`%APPDATA%\BambuStudio\system\` on Windows) via **Import**, or by pulling
+from an OrcaSlicer / Bambu Studio **profile bundle** (`.zip`/folder containing a
+`<Vendor>.json` manifest such as `BBL.json` — the same tree the slicer writes under its own
+config directory, e.g. `~/.config/OrcaSlicer/system/`\* on Linux or
+`%APPDATA%\OrcaSlicer\system\` on Windows) via **Import**, or by pulling
 **Sync Bambu system profiles** (Profiles page / Slicer integration card),
 which pulls the sidecar's bundled Bambu presets — only your configured
 printers' models by default, or all of them. Synced rows are tagged
@@ -487,7 +487,7 @@ itself.
 
 **Recipes** (the same page's Recipes tab) combine a printer + process
 profile, optional filament profiles, a `bed_type` (must match one of the
-BBL `curr_bed_type` strings the pinned CLI accepts, not an arbitrary
+`curr_bed_type` names the pinned OrcaSlicer CLI accepts (e.g. Cool / Textured Cool / Textured PEI / Supertack Plate), not an arbitrary
 label), pre-print `options`, and a **fanout**: `single` (any one eligible
 printer), `spread` (one copy per eligible idle printer) or `first_n`
 (the first *n* eligible printers, by name order). Recipes are listed for
@@ -495,8 +495,8 @@ Profile-step selection filtered to printers whose profile `printer_model`
 matches the one already chosen in the plan, or all of them when none has
 been picked yet.
 
-\* Bambu Studio's exact config path varies by install/version — check
-**Help → Show Configuration Folder** inside Bambu Studio if the above
+\* The exact config path varies by install/version — check
+**Help → Show Configuration Folder** inside the slicer if the above
 doesn't match.
 
 ### Queue & dispatch
@@ -668,18 +668,18 @@ finish; the difference becomes `prints.energy_kwh`, priced by
 is folded into `total_cost` and, when billing is on, the P7 cost-center
 charge.
 
-## Bambu Studio integration
+## Slicer integration (OrcaSlicer / Bambu Studio)
 
-**No plugin hook exists.** Bambu Studio has no plugin SDK, and its
+**No plugin hook exists.** Neither OrcaSlicer nor Bambu Studio has a plugin SDK, and its
 `bambustudio://` deep links are domain-allowlisted to `makerworld.com`
 inside the binary — a self-hosted app has no way to register itself as a
 target for Studio's own "send"/"open in" actions. The two loops below,
 built on features Studio already exposes, are the supported path instead.
 
 **1. Auto-upload every slice (metadata).** In Studio: **Process → Others →
-Post-processing scripts**, add `python3 /path/to/bambu_postprocess.py`.
+Post-processing scripts**, add `python3 /path/to/slicer_postprocess.py`.
 Studio runs it after every slice and appends the sliced file's path as the
-last argument; the script itself (`scripts/bambu_postprocess.py` in this
+last argument; the script itself (`scripts/slicer_postprocess.py` in this
 repo, also downloadable from **Settings → Accounts → Slicer
 integration**) reads two environment variables from wherever Studio
 itself runs (set them in your shell profile, or wrap the command in a
@@ -722,13 +722,13 @@ extension uses** — mint or revoke tokens from **Settings → Accounts →
 Slicer integration** (or **Browser extension**; either card manages the
 same token list, so a token from one works for the other).
 
-### Embedded Bambu Studio (sidecar)
+### Embedded OrcaSlicer (sidecar)
 
 An opt-in `studio` container (`COMPOSE_PROFILES=studio`, x86-64 only) runs the
-real Bambu Studio GUI and streams it into the browser, so a model can be edited
+real OrcaSlicer GUI (it replaced Bambu Studio; see the migration note in [docs/studio.md](docs/studio.md)) and streams it into the browser, so a model can be edited
 in the full app without installing anything. It is **admin-only** (the api
 proxies `/studio/` behind login) and **export-only**: it never holds printer
-credentials. "Open in Bambu Studio" on a model copies the file into a per-session
+credentials. "Open in OrcaSlicer" on a model copies the file into a per-session
 exchange folder; files you save or export there are ingested back under the
 originating model. Setup, GPU options, security and troubleshooting:
 [docs/studio.md](docs/studio.md).

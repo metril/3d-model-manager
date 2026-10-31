@@ -1,7 +1,7 @@
 """Client for our slicer sidecar (`slicer/`, compose profile `slicer`): a
-FastAPI wrapper around the Bambu Studio CLI. Endpoints: `GET /health`
+FastAPI wrapper around the OrcaSlicer CLI. Endpoints: `GET /health`
 (`{status, version, busy, max_concurrency, running, job_timeout_s,
-mem_limit, bambu_version}`), `DELETE /jobs/{id}` (kill a running slice; the
+mem_limit, slicer_name, slicer_version}`), `DELETE /jobs/{id}` (kill a running slice; the
 job id is the `X-Job-Id` request header on `POST /slice`), `GET /profiles[?flatten=1]`
 (bundled Bambu presets) and `POST /slice` (multipart, built by
 `_build_slice_request`; responds with the `.gcode.3mf`). Errors are JSON
@@ -100,15 +100,18 @@ def _parse_health(data: Any) -> dict:
     version = data.get("version")
     if not isinstance(status, str) or not isinstance(version, str):
         raise SlicerProtocolError("slicer health is missing a string status/version")
+    # `bambu_version` is the pre-OrcaSlicer name of `slicer_version`.
+    slicer_version = data.get("slicer_version") or data.get("bambu_version") or version
     return {
         "version": version,
+        "slicer_name": data.get("slicer_name"),
+        "slicer_version": slicer_version,
         "ok": status == "ok",
         "busy": bool(data.get("busy", False)),
         "max_concurrency": data.get("max_concurrency"),
         "running": data.get("running"),
         "job_timeout_s": data.get("job_timeout_s"),
         "mem_limit": data.get("mem_limit"),
-        "bambu_version": data.get("bambu_version"),
     }
 
 

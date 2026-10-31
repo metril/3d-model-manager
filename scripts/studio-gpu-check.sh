@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2015  # pass/fail helpers always return 0
-# NVIDIA host check for the Bambu Studio (Selkies) sidecar. Run on the headless
+# NVIDIA host check for the OrcaSlicer (Selkies) sidecar. Run on the headless
 # NVIDIA host, then paste ALL output back. Needs only docker, curl, grep.
 #   usage: scripts/studio-gpu-check.sh [render-node] [hold-seconds]
 #   e.g.   scripts/studio-gpu-check.sh /dev/dri/renderD128 3600
@@ -12,7 +12,7 @@ set -euo pipefail
 NODE="${1:-/dev/dri/renderD128}"
 HOLD="${2:-0}"
 SECS=120   # wait for the web UI to answer
-IMAGE="${STUDIO_IMAGE:-lscr.io/linuxserver/bambustudio:latest}"
+IMAGE="${STUDIO_IMAGE:-lscr.io/linuxserver/orcaslicer:latest}"
 CUDA_IMAGE="nvidia/cuda:12.4.1-base-ubuntu22.04"
 NAME="tdmm-studio-gpucheck"
 PORT="${STUDIO_CHECK_PORT:-3000}"

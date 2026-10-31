@@ -60,7 +60,8 @@ SLICER_PROBE_TIMEOUT_S = 3.0
 OBICO_PROBE_TIMEOUT_S = 2.0
 SLICER_INFO_KEYS = (
     "version",
-    "bambu_version",
+    "slicer_name",
+    "slicer_version",
     "busy",
     "running",
     "max_concurrency",

@@ -16,10 +16,21 @@ from starlette.datastructures import UploadFile
 from app import runner
 from app.profiles import KINDS, ProfileError, ProfileIndex
 
-BAMBU_DIR = Path(os.environ.get("BAMBU_DIR", "/opt/bambu"))
-CLI = os.environ.get("BAMBU_CLI", str(BAMBU_DIR / "bin" / "bambu-studio"))
-PROFILES_DIR = Path(os.environ.get("SLICER_PROFILES_DIR", BAMBU_DIR / "resources/profiles/BBL"))
-VERSION = os.environ.get("BAMBU_VERSION", "unknown")
+def _env(*names: str, default: str = "") -> str:
+    """First set env var among `names` (the BAMBU_* names are legacy aliases)."""
+    for name in names:
+        if os.environ.get(name):
+            return os.environ[name]
+    return default
+
+
+SLICER_DIR = Path(_env("SLICER_DIR", "BAMBU_DIR", default="/opt/orca"))
+CLI = _env("SLICER_CLI", "BAMBU_CLI", default=str(SLICER_DIR / "bin" / "orca-slicer"))
+SLICER_NAME = "OrcaSlicer"
+VERSION = _env("SLICER_VERSION", "BAMBU_VERSION", default="unknown")
+# Vendor preset folders under resources/profiles to index (comma list).
+VENDORS = [v.strip() for v in _env("SLICER_PROFILE_VENDORS", default="BBL").split(",") if v.strip()]
+PROFILES_DIR = Path(_env("SLICER_PROFILES_DIR", default=str(SLICER_DIR / "resources/profiles")))
 MAX_JOBS = int(os.environ.get("SLICER_MAX_JOBS", "1"))
 JOB_TIMEOUT_S = float(os.environ.get("SLICER_JOB_TIMEOUT_S", "600"))
 MAX_UPLOAD = int(os.environ.get("SLICER_MAX_UPLOAD_MB", "200")) * 1024 * 1024
@@ -27,7 +38,7 @@ USE_XVFB = os.environ.get("SLICER_USE_XVFB", "0") == "1"
 MODEL_SUFFIXES = {".stl", ".3mf", ".obj", ".step", ".stp", ".amf"}
 
 app = FastAPI(title="tdmm-slicer")
-app.state.index = ProfileIndex(PROFILES_DIR)
+app.state.index = ProfileIndex(PROFILES_DIR, VENDORS)
 app.state.sem = asyncio.Semaphore(MAX_JOBS)
 app.state.running = 0
 app.state.jobs = {}  # job_id -> runner.JobHandle, for DELETE /jobs/{id}
@@ -57,13 +68,15 @@ def _err(status: int, error: str, message: str, exit_code=None, log_tail="", hea
 async def health():
     return {
         "status": "ok",
+        "slicer_name": SLICER_NAME,
+        "slicer_version": VERSION,
         "version": VERSION,
         "busy": app.state.running >= MAX_JOBS,
         "max_concurrency": MAX_JOBS,
         "running": app.state.running,
         "job_timeout_s": JOB_TIMEOUT_S,
         "mem_limit": _mem_limit(),
-        "bambu_version": VERSION,
+        "bambu_version": VERSION,  # deprecated alias of slicer_version
     }
 
 

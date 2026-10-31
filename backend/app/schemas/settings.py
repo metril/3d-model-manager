@@ -284,7 +284,7 @@ class ProbeOut(BaseModel):
 
 
 class SlicerProbeOut(ProbeOut):
-    # Sidecar-reported details (version, bambu_version, busy/running/
+    # Sidecar-reported details (version, slicer_name, slicer_version, busy/running/
     # max_concurrency, job_timeout_s, mem_limit); None when unavailable.
     info: dict | None = None
 

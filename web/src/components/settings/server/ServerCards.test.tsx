@@ -185,7 +185,7 @@ describe("SlicerServerCard", () => {
       slicer: {
         ok: true,
         detail: "ok",
-        info: { version: "v02.08", bambu_version: "v02.08.02.61", running: 1, max_concurrency: 2, job_timeout_s: 900, mem_limit: 4294967296 },
+        info: { version: "v02.08", slicer_version: "v02.08.02.61", running: 1, max_concurrency: 2, job_timeout_s: 900, mem_limit: 4294967296 },
       },
     });
     ui(<SlicerServerCard data={fakeServer()} />, fakeServer());

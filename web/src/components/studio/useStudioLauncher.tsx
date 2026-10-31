@@ -8,7 +8,7 @@ import type { FileOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { showStudio } from "@/components/studio/studioNav";
 
-/** "Open in Bambu Studio": confirms when it would replace a session on a different file,
+/** "Open in OrcaSlicer": confirms when it would replace a session on a different file,
  * POSTs, then reveals Studio (dock panel on model detail, else the `/studio` page). */
 export function useStudioLauncher(slug: string, enabled: boolean): { launch: (file: FileOut) => void; dialog: ReactNode } {
   const { t } = useTranslation();

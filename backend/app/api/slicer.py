@@ -1,5 +1,5 @@
-"""``POST /slicer/intake`` -- Bambu Studio post-processing script upload
-endpoint (Round 8 Task 4: ``scripts/bambu_postprocess.py``). Bearer-token
+"""``POST /slicer/intake`` -- OrcaSlicer / Bambu Studio post-processing script upload
+endpoint (Round 8 Task 4: ``scripts/slicer_postprocess.py``). Bearer-token
 gated (``require_api_token``), the SAME auth plane ``/ext`` uses -- mounted
 directly on ``api_router``, outside ``protected_router`` (see
 ``app.api.__init__``'s module docstring), since a Bambu Studio

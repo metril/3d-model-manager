@@ -29,12 +29,12 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   notes: "Notes",
   printTips: "Print tips",
   specs: "Specs",
-  studio: "Bambu Studio",
+  studio: "OrcaSlicer",
 };
 
 /** Panels that exist only while their feature is on: never in the default
  * layout or the "new panel" auto-add, and hidden from the Panels menu when
- * the feature is off. Added on demand ("Open in Bambu Studio" / Panels menu). */
+ * the feature is off. Added on demand ("Open in OrcaSlicer" / Panels menu). */
 export const OPTIONAL_PANELS: readonly PanelId[] = ["studio"];
 
 /** Panels whose DOM must survive tab switches (an iframe reloads if detached). */

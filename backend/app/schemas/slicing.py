@@ -129,7 +129,8 @@ class SlicerHealthOut(BaseModel):
     max_concurrency: int | None = None
     job_timeout_s: float | None = None
     mem_limit: int | None = None
-    bambu_version: str | None = None
+    slicer_name: str | None = None
+    slicer_version: str | None = None
     configured: bool
     ok: bool
     version: str | None = None

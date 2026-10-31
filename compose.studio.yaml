@@ -1,4 +1,4 @@
-# Bambu Studio GUI sidecar (docs/studio.md). Opt-in: COMPOSE_PROFILES=studio.
+# OrcaSlicer GUI sidecar (docs/studio.md). Opt-in: COMPOSE_PROFILES=studio.
 # Streams the real Studio over Selkies/WebSocket; the api reverse-proxies
 # /studio/ behind our login. NEVER publish 3000/3001: the Selkies terminal has
 # passwordless sudo, so only our login protects it. Nothing is published here.

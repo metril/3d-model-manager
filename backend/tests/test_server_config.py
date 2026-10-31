@@ -405,7 +405,7 @@ async def test_status_endpoint(authenticated_client, redis_url) -> None:
                         "max_concurrency": 2,
                         "job_timeout_s": 600.0,
                         "mem_limit": None,
-                        "bambu_version": "v02.08",
+                        "slicer_version": "v2.4.2",
                     },
                 )
             )
@@ -417,7 +417,7 @@ async def test_status_endpoint(authenticated_client, redis_url) -> None:
         assert body["slicer_healthy"] is True and body["obico"]["ok"] is False
         assert body["slicer"]["info"] == {
             "version": "v1",
-            "bambu_version": "v02.08",
+            "slicer_version": "v2.4.2",
             "busy": True,
             "running": 1,
             "max_concurrency": 2,

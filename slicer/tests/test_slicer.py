@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import types
 import zipfile
 from pathlib import Path
@@ -269,7 +270,7 @@ def test_slice_bad_options_400(api):
 def test_health_reports_limits(api):
     h = api.get("/health").json()
     assert h["job_timeout_s"] == 3 and h["running"] == 0
-    assert "mem_limit" in h and "bambu_version" in h
+    assert "mem_limit" in h and "bambu_version" in h and h["slicer_name"] == "OrcaSlicer" and h["slicer_version"] == h["bambu_version"]
 
 
 def test_delete_unknown_job_404(api):
@@ -322,11 +323,23 @@ def test_profile_index_recurses_vendor_subfolders(tmp_path):
     (fil / "SUNLU" / "sunlu.json").write_text(json.dumps(
         {"name": "SUNLU PLA+ @BBL A1M", "inherits": "fdm_base", "instantiation": "true",
          "compatible_printers": ["A1M 0.4"]}))
-    ix = ProfileIndex(tmp_path)
+    ix = ProfileIndex(tmp_path.parent, [tmp_path.name])
     ents = {e["name"]: e for e in ix.entries("filament", flatten=True)}
     assert set(ents) == {"SUNLU PLA+ @BBL A1M"}
     e = ents["SUNLU PLA+ @BBL A1M"]
     assert e["vendor"] == "SUNLU"
     assert e["data"]["filament_type"] == ["PLA"]
     assert e["printer_model"] == "A1 mini"
-    assert ix.entries("printer")[0]["vendor"] == "BBL"
+    assert ix.entries("printer")[0]["vendor"] == tmp_path.name
+
+
+def test_profile_index_multiple_vendors(tmp_path):
+    for v, model in (("BBL", "A1M"), ("Prusa", "MK4")):
+        (tmp_path / v / "machine").mkdir(parents=True)
+        (tmp_path / v / "machine" / "p.json").write_text(json.dumps(
+            {"name": f"{v} printer", "instantiation": "true", "printer_model": model,
+             "nozzle_diameter": ["0.4"]}))
+    ix = ProfileIndex(tmp_path, ["BBL", "Prusa"])
+    assert {e["name"]: e["vendor"] for e in ix.entries("printer")} == {
+        "BBL printer": "BBL", "Prusa printer": "Prusa"}
+    assert [e["name"] for e in ProfileIndex(tmp_path, ["BBL"]).entries("printer")] == ["BBL printer"]

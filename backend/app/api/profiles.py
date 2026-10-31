@@ -53,6 +53,7 @@ from app.services.slicer_client import (
     client_from_config,
 )
 from app.services.slicer_profiles import (
+    has_vendor_manifest,
     ProfileImportError,
     apply_meta,
     dedup_stock_profiles,
@@ -441,9 +442,9 @@ async def import_profiles(
         if not ctx.is_admin:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "path import is admin-only")
         bundle_path = Path(path)
-        if not (bundle_path / "BBL.json").is_file():
+        if not has_vendor_manifest(bundle_path):
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, f"{path!r} has no BBL.json manifest"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"{path!r} has no <Vendor>.json manifest"
             )
         return await _import_from_path(db, bundle_path, printer_model, ctx.user.id)
 
@@ -721,5 +722,6 @@ async def slicer_health(
         max_concurrency=result["max_concurrency"],
         job_timeout_s=result["job_timeout_s"],
         mem_limit=result["mem_limit"],
-        bambu_version=result["bambu_version"],
+        slicer_name=result["slicer_name"],
+        slicer_version=result["slicer_version"],
     )

@@ -35,10 +35,10 @@ function SlicerInfo({ info, appTimeoutS }: { info: SlicerProbeInfo | null | unde
             <dd>{info.version}</dd>
           </div>
         ) : null}
-        {info.bambu_version ? (
+        {info.slicer_version ? (
           <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">{t("settings.server.slicer.bambuVersion")}</dt>
-            <dd>{info.bambu_version}</dd>
+            <dt className="text-muted-foreground">{t("settings.server.slicer.slicerVersion")}</dt>
+            <dd>{info.slicer_version}</dd>
           </div>
         ) : null}
         {max != null ? (

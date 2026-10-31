@@ -143,7 +143,7 @@ describe("StudioFrame", () => {
   it("renders the iframe with a skeleton until load", async () => {
     mockGet({});
     wrap(<StudioFrame />);
-    const frame = await screen.findByTitle("Bambu Studio");
+    const frame = await screen.findByTitle("OrcaSlicer");
     expect(frame).toHaveAttribute("src", "/studio/");
     expect(frame).toHaveAttribute("allow", "clipboard-read; clipboard-write; fullscreen");
     expect(screen.getByTestId("studio-skeleton")).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe("StudioFrame", () => {
   });
 });
 
-describe("Open in Bambu Studio menu entry", () => {
+describe("Open in OrcaSlicer menu entry", () => {
   async function openMenu(f: FileOut, opts: Parameters<typeof mockGet>[0], isDoc = false) {
     mockGet(opts);
     wrap(<FileActionsMenu file={f} model={model} isDoc={isDoc} />);
@@ -164,40 +164,40 @@ describe("Open in Bambu Studio menu entry", () => {
 
   it("is shown for an openable format when enabled", async () => {
     await openMenu(file(), { enabled: true });
-    expect(await screen.findByRole("menuitem", { name: /in Bambu Studio/ })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ })).toBeInTheDocument();
   });
 
   it("is hidden when disabled, for unsupported formats, and for docs", async () => {
     await openMenu(file(), { enabled: false });
     await screen.findByRole("menuitem", { name: /Download/ });
-    expect(screen.queryByRole("menuitem", { name: /in Bambu Studio/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /in OrcaSlicer/ })).toBeNull();
   });
 
   it("is hidden for non-admins", async () => {
     await openMenu(file(), { enabled: true, admin: false });
     await screen.findByRole("menuitem", { name: /Download/ });
-    expect(screen.queryByRole("menuitem", { name: /in Bambu Studio/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /in OrcaSlicer/ })).toBeNull();
   });
 
   it("is hidden for gcode", async () => {
     await openMenu(file({ format: "gcode", kind: "gcode" }), { enabled: true });
     await screen.findByRole("menuitem", { name: /Download/ });
-    expect(screen.queryByRole("menuitem", { name: /in Bambu Studio/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /in OrcaSlicer/ })).toBeNull();
   });
 
   it("opens directly with no session, then reveals Studio", async () => {
     postMock.mockResolvedValue({ token: "t", iframe_path: "/studio/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/models/m/files/2/studio", {}));
     await waitFor(() => expect(showStudioMock).toHaveBeenCalled());
-    expect(toastMock.success).toHaveBeenCalledWith("Opening b.stl in Bambu Studio");
+    expect(toastMock.success).toHaveBeenCalledWith("Opening b.stl in OrcaSlicer");
   });
 
   it("confirms before replacing a session on a different file", async () => {
     postMock.mockResolvedValue({ token: "t", iframe_path: "/studio/", replaced_session: true, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true, sess: session });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(await screen.findByText(/unsaved work there is lost/)).toBeInTheDocument();
     expect(postMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -206,7 +206,7 @@ describe("Open in Bambu Studio menu entry", () => {
 
   it("confirms a relaunch of the same file while Studio is running", async () => {
     await openMenu(file({ id: 1 }), { enabled: true, sess: session });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(await screen.findByText(/unsaved work there is lost/)).toBeInTheDocument();
     expect(postMock).not.toHaveBeenCalled();
   });
@@ -214,15 +214,15 @@ describe("Open in Bambu Studio menu entry", () => {
   it("maps launcher_busy to a restarting toast", async () => {
     postMock.mockRejectedValue(new ApiError(409, "busy", "launcher_busy"));
     await openMenu(file(), { enabled: true });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Studio is restarting, try again in a few seconds"));
   });
 
   it("maps launcher_unreachable to a toast", async () => {
     postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
     await openMenu(file(), { enabled: true });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Cannot reach the Bambu Studio launcher"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Cannot reach the OrcaSlicer launcher"));
     expect(showStudioMock).not.toHaveBeenCalled();
   });
 });
