@@ -2,12 +2,16 @@
 # shellcheck disable=SC2015  # pass/fail helpers always return 0
 # NVIDIA host check for the Bambu Studio (Selkies) sidecar. Run on the headless
 # NVIDIA host, then paste ALL output back. Needs only docker, curl, grep.
-#   usage: scripts/studio-gpu-check.sh [render-node] [seconds]
-#   e.g.   scripts/studio-gpu-check.sh /dev/dri/renderD128 120
+#   usage: scripts/studio-gpu-check.sh [render-node] [hold-seconds]
+#   e.g.   scripts/studio-gpu-check.sh /dev/dri/renderD128 3600
+# hold-seconds > 0 keeps the container up after the checks (Ctrl-C ends it)
+# so the stream can be tried by hand: ssh -L 3000:127.0.0.1:3000 <host>, then
+# open http://localhost:3000/studio/ on the other machine.
 set -euo pipefail
 
 NODE="${1:-/dev/dri/renderD128}"
-SECS="${2:-120}"
+HOLD="${2:-0}"
+SECS=120   # wait for the web UI to answer
 IMAGE="${STUDIO_IMAGE:-lscr.io/linuxserver/bambustudio:latest}"
 CUDA_IMAGE="nvidia/cuda:12.4.1-base-ubuntu22.04"
 NAME="tdmm-studio-gpucheck"
@@ -74,13 +78,14 @@ else
 fi
 HOOK
 chmod 755 "$INITD/20-nvidia-gbm"
+GPU_ARGS=(--runtime nvidia --gpus all --device /dev/dri --device /dev/nvidia-modeset
+  -v "$INITD/20-nvidia-gbm:/custom-cont-init.d/20-nvidia-gbm:ro"
+  -e NVIDIA_DRIVER_CAPABILITIES=all -e DRINODE="$NODE" -e DRI_NODE="$NODE")
+# STUDIO_CHECK_NOGPU=1: software rendering, to A/B behaviour against the GPU path.
+[ "${STUDIO_CHECK_NOGPU:-0}" = "1" ] && GPU_ARGS=() && echo "NOGPU: software rendering for A/B"
 docker run -d --name "$NAME" \
-  --runtime nvidia --gpus all \
-  --device /dev/dri --device /dev/nvidia-modeset \
-  -v "$INITD/20-nvidia-gbm:/custom-cont-init.d/20-nvidia-gbm:ro" \
-  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  "${GPU_ARGS[@]}" \
   -e PIXELFLUX_WAYLAND=true \
-  -e DRINODE="$NODE" -e DRI_NODE="$NODE" \
   -e SUBFOLDER=/studio/ -e TZ=UTC \
   -p "127.0.0.1:${PORT}:3000" --shm-size=1g \
   "$IMAGE" >/dev/null || { fail "could not start the Studio container with the NVIDIA stanza"; echo "RESULT: ${FAILS} FAIL line(s) above"; echo "Paste this whole output back."; exit 1; }
@@ -131,6 +136,13 @@ fi
 
 hdr "GBM / EGL backend diagnostics (host)"
 ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
+for lib in libEGL_nvidia.so.0 libGLESv2_nvidia.so.2 libnvidia-eglcore.so libnvidia-egl-wayland.so.1; do
+  if ldconfig -p | grep -q "$lib"; then
+    echo "host has $lib"
+  else
+    fail "host has no $lib; the container toolkit only mounts what the host has. Debian-style packages: libegl-nvidia0 libnvidia-eglcore libgles-nvidia2 libnvidia-egl-wayland1 (apt-cache search nvidia | grep -iE 'egl|gles')"
+  fi
+done
 if ldconfig -p | grep -q libnvidia-allocator; then
   ldconfig -p | grep libnvidia-allocator | head -2
 else
@@ -138,6 +150,24 @@ else
   dpkg -l 2>/dev/null | awk '/nvidia/ {print "  installed:", $2, $3}' | head -12
 fi
 dpkg -l 2>/dev/null | awk '/egl-gbm|libgbm|libnvidia-egl|egl-wayland/ {print $2, $3}' || true
+hdr "injection path (host)"
+docker info --format 'docker {{.ServerVersion}} cdi-spec-dirs={{.CDISpecDirs}}' 2>/dev/null || true
+ls -l /etc/cdi/ /var/run/cdi/ 2>/dev/null | grep -v '^total' || echo "no CDI specs"
+# Docker >=28 routes --gpus through CDI when a spec exists; /var/run/cdi beats
+# /etc/cdi. A spec generated before the EGL libs were installed is stale.
+for spec in /var/run/cdi/*.yaml /etc/cdi/*.yaml; do
+  [ -e "$spec" ] || continue
+  if grep -q libEGL_nvidia "$spec"; then
+    echo "CDI spec $spec has libEGL_nvidia"
+  else
+    fail "CDI spec $spec lacks libEGL_nvidia (stale; regenerate: systemctl restart nvidia-cdi-refresh.service, or nvidia-ctk cdi generate --output=$spec)"
+  fi
+done
+grep -vE '^\s*#|^\s*$' /etc/nvidia-container-runtime/config.toml 2>/dev/null | grep -iE 'mode|ldconfig|no-cgroups|cdi' || true
+echo "-- nvidia-container-cli list (legacy path would mount):"
+nvidia-container-cli list 2>/dev/null | grep -iE 'EGL|GLES|eglcore|allocator|egl-gbm|wayland' || echo "  (none / cli missing)"
+hdr "NVIDIA files actually inside the container"
+docker exec "$NAME" sh -c "ls -l /usr/lib/x86_64-linux-gnu/ | grep -iE 'nvidia|EGL' ; echo '-- cache:'; ldconfig -p | grep -icE 'nvidia|EGL_'" 2>&1 | cut -c1-160 || true
 hdr "GBM / EGL backend diagnostics (container)"
 docker exec "$NAME" sh -c '
   echo "-- gbm backends:"; ls -l /usr/lib/x86_64-linux-gnu/gbm/ 2>&1
@@ -172,12 +202,53 @@ for name, flags in (("RENDERING", 1 << 2), ("RENDERING|LINEAR", (1 << 2) | (1 <<
     ctypes.set_errno(0)
     bo = g.gbm_bo_create(dev, 256, 256, ARGB8888, flags)
     print("gbm_bo_create", name + ":", "ok" if bo else "FAIL", "errno", ctypes.get_errno())
+
+# EGL: replay smithay's EGLDisplay::new on this gbm device, step by step.
+e = ctypes.CDLL("libEGL.so.1", use_errno=True)
+e.eglQueryString.restype = ctypes.c_char_p
+e.eglQueryString.argtypes = [ctypes.c_void_p, ctypes.c_int]
+e.eglGetError.restype = ctypes.c_int
+e.eglGetProcAddress.restype = ctypes.c_void_p
+e.eglGetProcAddress.argtypes = [ctypes.c_char_p]
+EXT, VENDOR, VERSION = 0x3055, 0x3053, 0x3054
+print("egl client ext:", (e.eglQueryString(None, EXT) or b"").decode())
+def proc(name, restype, argtypes):
+    a = e.eglGetProcAddress(name.encode())
+    if not a:
+        print("missing", name); return None
+    f = ctypes.CFUNCTYPE(restype, *argtypes)(a)
+    return f
+qdev = proc("eglQueryDevicesEXT", ctypes.c_uint, [ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_int)])
+qstr = proc("eglQueryDeviceStringEXT", ctypes.c_char_p, [ctypes.c_void_p, ctypes.c_int])
+if qdev and qstr:
+    n = ctypes.c_int(0); qdev(0, None, ctypes.byref(n))
+    devs = (ctypes.c_void_p * max(n.value, 1))(); qdev(n.value, devs, ctypes.byref(n))
+    print("egl devices:", n.value)
+    for i in range(n.value):
+        ex = (qstr(devs[i], EXT) or b"").decode()
+        print(" dev", i, "drm_file:", qstr(devs[i], 0x3233), "render_node:", qstr(devs[i], 0x3377))
+        print("   exts:", ex[:300])
+gpd = proc("eglGetPlatformDisplayEXT", ctypes.c_void_p, [ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p])
+for plat, label in ((0x31D7, "GBM_KHR"), (0x31D7, "GBM_MESA(same enum)")):
+    dpy = gpd(plat, dev, None) if gpd else None
+    print("eglGetPlatformDisplayEXT", label + ":", hex(dpy) if dpy else "EGL_NO_DISPLAY", "err", hex(e.eglGetError()))
+    if dpy:
+        maj, mnr = ctypes.c_int(0), ctypes.c_int(0)
+        e.eglInitialize.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+        ok = e.eglInitialize(dpy, ctypes.byref(maj), ctypes.byref(mnr))
+        print("eglInitialize:", "ok" if ok else "FAIL", "err", hex(e.eglGetError()), "version", maj.value, mnr.value)
+        if ok:
+            print("egl vendor:", e.eglQueryString(dpy, VENDOR), e.eglQueryString(dpy, VERSION))
+            print("egl display ext:", (e.eglQueryString(dpy, EXT) or b"").decode()[:600])
+            e.eglBindAPI.argtypes = [ctypes.c_uint]
+            print("eglBindAPI(GLES):", "ok" if e.eglBindAPI(0x30A0) else "FAIL", "err", hex(e.eglGetError()))
+        break
 PY
 docker cp "$INITD/probe.py" "$NAME:/tmp/probe.py" >/dev/null 2>&1 || true
 docker exec "$NAME" sh -c "
   echo '-- external platform json:'; ls /usr/share/egl/egl_external_platform.d/ /etc/egl/egl_external_platform.d/ 2>&1
-  echo '-- compositor env:'; pid=\$(pgrep -f 'selkies' | head -1); [ -n \"\$pid\" ] && tr '\\0' '\\n' </proc/\$pid/environ | grep -E 'GBM|EGL|__GL|DRI|NVIDIA|LD_|MESA' || echo none
-  echo '-- probe:'; su -s /bin/sh abc -c 'LD_DEBUG=libs python3 /tmp/probe.py $NODE' 2>&1 | grep -E 'gbm_|backend:|nvidia|EGL|libgbm|error|cannot' | grep -v 'calling init\\|calling fini' | sed 's/^ *[0-9]*:\\s*//' | head -40
+  echo '-- compositor env:'; pid=\$(grep -l selkies /proc/[0-9]*/cmdline 2>/dev/null | head -1 | cut -d/ -f3); [ -n \"\$pid\" ] && tr '\\0' '\\n' </proc/\$pid/environ | grep -E 'GBM|EGL|__GL|DRI|NVIDIA|LD_|MESA' || echo none
+  echo '-- probe:'; su -s /bin/sh abc -c 'EGL_LOG_LEVEL=debug LD_DEBUG=libs python3 /tmp/probe.py $NODE' 2>&1 | grep -E 'gbm_|backend:|nvidia|EGL|egl|libgbm|error|cannot|dev |exts:|Traceback|Error' | grep -v 'calling init\\|calling fini' | sed 's/^ *[0-9]*:\\s*//' | cut -c1-400 | head -60
 " 2>&1 | cut -c1-200 || true
 
 hdr "RESULT"
@@ -187,6 +258,10 @@ else
   echo "${FAILS} FAIL line(s) above"
 fi
 echo
-echo "Also by hand: run with SECS=3600 (second arg) and open http://127.0.0.1:${PORT}/studio/ from the host to"
-echo "confirm the 3D view is smooth; the container is removed when the script exits."
 echo "Paste this whole output back."
+if [ "$HOLD" -gt 0 ] 2>/dev/null; then
+  hdr "holding the container for ${HOLD}s (Ctrl-C to stop)"
+  echo "from another machine: ssh -L ${PORT}:127.0.0.1:${PORT} $(hostname)  then open http://localhost:${PORT}/studio/"
+  echo "on this host, 'nvidia-smi' should list the Studio process while the 3D view is in use."
+  sleep "$HOLD"
+fi
