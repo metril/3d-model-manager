@@ -13,9 +13,9 @@ import httpx
 import pytest
 import redis.asyncio as aioredis
 
-from app.api.printers import STREAM_IDLE_S, mjpeg_parts
 from app.models import Printer
 from app.services import camera_state as cs
+from app.services.camera_http import STREAM_IDLE_S, mjpeg_parts
 
 pytestmark = pytest.mark.usefixtures("printer_enabled")
 
@@ -324,7 +324,7 @@ async def test_mjpeg_parts_cleans_up_when_cancelled_mid_stream(
 async def test_stream_route_ends_when_idle(
     monkeypatch: pytest.MonkeyPatch, redis_client: aioredis.Redis, printer_row: Printer
 ) -> None:
-    import app.api.printers as printers_mod
+    import app.services.camera_http as printers_mod
 
     monkeypatch.setattr(printers_mod, "STREAM_IDLE_S", 0.5)
     await redis_client.set(cs.frame_key(printer_row.id), JPEG)

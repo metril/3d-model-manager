@@ -522,3 +522,235 @@ async def test_allowlisted_key_modifies_own_unassigned_entries(
     assert r.status_code == 404
     r = await client.delete(f"/api/ext/v2/queue/{mine['id']}", headers=_h(k))
     assert r.status_code == 204
+
+
+# -- H1: status fields, camera, thumbnail --------------------------------------
+
+JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
+TRAYS = [
+    {"slot": 0, "ams_unit": 0, "tray": 0, "material": "PLA", "color": "#FF0000"},
+    {"slot": 5, "ams_unit": 1, "tray": 1, "material": "PETG", "color": "#00FF00"},
+]
+EXT = {"slot": 254, "ams_unit": 255, "tray": 254, "material": "TPU", "color": "#0000FF"}
+
+
+async def _job(db_session, seed_file, printer_id, *, rel_path="job.3mf", plate=1):
+    from app.models import PrintJob
+    from app.models.enums import BlobFormat, BlobKind, PrintJobState
+    from app.models.library import Model, Revision
+
+    model = Model(slug="hm", name="H Model")
+    db_session.add(model)
+    await db_session.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001_init")
+    db_session.add(rev)
+    await db_session.commit()
+    f = await seed_file(
+        model, rev, rel_path, b"3mf-bytes", blob_format=BlobFormat.THREEMF, blob_kind=BlobKind.MESH
+    )
+    job = PrintJob(
+        printer_id=printer_id,
+        file_id=f.id,
+        state=PrintJobState.PRINTING,
+        plate=plate,
+        started_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    await db_session.commit()
+    return job, f, model, rev
+
+
+def _plate_png(blob_hash: str, plate: int, data: bytes) -> None:
+    from app.config import get_settings
+    from app.services import derivatives
+
+    path = derivatives.plate_thumb_path(get_settings(), blob_hash, plate)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+async def test_status_active_tray_and_null_job(
+    authenticated_client, client, set_state, printer_enabled
+):
+    a = await _printer(authenticated_client)
+    key = (await _mint(authenticated_client))["key"]
+    url = f"/api/ext/v2/printers/{a}/status"
+    set_state(a, **IDLE, trays=TRAYS, ext_tray=EXT, tray_now=5)
+    j = (await client.get(url, headers=_h(key))).json()
+    assert j["active_tray"]["material"] == "PETG" and j["print_job"] is None
+    assert j["print_thumbnail_key"] is None
+    set_state(a, **IDLE, trays=TRAYS, ext_tray=EXT, tray_now=254)
+    assert (await client.get(url, headers=_h(key))).json()["active_tray"]["material"] == "TPU"
+    for now in (255, None):
+        set_state(a, **IDLE, trays=TRAYS, ext_tray=EXT, tray_now=now)
+        assert (await client.get(url, headers=_h(key))).json()["active_tray"] is None
+
+
+async def test_status_print_job_and_thumbnail_key(
+    authenticated_client, client, set_state, db_session, seed_file, printer_enabled
+):
+    a = await _printer(authenticated_client)
+    key = (await _mint(authenticated_client))["key"]
+    set_state(a, **RUNNING)
+    job, f, model, rev = await _job(db_session, seed_file, a)
+    url = f"/api/ext/v2/printers/{a}/status"
+    j = (await client.get(url, headers=_h(key))).json()
+    assert j["print_job"]["print_job_id"] == job.id
+    assert j["print_job"]["file_id"] == f.id and j["print_job"]["model_id"] == model.id
+    assert j["print_job"]["model_name"] == "H Model" and j["print_job"]["revision_id"] == rev.id
+    assert j["print_job"]["plate"] == 1 and j["print_job"]["started_at"]
+    assert j["print_thumbnail_key"] is None  # no plate image yet
+    _plate_png(f.blob_hash, 1, b"png")
+    k1 = (await client.get(url, headers=_h(key))).json()["print_thumbnail_key"]
+    assert k1 and len(k1) == 16
+    # a different plate (different image) changes the key
+    job.plate = 2
+    await db_session.commit()
+    _plate_png(f.blob_hash, 2, b"png2")
+    k2 = (await client.get(url, headers=_h(key))).json()["print_thumbnail_key"]
+    assert k2 and k2 != k1
+
+
+async def test_ext_thumbnail_200_404_and_allowlist(
+    authenticated_client, client, set_state, db_session, seed_file, printer_enabled
+):
+    a = await _printer(authenticated_client)
+    b = await _printer(authenticated_client, name="B", serial="0309ABD")
+    key = (await _mint(authenticated_client, printer_ids=[a]))["key"]
+    assert (
+        await client.get(f"/api/ext/v2/printers/{a}/thumbnail", headers=_h(key))
+    ).status_code == 404
+    _job_row, f, _m, _r = await _job(db_session, seed_file, a)
+    assert (
+        await client.get(f"/api/ext/v2/printers/{a}/thumbnail", headers=_h(key))
+    ).status_code == 404
+    _plate_png(f.blob_hash, 1, b"\x89PNGdata")
+    r = await client.get(f"/api/ext/v2/printers/{a}/thumbnail", headers=_h(key))
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content == b"\x89PNGdata"
+    assert (
+        await client.get(f"/api/ext/v2/printers/{b}/thumbnail", headers=_h(key))
+    ).status_code == 404
+    assert (await client.get(f"/api/ext/v2/printers/{a}/thumbnail")).status_code == 401
+
+
+async def test_ext_camera_snapshot_states(authenticated_client, client, rds, printer_enabled):
+    from app.services import camera_state as cs
+
+    a = await _printer(authenticated_client)
+    b = await _printer(authenticated_client, name="B", serial="0309ABD")
+    key = (await _mint(authenticated_client, printer_ids=[a]))["key"]
+    url = f"/api/ext/v2/printers/{a}/camera/snapshot"
+    r = await client.get(url, headers=_h(key))
+    assert r.status_code == 503 and r.headers["retry-after"] == "2"
+    cs.put_frame(rds, a, JPEG)
+    r = await client.get(url, headers=_h(key))
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert r.content == JPEG
+    cs.set_status(rds, a, "unsupported")
+    assert (await client.get(url, headers=_h(key))).status_code == 404
+    assert (
+        await client.get(f"/api/ext/v2/printers/{b}/camera/snapshot", headers=_h(key))
+    ).status_code == 404
+    assert (await client.get(url, headers=_h("tdmm_nope"))).status_code == 401
+    assert (await client.get(url)).status_code == 401
+
+
+async def test_ext_camera_stream_content_type(
+    authenticated_client, client, rds, printer_enabled, monkeypatch
+):
+    from app.services import camera_http
+    from app.services import camera_state as cs
+
+    monkeypatch.setattr(camera_http, "STREAM_IDLE_S", 0.3)
+    a = await _printer(authenticated_client)
+    key = (await _mint(authenticated_client))["key"]
+    cs.put_frame(rds, a, JPEG)
+    r = await client.get(f"/api/ext/v2/printers/{a}/camera/stream", headers=_h(key))
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "multipart/x-mixed-replace; boundary=frame"
+    assert b"--frame" in r.content and JPEG in r.content
+    cs.set_status(rds, a, "unsupported")
+    r = await client.get(f"/api/ext/v2/printers/{a}/camera/stream", headers=_h(key))
+    assert r.status_code == 404
+    assert (await client.get(f"/api/ext/v2/printers/{a}/camera/stream")).status_code == 401
+
+
+async def test_ext_camera_token_and_print_jobs(
+    authenticated_client, client, db_session, seed_file, printer_enabled
+):
+    a = await _printer(authenticated_client)
+    b = await _printer(authenticated_client, name="B", serial="0309ABD")
+    key = (await _mint(authenticated_client, printer_ids=[a]))["key"]
+    r = await client.post(f"/api/ext/v2/printers/{a}/camera/token", headers=_h(key))
+    assert r.status_code == 200 and "token=" in r.json()["stream_url"]
+    assert (
+        await client.post(f"/api/ext/v2/printers/{b}/camera/token", headers=_h(key))
+    ).status_code == 404
+    job, *_ = await _job(db_session, seed_file, a)
+    r = await client.get("/api/ext/v2/print-jobs", headers=_h(key))
+    assert [j["id"] for j in r.json()] == [job.id]
+    r = await client.get(f"/api/ext/v2/print-jobs?printer_id={b}", headers=_h(key))
+    assert r.status_code == 404
+    assert (await client.get("/api/ext/v2/print-jobs")).status_code == 401
+
+
+async def test_ext_print_requires_queue_scope_and_allowlist(
+    authenticated_client, client, printer_enabled
+):
+    a = await _printer(authenticated_client)
+    b = await _printer(authenticated_client, name="B", serial="0309ABD")
+    ro = (await _mint(authenticated_client))["key"]
+    body = {"file_id": 1, "plate": 1}
+    r = await client.post(f"/api/ext/v2/printers/{a}/print", json=body, headers=_h(ro))
+    assert r.status_code == 403
+    q = (await _mint(authenticated_client, scopes=["queue"], printer_ids=[a]))["key"]
+    r = await client.post(f"/api/ext/v2/printers/{b}/print", json=body, headers=_h(q))
+    assert r.status_code == 404
+    r = await client.post(f"/api/ext/v2/printers/{a}/print", json=body, headers=_h(q))
+    assert r.status_code in (404, 409, 422)  # reaches the shared start-print service
+
+
+async def test_ext_camera_requires_owner_print_access(
+    make_user, make_group, login_as, authenticated_client, client, rds, printer_enabled
+):
+    from app.services import camera_state as cs
+
+    pid = await _printer(authenticated_client)
+    owner = await make_user("member")
+    await make_group(
+        "ro", permissions=[], members=[owner], printer_access={pid: (False, True, False)}
+    )
+    c = await login_as(owner)
+    key = (await _mint(c))["key"]
+    cs.put_frame(rds, pid, JPEG)
+    for method, path in (
+        ("get", "camera/snapshot"),
+        ("get", "camera/stream"),
+        ("post", "camera/token"),
+    ):
+        r = await getattr(client, method)(f"/api/ext/v2/printers/{pid}/{path}", headers=_h(key))
+        assert r.status_code == 403, (path, r.status_code)
+
+
+async def test_ext_camera_stream_releases_db_connection(
+    authenticated_client, client, printer_enabled, monkeypatch
+):
+    from fastapi.responses import Response
+
+    from app.db import get_engine
+    from app.services import camera_http
+
+    a = await _printer(authenticated_client)
+    key = (await _mint(authenticated_client))["key"]
+    seen: list[tuple[int, int]] = []
+    baseline = get_engine().pool.checkedout()
+
+    async def fake(settings, printer_id, options, fps=None):
+        seen.append((baseline, get_engine().pool.checkedout()))
+        return Response(b"x")
+
+    monkeypatch.setattr(camera_http, "stream_response", fake)
+    r = await client.get(f"/api/ext/v2/printers/{a}/camera/stream", headers=_h(key))
+    assert r.status_code == 200 and seen
+    assert seen[0][1] <= seen[0][0]

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.archives import archive_out, archive_select
 from app.api.deps import AuthContext, visible_printer_ids
 from app.config import Settings
-from app.models.library import File, Model, PrintQueueEntry, Revision
+from app.models.library import PrintQueueEntry
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.printers.base import state_key
 from app.schemas.archives import ArchiveOut
@@ -36,9 +36,8 @@ from app.schemas.printers import (
 from app.services import ha_state
 from app.services import queue as queue_service
 from app.services import spool_inventory as sinv
+from app.services.printer_status import active_job_rows
 from app.services.queue_filaments import details_for_entries
-
-_ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
 
 
 async def total_print_hours(db: AsyncSession, printer_ids: list[int]) -> dict[int, float]:
@@ -126,17 +125,11 @@ async def _active_jobs(
     (printer_id)`` -- one query regardless of printer count."""
     if not printer_ids:
         return {}
-    stmt = (
-        select(PrintJob, Model, File.blob_hash, File.rel_path)
-        .outerjoin(File, File.id == PrintJob.file_id)
-        .outerjoin(Revision, Revision.id == File.revision_id)
-        .outerjoin(Model, Model.id == Revision.model_id)
-        .where(PrintJob.printer_id.in_(printer_ids))
-        .where(PrintJob.state.in_(_ACTIVE_STATES))
-        .distinct(PrintJob.printer_id)
-        .order_by(PrintJob.printer_id, PrintJob.id.desc())
-    )
-    rows = (await db.execute(stmt)).all()
+    found = await active_job_rows(db, printer_ids)
+    rows = [
+        (job, model, f.blob_hash if f else None, f.rel_path if f else None)
+        for job, model, f in found.values()
+    ]
     entries = list(
         (
             await db.execute(

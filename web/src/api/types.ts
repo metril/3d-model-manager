@@ -898,6 +898,16 @@ export interface SlotAssignIn {
   spool_id: number | null;
 }
 
+export interface PrinterStatusPrintJob {
+  print_job_id: number;
+  file_id: number | null;
+  model_id: number | null;
+  model_name: string | null;
+  revision_id: number | null;
+  plate: number | null;
+  started_at: string | null;
+}
+
 export interface PrinterStatusOut {
   /** Live nozzle diameter (mm); null offline / not reported. */
   nozzle_mm?: number | null;
@@ -936,7 +946,12 @@ export interface PrinterStatusOut {
   tray_now?: number | null;
   /** Enclosure door; only reported for models with a door sensor. */
   door_open?: boolean | null;
+  /** Changes when the active job's plate image changes; null without one. */
   print_thumbnail_key?: string | null;
+  /** The tray feeding the nozzle (`tray_now` resolved); null when none. */
+  active_tray?: AmsTray | null;
+  /** The in-flight print job; null when idle. */
+  print_job?: PrinterStatusPrintJob | null;
   ipcam?: boolean | null;
   dev_mode?: boolean | null;
   dev_mode_reason?: string | null;

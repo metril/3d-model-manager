@@ -319,6 +319,18 @@ class NextPauseOut(BaseModel):
     eta_s: int | None = None
 
 
+class StatusPrintJobOut(BaseModel):
+    """The printer's in-flight job, as embedded in ``PrinterStatusOut``."""
+
+    print_job_id: int
+    file_id: int | None = None
+    model_id: int | None = None
+    model_name: str | None = None
+    revision_id: int | None = None
+    plate: int | None = None
+    started_at: datetime | None = None
+
+
 class PrinterStatusOut(BaseModel):
     online: bool
     gcode_state: str | None = None
@@ -369,13 +381,27 @@ class PrinterStatusOut(BaseModel):
     awaiting_plate_clear: bool = False
     # T1: firmware-aware capabilities (set by the status route; None offline).
     capabilities: CapabilitiesOut | None = None
+    # The tray currently feeding the nozzle (``tray_now`` resolved through
+    # ``trays``/``ext_tray``); None when nothing is loaded.
+    active_tray: AmsTrayOut | None = None
+    # DB overlay: the in-flight print job, or None.
+    print_job: StatusPrintJobOut | None = None
 
 
 # Everything in PrinterStatusOut that is copied verbatim from the Redis state.
 STATE_FIELDS: tuple[str, ...] = tuple(
     k
     for k in PrinterStatusOut.model_fields
-    if k not in ("online", "trays", "awaiting_plate_clear", "capabilities")
+    if k
+    not in (
+        "online",
+        "trays",
+        "awaiting_plate_clear",
+        "capabilities",
+        "active_tray",
+        "print_job",
+        "print_thumbnail_key",
+    )
 )
 
 
