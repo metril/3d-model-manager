@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 
 _API_PREFIX = "api"
+_DECLINED_PREFIXES = (_API_PREFIX, "studio")
 
 
 _NO_CACHE_FILES = {"sw.js", "manifest.webmanifest"}
@@ -42,9 +43,10 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        if full_path == _API_PREFIX or full_path.startswith(f"{_API_PREFIX}/"):
-            # Never serve the SPA shell for an unmatched /api/* path -- it
-            # keeps 404ing as normal JSON, via FastAPI's default handler.
+        if any(full_path == p or full_path.startswith(f"{p}/") for p in _DECLINED_PREFIXES):
+            # Never serve the SPA shell for an unmatched /api/* (or /studio/*,
+            # owned by the Studio proxy) path -- it keeps 404ing as normal
+            # JSON, via FastAPI's default handler.
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
 
         candidate = (static_root / full_path).resolve()

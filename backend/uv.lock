@@ -2611,6 +2611,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "trimesh", extra = ["easy"] },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
     { name = "zipstream-ng" },
 ]
 
@@ -2663,6 +2664,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"] },
     { name = "trimesh", extras = ["easy"] },
     { name = "uvicorn", extras = ["standard"] },
+    { name = "websockets", specifier = ">=13" },
     { name = "zipstream-ng", specifier = ">=1.9.3" },
 ]
 

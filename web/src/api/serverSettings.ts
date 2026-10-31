@@ -29,6 +29,11 @@ export interface ServerConfig {
   slicer_enabled: boolean;
   slicer_url: string;
   slice_timeout_s: number;
+  studio_enabled: boolean;
+  studio_url: string;
+  studio_launcher_url: string;
+  /** Always "***" when set; sending "***" back keeps it, ""/null clears. */
+  studio_launcher_token: string | null;
   vp_bind: string;
   vp_port_ssdp: number;
   vp_port_mqtt: number;
