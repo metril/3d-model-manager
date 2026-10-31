@@ -46,6 +46,7 @@ import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/di
 import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isEditableTarget } from "@/hooks/useHotkeys";
 import { glbUrl } from "@/components/viewer/viewable";
 
 const PlateScene = lazy(() => import("@/components/plate/PlateScene"));
@@ -154,6 +155,14 @@ export function PlateEditorDialog({
 
   // Initial layout: the remembered one for this file set, else the server's auto-arrange.
   // Also fetches every file's AABB, so it waits for the bed (and the profile list) once.
+  // Undo entries are recorded on the first actual change of an edit/drag, so a
+  // focus or click that changes nothing never clears the redo stack.
+  const editRecorded = useRef(false);
+  const recordOnce = () => {
+    const first = !editRecorded.current;
+    editRecorded.current = true;
+    return first;
+  };
   const started = useRef(false);
   useEffect(() => {
     if (!open || started.current || !bedValid || profiles.isLoading || usableFiles.length === 0) return;
@@ -184,6 +193,13 @@ export function PlateEditorDialog({
   }, [open, bedValid, profiles.isLoading, usableFiles.length]);
 
   useEffect(() => {
+    if (open) return;
+    started.current = false;
+    setReady(false);
+    dispatch({ type: "init", items: [] });
+  }, [open]);
+
+  useEffect(() => {
     if (ready) saveLayout(slug, fileIds, state.items);
   }, [ready, slug, fileIds, state.items]);
 
@@ -210,13 +226,14 @@ export function PlateEditorDialog({
     const counts = new Map<number, number>();
     for (const i of state.items) counts.set(i.file_id, (counts.get(i.file_id) ?? 0) + 1);
     const req = autoRequest();
-    req.items = usableFiles.filter((f) => counts.has(f.id)).map((f) => ({ file_id: f.id, copies: counts.get(f.id) ?? 1 }));
+    const scaleOf = new Map(state.items.map((i) => [i.file_id, i.scale]));
+    req.items = usableFiles
+      .filter((f) => counts.has(f.id))
+      .map((f) => ({ file_id: f.id, copies: counts.get(f.id) ?? 1, scale: scaleOf.get(f.id) ?? 1 }));
     if (req.items.length === 0) return;
     auto.mutate(req, {
       onSuccess: (res) => {
         setDims(new Map(res.parts.map((p) => [p.file_id, p])));
-        // Keep each copy's scale/rotation-free pose from the server; reuse existing scales per file.
-        const scaleOf = new Map(state.items.map((i) => [i.file_id, i.scale]));
         dispatch({
           type: "replace",
           items: res.poses.map((p) => ({
@@ -225,7 +242,7 @@ export function PlateEditorDialog({
             x_mm: p.x_mm,
             y_mm: p.y_mm,
             rot_z_deg: 0,
-            scale: scaleOf.get(p.file_id) ?? 1,
+            scale: p.scale,
             copy_index: p.copy_index,
           })),
         });
@@ -248,8 +265,7 @@ export function PlateEditorDialog({
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    const tag = (e.target as HTMLElement).tagName;
-    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (isEditableTarget(e.target)) return;
     if (e.key === "Shift") setFreeRotate(true);
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === "z") {
@@ -263,7 +279,10 @@ export function PlateEditorDialog({
     } else if (k === "g") setMode("translate");
     else if (k === "r") setMode("rotate");
     else if (k === "s") setMode("scale");
-    else if (k === "escape") dispatch({ type: "select", uid: null });
+    else if (k === "escape" && state.selected) {
+      e.stopPropagation();
+      dispatch({ type: "select", uid: null });
+    }
     else if ((k === "delete" || k === "backspace") && state.selected) {
       e.preventDefault();
       dispatch({ type: "removeCopy", uid: state.selected });
@@ -312,8 +331,8 @@ export function PlateEditorDialog({
                   freeRotate={freeRotate}
                   orbitLocked={orbitLocked}
                   onSelect={(uid) => dispatch({ type: "select", uid })}
-                  onBegin={() => dispatch({ type: "snapshot" })}
-                  onChange={(uid, fields) => dispatch({ type: "patch", uid, fields, record: false })}
+                  onBegin={() => (editRecorded.current = false)}
+                  onChange={(uid, fields) => dispatch({ type: "patch", uid, fields, record: recordOnce() })}
                   onOrbitLock={setOrbitLocked}
                 />
               </Suspense>
@@ -402,10 +421,10 @@ export function PlateEditorDialog({
                         </span>
                       </div>
                       <div className="grid grid-cols-4 gap-1">
-                        <NumField label="X" value={i.x_mm} onFocus={() => dispatch({ type: "snapshot" })} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { x_mm: v }, record: false })} />
-                        <NumField label="Y" value={i.y_mm} onFocus={() => dispatch({ type: "snapshot" })} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { y_mm: v }, record: false })} />
-                        <NumField label={t("plate.rot")} value={i.rot_z_deg} onFocus={() => dispatch({ type: "snapshot" })} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { rot_z_deg: v }, record: false })} />
-                        <NumField label="%" value={Math.round(i.scale * 10000) / 100} onFocus={() => dispatch({ type: "snapshot" })} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { scale: v / 100 }, record: false })} />
+                        <NumField label="X" value={i.x_mm} onFocus={() => (editRecorded.current = false)} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { x_mm: v }, record: recordOnce() })} />
+                        <NumField label="Y" value={i.y_mm} onFocus={() => (editRecorded.current = false)} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { y_mm: v }, record: recordOnce() })} />
+                        <NumField label={t("plate.rot")} value={i.rot_z_deg} onFocus={() => (editRecorded.current = false)} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { rot_z_deg: v }, record: recordOnce() })} />
+                        <NumField label="%" value={Math.round(i.scale * 10000) / 100} onFocus={() => (editRecorded.current = false)} onChange={(v) => dispatch({ type: "patch", uid: i.uid, fields: { scale: v / 100 }, record: recordOnce() })} />
                       </div>
                     </div>
                   ))}

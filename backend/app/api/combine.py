@@ -30,7 +30,7 @@ from app.schemas.combine import (
 from app.schemas.jobs import JobOut
 from app.services import jobs as jobs_service
 from app.services import library, spool
-from app.services.bed_fit import parse_printable_area
+from app.services.bed_fit import parse_printable_area, parse_printable_height
 from app.services.mesh_combine import (
     FIT_MARGIN_MM,
     CombinePart,
@@ -42,6 +42,7 @@ from app.services.mesh_combine import (
     load_parts,
     placements_to_poses,
     plan_parts,
+    pose_too_tall,
     write_3mf,
 )
 from app.services.storage_backends import resolve_backend_for_file
@@ -96,6 +97,7 @@ async def combine_files(
     revision = await library.get_revision_or_404(db, model.current_revision_id)
 
     bed = payload.bed
+    max_height: float | None = None
     if payload.printer_profile_id is not None:
         profile = await db.get(SlicerProfile, payload.printer_profile_id)
         if profile is None or profile.kind is not ProfileKind.PRINTER:
@@ -106,6 +108,7 @@ async def combine_files(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, "profile has no printable area"
             )
         bed = BedIn(x_mm=dims[0], y_mm=dims[1])
+        max_height = parse_printable_height(profile.data)
     if bed is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "give a printer_profile_id or bed"
@@ -144,10 +147,18 @@ async def combine_files(
         list[LoadedPart], list[Pose], list[PoseFit], tuple[float, float], str, int
     ]:
         parts = []
-        for file, copies, backend in rows:
+        for idx, (file, copies, backend) in enumerate(rows):
             tmp = _copy_to_temp(backend, file.storage_path, spool_root, Path(file.rel_path).suffix)
             temps.append(tmp)
-            parts.append(CombinePart(name=Path(file.rel_path).name, path=tmp, copies=copies))
+            parts.append(
+                CombinePart(
+                    name=Path(file.rel_path).name,
+                    path=tmp,
+                    copies=copies,
+                    # grid/auto: rows mirror payload.items, each scaled as asked.
+                    scale=1.0 if manual else payload.items[idx].scale,
+                )
+            )
         bed_t = (bed.x_mm, bed.y_mm)
         if manual:
             loaded = load_parts(parts)
@@ -155,20 +166,40 @@ async def combine_files(
                 Pose(row_of[i.file_id], i.x_mm or 0.0, i.y_mm or 0.0, i.rot_z_deg, i.scale)
                 for i in payload.items
             ]
-            fits = check_poses(loaded, poses, bed_t)
+            fits = check_poses(loaded, poses, bed_t, max_height=max_height)
             all_fit = all(f.fits for f in fits)
+            # Span from the lowest edge (0 or an overhang) to the highest.
             required = (
-                round(max(max(f.max_x for f in fits), 0.0) + FIT_MARGIN_MM / 2, 2),
-                round(max(max(f.max_y for f in fits), 0.0) + FIT_MARGIN_MM / 2, 2),
+                round(
+                    max(f.max_x for f in fits)
+                    - min(min(f.min_x for f in fits), 0.0)
+                    + FIT_MARGIN_MM,
+                    2,
+                ),
+                round(
+                    max(f.max_y for f in fits)
+                    - min(min(f.min_y for f in fits), 0.0)
+                    + FIT_MARGIN_MM,
+                    2,
+                ),
             )
         else:
             loaded, plan = plan_parts(parts, bed_t, mode=payload.layout, spacing=payload.spacing_mm)
-            poses = placements_to_poses(plan)
-            fits = [PoseFit(p.x, p.y, p.x + p.w, p.y + p.d, plan.fits) for p in plan.placements]
-            all_fit, required = plan.fits, plan.required_bed
+            poses = placements_to_poses(plan, loaded)
+            fits = [
+                PoseFit(
+                    p.x,
+                    p.y,
+                    p.x + p.w,
+                    p.y + p.d,
+                    plan.fits and not pose_too_tall(loaded[po.owner], po, max_height),
+                )
+                for p, po in zip(plan.placements, poses, strict=True)
+            ]
+            all_fit, required = all(f.fits for f in fits), plan.required_bed
         if dry_run or not all_fit:
             return loaded, poses, fits, required, "", 0
-        data = write_3mf(loaded, poses=poses) if manual else write_3mf(loaded, plan)
+        data = write_3mf(loaded, poses=poses)
         out_path.write_bytes(data)
         return loaded, poses, fits, required, blake3.blake3(data).hexdigest(), len(data)
 
@@ -237,11 +268,12 @@ async def combine_files(
                 detail={
                     "code": "does_not_fit",
                     "message": (
-                        f"The models do not fit a {bed.x_mm:g} x {bed.y_mm:g} mm bed; "
-                        f"they need about {required_t[0]:g} x {required_t[1]:g} mm"
+                        f"The models do not fit a {bed.x_mm:g} x {bed.y_mm:g} mm bed"
+                        + (f" ({max_height:g} mm tall)" if max_height else "")
+                        + f"; they need about {required_t[0]:g} x {required_t[1]:g} mm"
                     ),
                     "required_bed": {"x_mm": required_t[0], "y_mm": required_t[1]},
-                    "items": bad if manual else [],
+                    "items": bad,
                 },
             )
 

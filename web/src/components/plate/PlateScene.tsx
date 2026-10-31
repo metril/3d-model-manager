@@ -99,9 +99,9 @@ function PlatePart({
           object={ref.current}
           mode={mode}
           size={0.8}
-          showX={mode === "translate"}
-          showY={mode === "translate"}
-          showZ={mode === "rotate"}
+          showX={mode !== "rotate"}
+          showY={mode !== "rotate"}
+          showZ={mode !== "translate"}
           space={mode === "translate" ? "world" : "local"}
           translationSnap={null}
           rotationSnap={mode === "rotate" && !freeRotate ? Math.PI / 12 : null}

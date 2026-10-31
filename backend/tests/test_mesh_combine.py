@@ -347,3 +347,62 @@ async def test_combine_auto_returns_poses_without_writing(
     for pose, rect in zip(out["poses"], out["placements"], strict=True):
         assert pose["x_mm"] == pytest.approx(rect["x_mm"] + rect["w_mm"] / 2)
         assert pose["y_mm"] == pytest.approx(rect["y_mm"] + rect["d_mm"] / 2)
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_height_limit_and_scaled_auto(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Tall")
+    slug = created["slug"]
+    profile = SlicerProfile(
+        name="Short printer",
+        kind=ProfileKind.PRINTER,
+        data={
+            "printable_area": ["0x0", "180x0", "180x180", "0x180"],
+            "printable_height": 8,
+        },
+    )
+    db_session.add(profile)
+    await db_session.commit()
+    base = {"layout": "manual", "printer_profile_id": profile.id}
+    # The box is 5 mm tall: scale 1 fits, scale 2 (10 mm) exceeds the 8 mm limit.
+    items = [
+        {"file_id": file_id, "x_mm": 40, "y_mm": 40},
+        {"file_id": file_id, "x_mm": 100, "y_mm": 100, "scale": 2},
+    ]
+    dry = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**base, "items": items, "dry_run": True}
+    )
+    assert dry.status_code == 200, dry.text
+    assert [p["fits"] for p in dry.json()["poses"]] == [True, False]
+    saved = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**base, "items": items}
+    )
+    assert saved.status_code == 422
+    assert saved.json()["detail"]["items"] == [1]
+
+    # Auto uses the scaled footprints (no overlap) and flags too-tall parts.
+    auto = await authenticated_client.post(
+        f"/api/models/{slug}/combine",
+        params={"auto": 1},
+        json={
+            "items": [{"file_id": file_id, "copies": 3, "scale": 2}],
+            "printer_profile_id": profile.id,
+            "spacing_mm": 5,
+        },
+    )
+    assert auto.status_code == 200, auto.text
+    out = auto.json()
+    assert out["fits"] is False  # 10 mm tall > 8 mm
+    assert all(p["scale"] == 2 for p in out["poses"])
+    assert all(r["w_mm"] == pytest.approx(40.0) for r in out["placements"])
+    rects = out["placements"]
+    for i, a in enumerate(rects):
+        for b in rects[i + 1 :]:
+            assert (
+                a["x_mm"] + a["w_mm"] <= b["x_mm"] + 1e-6
+                or b["x_mm"] + b["w_mm"] <= a["x_mm"] + 1e-6
+                or a["y_mm"] + a["d_mm"] <= b["y_mm"] + 1e-6
+                or b["y_mm"] + b["d_mm"] <= a["y_mm"] + 1e-6
+            )

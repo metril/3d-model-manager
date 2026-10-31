@@ -22,6 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from app.models.enums import BlobFormat
+from app.pipeline.meshload import load_mesh
+
 # Every item is a full object for the slicer to arrange and slice; past this a
 # single plate cannot hold them and the request is more likely a typo.
 MAX_COMBINE_INSTANCES = 100
@@ -32,6 +35,8 @@ _XML_CHUNK_ROWS = 20_000
 _CORE_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 
 LayoutMode = Literal["grid", "auto"]
+
+_SUFFIX_FORMAT = {".stl": BlobFormat.STL, ".obj": BlobFormat.OBJ, ".3mf": BlobFormat.THREEMF}
 
 # Total clearance kept across each bed axis; mirrors ``bed_fit.check_fit``.
 FIT_MARGIN_MM = 1.0
@@ -46,6 +51,7 @@ class CombinePart:
     name: str
     path: Path
     copies: int = 1
+    scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -155,6 +161,7 @@ class LoadedPart:
     depth: float
     copies: int
     height: float = 0.0
+    scale: float = 1.0
     # Min corner of the source mesh's AABB before it was shifted to the origin.
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
@@ -206,21 +213,26 @@ def pose_transform(part: LoadedPart, pose: Pose) -> str:
     return " ".join(_fmt(v) for v in vals)
 
 
+def pose_too_tall(part: LoadedPart, pose: Pose, max_height: float | None) -> bool:
+    return max_height is not None and part.height * pose.scale > max_height + 1e-6
+
+
 def check_poses(
     loaded: list[LoadedPart],
     poses: list[Pose],
     bed: tuple[float, float],
     margin_mm: float = FIT_MARGIN_MM,
+    max_height: float | None = None,
 ) -> list[PoseFit]:
     """Transformed AABB of every pose against the bed (half the margin kept on
-    each side)."""
+    each side) and, when given, the printable height."""
     m = margin_mm / 2
     out: list[PoseFit] = []
     for pose in poses:
         part = loaded[pose.owner]
         hx, hy = pose_half_extents(part.width, part.depth, pose.rot_deg, pose.scale)
         lo_x, lo_y, hi_x, hi_y = pose.x - hx, pose.y - hy, pose.x + hx, pose.y + hy
-        ok = (
+        ok = not pose_too_tall(part, pose, max_height) and (
             lo_x >= m - 1e-6
             and lo_y >= m - 1e-6
             and hi_x <= bed[0] - m + 1e-6
@@ -230,9 +242,12 @@ def check_poses(
     return out
 
 
-def placements_to_poses(plan: LayoutPlan) -> list[Pose]:
-    """Pose (footprint centre) of every auto/grid placement."""
-    return [Pose(p.owner, p.x + p.w / 2, p.y + p.d / 2) for p in plan.placements]
+def placements_to_poses(plan: LayoutPlan, loaded: list[LoadedPart]) -> list[Pose]:
+    """Pose (footprint centre, part scale) of every auto/grid placement."""
+    return [
+        Pose(p.owner, p.x + p.w / 2, p.y + p.d / 2, 0.0, loaded[p.owner].scale)
+        for p in plan.placements
+    ]
 
 
 def _object_name(filename: str) -> str:
@@ -241,18 +256,14 @@ def _object_name(filename: str) -> str:
 
 
 def _load_part(part: CombinePart) -> LoadedPart:
-    import trimesh
-
+    fmt = _SUFFIX_FORMAT.get(part.path.suffix.lower())
     try:
-        mesh = trimesh.load(str(part.path), force="mesh")
+        # Same loader as the GLB derivative the plate editor shows, so the
+        # footprint pivot agrees (multi-object / Bambu 3MFs, unit scaling).
+        mesh = load_mesh(part.path, fmt).mesh if fmt is not None else None
     except Exception as exc:
         raise MeshCombineError(f"Could not read {part.name}: {exc}") from exc
-    if (
-        mesh is None
-        or not hasattr(mesh, "vertices")
-        or len(mesh.vertices) == 0
-        or len(mesh.faces) == 0
-    ):
+    if mesh is None or len(mesh.vertices) == 0 or len(mesh.faces) == 0:
         raise MeshCombineError(f"{part.name} contains no printable geometry")
     vertices = mesh.vertices.copy()
     lo = vertices.min(axis=0)
@@ -265,6 +276,7 @@ def _load_part(part: CombinePart) -> LoadedPart:
         width=float(hi[0] - lo[0]),
         depth=float(hi[1] - lo[1]),
         copies=part.copies,
+        scale=part.scale,
         height=float(hi[2] - lo[2]),
         origin=(float(lo[0]), float(lo[1]), float(lo[2])),
     )
@@ -318,7 +330,7 @@ def plan_parts(
     owners: list[int] = []
     for idx, part in enumerate(loaded):
         for _ in range(part.copies):
-            footprints.append((part.width, part.depth))
+            footprints.append((part.width * part.scale, part.depth * part.scale))
             owners.append(idx)
     return loaded, plan_layout(footprints, owners, bed, mode=mode, spacing=spacing)
 
