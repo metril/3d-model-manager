@@ -104,11 +104,15 @@ async def put_server_settings(
     pw = incoming.smtp.password
     if pw is not None and pw.get_secret_value() == SECRET_MASK:
         incoming.smtp.password = old.smtp.password  # "***" = keep the stored secret
+    tok = incoming.studio_launcher_token
+    if tok is not None and tok.get_secret_value() == SECRET_MASK:
+        incoming.studio_launcher_token = old.studio_launcher_token
     new = await set_server_config(db, incoming, commit=False)
     fo, fn = flat(old), flat(new)
-    # The SMTP password never enters the audit diff -- only that it changed.
+    # Secrets never enter the audit diff -- only that they changed.
+    secret_fields = ("smtp.password", "studio_launcher_token")
     changed = {
-        f: ([None, None] if f == "smtp.password" else [fo[f], fn[f]]) for f in fn if fo[f] != fn[f]
+        f: ([None, None] if f in secret_fields else [fo[f], fn[f]]) for f in fn if fo[f] != fn[f]
     }
     db.add(
         AuditLog(

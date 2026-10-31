@@ -103,6 +103,7 @@ from app.api import (
     spools_bulk,
     stats,
     storage_tree,
+    studio,
     tags,
     trash,
     two_factor,
@@ -144,6 +145,7 @@ protected_router.include_router(maintenance.router)
 protected_router.include_router(smart_plugs.router)
 protected_router.include_router(smart_plugs.printer_router)
 protected_router.include_router(models.router)
+protected_router.include_router(studio.router)
 protected_router.include_router(combine.router)
 protected_router.include_router(trash.router)
 protected_router.include_router(blobs.router)

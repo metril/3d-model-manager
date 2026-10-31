@@ -337,6 +337,7 @@
           "beat": "Scheduler (beat)",
           "printerd": "Printer daemon",
           "slicer": "Slicer",
+          "studio": "Bambu Studio",
           "obico": "Failure detection (Obico)",
           "virtual_printer": "Virtual printer",
           "spoolman": "Spoolman",

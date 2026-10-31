@@ -1,0 +1,68 @@
+# Captured on dev host (Intel HD 630 + Radeon RX Vega M), 2026-10-31
+# image lscr.io/linuxserver/bambustudio@sha256:857e937fe1c3451244cb178952e0e7a00241ab48c32cb1ce9ea6b27e4fd729e5
+# Selkies 2.1.0, pixelflux 2.2.1, nginx 1.28.3. Run: SUBFOLDER=/studio/ DRINODE=DRI_NODE=/dev/dri/renderD129
+
+## curl -sI http://127.0.0.1:3000/studio/   (static HTML served by nginx: NO CSP, NO X-Frame-Options)
+HTTP/1.1 200 OK
+Server: nginx/1.28.3 (Ubuntu)
+Content-Type: text/html
+Content-Length: 786
+
+## curl -sI http://127.0.0.1:3000/studio/api/status   (Selkies aiohttp, default env)
+HTTP/1.1 200 OK
+Content-Security-Policy: frame-ancestors 'self'
+
+## same, with SELKIES_FRAME_ANCESTORS="'self' http://localhost:9090"
+HTTP/1.1 200 OK
+Content-Security-Policy: frame-ancestors 'self' http://localhost:9090
+
+## WebSocket handshake (curl, Sec-WebSocket-Protocol: selkies)  GET /studio/api/websockets
+HTTP/1.1 101 Switching Protocols
+Sec-WebSocket-Protocol: selkies
+Content-Security-Policy: frame-ancestors 'self'
+# first frames: "MODE websockets", "DISPLAY_CONFIG_UPDATE,{... "wayland": true ...}", server_settings JSON
+
+## Selkies startup log (relevant lines)
+[pixelflux] Render node 1 encodes H264, H265 on vaapi.
+[Wayland] Renderer: GL on /dev/dri/renderD129.
+[Wayland] Socket listening on: "wayland-1"
+INFO:main:Selkies 2.1.0 starting: websockets transport, Wayland capture, encoder h264enc at 8-240 fps, sized by the client, audio on, gamepads off, access open.
+INFO:input:Wayland app compositor 'wayland-0' (auto-detected); routing input + clipboard there, capture stays on 'wayland-1'.
+
+## ps (abridged)
+  1 root  s6-svscan
+ 41 root  s6-supervise svc-selkies
+358 root  nginx: master process            (+8 www-data workers)
+378 abc   /lsiopy/bin/python3 /lsiopy/bin/selkies --addr=localhost
+536 abc   /bin/bash /defaults/startwm_wayland.sh
+537 abc   labwc
+565 abc   sh /config/.config/labwc/autostart   -> runs /opt/bambustudio/AppRun
+570 abc   /opt/bambustudio/bin/bambu-studio
+578 abc   Xwayland :0 -rootless
+(no Xvfb/sway; svc-xorg is a `sleep infinity` stub in Wayland mode)
+
+## env of the running bambu-studio (readable only as abc; root gets EACCES on /proc/<pid>/environ)
+HOME=/config
+DISPLAY=:0
+WAYLAND_DISPLAY=wayland-0
+XDG_RUNTIME_DIR=/config/.XDG
+XDG_CURRENT_DESKTOP=labwc:wlroots
+LD_LIBRARY_PATH=/opt/bambustudio/bin        (AppRun also sets LC_ALL=C)
+PIXELFLUX_WAYLAND=true  DRINODE=/dev/dri/renderD129  DRI_NODE=/dev/dri/renderD129
+NVIDIA_DRIVER_CAPABILITIES=all
+(DBUS_SESSION_BUS_ADDRESS is NOT set; Studio uses dbus autolaunch via DISPLAY)
+
+## second invocation, single_instance=false (default)
+$ docker exec -u abc -e HOME=/config -e DISPLAY=:0 -e WAYLAND_DISPLAY=wayland-0 -e XDG_RUNTIME_DIR=/config/.XDG -e LD_LIBRARY_PATH=/opt/bambustudio/bin -e LC_ALL=C \
+    tdmm-studio-spike /opt/bambustudio/bin/bambu-studio /config/a.3mf
+  -> NEW process (1502) started next to 570 (two Studios, own window); a.3mf not in the first one.
+
+## second invocation, "single_instance": true in the "app" section of BambuStudio.conf
+  -> exits rc=134 (SIGABRT):
+dbus[1229]: arguments to dbus_message_new_method_call() were incorrect, assertion "_dbus_check_is_valid_path (path)" failed in file ../../dbus/dbus-message.c line 1389.
+  Cause (BambuStudio src/slic3r/GUI/InstanceCheck.cpp:242): object path "/com.bambulab/BambuStudio/InstanceCheck/Object<hash>" contains '.',
+  which is not a valid D-Bus object path. The running instance keeps going, nothing is forwarded, a.3mf is NOT opened. Upstream bug => handoff impossible.
+
+## relaunch (pkill -f '^/opt/bambustudio/bin/bambu-studio' + relaunch with the file), single_instance=false
+SIGTERM -> process gone         ~0.02 s
+relaunch -> first window ("Loading...")  4.5 s ; window titled "b" (project loaded) <= 12 s
