@@ -78,13 +78,14 @@ else
 fi
 HOOK
 chmod 755 "$INITD/20-nvidia-gbm"
+GPU_ARGS=(--runtime nvidia --gpus all --device /dev/dri --device /dev/nvidia-modeset
+  -v "$INITD/20-nvidia-gbm:/custom-cont-init.d/20-nvidia-gbm:ro"
+  -e NVIDIA_DRIVER_CAPABILITIES=all -e DRINODE="$NODE" -e DRI_NODE="$NODE")
+# STUDIO_CHECK_NOGPU=1: software rendering, to A/B behaviour against the GPU path.
+[ "${STUDIO_CHECK_NOGPU:-0}" = "1" ] && GPU_ARGS=() && echo "NOGPU: software rendering for A/B"
 docker run -d --name "$NAME" \
-  --runtime nvidia --gpus all \
-  --device /dev/dri --device /dev/nvidia-modeset \
-  -v "$INITD/20-nvidia-gbm:/custom-cont-init.d/20-nvidia-gbm:ro" \
-  -e NVIDIA_DRIVER_CAPABILITIES=all \
+  "${GPU_ARGS[@]}" \
   -e PIXELFLUX_WAYLAND=true \
-  -e DRINODE="$NODE" -e DRI_NODE="$NODE" \
   -e SUBFOLDER=/studio/ -e TZ=UTC \
   -p "127.0.0.1:${PORT}:3000" --shm-size=1g \
   "$IMAGE" >/dev/null || { fail "could not start the Studio container with the NVIDIA stanza"; echo "RESULT: ${FAILS} FAIL line(s) above"; echo "Paste this whole output back."; exit 1; }
