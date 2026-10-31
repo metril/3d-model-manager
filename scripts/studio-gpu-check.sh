@@ -2,12 +2,16 @@
 # shellcheck disable=SC2015  # pass/fail helpers always return 0
 # NVIDIA host check for the Bambu Studio (Selkies) sidecar. Run on the headless
 # NVIDIA host, then paste ALL output back. Needs only docker, curl, grep.
-#   usage: scripts/studio-gpu-check.sh [render-node] [seconds]
-#   e.g.   scripts/studio-gpu-check.sh /dev/dri/renderD128 120
+#   usage: scripts/studio-gpu-check.sh [render-node] [hold-seconds]
+#   e.g.   scripts/studio-gpu-check.sh /dev/dri/renderD128 3600
+# hold-seconds > 0 keeps the container up after the checks (Ctrl-C ends it)
+# so the stream can be tried by hand: ssh -L 3000:127.0.0.1:3000 <host>, then
+# open http://localhost:3000/studio/ on the other machine.
 set -euo pipefail
 
 NODE="${1:-/dev/dri/renderD128}"
-SECS="${2:-120}"
+HOLD="${2:-0}"
+SECS=120   # wait for the web UI to answer
 IMAGE="${STUDIO_IMAGE:-lscr.io/linuxserver/bambustudio:latest}"
 CUDA_IMAGE="nvidia/cuda:12.4.1-base-ubuntu22.04"
 NAME="tdmm-studio-gpucheck"
@@ -253,6 +257,10 @@ else
   echo "${FAILS} FAIL line(s) above"
 fi
 echo
-echo "Also by hand: run with SECS=3600 (second arg) and open http://127.0.0.1:${PORT}/studio/ from the host to"
-echo "confirm the 3D view is smooth; the container is removed when the script exits."
 echo "Paste this whole output back."
+if [ "$HOLD" -gt 0 ] 2>/dev/null; then
+  hdr "holding the container for ${HOLD}s (Ctrl-C to stop)"
+  echo "from another machine: ssh -L ${PORT}:127.0.0.1:${PORT} $(hostname)  then open http://localhost:${PORT}/studio/"
+  echo "on this host, 'nvidia-smi' should list the Studio process while the 3D view is in use."
+  sleep "$HOLD"
+fi
