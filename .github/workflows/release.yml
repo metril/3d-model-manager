@@ -306,6 +306,72 @@ jobs:
             docker push "$t"
           done
 
+  # Bambu Studio GUI sidecar image (docker/studio): linuxserver Selkies base
+  # (~6 GB) + launcher. Same tag ladder as the slicer (no version token: the
+  # base is pinned by digest). Smoke: Selkies shell on :3000 and launcher on :3010.
+  studio-image:
+    name: Studio sidecar image
+    needs: [release-please]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Resolve tags
+        id: tag
+        env:
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+          MAJOR: ${{ needs.release-please.outputs.major }}
+          MINOR: ${{ needs.release-please.outputs.minor }}
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/3d-model-manager-studio"
+          tags="$img:edge $img:latest $img:sha-${GITHUB_SHA::7}"
+          if [ "$RELEASE_CREATED" = "true" ]; then
+            tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
+          fi
+          echo "list=${tags}" >> "$GITHUB_OUTPUT"
+      - name: Build (loaded locally)
+        uses: docker/build-push-action@v7
+        with:
+          context: docker/studio
+          platforms: linux/amd64
+          load: true
+          tags: tdmm-studio:smoke
+          cache-from: type=gha,scope=tdmm-studio
+          cache-to: type=gha,mode=max,scope=tdmm-studio,ignore-error=true
+      - name: Smoke
+        run: |
+          docker run -d --name studio --shm-size=1gb -e SUBFOLDER=/studio/ \
+            -p 3000:3000 -p 3010:3010 tdmm-studio:smoke
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -sf localhost:3010/health && curl -sf -o /dev/null localhost:3000/studio/; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { docker logs studio | tail -50; exit 1; }
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish
+        env:
+          TAGS: ${{ steps.tag.outputs.list }}
+        run: |
+          for t in $TAGS; do
+            docker tag tdmm-studio:smoke "$t"
+            docker push "$t"
+          done
+
   # Obico ML sidecar image: Obico publishes only base layers, so build upstream
   # ml_api from the commit pinned in compose.obico.yaml, smoke the health
   # endpoint (model load is inside worker boot), publish

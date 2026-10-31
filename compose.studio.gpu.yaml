@@ -1,0 +1,21 @@
+# NVIDIA GPU (NVENC + EGL) for the studio sidecar. Host prerequisites in
+# docs/studio.md; verify with scripts/studio-gpu-check.sh.
+#   docker compose -f compose.yaml -f compose.studio.gpu.yaml --profile studio up -d studio
+services:
+  studio:
+    runtime: nvidia
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      PIXELFLUX_WAYLAND: "true"
+      DRINODE: /dev/dri/renderD128
+      DRI_NODE: /dev/dri/renderD128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
