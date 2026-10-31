@@ -58,7 +58,7 @@ describe("ModelDetailDock", () => {
         <ModelDetailDock />
       </ModelDetailProvider>,
     );
-    for (const title of Object.values(PANEL_TITLES)) {
+    for (const title of Object.values({ ...PANEL_TITLES, studio: undefined }).filter((t): t is string => !!t)) {
       expect(await screen.findByText(title)).toBeInTheDocument();
     }
   });

@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
-import { PANEL_IDS, PANEL_TITLES } from "./panelMeta";
+import { useStudioEnabled } from "@/api/studio";
+import { OPTIONAL_PANELS, PANEL_IDS, PANEL_TITLES } from "./panelMeta";
 
 /** Header dropdown: show/hide each registry panel, or reset to the default layout. */
 export function PanelsMenu({ api }: { api: DockviewApi }) {
@@ -26,6 +27,9 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
     return () => subs.forEach((sub) => sub.dispose());
   }, [api]);
 
+  const studioEnabled = useStudioEnabled();
+  const visibleIds = PANEL_IDS.filter((id) => studioEnabled || !OPTIONAL_PANELS.includes(id));
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -35,7 +39,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {PANEL_IDS.map((id) => (
+        {visibleIds.map((id) => (
           <DropdownMenuCheckboxItem
             key={id}
             checked={present.has(id)}

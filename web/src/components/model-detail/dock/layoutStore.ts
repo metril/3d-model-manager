@@ -1,6 +1,6 @@
 import type { DockviewApi, SerializedDockview } from "dockview-react";
 
-import { PANEL_IDS, isPanelId, type PanelId } from "./panelMeta";
+import { OPTIONAL_PANELS, PANEL_IDS, isPanelId, type PanelId } from "./panelMeta";
 
 export const LAYOUT_KEY = "tdmm.modelDetailLayout.v4";
 export const LAYOUT_VERSION = 2;
@@ -97,7 +97,7 @@ export function loadLayout(storage: Storage = localStorage): LoadedLayout | null
   try {
     const stored = parseStored(storage.getItem(LAYOUT_KEY));
     if (!stored) return null;
-    return { layout: stored.layout, unseen: PANEL_IDS.filter((id) => !stored.known.includes(id)) };
+    return { layout: stored.layout, unseen: PANEL_IDS.filter((id) => !OPTIONAL_PANELS.includes(id) && !stored.known.includes(id)) };
   } catch {
     return null;
   }

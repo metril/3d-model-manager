@@ -575,6 +575,8 @@ export interface Features {
   // Slicer enabled + URL set in Settings -> Server (DB only; live health comes
   // from `/settings/server/status` and `/slicer/health`).
   slicer_configured?: boolean;
+  // Bambu Studio sidecar enabled + URL set in Settings -> Server.
+  studio_configured?: boolean;
 }
 
 // `GET`/`PUT /settings/app` (backend/app/schemas/settings.py's
@@ -1157,7 +1159,30 @@ export interface SliceUpdatedEvent {
   sliced_file_id: number | null;
 }
 
-export type AppEvent = JobUpdatedEvent | PrintJobUpdatedEvent | SliceUpdatedEvent;
+/** `studio.file_returned`: a file was saved back from Bambu Studio into the model. */
+export interface StudioFileReturnedEvent {
+  type: "studio.file_returned";
+  model_slug: string;
+  model_id: number;
+  file_id: number;
+  name: string;
+  sliced: boolean;
+}
+
+/** `studio.session_started`: a Studio session was opened (possibly from another tab). */
+export interface StudioSessionStartedEvent {
+  type: "studio.session_started";
+  token: string;
+  model_slug: string;
+  file_name: string;
+}
+
+export type AppEvent =
+  | JobUpdatedEvent
+  | PrintJobUpdatedEvent
+  | SliceUpdatedEvent
+  | StudioFileReturnedEvent
+  | StudioSessionStartedEvent;
 
 // -- imports (backend/app/schemas/imports.py, app/models/enums.py) --------
 

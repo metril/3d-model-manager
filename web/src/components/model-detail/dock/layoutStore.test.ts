@@ -55,7 +55,7 @@ describe("layoutStore", () => {
       LAYOUT_KEY,
       JSON.stringify({ v: 2, known: ["viewer", "notes", "specs"], layout: layout() }),
     );
-    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => !["viewer", "notes", "specs"].includes(id)));
+    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => id !== "studio" && !["viewer", "notes", "specs"].includes(id)));
   });
 
   it("ignores a layout saved under the v1 key", () => {
