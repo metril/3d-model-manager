@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
 
@@ -6,6 +6,8 @@ import { useModel } from "@/api/library";
 import { ArchivedBanner } from "@/components/model-detail/ArchivedBanner";
 import { ModelHeader } from "@/components/model-detail/ModelHeader";
 import { useStudioSelection } from "@/components/model-detail/studioSelection";
+import { addPanelAtDefault } from "@/components/model-detail/dock/defaultLayout";
+import { registerStudioDock } from "@/components/studio/studioNav";
 import { ModelDetailDock } from "@/components/model-detail/dock/ModelDetailDock";
 import { ModelDetailProvider } from "@/components/model-detail/dock/ModelDetailContext";
 import { PanelsMenu } from "@/components/model-detail/dock/PanelsMenu";
@@ -49,6 +51,15 @@ export function ModelDetailPage() {
   // >=900px: dockable panels. Below: the stacked cards, no dock.
   const docked = useMediaQuery("(min-width: 900px)");
   const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
+  // Lets "Open in Bambu Studio" reveal the dock's Studio panel instead of leaving the page.
+  useEffect(() => {
+    if (!dockApi || !docked) return;
+    return registerStudioDock(() => {
+      const panel = dockApi.getPanel("studio");
+      if (panel) panel.api.setActive();
+      else addPanelAtDefault(dockApi, "studio");
+    });
+  }, [dockApi, docked]);
   // Memoised so unrelated re-renders (dock api, media query) don't re-render
   // every context consumer, including the WebGL viewer stage.
   const model = modelQuery.data;

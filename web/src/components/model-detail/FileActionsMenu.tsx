@@ -11,10 +11,12 @@
  * down the dialog with it) for no real benefit here.
  */
 import { useState } from "react";
-import { DownloadIcon, EyeIcon, LayoutGridIcon, ImageIcon, MoreVerticalIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { BoxesIcon, DownloadIcon, EyeIcon, LayoutGridIcon, ImageIcon, MoreVerticalIcon, StarIcon, Trash2Icon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useDeleteFile, usePatchModel } from "@/api/library";
+import { isStudioOpenable, useStudioEnabled } from "@/api/studio";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useStudioLauncher } from "@/components/studio/useStudioLauncher";
 import { canArrange } from "@/components/plate/arrangeable";
 import { isStudioViewable } from "@/components/viewer/viewable";
 import type { FileOut, ModelDetail } from "@/api/types";
@@ -49,6 +52,10 @@ export function FileActionsMenu({
   const deleteFile = useDeleteFile(model.slug);
   const patchModel = usePatchModel(model.slug);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const { t } = useTranslation();
+  const studioEnabled = useStudioEnabled();
+  const studio = useStudioLauncher(model.slug, studioEnabled);
+  const showStudio = studioEnabled && !isDoc && !!file.verified_at && isStudioOpenable(file);
 
   const showViewIn3D = !isDoc && !!onViewIn3D && isStudioViewable(file);
   const canSetCover = file.kind === "image";
@@ -88,6 +95,12 @@ export function FileActionsMenu({
             <DropdownMenuItem aria-label={`Arrange ${file.rel_path} on plate`} onSelect={() => onArrange(file)}>
               <LayoutGridIcon className="size-4" />
               Arrange on plate…
+            </DropdownMenuItem>
+          ) : null}
+          {showStudio ? (
+            <DropdownMenuItem aria-label={`Open ${file.rel_path} in Bambu Studio`} onSelect={() => studio.launch(file)}>
+              <BoxesIcon className="size-4" />
+              {t("studio.open")}
             </DropdownMenuItem>
           ) : null}
           {file.verified_at ? (
@@ -134,6 +147,7 @@ export function FileActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {studio.dialog}
       <ConfirmDialog
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}

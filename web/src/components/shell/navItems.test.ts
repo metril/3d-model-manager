@@ -138,3 +138,14 @@ describe("navItems", () => {
     });
   });
 });
+
+describe("studio nav entry", () => {
+  const base = { printerEnabled: true, can: () => true };
+  const has = (opts: { studioEnabled?: boolean }) =>
+    filterNavGroups(NAV_GROUPS, { ...base, ...opts }).some((g) => g.items.some((i) => i.to === "/studio"));
+  it("sits under Print and only shows when Studio is enabled", () => {
+    expect(NAV_GROUPS.find((g) => g.label === "Print")?.items.some((i) => i.to === "/studio")).toBe(true);
+    expect(has({})).toBe(false);
+    expect(has({ studioEnabled: true })).toBe(true);
+  });
+});

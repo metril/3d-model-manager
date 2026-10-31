@@ -14,6 +14,7 @@ import type { LinkProps } from "@tanstack/react-router";
 import {
   BarChart3,
   Beaker,
+  Boxes,
   Link2,
   Bookmark,
   CopyCheck,
@@ -59,6 +60,8 @@ export interface NavItem {
    * everyone else only once billing is on -- `AppSidebar` resolves this
    * with `useFinanceConfig()`, since it isn't a plain permission check. */
   billingGated?: boolean;
+  /** Hidden unless the Bambu Studio sidecar is enabled (`useStudioEnabled`). */
+  studioGated?: boolean;
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
    * rendered as a plain `<a target="_blank">` instead of a router Link. */
   externalUrl?: string;
@@ -84,6 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/print/history", label: "History", icon: ListChecks },
       { to: "/print/plugs", label: "Plugs", icon: Plug },
       { to: "/stats", label: "Stats", icon: BarChart3 },
+      { to: "/studio", label: "Bambu Studio", icon: Boxes, studioGated: true },
     ],
   },
   {
@@ -151,12 +155,13 @@ export function printerNavItems(printers: PrinterOut[] | undefined): NavItem[] {
  * `true` (no printer-visibility penalty) for callers that don't pass it. */
 export function filterNavItems(
   items: NavItem[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; studioEnabled?: boolean },
 ): NavItem[] {
   const hasPrinter = opts.hasPrinter ?? true;
   return items.filter(
     (item) =>
       (!item.featureGated || opts.printerEnabled) &&
+      (!item.studioGated || opts.studioEnabled) &&
       (!item.perm || opts.can(item.perm)) &&
       (!item.requiresPrinterAccess || hasPrinter || opts.can("settings:write")),
   );
@@ -169,7 +174,7 @@ export function filterNavItems(
  * for future groups) is dropped too. */
 export function filterNavGroups(
   groups: NavGroup[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; studioEnabled?: boolean },
 ): NavGroup[] {
   return groups
     .filter((group) => !group.featureGated || opts.printerEnabled)

@@ -28,10 +28,10 @@ function fakeApi(initial: PanelId[] = []) {
 }
 
 describe("defaultLayout", () => {
-  it("builds all eleven panels, viewer always-rendered", () => {
+  it("builds all eleven core panels (not the optional Studio one), viewer always-rendered", () => {
     const { api, calls } = fakeApi();
     buildDefaultLayout(api);
-    expect(calls.map((c) => c.id).sort()).toEqual([...PANEL_IDS].sort());
+    expect(calls.map((c) => c.id).sort()).toEqual(PANEL_IDS.filter((id) => id !== "studio").sort());
     expect(calls.find((c) => c.id === "viewer")?.renderer).toBe("always");
     expect(calls.find((c) => c.id === "related")?.position).toMatchObject({
       referencePanel: { id: "description" },
