@@ -1,0 +1,39 @@
+# Bambu Studio GUI sidecar (docs/studio.md). Opt-in: COMPOSE_PROFILES=studio.
+# Streams the real Studio over Selkies/WebSocket; the api reverse-proxies
+# /studio/ behind our login. NEVER publish 3000/3001: the Selkies terminal has
+# passwordless sudo, so only our login protects it. Nothing is published here.
+#
+# GPU: add -f compose.studio.dri.yaml (Intel/AMD dev host) or
+# -f compose.studio.gpu.yaml (NVIDIA host). Without either, Studio renders in
+# software (slow).
+services:
+  studio:
+    build: ./docker/studio
+    image: ${STUDIO_IMAGE:-tdmm-studio:local}
+    platform: linux/amd64
+    profiles: [studio]
+    expose:
+      - "3000"
+      - "3010"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      SUBFOLDER: /studio/
+      SELKIES_FRAME_ANCESTORS: ${STUDIO_FRAME_ANCESTORS:-'self'}
+      STUDIO_LAUNCHER_TOKEN: ${STUDIO_LAUNCHER_TOKEN:-}
+    shm_size: 1gb
+    mem_limit: ${STUDIO_MEM_LIMIT:-4g}
+    volumes:
+      - studio_config:/config
+      - ${STUDIO_EXCHANGE_HOST_DIR:-./studio-exchange}:/exchange
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:3010/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  studio_config:

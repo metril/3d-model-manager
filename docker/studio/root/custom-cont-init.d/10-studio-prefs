@@ -1,0 +1,23 @@
+#!/usr/bin/with-contenv bash
+# Runs as root before services: make Studio's file dialogs default to the
+# shared /exchange folder and keep native single-instance off (its D-Bus
+# handoff is broken; the launcher relaunches instead). The Setup Wizard on a
+# fresh /config cannot be skipped by a conf flag (spike) -- see docs/studio.md.
+CONF_DIR=/config/.config/BambuStudioBeta
+CONF=$CONF_DIR/BambuStudio.conf
+mkdir -p "$CONF_DIR" /exchange
+python3 - "$CONF" <<'PY'
+import json, sys
+p = sys.argv[1]
+try:
+    c = json.load(open(p))
+except (OSError, ValueError):
+    c = {}
+a = c.setdefault("app", {})
+a["single_instance"] = False
+a["last_opened_folder"] = "/exchange"
+a["last_export_path"] = "/exchange"
+json.dump(c, open(p, "w"), indent=4)
+PY
+chown -R abc:abc "$CONF_DIR"
+chown abc:abc /exchange 2>/dev/null || true

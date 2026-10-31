@@ -55,6 +55,7 @@
 # those only seed the very first boot (see .env.example).
 include:
   - compose.slicer.yaml
+  - compose.studio.yaml
   - compose.obico.yaml
 
 services:
@@ -81,6 +82,7 @@ services:
     volumes:
       - tdmm_data:/data
       - ./library:/library
+      - ${STUDIO_EXCHANGE_HOST_DIR:-./studio-exchange}:/exchange
     depends_on:
       db:
         condition: service_healthy
@@ -115,6 +117,7 @@ services:
     volumes:
       - tdmm_data:/data
       - ./library:/library
+      - ${STUDIO_EXCHANGE_HOST_DIR:-./studio-exchange}:/exchange
       - ${WATCH_HOST_DIR:-./slicer-watch}:/watch
     depends_on:
       api:
