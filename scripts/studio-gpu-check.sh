@@ -136,6 +136,38 @@ docker exec "$NAME" sh -c '
   echo "-- card0 open as abc:"; su -s /bin/sh abc -c "exec 3<>/dev/dri/card0 && echo ok" 2>/dev/null || echo DENIED
 ' 2>&1 | cut -c1-200 || true
 
+hdr "GBM probe (container, as abc): which backend answers gbm_bo_create"
+cat >"$INITD/probe.py" <<'PY'
+import ctypes, os, sys
+node = sys.argv[1]
+fd = os.open(node, os.O_RDWR)
+g = ctypes.CDLL("libgbm.so.1", use_errno=True)
+g.gbm_create_device.restype = ctypes.c_void_p
+g.gbm_create_device.argtypes = [ctypes.c_int]
+dev = g.gbm_create_device(fd)
+print("gbm_create_device:", "ok" if dev else "NULL", "errno", ctypes.get_errno())
+try:
+    g.gbm_device_get_backend_name.restype = ctypes.c_char_p
+    g.gbm_device_get_backend_name.argtypes = [ctypes.c_void_p]
+    print("backend:", g.gbm_device_get_backend_name(dev))
+except AttributeError:
+    print("backend: (no gbm_device_get_backend_name)")
+g.gbm_bo_create.restype = ctypes.c_void_p
+g.gbm_bo_create.argtypes = [ctypes.c_void_p] + [ctypes.c_uint] * 4
+ARGB8888 = 0x34325241
+for name, flags in (("RENDERING", 1 << 2), ("RENDERING|LINEAR", (1 << 2) | (1 << 4)),
+                    ("SCANOUT|RENDERING", 1 | (1 << 2))):
+    ctypes.set_errno(0)
+    bo = g.gbm_bo_create(dev, 256, 256, ARGB8888, flags)
+    print("gbm_bo_create", name + ":", "ok" if bo else "FAIL", "errno", ctypes.get_errno())
+PY
+docker cp "$INITD/probe.py" "$NAME:/tmp/probe.py" >/dev/null 2>&1 || true
+docker exec "$NAME" sh -c "
+  echo '-- external platform json:'; ls /usr/share/egl/egl_external_platform.d/ /etc/egl/egl_external_platform.d/ 2>&1
+  echo '-- compositor env:'; pid=\$(pgrep -f 'selkies' | head -1); [ -n \"\$pid\" ] && tr '\\\\0' '\\\\n' </proc/\$pid/environ | grep -E 'GBM|EGL|__GL|DRI|NVIDIA|LD_|MESA' || echo none
+  echo '-- probe:'; su -s /bin/sh abc -c 'LD_DEBUG=libs python3 /tmp/probe.py $NODE' 2>&1 | grep -E 'gbm_|backend:|nvidia|EGL|libgbm|error|cannot' | grep -v 'calling init\\|calling fini' | sed 's/^ *[0-9]*:\\s*//' | head -40
+" 2>&1 | cut -c1-200 || true
+
 hdr "RESULT"
 if [ "$FAILS" -eq 0 ]; then
   echo "ALL PASS"
