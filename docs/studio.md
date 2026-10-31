@@ -30,7 +30,11 @@ Without a GPU override Studio renders in software (works, slow).
 - Driver >= 580 and nvidia-container-toolkit (`runtime: nvidia`).
 - Kernel params `nvidia-drm.modeset=1 nvidia_drm.fbdev=1` (reboot), or run `nvidia-modprobe --modeset`.
 - A display is not required, but a headless host needs a dummy plug or the modeset step above so `/dev/dri/renderD128` and `/dev/nvidia-modeset` exist.
-- Verify with `scripts/studio-gpu-check.sh [render-node] [seconds]`; it prints PASS/FAIL for EGL device, NVENC encoder and no software fallback.
+- The container toolkit only mounts libraries the host has. A compute-only driver install is not enough: the compositor needs NVIDIA's GBM backend and EGL. On Debian (headless, no desktop needed):
+  `apt install --no-install-recommends libnvidia-allocator1 libegl-nvidia0 libnvidia-eglcore libgles-nvidia2 nvidia-egl-icd libnvidia-egl-wayland1`
+- Docker >= 28 routes `--gpus` / `runtime: nvidia` through the toolkit's CDI spec (`/var/run/cdi/nvidia.yaml`), which is regenerated at boot but not after library-only installs. After adding NVIDIA packages run `systemctl restart nvidia-cdi-refresh.service` (or `nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml`), and do not keep a second copy under `/etc/cdi`.
+- Verify with `scripts/studio-gpu-check.sh [render-node] [seconds]`; it prints PASS/FAIL for EGL device, NVENC encoder, host libs, CDI spec freshness and no software (Pixman) fallback, with in-container GBM/EGL probes on failure.
+- Symptoms map: `CREATE_DUMB ... Permission denied` + Pixman = GBM backend missing (allocator); `Failed to create EGL display` = libEGL_nvidia not mounted (host package or stale CDI spec).
 
 ## HTTPS
 The stream uses WebCodecs, which needs a secure context: serve the app over HTTPS (or use `localhost`).
