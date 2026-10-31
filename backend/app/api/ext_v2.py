@@ -23,14 +23,16 @@ from fastapi import (
     Depends,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import blobs as blobs_api
 from app.api import models as models_api
 from app.api import printer_control
 from app.api import printers as printers_api
@@ -46,17 +48,25 @@ from app.api.deps import (
 )
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import ApiToken, AuditLog, Printer, User
+from app.models import ApiToken, AuditLog, Printer, PrintJob, User
 from app.models.enums import BlobFormat
 from app.models.library import Blob, File, Model, PrintQueueEntry
 from app.schemas.imports import ImportCreate, ImportOut
 from app.schemas.library import ModelCreate, RevisionCreate
-from app.schemas.printers import PrinterOut
+from app.schemas.printers import (
+    CameraUrlsOut,
+    PrinterOut,
+    PrinterStatusOut,
+    PrintJobOut,
+    PrintRequest,
+)
 from app.schemas.queue import QueueEnqueueIn, QueueReorderIn
 from app.schemas.slicing import SliceJobIn
-from app.services import api_key_limit, api_tokens
+from app.services import api_key_limit, api_tokens, camera_http, derivatives
 from app.services import queue as queue_service
+from app.services.app_config import get_app_config
 from app.services.permissions import FULL_ACL, load_grants
+from app.services.printer_status import active_job_rows
 
 router = APIRouter(prefix="/ext/v2", tags=["ext-v2"])
 
@@ -226,7 +236,7 @@ async def list_printers(
     return [PrinterOut.from_model(p) for p in rows]
 
 
-@router.get("/printers/{printer_id}/status")
+@router.get("/printers/{printer_id}/status", response_model=PrinterStatusOut)
 async def printer_status(
     printer_id: int,
     db: AsyncSession = Depends(get_db),
@@ -235,6 +245,125 @@ async def printer_status(
 ):
     _visible(auth, printer_id)
     return await printers_api.printer_status(printer_id, db, settings, auth.ctx)
+
+
+# -- printers: camera + plate thumbnail (read) --------------------------------
+
+
+async def _camera_options(db: AsyncSession, settings: Settings, printer_id: int) -> dict:
+    """Printer ``options`` (rotation etc.) for a camera route; 503 while the
+    printer integration is off, 404 for an unknown printer."""
+    if not (await get_app_config(db, settings)).printer_enabled:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "printer integration is disabled")
+    printer = await db.get(Printer, printer_id)
+    if printer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
+    return dict(printer.options or {})
+
+
+@router.get("/printers/{printer_id}/camera/snapshot")
+async def camera_snapshot(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    auth: KeyAuth = Depends(_READ),
+) -> Response:
+    _visible(auth, printer_id)
+    options = await _camera_options(db, settings, printer_id)
+    return await camera_http.snapshot_response(settings, printer_id, options)
+
+
+@router.get("/printers/{printer_id}/camera/stream")
+async def camera_stream(
+    printer_id: int,
+    fps: int | None = Query(default=None, ge=1, le=camera_http.MAX_FPS),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    auth: KeyAuth = Depends(_READ),
+) -> StreamingResponse:
+    _visible(auth, printer_id)
+    options = await _camera_options(db, settings, printer_id)
+    return await camera_http.stream_response(settings, printer_id, options, fps)
+
+
+@router.post("/printers/{printer_id}/camera/token", response_model=CameraUrlsOut)
+async def camera_token(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    auth: KeyAuth = Depends(_READ),
+) -> CameraUrlsOut:
+    """Signed, short-lived stream/snapshot URLs for a cookie-less ``<img>``."""
+    _visible(auth, printer_id)
+    return await printers_api.mint_camera_token(printer_id, db, settings, auth.ctx)
+
+
+@router.get("/printers/{printer_id}/thumbnail")
+async def printer_thumbnail(
+    printer_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    auth: KeyAuth = Depends(_READ),
+) -> Response:
+    """Plate image of the printer's in-flight job; 404 when it has none."""
+    _visible(auth, printer_id)
+    row = (await active_job_rows(db, [printer_id])).get(printer_id)
+    if row is None or row[2] is None or not row[2].rel_path.lower().endswith(".3mf"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no print thumbnail")
+    job, _model, file = row
+    plate = job.plate if job.plate and job.plate > 0 else 1
+    return await blobs_api._conditional_file_response(
+        request,
+        derivatives.plate_thumb_path(settings, file.blob_hash, plate),
+        f"{file.blob_hash}:plate{plate}",
+        "image/png",
+        cache_control="private, no-cache",
+        missing_detail="plate thumbnail not found",
+    )
+
+
+# -- print jobs (read) + direct print (queue) ---------------------------------
+
+
+@router.get("/print-jobs", response_model=list[PrintJobOut])
+async def list_print_jobs(
+    printer_id: int | None = Query(default=None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    auth: KeyAuth = Depends(_READ),
+) -> list[PrintJobOut]:
+    if printer_id is not None:
+        _visible(auth, printer_id)
+    ids = {printer_id} if printer_id is not None else set(auth.ctx.printer_acl)
+    if not ids:
+        return []
+    stmt = (
+        select(PrintJob)
+        .where(PrintJob.printer_id.in_(ids))
+        .order_by(PrintJob.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [PrintJobOut.from_model(j) for j in (await db.scalars(stmt)).all()]
+
+
+@router.post(
+    "/printers/{printer_id}/print",
+    status_code=status.HTTP_201_CREATED,
+    response_model=PrintJobOut,
+)
+async def start_print(
+    printer_id: int,
+    payload: PrintRequest,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    auth: KeyAuth = Depends(_QUEUE),
+) -> PrintJobOut:
+    _visible(auth, printer_id)
+    auth.ctx.require_printer(printer_id, "print")
+    return await printers_api.start_print(printer_id, payload, db, settings, auth.ctx)
 
 
 async def _command(

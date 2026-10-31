@@ -16,13 +16,10 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import io
 import ipaddress
 import json
 import secrets
-import time
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import anyio
@@ -58,7 +55,6 @@ from app.printers.camera_select import (
     normalize_options,
     rotation_of,
 )
-from app.printers.capabilities import capabilities_for
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.schemas.printer_ops import (
@@ -74,7 +70,6 @@ from app.schemas.printers import (
     AmsTrayOut,
     CameraStatusOut,
     CameraUrlsOut,
-    CapabilitiesOut,
     DetectSerialIn,
     DetectSerialOut,
     OverlayOut,
@@ -89,19 +84,18 @@ from app.schemas.printers import (
     PrintJobOut,
     PrintRequest,
     ProbeOut,
-    SpoolBriefOut,
     seed_build_volume_mm,
-    status_from_state,
 )
+from app.services import camera_http, maintenance, signed_urls, spool_inventory, spoolman
 from app.services import camera_state as cs
 from app.services import firmware as fw
 from app.services import hms as hms_svc
-from app.services import maintenance, signed_urls, spool_inventory, spoolman
 from app.services.app_config import get_app_config
 from app.services.permissions import can_print_async
 from app.services.print_plan import create_job
 from app.services.printer_overview import build_overview
 from app.services.printer_state import read_state_async
+from app.services.printer_status import build_status, fill_tray_spools
 from app.tasks import base
 
 # AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
@@ -488,7 +482,7 @@ async def set_slot(
             dev = {"status": "failed", "code": body.get("code"), "detail": body.get("detail")}
 
     trays = [AmsTrayOut(**t) for t in ((state or {}).get("trays") or [])]
-    await _fill_tray_spools(db, printer_id, trays)
+    await fill_tray_spools(db, printer_id, trays)
     if device is None:
         return trays
     return {"trays": [t.model_dump() for t in trays], "device": dev}
@@ -528,19 +522,6 @@ async def reset_slot_device(
     )
 
 
-async def _fill_tray_spools(db: AsyncSession, printer_id: int, trays: list[AmsTrayOut]) -> None:
-    """Enrich each tray's ``spool`` from the printer's current slot
-    assignments (P5 Task 6) -- the printer's own report only knows the
-    RFID ``tray_uuid``, never which registered ``Spool`` that maps to."""
-    if not trays:
-        return
-    smap = await spool_inventory.slot_map(db, [printer_id])
-    for t in trays:
-        spool = smap.get((printer_id, t.slot))
-        if spool is not None:
-            t.spool = SpoolBriefOut.from_model(spool)
-
-
 @router.get("/{printer_id}/status", response_model=PrinterStatusOut)
 async def printer_status(
     printer_id: int,
@@ -562,25 +543,7 @@ async def printer_status(
         state = await read_state_async(client, printer_id)
     finally:
         await client.aclose()
-    if state is None:
-        return PrinterStatusOut(online=False, awaiting_plate_clear=printer.awaiting_plate_clear)
-    # `trays` (M8 G3) is a list, not a scalar -- pass it explicitly and coerce a
-    # missing/None value (older state written before this field existed) to [].
-    out = status_from_state(state)
-    out.awaiting_plate_clear = printer.awaiting_plate_clear
-    out.capabilities = CapabilitiesOut(
-        **capabilities_for(
-            printer.model, printer.serial, ((state.get("firmware") or {}).get("ota"))
-        ).as_dict()
-    )
-    if out.ams_units:
-        from app.api.printer_ops import label_map
-
-        labels = await label_map(db, printer, state)
-        for u in out.ams_units:
-            u.label = labels.get(u.id)
-    await _fill_tray_spools(db, printer_id, out.trays)
-    return out
+    return await build_status(db, settings, printer, state)
 
 
 async def _publish_command(
@@ -820,12 +783,7 @@ async def stop_printer(
 # unaffected without needing an entry in its ``PUBLIC_ROUTES``.
 camera_public_router = APIRouter(prefix="/printers", tags=["printers"])
 
-# How often ``mjpeg_parts`` re-registers its viewer (refreshes the Redis
-# ZSET TTL) while streaming, and how long it waits with no new frame before
-# giving up and ending the stream -- module-level so tests can monkeypatch
-# ``STREAM_IDLE_S`` down for a fast "ends when idle" test.
-HEARTBEAT_S = cs.HEARTBEAT_S
-MAX_FPS = 15
+MAX_FPS = camera_http.MAX_FPS
 OVERLAY_PREFIX = "ovl_"
 
 
@@ -844,24 +802,6 @@ async def _overlay_token_valid(db: AsyncSession, printer_id: int, token: str) ->
         )
     ).first()
     return row is not None
-
-
-def _rotate_jpeg(jpeg: bytes, degrees: int) -> bytes:
-    """Rotate clockwise by ``degrees`` (90/180/270) with Pillow."""
-    from PIL import Image
-
-    img = Image.open(io.BytesIO(jpeg))
-    method = {
-        90: Image.Transpose.ROTATE_270,
-        180: Image.Transpose.ROTATE_180,
-        270: Image.Transpose.ROTATE_90,
-    }[degrees]
-    out = io.BytesIO()
-    img.transpose(method).save(out, format="JPEG", quality=85)
-    return out.getvalue()
-
-
-STREAM_IDLE_S = 20.0
 
 
 @router.get(
@@ -1075,66 +1015,6 @@ async def _authorize_camera(
     return options
 
 
-def _mjpeg_part(jpeg: bytes) -> bytes:
-    return (
-        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(jpeg)
-        + jpeg
-        + b"\r\n"
-    )
-
-
-async def mjpeg_parts(
-    redis, printer_id: int, viewer_id: str, min_interval: float = 0.0
-) -> AsyncIterator[bytes]:
-    """Yield ``multipart/x-mixed-replace`` parts for ``printer_id``'s live
-    camera feed. Registers ``viewer_id`` (so printerd's camera worker starts
-    or stays up), subscribes the frame pub/sub channel, yields whatever
-    frame is already current (if any), then yields each newly-published
-    frame as it arrives -- heartbeating the viewer registration every
-    ``HEARTBEAT_S`` and ending the stream after ``STREAM_IDLE_S`` with no
-    frame at all. Always unregisters the viewer and tears down the
-    subscription on the way out, including when the caller ``aclose()``s
-    this generator early (e.g. the client disconnected).
-    """
-    await cs.aadd_viewer(redis, printer_id, viewer_id)
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(cs.frame_channel(printer_id))
-    try:
-        frame = await cs.aget_frame(redis, printer_id)
-        now = time.monotonic()
-        last_frame_at = now
-        last_heartbeat_at = now
-        last_yield_at = now
-        if frame is not None:
-            yield _mjpeg_part(frame)
-
-        while True:
-            message = await pubsub.get_message(timeout=1.0)
-            now = time.monotonic()
-            if message is not None and message["type"] == "message":
-                last_frame_at = now
-                if now - last_yield_at >= min_interval:
-                    last_yield_at = now
-                    yield _mjpeg_part(message["data"])
-
-            if now - last_heartbeat_at >= HEARTBEAT_S:
-                await cs.aadd_viewer(redis, printer_id, viewer_id)
-                last_heartbeat_at = now
-
-            if now - last_frame_at >= STREAM_IDLE_S:
-                return
-    finally:
-        # Shielded: when the caller `aclose()`s this generator early (a
-        # disconnecting client cancels the task driving it), the ambient
-        # cancellation would otherwise also cancel this cleanup partway
-        # through -- leaking the viewer registration and the pubsub
-        # subscription instead of releasing them.
-        with anyio.CancelScope(shield=True):
-            await cs.aremove_viewer(redis, printer_id, viewer_id)
-            await pubsub.unsubscribe(cs.frame_channel(printer_id))
-            await pubsub.aclose()
-
-
 @camera_public_router.get("/{printer_id}/camera/stream")
 async def camera_stream(
     printer_id: int,
@@ -1144,29 +1024,7 @@ async def camera_stream(
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     options = await _authorize_camera(printer_id, token, tdmm_session, settings)
-    if fps is None and camera_kind(None, None, options) == "external":
-        fps = DEFAULT_FPS
-    redis = aioredis.Redis.from_url(settings.redis_url)
-    try:
-        if await cs.aget_status(redis, printer_id) == "unsupported":
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "camera not supported")
-    except Exception:
-        await redis.aclose()
-        raise
-    viewer_id = f"stream:{uuid.uuid4()}"
-
-    async def _gen() -> AsyncIterator[bytes]:
-        try:
-            async for part in mjpeg_parts(redis, printer_id, viewer_id, 1.0 / fps if fps else 0.0):
-                yield part
-        finally:
-            await redis.aclose()
-
-    return StreamingResponse(
-        _gen(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
-        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-    )
+    return await camera_http.stream_response(settings, printer_id, options, fps)
 
 
 @camera_public_router.get("/{printer_id}/camera/snapshot")
@@ -1177,29 +1035,4 @@ async def camera_snapshot(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     options = await _authorize_camera(printer_id, token, tdmm_session, settings)
-    redis = aioredis.Redis.from_url(settings.redis_url)
-    try:
-        current_status = await cs.aget_status(redis, printer_id)
-        if current_status == "unsupported":
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "camera not supported")
-
-        # Register a viewer even on a cold camera (no removal -- the next
-        # heartbeat/stream viewer or its own TTL cleans it up) so printerd's
-        # on-demand worker starts warming up for the *next* request.
-        await cs.aadd_viewer(redis, printer_id, f"snap:{uuid.uuid4()}")
-
-        frame = await cs.aget_frame(redis, printer_id)
-        if frame is None:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "camera is warming up",
-                headers={"Retry-After": "2"},
-            )
-        rotation = rotation_of(options)
-        if rotation:
-            frame = await anyio.to_thread.run_sync(_rotate_jpeg, frame, rotation)
-        return Response(
-            content=frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
-        )
-    finally:
-        await redis.aclose()
+    return await camera_http.snapshot_response(settings, printer_id, options)
