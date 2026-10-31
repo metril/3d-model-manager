@@ -53,13 +53,13 @@ export function ModelDetailPage() {
   const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
   // Lets "Open in Bambu Studio" reveal the dock's Studio panel instead of leaving the page.
   useEffect(() => {
-    if (!dockApi) return;
+    if (!dockApi || !docked) return;
     return registerStudioDock(() => {
       const panel = dockApi.getPanel("studio");
       if (panel) panel.api.setActive();
       else addPanelAtDefault(dockApi, "studio");
     });
-  }, [dockApi]);
+  }, [dockApi, docked]);
   // Memoised so unrelated re-renders (dock api, media query) don't re-render
   // every context consumer, including the WebGL viewer stage.
   const model = modelQuery.data;

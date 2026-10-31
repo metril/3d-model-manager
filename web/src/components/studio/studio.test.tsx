@@ -41,8 +41,9 @@ const session: StudioSession = {
   studio_running: true,
 };
 
-function mockGet({ enabled = true, sess = null as StudioSession | null } = {}) {
+function mockGet({ enabled = true, sess = null as StudioSession | null, admin = true } = {}) {
   getMock.mockImplementation((path: string) => {
+    if (path === "/auth/me") return Promise.resolve({ id: 1, role: admin ? "admin" : "member", permissions: [] });
     if (path === "/features") return Promise.resolve({ printer_enabled: false, watch_dir: null, watch_enabled: false, studio_configured: enabled });
     if (path === "/studio/session") return Promise.resolve(sess ?? undefined);
     return Promise.resolve(undefined);
@@ -172,6 +173,12 @@ describe("Open in Bambu Studio menu entry", () => {
     expect(screen.queryByRole("menuitem", { name: /in Bambu Studio/ })).toBeNull();
   });
 
+  it("is hidden for non-admins", async () => {
+    await openMenu(file(), { enabled: true, admin: false });
+    await screen.findByRole("menuitem", { name: /Download/ });
+    expect(screen.queryByRole("menuitem", { name: /in Bambu Studio/ })).toBeNull();
+  });
+
   it("is hidden for gcode", async () => {
     await openMenu(file({ format: "gcode", kind: "gcode" }), { enabled: true });
     await screen.findByRole("menuitem", { name: /Download/ });
@@ -195,6 +202,13 @@ describe("Open in Bambu Studio menu entry", () => {
     expect(postMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(postMock).toHaveBeenCalled());
+  });
+
+  it("confirms a relaunch of the same file while Studio is running", async () => {
+    await openMenu(file({ id: 1 }), { enabled: true, sess: session });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in Bambu Studio/ }));
+    expect(await screen.findByText(/unsaved work there is lost/)).toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
   });
 
   it("maps launcher_busy to a restarting toast", async () => {

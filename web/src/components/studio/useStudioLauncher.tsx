@@ -41,7 +41,7 @@ export function useStudioLauncher(slug: string, enabled: boolean): { launch: (fi
 
   function launch(file: FileOut) {
     const s = session.data;
-    if (s && s.file.id !== file.id) setPending(file);
+    if (s?.studio_running || (s && s.file.id !== file.id)) setPending(file);
     else run(file);
   }
 

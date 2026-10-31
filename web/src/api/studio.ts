@@ -1,6 +1,7 @@
 /** Bambu Studio sidecar: open a file in the streamed GUI, track the active session. */
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useAuth } from "@/api/auth";
 import { api } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import type { FileOut } from "@/api/types";
@@ -36,9 +37,12 @@ export const studioSessionQueryOptions = queryOptions({
   queryFn: async () => (await api.get<StudioSession | undefined>("/studio/session")) ?? null,
 });
 
-/** Studio is configured and switched on (Settings -> Server); readable by every user. */
+/** Studio is configured and switched on (Settings -> Server) AND the user is an admin
+ * (the proxy and session routes are admin-only, so members would see dead entries). */
 export function useStudioEnabled(): boolean {
-  return !!useFeatures().data?.studio_configured;
+  const configured = !!useFeatures().data?.studio_configured;
+  const isAdmin = useAuth().data?.role === "admin";
+  return configured && isAdmin;
 }
 
 export function useStudioSession(opts: { enabled?: boolean } = {}) {
