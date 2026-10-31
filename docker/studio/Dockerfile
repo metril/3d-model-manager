@@ -5,7 +5,7 @@
 FROM lscr.io/linuxserver/bambustudio@sha256:857e937fe1c3451244cb178952e0e7a00241ab48c32cb1ce9ea6b27e4fd729e5
 
 COPY root/ /
-RUN chmod +x /app/launcher.py /custom-cont-init.d/10-studio-prefs \
+RUN chmod +x /app/launcher.py /custom-cont-init.d/10-studio-prefs /custom-cont-init.d/20-nvidia-gbm \
     /etc/s6-overlay/s6-rc.d/svc-launcher/run \
  && mkdir -p /exchange
 
