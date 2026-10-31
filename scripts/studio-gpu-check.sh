@@ -136,11 +136,11 @@ fi
 
 hdr "GBM / EGL backend diagnostics (host)"
 ls -l /usr/lib/x86_64-linux-gnu/gbm/ /usr/lib64/gbm/ 2>/dev/null || echo "no host gbm backend dir"
-for lib in libEGL_nvidia.so.0 libGLESv2_nvidia.so.2 libnvidia-eglcore.so libnvidia-egl-wayland.so.1; do
+for lib in libEGL_nvidia.so.0 libGLESv2_nvidia.so.2 libnvidia-eglcore.so libnvidia-egl-wayland.so.1 libGLX_nvidia.so.0 libnvidia-glcore.so; do
   if ldconfig -p | grep -q "$lib"; then
     echo "host has $lib"
   else
-    fail "host has no $lib; the container toolkit only mounts what the host has. Debian-style packages: libegl-nvidia0 libnvidia-eglcore libgles-nvidia2 libnvidia-egl-wayland1 (apt-cache search nvidia | grep -iE 'egl|gles')"
+    fail "host has no $lib; the container toolkit only mounts what the host has. Debian-style packages: libegl-nvidia0 libnvidia-eglcore libgles-nvidia2 libnvidia-egl-wayland1 libglx-nvidia0 libnvidia-glcore (GLX is what Studio uses under Xwayland)"
   fi
 done
 if ldconfig -p | grep -q libnvidia-allocator; then
@@ -157,11 +157,13 @@ ls -l /etc/cdi/ /var/run/cdi/ 2>/dev/null | grep -v '^total' || echo "no CDI spe
 # /etc/cdi. A spec generated before the EGL libs were installed is stale.
 for spec in /var/run/cdi/*.yaml /etc/cdi/*.yaml; do
   [ -e "$spec" ] || continue
-  if grep -q libEGL_nvidia "$spec"; then
-    echo "CDI spec $spec has libEGL_nvidia"
-  else
-    fail "CDI spec $spec lacks libEGL_nvidia (stale; regenerate: systemctl restart nvidia-cdi-refresh.service, or nvidia-ctk cdi generate --output=$spec)"
-  fi
+  for lib in libEGL_nvidia libGLX_nvidia; do
+    if grep -q "$lib" "$spec"; then
+      echo "CDI spec $spec has $lib"
+    else
+      fail "CDI spec $spec lacks $lib (stale or host lib missing; regenerate: systemctl restart nvidia-cdi-refresh.service, or nvidia-ctk cdi generate --output=$spec)"
+    fi
+  done
 done
 grep -vE '^\s*#|^\s*$' /etc/nvidia-container-runtime/config.toml 2>/dev/null | grep -iE 'mode|ldconfig|no-cgroups|cdi' || true
 echo "-- nvidia-container-cli list (legacy path would mount):"
