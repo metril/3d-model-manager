@@ -13,7 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind
 from app.services.bed_fit import parse_printable_area
-from app.services.mesh_combine import plan_layout
+from app.services.mesh_combine import (
+    LoadedPart,
+    Pose,
+    check_poses,
+    plan_layout,
+    pose_half_extents,
+    pose_transform,
+)
 from tests.corpus import box_stl
 
 # -- pure layout math (no fixtures) -----------------------------------------
@@ -73,6 +80,50 @@ def test_parse_printable_area() -> None:
         210.0,
     )
     assert parse_printable_area({}) is None
+
+
+def _apply(tf: str, pt: tuple[float, float, float]) -> tuple[float, float, float]:
+    m = [float(v) for v in tf.split()]
+    x, y, z = pt
+    return (
+        x * m[0] + y * m[3] + z * m[6] + m[9],
+        x * m[1] + y * m[4] + z * m[7] + m[10],
+        x * m[2] + y * m[5] + z * m[8] + m[11],
+    )
+
+
+def _part(w=20.0, d=10.0) -> LoadedPart:
+    return LoadedPart("p", None, None, w, d, 1, height=5.0)
+
+
+def test_pose_transform_pivots_on_footprint_centre() -> None:
+    part = _part()
+    for rot, scale in [(0, 1), (90, 1), (37, 1.5), (-45, 0.5)]:
+        tf = pose_transform(part, Pose(0, 100.0, 80.0, rot, scale))
+        # Footprint centre (shifted frame: w/2, d/2, 0) lands on the pose x/y, z stays 0.
+        cx, cy, cz = _apply(tf, (10.0, 5.0, 0.0))
+        assert (cx, cy, cz) == pytest.approx((100.0, 80.0, 0.0), abs=1e-4)
+    # 90 deg: the +x corner of the footprint moves to +y of the centre.
+    tf = pose_transform(part, Pose(0, 0.0, 0.0, 90, 1))
+    x, y, _ = _apply(tf, (20.0, 5.0, 0.0))
+    assert (x, y) == pytest.approx((0.0, 10.0), abs=1e-4)
+    # Scale is applied to z too.
+    assert round(_apply(pose_transform(part, Pose(0, 0, 0, 0, 2)), (0, 0, 5.0))[2], 6) == 10.0
+
+
+def test_pose_half_extents_and_bed_check() -> None:
+    hx, hy = pose_half_extents(20.0, 10.0, 90.0, 1.0)
+    assert (round(hx, 6), round(hy, 6)) == (5.0, 10.0)
+    hx, hy = pose_half_extents(20.0, 10.0, 45.0, 2.0)
+    assert round(hx, 4) == round(hy, 4) == round(2 * 30 * 0.70710678 / 2, 4)
+    part = _part()
+    fits = check_poses(
+        [part],
+        [Pose(0, 50, 50), Pose(0, 5, 50), Pose(0, 50, 50, 90, 1), Pose(0, 95, 5, 90, 1)],
+        (100.0, 100.0),
+    )
+    assert [f.fits for f in fits] == [True, False, True, False]
+    assert (fits[2].min_x, fits[2].max_y) == (45.0, 60.0)
 
 
 # -- endpoint ---------------------------------------------------------------
@@ -207,3 +258,151 @@ async def test_combine_requires_bed_and_known_file(authenticated_client: httpx.A
         json={"items": [{"file_id": 999999}], "bed": {"x_mm": 100, "y_mm": 100}},
     )
     assert missing.status_code == 404
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_manual_writes_transforms(authenticated_client: httpx.AsyncClient) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Manual")
+    slug = created["slug"]
+    items = [
+        {"file_id": file_id, "x_mm": 50, "y_mm": 40, "rot_z_deg": 90, "scale": 2, "copy_index": 0},
+        {"file_id": file_id, "x_mm": 120, "y_mm": 100, "copy_index": 1},
+        {"file_id": file_id, "x_mm": 120, "y_mm": 30, "copy_index": 2},
+    ]
+    body = {"items": items, "layout": "manual", "bed": {"x_mm": 180, "y_mm": 180}, "name": "hand"}
+    dry = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**body, "dry_run": True}
+    )
+    assert dry.status_code == 200, dry.text
+    out = dry.json()
+    assert out["fits"] is True and out["file"] is None
+    assert [p["fits"] for p in out["poses"]] == [True, True, True]
+    assert out["parts"][0]["w_mm"] == pytest.approx(20.0)
+    assert out["parts"][0]["h_mm"] == pytest.approx(5.0)
+    # 90deg x2: footprint 20x10 -> 20 (y) x 40 (x) around (50, 40)
+    assert out["placements"][0]["w_mm"] == pytest.approx(20.0)
+    assert out["placements"][0]["d_mm"] == pytest.approx(40.0)
+
+    saved = await authenticated_client.post(f"/api/models/{slug}/combine", json=body)
+    assert saved.status_code == 200, saved.text
+    file = saved.json()["file"]
+    assert file["rel_path"] == "hand.3mf"
+    download = await authenticated_client.get(f"/api/files/{file['id']}/download")
+    with zipfile.ZipFile(io.BytesIO(download.content)) as zf:
+        xml = zf.read("3D/3dmodel.model").decode()
+    assert len(re.findall(r"<object ", xml)) == 1
+    transforms = re.findall(r'<item objectid="1" transform="([^"]+)"', xml)
+    assert len(transforms) == 3
+    first = [float(v) for v in transforms[0].split()]
+    assert first[:9] == pytest.approx([0, 2, 0, -2, 0, 0, 0, 0, 2], abs=1e-6)
+    # pivot (10, 5) -> (50, 40): t = (50 - (0*10 - 2*5), 40 - (2*10 + 0)) = (60, 20)
+    assert first[9:] == pytest.approx([60, 20, 0], abs=1e-6)
+    assert [float(v) for v in transforms[1].split()][9:] == pytest.approx([110, 95, 0])
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_manual_422_lists_offending_items(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Manual Off")
+    slug = created["slug"]
+    items = [
+        {"file_id": file_id, "x_mm": 50, "y_mm": 50},
+        {"file_id": file_id, "x_mm": 95, "y_mm": 50},
+        {"file_id": file_id, "x_mm": 50, "y_mm": 3},
+    ]
+    body = {"items": items, "layout": "manual", "bed": {"x_mm": 100, "y_mm": 100}}
+    response = await authenticated_client.post(f"/api/models/{slug}/combine", json=body)
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "does_not_fit"
+    assert detail["items"] == [1, 2]
+    dry = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**body, "dry_run": True}
+    )
+    assert dry.status_code == 200
+    assert [p["fits"] for p in dry.json()["poses"]] == [True, False, False]
+    missing_pose = await authenticated_client.post(
+        f"/api/models/{slug}/combine",
+        json={"items": [{"file_id": file_id}], "layout": "manual", "bed": body["bed"]},
+    )
+    assert missing_pose.status_code == 422
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_auto_returns_poses_without_writing(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Auto Poses")
+    slug = created["slug"]
+    response = await authenticated_client.post(
+        f"/api/models/{slug}/combine",
+        params={"auto": 1},
+        json={"items": [{"file_id": file_id, "copies": 3}], "bed": {"x_mm": 100, "y_mm": 100}},
+    )
+    assert response.status_code == 200, response.text
+    out = response.json()
+    assert out["file"] is None and out["fits"] is True
+    assert [p["copy_index"] for p in out["poses"]] == [0, 1, 2]
+    for pose, rect in zip(out["poses"], out["placements"], strict=True):
+        assert pose["x_mm"] == pytest.approx(rect["x_mm"] + rect["w_mm"] / 2)
+        assert pose["y_mm"] == pytest.approx(rect["y_mm"] + rect["d_mm"] / 2)
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_height_limit_and_scaled_auto(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Tall")
+    slug = created["slug"]
+    profile = SlicerProfile(
+        name="Short printer",
+        kind=ProfileKind.PRINTER,
+        data={
+            "printable_area": ["0x0", "180x0", "180x180", "0x180"],
+            "printable_height": 8,
+        },
+    )
+    db_session.add(profile)
+    await db_session.commit()
+    base = {"layout": "manual", "printer_profile_id": profile.id}
+    # The box is 5 mm tall: scale 1 fits, scale 2 (10 mm) exceeds the 8 mm limit.
+    items = [
+        {"file_id": file_id, "x_mm": 40, "y_mm": 40},
+        {"file_id": file_id, "x_mm": 100, "y_mm": 100, "scale": 2},
+    ]
+    dry = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**base, "items": items, "dry_run": True}
+    )
+    assert dry.status_code == 200, dry.text
+    assert [p["fits"] for p in dry.json()["poses"]] == [True, False]
+    saved = await authenticated_client.post(
+        f"/api/models/{slug}/combine", json={**base, "items": items}
+    )
+    assert saved.status_code == 422
+    assert saved.json()["detail"]["items"] == [1]
+
+    # Auto uses the scaled footprints (no overlap) and flags too-tall parts.
+    auto = await authenticated_client.post(
+        f"/api/models/{slug}/combine",
+        params={"auto": 1},
+        json={
+            "items": [{"file_id": file_id, "copies": 3, "scale": 2}],
+            "printer_profile_id": profile.id,
+            "spacing_mm": 5,
+        },
+    )
+    assert auto.status_code == 200, auto.text
+    out = auto.json()
+    assert out["fits"] is False  # 10 mm tall > 8 mm
+    assert all(p["scale"] == 2 for p in out["poses"])
+    assert all(r["w_mm"] == pytest.approx(40.0) for r in out["placements"])
+    rects = out["placements"]
+    for i, a in enumerate(rects):
+        for b in rects[i + 1 :]:
+            assert (
+                a["x_mm"] + a["w_mm"] <= b["x_mm"] + 1e-6
+                or b["x_mm"] + b["w_mm"] <= a["x_mm"] + 1e-6
+                or a["y_mm"] + a["d_mm"] <= b["y_mm"] + 1e-6
+                or b["y_mm"] + b["d_mm"] <= a["y_mm"] + 1e-6
+            )

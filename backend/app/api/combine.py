@@ -11,7 +11,7 @@ from pathlib import Path
 
 import anyio
 import blake3
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
@@ -19,16 +19,30 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import File, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, ProfileKind
-from app.schemas.combine import BedIn, CombineIn, CombineOut, CombinePlacementOut
+from app.schemas.combine import (
+    BedIn,
+    CombineIn,
+    CombineOut,
+    CombinePartOut,
+    CombinePlacementOut,
+    CombinePoseOut,
+)
 from app.schemas.jobs import JobOut
 from app.services import jobs as jobs_service
 from app.services import library, spool
-from app.services.bed_fit import parse_printable_area
+from app.services.bed_fit import parse_printable_area, parse_printable_height
 from app.services.mesh_combine import (
+    FIT_MARGIN_MM,
     CombinePart,
-    LayoutPlan,
+    LoadedPart,
     MeshCombineError,
+    Pose,
+    PoseFit,
+    check_poses,
+    load_parts,
+    placements_to_poses,
     plan_parts,
+    pose_too_tall,
     write_3mf,
 )
 from app.services.storage_backends import resolve_backend_for_file
@@ -61,6 +75,7 @@ def _copy_to_temp(backend: StorageBackend, storage_path: str, directory: Path, s
 async def combine_files(
     slug: str,
     payload: CombineIn,
+    auto: bool = Query(False, description="Plan only: run grid/auto and return poses"),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
@@ -69,7 +84,12 @@ async def combine_files(
     as a new multi-object 3MF on the model's current revision (through the
     same spool -> ``store_to_backend`` job path as an upload). With
     ``dry_run`` only the plan is returned. 422 when the copies don't fit the
-    bed (``detail.required_bed`` says what they'd need)."""
+    bed (``detail.required_bed`` says what they'd need). ``layout: "manual"``
+    takes one pose per item instead (see ``mesh_combine.Pose``); a pose off the
+    bed is a 422 ``does_not_fit`` naming the offending item indices. ``?auto=1``
+    implies ``dry_run`` and returns the grid/auto poses for the plate editor."""
+    dry_run = payload.dry_run or auto
+    manual = payload.layout == "manual"
     model = await library.get_model_by_slug(db, slug)
     require_owner_or_admin(ctx, model.created_by_user_id)
     if model.current_revision_id is None:
@@ -77,6 +97,7 @@ async def combine_files(
     revision = await library.get_revision_or_404(db, model.current_revision_id)
 
     bed = payload.bed
+    max_height: float | None = None
     if payload.printer_profile_id is not None:
         profile = await db.get(SlicerProfile, payload.printer_profile_id)
         if profile is None or profile.kind is not ProfileKind.PRINTER:
@@ -87,14 +108,20 @@ async def combine_files(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, "profile has no printable area"
             )
         bed = BedIn(x_mm=dims[0], y_mm=dims[1])
+        max_height = parse_printable_height(profile.data)
     if bed is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "give a printer_profile_id or bed"
         )
 
     by_id = {f.id: f for f in revision.files}
-    rows = []
+    rows: list[tuple[File, int, StorageBackend]] = []
+    row_of: dict[int, int] = {}  # manual: file id -> index into rows
     for item in payload.items:
+        if manual and item.file_id in row_of:
+            i = row_of[item.file_id]
+            rows[i] = (rows[i][0], rows[i][1] + 1, rows[i][2])
+            continue
         file = by_id.get(item.file_id)
         if file is None:
             raise HTTPException(
@@ -106,53 +133,147 @@ async def combine_files(
             )
         if file.verified_at is None:
             raise HTTPException(status.HTTP_409_CONFLICT, f"{file.rel_path} is still processing")
-        rows.append((file, item.copies, await resolve_backend_for_file(db, settings, file)))
+        row_of[item.file_id] = len(rows)
+        rows.append(
+            (file, 1 if manual else item.copies, await resolve_backend_for_file(db, settings, file))
+        )
 
     spool_root = await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
     token = uuid.uuid4()
     out_path = spool.spool_path(settings, token)
     temps: list[Path] = []
 
-    def _work() -> tuple[LayoutPlan, str, int]:
+    def _work() -> tuple[
+        list[LoadedPart], list[Pose], list[PoseFit], tuple[float, float], str, int
+    ]:
         parts = []
-        for file, copies, backend in rows:
+        for idx, (file, copies, backend) in enumerate(rows):
             tmp = _copy_to_temp(backend, file.storage_path, spool_root, Path(file.rel_path).suffix)
             temps.append(tmp)
-            parts.append(CombinePart(name=Path(file.rel_path).name, path=tmp, copies=copies))
-        loaded, plan = plan_parts(
-            parts, (bed.x_mm, bed.y_mm), mode=payload.layout, spacing=payload.spacing_mm
-        )
-        if payload.dry_run or not plan.fits:
-            return plan, "", 0
-        data = write_3mf(loaded, plan)
+            parts.append(
+                CombinePart(
+                    name=Path(file.rel_path).name,
+                    path=tmp,
+                    copies=copies,
+                    # grid/auto: rows mirror payload.items, each scaled as asked.
+                    scale=1.0 if manual else payload.items[idx].scale,
+                )
+            )
+        bed_t = (bed.x_mm, bed.y_mm)
+        if manual:
+            loaded = load_parts(parts)
+            poses = [
+                Pose(row_of[i.file_id], i.x_mm or 0.0, i.y_mm or 0.0, i.rot_z_deg, i.scale)
+                for i in payload.items
+            ]
+            fits = check_poses(loaded, poses, bed_t, max_height=max_height)
+            all_fit = all(f.fits for f in fits)
+            # Span from the lowest edge (0 or an overhang) to the highest.
+            required = (
+                round(
+                    max(f.max_x for f in fits)
+                    - min(min(f.min_x for f in fits), 0.0)
+                    + FIT_MARGIN_MM,
+                    2,
+                ),
+                round(
+                    max(f.max_y for f in fits)
+                    - min(min(f.min_y for f in fits), 0.0)
+                    + FIT_MARGIN_MM,
+                    2,
+                ),
+            )
+        else:
+            loaded, plan = plan_parts(parts, bed_t, mode=payload.layout, spacing=payload.spacing_mm)
+            poses = placements_to_poses(plan, loaded)
+            fits = [
+                PoseFit(
+                    p.x,
+                    p.y,
+                    p.x + p.w,
+                    p.y + p.d,
+                    plan.fits and not pose_too_tall(loaded[po.owner], po, max_height),
+                )
+                for p, po in zip(plan.placements, poses, strict=True)
+            ]
+            all_fit, required = all(f.fits for f in fits), plan.required_bed
+        if dry_run or not all_fit:
+            return loaded, poses, fits, required, "", 0
+        data = write_3mf(loaded, poses=poses)
         out_path.write_bytes(data)
-        return plan, blake3.blake3(data).hexdigest(), len(data)
+        return loaded, poses, fits, required, blake3.blake3(data).hexdigest(), len(data)
 
     try:
         try:
-            plan, blob_hash, size = await anyio.to_thread.run_sync(_work)
+            loaded, poses, fits, required_t, blob_hash, size = await anyio.to_thread.run_sync(_work)
         except MeshCombineError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
         finally:
             for tmp in temps:
                 tmp.unlink(missing_ok=True)
 
-        required = BedIn(x_mm=max(plan.required_bed[0], 0.01), y_mm=max(plan.required_bed[1], 0.01))
+        all_fit = all(f.fits for f in fits)
+        required = BedIn(x_mm=max(required_t[0], 0.01), y_mm=max(required_t[1], 0.01))
         placements = [
-            CombinePlacementOut(file_id=rows[p.owner][0].id, x_mm=p.x, y_mm=p.y, w_mm=p.w, d_mm=p.d)
-            for p in plan.placements
+            CombinePlacementOut(
+                file_id=rows[po.owner][0].id,
+                x_mm=f.min_x,
+                y_mm=f.min_y,
+                w_mm=f.max_x - f.min_x,
+                d_mm=f.max_y - f.min_y,
+            )
+            for po, f in zip(poses, fits, strict=True)
         ]
-        if payload.dry_run:
-            return CombineOut(fits=plan.fits, bed=bed, required_bed=required, placements=placements)
-        if not plan.fits:
+        seen: dict[int, int] = {}
+        pose_out = []
+        for idx, (po, f) in enumerate(zip(poses, fits, strict=True)):
+            n = seen.get(po.owner, 0)
+            seen[po.owner] = n + 1
+            pose_out.append(
+                CombinePoseOut(
+                    file_id=rows[po.owner][0].id,
+                    x_mm=po.x,
+                    y_mm=po.y,
+                    rot_z_deg=po.rot_deg,
+                    scale=po.scale,
+                    copy_index=payload.items[idx].copy_index if manual else n,
+                    fits=f.fits,
+                )
+            )
+        part_out = [
+            CombinePartOut(
+                file_id=rows[i][0].id,
+                min_x=lp.origin[0],
+                min_y=lp.origin[1],
+                min_z=lp.origin[2],
+                w_mm=lp.width,
+                d_mm=lp.depth,
+                h_mm=lp.height,
+            )
+            for i, lp in enumerate(loaded)
+        ]
+        if dry_run:
+            return CombineOut(
+                fits=all_fit,
+                bed=bed,
+                required_bed=required,
+                placements=placements,
+                poses=pose_out,
+                parts=part_out,
+            )
+        if not all_fit:
+            bad = [i for i, f in enumerate(fits) if not f.fits]
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
+                    "code": "does_not_fit",
                     "message": (
-                        f"The models do not fit a {bed.x_mm:g} x {bed.y_mm:g} mm bed; "
-                        f"they need about {plan.required_bed[0]:g} x {plan.required_bed[1]:g} mm"
+                        f"The models do not fit a {bed.x_mm:g} x {bed.y_mm:g} mm bed"
+                        + (f" ({max_height:g} mm tall)" if max_height else "")
+                        + f"; they need about {required_t[0]:g} x {required_t[1]:g} mm"
                     ),
-                    "required_bed": {"x_mm": plan.required_bed[0], "y_mm": plan.required_bed[1]},
+                    "required_bed": {"x_mm": required_t[0], "y_mm": required_t[1]},
+                    "items": bad,
                 },
             )
 
@@ -210,6 +331,8 @@ async def combine_files(
         bed=bed,
         required_bed=required,
         placements=placements,
+        poses=pose_out,
+        parts=part_out,
         file=file_out,
         job=JobOut.from_model(job),
     )

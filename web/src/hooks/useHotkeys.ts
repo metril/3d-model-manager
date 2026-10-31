@@ -4,7 +4,7 @@ function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   // Duck-typed: events from a pop-out window come from another realm, where
   // `instanceof HTMLElement` against this window's constructor is false.
   const el = target as HTMLElement | null;
