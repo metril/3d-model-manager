@@ -101,7 +101,7 @@ async def test_create_session(authenticated_client, db_session, seed_file, excha
     r = await authenticated_client.post(f"/api/models/{model.slug}/files/{f.id}/studio")
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["iframe_path"] == "/studio/" and body["replaced_session"] is False
+    assert body["iframe_path"] == "/slicer/" and body["replaced_session"] is False
     assert body["file"] == {"id": f.id, "name": "part.stl"}
     token = body["token"]
     assert (exchange / token / "in" / "part.stl").read_bytes() == b"solid x\nendsolid x\n"

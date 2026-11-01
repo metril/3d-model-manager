@@ -233,11 +233,11 @@ const printHistoryRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/PrintHistoryPage"), "PrintHistoryPage"),
 });
 
-// Bare `/studio` is this client route; the Studio GUI itself is served
-// same-origin at `/studio/` (api reverse proxy), which the iframe loads.
+// Bare `/slicer` is this client route; the Studio GUI itself is served
+// same-origin at `/slicer/` (api reverse proxy), which the iframe loads.
 const studioRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
-  path: "/studio",
+  path: "/slicer",
   component: lazyRouteComponent(() => import("@/pages/StudioPage"), "StudioPage"),
 });
 

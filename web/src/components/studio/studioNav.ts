@@ -17,10 +17,10 @@ export function registerStudioDock(open: () => void): () => void {
   };
 }
 
-/** Reveals the Studio dock panel if a dock is mounted, else goes to the full `/studio` page. */
+/** Reveals the Studio dock panel if a dock is mounted, else goes to the full `/slicer` page. */
 export function showStudio(): void {
   if (dockOpener) dockOpener();
-  else void import("@/router").then((m) => m.router.navigate({ to: "/studio" }));
+  else void import("@/router").then((m) => m.router.navigate({ to: "/slicer" }));
 }
 
 export function goToModel(slug: string): void {
