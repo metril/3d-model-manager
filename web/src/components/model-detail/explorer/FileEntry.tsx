@@ -1,0 +1,191 @@
+import type { ReactNode } from "react";
+import { FileTextIcon, FolderIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import { EntityTags } from "@/components/tags/EntityTags";
+import { CopyableHash } from "@/components/model-detail/CopyableHash";
+import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
+import { FileRow } from "@/components/model-detail/FileRow";
+import { FileThumb } from "@/components/model-detail/explorer/FileThumb";
+import { fileMetaLine } from "@/components/model-detail/explorer/fileMeta";
+import { OrcaSlicerSplitButton } from "@/components/orcaslicer/OrcaSlicerSplitButton";
+import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
+import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
+import { SliceFileButton } from "@/components/slice/SliceFileButton";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { formatDate, formatDateTime, humanizeBytes } from "@/lib/format";
+import { isSlicerEligible } from "@/lib/slicers";
+import { cn } from "@/lib/utils";
+import type { FileOut, ModelDetail } from "@/api/types";
+import type { TreeNode } from "@/components/model-detail/explorer/tree";
+
+export type EntryLayout = "list" | "grid";
+
+export interface FileEntryProps {
+  file: FileOut;
+  model: ModelDetail;
+  layout: EntryLayout;
+  /** Name shown on the row (the base name inside a folder, the full path in search results). */
+  label: string;
+  /** Renders a selection checkbox when set. */
+  selected?: boolean;
+  onSelectedChange?: (on: boolean) => void;
+  previewOpen?: boolean;
+  onTogglePreview?: () => void;
+  onViewIn3D?: (file: FileOut) => void;
+  onArrange?: (file: FileOut) => void;
+  /** Extra per-file actions (PR 4: rename, move). Rendered before the actions menu. */
+  actionsSlot?: ReactNode;
+}
+
+function FileFacts({ file, model, hash = true }: { file: FileOut; model: ModelDetail; hash?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <span>{humanizeBytes(file.size)}</span>
+      <span className="@sm/files:hidden">{formatDate(file.mtime)}</span>
+      <span className="hidden @sm/files:inline">{formatDateTime(file.mtime)}</span>
+      <Badge variant={file.verified_at ? "secondary" : "outline"}>
+        {file.verified_at ? t("explorer.stored") : t("explorer.processing")}
+      </Badge>
+      {hash ? <CopyableHash hash={file.blob_hash} compact /> : null}
+      <EntityTags
+        target={{ kind: "file", modelId: model.id, relPath: file.rel_path }}
+        tags={file.tag_refs}
+        className="basis-full"
+      />
+    </>
+  );
+}
+
+function FileActions({
+  file,
+  model,
+  previewOpen,
+  onTogglePreview,
+  onViewIn3D,
+  onArrange,
+  actionsSlot,
+}: Omit<FileEntryProps, "layout" | "label" | "selected" | "onSelectedChange">) {
+  const { t } = useTranslation();
+  const isDoc = file.kind === "doc";
+  return (
+    <>
+      {onTogglePreview ? (
+        <Button type="button" variant="outline" size="sm" aria-pressed={previewOpen} onClick={onTogglePreview}>
+          <FileTextIcon className="size-4" />
+          <span className="sr-only @sm/files:not-sr-only">{previewOpen ? t("explorer.hidePreview") : t("explorer.preview")}</span>
+        </Button>
+      ) : null}
+      {!isDoc ? (
+        <>
+          <SliceFileButton file={file} modelSlug={model.slug} />
+          <SendToPrinterButton file={file} />
+          <OrcaSlicerSplitButton file={file} slug={model.slug} />
+          {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
+        </>
+      ) : null}
+      {actionsSlot}
+      <FileActionsMenu file={file} model={model} isDoc={isDoc} onViewIn3D={onViewIn3D} onArrange={onArrange} />
+    </>
+  );
+}
+
+export function FileEntry(props: FileEntryProps) {
+  const { file, model, layout, label, selected, onSelectedChange } = props;
+  const { t } = useTranslation();
+  const checkbox =
+    onSelectedChange !== undefined ? (
+      <Checkbox
+        checked={selected === true}
+        onCheckedChange={(v) => onSelectedChange(v === true)}
+        aria-label={t("explorer.select", { path: file.rel_path })}
+      />
+    ) : null;
+  const actions = <FileActions {...props} />;
+
+  if (layout === "grid") {
+    return (
+      <li className={cn("flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3", selected && "border-primary/60 bg-primary/5")}>
+        <div className="flex items-start gap-2">
+          {checkbox}
+          <FileThumb file={file} className="size-16 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-xs" title={file.rel_path}>
+              {label}
+            </div>
+            {fileMetaLine(file) ? <div className="truncate text-[11px] text-muted-foreground">{fileMetaLine(file)}</div> : null}
+          </div>
+        </div>
+        <div className="@container/files flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <FileFacts file={file} model={model} />
+        </div>
+        <div className="flex flex-wrap items-center gap-1">{actions}</div>
+      </li>
+    );
+  }
+
+  return (
+    <FileRow
+      thumb={<FileThumb file={file} />}
+      leading={checkbox}
+      path={label}
+      pathTitle={file.rel_path}
+      meta={fileMetaLine(file)}
+      facts={<FileFacts file={file} model={model} />}
+      actions={actions}
+    />
+  );
+}
+
+/** A subfolder entry in the current folder. `actionsSlot` is where PR 4 adds rename/move. */
+export function FolderEntry({
+  node,
+  layout,
+  onOpen,
+  actionsSlot,
+}: {
+  node: TreeNode;
+  layout: EntryLayout;
+  onOpen: (path: string) => void;
+  actionsSlot?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const count = t(node.total === 1 ? "explorer.fileOne" : "explorer.fileMany", { count: node.total });
+  if (layout === "grid") {
+    return (
+      <li className="flex items-center gap-2 rounded-lg border bg-card p-3 hover:bg-muted/50">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onOpen(node.path)}>
+          <FolderIcon className="size-8 shrink-0 text-primary/70" />
+          <span className="min-w-0">
+            <span className="block truncate font-mono text-xs">{node.name}</span>
+            <span className="block text-xs text-muted-foreground">{count}</span>
+          </span>
+        </button>
+        {actionsSlot}
+      </li>
+    );
+  }
+  return (
+    <FileRow
+      thumb={
+        <div className="flex size-10 items-center justify-center rounded bg-muted text-primary/70">
+          <FolderIcon className="size-5" />
+        </div>
+      }
+      path={`${node.name}/`}
+      pathTitle={node.path}
+      facts={<span>{count}</span>}
+      actions={
+        <>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpen(node.path)} aria-label={t("explorer.openFolder", { name: node.name })}>
+            {t("explorer.open")}
+          </Button>
+          {actionsSlot}
+        </>
+      }
+    />
+  );
+}

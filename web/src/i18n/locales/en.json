@@ -1706,5 +1706,49 @@
     "name": "File name (optional)",
     "save": "Save",
     "saveAndSlice": "Save & Slice"
+  },
+  "explorer": {
+    "root": "Files",
+    "folders": "Folders",
+    "path": "Folder path",
+    "toggleFolders": "Toggle folder tree",
+    "expand": "Expand {{name}}",
+    "collapse": "Collapse {{name}}",
+    "search": "Search files…",
+    "sortBy": "Sort by",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "layout": "Layout",
+    "listView": "List view",
+    "gridView": "Grid view",
+    "fileTypes": "File types",
+    "sort": {
+      "name": "Name",
+      "size": "Size",
+      "mtime": "Modified",
+      "type": "Type"
+    },
+    "type": {
+      "all": "All",
+      "models": "Models",
+      "images": "Images",
+      "docs": "Docs",
+      "misc": "Misc"
+    },
+    "stored": "stored",
+    "processing": "processing",
+    "select": "Select {{path}}",
+    "preview": "Preview",
+    "hidePreview": "Hide preview",
+    "closePreview": "Close preview",
+    "previewTitle": "Preview of {{name}}",
+    "previewLoading": "Loading…",
+    "previewError": "Could not load this file.",
+    "open": "Open",
+    "openFolder": "Open folder {{name}}",
+    "fileOne": "{{count}} file",
+    "fileMany": "{{count}} files",
+    "noMatch": "No files match these filters.",
+    "emptyFolder": "This folder is empty."
   }
 }

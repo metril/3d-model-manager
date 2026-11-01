@@ -2,10 +2,28 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DocsTab } from "@/components/model-detail/DocsTab";
+import { FileExplorer } from "@/components/model-detail/explorer/FileExplorer";
 import type { FileOut, ModelDetail } from "@/api/types";
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
+
+vi.mock("@/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/auth")>()),
+  useAuth: () => ({
+    data: { id: 1, username: "tester" },
+    can: () => true,
+    canPrinter: () => true,
+  }),
+}));
+
+vi.mock("@/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/client")>();
+  return { ...actual, api: { ...actual.api, get: vi.fn().mockResolvedValue(undefined) } };
+});
+
+vi.mock("@/hooks/eventsContext", () => ({
+  useEvents: () => ({ subscribe: () => () => {} }),
+}));
 
 function buildFile(overrides: Partial<FileOut>): FileOut {
   return {
@@ -64,35 +82,35 @@ function buildModel(files: FileOut[]): ModelDetail {
   } as unknown as ModelDetail;
 }
 
-function renderDocsTab(files: FileOut[]) {
+function renderExplorer(files: FileOut[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DocsTab model={buildModel(files)} />
+      <FileExplorer model={buildModel(files)} />
     </QueryClientProvider>,
   );
 }
 
-describe("DocsTab", () => {
+describe("FileExplorer", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows the empty state when there are no doc-kind files", () => {
-    renderDocsTab([]);
-    expect(screen.getByText("No documents on the current revision yet.")).toBeInTheDocument();
+  it("shows the empty state when the revision has no files", () => {
+    renderExplorer([]);
+    expect(screen.getByText("No files on the current revision yet.")).toBeInTheDocument();
   });
 
-  it("filters out non-doc files entirely", () => {
+  it("offers no Preview button for non-doc files", () => {
     const meshFile = buildFile({ id: 2, rel_path: "part.stl", format: "stl", kind: "mesh" });
-    renderDocsTab([meshFile]);
-    expect(screen.getByText("No documents on the current revision yet.")).toBeInTheDocument();
+    renderExplorer([meshFile]);
+    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
   });
 
   it("renders an inline iframe pointing at the ?inline=1 download URL for a pdf, once previewed", () => {
     const pdfFile = buildFile({ id: 3, rel_path: "manual.pdf", format: "pdf" });
-    renderDocsTab([pdfFile]);
+    renderExplorer([pdfFile]);
 
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
@@ -104,7 +122,7 @@ describe("DocsTab", () => {
   it("fetches and renders markdown content as HTML for an md file", async () => {
     fetchMock.mockResolvedValue({ ok: true, text: () => Promise.resolve("# Hello\n\nWorld") });
     const mdFile = buildFile({ id: 4, rel_path: "readme.md", format: "md" });
-    renderDocsTab([mdFile]);
+    renderExplorer([mdFile]);
 
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
@@ -119,7 +137,7 @@ describe("DocsTab", () => {
   it("fetches and renders raw text in a <pre> for a txt file", async () => {
     fetchMock.mockResolvedValue({ ok: true, text: () => Promise.resolve("plain content here") });
     const txtFile = buildFile({ id: 5, rel_path: "notes.txt", format: "txt" });
-    renderDocsTab([txtFile]);
+    renderExplorer([txtFile]);
 
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
@@ -129,7 +147,7 @@ describe("DocsTab", () => {
 
   it("offers no inline preview for a docx file, only the actions menu", () => {
     const docxFile = buildFile({ id: 6, rel_path: "spec.docx", format: "docx" });
-    renderDocsTab([docxFile]);
+    renderExplorer([docxFile]);
 
     expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Actions for ${docxFile.rel_path}` })).toBeInTheDocument();
