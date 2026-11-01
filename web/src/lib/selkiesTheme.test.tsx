@@ -2,7 +2,8 @@ import { act, render } from "@testing-library/react";
 import { ThemeProvider, useTheme } from "next-themes";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { APP_THEME_KEY, migrateThemeKey, SelkiesThemeBridge, syncSelkiesTheme } from "@/lib/selkiesTheme";
+import { SelkiesThemeBridge } from "@/lib/SelkiesThemeBridge";
+import { APP_THEME_KEY, migrateThemeKey, syncSelkiesTheme, useFollowSelkiesTheme } from "@/lib/selkiesTheme";
 
 function fakeDoc(cls: string | null) {
   const doc = document.implementation.createHTMLDocument("x");
@@ -26,6 +27,11 @@ describe("syncSelkiesTheme", () => {
     expect(syncSelkiesTheme(doc, "light")).toBe("noop");
     expect((doc.querySelector(".theme-toggle") as HTMLElement).click).not.toHaveBeenCalled();
   });
+  it("does not click a toggle whose state is unreadable", () => {
+    const doc = fakeDoc("");
+    expect(syncSelkiesTheme(doc, "dark")).toBe("missing");
+    expect((doc.querySelector(".theme-toggle") as HTMLElement).click).not.toHaveBeenCalled();
+  });
   it("reports missing when there is no toggle or document", () => {
     expect(syncSelkiesTheme(fakeDoc(null), "dark")).toBe("missing");
     expect(syncSelkiesTheme(null, "dark")).toBe("missing");
@@ -47,25 +53,58 @@ describe("theme key", () => {
     expect(localStorage.getItem(APP_THEME_KEY)).toBe("system");
   });
 
-  it("mirrors the resolved theme into Selkies' key and follows its storage event", () => {
-    localStorage.setItem(APP_THEME_KEY, "light");
-    let current = "";
+  function mount(withFollow: boolean) {
+    const out = { resolved: "", pref: "" };
     function Probe() {
-      current = useTheme().resolvedTheme ?? "";
+      const t = useTheme();
+      out.resolved = t.resolvedTheme ?? "";
+      out.pref = t.theme ?? "";
+      return null;
+    }
+    function Follow() {
+      useFollowSelkiesTheme();
       return null;
     }
     render(
       <ThemeProvider attribute="class" storageKey={APP_THEME_KEY} defaultTheme="system" enableSystem>
         <SelkiesThemeBridge />
+        {withFollow ? <Follow /> : null}
         <Probe />
       </ThemeProvider>,
     );
-    expect(localStorage.getItem("theme")).toBe("light");
+    return out;
+  }
+  const selkiesWrote = (v: string) =>
     act(() => {
-      window.dispatchEvent(new StorageEvent("storage", { key: "theme", newValue: "dark" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "theme", newValue: v }));
     });
-    expect(current).toBe("dark");
+
+  it("mirrors the resolved theme into Selkies' key", () => {
+    localStorage.setItem(APP_THEME_KEY, "light");
+    mount(false);
+    expect(localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("follows Selkies' toggle where the frame is mounted", () => {
+    localStorage.setItem(APP_THEME_KEY, "light");
+    const out = mount(true);
+    selkiesWrote("dark");
+    expect(out.resolved).toBe("dark");
     expect(localStorage.getItem(APP_THEME_KEY)).toBe("dark");
-    expect(localStorage.getItem("theme")).toBe("dark");
+  });
+
+  it("ignores theme events in a document without the slicer frame", () => {
+    localStorage.setItem(APP_THEME_KEY, "light");
+    const out = mount(false);
+    selkiesWrote("dark");
+    expect(out.resolved).toBe("light");
+    expect(localStorage.getItem(APP_THEME_KEY)).toBe("light");
+  });
+
+  it("keeps a system preference when Selkies reports the already-resolved theme", () => {
+    const out = mount(true);
+    expect(out.pref).toBe("system");
+    selkiesWrote("light"); // matchMedia stub resolves system to light
+    expect(out.pref).toBe("system");
   });
 });

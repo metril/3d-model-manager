@@ -162,13 +162,19 @@ describe("OrcaSlicerFrame", () => {
 });
 
 describe("OrcaSlicerFrame theme sync", () => {
-  it("falls back to writing the theme key and remounting the frame once when no toggle shows up", async () => {
+  it("remounts with the new theme only when it changed after load, and only once", async () => {
     mockGet({ sess: session });
-    const { ThemeProvider } = await import("next-themes");
+    const { ThemeProvider, useTheme } = await import("next-themes");
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
-    localStorage.setItem("theme", "light");
+    let setTheme: (t: string) => void = () => {};
+    function Grab() {
+      setTheme = useTheme().setTheme;
+      return null;
+    }
+    localStorage.setItem("theme", "dark");
     wrap(
       <ThemeProvider attribute="class" storageKey="tdmm-theme" defaultTheme="dark" enableSystem={false}>
+        <Grab />
         <OrcaSlicerFrame />
       </ThemeProvider>,
     );
@@ -179,10 +185,15 @@ describe("OrcaSlicerFrame theme sync", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6000);
       });
-      expect(localStorage.getItem("theme")).toBe("dark");
+      // No toggle, but the theme is the one the frame loaded with: no remount.
+      expect(screen.getByTitle("OrcaSlicer")).toBe(first);
+      act(() => setTheme("light"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(localStorage.getItem("theme")).toBe("light");
       const second = screen.getByTitle("OrcaSlicer");
       expect(second).not.toBe(first);
-      // A second miss for the same theme does not remount again.
       fireEvent.load(second);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6000);

@@ -10,7 +10,8 @@ import { queryClient } from "@/queryClient";
 import { AppearanceProvider } from "@/lib/appearance";
 import { installPreloadErrorReload } from "@/lib/preloadError";
 import { registerServiceWorker } from "@/lib/pwa";
-import { APP_THEME_KEY, migrateThemeKey, SelkiesThemeBridge } from "@/lib/selkiesTheme";
+import { APP_THEME_KEY, migrateThemeKey } from "@/lib/selkiesTheme";
+import { SelkiesThemeBridge } from "@/lib/SelkiesThemeBridge";
 import { router } from "@/router";
 import "@/i18n";
 

@@ -8,7 +8,7 @@ import { useEndOrcaSlicerSession, useOrcaSlicerEnabled, useOrcaSlicerSession } f
 import { goToModel, isInsecureOrcaSlicerContext } from "@/components/orcaslicer/orcaslicerNav";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SELKIES_THEME_KEY, syncSelkiesTheme } from "@/lib/selkiesTheme";
+import { SELKIES_THEME_KEY, syncSelkiesTheme, useFollowSelkiesTheme } from "@/lib/selkiesTheme";
 
 const SYNC_RETRIES = 10;
 const SYNC_INTERVAL_MS = 500;
@@ -21,12 +21,16 @@ function OrcaSlicerStage() {
   const [remount, setRemount] = useState(0);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const remountedFor = useRef<string | null>(null);
+  const themeRef = useRef(resolvedTheme);
+  themeRef.current = resolvedTheme;
+  const loadedTheme = useRef<string | undefined>(undefined);
+  useFollowSelkiesTheme();
 
   // Keep the Selkies dashboard's theme in step with the app: click its own toggle (no
   // reconnect). The dashboard mounts after the frame's load event, so retry briefly; if it
   // never shows a toggle, write its key and remount the frame once so it reads the value.
   useEffect(() => {
-    if (resolvedTheme !== "dark" && resolvedTheme !== "light") return;
+    if (frameLoads === 0 || (resolvedTheme !== "dark" && resolvedTheme !== "light")) return;
     const theme = resolvedTheme;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout>;
@@ -40,7 +44,9 @@ function OrcaSlicerStage() {
       if (result !== "missing") return;
       if (++tries < SYNC_RETRIES) {
         timer = setTimeout(attempt, SYNC_INTERVAL_MS);
-      } else if (remountedFor.current !== theme) {
+      } else if (loadedTheme.current !== theme && remountedFor.current !== theme) {
+        // Only when the theme changed after the frame loaded; at first mount Selkies already
+        // read the mirrored value.
         remountedFor.current = theme;
         try {
           localStorage.setItem(SELKIES_THEME_KEY, theme);
@@ -67,6 +73,7 @@ function OrcaSlicerStage() {
         className="size-full border-0"
         onLoad={() => {
           setLoaded(true);
+          loadedTheme.current = themeRef.current;
           setFrameLoads((n) => n + 1);
         }}
       />

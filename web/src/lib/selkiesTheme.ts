@@ -20,11 +20,20 @@ export function migrateThemeKey(): void {
   }
 }
 
-/** Mirror the resolved app theme into Selkies' key, and follow Selkies' own toggle
- * (`storage` events fire in this window when the same-origin iframe writes the key). */
-export function SelkiesThemeBridge() {
-  const { resolvedTheme, setTheme } = useTheme();
+/** The app's resolved theme computed from storage + the OS, not from a possibly stale closure. */
+export function freshResolvedTheme(): Mode {
+  try {
+    const stored = localStorage.getItem(APP_THEME_KEY);
+    if (isMode(stored)) return stored;
+  } catch {
+    /* storage unavailable */
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
+/** Mirror the resolved app theme into Selkies' key (so the stream reads it at mount). */
+export function useMirrorSelkiesTheme(): void {
+  const { resolvedTheme } = useTheme();
   useEffect(() => {
     if (!isMode(resolvedTheme)) return;
     try {
@@ -33,17 +42,21 @@ export function SelkiesThemeBridge() {
       /* storage unavailable */
     }
   }, [resolvedTheme]);
+}
 
+/** Follow Selkies' own toggle (a `storage` event on `theme` fires here when the same-origin
+ * iframe writes it). Mount only where the stream iframe lives: other tabs get the change
+ * through `tdmm-theme`, and reacting there could clobber a `system` preference. */
+export function useFollowSelkiesTheme(): void {
+  const { setTheme } = useTheme();
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== SELKIES_THEME_KEY || !isMode(e.newValue)) return;
-      if (e.newValue !== resolvedTheme) setTheme(e.newValue);
+      if (e.newValue !== freshResolvedTheme()) setTheme(e.newValue);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [resolvedTheme, setTheme]);
-
-  return null;
+  }, [setTheme]);
 }
 
 /** Make the (same-origin) Selkies dashboard match `theme` by clicking its own toggle, which
@@ -57,6 +70,7 @@ export function syncSelkiesTheme(doc: Document | null | undefined, theme: Mode):
     : toggle.classList.contains("light")
       ? "light"
       : null;
+  if (current === null) return "missing";
   if (current === theme) return "noop";
   toggle.click();
   return "clicked";
