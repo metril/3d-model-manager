@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import Settings
 from app.importers.base import SiteImporter
@@ -78,6 +79,7 @@ if TYPE_CHECKING:
     # Avoids a runtime import cycle (app.importers.download doesn't import
     # this module, but keeping the dependency one-directional at runtime is
     # simplest): only needed for the `store_imported_file_sync` annotation.
+    from app.api.deps import AuthContext
     from app.importers.download import StagedFile
 
 
@@ -384,6 +386,7 @@ def store_imported_file_sync(
     from app.services import jobs as jobs_service
     from app.tasks.ingest import store_to_backend
 
+    lock_model_row_sync(session, model.id)
     blob = session.get(Blob, staged.blob_hash)
     if blob is None:
         blob = Blob(
@@ -1569,6 +1572,7 @@ async def create_revision(
     case). ``backend`` is still used as the mkdirs target for a fresh, empty
     revision (no old files to inherit a backend from).
     """
+    await lock_model_row(db, model)
     max_number = await db.scalar(
         select(func.max(Revision.number)).where(Revision.model_id == model.id)
     )
@@ -1871,6 +1875,12 @@ async def finalize_upload(
     same-transaction ``UPDATE ... SET cover_blob_hash`` issued before the
     referenced ``Blob`` row is flushed 500s on the FK constraint).
     """
+    await lock_model_row(db, model)
+    if model.current_revision_id != revision.id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "uploads are only allowed on the model's current revision",
+        )
     blob = await db.get(Blob, blob_hash)
     if blob is None:
         blob = Blob(hash=blob_hash, size=size, kind=kind, format=format_)
@@ -2022,6 +2032,7 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
     assert revision is not None  # FK guarantees this
     model = await db.get(Model, revision.model_id)
     assert model is not None  # FK guarantees this
+    await lock_model_row(db, model)
     if model.current_revision_id != file.revision_id:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -2034,6 +2045,172 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
         raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
 
     await _hard_delete_file_row(db, settings, file=file, model=model)
+
+
+async def lock_model_row(db: AsyncSession, model: Model) -> None:
+    """Take the model row's write lock (``SELECT ... FOR UPDATE``) and refresh
+    ``model.current_revision_id`` from it. Every path that mutates the CURRENT revision's file
+    rows/keys (upload finalize, new revision, delete, and the
+    ``move_model_files`` task) takes this FIRST -- before any file-row lock --
+    so check-then-act sequences against the revision are serialized and
+    lock order is always model -> file. Held until the caller commits."""
+    fresh = await db.scalar(
+        select(Model.current_revision_id).where(Model.id == model.id).with_for_update()
+    )
+    # Sync only the field the check-then-act callers branch on, without
+    # expiring the rest of the instance (lazy loads are unsafe under asyncio).
+    set_committed_value(model, "current_revision_id", fresh)
+
+
+def lock_model_row_sync(session: SyncSession, model_id: int) -> None:
+    """Sync twin of ``lock_model_row`` for worker-side callers (same lock,
+    same order: model row first, then any file row)."""
+    session.execute(select(Model.id).where(Model.id == model_id).with_for_update())
+
+
+def validate_move_target(rel: str) -> str | None:
+    """Error message when ``rel`` is not an acceptable move target, else
+    ``None``. Storage normalizes keys (``./a``, ``a//b``, ``a/`` collapse), so
+    anything that isn't already in normal form is rejected rather than being
+    allowed to alias another file."""
+    pure = PurePosixPath(rel)
+    if (
+        not rel
+        or "\\" in rel
+        or pure.is_absolute()
+        or pure.parts == ()
+        or ".." in pure.parts
+        or str(pure) != rel
+    ):
+        return f"unsafe rel_path: {rel!r}"
+    if pure.parts[0].casefold() == layout.SNAPSHOT_PREFIX.rstrip("/"):
+        return "_snapshots/ is reserved"
+    return None
+
+
+def move_target_clash(target: str, others: Iterable[str]) -> str | None:
+    """The first of ``others`` that ``target`` would collide with: the same
+    path (case-insensitively, for SMB/macOS), an existing folder of that name
+    (``target/...`` exists), or an existing file standing where a parent
+    folder of ``target`` would go."""
+    t = target.casefold()
+    for other in others:
+        o = other.casefold()
+        if o == t or o.startswith(t + "/") or t.startswith(o + "/"):
+            return other
+    return None
+
+
+async def plan_file_moves(
+    db: AsyncSession,
+    moves: list[tuple[int, str]],
+    *,
+    model_id: int | None = None,
+    authorize: Callable[[Model], None] | None = None,
+) -> tuple[Model, list[tuple[int, str]]]:
+    """Validate a rename/move batch against the model's CURRENT revision and
+    return ``(model, [(file_id, rel_path)])`` with no-op entries dropped.
+    ``authorize`` runs as soon as the model is resolved, before any path
+    validation, so non-owners can't probe the layout.
+
+    All files must belong to one model (``model_id`` when given), be in its
+    current revision, not be mid-store, and land on a free, normalized
+    ``rel_path`` (no collision with an existing file/folder or another entry
+    of the batch).
+    """
+    if len({fid for fid, _ in moves}) != len(moves):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "duplicate file_id in moves")
+    files = {
+        f.id: f
+        for f in (
+            await db.execute(select(File).where(File.id.in_([m[0] for m in moves])))
+        ).scalars()
+    }
+    for fid, _ in moves:
+        if fid not in files:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {fid} not found")
+    revision_ids = {f.revision_id for f in files.values()}
+    revisions = (
+        (await db.execute(select(Revision).where(Revision.id.in_(revision_ids)))).scalars().all()
+    )
+    model_ids = {r.model_id for r in revisions}
+    if len(model_ids) != 1 or (model_id is not None and model_ids != {model_id}):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "files must belong to the given model")
+    model = await db.get(Model, next(iter(model_ids)))
+    assert model is not None  # FK guarantees this
+    if authorize is not None:
+        authorize(model)
+    if revision_ids != {model.current_revision_id}:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "file belongs to a revision that is not the model's current revision",
+        )
+    existing = {
+        fid: rel
+        for fid, rel in (
+            await db.execute(
+                select(File.id, File.rel_path).where(File.revision_id == model.current_revision_id)
+            )
+        ).all()
+    }
+    planned: list[tuple[int, str]] = []
+    for fid, rel in moves:
+        if PurePosixPath(files[fid].rel_path).parts[0].casefold() == "_snapshots":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "snapshot files cannot be moved")
+        if (err := validate_move_target(rel)) is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
+        if files[fid].rel_path != rel:
+            planned.append((fid, rel))
+    for i, (fid, rel) in enumerate(planned):
+        others = [r for f, r in existing.items() if f != fid]
+        others += [r for _, r in planned[:i]]  # earlier targets of this batch
+        if (clash := move_target_clash(rel, others)) is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"rel_path {rel!r} conflicts with {clash!r}"
+            )
+    if await _files_store_pending(db, [files[fid] for fid, _ in planned]):
+        raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
+    return model, planned
+
+
+async def enqueue_file_moves(
+    db: AsyncSession,
+    ctx: AuthContext,
+    moves: list[tuple[int, str]],
+    *,
+    model_id: int | None = None,
+) -> Job:
+    """Validate + authorize a move batch and dispatch ``move_model_files``."""
+    from app.api.deps import require_owner_or_admin
+    from app.tasks.relocate import move_model_files
+
+    model, planned = await plan_file_moves(
+        db,
+        moves,
+        model_id=model_id,
+        authorize=lambda m: require_owner_or_admin(ctx, m.created_by_user_id, "modify"),
+    )
+    job = await jobs_service.create_job(
+        db, id=uuid.uuid4(), type="move_model_files", subject_type="model", subject_id=model.id
+    )
+    if planned:
+        try:
+            move_model_files.apply_async(
+                args=[str(job.id), model.id, [[fid, rel] for fid, rel in planned]],
+                task_id=str(job.id),
+            )
+        except Exception as exc:
+            job.state = jobs_service.STATE_FAILED
+            job.error = "failed to enqueue move_model_files"
+            await db.commit()
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the move; retry"
+            ) from exc
+    else:
+        job.state = jobs_service.STATE_DONE
+        await db.commit()
+    await db.refresh(job)
+    return job
 
 
 async def try_delete_duplicate_copy(
@@ -2054,6 +2231,7 @@ async def try_delete_duplicate_copy(
     assert revision is not None  # FK guarantees this
     model = await db.get(Model, revision.model_id)
     assert model is not None  # FK guarantees this
+    await lock_model_row(db, model)
     if model.current_revision_id != file.revision_id:
         return "not_current_revision"
     if await _file_store_pending(db, file):

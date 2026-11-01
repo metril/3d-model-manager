@@ -24,6 +24,7 @@ from app.models.library import Revision
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
     FileOut,
+    FilesMoveIn,
     GalleryPage,
     ModelBulkDeleteIn,
     ModelBulkDeleteOut,
@@ -406,6 +407,26 @@ async def download_model_zip(
         media_type="application/zip",
         headers={"Content-Disposition": content_disposition_attachment(f"{model.slug}.zip")},
     )
+
+
+@router.post(
+    "/{model_id}/files/move",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def move_model_files(
+    model_id: int,
+    payload: FilesMoveIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> JobOut:
+    """Batch rename/move files of the model's current revision (also how a
+    folder rename is expressed: every file under it with the prefix rewritten)."""
+    job = await library.enqueue_file_moves(
+        db, ctx, [(m.file_id, m.rel_path) for m in payload.moves], model_id=model_id
+    )
+    return JobOut.from_model(job)
 
 
 @router.post(

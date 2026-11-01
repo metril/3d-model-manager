@@ -32,6 +32,8 @@ from app.db import get_db
 from app.models import Blob, File
 from app.models.enums import BlobFormat
 from app.pipeline import slicedmeta
+from app.schemas.jobs import JobOut
+from app.schemas.library import FileMoveIn
 from app.services import library, signed_urls
 from app.services.bed_fit import fit_for_selection
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
@@ -103,6 +105,24 @@ async def delete_file(
     if file is not None:  # unknown id falls through to the service's 404
         require_owner_or_admin(ctx, file.created_by_user_id)
     await library.delete_file(db, settings, file_id)
+
+
+@router.patch(
+    "/{file_id}",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def move_file(
+    file_id: int,
+    payload: FileMoveIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
+) -> JobOut:
+    """Rename/move one file within its model's current revision (a job:
+    bytes are copied, verified and repointed before the old key is deleted)."""
+    job = await library.enqueue_file_moves(db, ctx, [(file_id, payload.rel_path)])
+    return JobOut.from_model(job)
 
 
 # Extension -> media type (review finding 4): a desktop slicer opening a
