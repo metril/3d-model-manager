@@ -59,6 +59,7 @@ from app.services import jobs
 from app.services.library import (
     _escape_like,
     file_store_pending_sync,
+    lock_model_row_sync,
     move_target_clash,
     validate_move_target,
 )
@@ -73,6 +74,11 @@ from app.tasks import base
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+class MoveRejected(Exception):
+    """A move failed re-validation at run time (nothing was touched)."""
+
 
 MODES = frozenset({"move", "replicate"})
 
@@ -309,6 +315,12 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
     # is ever cleaned (deleting `new` would delete `old`).
     aliased: list[StorageBackend] = []  # holders where `new` resolves to `old`
     written: list[tuple[StorageBackend, str]] = []
+    # Never overwrite: on a case-sensitive move an existing object at `new` is
+    # foreign (no file row owns it), so abort this file rather than clobber it.
+    if not case_only:
+        for backend, _ in holders:
+            if backend.exists(new):
+                raise MoveRejected(f"target key {new!r} already holds an object")
 
     def _cleanup() -> None:
         for b, key in written:
@@ -326,6 +338,7 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
             raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
 
     old_rel = file.rel_path
+    model_id = s.scalar(select(Revision.model_id).where(Revision.id == file.revision_id))
     try:
         for backend, _ in holders:
             # The clash check guarantees no file lives at `new`, so an existing
@@ -348,9 +361,17 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
         s.rollback()
         _cleanup()
         raise
+    # Re-take the model lock and confirm nothing (e.g. a concurrent upload)
+    # re-created a row at `old` since the commit before deleting its bytes.
+    lock_model_row_sync(s, model_id)
+    if s.scalar(select(File.id).where(File.storage_path == old).limit(1)) is not None:
+        logger.warning("move: %r is referenced again; leaving the old object", old)
+        s.rollback()
+        return
     for backend, _ in holders:
         if backend not in aliased:  # on a case-folding store `old` IS `new`
             backend.delete(old)
+    s.rollback()  # release the lock
 
 
 def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:
@@ -382,10 +403,6 @@ def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:
     )
     if still_used is None:
         s.execute(delete(t).where(t.c.model_id == model_id, t.c.rel_path == old_rel))
-
-
-class MoveRejected(Exception):
-    """A move failed re-validation at run time (nothing was touched)."""
 
 
 def _recheck_move(s: Session, file: File, new_rel: str) -> None:
@@ -439,7 +456,7 @@ def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> Non
         for file_id, new_rel in moves:
             with base.sync_session() as s:
                 # Same order as the API paths: model row first, then file row.
-                s.execute(select(Model.id).where(Model.id == model_id).with_for_update())
+                lock_model_row_sync(s, model_id)
                 file = s.execute(
                     select(File).where(File.id == file_id).with_for_update()
                 ).scalar_one_or_none()
@@ -455,7 +472,11 @@ def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> Non
                     rejected.append(str(exc))
                     continue
                 parts = file.storage_path.split("/", 2)
-                _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
+                try:
+                    _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
+                except MoveRejected as exc:
+                    s.rollback()
+                    rejected.append(str(exc))
         with base.sync_session() as s:
             s.execute(update(Model).where(Model.id == model_id).values(updated_at=func.now()))
             s.commit()

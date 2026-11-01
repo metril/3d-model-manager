@@ -587,6 +587,7 @@ def _store_redownload_in_place(
     """
     from app.models.library import File, Revision
 
+    library.lock_model_row_sync(s, model.id)
     revision = s.get(Revision, model.current_revision_id)
     current_files = list(s.execute(select(File).where(File.revision_id == revision.id)).scalars())
     for file in current_files:

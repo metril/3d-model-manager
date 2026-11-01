@@ -386,6 +386,7 @@ def store_imported_file_sync(
     from app.services import jobs as jobs_service
     from app.tasks.ingest import store_to_backend
 
+    lock_model_row_sync(session, model.id)
     blob = session.get(Blob, staged.blob_hash)
     if blob is None:
         blob = Blob(
@@ -2059,6 +2060,12 @@ async def lock_model_row(db: AsyncSession, model: Model) -> None:
     # Sync only the field the check-then-act callers branch on, without
     # expiring the rest of the instance (lazy loads are unsafe under asyncio).
     set_committed_value(model, "current_revision_id", fresh)
+
+
+def lock_model_row_sync(session: SyncSession, model_id: int) -> None:
+    """Sync twin of ``lock_model_row`` for worker-side callers (same lock,
+    same order: model row first, then any file row)."""
+    session.execute(select(Model.id).where(Model.id == model_id).with_for_update())
 
 
 def validate_move_target(rel: str) -> str | None:
