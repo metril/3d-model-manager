@@ -9,6 +9,8 @@ export interface ExplorerSelection {
   keys: ReadonlySet<string>;
   has: (key: string) => boolean;
   toggle: (key: string, on: boolean) => void;
+  /** Drops every selected key not in `visible` (no-op if nothing to drop). */
+  retain: (visible: ReadonlySet<string>) => void;
   clear: () => void;
 }
 
@@ -22,6 +24,12 @@ export function useSelection(): ExplorerSelection {
       return next;
     });
   }, []);
-  const clear = useCallback(() => setKeys(new Set()), []);
-  return useMemo(() => ({ keys, has: (key) => keys.has(key), toggle, clear }), [keys, toggle, clear]);
+  const retain = useCallback((visible: ReadonlySet<string>) => {
+    setKeys((prev) => {
+      const next = new Set([...prev].filter((key) => visible.has(key)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+  const clear = useCallback(() => setKeys((prev) => (prev.size === 0 ? prev : new Set())), []);
+  return useMemo(() => ({ keys, has: (key) => keys.has(key), toggle, retain, clear }), [keys, toggle, retain, clear]);
 }

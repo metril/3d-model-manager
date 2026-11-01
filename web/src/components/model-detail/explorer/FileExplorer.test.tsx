@@ -531,18 +531,57 @@ describe("FileExplorer -- folders, filters and view settings", () => {
     expect(screen.getByText("top.stl")).toBeInTheDocument();
   });
 
-  it("shows per-type counts and narrows the list with the chips", () => {
+  it("counts exactly what the list shows: direct files normally, the subtree while searching", () => {
     renderExplorer(FILES);
-    expect(screen.getByRole("button", { name: /^All\s*5$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Models\s*3$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Images\s*1$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Docs\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^All\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Models\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Images\s*0$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Docs\s*0$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Misc\s*0$/ })).toBeInTheDocument();
 
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "s" } });
+    expect(screen.getByRole("button", { name: /^Models\s*3$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Images\s*1$/ })).toBeInTheDocument();
+  });
+
+  it("narrows the list with the chips, keeping folders that contain matches", () => {
+    renderExplorer(FILES);
     fireEvent.click(screen.getByRole("button", { name: /^Images/ }));
     expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open folder pics" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open folder parts" })).not.toBeInTheDocument();
+  });
+
+  it("clears the selection when navigating to another folder", () => {
+    renderExplorer([nested("a.stl", 20), nested("sub/b.stl", 21)]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select a.stl" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open folder sub" }));
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+  });
+
+  it("drops selected files that a new filter hides", () => {
+    renderExplorer([nested("a.stl", 20), nested("b.stl", 21)]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select a.stl" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "b.stl" } });
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "" } });
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+  });
+
+  it("opens the doc preview pane and moves focus into it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve("hi") }));
+    renderExplorer([nested("notes.txt", 30, { format: "txt", kind: "doc" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const pane = await screen.findByRole("region", { name: "Preview of notes.txt" });
+    await waitFor(() => expect(pane).toHaveFocus());
+  });
+
+  it("shows the Preview label on grid cards", () => {
+    renderExplorer([nested("notes.pdf", 31, { format: "pdf", kind: "doc" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
   });
 
   it("searches across folders and shows full paths", () => {

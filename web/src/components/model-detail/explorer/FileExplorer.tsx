@@ -7,7 +7,7 @@
  * `folderActions`, `toolbarExtra`, the `ExplorerContext` (current folder,
  * selection) and the prefixed selection keys (`fileKey`/`folderKey`).
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownIcon,
@@ -29,7 +29,7 @@ import { CombineDialog } from "@/components/model-detail/CombineDialog";
 import { DocPreview } from "@/components/model-detail/explorer/DocPreview";
 import { ExplorerContext, type ExplorerContextValue } from "@/components/model-detail/explorer/explorerContext";
 import { FileEntry, FolderEntry } from "@/components/model-detail/explorer/FileEntry";
-import { isCombinable, isPreviewable } from "@/components/model-detail/explorer/fileMeta";
+import { isCombinable } from "@/components/model-detail/explorer/fileMeta";
 import { FolderTree } from "@/components/model-detail/explorer/FolderTree";
 import { fileKey, useSelection } from "@/components/model-detail/explorer/selection";
 import {
@@ -105,24 +105,59 @@ export function FileExplorer({
 
   const searching = query.trim() !== "";
   const scopeFiles = useMemo(() => flattenFiles(scope), [scope]);
-  const counts = useMemo(() => countByGroup(applySearch(scopeFiles, { query, tagFilter })), [scopeFiles, query, tagFilter]);
+  // Chip counts describe exactly what the list shows for that chip: this
+  // folder's direct files, or the whole subtree while searching.
+  const countBase = searching ? scopeFiles : scope.files;
+  const counts = useMemo(() => countByGroup(applySearch(countBase, { query, tagFilter })), [countBase, query, tagFilter]);
   const matched = useMemo(() => applyFilters(scopeFiles, { query, tagFilter, type }), [scopeFiles, query, tagFilter, type]);
 
   // Search results are flat across the subtree; otherwise show this folder's
   // direct subfolders and files (only those that still contain a match).
   const shownTree = useMemo(() => findNode(buildTree(matched), current), [matched, current]);
-  const shownFiles = searching ? sortFiles(matched, view.sort, view.dir) : sortFiles(shownTree?.files ?? [], view.sort, view.dir);
-  const shownFolders = searching ? [] : [...(shownTree?.folders ?? [])];
-  if (view.sort === "name" && view.dir === "desc") shownFolders.reverse();
+  const shownFiles = useMemo(
+    () => sortFiles(searching ? matched : (shownTree?.files ?? []), view.sort, view.dir),
+    [searching, matched, shownTree, view.sort, view.dir],
+  );
+  const shownFolders = useMemo(() => {
+    if (searching) return [];
+    const folders = [...(shownTree?.folders ?? [])];
+    return view.sort === "name" && view.dir === "desc" ? folders.reverse() : folders;
+  }, [searching, shownTree, view.sort, view.dir]);
 
   const previewFile = previewId === null ? null : (allFiles.find((file) => file.id === previewId) ?? null);
-  const selectedFiles = allFiles.filter((file) => selection.has(fileKey(file.id)) && isCombinable(file));
+  // Bulk actions only ever touch files that are currently visible.
+  const selectedFiles = useMemo(
+    () => shownFiles.filter((file) => selection.has(fileKey(file.id)) && isCombinable(file)),
+    [shownFiles, selection],
+  );
 
-  function navigate(path: string) {
-    setFolder(path);
-    setSidebarOpen(false);
-    setQuery("");
-  }
+  // Selection never outlives visibility: drop ids hidden by a new folder,
+  // search, chip or tag filter.
+  const { retain, clear: clearSelection, toggle: toggleKey } = selection;
+  useEffect(() => {
+    retain(new Set(shownFiles.map((file) => fileKey(file.id))));
+  }, [shownFiles, retain]);
+
+  const previewRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (previewId === null) return;
+    const el = previewRef.current;
+    el?.scrollIntoView?.({ block: "nearest" });
+    el?.focus({ preventScroll: true });
+  }, [previewId]);
+
+  const navigate = useCallback(
+    (path: string) => {
+      setFolder(path);
+      setSidebarOpen(false);
+      setQuery("");
+      clearSelection();
+    },
+    [clearSelection],
+  );
+  const toggleSelected = useCallback((file: FileOut, on: boolean) => toggleKey(fileKey(file.id), on), [toggleKey]);
+  const togglePreview = useCallback((file: FileOut) => setPreviewId((prev) => (prev === file.id ? null : file.id)), []);
+  const arrangeOne = useCallback((file: FileOut) => setArrangeFiles([file]), []);
 
   // Uploads always target the model's CURRENT revision through the existing
   // `PUT /api/uploads` seam -- never `create_revision` (a costly full
@@ -138,7 +173,10 @@ export function FileExplorer({
     void queryClient.invalidateQueries({ queryKey: modelQueryOptions(model.slug).queryKey });
   }
 
-  const ctx: ExplorerContextValue = { model, canUpload, currentFolder: current, setCurrentFolder: navigate, selection };
+  const ctx = useMemo<ExplorerContextValue>(
+    () => ({ model, canUpload, currentFolder: current, setCurrentFolder: navigate, selection }),
+    [model, canUpload, current, navigate, selection],
+  );
   const trail = breadcrumbs(current);
   const rootLabel = t("explorer.root");
   const typeLabel = (key: TypeFilter) => t(`explorer.type.${key}`);
@@ -159,7 +197,7 @@ export function FileExplorer({
               />
             </div>
             {allFiles.length > 0 ? (
-              <TagFilter value={tagFilter} onChange={setTagFilter} label="Filter by tag" countKey="model_files" />
+              <TagFilter value={tagFilter} onChange={setTagFilter} label={t("explorer.filterByTag")} countKey="model_files" />
             ) : null}
             <Select value={view.sort} onValueChange={(value) => updateView({ sort: value as SortKey })}>
               <SelectTrigger size="sm" aria-label={t("explorer.sortBy")} className="w-28">
@@ -208,7 +246,7 @@ export function FileExplorer({
             {canUpload ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setShowAddFiles((prev) => !prev)}>
                 <PlusIcon className="size-4" />
-                Add files
+                {t("explorer.addFiles")}
               </Button>
             ) : null}
           </div>
@@ -239,27 +277,27 @@ export function FileExplorer({
 
         {canUpload && selectedFiles.length > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-            <span>{selectedFiles.length} selected</span>
+            <span>{t("explorer.selected", { count: selectedFiles.length })}</span>
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" size="sm" onClick={() => setShowCombine(true)}>
                 <CombineIcon className="size-4" />
-                Combine onto one plate
+                {t("explorer.combine")}
               </Button>
               {selectedFiles.some(canArrange) ? (
                 <Button type="button" size="sm" variant="outline" onClick={() => setArrangeFiles(selectedFiles.filter(canArrange))}>
                   <LayoutGridIcon className="size-4" />
-                  Arrange on plate…
+                  {t("explorer.arrange")}
                 </Button>
               ) : null}
-              <Button type="button" size="sm" variant="ghost" onClick={selection.clear}>
-                Clear
+              <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
+                {t("explorer.clear")}
               </Button>
             </div>
           </div>
         ) : null}
 
         {allFiles.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No files on the current revision yet.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{t("explorer.noFiles")}</p>
         ) : (
           <div className="grid gap-3 @2xl/explorer:grid-cols-[13rem_minmax(0,1fr)]">
             <aside
@@ -288,15 +326,16 @@ export function FileExplorer({
                 >
                   <PanelLeftIcon className="size-4" />
                 </Button>
-                <nav aria-label={t("explorer.path")} className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
+                <nav aria-label={t("explorer.path")} className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm">
                   {trail.map((crumb, index) => (
-                    <span key={crumb.path} className="flex items-center gap-1">
+                    <span key={crumb.path} className="flex min-w-0 max-w-full items-center gap-1">
                       {index > 0 ? <ChevronRightIcon className="size-3.5 text-muted-foreground" /> : null}
                       <button
                         type="button"
                         onClick={() => navigate(crumb.path)}
                         aria-current={index === trail.length - 1 ? "page" : undefined}
-                        className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground aria-current:font-medium aria-current:text-foreground"
+                        title={crumb.name || rootLabel}
+                        className="max-w-full truncate rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground aria-current:font-medium aria-current:text-foreground"
                       >
                         {crumb.name || rootLabel}
                       </button>
@@ -328,7 +367,6 @@ export function FileExplorer({
                     />
                   ))}
                   {shownFiles.map((file) => {
-                    const selectable = canUpload && isCombinable(file);
                     return (
                       <FileEntry
                         key={file.id}
@@ -336,16 +374,13 @@ export function FileExplorer({
                         model={model}
                         layout={view.layout}
                         label={searching ? file.rel_path : baseName(file.rel_path)}
+                        selectable={canUpload && isCombinable(file)}
                         selected={selection.has(fileKey(file.id))}
-                        onSelectedChange={selectable ? (on) => selection.toggle(fileKey(file.id), on) : undefined}
+                        onSelectedChange={toggleSelected}
                         previewOpen={previewId === file.id}
-                        onTogglePreview={
-                          isPreviewable(file)
-                            ? () => setPreviewId(previewId === file.id ? null : file.id)
-                            : undefined
-                        }
+                        onTogglePreview={togglePreview}
                         onViewIn3D={onViewIn3D}
-                        onArrange={canUpload ? (f) => setArrangeFiles([f]) : undefined}
+                        onArrange={canUpload ? arrangeOne : undefined}
                         actionsSlot={fileActions?.(file)}
                       />
                     );
@@ -354,7 +389,12 @@ export function FileExplorer({
               )}
 
               {previewFile ? (
-                <section aria-label={t("explorer.previewTitle", { name: baseName(previewFile.rel_path) })} className="rounded-lg border bg-card p-3">
+                <section
+                  ref={previewRef}
+                  tabIndex={-1}
+                  aria-label={t("explorer.previewTitle", { name: baseName(previewFile.rel_path) })}
+                  className="rounded-lg border bg-card p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="min-w-0 truncate font-mono text-xs" title={previewFile.rel_path}>
                       {previewFile.rel_path}

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { FileTextIcon, FolderIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -7,7 +7,7 @@ import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { FileRow } from "@/components/model-detail/FileRow";
 import { FileThumb } from "@/components/model-detail/explorer/FileThumb";
-import { fileMetaLine } from "@/components/model-detail/explorer/fileMeta";
+import { fileMetaLine, isPreviewable } from "@/components/model-detail/explorer/fileMeta";
 import { OrcaSlicerSplitButton } from "@/components/orcaslicer/OrcaSlicerSplitButton";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
@@ -30,10 +30,12 @@ export interface FileEntryProps {
   /** Name shown on the row (the base name inside a folder, the full path in search results). */
   label: string;
   /** Renders a selection checkbox when set. */
+  selectable?: boolean;
   selected?: boolean;
-  onSelectedChange?: (on: boolean) => void;
+  /** Callbacks take the file so the parent can pass one stable function to every row. */
+  onSelectedChange?: (file: FileOut, on: boolean) => void;
   previewOpen?: boolean;
-  onTogglePreview?: () => void;
+  onTogglePreview?: (file: FileOut) => void;
   onViewIn3D?: (file: FileOut) => void;
   onArrange?: (file: FileOut) => void;
   /** Extra per-file actions (PR 4: rename, move). Rendered before the actions menu. */
@@ -68,13 +70,13 @@ function FileActions({
   onViewIn3D,
   onArrange,
   actionsSlot,
-}: Omit<FileEntryProps, "layout" | "label" | "selected" | "onSelectedChange">) {
+}: Omit<FileEntryProps, "layout" | "label" | "selectable" | "selected" | "onSelectedChange">) {
   const { t } = useTranslation();
   const isDoc = file.kind === "doc";
   return (
     <>
-      {onTogglePreview ? (
-        <Button type="button" variant="outline" size="sm" aria-pressed={previewOpen} onClick={onTogglePreview}>
+      {onTogglePreview && isPreviewable(file) ? (
+        <Button type="button" variant="outline" size="sm" aria-pressed={previewOpen} onClick={() => onTogglePreview(file)}>
           <FileTextIcon className="size-4" />
           <span className="sr-only @sm/files:not-sr-only">{previewOpen ? t("explorer.hidePreview") : t("explorer.preview")}</span>
         </Button>
@@ -93,14 +95,14 @@ function FileActions({
   );
 }
 
-export function FileEntry(props: FileEntryProps) {
-  const { file, model, layout, label, selected, onSelectedChange } = props;
+export const FileEntry = memo(function FileEntry(props: FileEntryProps) {
+  const { file, model, layout, label, selectable, selected, onSelectedChange } = props;
   const { t } = useTranslation();
   const checkbox =
-    onSelectedChange !== undefined ? (
+    selectable && onSelectedChange ? (
       <Checkbox
         checked={selected === true}
-        onCheckedChange={(v) => onSelectedChange(v === true)}
+        onCheckedChange={(v) => onSelectedChange(file, v === true)}
         aria-label={t("explorer.select", { path: file.rel_path })}
       />
     ) : null;
@@ -108,7 +110,7 @@ export function FileEntry(props: FileEntryProps) {
 
   if (layout === "grid") {
     return (
-      <li className={cn("flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3", selected && "border-primary/60 bg-primary/5")}>
+      <li className={cn("@container/files flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3", selected && "border-primary/60 bg-primary/5")}>
         <div className="flex items-start gap-2">
           {checkbox}
           <FileThumb file={file} className="size-16 shrink-0" />
@@ -119,7 +121,7 @@ export function FileEntry(props: FileEntryProps) {
             {fileMetaLine(file) ? <div className="truncate text-[11px] text-muted-foreground">{fileMetaLine(file)}</div> : null}
           </div>
         </div>
-        <div className="@container/files flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <FileFacts file={file} model={model} />
         </div>
         <div className="flex flex-wrap items-center gap-1">{actions}</div>
@@ -138,7 +140,7 @@ export function FileEntry(props: FileEntryProps) {
       actions={actions}
     />
   );
-}
+});
 
 /** A subfolder entry in the current folder. `actionsSlot` is where PR 4 adds rename/move. */
 export function FolderEntry({
@@ -153,7 +155,7 @@ export function FolderEntry({
   actionsSlot?: ReactNode;
 }) {
   const { t } = useTranslation();
-  const count = t(node.total === 1 ? "explorer.fileOne" : "explorer.fileMany", { count: node.total });
+  const count = t("explorer.fileCount", { count: node.total });
   if (layout === "grid") {
     return (
       <li className="flex items-center gap-2 rounded-lg border bg-card p-3 hover:bg-muted/50">

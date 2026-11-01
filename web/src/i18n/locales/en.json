@@ -1746,9 +1746,17 @@
     "previewError": "Could not load this file.",
     "open": "Open",
     "openFolder": "Open folder {{name}}",
-    "fileOne": "{{count}} file",
-    "fileMany": "{{count}} files",
     "noMatch": "No files match these filters.",
-    "emptyFolder": "This folder is empty."
+    "emptyFolder": "This folder is empty.",
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} files",
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "filterByTag": "Filter by tag",
+    "addFiles": "Add files",
+    "combine": "Combine onto one plate",
+    "arrange": "Arrange on plate…",
+    "clear": "Clear",
+    "noFiles": "No files on the current revision yet."
   }
 }
