@@ -1,6 +1,6 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import { ALWAYS_RENDERED_PANELS, DEFAULT_ACTIVE, DEFAULT_GROUPS, OPTIONAL_PANELS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
+import { ALWAYS_RENDERED_PANELS, DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
 
 const LEFT_WIDTH = 0.66;
 const LEFT_TOP_HEIGHT = 0.78;
@@ -15,7 +15,7 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
     component: id,
     title: PANEL_TITLES[id],
     // The 3D viewer keeps its DOM (and GL context) alive when its tab is
-    // hidden or the group is re-parented; OrcaSlicer's iframe would reload.
+    // hidden or the group is re-parented.
     renderer: ALWAYS_RENDERED_PANELS.includes(id) ? "always" : undefined,
     position,
   });
@@ -27,7 +27,7 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
 export function buildDefaultLayout(api: DockviewApi, opts: { hasSliced?: boolean } = {}): void {
   api.clear();
   const { leftTop, leftBottom, rightTop } = DEFAULT_GROUPS;
-  const rightBottom = DEFAULT_GROUPS.rightBottom.filter((id) => !OPTIONAL_PANELS.includes(id));
+  const { rightBottom } = DEFAULT_GROUPS;
   const viewer = addPanel(api, leftTop[0]);
   const descriptionGroup = addPanel(api, leftBottom[0], { referencePanel: viewer, direction: "below" });
   for (const id of leftBottom.slice(1)) addPanel(api, id, { referencePanel: descriptionGroup, direction: "within" });

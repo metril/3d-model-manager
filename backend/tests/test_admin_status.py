@@ -83,8 +83,13 @@ async def test_orcaslicer_probe() -> None:
     route.respond(200, json={"orcaslicer_running": True})
     assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "ok"
     assert route.calls.last.request.headers["x-launcher-token"] == "tok"
-    route.respond(200, json={"orcaslicer_running": False})
-    assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "warn"
+    route.respond(200, json={"orcaslicer_running": False, "crashed": False, "last_exit": None})
+    idle = (await ss._orcaslicer(cfg))["orcaslicer"]
+    assert (idle.state, idle.detail) == ("ok", "idle")
+    route.respond(200, json={"orcaslicer_running": False, "crashed": True, "last_exit": 139})
+    crashed = (await ss._orcaslicer(cfg))["orcaslicer"]
+    assert crashed.state == "warn"
+    assert "139" in crashed.detail
     route.respond(500)
     assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "down"
     route.mock(side_effect=httpx.ConnectError("x"))

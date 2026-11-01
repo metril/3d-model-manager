@@ -60,6 +60,8 @@ export interface NavItem {
    * everyone else only once billing is on -- `AppSidebar` resolves this
    * with `useFinanceConfig()`, since it isn't a plain permission check. */
   billingGated?: boolean;
+  /** Opens in its own tab/window via `openOrcaSlicerWindow` (not a router link). */
+  orcaslicerWindow?: boolean;
   /** Hidden unless the OrcaSlicer sidecar is enabled (`useOrcaSlicerEnabled`). */
   orcaslicerGated?: boolean;
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
@@ -87,7 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/print/history", label: "History", icon: ListChecks },
       { to: "/print/plugs", label: "Plugs", icon: Plug },
       { to: "/stats", label: "Stats", icon: BarChart3 },
-      { to: "/slicer", label: "OrcaSlicer", icon: Boxes, orcaslicerGated: true },
+      { to: "/slicer", label: "OrcaSlicer", icon: Boxes, orcaslicerGated: true, orcaslicerWindow: true },
     ],
   },
   {

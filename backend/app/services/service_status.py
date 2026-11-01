@@ -213,7 +213,9 @@ async def _orcaslicer(cfg: ServerConfig) -> dict[str, ServiceStatus]:
             body = parsed
     if body.get("orcaslicer_running"):
         return {"orcaslicer": _st("ok", "running")}
-    return {"orcaslicer": _st("warn", "launcher up, OrcaSlicer not running")}
+    if body.get("crashed"):
+        return {"orcaslicer": _st("warn", f"OrcaSlicer exited (code {body.get('last_exit')})")}
+    return {"orcaslicer": _st("ok", "idle")}
 
 
 async def _obico(

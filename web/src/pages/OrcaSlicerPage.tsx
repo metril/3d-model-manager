@@ -1,10 +1,15 @@
 import { OrcaSlicerFrame } from "@/components/orcaslicer/OrcaSlicerFrame";
+import { EventsProvider } from "@/hooks/useEvents";
 
-/** `/slicer`: the streamed OrcaSlicer GUI, full viewport inside the app shell. */
+/** `/slicer`: the streamed OrcaSlicer GUI, full viewport and outside the app shell, so it
+ * can live in its own browser tab or window. It carries its own SSE provider so a session
+ * opened from another tab (`orcaslicer.session_started`) refreshes it. */
 export function OrcaSlicerPage() {
   return (
-    <div className="h-[calc(100svh-7rem)] min-h-96 overflow-hidden rounded-lg border">
-      <OrcaSlicerFrame />
-    </div>
+    <EventsProvider>
+      <div className="h-svh w-screen overflow-hidden">
+        <OrcaSlicerFrame />
+      </div>
+    </EventsProvider>
   );
 }

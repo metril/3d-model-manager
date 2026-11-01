@@ -28,10 +28,10 @@ function fakeApi(initial: PanelId[] = []) {
 }
 
 describe("defaultLayout", () => {
-  it("builds all eleven core panels (not the optional OrcaSlicer one), viewer always-rendered", () => {
+  it("builds every panel, viewer always-rendered", () => {
     const { api, calls } = fakeApi();
     buildDefaultLayout(api);
-    expect(calls.map((c) => c.id).sort()).toEqual(PANEL_IDS.filter((id) => id !== "orcaslicer").sort());
+    expect(calls.map((c) => c.id).sort()).toEqual([...PANEL_IDS].sort());
     expect(calls.find((c) => c.id === "viewer")?.renderer).toBe("always");
     expect(calls.find((c) => c.id === "related")?.position).toMatchObject({
       referencePanel: { id: "description" },
