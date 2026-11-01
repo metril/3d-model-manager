@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { modelQueryOptions } from "@/api/library";
 import type { FileOut, JobOut } from "@/api/types";
-import { waitForJob } from "@/api/waitForJob";
+import { JobTimeoutError, waitForJob } from "@/api/waitForJob";
 import { baseName, dirName, isInside } from "@/components/model-detail/explorer/tree";
 import { joinPath } from "@/components/model-detail/explorer/treeEdit";
 
@@ -66,16 +66,31 @@ export function planRelocation(
       }
     }
   }
+  // Mirror the server's case-insensitive checks on the FINAL layout: no two files on one path,
+  // no file at another file's ancestor path, no file under another file's path.
+  const holders = new Map<string, number>();
+  const ancestors = new Set<string>();
+  const finalOf = (file: FileOut) => finalPath.get(file.id) ?? file.rel_path;
+  for (const file of allFiles) {
+    const lower = finalOf(file).toLowerCase();
+    const prior = holders.get(lower);
+    if (prior !== undefined && prior !== file.id && (finalPath.has(file.id) || finalPath.has(prior))) {
+      return { moves: [], folderMoves, error: "clash", clashPath: finalOf(file) };
+    }
+    holders.set(lower, file.id);
+    for (let i = lower.indexOf("/"); i !== -1; i = lower.indexOf("/", i + 1)) ancestors.add(lower.slice(0, i));
+  }
   const moves: FileMove[] = [];
-  const taken = new Map<string, number>();
-  for (const file of allFiles) if (!finalPath.has(file.id)) taken.set(file.rel_path.toLowerCase(), file.id);
   for (const file of allFiles) {
     const to = finalPath.get(file.id);
     if (to === undefined) continue;
-    const key = to.toLowerCase();
-    const holder = taken.get(key);
-    if (holder !== undefined && holder !== file.id) return { moves: [], folderMoves, error: "clash", clashPath: to };
-    taken.set(key, file.id);
+    const lower = to.toLowerCase();
+    let clash = ancestors.has(lower);
+    for (let i = lower.indexOf("/"); !clash && i !== -1; i = lower.indexOf("/", i + 1)) {
+      const holder = holders.get(lower.slice(0, i));
+      clash = holder !== undefined && holder !== file.id;
+    }
+    if (clash) return { moves: [], folderMoves, error: "clash", clashPath: to };
     if (to !== file.rel_path) moves.push({ file_id: file.id, rel_path: to });
   }
   return { moves, folderMoves: folderMoves.filter((m) => m.from !== m.to), error: null };
@@ -105,7 +120,7 @@ export function planMoveInto(allFiles: readonly FileOut[], items: DragItems, des
 export function isMoveTargetDisabled(items: DragItems, dest: string, allFiles: readonly FileOut[]): boolean {
   if (items.folders.some((f) => isInside(dest, f))) return true;
   const plan = planMoveInto(allFiles, items, dest);
-  return plan.error === null && plan.moves.length === 0 && plan.folderMoves.length === 0;
+  return plan.error !== null || (plan.moves.length === 0 && plan.folderMoves.length === 0);
 }
 
 function invalidate(qc: ReturnType<typeof useQueryClient>, slug: string) {
@@ -113,20 +128,44 @@ function invalidate(qc: ReturnType<typeof useQueryClient>, slug: string) {
   void qc.invalidateQueries({ queryKey: ["storage"] });
 }
 
+/** Server-side cap per batch request. */
+export const MOVE_CHUNK = 1000;
+
+/** Thrown when a later chunk wasn't submitted because an earlier job outlived the polling window. */
+export class MoveStillRunning extends JobTimeoutError {
+  readonly remaining: number;
+  constructor(remaining: number) {
+    super("move");
+    this.remaining = remaining;
+  }
+}
+
 /** One move uses `PATCH /files/{id}`, several use the batch endpoint; resolves when the job finishes. */
 export function useMoveFiles(model: { id: number; slug: string }) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (moves: FileMove[]) => {
-      const job =
-        moves.length === 1
-          ? await api.patch<JobOut>(`/files/${moves[0].file_id}`, { rel_path: moves[0].rel_path })
-          : await api.post<JobOut>(`/models/${model.id}/files/move`, { moves });
-      await waitForJob(job, "move");
+      // Chunks run one after another: concurrent jobs on one revision would trip the store-pending 409.
+      for (let i = 0; i < moves.length; i += MOVE_CHUNK) {
+        const chunk = moves.slice(i, i + MOVE_CHUNK);
+        const job =
+          moves.length === 1
+            ? await api.patch<JobOut>(`/files/${chunk[0].file_id}`, { rel_path: chunk[0].rel_path })
+            : await api.post<JobOut>(`/models/${model.id}/files/move`, { moves: chunk });
+        try {
+          await waitForJob(job, "move");
+        } catch (e) {
+          if (e instanceof JobTimeoutError) throw new MoveStillRunning(moves.length - (i + chunk.length));
+          throw e;
+        }
+      }
     },
     onSettled: () => invalidate(qc, model.slug),
   });
 }
+
+/** Max `DELETE /files/{id}` requests in flight. */
+export const DELETE_CONCURRENCY = 4;
 
 export interface DeleteResult {
   ok: number;
@@ -139,9 +178,22 @@ export function useDeleteFiles(slug: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (ids: number[]): Promise<DeleteResult> => {
-      const results = await Promise.allSettled(ids.map((id) => api.delete<void>(`/files/${id}`)));
-      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-      return { ok: results.length - failures.length, failed: failures.length, firstError: failures[0]?.reason };
+      let next = 0;
+      let failed = 0;
+      let firstError: unknown;
+      const worker = async () => {
+        while (next < ids.length) {
+          const id = ids[next++];
+          try {
+            await api.delete<void>(`/files/${id}`);
+          } catch (e) {
+            failed += 1;
+            firstError ??= e;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(DELETE_CONCURRENCY, ids.length) }, worker));
+      return { ok: ids.length - failed, failed, firstError };
     },
     onSettled: () => invalidate(qc, slug),
   });

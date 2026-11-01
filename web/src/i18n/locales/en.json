@@ -1759,7 +1759,7 @@
     "clear": "Clear",
     "noFiles": "No files on the current revision yet.",
     "selectFolder": "Select folder {{path}}",
-    "uploadInto": "Uploading into {{path}}",
+    "uploadInto": "Files you add go into {{path}}",
     "emptyNewFolder": "This new folder only exists in your browser until you upload or move a file into it.",
     "busy": "Applying changes…",
     "manage": {
@@ -1808,7 +1808,9 @@
       "deleted_other": "Deleted {{count}} files",
       "deletePartial_one": "Deleted some files; {{failed}} of {{total}} failed: {{reason}}",
       "deletePartial_other": "Deleted some files; {{failed}} of {{total}} failed: {{reason}}",
-      "deleteFailed": "Delete failed"
+      "deleteFailed": "Delete failed",
+      "moveSlow": "The move is still running in the background. Check the Jobs page for progress.",
+      "moveSlowPartial": "A move is still running and the remaining files were not submitted yet. Retry once it finishes."
     }
   }
 }

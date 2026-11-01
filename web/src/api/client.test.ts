@@ -17,6 +17,14 @@ describe("api client coded errors", () => {
     await expect(api.post("/auth/2fa/verify", {})).rejects.toMatchObject({ status: 410, code: "pre_auth_expired", detail: "expired" });
   });
 
+  it("turns 422 list details into readable text", async () => {
+    mockFetch(422, { detail: [{ loc: ["body", "moves", 0, "rel_path"], msg: "String should have at most 1024 characters" }, { loc: ["body"], msg: "bad" }] });
+    await expect(api.post("/x", {})).rejects.toMatchObject({
+      status: 422,
+      detail: "moves.0.rel_path: String should have at most 1024 characters; bad",
+    });
+  });
+
   it("keeps plain string details", async () => {
     mockFetch(400, { detail: "nope" });
     await expect(api.get("/x")).rejects.toBeInstanceOf(ApiError);

@@ -64,24 +64,31 @@ import type { FileOut, ModelDetail } from "@/api/types";
 
 const SORT_KEYS: SortKey[] = ["name", "size", "mtime", "type"];
 
-export function FileExplorer({
+/** Keyed by model so folder/selection/client-only-folder state never leaks across models. */
+export function FileExplorer(props: FileExplorerProps) {
+  return <FileExplorerInner key={props.model.id} {...props} />;
+}
+
+interface FileExplorerProps {
+  model: ModelDetail;
+  /** Studio hand-off: jumps the viewer above to this file. Optional so the
+   * explorer still renders standalone. */
+  onViewIn3D?: (file: FileOut) => void;
+  /** Extra per-file row actions. */
+  fileActions?: (file: FileOut) => ReactNode;
+  /** Extra per-folder actions, shown on folder entries and tree nodes. */
+  folderActions?: (path: string) => ReactNode;
+  /** Extra toolbar controls. */
+  toolbarExtra?: ReactNode;
+}
+
+function FileExplorerInner({
   model,
   onViewIn3D,
   fileActions,
   folderActions,
   toolbarExtra,
-}: {
-  model: ModelDetail;
-  /** Studio hand-off: jumps the viewer above to this file. Optional so the
-   * explorer still renders standalone. */
-  onViewIn3D?: (file: FileOut) => void;
-  /** Extra per-file row actions (PR 4). */
-  fileActions?: (file: FileOut) => ReactNode;
-  /** Extra per-folder actions, shown on folder entries and tree nodes (PR 4). */
-  folderActions?: (path: string) => ReactNode;
-  /** Extra toolbar controls (PR 4: New folder). */
-  toolbarExtra?: ReactNode;
-}) {
+}: FileExplorerProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: me, can } = useAuth();
@@ -208,23 +215,25 @@ export function FileExplorer({
     setCurrentFolder: navigate,
     selection,
   });
+  const { onDragStartFile } = manage;
+  const { fileActions: manageFileActions, folderActions: manageFolderActions } = manage;
   const rowActions = useCallback(
     (file: FileOut) => (
       <>
-        {manage.fileActions(file)}
+        {manageFileActions(file)}
         {fileActions?.(file)}
       </>
     ),
-    [manage, fileActions],
+    [manageFileActions, fileActions],
   );
   const folderRowActions = useCallback(
     (path: string) => (
       <>
-        {manage.folderActions(path)}
+        {manageFolderActions(path)}
         {folderActions?.(path)}
       </>
     ),
-    [manage, folderActions],
+    [manageFolderActions, folderActions],
   );
   const trail = breadcrumbs(current);
   const newFolderEmpty = extraFolders.includes(current) && scope.total === 0;
@@ -464,8 +473,8 @@ export function FileExplorer({
                         onTogglePreview={togglePreview}
                         onViewIn3D={onViewIn3D}
                         onArrange={canUpload ? arrangeOne : undefined}
-                        actionsSlot={rowActions(file)}
-                        onDragStartFile={canUpload ? manage.onDragStartFile : undefined}
+                        renderActions={rowActions}
+                        onDragStartFile={canUpload ? onDragStartFile : undefined}
                       />
                     );
                   })}

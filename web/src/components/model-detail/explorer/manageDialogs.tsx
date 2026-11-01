@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronRightIcon, FolderIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { isMoveTargetDisabled, validateName, type DragItems } from "@/api/fileOps";
+import { isMoveTargetDisabled, planMoveInto, validateName, type DragItems } from "@/api/fileOps";
 import { dirName, findNode, type TreeNode } from "@/components/model-detail/explorer/tree";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -109,7 +109,14 @@ export function MoveDialog({
   const node = findNode(tree, dest) ?? tree;
   const count = items.fileIds.length + items.folders.length;
   const dirs = node.folders.filter((folder) => !items.folders.includes(folder.path));
+  const plan = planMoveInto(allFiles, items, dest);
   const disabled = pending || isMoveTargetDisabled(items, dest, allFiles);
+  const planError =
+    plan.error === "clash"
+      ? t("explorer.manage.planError.clash", { path: plan.clashPath })
+      : plan.error === "into-self"
+        ? t("explorer.manage.planError.into-self")
+        : null;
 
   return (
     <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
@@ -143,6 +150,11 @@ export function MoveDialog({
             ))
           )}
         </div>
+        {planError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {planError}
+          </p>
+        ) : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
             {t("explorer.manage.cancel")}

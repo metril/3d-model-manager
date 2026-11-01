@@ -23,7 +23,7 @@ const { getMock, patchMock, postMock, deleteMock, uploadFileMock, toast } = vi.h
   postMock: vi.fn(),
   deleteMock: vi.fn(),
   uploadFileMock: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
@@ -84,7 +84,7 @@ function openManage(name: string, index = 0) {
 }
 
 beforeEach(() => {
-  for (const m of [getMock, patchMock, postMock, deleteMock, uploadFileMock, toast.success, toast.error]) m.mockReset();
+  for (const m of [getMock, patchMock, postMock, deleteMock, uploadFileMock, toast.success, toast.error, toast.info]) m.mockReset();
   getMock.mockResolvedValue(undefined);
   authState.admin = true;
 });
@@ -161,6 +161,49 @@ describe("rename", () => {
   });
 });
 
+describe("folder state", () => {
+  it("follows the open folder when it is renamed", async () => {
+    postMock.mockResolvedValue(DONE_JOB);
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Open folder sub" }));
+    openManage("sub");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("New name"), { target: { value: "parts" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "parts" })).toHaveAttribute("aria-current", "page"));
+  });
+
+  it("drops client-only folders inside a deleted real folder", async () => {
+    deleteMock.mockResolvedValue(undefined);
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Open folder sub" }));
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByLabelText("Folder name"), { target: { value: "tmp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "sub" }));
+    expect(screen.getByText("tmp/")).toBeInTheDocument();
+    openManage("sub");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete 2 files" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Deleted 2 files"));
+    expect(screen.queryByText("tmp/")).not.toBeInTheDocument();
+  });
+
+  it("resets client-only folders when the model changes", () => {
+    const { rerender } = renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByLabelText("Folder name"), { target: { value: "tmp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(screen.getByRole("button", { name: "tmp" })).toBeInTheDocument();
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <FileExplorer model={{ ...model(FILES), id: 8, slug: "other" }} />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "tmp" })).not.toBeInTheDocument();
+  });
+});
+
 describe("move dialog", () => {
   it("moves the selection into a picked folder", async () => {
     postMock.mockResolvedValue(DONE_JOB);
@@ -180,6 +223,16 @@ describe("move dialog", () => {
         ],
       }),
     );
+  });
+
+  it("disables Move here and explains a prefix clash", async () => {
+    renderExplorer([file(1, "docs"), file(2, "d/docs/b.stl")]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select docs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move to…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /d$/ }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("already exists");
+    expect(within(dialog).getByRole("button", { name: "Move here" })).toBeDisabled();
   });
 
   it("does not offer a folder as its own destination", async () => {
@@ -264,7 +317,7 @@ describe("new folder", () => {
     expect(postMock).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Add files" }));
-    expect(screen.getByText("Uploading into fresh")).toBeInTheDocument();
+    expect(screen.getByText("Files you add go into fresh")).toBeInTheDocument();
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["b"], "part.stl")] } });
     fireEvent.click(screen.getByRole("button", { name: /^Upload/ }));

@@ -1,10 +1,11 @@
 /** Rename / move / new folder / bulk delete / drag-and-drop for the explorer (all gated on `canUpload`). */
-import { useCallback, useMemo, useState, type DragEvent, type HTMLAttributes, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type HTMLAttributes, type ReactNode } from "react";
 import { FolderInputIcon, FolderPlusIcon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
+  MoveStillRunning,
   planMoveInto,
   planRenameFile,
   planRenameFolder,
@@ -25,7 +26,7 @@ import {
 } from "@/components/model-detail/explorer/dnd";
 import { MoveDialog, NameDialog } from "@/components/model-detail/explorer/manageDialogs";
 import type { ExplorerSelection } from "@/components/model-detail/explorer/selection";
-import { baseName, dirName, findNode, flattenFiles, type TreeNode } from "@/components/model-detail/explorer/tree";
+import { baseName, dirName, findNode, flattenFiles, isInside, type TreeNode } from "@/components/model-detail/explorer/tree";
 import { childNames, joinPath, rewriteFolders } from "@/components/model-detail/explorer/treeEdit";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -36,18 +37,20 @@ type Dialog =
   | { kind: "renameFolder"; path: string }
   | { kind: "move"; items: DragItems }
   | { kind: "newFolder" }
-  | { kind: "delete"; ids: number[]; name?: string };
+  | { kind: "delete"; ids: number[]; folders: string[] };
 
 const errMsg = (e: unknown, fallback: string) =>
   e instanceof ApiError ? e.detail : e instanceof Error && e.message ? e.message : fallback;
 
 function ManageMenu({
   label,
+  busy,
   onRename,
   onMove,
   onDelete,
 }: {
   label: string;
+  busy?: boolean;
   onRename: () => void;
   onMove: () => void;
   onDelete?: () => void;
@@ -70,7 +73,7 @@ function ManageMenu({
           {t("explorer.manage.move")}
         </DropdownMenuItem>
         {onDelete ? (
-          <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+          <DropdownMenuItem variant="destructive" disabled={busy} onSelect={onDelete}>
             <Trash2Icon className="size-4" />
             {t("explorer.manage.delete")}
           </DropdownMenuItem>
@@ -117,15 +120,24 @@ export function useExplorerManage({
   selection: ExplorerSelection;
 }): ExplorerManage {
   const { t } = useTranslation();
-  const move = useMoveFiles(model);
-  const del = useDeleteFiles(model.slug);
+  const { mutate: moveMutate, isPending: movePending } = useMoveFiles(model);
+  const { mutate: deleteMutate, isPending: deletePending } = useDeleteFiles(model.slug);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [over, setOver] = useState<string | null>(null);
-  const busy = move.isPending || del.isPending;
+  const busy = movePending || deletePending;
   const close = useCallback(() => setDialog(null), []);
+  const clearSelection = selection.clear;
+  const hasKey = selection.has;
+
+  // Drag handlers read the latest selection through refs so they stay referentially stable
+  // (selection changes must not re-render every memoized row).
+  const selectionRef = useRef({ keys: selection.keys, has: hasKey });
+  const pendingRef = useRef(movePending);
+  useEffect(() => {
+    selectionRef.current = { keys: selection.keys, has: hasKey };
+    pendingRef.current = movePending;
+  });
 
   const allPaths = useMemo(() => [...allFiles.map((f) => f.rel_path), ...extraFolders], [allFiles, extraFolders]);
-  const selected = useMemo(() => itemsFromKeys(selection.keys), [selection.keys]);
 
   const filesUnder = useCallback(
     (folder: string) => {
@@ -133,6 +145,23 @@ export function useExplorerManage({
       return node ? flattenFiles(node) : [];
     },
     [tree],
+  );
+
+  /** Applies the client-side half of a finished (or still-running) move: client-only folders and the open folder follow. */
+  const applyLocal = useCallback(
+    (plan: MovePlan) => {
+      // The open folder follows its rename/move; it is kept as a placeholder until the refetch shows it.
+      const followed = plan.folderMoves
+        .filter((m) => isInside(currentFolder, m.from))
+        .map((m) => rewriteFolders([currentFolder], m.from, m.to)[0]);
+      setExtraFolders((prev) => {
+        const next = plan.folderMoves.reduce((acc, m) => rewriteFolders(acc, m.from, m.to), prev);
+        return [...next, ...followed.filter((p) => !next.includes(p))];
+      });
+      if (followed.length > 0) setCurrentFolder(followed[0]);
+      clearSelection();
+    },
+    [clearSelection, currentFolder, setCurrentFolder, setExtraFolders],
   );
 
   const runMove = useCallback(
@@ -145,34 +174,41 @@ export function useExplorerManage({
         toast.error(t("explorer.manage.planError.clash", { path: plan.clashPath }));
         return;
       }
-      const rewrite = () =>
-        setExtraFolders((prev) => plan.folderMoves.reduce((acc, m) => rewriteFolders(acc, m.from, m.to), prev));
       if (plan.moves.length === 0) {
-        rewrite();
+        applyLocal(plan);
         after?.();
         return;
       }
-      move.mutate(plan.moves, {
+      moveMutate(plan.moves, {
         onSuccess: () => {
-          rewrite();
-          selection.clear();
+          applyLocal(plan);
           toast.success(t("explorer.manage.moved", { count: plan.moves.length }));
           after?.();
         },
-        onError: (e) => toast.error(errMsg(e, t("explorer.manage.moveFailed"))),
+        onError: (e) => {
+          if (e instanceof MoveStillRunning) {
+            // The job keeps running server-side: treat it as in flight, not failed.
+            applyLocal(plan);
+            toast.info(t(e.remaining > 0 ? "explorer.manage.moveSlowPartial" : "explorer.manage.moveSlow"));
+            after?.();
+            return;
+          }
+          toast.error(errMsg(e, t("explorer.manage.moveFailed")));
+        },
       });
     },
-    [move, selection, setExtraFolders, t],
+    [applyLocal, moveMutate, t],
   );
 
   const dropOn = useCallback(
     (dest: string, items: DragItems) => {
-      if (move.isPending) return;
+      if (pendingRef.current) return;
       runMove(planMoveInto(allFiles, items, dest));
     },
-    [allFiles, move.isPending, runMove],
+    [allFiles, runMove],
   );
 
+  // The drop highlight is toggled on the DOM node itself, so hovering never re-renders the explorer.
   const dropProps = useCallback(
     (path: string): HTMLAttributes<HTMLElement> => {
       if (!canUpload) return {};
@@ -181,49 +217,46 @@ export function useExplorerManage({
           if (!isExplorerDrag(event.dataTransfer)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = "move";
-          setOver(path);
+          event.currentTarget.dataset.dropOver = "true";
         },
         onDragLeave: (event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver((cur) => (cur === path ? null : cur));
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) delete event.currentTarget.dataset.dropOver;
         },
         onDrop: (event) => {
+          delete event.currentTarget.dataset.dropOver;
           if (!isExplorerDrag(event.dataTransfer)) return;
           event.preventDefault();
           event.stopPropagation();
-          setOver(null);
           const items = decodeDrag(event.dataTransfer.getData(DND_TYPE));
           if (items) dropOn(path, items);
         },
-        ...({ "data-drop-over": over === path } as object),
       };
     },
-    [canUpload, dropOn, over],
+    [canUpload, dropOn],
   );
 
-  const startDrag = useCallback(
-    (event: DragEvent, item: Parameters<typeof dragItemsFor>[0]) => {
-      const items = dragItemsFor(item, selected, selection.has);
-      event.dataTransfer.setData(DND_TYPE, encodeDrag(items));
-      event.dataTransfer.effectAllowed = "move";
-    },
-    [selected, selection.has],
-  );
+  const startDrag = useCallback((event: DragEvent, item: Parameters<typeof dragItemsFor>[0]) => {
+    const { keys, has } = selectionRef.current;
+    const items = dragItemsFor(item, itemsFromKeys(keys), has);
+    event.dataTransfer.setData(DND_TYPE, encodeDrag(items));
+    event.dataTransfer.effectAllowed = "move";
+  }, []);
   const onDragStartFile = useCallback((event: DragEvent, file: FileOut) => startDrag(event, { kind: "file", id: file.id }), [startDrag]);
   const onDragStartFolder = useCallback((event: DragEvent, path: string) => startDrag(event, { kind: "folder", path }), [startDrag]);
 
   const requestDelete = useCallback(
-    (items: DragItems, name?: string) => {
+    (items: DragItems) => {
       const ids = new Set(items.fileIds);
       for (const folder of items.folders) for (const file of filesUnder(folder)) ids.add(file.id);
       if (ids.size === 0) {
         // Only client-only empty folders: nothing server-side to delete.
-        setExtraFolders((prev) => prev.filter((p) => !items.folders.some((f) => p === f || p.startsWith(`${f}/`))));
-        selection.clear();
+        setExtraFolders((prev) => prev.filter((p) => !items.folders.some((f) => isInside(p, f))));
+        clearSelection();
         return;
       }
-      setDialog({ kind: "delete", ids: [...ids], name });
+      setDialog({ kind: "delete", ids: [...ids], folders: items.folders });
     },
-    [filesUnder, selection, setExtraFolders],
+    [clearSelection, filesUnder, setExtraFolders],
   );
 
   const fileActions = useCallback(
@@ -243,12 +276,13 @@ export function useExplorerManage({
       canUpload && path !== "" ? (
         <ManageMenu
           label={path}
+          busy={busy}
           onRename={() => setDialog({ kind: "renameFolder", path })}
           onMove={() => setDialog({ kind: "move", items: { fileIds: [], folders: [path] } })}
-          onDelete={() => requestDelete({ fileIds: [], folders: [path] }, baseName(path))}
+          onDelete={() => requestDelete({ fileIds: [], folders: [path] })}
         />
       ) : null,
-    [canUpload, requestDelete],
+    [busy, canUpload, requestDelete],
   );
 
   const newFolderButton = canUpload ? (
@@ -263,17 +297,16 @@ export function useExplorerManage({
     switch (dialog.kind) {
       case "renameFile": {
         const { file } = dialog;
-        const parent = dirName(file.rel_path);
         const name = baseName(file.rel_path);
         dialogs = (
           <NameDialog
             title={t("explorer.manage.renameFile", { name })}
             label={t("explorer.manage.newName")}
             initial={name}
-            siblings={childNames(allPaths, parent).filter((n) => n !== name)}
+            siblings={childNames(allPaths, dirName(file.rel_path)).filter((n) => n !== name)}
             confirmLabel={t("explorer.manage.rename")}
             pendingLabel={t("explorer.manage.renaming")}
-            pending={move.isPending}
+            pending={movePending}
             onClose={close}
             onSubmit={(next) => runMove(planRenameFile(allFiles, file, next), close)}
           />
@@ -292,7 +325,7 @@ export function useExplorerManage({
             siblings={childNames(allPaths, dirName(path)).filter((n) => n !== name)}
             confirmLabel={t("explorer.manage.rename")}
             pendingLabel={t("explorer.manage.renaming")}
-            pending={move.isPending}
+            pending={movePending}
             onClose={close}
             onSubmit={(next) => runMove(planRenameFolder(allFiles, path, next), close)}
           />
@@ -326,7 +359,7 @@ export function useExplorerManage({
             allFiles={allFiles}
             tree={tree}
             startFolder={currentFolder}
-            pending={move.isPending}
+            pending={movePending}
             onClose={close}
             onSubmit={(dest) => runMove(planMoveInto(allFiles, dialog.items, dest), close)}
           />
@@ -343,10 +376,12 @@ export function useExplorerManage({
             cancelLabel={t("explorer.manage.cancel")}
             destructive
             onConfirm={() => {
-              const ids = dialog.ids;
-              del.mutate(ids, {
+              const { ids, folders } = dialog;
+              deleteMutate(ids, {
                 onSuccess: (res) => {
-                  selection.clear();
+                  clearSelection();
+                  // Client-only folders inside a deleted folder go with it.
+                  if (folders.length > 0) setExtraFolders((prev) => prev.filter((p) => !folders.some((f) => isInside(p, f))));
                   if (res.failed === 0) {
                     toast.success(t("explorer.manage.deleted", { count: res.ok }));
                   } else {
@@ -369,14 +404,21 @@ export function useExplorerManage({
     }
   }
 
+  const selectionMove = useCallback(
+    () => setDialog({ kind: "move", items: itemsFromKeys(selectionRef.current.keys) }),
+    [],
+  );
+  const selectionDelete = useCallback(() => requestDelete(itemsFromKeys(selectionRef.current.keys)), [requestDelete]);
+
+  // The callbacks are referentially stable; consumers destructure them so the object itself needn't be.
   return {
     fileActions,
     folderActions,
     newFolderButton,
     dialogs,
     busy,
-    selectionMove: () => setDialog({ kind: "move", items: selected }),
-    selectionDelete: () => requestDelete(selected),
+    selectionMove,
+    selectionDelete,
     onDragStartFile,
     onDragStartFolder,
     dropProps,

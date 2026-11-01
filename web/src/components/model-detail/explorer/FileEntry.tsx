@@ -38,8 +38,9 @@ export interface FileEntryProps {
   onTogglePreview?: (file: FileOut) => void;
   onViewIn3D?: (file: FileOut) => void;
   onArrange?: (file: FileOut) => void;
-  /** Extra per-file actions (PR 4: rename, move). Rendered before the actions menu. */
-  actionsSlot?: ReactNode;
+  /** Extra per-file actions (rename, move). Rendered before the actions menu. Pass a stable
+   * function (not a node) so the memoized row isn't re-rendered by every parent render. */
+  renderActions?: (file: FileOut) => ReactNode;
   /** Starts a drag-to-move of this file (PR 4); makes the row draggable when set. */
   onDragStartFile?: (event: DragEvent, file: FileOut) => void;
 }
@@ -71,7 +72,7 @@ function FileActions({
   onTogglePreview,
   onViewIn3D,
   onArrange,
-  actionsSlot,
+  renderActions,
 }: Omit<FileEntryProps, "layout" | "label" | "selectable" | "selected" | "onSelectedChange" | "onDragStartFile">) {
   const { t } = useTranslation();
   const isDoc = file.kind === "doc";
@@ -91,7 +92,7 @@ function FileActions({
           {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
         </>
       ) : null}
-      {actionsSlot}
+      {renderActions?.(file)}
       <FileActionsMenu file={file} model={model} isDoc={isDoc} onViewIn3D={onViewIn3D} onArrange={onArrange} />
     </>
   );

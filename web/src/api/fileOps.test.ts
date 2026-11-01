@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isMoveTargetDisabled,
   planMoveInto,
+  planRelocation,
   planRenameFile,
   planRenameFolder,
   validateName,
@@ -74,6 +75,32 @@ describe("planMoveInto", () => {
     const plan = planMoveInto([...FILES, f(5, "docs/a.stl")], { fileIds: [1], folders: [] }, "docs");
     expect(plan.error).toBe("clash");
     expect(plan.clashPath).toBe("docs/a.stl");
+  });
+});
+
+describe("prefix clashes (case-insensitive, mirrors the server)", () => {
+  const base = [f(1, "a.stl"), f(2, "docs/readme.md"), f(3, "x/y.stl")];
+
+  it("rejects a target that is an existing file's parent folder", () => {
+    // moving a.stl to "docs" would make docs both a file and a folder
+    const plan = planRelocation(base, new Map([[1, "DOCS"]]), new Map());
+    expect(plan.error).toBe("clash");
+  });
+
+  it("rejects a path that has an existing file as an ancestor", () => {
+    const plan = planRelocation(base, new Map([[3, "a.stl/y.stl"]]), new Map());
+    expect(plan.error).toBe("clash");
+  });
+
+  it("catches the same clashes between files moved in one batch", () => {
+    expect(planRelocation(base, new Map([[1, "z"], [3, "Z/y.stl"]]), new Map()).error).toBe("clash");
+    expect(planRelocation(base, new Map([[1, "z"], [2, "z"]]), new Map()).error).toBe("clash");
+  });
+
+  it("allows non-conflicting moves, and disables the move target on a clash", () => {
+    expect(planRelocation(base, new Map([[1, "x/a.stl"]]), new Map()).error).toBeNull();
+    const files = [f(1, "a"), f(2, "d/a/b.stl")];
+    expect(isMoveTargetDisabled({ fileIds: [1], folders: [] }, "d", files)).toBe(true);
   });
 });
 
