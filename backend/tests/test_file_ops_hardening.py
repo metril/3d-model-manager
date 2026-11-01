@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 import uuid
 
 import pytest
@@ -192,3 +194,150 @@ async def test_assembly_enqueued_for_this_revision_only(
     r = await authenticated_client.patch(f"/api/files/{ids['a.stl']}", json={"rel_path": "s/a.stl"})
     assert r.status_code == 202
     assert seen == [m["current_revision"]["id"]]
+
+
+async def test_snapshot_prefix_is_casefolded(authenticated_client, db_session) -> None:
+    m = await _model(authenticated_client, "SnapCase", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    r = await authenticated_client.patch(
+        f"/api/files/{ids['a.stl']}", json={"rel_path": "_Snapshots/x.stl"}
+    )
+    assert r.status_code == 400, r.text
+
+
+async def test_retry_still_queues_assembly(authenticated_client, db_session, monkeypatch) -> None:
+    m = await _model(authenticated_client, "RetryAsm", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    r = await authenticated_client.patch(f"/api/files/{ids['a.stl']}", json={"rel_path": "r/a.stl"})
+    assert r.status_code == 202
+    seen: list[int] = []
+    monkeypatch.setattr(
+        pipeline, "maybe_enqueue_assembly_for_revision_sync", lambda s, rid: seen.append(rid)
+    )
+    jid = await _fresh_job(db_session, m["id"])
+    _run(jid, m["id"], [[ids["a.stl"], "r/a.stl"]])  # already moved
+    assert seen == [m["current_revision"]["id"]]
+
+
+async def test_retry_uses_exponential_countdown_and_skips_permanent_errors(
+    authenticated_client, db_session, monkeypatch
+) -> None:
+    m = await _model(authenticated_client, "Backoff", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    err: list[type[Exception]] = [OSError]
+
+    def boom(*a, **k):
+        raise err[0]("x")
+
+    monkeypatch.setattr(relocate, "_move_file_to", boom)
+    jid = await _fresh_job(db_session, m["id"])
+    with pytest.raises(Retry) as ei:
+        _run(jid, m["id"], [[ids["a.stl"], "t/a.stl"]])
+    assert ei.value.when == 15
+    with pytest.raises(Retry) as ei:
+        _run(jid, m["id"], [[ids["a.stl"], "t/a.stl"]], retries=2)
+    assert ei.value.when == 60
+    err[0] = IsADirectoryError
+    with pytest.raises(IsADirectoryError):
+        _run(jid, m["id"], [[ids["a.stl"], "t/a.stl"]])
+
+
+async def test_commit_failure_removes_new_key(
+    authenticated_client, db_session, backend, monkeypatch
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    m = await _model(authenticated_client, "RekeyFail", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+
+    def boom(*a, **k):
+        raise IntegrityError("stmt", {}, Exception("dup"))
+
+    monkeypatch.setattr(relocate, "_rekey_file_tags", boom)
+    with base.sync_session() as s:
+        f = s.get(File, ids["a.stl"])
+        old = f.storage_path
+        new = old.rsplit("/", 1)[0] + "/moved.stl"
+        with pytest.raises(IntegrityError):
+            relocate._move_file_to(s, get_settings(), f, new)
+    with pytest.raises(Exception):  # noqa: B017
+        b"".join(backend.read(new))
+    assert b"".join(backend.read(old)) == b"content-RekeyFail-0"
+
+
+class _CIBackend:
+    """In-memory case-insensitive store (like SMB / macOS): keys alias by casefold."""
+
+    def __init__(self) -> None:
+        self.data: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def write(self, key, chunks):
+        import blake3
+
+        buf = b"".join(chunks)
+        self.data[key.casefold()] = buf
+        return WriteResult(hash=blake3.blake3(buf).hexdigest(), size=len(buf))
+
+    def read(self, key, start=0, end=None):
+        yield self.data[key.casefold()]
+
+    def delete(self, key):
+        self.deleted.append(key)
+        self.data.pop(key.casefold(), None)
+
+
+async def test_case_only_rename_on_case_insensitive_backend(
+    authenticated_client, db_session, monkeypatch
+) -> None:
+    m = await _model(authenticated_client, "CIRename", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    fake = _CIBackend()
+    monkeypatch.setattr(relocate, "resolve_default_backend_sync", lambda s, st: (fake, 1))
+    monkeypatch.setattr(relocate, "backend_for_id_sync", lambda s, st, i: fake)
+    with base.sync_session() as s:
+        f = s.get(File, ids["a.stl"])
+        f.backend_id = None
+        old = f.storage_path
+        fake.write(old, [b"content-CIRename-0"])
+        new = old.rsplit("/", 1)[0] + "/A.STL"
+        relocate._move_file_to(s, get_settings(), f, new)
+        assert f.storage_path == new
+    # the file survives under the new case; only the temp key was ever deleted
+    assert fake.data[new.casefold()] == b"content-CIRename-0"
+    assert old not in fake.deleted and new not in fake.deleted
+    assert len(fake.deleted) == 1 and ".tdmm-mv-" in fake.deleted[0]
+    assert list(fake.data) == [new.casefold()]
+
+
+async def test_move_task_waits_for_model_lock(authenticated_client, db_session) -> None:
+    m = await _model(authenticated_client, "LockWait", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    jid = await _fresh_job(db_session, m["id"])
+    done = threading.Event()
+    with base.sync_session() as holder:
+        holder.execute(text("select id from models where id=:m for update"), {"m": m["id"]})
+        t = threading.Thread(
+            target=lambda: (_run(jid, m["id"], [[ids["a.stl"], "l/a.stl"]]), done.set())
+        )
+        t.start()
+        await asyncio.sleep(1.0)
+        assert not done.is_set()  # blocked on the shared model lock
+        holder.rollback()
+    t.join(30)
+    assert done.is_set()
+    db_session.expire_all()
+    assert await _rels(db_session, m["id"]) == {"l/a.stl"}
+
+
+async def test_delete_file_waits_for_model_lock(authenticated_client, db_session) -> None:
+    m = await _model(authenticated_client, "DelLock", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    with base.sync_session() as holder:
+        holder.execute(text("select id from models where id=:m for update"), {"m": m["id"]})
+        task = asyncio.ensure_future(authenticated_client.delete(f"/api/files/{ids['a.stl']}"))
+        await asyncio.sleep(1.0)
+        assert not task.done()
+        holder.rollback()
+    r = await asyncio.wait_for(task, 30)
+    assert r.status_code == 204

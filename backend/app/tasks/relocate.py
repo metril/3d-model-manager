@@ -44,7 +44,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import uuid
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -53,7 +55,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.models import File, FileLocation, Model, Revision
 from app.models.tag_links import model_file_tags
-from app.services import jobs, layout
+from app.services import jobs
 from app.services.library import (
     _escape_like,
     file_store_pending_sync,
@@ -301,32 +303,49 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
     ).scalars():
         holders.append((backend_for_id_sync(s, settings, loc.backend_id), old))
 
-    written: list[StorageBackend] = []  # backends THIS call wrote `new` on
+    case_only = old != new and old.casefold() == new.casefold()
+    # (backend, key) pairs THIS call created and may need to clean up. In a
+    # case-only rename `new` can alias `old` on a case-insensitive backend, so
+    # only the temp key is ever cleaned (deleting `new` would delete `old`).
+    written: list[tuple[StorageBackend, str]] = []
 
     def _cleanup() -> None:
-        for b in written:
+        for b, key in written:
             with contextlib.suppress(Exception):
-                b.delete(new)
+                b.delete(key)
 
-    try:
-        for backend, _ in holders:
+    def _copy(backend: StorageBackend, src: str, dst: str, *, track: bool) -> None:
+        def _chunks():
+            yield from backend.read(src)
 
-            def _chunks(backend=backend, old=old):
-                yield from backend.read(old)
-
-            result = backend.write(new, _chunks())
-            written.append(backend)
-            if result.hash != expected:
-                raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
-    except Exception:
-        _cleanup()
-        raise
+        result = backend.write(dst, _chunks())
+        if track:
+            written.append((backend, dst))
+        if result.hash != expected:
+            raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
 
     old_rel = file.rel_path
-    file.storage_path = new
-    file.rel_path = new.split("/", 2)[2]
-    _rekey_file_tags(s, file, old_rel)
-    s.commit()
+    try:
+        for backend, _ in holders:
+            if case_only:
+                tmp = f"{new}.tdmm-mv-{uuid.uuid4().hex}"
+                _copy(backend, old, tmp, track=True)
+                _copy(backend, tmp, new, track=False)
+                backend.delete(tmp)
+                written.remove((backend, tmp))
+            else:
+                _copy(backend, old, new, track=True)
+        file.storage_path = new
+        file.rel_path = new.split("/", 2)[2]
+        _rekey_file_tags(s, file, old_rel)
+        s.flush()
+        s.commit()
+    except Exception:
+        s.rollback()
+        _cleanup()
+        raise
+    if case_only:
+        return  # never delete `old`: on case-insensitive stores it IS `new`
     for backend, _ in holders:
         backend.delete(old)
 
@@ -376,7 +395,7 @@ def _recheck_move(s: Session, file: File, new_rel: str) -> None:
     )
     if model_current != file.revision_id:
         raise MoveRejected(f"file {file.id} is not in the model's current revision")
-    if layout.is_snapshot_path(file.rel_path):
+    if PurePosixPath(file.rel_path).parts[0].casefold() == "_snapshots":
         raise MoveRejected(f"file {file.id} is a snapshot file")
     if (err := validate_move_target(new_rel)) is not None:
         raise MoveRejected(err)
@@ -389,7 +408,8 @@ def _recheck_move(s: Session, file: File, new_rel: str) -> None:
         raise MoveRejected(f"file {file.id} is still being stored")
 
 
-_TRANSIENT = (OSError, StorageError)  # StorageKeyNotFound excluded in the handler
+_TRANSIENT = (OSError, StorageError)
+_PERMANENT = (StorageKeyNotFound, IsADirectoryError, NotADirectoryError)  # not worth retrying
 
 
 @celery_app.task(
@@ -415,11 +435,16 @@ def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> Non
     try:
         for file_id, new_rel in moves:
             with base.sync_session() as s:
+                # Same order as the API paths: model row first, then file row.
+                s.execute(select(Model.id).where(Model.id == model_id).with_for_update())
                 file = s.execute(
                     select(File).where(File.id == file_id).with_for_update()
                 ).scalar_one_or_none()
-                if file is None or file.rel_path == new_rel:
-                    continue  # deleted since the request, or already moved
+                if file is None:
+                    continue  # deleted since the request
+                revision_ids.add(file.revision_id)  # so a retry still queues the render
+                if file.rel_path == new_rel:
+                    continue  # already moved
                 try:
                     _recheck_move(s, file, new_rel)
                 except MoveRejected as exc:
@@ -427,7 +452,6 @@ def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> Non
                     rejected.append(str(exc))
                     continue
                 parts = file.storage_path.split("/", 2)
-                revision_ids.add(file.revision_id)
                 _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
         with base.sync_session() as s:
             s.execute(update(Model).where(Model.id == model_id).values(updated_at=func.now()))
@@ -439,8 +463,8 @@ def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> Non
         if rejected:
             raise RuntimeError("; ".join(rejected))
     except _TRANSIENT as exc:
-        if self.request.retries < self.max_retries and not isinstance(exc, StorageKeyNotFound):
-            raise self.retry(exc=exc) from exc
+        if self.request.retries < self.max_retries and not isinstance(exc, _PERMANENT):
+            raise self.retry(exc=exc, countdown=min(15 * 2**self.request.retries, 120)) from exc
         with base.sync_session() as s:
             jobs.mark_failed(s, job_id, str(exc))
         raise

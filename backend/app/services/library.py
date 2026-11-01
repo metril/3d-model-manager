@@ -1570,6 +1570,7 @@ async def create_revision(
     case). ``backend`` is still used as the mkdirs target for a fresh, empty
     revision (no old files to inherit a backend from).
     """
+    await lock_model_row(db, model)
     max_number = await db.scalar(
         select(func.max(Revision.number)).where(Revision.model_id == model.id)
     )
@@ -1872,6 +1873,12 @@ async def finalize_upload(
     same-transaction ``UPDATE ... SET cover_blob_hash`` issued before the
     referenced ``Blob`` row is flushed 500s on the FK constraint).
     """
+    await lock_model_row(db, model)
+    if model.current_revision_id != revision.id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "uploads are only allowed on the model's current revision",
+        )
     blob = await db.get(Blob, blob_hash)
     if blob is None:
         blob = Blob(hash=blob_hash, size=size, kind=kind, format=format_)
@@ -2023,6 +2030,7 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
     assert revision is not None  # FK guarantees this
     model = await db.get(Model, revision.model_id)
     assert model is not None  # FK guarantees this
+    await lock_model_row(db, model)
     if model.current_revision_id != file.revision_id:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -2035,6 +2043,21 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
         raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
 
     await _hard_delete_file_row(db, settings, file=file, model=model)
+
+
+async def lock_model_row(db: AsyncSession, model: Model) -> None:
+    """Take the model row's write lock (``SELECT ... FOR UPDATE``) and refresh
+    ``model`` from it. Every path that mutates the CURRENT revision's file
+    rows/keys (upload finalize, new revision, delete, and the
+    ``move_model_files`` task) takes this FIRST -- before any file-row lock --
+    so check-then-act sequences against the revision are serialized and
+    lock order is always model -> file. Held until the caller commits."""
+    await db.execute(
+        select(Model)
+        .where(Model.id == model.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def validate_move_target(rel: str) -> str | None:
@@ -2052,7 +2075,7 @@ def validate_move_target(rel: str) -> str | None:
         or str(pure) != rel
     ):
         return f"unsafe rel_path: {rel!r}"
-    if layout.is_snapshot_path(rel) or pure.parts[0] == layout.SNAPSHOT_PREFIX.rstrip("/"):
+    if pure.parts[0].casefold() == layout.SNAPSHOT_PREFIX.rstrip("/"):
         return "_snapshots/ is reserved"
     return None
 
@@ -2124,7 +2147,7 @@ async def plan_file_moves(
     }
     planned: list[tuple[int, str]] = []
     for fid, rel in moves:
-        if layout.is_snapshot_path(files[fid].rel_path):
+        if PurePosixPath(files[fid].rel_path).parts[0].casefold() == "_snapshots":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "snapshot files cannot be moved")
         if (err := validate_move_target(rel)) is not None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
@@ -2200,6 +2223,7 @@ async def try_delete_duplicate_copy(
     assert revision is not None  # FK guarantees this
     model = await db.get(Model, revision.model_id)
     assert model is not None  # FK guarantees this
+    await lock_model_row(db, model)
     if model.current_revision_id != file.revision_id:
         return "not_current_revision"
     if await _file_store_pending(db, file):
