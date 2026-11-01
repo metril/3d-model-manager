@@ -25,9 +25,7 @@ function OrcaSlicerStage() {
   );
 }
 
-/** The streamed OrcaSlicer GUI (same-origin `/slicer/`) with a session strip on top.
- * NOTE: moving an iframe in the DOM reloads it, so switching between the dock panel
- * and the `/slicer` page restarts the stream (the OrcaSlicer process keeps running). */
+/** The streamed OrcaSlicer GUI (same-origin `/slicer/`) with a session strip on top. */
 export function OrcaSlicerFrame() {
   const { t } = useTranslation();
   const enabled = useOrcaSlicerEnabled();
@@ -40,7 +38,7 @@ export function OrcaSlicerFrame() {
   }
 
   return (
-    <div className="flex h-full min-h-[24rem] flex-col" data-testid="orcaslicer-frame">
+    <div className="flex h-full flex-col" data-testid="orcaslicer-frame">
       {isInsecureOrcaSlicerContext() ? (
         <div role="alert" className="border-b border-warning/50 bg-warning/10 px-3 py-1.5 text-xs">
           {t("orcaslicer.insecure")}
@@ -83,7 +81,15 @@ export function OrcaSlicerFrame() {
         )}
       </div>
       {/* Keyed by session so a replaced session remounts (reconnects) the stream. */}
-      {session.isPending ? <Skeleton className="min-h-0 flex-1 rounded-none" /> : <OrcaSlicerStage key={s?.token ?? "none"} />}
+      {session.isPending ? (
+        <Skeleton className="min-h-0 flex-1 rounded-none" />
+      ) : s ? (
+        <OrcaSlicerStage key={s.token} />
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground" data-testid="orcaslicer-waiting">
+          {t("orcaslicer.waiting")}
+        </div>
+      )}
     </div>
   );
 }

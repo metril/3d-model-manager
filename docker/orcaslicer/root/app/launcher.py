@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """OrcaSlicer launcher: relaunch OrcaSlicer on a file under /exchange (stdlib only).
 
-GET /health -> {"ok", "orcaslicer_running", "mode": "relaunch"}
+GET /health -> {"ok", "orcaslicer_running", "mode": "relaunch", "last_exit", "crashed"}
 POST /open {"path"} -> 202 {"pid"} | 400 | 401 | 409 (relaunch in progress)
 POST /stop -> kill OrcaSlicer
 We do not rely on native single-instance handoff, so every open
@@ -25,6 +25,12 @@ ENV = {
     "LC_ALL": "C",
 }
 lock = threading.Lock()
+# Exit tracking: `last` = {"rc", "at", "stopped"} of the most recent child. kill() records the
+# child pid in `stopped_pids` first, so an intentional stop (/stop or relaunch) is never a crash.
+state_lock = threading.Lock()
+last: dict | None = None
+child_pid: int | None = None
+stopped_pids: set[int] = set()
 
 
 def running() -> bool:
@@ -32,6 +38,9 @@ def running() -> bool:
 
 
 def kill(grace: float = 10.0) -> None:
+    with state_lock:
+        if child_pid is not None:
+            stopped_pids.add(child_pid)
     subprocess.run(["pkill", "-f", PATTERN])
     end = time.time() + grace
     while running() and time.time() < end:
@@ -69,6 +78,7 @@ def prepare_session(path: str) -> None:
 
 
 def relaunch(path: str) -> int:
+    global child_pid
     kill()  # OrcaSlicer must be dead first: it rewrites the conf on exit
     prepare_session(path)
     p = subprocess.Popen(
@@ -76,8 +86,27 @@ def relaunch(path: str) -> int:
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    with state_lock:
+        child_pid = p.pid
+    threading.Thread(target=watch, args=(p,), daemon=True).start()
     print(f"launched orcaslicer pid={p.pid} path={path}", flush=True)
     return p.pid
+
+
+def watch(p) -> None:
+    """Record how the spawned child exited (a stop by us is flagged via `stopped_pids`)."""
+    global last
+    rc = p.wait()
+    with state_lock:
+        last = {"rc": rc, "at": time.time(), "stopped": p.pid in stopped_pids}
+
+
+def health() -> dict:
+    with state_lock:
+        snap = dict(last) if last else None
+    rc = snap["rc"] if snap else None
+    crashed = bool(snap) and rc != 0 and not snap["stopped"]
+    return {"ok": True, "orcaslicer_running": running(), "mode": "relaunch", "last_exit": rc, "crashed": crashed}
 
 
 class H(BaseHTTPRequestHandler):
@@ -94,7 +123,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "orcaslicer_running": running(), "mode": "relaunch"})
+            self._send(200, health())
         else:
             self._send(404, {"error": "not found"})
 

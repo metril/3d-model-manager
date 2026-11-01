@@ -12,6 +12,7 @@ import { PlateEditorDialog } from "@/components/plate/PlateEditorDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CopyableHash } from "@/components/model-detail/CopyableHash";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
+import { OrcaSlicerSplitButton } from "@/components/orcaslicer/OrcaSlicerSplitButton";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SendToPrinterButton } from "@/components/model-detail/SendToPrinterButton";
 import { SliceFileButton } from "@/components/slice/SliceFileButton";
@@ -219,6 +220,7 @@ export function FilesTab({
                 <>
                   <SliceFileButton file={file} modelSlug={model.slug} />
                   <SendToPrinterButton file={file} />
+                  <OrcaSlicerSplitButton file={file} slug={model.slug} />
                   {file.verified_at && isSlicerEligible(file) ? <OpenInSlicerButton file={file} size="icon-sm" /> : null}
                   <FileActionsMenu file={file} model={model} onViewIn3D={onViewIn3D} onArrange={canUpload ? (f) => setArrangeFiles([f]) : undefined} />
                 </>

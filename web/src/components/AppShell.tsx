@@ -14,6 +14,7 @@ import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { TopBar } from "@/components/shell/TopBar";
 import { SliceJobsHost } from "@/components/slice/SliceJobsHost";
+import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { EventsProvider } from "@/hooks/useEvents";
 import { useHotkeys } from "@/hooks/useHotkeys";
 
@@ -62,7 +63,8 @@ export function AppShell() {
   ordered.slice(0, 9).forEach((item, index) => {
     digitBindings[String(index + 1)] = () => {
       if (document.querySelector('[role="dialog"]')) return;
-      if (item.externalUrl) window.open(item.externalUrl, "_blank", "noopener,noreferrer");
+      if (item.orcaslicerWindow) openOrcaSlicerWindow();
+      else if (item.externalUrl) window.open(item.externalUrl, "_blank", "noopener,noreferrer");
       else void navigate({ to: item.to, params: item.params as never });
     };
   });

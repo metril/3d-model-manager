@@ -58,7 +58,7 @@ describe("ModelDetailDock", () => {
         <ModelDetailDock />
       </ModelDetailProvider>,
     );
-    for (const title of Object.values({ ...PANEL_TITLES, orcaslicer: undefined }).filter((t): t is string => !!t)) {
+    for (const title of Object.values(PANEL_TITLES)) {
       expect(await screen.findByText(title)).toBeInTheDocument();
     }
   });

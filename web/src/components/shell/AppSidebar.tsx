@@ -19,6 +19,7 @@ import { useReviewCount } from "@/api/queue";
 import { useScanRuns } from "@/api/scan";
 import type { ScanRunOut } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -133,7 +134,12 @@ function NavLink({
     "relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
     collapsed && "justify-center px-0",
   );
-  const link = item.externalUrl ? (
+  const link = item.orcaslicerWindow ? (
+    <button type="button" onClick={() => openOrcaSlicerWindow()} className={cn(linkClass, "w-full")} aria-label={collapsed ? label : undefined}>
+      <item.icon className="size-4 shrink-0" />
+      {!collapsed && navLabel(item.label)}
+    </button>
+  ) : item.externalUrl ? (
     <a href={item.externalUrl} target="_blank" rel="noopener noreferrer" className={linkClass} aria-label={collapsed ? label : undefined}>
       <item.icon className="size-4 shrink-0" />
       {!collapsed && (item.translate === false ? item.label : navLabel(item.label))}

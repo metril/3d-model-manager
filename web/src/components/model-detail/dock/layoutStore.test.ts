@@ -50,15 +50,22 @@ describe("layoutStore", () => {
     expect(loaded?.unseen).toEqual([]);
   });
 
-  it("remaps the legacy \"studio\" panel id saved before the OrcaSlicer rename", () => {
-    const legacy = layout({
-      panels: { viewer: { id: "viewer" }, studio: { id: "studio" } } as unknown as SerializedDockview["panels"],
+  it.each(["orcaslicer", "studio"])("strips the retired %s panel from saved layouts", (retired) => {
+    const saved = layout({
+      panels: { viewer: { id: "viewer" }, [retired]: { id: retired } } as unknown as SerializedDockview["panels"],
     });
-    (legacy.grid.root as unknown as { data: unknown[] }).data = [leaf("g1", ["viewer", "studio"])];
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer", "studio"], layout: legacy }));
+    (saved.grid.root as unknown as { data: unknown[] }).data = [
+      leaf("g1", ["viewer"]),
+      leaf("g2", [retired]),
+      leaf("g3", ["viewer", retired]),
+    ];
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer", retired], layout: saved }));
     const loaded = loadLayout();
-    expect(Object.keys(loaded?.layout.panels ?? {}).sort()).toEqual(["orcaslicer", "viewer"]);
-    expect(JSON.stringify(loaded?.layout)).not.toContain('"studio"');
+    expect(loaded).not.toBeNull();
+    expect(Object.keys(loaded?.layout.panels ?? {})).toEqual(["viewer"]);
+    const json = JSON.stringify(loaded?.layout);
+    expect(json).not.toContain(retired);
+    expect((loaded!.layout.grid.root as unknown as { data: unknown[] }).data).toHaveLength(2);
   });
 
   it("flags registry panels that were unknown at save time", () => {
@@ -66,7 +73,7 @@ describe("layoutStore", () => {
       LAYOUT_KEY,
       JSON.stringify({ v: 2, known: ["viewer", "notes", "specs"], layout: layout() }),
     );
-    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => id !== "orcaslicer" && !["viewer", "notes", "specs"].includes(id)));
+    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => !["viewer", "notes", "specs"].includes(id)));
   });
 
   it("ignores a layout saved under the v1 key", () => {

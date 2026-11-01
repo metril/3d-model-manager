@@ -12,23 +12,20 @@ import { OrcaSlicerServerCard } from "@/components/settings/server/OrcaSlicerSer
 import { OrcaSlicerFrame } from "@/components/orcaslicer/OrcaSlicerFrame";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-const { getMock, postMock, putMock, deleteMock, toastMock, showOrcaSlicerMock } = vi.hoisted(() => ({
+const { getMock, postMock, putMock, deleteMock, toastMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
   putMock: vi.fn(),
   deleteMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
-  showOrcaSlicerMock: vi.fn(),
 }));
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock, delete: deleteMock } };
 });
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), toastMock) }));
-vi.mock("@/components/orcaslicer/orcaslicerNav", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/components/orcaslicer/orcaslicerNav")>();
-  return { ...actual, showOrcaSlicer: showOrcaSlicerMock };
-});
+const openMock = vi.fn();
+const closeMock = vi.fn();
 
 const session: OrcaSlicerSession = {
   token: "tok1",
@@ -80,7 +77,10 @@ function file(overrides: Partial<FileOut> = {}): FileOut {
 const model = { id: 1, slug: "m", name: "M" } as ModelDetail;
 
 beforeEach(() => {
-  for (const m of [getMock, postMock, putMock, deleteMock, showOrcaSlicerMock, toastMock.success, toastMock.error]) m.mockReset();
+  for (const m of [getMock, postMock, putMock, deleteMock, openMock, closeMock, toastMock.success, toastMock.error]) m.mockReset();
+  openMock.mockReturnValue({ close: closeMock });
+  vi.stubGlobal("open", openMock);
+  localStorage.clear();
 });
 
 describe("OrcaSlicerServerCard", () => {
@@ -140,8 +140,15 @@ describe("OrcaSlicerFrame", () => {
     }
   });
 
-  it("renders the iframe with a skeleton until load", async () => {
+  it("waits for a file when there is no session", async () => {
     mockGet({});
+    wrap(<OrcaSlicerFrame />);
+    expect(await screen.findByTestId("orcaslicer-waiting")).toHaveTextContent("Waiting for a file");
+    expect(screen.queryByTitle("OrcaSlicer")).toBeNull();
+  });
+
+  it("renders the iframe with a skeleton until load", async () => {
+    mockGet({ sess: session });
     wrap(<OrcaSlicerFrame />);
     const frame = await screen.findByTitle("OrcaSlicer");
     expect(frame).toHaveAttribute("src", "/slicer/");
@@ -185,12 +192,44 @@ describe("Open in OrcaSlicer menu entry", () => {
     expect(screen.queryByRole("menuitem", { name: /in OrcaSlicer/ })).toBeNull();
   });
 
-  it("opens directly with no session, then reveals OrcaSlicer", async () => {
+  it("opens the window before the POST resolves, using the saved mode", async () => {
+    localStorage.setItem("tdmm.orcaslicer.openMode", "window");
+    let resolvePost: (v: unknown) => void = () => {};
+    postMock.mockReturnValue(new Promise((r) => (resolvePost = r)));
+    await openMenu(file(), { enabled: true });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    expect(openMock).toHaveBeenCalledTimes(1);
+    expect(openMock.mock.calls[0][0]).toBe("/slicer");
+    expect(openMock.mock.calls[0][1]).toBe("tdmm-orcaslicer");
+    expect(openMock.mock.calls[0][2]).toMatch(/^popup,width=\d+,height=\d+$/);
+    resolvePost({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
+    expect(closeMock).not.toHaveBeenCalled();
+  });
+
+  it("opens a plain named tab by default", async () => {
+    postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
+    await openMenu(file(), { enabled: true });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    expect(openMock).toHaveBeenCalledWith("/slicer", "tdmm-orcaslicer");
+    expect(localStorage.getItem("tdmm.orcaslicer.openMode")).toBe("tab");
+  });
+
+  it("closes the window and toasts when the POST fails", async () => {
+    postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
+    await openMenu(file(), { enabled: true });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    expect(openMock).toHaveBeenCalled();
+    await waitFor(() => expect(closeMock).toHaveBeenCalled());
+    expect(toastMock.error).toHaveBeenCalled();
+  });
+
+  it("opens directly with no session", async () => {
     postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/models/m/files/2/orcaslicer", {}));
-    await waitFor(() => expect(showOrcaSlicerMock).toHaveBeenCalled());
+    expect(openMock).toHaveBeenCalled();
     expect(toastMock.success).toHaveBeenCalledWith("Opening b.stl in OrcaSlicer");
   });
 
@@ -200,7 +239,9 @@ describe("Open in OrcaSlicer menu entry", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(await screen.findByText(/unsaved work there is lost/)).toBeInTheDocument();
     expect(postMock).not.toHaveBeenCalled();
+    expect(openMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(openMock).toHaveBeenCalled();
     await waitFor(() => expect(postMock).toHaveBeenCalled());
   });
 
@@ -223,6 +264,5 @@ describe("Open in OrcaSlicer menu entry", () => {
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Cannot reach the OrcaSlicer launcher"));
-    expect(showOrcaSlicerMock).not.toHaveBeenCalled();
   });
 });
