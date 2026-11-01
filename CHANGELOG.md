@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.0](https://github.com/metril/3d-model-manager/compare/v0.10.0...v0.11.0) (2026-11-01)
+
+
+### Features
+
+* **files:** folder-tree file explorer with type filters ([#182](https://github.com/metril/3d-model-manager/issues/182)) ([efa84bd](https://github.com/metril/3d-model-manager/commit/efa84bdaadc8a20669de23d4cb7f6b0515584114))
+* **files:** rename and move files within a model ([#181](https://github.com/metril/3d-model-manager/issues/181)) ([0a70da2](https://github.com/metril/3d-model-manager/commit/0a70da2d2e22dec22514626bc70302898490ba40))
+* **files:** rename, move, new folder and bulk delete in the file explorer ([#183](https://github.com/metril/3d-model-manager/issues/183)) ([ddf55f1](https://github.com/metril/3d-model-manager/commit/ddf55f16ee583024ae9841e482f2a335c003cf26))
+* **orcaslicer:** open in a tab or window instead of a dock panel ([#180](https://github.com/metril/3d-model-manager/issues/180)) ([0290b8c](https://github.com/metril/3d-model-manager/commit/0290b8cb2581bad8aff4ef61ad3a8b4c033d5298))
+* **sidebar:** collapsible sidebar sections ([#186](https://github.com/metril/3d-model-manager/issues/186)) ([5ad097a](https://github.com/metril/3d-model-manager/commit/5ad097af8d92c6a42eac96535c112e3453dffd21))
+
+
+### Bug Fixes
+
+* **orcaslicer:** keep the Selkies stream theme in sync with the app theme ([#184](https://github.com/metril/3d-model-manager/issues/184)) ([a2c9592](https://github.com/metril/3d-model-manager/commit/a2c959291c9193ee7d62176bf5add1c05a33ecdd))
+* **tags:** pluralize bulk tag toasts and confirm text ([#177](https://github.com/metril/3d-model-manager/issues/177)) ([4823c2f](https://github.com/metril/3d-model-manager/commit/4823c2f90b0033b42f2801dfe2213dc58d3b761c))
+* **ui:** SwitchRow aligns switch rows and nested fields ([#185](https://github.com/metril/3d-model-manager/issues/185)) ([fbc858f](https://github.com/metril/3d-model-manager/commit/fbc858fa51adef053f463b9b7cb974a2ed83361d))
+
 ## [0.10.0](https://github.com/metril/3d-model-manager/compare/v0.9.2...v0.10.0) (2026-11-01)
 
 
