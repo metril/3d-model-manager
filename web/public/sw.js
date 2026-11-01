@@ -25,6 +25,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname === "/api") return;
+  // The Orca slicer iframe is a separate app, not our SPA shell.
+  if (url.pathname === "/slicer" || url.pathname.startsWith("/slicer/")) return;
 
   // Navigations: network first, fall back to the cached shell when offline.
   if (req.mode === "navigate") {

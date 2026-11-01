@@ -727,7 +727,7 @@ same token list, so a token from one works for the other).
 An opt-in `studio` container (`COMPOSE_PROFILES=studio`, x86-64 only) runs the
 real OrcaSlicer GUI (it replaced Bambu Studio; see the migration note in [docs/studio.md](docs/studio.md)) and streams it into the browser, so a model can be edited
 in the full app without installing anything. It is **admin-only** (the api
-proxies `/studio/` behind login) and **export-only**: it never holds printer
+proxies `/slicer/` behind login) and **export-only**: it never holds printer
 credentials. "Open in OrcaSlicer" on a model copies the file into a per-session
 exchange folder; files you save or export there are ingested back under the
 originating model. Setup, GPU options, security and troubleshooting:
