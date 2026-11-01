@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "3D Model Manager",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "Save MakerWorld, Thingiverse, and Printables models to your self-hosted 3D Model Manager library, and keep your MakerWorld cookie synced.",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
