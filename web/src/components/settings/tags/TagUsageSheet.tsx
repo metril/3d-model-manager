@@ -29,7 +29,7 @@ export function TagUsageSheet({ tag, onClose }: { tag: TagOut | null; onClose: (
   const { t } = useTranslation();
   const usage = useTagUsage(tag?.id ?? null);
   const d = usage.data;
-  const empty = d && d.models.length + d.projects.length + d.collections.length + d.archives.length === 0;
+  const empty = d && d.counts.total === 0;
 
   return (
     <Sheet open={tag !== null} onOpenChange={(open) => !open && onClose()}>
@@ -58,6 +58,11 @@ export function TagUsageSheet({ tag, onClose }: { tag: TagOut | null; onClose: (
             <p className="text-sm text-muted-foreground">{t("settings.tags.usage.none")}</p>
           ) : d ? (
             <>
+              {d.counts.model_files > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {t("settings.tags.usage.modelFiles", { count: d.counts.model_files })}
+                </p>
+              )}
               <Section title={t("settings.tags.usage.models")} count={d.counts.models}>
                 {d.models.map((m) => (
                   <li key={m.id}>

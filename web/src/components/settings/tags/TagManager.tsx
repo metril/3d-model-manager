@@ -409,6 +409,7 @@ export function TagManager() {
         }
         description={t("settings.tags.bulk.mergeDesc", { uses: mergeUses, into: bulkMergeInto?.name ?? "" })}
         confirmLabel={t("settings.tags.merge")}
+        confirmDisabled={mergeSources.length === 0}
         destructive
         onConfirm={runBulkMerge}
       />

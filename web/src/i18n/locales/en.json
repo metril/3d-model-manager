@@ -513,6 +513,7 @@
         "collections": "Collections",
         "archives": "Prints",
         "none": "Not used anywhere.",
+        "modelFiles": "Also tagged on {{count}} model file(s).",
         "loadError": "Couldn't load usage.",
         "untitled": "Untitled print"
       }

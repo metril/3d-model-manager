@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -14,6 +14,10 @@ export function EditTagDialog({ tag, onClose }: { tag: TagOut | null; onClose: (
   const { t } = useTranslation();
   const updateTag = useUpdateTag();
   const [dirty, setDirty] = useState(false);
+  const { reset } = updateTag;
+  useEffect(() => {
+    if (tag === null) reset();
+  }, [tag, reset]);
   const guard = useDiscardGuard({
     onOpenChange: (open) => {
       if (!open) onClose();

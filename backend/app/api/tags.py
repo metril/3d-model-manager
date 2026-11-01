@@ -107,7 +107,7 @@ async def tag_usage(
         await db.execute(
             select(Model)
             .join(model_tags, model_tags.c.model_id == Model.id)
-            .where(model_tags.c.tag_id == tag_id)
+            .where(model_tags.c.tag_id == tag_id, Model.deleted_at.is_(None))
             .order_by(Model.updated_at.desc(), Model.id.desc())
             .limit(limit)
         )
@@ -162,6 +162,23 @@ async def tag_usage(
     visible = visible_printer_ids(ctx)
     if visible is not None:
         astmt = astmt.where(PrintJob.printer_id.in_(visible))
+    # Archive count must match the visibility-scoped list, not the global tag count.
+    cstmt = (
+        select(func.count())
+        .select_from(print_archive_tags)
+        .join(PrintArchive, PrintArchive.id == print_archive_tags.c.archive_id)
+        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
+        .where(print_archive_tags.c.tag_id == tag_id)
+    )
+    if visible is not None:
+        cstmt = cstmt.where(PrintJob.printer_id.in_(visible))
+    visible_archives = (await db.execute(cstmt)).scalar_one()
+    counts = counts.model_copy(
+        update={
+            "archives": visible_archives,
+            "total": counts.total - counts.archives + visible_archives,
+        }
+    )
     archives = [
         UsageArchive(
             id=a.id,

@@ -26,6 +26,7 @@ interface ConfirmDialogProps {
   /** Called when the dialog is dismissed without confirming. */
   onCancel?: () => void;
   destructive?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
 }
 
@@ -40,6 +41,7 @@ export function ConfirmDialog({
   cancelLabel,
   onCancel,
   destructive,
+  confirmDisabled,
   onConfirm,
 }: ConfirmDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -64,6 +66,7 @@ export function ConfirmDialog({
         <DialogFooter showCloseButton closeLabel={cancelLabel}>
           <Button
             type="button"
+            disabled={confirmDisabled}
             variant={destructive ? "destructive" : "default"}
             onClick={() => {
               setOpen(false);

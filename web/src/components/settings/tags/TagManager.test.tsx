@@ -155,6 +155,16 @@ describe("TagManager selection + bulk actions", () => {
     await waitFor(() => expect(screen.queryByRole("toolbar")).not.toBeInTheDocument());
   });
 
+  it("bulk merge: target as the only selected tag disables confirm", async () => {
+    renderManager();
+    await screen.findByTestId("tag-count");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Charlie" }));
+    const bar = screen.getByRole("toolbar");
+    fireEvent.click(within(bar).getByRole("button", { name: /Charlie/ }));
+    const confirm = await screen.findByRole("button", { name: "Merge" });
+    expect(confirm).toBeDisabled();
+  });
+
   it("bulk delete: confirms with total usage and posts bulk-delete", async () => {
     renderManager();
     await screen.findByTestId("tag-count");

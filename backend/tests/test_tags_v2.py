@@ -408,3 +408,17 @@ async def test_bulk_delete_merge_update_and_usage(authenticated_client: httpx.As
     assert len(r.json()["results"]) == 2
     assert (await c.get(f"/api/models/{m1['slug']}")).json()["tag_refs"] == []
     assert (await c.post("/api/tags/bulk-delete", json={"ids": []})).status_code == 422
+
+
+async def test_trashed_models_excluded_from_counts_and_usage(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    c = authenticated_client
+    t, m = await _tag(c), await _model(c)
+    await c.put(f"/api/models/{m['id']}/tags", json={"tag_ids": [t["id"]]})
+    assert (await c.get(f"/api/tags/{t['id']}/usage")).json()["counts"]["models"] == 1
+    assert (await c.delete(f"/api/models/{m['slug']}")).status_code == 204
+    u = (await c.get(f"/api/tags/{t['id']}/usage")).json()
+    assert u["counts"]["models"] == 0 and u["counts"]["total"] == 0 and u["models"] == []
+    tags = {x["id"]: x for x in (await c.get("/api/tags?with_counts=true")).json()}
+    assert tags[t["id"]]["counts"]["models"] == 0

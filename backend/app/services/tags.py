@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.library import File, Revision, Tag, model_tags
+from app.models.library import File, Model, Revision, Tag, model_tags
 from app.models.tag_links import (
     followed_collection_tags,
     model_file_tags,
@@ -93,9 +93,10 @@ async def get_tag(db: AsyncSession, tag_id: int) -> Tag:
 async def tag_counts(db: AsyncSession) -> dict[int, TagCounts]:
     out: dict[int, TagCounts] = {}
     for key, table in _COUNT_KEYS.items():
-        rows = (
-            await db.execute(select(table.c.tag_id, func.count()).group_by(table.c.tag_id))
-        ).all()
+        stmt = select(table.c.tag_id, func.count()).group_by(table.c.tag_id)
+        if key in ("models", "model_files"):  # trashed models don't count
+            stmt = stmt.join(Model, Model.id == table.c.model_id).where(Model.deleted_at.is_(None))
+        rows = (await db.execute(stmt)).all()
         for tag_id, n in rows:
             c = out.setdefault(tag_id, TagCounts())
             setattr(c, key, n)
