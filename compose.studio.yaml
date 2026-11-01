@@ -1,6 +1,6 @@
 # OrcaSlicer GUI sidecar (docs/studio.md). Opt-in: COMPOSE_PROFILES=studio.
 # Streams the real Studio over Selkies/WebSocket; the api reverse-proxies
-# /studio/ behind our login. NEVER publish 3000/3001: the Selkies terminal has
+# /slicer/ behind our login. NEVER publish 3000/3001: the Selkies terminal has
 # passwordless sudo, so only our login protects it. Nothing is published here.
 #
 # GPU: add -f compose.studio.dri.yaml (Intel/AMD dev host) or
@@ -19,7 +19,7 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       TZ: ${TZ:-Etc/UTC}
-      SUBFOLDER: /studio/
+      SUBFOLDER: /slicer/
       SELKIES_FRAME_ANCESTORS: ${STUDIO_FRAME_ANCESTORS:-'self'}
       STUDIO_LAUNCHER_TOKEN: ${TDMM_STUDIO_LAUNCHER_TOKEN:-}
       # Selkies' own upload/download file manager is off (we use /exchange).

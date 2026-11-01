@@ -219,11 +219,11 @@ describe("printerRedirect", () => {
 });
 
 describe("studio route", () => {
-  it("registers /studio inside the shell, session-guarded", async () => {
+  it("registers /slicer inside the shell, session-guarded", async () => {
     mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
-    const router = makeRouter("/studio");
+    const router = makeRouter("/slicer");
     await router.load();
-    expect(router.state.location.pathname).toBe("/studio");
-    expect(router.state.matches.map((m) => m.routeId)).toContain("/authenticated/studio");
+    expect(router.state.location.pathname).toBe("/slicer");
+    expect(router.state.matches.map((m) => m.routeId)).toContain("/authenticated/slicer");
   });
 });

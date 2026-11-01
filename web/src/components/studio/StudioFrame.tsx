@@ -16,7 +16,7 @@ function StudioStage() {
       {!loaded ? <Skeleton className="absolute inset-0 rounded-none" data-testid="studio-skeleton" /> : null}
       <iframe
         title={t("studio.title")}
-        src="/studio/"
+        src="/slicer/"
         allow="clipboard-read; clipboard-write; fullscreen"
         className="size-full border-0"
         onLoad={() => setLoaded(true)}
@@ -25,9 +25,9 @@ function StudioStage() {
   );
 }
 
-/** The streamed OrcaSlicer GUI (same-origin `/studio/`) with a session strip on top.
+/** The streamed OrcaSlicer GUI (same-origin `/slicer/`) with a session strip on top.
  * NOTE: moving an iframe in the DOM reloads it, so switching between the dock panel
- * and the `/studio` page restarts the stream (the Studio process keeps running). */
+ * and the `/slicer` page restarts the stream (the Studio process keeps running). */
 export function StudioFrame() {
   const { t } = useTranslation();
   const enabled = useStudioEnabled();
