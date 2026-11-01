@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 type Row = { name: string; temp: string };
 
@@ -169,14 +169,11 @@ export function QueuePreheatCard() {
         <CardDescription>{t("queueSched.preheat_card.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <label className="flex items-center gap-2 text-sm">
-          <Switch
-            checked={draft.enabled}
-            onCheckedChange={(v) => set({ enabled: v })}
-            aria-label={t("queueSched.preheat_card.enabled")}
-          />
-          {t("queueSched.preheat_card.enabled")}
-        </label>
+        <SwitchRow
+          label={t("queueSched.preheat_card.enabled")}
+          checked={draft.enabled}
+          onCheckedChange={(v) => set({ enabled: v })}
+        />
         <div className="grid gap-4 sm:grid-cols-2">
           <RowsEditor
             label={t("queueSched.preheat_card.chamberTargets")}
@@ -201,14 +198,11 @@ export function QueuePreheatCard() {
             <Input id="qp-soak" type="number" className="w-28" value={draft.soak} onChange={(e) => set({ soak: e.target.value })} />
           </div>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <Switch
-            checked={draft.keepWarm}
-            onCheckedChange={(v) => set({ keepWarm: v })}
-            aria-label={t("queueSched.preheat_card.keepWarm")}
-          />
-          {t("queueSched.preheat_card.keepWarm")}
-        </label>
+        <SwitchRow
+          label={t("queueSched.preheat_card.keepWarm")}
+          checked={draft.keepWarm}
+          onCheckedChange={(v) => set({ keepWarm: v })}
+        />
         <div className="flex flex-wrap gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="qp-keep-bed">{t("queueSched.preheat_card.keepWarmBed")}</Label>

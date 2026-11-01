@@ -12,7 +12,7 @@ import type { NozzleSource } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ProfilesSearch } from "@/pages/profilesSearch";
 
@@ -184,10 +184,7 @@ export function ScopeHeader({
         {total != null ? `Showing ${shown} of ${total}` : `Showing ${shown}`}
       </span>
       {onAll ? (
-        <label className="flex items-center gap-2" htmlFor={`${idPrefix}-all`}>
-          <Switch id={`${idPrefix}-all`} checked={all ?? false} onCheckedChange={onAll} />
-          Show incompatible
-        </label>
+        <SwitchRow id={`${idPrefix}-all`} label="Show incompatible" checked={all ?? false} onCheckedChange={onAll} />
       ) : null}
     </div>
   );

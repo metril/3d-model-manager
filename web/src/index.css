@@ -378,3 +378,6 @@
   --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9;
   --viz-seq: #3987e5;
 }
+
+/* Switch (w-8) + gap-3: the x offset of a SwitchRow label text column. */
+:root { --switch-indent: calc(2rem + 0.75rem); }

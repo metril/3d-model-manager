@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
@@ -36,14 +36,8 @@ function Form({ initial }: { initial: ConfirmSettings }) {
         <CardDescription>{t("archiveX.confirm.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Switch id="cf-enabled" checked={d.enabled} onCheckedChange={(v) => set("enabled", v)} />
-          <Label htmlFor="cf-enabled">{t("archiveX.confirm.enabled")}</Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch id="cf-ext" checked={d.external_prints} onCheckedChange={(v) => set("external_prints", v)} />
-          <Label htmlFor="cf-ext">{t("archiveX.confirm.external")}</Label>
-        </div>
+        <SwitchRow id="cf-enabled" label={t("archiveX.confirm.enabled")} checked={d.enabled} onCheckedChange={(v) => set("enabled", v)} />
+        <SwitchRow id="cf-ext" label={t("archiveX.confirm.external")} checked={d.external_prints} onCheckedChange={(v) => set("external_prints", v)} />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="cf-outcome">{t("archiveX.confirm.defaultOutcome")}</Label>
           <select
@@ -69,10 +63,7 @@ function Form({ initial }: { initial: ConfirmSettings }) {
             onChange={(e) => set("default_after_h", Number(e.target.value))}
           />
         </div>
-        <div className="flex items-center gap-2">
-          <Switch id="cf-plate" checked={d.default_good_on_plate_clear} onCheckedChange={(v) => set("default_good_on_plate_clear", v)} />
-          <Label htmlFor="cf-plate">{t("archiveX.confirm.goodOnPlateClear")}</Label>
-        </div>
+        <SwitchRow id="cf-plate" label={t("archiveX.confirm.goodOnPlateClear")} checked={d.default_good_on_plate_clear} onCheckedChange={(v) => set("default_good_on_plate_clear", v)} />
         <Button
           disabled={invalid || save.isPending}
           onClick={() =>

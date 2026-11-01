@@ -12,9 +12,8 @@
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 export function PrinterEnabledCard() {
   const settings = useAppSettings();
@@ -51,10 +50,7 @@ export function PrinterEnabledCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <div className="flex items-center gap-3">
-          <Switch id="printer-enabled" checked={current.printer_enabled} disabled={update.isPending} onCheckedChange={toggle} />
-          <Label htmlFor="printer-enabled">Enable printer integration</Label>
-        </div>
+        <SwitchRow id="printer-enabled" label="Enable printer integration" checked={current.printer_enabled} disabled={update.isPending} onCheckedChange={toggle} />
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
             {update.error instanceof ApiError ? update.error.detail : "Could not update this setting."}

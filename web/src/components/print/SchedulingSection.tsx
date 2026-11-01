@@ -14,7 +14,7 @@ import { useBatches } from "@/api/queue";
 import type { PrinterOut } from "@/api/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { cn } from "@/lib/utils";
 import { isScheduleSet, schedulingSummary, type BatchChoice, type ScheduleDraft } from "@/lib/schedule";
 
@@ -107,35 +107,24 @@ export function SchedulingFields({
           {t("queueSched.asap")}
         </button>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <Switch
-          checked={draft.manualStart}
-          onCheckedChange={(v) => onChange({ ...draft, manualStart: v })}
-          aria-label={t("queueSched.manualStart")}
-        />
-        <span>{t("queueSched.manualStart")}</span>
-        <span className="text-xs text-muted-foreground">{t("queueSched.manualStartHint")}</span>
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <Switch
-          checked={draft.requirePrev}
-          onCheckedChange={(v) => onChange({ ...draft, requirePrev: v })}
-          aria-label={t("queueSched.requirePrev")}
-        />
-        <span>{t("queueSched.requirePrev")}</span>
-      </label>
+      <SwitchRow
+        label={t("queueSched.manualStart")}
+        description={t("queueSched.manualStartHint")}
+        checked={draft.manualStart}
+        onCheckedChange={(v) => onChange({ ...draft, manualStart: v })}
+      />
+      <SwitchRow
+        label={t("queueSched.requirePrev")}
+        checked={draft.requirePrev}
+        onCheckedChange={(v) => onChange({ ...draft, requirePrev: v })}
+      />
       {hasPlug !== false ? (
-        <label className="flex items-center gap-2 text-sm">
-          <Switch
-            checked={draft.autoOff}
-            onCheckedChange={(v) => onChange({ ...draft, autoOff: v })}
-            aria-label={t("queueSched.autoOff")}
-          />
-          <span>{t("queueSched.autoOff")}</span>
-          <span className="text-xs text-muted-foreground">
-            {hasPlug === null ? t("queueSched.autoOffUnknown") : t("queueSched.autoOffHint")}
-          </span>
-        </label>
+        <SwitchRow
+          label={t("queueSched.autoOff")}
+          description={hasPlug === null ? t("queueSched.autoOffUnknown") : t("queueSched.autoOffHint")}
+          checked={draft.autoOff}
+          onCheckedChange={(v) => onChange({ ...draft, autoOff: v })}
+        />
       ) : null}
       <PreheatField draft={draft} onChange={onChange} hasChamber={hasChamber} />
     </div>
