@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/metril/3d-model-manager/compare/v0.11.0...v0.11.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **orcaslicer:** open the Selkies stream directly instead of in an iframe ([#188](https://github.com/metril/3d-model-manager/issues/188)) ([54d30f9](https://github.com/metril/3d-model-manager/commit/54d30f98d595943d950e628277b90dc40ff7c614))
+
 ## [0.11.0](https://github.com/metril/3d-model-manager/compare/v0.10.0...v0.11.0) (2026-11-01)
 
 
