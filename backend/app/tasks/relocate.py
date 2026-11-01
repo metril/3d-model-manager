@@ -42,26 +42,43 @@ Runs entirely in the worker's SYNC world -- see ``app.tasks.base``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import uuid
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.models import File, FileLocation, Revision
+from app.models import File, FileLocation, Model, Revision
+from app.models.tag_links import model_file_tags
 from app.services import jobs
-from app.services.library import _escape_like
+from app.services.library import (
+    _escape_like,
+    file_store_pending_sync,
+    lock_model_row_sync,
+    move_target_clash,
+    validate_move_target,
+)
 from app.services.storage_backends import (
     backend_for_id_sync,
     resolve_default_backend_sync,
 )
 from app.services.storage_tree import rewrite_folder_path
 from app.storage.base import StorageBackend
+from app.storage.errors import StorageError, StorageKeyNotFound
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+class MoveRejected(Exception):
+    """A move failed re-validation at run time (nothing was touched)."""
+
 
 MODES = frozenset({"move", "replicate"})
 
@@ -263,11 +280,28 @@ def move_storage_folder(job_id: str, src: str, new_prefix: str) -> None:
 
 
 def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_prefix: str) -> None:
-    file = s.get(File, file_id)
+    # Same lock order as every other mover: model row first, then the file row.
+    model_id = s.scalar(
+        select(Revision.model_id)
+        .join(File, File.revision_id == Revision.id)
+        .where(File.id == file_id)
+    )
+    if model_id is None:
+        return  # deleted
+    lock_model_row_sync(s, model_id)
+    file = s.execute(select(File).where(File.id == file_id).with_for_update()).scalar_one_or_none()
     if file is None or not file.storage_path.startswith(src + "/"):
         return  # deleted, or already moved by a previous (retried) run
+    _move_file_to(s, settings, file, rewrite_folder_path(file.storage_path, src, new_prefix))
+
+
+def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
+    """Copy ``file``'s bytes to key ``new`` on EVERY backend holding a copy
+    (hash-verified), repoint the row, re-key its per-file tags and commit in
+    one go, then delete the old objects. No-op when already at ``new``."""
     old = file.storage_path
-    new = rewrite_folder_path(old, src, new_prefix)
+    if old == new:
+        return
     expected = file.blob_hash
 
     holders: list[tuple[StorageBackend, str]] = []
@@ -284,18 +318,195 @@ def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_p
     ).scalars():
         holders.append((backend_for_id_sync(s, settings, loc.backend_id), old))
 
-    for backend, _ in holders:
+    case_only = old != new and old.casefold() == new.casefold()
+    # (backend, key) pairs THIS call created and may need to clean up. On a
+    # case-insensitive backend `new` aliases `old`, so there only the temp key
+    # is ever cleaned (deleting `new` would delete `old`).
+    aliased: list[StorageBackend] = []  # holders where `new` resolves to `old`
+    written: list[tuple[StorageBackend, str]] = []
+    # Never overwrite: on a case-sensitive move an existing object at `new` is
+    # foreign (no file row owns it), so abort this file rather than clobber it.
+    if not case_only:
+        for backend, _ in holders:
+            if backend.exists(new):
+                raise MoveRejected(f"target key {new!r} already holds an object")
 
-        def _chunks(backend=backend, old=old):
-            yield from backend.read(old)
+    def _cleanup() -> None:
+        for b, key in written:
+            with contextlib.suppress(Exception):
+                b.delete(key)
 
-        result = backend.write(new, _chunks())
+    def _copy(backend: StorageBackend, src: str, dst: str, *, track: bool) -> None:
+        def _chunks():
+            yield from backend.read(src)
+
+        result = backend.write(dst, _chunks())
+        if track:
+            written.append((backend, dst))
         if result.hash != expected:
-            backend.delete(new)
             raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
 
-    file.storage_path = new
-    file.rel_path = new.split("/", 2)[2]
-    s.commit()
+    old_rel = file.rel_path
+    model_id = s.scalar(select(Revision.model_id).where(Revision.id == file.revision_id))
+    try:
+        for backend, _ in holders:
+            # The clash check guarantees no file lives at `new`, so an existing
+            # object there means the backend folds case and it IS `old`.
+            if case_only and backend.exists(new):
+                aliased.append(backend)
+                tmp = f"{new}.tdmm-mv-{uuid.uuid4().hex}"
+                _copy(backend, old, tmp, track=True)
+                _copy(backend, tmp, new, track=False)
+                backend.delete(tmp)
+                written.remove((backend, tmp))
+            else:
+                _copy(backend, old, new, track=True)
+        file.storage_path = new
+        file.rel_path = new.split("/", 2)[2]
+        _rekey_file_tags(s, file, old_rel)
+        s.flush()
+        s.commit()
+    except Exception:
+        s.rollback()
+        _cleanup()
+        raise
+    # Re-take the model lock and confirm nothing (e.g. a concurrent upload)
+    # re-created a row at `old` since the commit before deleting its bytes.
+    lock_model_row_sync(s, model_id)
+    if s.scalar(select(File.id).where(File.storage_path == old).limit(1)) is not None:
+        logger.warning("move: %r is referenced again; leaving the old object", old)
+        s.rollback()
+        return
     for backend, _ in holders:
-        backend.delete(old)
+        if backend not in aliased:  # on a case-folding store `old` IS `new`
+            backend.delete(old)
+    s.rollback()  # release the lock
+
+
+def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:
+    """Carry ``model_file_tags`` rows from ``old_rel`` to the file's new
+    ``rel_path`` (tags are keyed by (model, rel_path), not file id). The old
+    rows go only when no other revision of the model still has that path."""
+    if old_rel == file.rel_path:
+        return
+    model_id = s.scalar(select(Revision.model_id).where(Revision.id == file.revision_id))
+    t = model_file_tags
+    tag_ids = list(
+        s.execute(
+            select(t.c.tag_id).where(t.c.model_id == model_id, t.c.rel_path == old_rel)
+        ).scalars()
+    )
+    if not tag_ids:
+        return
+    s.execute(
+        pg_insert(t)
+        .values([{"model_id": model_id, "rel_path": file.rel_path, "tag_id": i} for i in tag_ids])
+        .on_conflict_do_nothing()
+    )
+    s.flush()
+    still_used = s.scalar(
+        select(File.id)
+        .join(Revision, Revision.id == File.revision_id)
+        .where(Revision.model_id == model_id, File.rel_path == old_rel)
+        .limit(1)
+    )
+    if still_used is None:
+        s.execute(delete(t).where(t.c.model_id == model_id, t.c.rel_path == old_rel))
+
+
+def _recheck_move(s: Session, file: File, new_rel: str) -> None:
+    """Run-time twin of ``plan_file_moves``' checks, against fresh state
+    (the file row is already locked by the caller)."""
+    model_current = s.scalar(
+        select(Model.current_revision_id)
+        .join(Revision, Revision.model_id == Model.id)
+        .where(Revision.id == file.revision_id)
+    )
+    if model_current != file.revision_id:
+        raise MoveRejected(f"file {file.id} is not in the model's current revision")
+    if PurePosixPath(file.rel_path).parts[0].casefold() == "_snapshots":
+        raise MoveRejected(f"file {file.id} is a snapshot file")
+    if (err := validate_move_target(new_rel)) is not None:
+        raise MoveRejected(err)
+    others = s.execute(
+        select(File.rel_path).where(File.revision_id == file.revision_id, File.id != file.id)
+    ).scalars()
+    if (clash := move_target_clash(new_rel, others)) is not None:
+        raise MoveRejected(f"{new_rel!r} conflicts with {clash!r}")
+    if file_store_pending_sync(s, file):
+        raise MoveRejected(f"file {file.id} is still being stored")
+
+
+_TRANSIENT = (OSError, StorageError)
+_PERMANENT = (StorageKeyNotFound, IsADirectoryError, NotADirectoryError)  # not worth retrying
+
+
+@celery_app.task(
+    name="app.tasks.relocate.move_model_files",
+    bind=True,
+    max_retries=3,
+    retry_backoff=15,
+    retry_backoff_max=120,
+)
+def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> None:
+    """Rename/move individual files of a model's current revision
+    (``moves`` = ``[[file_id, new_rel_path], ...]``). Per file: lock the row,
+    re-validate against fresh state, then the same copy-verify-commit-delete
+    as folder moves. Files already at their target are skipped, so a retry or
+    re-run resumes a partial batch. A rejected move is recorded and the rest
+    of the batch still runs; the job then fails listing the rejections.
+    Transient storage errors retry (bounded) without failing the job."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        jobs.mark_running(s, job_id)
+    rejected: list[str] = []
+    revision_ids: set[int] = set()
+    try:
+        for file_id, new_rel in moves:
+            with base.sync_session() as s:
+                # Same order as the API paths: model row first, then file row.
+                lock_model_row_sync(s, model_id)
+                file = s.execute(
+                    select(File).where(File.id == file_id).with_for_update()
+                ).scalar_one_or_none()
+                if file is None:
+                    continue  # deleted since the request
+                revision_ids.add(file.revision_id)  # so a retry still queues the render
+                if file.rel_path == new_rel:
+                    continue  # already moved
+                try:
+                    _recheck_move(s, file, new_rel)
+                except MoveRejected as exc:
+                    s.rollback()
+                    rejected.append(str(exc))
+                    continue
+                parts = file.storage_path.split("/", 2)
+                try:
+                    _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
+                except MoveRejected as exc:
+                    s.rollback()
+                    rejected.append(str(exc))
+        with base.sync_session() as s:
+            s.execute(update(Model).where(Model.id == model_id).values(updated_at=func.now()))
+            s.commit()
+            from app.tasks.pipeline import maybe_enqueue_assembly_for_revision_sync
+
+            for revision_id in revision_ids:
+                maybe_enqueue_assembly_for_revision_sync(s, revision_id)
+        if rejected:
+            raise RuntimeError("; ".join(rejected))
+    except _TRANSIENT as exc:
+        if self.request.retries < self.max_retries and not isinstance(exc, _PERMANENT):
+            raise self.retry(exc=exc, countdown=min(15 * 2**self.request.retries, 120)) from exc
+        with base.sync_session() as s:
+            jobs.mark_failed(s, job_id, str(exc))
+        raise
+    except Exception as exc:
+        with base.sync_session() as s:
+            jobs.mark_failed(s, job_id, str(exc))
+        raise
+    try:
+        with base.sync_session() as s:
+            jobs.mark_done(s, job_id)
+    except Exception:
+        logger.warning("move_files %s: succeeded but marking done failed", job_id, exc_info=True)

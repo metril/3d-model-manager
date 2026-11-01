@@ -116,6 +116,7 @@ async def upload_file(
         # never-stored file row so the client can simply retry the upload.
         job.state = jobs_service.STATE_FAILED
         job.error = "failed to enqueue store_to_backend"
+        await library.lock_model_row(db, model)
         orphan = await db.get(File, file.id)
         if orphan is not None:
             await db.delete(orphan)
@@ -130,6 +131,8 @@ async def upload_file(
             status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the upload; retry"
         ) from None
 
+    if replaced_ids:
+        await library.lock_model_row(db, model)
     for old_id in replaced_ids:
         old = await db.get(File, old_id)
         if old is not None:

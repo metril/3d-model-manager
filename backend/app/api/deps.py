@@ -58,12 +58,16 @@ class AuthContext:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "printer access denied")
 
 
-def require_owner_or_admin(ctx: AuthContext, created_by_user_id: int | None) -> None:
+def require_owner_or_admin(
+    ctx: AuthContext, created_by_user_id: int | None, action: str = "delete"
+) -> None:
     """403 unless ``ctx`` is an admin or the row's creator. Rows with a NULL
     creator (pre-existing / backfilled / task-created) are admin-only."""
     if ctx.is_admin or (created_by_user_id is not None and created_by_user_id == ctx.user.id):
         return
-    raise HTTPException(status.HTTP_403_FORBIDDEN, "only the creator or an admin can delete this")
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN, f"only the creator or an admin can {action} this"
+    )
 
 
 def _unauthenticated() -> HTTPException:

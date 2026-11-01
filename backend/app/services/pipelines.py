@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext
 from app.config import Settings
-from app.models import File, Printer, PrintRecipe, SlicerPipeline, SlicerProfile
+from app.models import File, Printer, PrintRecipe, Revision, SlicerPipeline, SlicerProfile
 from app.schemas.pipelines import PipelineRunOut, QueueStep
 from app.schemas.queue import QueueEnqueueIn
 from app.schemas.slicing import SliceJobIn
@@ -99,6 +99,11 @@ def apply_post_steps(session: Session, job, outcome) -> None:
         recipe=recipe.name if recipe is not None else "",
         pipeline=pipeline.name,
         plate=job.plate or 1,
+    )
+    from app.services.library import lock_model_row_sync
+
+    lock_model_row_sync(
+        session, session.scalar(select(Revision.model_id).where(Revision.id == sliced.revision_id))
     )
     parent = Path(sliced.rel_path).parent
     new_rel = new_name if str(parent) == "." else f"{parent}/{new_name}"

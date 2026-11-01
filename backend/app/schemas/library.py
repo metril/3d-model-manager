@@ -576,3 +576,16 @@ class TagUsageOut(BaseModel):
     projects: list[UsageProject]
     collections: list[UsageCollection]
     archives: list[UsageArchive]
+
+
+class FileMoveIn(BaseModel):
+    rel_path: str = Field(min_length=1)
+
+
+class FileMoveItem(BaseModel):
+    file_id: int
+    rel_path: str = Field(min_length=1)
+
+
+class FilesMoveIn(BaseModel):
+    moves: list[FileMoveItem] = Field(min_length=1, max_length=5000)
