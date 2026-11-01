@@ -304,9 +304,10 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
         holders.append((backend_for_id_sync(s, settings, loc.backend_id), old))
 
     case_only = old != new and old.casefold() == new.casefold()
-    # (backend, key) pairs THIS call created and may need to clean up. In a
-    # case-only rename `new` can alias `old` on a case-insensitive backend, so
-    # only the temp key is ever cleaned (deleting `new` would delete `old`).
+    # (backend, key) pairs THIS call created and may need to clean up. On a
+    # case-insensitive backend `new` aliases `old`, so there only the temp key
+    # is ever cleaned (deleting `new` would delete `old`).
+    aliased: list[StorageBackend] = []  # holders where `new` resolves to `old`
     written: list[tuple[StorageBackend, str]] = []
 
     def _cleanup() -> None:
@@ -327,7 +328,10 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
     old_rel = file.rel_path
     try:
         for backend, _ in holders:
-            if case_only:
+            # The clash check guarantees no file lives at `new`, so an existing
+            # object there means the backend folds case and it IS `old`.
+            if case_only and backend.exists(new):
+                aliased.append(backend)
                 tmp = f"{new}.tdmm-mv-{uuid.uuid4().hex}"
                 _copy(backend, old, tmp, track=True)
                 _copy(backend, tmp, new, track=False)
@@ -344,10 +348,9 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
         s.rollback()
         _cleanup()
         raise
-    if case_only:
-        return  # never delete `old`: on case-insensitive stores it IS `new`
     for backend, _ in holders:
-        backend.delete(old)
+        if backend not in aliased:  # on a case-folding store `old` IS `new`
+            backend.delete(old)
 
 
 def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:

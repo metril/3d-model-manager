@@ -282,6 +282,9 @@ class _CIBackend:
     def read(self, key, start=0, end=None):
         yield self.data[key.casefold()]
 
+    def exists(self, key):
+        return key.casefold() in self.data
+
     def delete(self, key):
         self.deleted.append(key)
         self.data.pop(key.casefold(), None)
@@ -341,3 +344,17 @@ async def test_delete_file_waits_for_model_lock(authenticated_client, db_session
         holder.rollback()
     r = await asyncio.wait_for(task, 30)
     assert r.status_code == 204
+
+
+async def test_case_only_rename_on_case_sensitive_backend_leaves_no_stray(
+    authenticated_client, db_session, backend
+) -> None:
+    m = await _model(authenticated_client, "CSRename", ["a.stl"])
+    ids = await _ids(db_session, m["id"])
+    with base.sync_session() as s:
+        f = s.get(File, ids["a.stl"])
+        old = f.storage_path
+        new = old.rsplit("/", 1)[0] + "/A.STL"
+        relocate._move_file_to(s, get_settings(), f, new)
+    assert b"".join(backend.read(new)) == b"content-CSRename-0"
+    assert not backend.exists(old)  # old-cased object removed
