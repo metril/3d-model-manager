@@ -44,9 +44,9 @@ export function useMirrorSelkiesTheme(): void {
   }, [resolvedTheme]);
 }
 
-/** Follow Selkies' own toggle (a `storage` event on `theme` fires here when the same-origin
- * iframe writes it). Mount only where the stream iframe lives: other tabs get the change
- * through `tdmm-theme`, and reacting there could clobber a `system` preference. */
+/** Follow Selkies' own toggle (a `storage` event on `theme` fires here when the stream tab
+ * writes it). The no-op check against the resolved theme keeps a `system` preference intact.
+ * The other direction (app to stream) is `tdmm-theme-sync.js`, injected into the Selkies page. */
 export function useFollowSelkiesTheme(): void {
   const { setTheme } = useTheme();
   useEffect(() => {
@@ -57,21 +57,4 @@ export function useFollowSelkiesTheme(): void {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [setTheme]);
-}
-
-/** Make the (same-origin) Selkies dashboard match `theme` by clicking its own toggle, which
- * switches in place without a stream reconnect. Returns "noop" when it already matches,
- * "clicked" after a toggle, and "missing" when the dashboard (or its toggle) isn't there. */
-export function syncSelkiesTheme(doc: Document | null | undefined, theme: Mode): "noop" | "clicked" | "missing" {
-  const toggle = doc?.querySelector<HTMLElement>(".theme-toggle");
-  if (!toggle) return "missing";
-  const current: Mode | null = toggle.classList.contains("dark")
-    ? "dark"
-    : toggle.classList.contains("light")
-      ? "light"
-      : null;
-  if (current === null) return "missing";
-  if (current === theme) return "noop";
-  toggle.click();
-  return "clicked";
 }

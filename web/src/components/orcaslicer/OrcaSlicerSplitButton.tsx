@@ -1,13 +1,15 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { BoxesIcon, ChevronDownIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { isOrcaSlicerOpenable, useOrcaSlicerEnabled } from "@/api/orcaslicer";
+import { ApiError } from "@/api/client";
+import { isOrcaSlicerOpenable, useEndOrcaSlicerSession, useOrcaSlicerEnabled, useOrcaSlicerSession } from "@/api/orcaslicer";
 import type { FileOut } from "@/api/types";
 import { readOrcaSlicerMode, type OrcaSlicerOpenMode } from "@/components/orcaslicer/orcaslicerNav";
 import { useOrcaSlicerLauncher } from "@/components/orcaslicer/useOrcaSlicerLauncher";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** "Open in OrcaSlicer" split button: the main action uses the last-chosen mode (tab by
@@ -25,6 +27,8 @@ export function OrcaSlicerSplitButton({
   const { t } = useTranslation();
   const enabled = useOrcaSlicerEnabled();
   const { launch, dialog } = useOrcaSlicerLauncher(slug, enabled);
+  const session = useOrcaSlicerSession({ enabled }).data;
+  const end = useEndOrcaSlicerSession();
   const [mode, setMode] = useState<OrcaSlicerOpenMode>(readOrcaSlicerMode);
   if (!enabled || !file.verified_at || !isOrcaSlicerOpenable(file)) return null;
 
@@ -66,6 +70,25 @@ export function OrcaSlicerSplitButton({
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => open("tab")}>{t("orcaslicer.tab")}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => open("window")}>{t("orcaslicer.window")}</DropdownMenuItem>
+          {session ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="max-w-64 truncate font-normal">
+                {t("orcaslicer.editing")} <strong>{session.file.name}</strong>
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                disabled={end.isPending}
+                onSelect={() =>
+                  end.mutate(undefined, {
+                    onSuccess: () => toast.success(t("orcaslicer.ended")),
+                    onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("orcaslicer.endError")),
+                  })
+                }
+              >
+                {t("orcaslicer.end")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       {dialog}

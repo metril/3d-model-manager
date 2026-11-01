@@ -68,8 +68,8 @@ const viewerWindowRoute = createRoute({
 });
 
 // Standalone OrcaSlicer tab/window: session-guarded, OUTSIDE the AppShell (full viewport).
-// Bare `/slicer` is this client route; the OrcaSlicer GUI itself is served
-// same-origin at `/slicer/` (api reverse proxy), which the iframe loads.
+// Bare `/slicer` is this client route and just redirects; the OrcaSlicer GUI itself is served
+// same-origin at `/slicer/` (api reverse proxy) and opened directly in the tab.
 const orcaslicerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/slicer",

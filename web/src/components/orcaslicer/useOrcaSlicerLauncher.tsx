@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import { useOpenInOrcaSlicer, useOrcaSlicerSession } from "@/api/orcaslicer";
 import type { FileOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { openOrcaSlicerWindow, readOrcaSlicerMode, type OrcaSlicerOpenMode } from "@/components/orcaslicer/orcaslicerNav";
+import { isInsecureOrcaSlicerContext, openOrcaSlicerWindow, readOrcaSlicerMode, type OrcaSlicerOpenMode } from "@/components/orcaslicer/orcaslicerNav";
 
 /** "Open in OrcaSlicer": confirms when it would replace a session on a different file,
  * opens the OrcaSlicer tab/window synchronously (before any await, so it isn't pop-up blocked),
@@ -18,6 +18,7 @@ export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch:
   const [pending, setPending] = useState<{ file: FileOut; mode: OrcaSlicerOpenMode } | null>(null);
 
   function run(file: FileOut, mode: OrcaSlicerOpenMode) {
+    if (isInsecureOrcaSlicerContext()) toast.warning(t("orcaslicer.insecure"));
     const { win, created } = openOrcaSlicerWindow(mode);
     open.mutate(file.id, {
       onSuccess: (out) => {

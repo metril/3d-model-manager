@@ -9,4 +9,10 @@ RUN chmod +x /app/launcher.py /custom-cont-init.d/10-orcaslicer-prefs /custom-co
     /etc/s6-overlay/s6-rc.d/svc-launcher/run \
  && mkdir -p /exchange
 
+# Load the app-theme sync script from the Selkies dashboard page; fail the build if the
+# base image's markup no longer has the </head> anchor.
+RUN f=/usr/share/selkies/selkies-dashboard/index.html \
+ && (grep -q tdmm-theme-sync "$f" || sed -i 's#</head>#<script src="tdmm-theme-sync.js" defer></script></head>#' "$f") \
+ && grep -q tdmm-theme-sync "$f"
+
 EXPOSE 3000 3010
