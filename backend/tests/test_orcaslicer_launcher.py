@@ -35,12 +35,14 @@ def test_health_idle_before_any_launch(launcher) -> None:
 
 
 def test_nonzero_exit_is_a_crash(launcher) -> None:
+    launcher.child_pid = 4242
     launcher.watch(FakeProc(139))
     h = launcher.health()
     assert (h["last_exit"], h["crashed"]) == (139, True)
 
 
 def test_clean_exit_is_not_a_crash(launcher) -> None:
+    launcher.child_pid = 4242
     launcher.watch(FakeProc(0))
     assert launcher.health()["crashed"] is False
 
@@ -52,3 +54,10 @@ def test_stop_by_us_is_not_a_crash(launcher, monkeypatch) -> None:
     launcher.watch(FakeProc(-15))
     h = launcher.health()
     assert (h["last_exit"], h["crashed"]) == (-15, False)
+    assert launcher.stopped_pids == set()  # pruned once the watcher recorded the exit
+
+
+def test_stale_child_exit_is_ignored(launcher) -> None:
+    launcher.child_pid = 5000
+    launcher.watch(FakeProc(1, pid=4242))
+    assert launcher.health()["last_exit"] is None

@@ -29,7 +29,7 @@ function OrcaSlicerStage() {
 export function OrcaSlicerFrame() {
   const { t } = useTranslation();
   const enabled = useOrcaSlicerEnabled();
-  const session = useOrcaSlicerSession({ enabled });
+  const session = useOrcaSlicerSession({ enabled, pollWhileIdle: true });
   const end = useEndOrcaSlicerSession();
   const s = session.data;
 

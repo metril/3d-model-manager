@@ -68,6 +68,27 @@ describe("layoutStore", () => {
     expect((loaded!.layout.grid.root as unknown as { data: unknown[] }).data).toHaveLength(2);
   });
 
+  it("prunes retired panels from floating groups and drops emptied ones", () => {
+    const saved = layout({
+      floatingGroups: [
+        { data: { id: "f1", views: ["orcaslicer"], activeView: "orcaslicer" }, position: { top: 0, left: 0, width: 1, height: 1 } },
+        { data: { id: "f2", views: ["notes", "studio"], activeView: "studio" }, position: { top: 0, left: 0, width: 1, height: 1 } },
+      ],
+    } as unknown as Partial<SerializedDockview>);
+    (saved.panels as Record<string, unknown>).orcaslicer = { id: "orcaslicer" };
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer"], layout: saved }));
+    const floating = loadLayout()?.layout.floatingGroups as unknown as Array<{ data: { views: string[]; activeView: string } }>;
+    expect(floating).toHaveLength(1);
+    expect(floating[0].data).toMatchObject({ views: ["notes"], activeView: "notes" });
+  });
+
+  it("discards a layout whose grid is left empty so the default is used", () => {
+    const saved = layout({ panels: { orcaslicer: { id: "orcaslicer" } } as unknown as SerializedDockview["panels"] });
+    (saved.grid.root as unknown as { data: unknown[] }).data = [leaf("g1", ["orcaslicer"])];
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["orcaslicer"], layout: saved }));
+    expect(loadLayout()).toBeNull();
+  });
+
   it("flags registry panels that were unknown at save time", () => {
     localStorage.setItem(
       LAYOUT_KEY,

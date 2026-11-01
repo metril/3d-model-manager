@@ -256,10 +256,11 @@ describe("EventsProvider replay + print_job.updated", () => {
     return { source: FakeEventSource.instances[0], spy };
   }
 
-  it("invalidates on a re-open but not on the first open", () => {
+  it("invalidates on a re-open but only the slicer session on the first open", () => {
     const { source, spy } = setup();
     source.onopen?.();
-    expect(spy).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["orcaslicer", "session"] });
     source.onopen?.();
     for (const key of ["queue", "jobs", "models", "printers", "print-jobs"]) {
       expect(spy).toHaveBeenCalledWith({ queryKey: [key] });

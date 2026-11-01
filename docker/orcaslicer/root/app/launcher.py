@@ -78,7 +78,7 @@ def prepare_session(path: str) -> None:
 
 
 def relaunch(path: str) -> int:
-    global child_pid
+    global child_pid, last
     kill()  # OrcaSlicer must be dead first: it rewrites the conf on exit
     prepare_session(path)
     p = subprocess.Popen(
@@ -88,6 +88,7 @@ def relaunch(path: str) -> int:
     )
     with state_lock:
         child_pid = p.pid
+        last = None  # a new launch clears the previous exit (crashed is sticky until then)
     threading.Thread(target=watch, args=(p,), daemon=True).start()
     print(f"launched orcaslicer pid={p.pid} path={path}", flush=True)
     return p.pid
@@ -98,7 +99,11 @@ def watch(p) -> None:
     global last
     rc = p.wait()
     with state_lock:
-        last = {"rc": rc, "at": time.time(), "stopped": p.pid in stopped_pids}
+        was_stopped = p.pid in stopped_pids
+        stopped_pids.discard(p.pid)
+        if p.pid != child_pid:
+            return  # a newer child has taken over; this exit is stale
+        last = {"rc": rc, "at": time.time(), "stopped": was_stopped}
 
 
 def health() -> dict:

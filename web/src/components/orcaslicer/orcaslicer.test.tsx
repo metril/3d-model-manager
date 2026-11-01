@@ -9,6 +9,7 @@ import type { FileOut, ModelDetail } from "@/api/types";
 import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { fakeServer } from "@/components/settings/server/fixtures";
 import { OrcaSlicerServerCard } from "@/components/settings/server/OrcaSlicerServerCard";
+import { resetOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { OrcaSlicerFrame } from "@/components/orcaslicer/OrcaSlicerFrame";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -81,6 +82,7 @@ beforeEach(() => {
   openMock.mockReturnValue({ close: closeMock });
   vi.stubGlobal("open", openMock);
   localStorage.clear();
+  resetOrcaSlicerWindow();
 });
 
 describe("OrcaSlicerServerCard", () => {
@@ -204,6 +206,23 @@ describe("Open in OrcaSlicer menu entry", () => {
     expect(openMock.mock.calls[0][2]).toMatch(/^popup,width=\d+,height=\d+$/);
     resolvePost({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
+    expect(closeMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses an open slicer tab and does not close it when the POST fails", async () => {
+    const existing = { closed: false, close: closeMock, focus: vi.fn() };
+    openMock.mockReturnValue(existing);
+    postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
+    await openMenu(file(), { enabled: true });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    // first call created it (and closes it on error); a second click reuses it
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+    closeMock.mockClear();
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Actions for/ }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
+    expect(existing.focus).toHaveBeenCalled();
     expect(closeMock).not.toHaveBeenCalled();
   });
 

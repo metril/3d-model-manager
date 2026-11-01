@@ -62,6 +62,16 @@ function stripRetiredPanels(parsed: Record<string, unknown>): void {
   };
   const root = prune(grid.root);
   if (root) grid.root = root;
+  else delete grid.root; // nothing left: parseStored rejects the layout -> default layout
+  if (Array.isArray(layout.floatingGroups)) {
+    layout.floatingGroups = layout.floatingGroups.filter((g) => {
+      if (!isRecord(g) || !isRecord(g.data) || !Array.isArray(g.data.views)) return true;
+      const data = g.data as LeafData;
+      data.views = (data.views ?? []).filter((id) => !RETIRED_PANELS.includes(id));
+      if (data.activeView && !data.views.includes(data.activeView)) data.activeView = data.views[0];
+      return data.views.length > 0;
+    });
+  }
 }
 
 function parseStored(raw: string | null): { layout: SerializedDockview; known: PanelId[] } | null {

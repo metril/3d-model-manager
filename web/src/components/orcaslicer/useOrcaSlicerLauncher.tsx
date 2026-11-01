@@ -18,13 +18,13 @@ export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch:
   const [pending, setPending] = useState<{ file: FileOut; mode: OrcaSlicerOpenMode } | null>(null);
 
   function run(file: FileOut, mode: OrcaSlicerOpenMode) {
-    const win = openOrcaSlicerWindow(mode);
+    const { win, created } = openOrcaSlicerWindow(mode);
     open.mutate(file.id, {
       onSuccess: (out) => {
         toast.success(t("orcaslicer.opening", { name: out.file.name }));
       },
       onError: (e) => {
-        win?.close();
+        if (created) win?.close();
         const code = e instanceof ApiError ? e.code : undefined;
         const key =
           code === "orcaslicer_disabled"
