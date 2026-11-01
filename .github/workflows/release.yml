@@ -276,6 +276,8 @@ jobs:
             tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
           fi
           echo "list=${tags}" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$([ "$RELEASE_CREATED" = "true" ] && echo "${VERSION}" || echo edge)" >> "$GITHUB_OUTPUT"
       - name: Build (loaded locally)
         uses: docker/build-push-action@v7
         with:
@@ -283,6 +285,16 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: tdmm-slicer:smoke
+          # Explicit labels: without them the image carries only whatever its base
+          # image set (orcaslicer inherits linuxserver's source/revision/created),
+          # so a fresh publish would look stale and mislabelled.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.tag.outputs.created }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.version }}
+            org.opencontainers.image.title=3d-model-manager-slicer
+            org.opencontainers.image.description=Headless slicer sidecar for 3D Model Manager
           cache-from: type=gha,scope=tdmm-slicer
           cache-to: type=gha,mode=max,scope=tdmm-slicer,ignore-error=true
       - name: Smoke slice
@@ -338,6 +350,8 @@ jobs:
             tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
           fi
           echo "list=${tags}" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$([ "$RELEASE_CREATED" = "true" ] && echo "${VERSION}" || echo edge)" >> "$GITHUB_OUTPUT"
       - name: Build (loaded locally)
         uses: docker/build-push-action@v7
         with:
@@ -345,6 +359,16 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: tdmm-orcaslicer:smoke
+          # Explicit labels: without them the image carries only whatever its base
+          # image set (orcaslicer inherits linuxserver's source/revision/created),
+          # so a fresh publish would look stale and mislabelled.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.tag.outputs.created }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.version }}
+            org.opencontainers.image.title=3d-model-manager-orcaslicer
+            org.opencontainers.image.description=OrcaSlicer GUI sidecar for 3D Model Manager (Selkies stream)
           cache-from: type=gha,scope=tdmm-orcaslicer
           cache-to: type=gha,mode=min,scope=tdmm-orcaslicer,ignore-error=true
       - name: Smoke
@@ -414,6 +438,8 @@ jobs:
           echo "context=${ctx}" >> "$GITHUB_OUTPUT"
           echo "upstream=$img:upstream-${up::7}" >> "$GITHUB_OUTPUT"
           echo "list=${tags}" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$([ "$RELEASE_CREATED" = "true" ] && echo "${VERSION}" || echo edge)" >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$img:upstream-${up::7}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
@@ -427,6 +453,16 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: tdmm-obico-ml:smoke
+          # Explicit labels: without them the image carries only whatever its base
+          # image set (orcaslicer inherits linuxserver's source/revision/created),
+          # so a fresh publish would look stale and mislabelled.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.tag.outputs.created }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.version }}
+            org.opencontainers.image.title=3d-model-manager-obico-ml
+            org.opencontainers.image.description=Obico ML failure-detection sidecar for 3D Model Manager
           cache-from: type=gha,scope=tdmm-obico-ml
           cache-to: type=gha,mode=max,scope=tdmm-obico-ml,ignore-error=true
       - name: Smoke health
@@ -446,6 +482,8 @@ jobs:
             docker push "$t"
           done
       - name: Publish (re-tag existing upstream build)
+        # Labels (revision/created/version) come from the build that produced
+        # the :upstream-<short> image; a re-tag does not rewrite them.
         if: steps.tag.outputs.exists == 'true'
         env:
           TAGS: ${{ steps.tag.outputs.list }}
