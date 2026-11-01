@@ -5,8 +5,7 @@ import { usePrinterPlugs } from "@/api/ops";
 import { usePrinters, useUpdatePrinter } from "@/api/printers";
 import { PlugForm } from "@/components/plugs/PlugForm";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 /** A printer's linked smart plugs (many allowed) plus the "power off when the
  * queue drains" switch. Needs `settings:write`; hidden otherwise. Plugs are
@@ -54,15 +53,13 @@ export function PlugConfig({ printerId }: { printerId: number }) {
       )}
       {editing === "new" ? <PlugForm printerId={printerId} onDone={() => setEditing(null)} /> : null}
       {list.some((p) => p.controls_printer_power) && printer ? (
-        <div className="flex items-center gap-3">
-          <Switch
-            id={`drain-off-${printerId}`}
-            checked={Boolean(printer.power_off_when_drained)}
-            disabled={update.isPending}
-            onCheckedChange={(v) => update.mutate({ power_off_when_drained: v })}
-          />
-          <Label htmlFor={`drain-off-${printerId}`}>Power off the printer when the queue drains</Label>
-        </div>
+        <SwitchRow
+          id={`drain-off-${printerId}`}
+          label="Power off the printer when the queue drains"
+          checked={Boolean(printer.power_off_when_drained)}
+          disabled={update.isPending}
+          onCheckedChange={(v) => update.mutate({ power_off_when_drained: v })}
+        />
       ) : null}
     </div>
   );

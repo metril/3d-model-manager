@@ -386,3 +386,6 @@
   .sidebar-collapsible[data-state="open"] { animation: sidebar-collapsible-down 150ms ease-out; }
   .sidebar-collapsible[data-state="closed"] { animation: sidebar-collapsible-up 150ms ease-in; }
 }
+
+/* Switch (w-8) + gap-3: the x offset of a SwitchRow label text column. */
+:root { --switch-indent: calc(2rem + 0.75rem); }

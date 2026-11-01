@@ -50,7 +50,7 @@ describe("OidcProvidersCard", () => {
   it("sends trusts_idp_mfa when the switch is toggled", async () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Edit Authentik" }));
-    fireEvent.click(await screen.findByRole("switch", { name: "Trust identity provider MFA" }));
+    fireEvent.click(await screen.findByRole("switch", { name: /Trust identity provider MFA/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save provider" }));
     await waitFor(() => expect(patchMock).toHaveBeenCalled());
     expect(patchMock.mock.calls[0][1]).toMatchObject({ trusts_idp_mfa: true });
