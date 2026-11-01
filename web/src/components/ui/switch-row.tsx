@@ -50,11 +50,14 @@ function SwitchRow({
           className="mt-[calc((1.25rem-1.15rem)/2)]"
         />
         <div className="min-w-0 flex-1">
-          <Label htmlFor={sid} className="leading-5">
+          <Label
+            htmlFor={sid}
+            className={cn("leading-5 font-normal", disabled && "cursor-not-allowed opacity-50")}
+          >
             {label}
           </Label>
           {description ? (
-            <p className="text-xs text-muted-foreground">{description}</p>
+            <p className={cn("text-xs text-muted-foreground", disabled && "opacity-50")}>{description}</p>
           ) : null}
         </div>
       </div>

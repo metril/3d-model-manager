@@ -42,7 +42,8 @@ export function FinancePage() {
           </CardHeader>
           <CardContent>
             <SwitchRow
-              label={config.data?.billing_enabled ? "Billing is on" : "Billing is off"}
+              label="Billing"
+              description={config.data?.billing_enabled ? "Billing is on" : "Billing is off"}
               checked={!!config.data?.billing_enabled}
               disabled={config.isLoading || setBilling.isPending}
               onCheckedChange={(checked) => setBilling.mutate(checked)}

@@ -26,4 +26,10 @@ describe("SwitchRow", () => {
     fireEvent.click(screen.getByText("Off"));
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("dims the label and description when disabled", () => {
+    render(<SwitchRow label="Off" description="Why" disabled checked={false} onCheckedChange={() => {}} />);
+    expect(screen.getByText("Off").className).toContain("opacity-50");
+    expect(screen.getByText("Why").className).toContain("opacity-50");
+  });
 });

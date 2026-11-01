@@ -91,7 +91,7 @@ describe("FinancePage", () => {
   it("shows manager controls (billing switch, New center, Edit, Deposit, Delete)", async () => {
     renderPage();
     expect(await screen.findByText("Shared shop")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Billing is on" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Billing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New center" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deposit" })).toBeInTheDocument();
