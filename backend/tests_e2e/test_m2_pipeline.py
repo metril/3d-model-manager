@@ -38,7 +38,7 @@ POLL_INTERVAL_S = 0.5
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 GLB_MAGIC = b"glTF"
-IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+IMMUTABLE_CACHE_CONTROL = "private, max-age=31536000, immutable"
 
 # -- tiny binary STL: a 20x10x5 mm box, 8 vertices / 12 triangles ------------
 # Same box as backend/tests/corpus.py's box_stl()/_CUBE_VERTICES (matching
