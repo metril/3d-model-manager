@@ -45,11 +45,13 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.models import File, FileLocation, Revision
+from app.models import File, FileLocation, Model, Revision
+from app.models.tag_links import model_file_tags
 from app.services import jobs
 from app.services.library import _escape_like
 from app.services.storage_backends import (
@@ -266,8 +268,16 @@ def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_p
     file = s.get(File, file_id)
     if file is None or not file.storage_path.startswith(src + "/"):
         return  # deleted, or already moved by a previous (retried) run
+    _move_file_to(s, settings, file, rewrite_folder_path(file.storage_path, src, new_prefix))
+
+
+def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
+    """Copy ``file``'s bytes to key ``new`` on EVERY backend holding a copy
+    (hash-verified), repoint the row, re-key its per-file tags and commit in
+    one go, then delete the old objects. No-op when already at ``new``."""
     old = file.storage_path
-    new = rewrite_folder_path(old, src, new_prefix)
+    if old == new:
+        return
     expected = file.blob_hash
 
     holders: list[tuple[StorageBackend, str]] = []
@@ -294,8 +304,78 @@ def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_p
             backend.delete(new)
             raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
 
+    old_rel = file.rel_path
     file.storage_path = new
     file.rel_path = new.split("/", 2)[2]
+    _rekey_file_tags(s, file, old_rel)
     s.commit()
     for backend, _ in holders:
         backend.delete(old)
+
+
+def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:
+    """Carry ``model_file_tags`` rows from ``old_rel`` to the file's new
+    ``rel_path`` (tags are keyed by (model, rel_path), not file id). The old
+    rows go only when no other revision of the model still has that path."""
+    if old_rel == file.rel_path:
+        return
+    model_id = s.scalar(select(Revision.model_id).where(Revision.id == file.revision_id))
+    t = model_file_tags
+    tag_ids = list(
+        s.execute(
+            select(t.c.tag_id).where(t.c.model_id == model_id, t.c.rel_path == old_rel)
+        ).scalars()
+    )
+    if not tag_ids:
+        return
+    s.execute(
+        pg_insert(t)
+        .values([{"model_id": model_id, "rel_path": file.rel_path, "tag_id": i} for i in tag_ids])
+        .on_conflict_do_nothing()
+    )
+    s.flush()
+    still_used = s.scalar(
+        select(File.id)
+        .join(Revision, Revision.id == File.revision_id)
+        .where(Revision.model_id == model_id, File.rel_path == old_rel)
+        .limit(1)
+    )
+    if still_used is None:
+        s.execute(delete(t).where(t.c.model_id == model_id, t.c.rel_path == old_rel))
+
+
+@celery_app.task(name="app.tasks.relocate.move_model_files")
+def move_model_files(job_id: str, model_id: int, moves: list[list]) -> None:
+    """Rename/move individual files of a model's current revision
+    (``moves`` = ``[[file_id, new_rel_path], ...]``). Per file: the same
+    copy-verify-commit-delete as folder moves. Retries skip files already at
+    their target (``_move_file_to`` is a no-op there)."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        jobs.mark_running(s, job_id)
+    blob_hashes: set[str] = set()
+    try:
+        for file_id, new_rel in moves:
+            with base.sync_session() as s:
+                file = s.get(File, file_id)
+                if file is None:
+                    continue  # deleted since the request
+                parts = file.storage_path.split("/", 2)
+                _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
+                blob_hashes.add(file.blob_hash)
+        with base.sync_session() as s:
+            s.execute(update(Model).where(Model.id == model_id).values(updated_at=func.now()))
+            s.commit()
+            from app.tasks.pipeline import maybe_enqueue_assembly_sync
+
+            for h in blob_hashes:
+                maybe_enqueue_assembly_sync(s, blob_hash=h)
+    except Exception as exc:
+        with base.sync_session() as s:
+            jobs.mark_failed(s, job_id, str(exc))
+        raise
+    try:
+        with base.sync_session() as s:
+            jobs.mark_done(s, job_id)
+    except Exception:
+        logger.warning("move_files %s: succeeded but marking done failed", job_id, exc_info=True)

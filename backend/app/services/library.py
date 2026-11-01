@@ -78,6 +78,7 @@ if TYPE_CHECKING:
     # Avoids a runtime import cycle (app.importers.download doesn't import
     # this module, but keeping the dependency one-directional at runtime is
     # simplest): only needed for the `store_imported_file_sync` annotation.
+    from app.api.deps import AuthContext
     from app.importers.download import StagedFile
 
 
@@ -2034,6 +2035,103 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
         raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
 
     await _hard_delete_file_row(db, settings, file=file, model=model)
+
+
+async def plan_file_moves(
+    db: AsyncSession, moves: list[tuple[int, str]], *, model_id: int | None = None
+) -> tuple[Model, list[tuple[int, str]]]:
+    """Validate a rename/move batch against the model's CURRENT revision and
+    return ``(model, [(file_id, rel_path)])`` with no-op entries dropped. The
+    caller authorizes against ``model`` (after this resolves it).
+
+    All files must belong to one model (``model_id`` when given), be in its
+    current revision, not be mid-store, and land on a free, safe ``rel_path``
+    (no collision with an existing file or another entry of the batch).
+    """
+    if len({fid for fid, _ in moves}) != len(moves):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "duplicate file_id in moves")
+    files = {
+        f.id: f
+        for f in (
+            await db.execute(select(File).where(File.id.in_([m[0] for m in moves])))
+        ).scalars()
+    }
+    for fid, _ in moves:
+        if fid not in files:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {fid} not found")
+    revision_ids = {f.revision_id for f in files.values()}
+    revisions = (
+        (await db.execute(select(Revision).where(Revision.id.in_(revision_ids)))).scalars().all()
+    )
+    model_ids = {r.model_id for r in revisions}
+    if len(model_ids) != 1 or (model_id is not None and model_ids != {model_id}):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "files must belong to the given model")
+    model = await db.get(Model, next(iter(model_ids)))
+    assert model is not None  # FK guarantees this
+    if revision_ids != {model.current_revision_id}:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "file belongs to a revision that is not the model's current revision",
+        )
+    targets: set[str] = set()
+    planned: list[tuple[int, str]] = []
+    for fid, rel in moves:
+        _validate_rel_path(rel)
+        if PurePosixPath(rel).parts[0] == "_snapshots":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "_snapshots/ is reserved")
+        if rel in targets:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"rel_path {rel!r} targeted twice")
+        targets.add(rel)
+        if files[fid].rel_path != rel:
+            planned.append((fid, rel))
+    wanted = [rel for _, rel in planned]
+    if wanted:
+        taken = await db.scalar(
+            select(File.rel_path)
+            .where(File.revision_id == model.current_revision_id, File.rel_path.in_(wanted))
+            .limit(1)
+        )
+        if taken is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"rel_path {taken!r} already exists")
+    if await _files_store_pending(db, [files[fid] for fid, _ in planned]):
+        raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
+    return model, planned
+
+
+async def enqueue_file_moves(
+    db: AsyncSession,
+    ctx: AuthContext,
+    moves: list[tuple[int, str]],
+    *,
+    model_id: int | None = None,
+) -> Job:
+    """Validate + authorize a move batch and dispatch ``move_model_files``."""
+    from app.api.deps import require_owner_or_admin
+    from app.tasks.relocate import move_model_files
+
+    model, planned = await plan_file_moves(db, moves, model_id=model_id)
+    require_owner_or_admin(ctx, model.created_by_user_id)
+    job = await jobs_service.create_job(
+        db, id=uuid.uuid4(), type="move_model_files", subject_type="model", subject_id=model.id
+    )
+    if planned:
+        try:
+            move_model_files.apply_async(
+                args=[str(job.id), model.id, [[fid, rel] for fid, rel in planned]],
+                task_id=str(job.id),
+            )
+        except Exception as exc:
+            job.state = jobs_service.STATE_FAILED
+            job.error = "failed to enqueue move_model_files"
+            await db.commit()
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "could not queue the move; retry"
+            ) from exc
+    else:
+        job.state = jobs_service.STATE_DONE
+        await db.commit()
+    await db.refresh(job)
+    return job
 
 
 async def try_delete_duplicate_copy(
