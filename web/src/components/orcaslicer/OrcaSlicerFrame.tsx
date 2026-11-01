@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useTheme } from "next-themes";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -7,19 +8,74 @@ import { useEndOrcaSlicerSession, useOrcaSlicerEnabled, useOrcaSlicerSession } f
 import { goToModel, isInsecureOrcaSlicerContext } from "@/components/orcaslicer/orcaslicerNav";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SELKIES_THEME_KEY, syncSelkiesTheme, useFollowSelkiesTheme } from "@/lib/selkiesTheme";
+
+const SYNC_RETRIES = 10;
+const SYNC_INTERVAL_MS = 500;
 
 function OrcaSlicerStage() {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
   const [loaded, setLoaded] = useState(false);
+  const [frameLoads, setFrameLoads] = useState(0);
+  const [remount, setRemount] = useState(0);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const remountedFor = useRef<string | null>(null);
+  const themeRef = useRef(resolvedTheme);
+  themeRef.current = resolvedTheme;
+  const loadedTheme = useRef<string | undefined>(undefined);
+  useFollowSelkiesTheme();
+
+  // Keep the Selkies dashboard's theme in step with the app: click its own toggle (no
+  // reconnect). The dashboard mounts after the frame's load event, so retry briefly; if it
+  // never shows a toggle, write its key and remount the frame once so it reads the value.
+  useEffect(() => {
+    if (frameLoads === 0 || (resolvedTheme !== "dark" && resolvedTheme !== "light")) return;
+    const theme = resolvedTheme;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const attempt = () => {
+      let result: ReturnType<typeof syncSelkiesTheme>;
+      try {
+        result = syncSelkiesTheme(frameRef.current?.contentDocument, theme);
+      } catch {
+        result = "missing";
+      }
+      if (result !== "missing") return;
+      if (++tries < SYNC_RETRIES) {
+        timer = setTimeout(attempt, SYNC_INTERVAL_MS);
+      } else if (loadedTheme.current !== theme && remountedFor.current !== theme) {
+        // Only when the theme changed after the frame loaded; at first mount Selkies already
+        // read the mirrored value.
+        remountedFor.current = theme;
+        try {
+          localStorage.setItem(SELKIES_THEME_KEY, theme);
+        } catch {
+          /* storage unavailable */
+        }
+        setLoaded(false);
+        setRemount((n) => n + 1);
+      }
+    };
+    attempt();
+    return () => clearTimeout(timer);
+  }, [resolvedTheme, frameLoads]);
+
   return (
     <div className="relative min-h-0 flex-1">
       {!loaded ? <Skeleton className="absolute inset-0 rounded-none" data-testid="orcaslicer-skeleton" /> : null}
       <iframe
+        key={remount}
+        ref={frameRef}
         title={t("orcaslicer.title")}
         src="/slicer/"
         allow="clipboard-read; clipboard-write; fullscreen"
         className="size-full border-0"
-        onLoad={() => setLoaded(true)}
+        onLoad={() => {
+          setLoaded(true);
+          loadedTheme.current = themeRef.current;
+          setFrameLoads((n) => n + 1);
+        }}
       />
     </div>
   );
