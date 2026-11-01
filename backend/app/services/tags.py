@@ -86,6 +86,10 @@ async def _get_tag(db: AsyncSession, tag_id: int) -> Tag:
     return tag
 
 
+async def get_tag(db: AsyncSession, tag_id: int) -> Tag:
+    return await _get_tag(db, tag_id)
+
+
 async def tag_counts(db: AsyncSession) -> dict[int, TagCounts]:
     out: dict[int, TagCounts] = {}
     for key, table in _COUNT_KEYS.items():
@@ -155,11 +159,8 @@ async def delete_tag(db: AsyncSession, tag_id: int) -> None:
     await db.commit()
 
 
-async def merge_tags(db: AsyncSession, source_id: int, into_id: int) -> TagOut:
-    if source_id == into_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot merge a tag into itself")
-    source = await _get_tag(db, source_id)
-    target = await _get_tag(db, into_id)
+async def _merge_into(db: AsyncSession, source: Tag, target: Tag) -> None:
+    """Re-point ``source``'s usages to ``target`` and delete it (no commit)."""
     for table in _ALL_JOINS:
         other_cols = [c for c in table.c if c.name != "tag_id"]
         sel = select(*other_cols, literal(target.id).label("tag_id")).where(
@@ -171,8 +172,56 @@ async def merge_tags(db: AsyncSession, source_id: int, into_id: int) -> TagOut:
             .on_conflict_do_nothing()
         )
     await db.delete(source)
+    await db.flush()
+
+
+async def merge_tags(db: AsyncSession, source_id: int, into_id: int) -> TagOut:
+    if source_id == into_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot merge a tag into itself")
+    source = await _get_tag(db, source_id)
+    target = await _get_tag(db, into_id)
+    await _merge_into(db, source, target)
     await db.commit()
     return TagOut(**to_ref(target).model_dump())
+
+
+async def _load_many(db: AsyncSession, ids: Sequence[int]) -> tuple[dict[int, Tag], list[int]]:
+    uniq = list(dict.fromkeys(ids))
+    found = {t.id: t for t in (await db.execute(select(Tag).where(Tag.id.in_(uniq)))).scalars()}
+    return found, [i for i in uniq if i not in found]
+
+
+async def bulk_delete(db: AsyncSession, ids: Sequence[int]) -> tuple[list[int], list[int]]:
+    """Delete every existing tag in ``ids`` in one transaction -> (deleted, not_found)."""
+    found, missing = await _load_many(db, ids)
+    for tag in found.values():
+        await db.delete(tag)
+    await db.commit()
+    return list(found), missing
+
+
+async def bulk_merge(
+    db: AsyncSession, ids: Sequence[int], into_id: int
+) -> tuple[list[int], list[int]]:
+    """Merge every existing tag in ``ids`` into ``into_id`` in one transaction."""
+    if into_id in ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "into_id must not be in ids")
+    target = await _get_tag(db, into_id)
+    found, missing = await _load_many(db, ids)
+    for tag in found.values():
+        await _merge_into(db, tag, target)
+    await db.commit()
+    return list(found), missing
+
+
+async def bulk_recolor(
+    db: AsyncSession, ids: Sequence[int], color: str | None
+) -> tuple[list[int], list[int]]:
+    found, missing = await _load_many(db, ids)
+    for tag in found.values():
+        tag.color = _norm_color(color)
+    await db.commit()
+    return list(found), missing
 
 
 # -- per-entity sets --------------------------------------------------
