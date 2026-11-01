@@ -18,6 +18,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useOrcaSlicerEnabled } from "@/api/orcaslicer";
+import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -69,6 +70,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     void navigate({ to });
   }
 
+  function openSlicer() {
+    onOpenChange(false);
+    openOrcaSlicerWindow();
+  }
+
   function goToPrinter(id: string) {
     onOpenChange(false);
     void navigate({ to: "/printers/$id", params: { id } });
@@ -102,7 +108,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             orcaslicerEnabled,
             hasPrinter: (printersQuery.data?.length ?? 0) > 0,
           }).map((item) => (
-            <CommandItem key={item.to as string} value={item.label} onSelect={() => goTo(item.to as string)}>
+            <CommandItem key={item.to as string} value={item.label} onSelect={() => (item.orcaslicerWindow ? openSlicer() : goTo(item.to as string))}>
               <item.icon className="size-4" />
               {item.label}
             </CommandItem>

@@ -25,6 +25,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AddToProjectDialog } from "@/components/projects/AddToProjectDialog";
 import { InlineEdit } from "@/components/InlineEdit";
 import { useHotkeys } from "@/hooks/useHotkeys";
+import { OrcaSlicerSplitButton } from "@/components/orcaslicer/OrcaSlicerSplitButton";
+import { isOrcaSlicerOpenable } from "@/api/orcaslicer";
 import { OpenInSlicerButton } from "@/components/model-detail/OpenInSlicerButton";
 import { SliceDialog } from "@/components/slice/SliceDialog";
 import { SliceFileButton } from "@/components/slice/SliceFileButton";
@@ -179,6 +181,10 @@ export function ModelHeader({
   // revision, per `SLICER_FORMAT_PRIORITY` -- there's no broader "primary
   // file" concept to hang this off of yet.
   const slicerFile = pickBestSlicerFile(model.current_revision?.files ?? []);
+  const orcaFile =
+    slicerFile && isOrcaSlicerOpenable(slicerFile)
+      ? slicerFile
+      : (model.current_revision?.files ?? []).find((f) => f.verified_at && isOrcaSlicerOpenable(f));
   const sliceableFile = pickSliceableFile(model.current_revision?.files ?? []);
   const canSlice = !!sliceableFile && !!features.data?.slicer_configured && can("printers:print");
 
@@ -258,6 +264,7 @@ export function ModelHeader({
           >
             <StarIcon className={model.favorite ? "fill-warning text-warning" : ""} />
           </Button>
+          {orcaFile ? <OrcaSlicerSplitButton file={orcaFile} slug={model.slug} showLabel /> : null}
           {/* One split button for Slice + Open in slicer. */}
           {canSlice && slicerFile ? (
             <>

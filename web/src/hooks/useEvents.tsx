@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { api } from "@/api/client";
 import type { AppEvent } from "@/api/types";
 import i18n from "@/i18n";
+import { goToModel } from "@/components/orcaslicer/orcaslicerNav";
 import { EventsContext, type EventsContextValue, type Listener } from "@/hooks/eventsContext";
 
 // Minimum time between session probes triggered by `onerror` (below) --
@@ -32,6 +33,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
     // A re-open (not the first) means events may have been lost while the
     // connection was down -- refetch everything the stream keeps fresh.
     source.onopen = () => {
+      // The first open may race a `session_started` fired before we subscribed.
+      void queryClient.invalidateQueries({ queryKey: ["orcaslicer", "session"] });
       if (!opened) {
         opened = true;
         return;
@@ -89,7 +92,7 @@ export function EventsProvider({ children }: { children: ReactNode }) {
           action: {
             label: i18n.t("orcaslicer.viewModel"),
             onClick: () => {
-              void import("@/router").then((m) => m.router.navigate({ to: "/models/$slug", params: { slug } }));
+              goToModel(slug);
             },
           },
         });

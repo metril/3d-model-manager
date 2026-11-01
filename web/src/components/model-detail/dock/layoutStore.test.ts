@@ -50,15 +50,43 @@ describe("layoutStore", () => {
     expect(loaded?.unseen).toEqual([]);
   });
 
-  it("remaps the legacy \"studio\" panel id saved before the OrcaSlicer rename", () => {
-    const legacy = layout({
-      panels: { viewer: { id: "viewer" }, studio: { id: "studio" } } as unknown as SerializedDockview["panels"],
+  it.each(["orcaslicer", "studio"])("strips the retired %s panel from saved layouts", (retired) => {
+    const saved = layout({
+      panels: { viewer: { id: "viewer" }, [retired]: { id: retired } } as unknown as SerializedDockview["panels"],
     });
-    (legacy.grid.root as unknown as { data: unknown[] }).data = [leaf("g1", ["viewer", "studio"])];
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer", "studio"], layout: legacy }));
+    (saved.grid.root as unknown as { data: unknown[] }).data = [
+      leaf("g1", ["viewer"]),
+      leaf("g2", [retired]),
+      leaf("g3", ["viewer", retired]),
+    ];
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer", retired], layout: saved }));
     const loaded = loadLayout();
-    expect(Object.keys(loaded?.layout.panels ?? {}).sort()).toEqual(["orcaslicer", "viewer"]);
-    expect(JSON.stringify(loaded?.layout)).not.toContain('"studio"');
+    expect(loaded).not.toBeNull();
+    expect(Object.keys(loaded?.layout.panels ?? {})).toEqual(["viewer"]);
+    const json = JSON.stringify(loaded?.layout);
+    expect(json).not.toContain(retired);
+    expect((loaded!.layout.grid.root as unknown as { data: unknown[] }).data).toHaveLength(2);
+  });
+
+  it("prunes retired panels from floating groups and drops emptied ones", () => {
+    const saved = layout({
+      floatingGroups: [
+        { data: { id: "f1", views: ["orcaslicer"], activeView: "orcaslicer" }, position: { top: 0, left: 0, width: 1, height: 1 } },
+        { data: { id: "f2", views: ["notes", "studio"], activeView: "studio" }, position: { top: 0, left: 0, width: 1, height: 1 } },
+      ],
+    } as unknown as Partial<SerializedDockview>);
+    (saved.panels as Record<string, unknown>).orcaslicer = { id: "orcaslicer" };
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["viewer"], layout: saved }));
+    const floating = loadLayout()?.layout.floatingGroups as unknown as Array<{ data: { views: string[]; activeView: string } }>;
+    expect(floating).toHaveLength(1);
+    expect(floating[0].data).toMatchObject({ views: ["notes"], activeView: "notes" });
+  });
+
+  it("discards a layout whose grid is left empty so the default is used", () => {
+    const saved = layout({ panels: { orcaslicer: { id: "orcaslicer" } } as unknown as SerializedDockview["panels"] });
+    (saved.grid.root as unknown as { data: unknown[] }).data = [leaf("g1", ["orcaslicer"])];
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ v: 2, known: ["orcaslicer"], layout: saved }));
+    expect(loadLayout()).toBeNull();
   });
 
   it("flags registry panels that were unknown at save time", () => {
@@ -66,7 +94,7 @@ describe("layoutStore", () => {
       LAYOUT_KEY,
       JSON.stringify({ v: 2, known: ["viewer", "notes", "specs"], layout: layout() }),
     );
-    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => id !== "orcaslicer" && !["viewer", "notes", "specs"].includes(id)));
+    expect(loadLayout()?.unseen).toEqual(PANEL_IDS.filter((id) => !["viewer", "notes", "specs"].includes(id)));
   });
 
   it("ignores a layout saved under the v1 key", () => {

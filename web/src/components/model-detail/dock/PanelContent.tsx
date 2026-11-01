@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 
 import { RelatedModels } from "@/components/model-detail/RelatedModels";
-import { OrcaSlicerFrame } from "@/components/orcaslicer/OrcaSlicerFrame";
 import { StudioWorkspace } from "@/components/model-detail/StudioWorkspace";
 import { DescriptionCard } from "@/components/model-detail/cards/DescriptionCard";
 import { FilesDocsCard } from "@/components/model-detail/cards/FilesDocsCard";
@@ -75,10 +74,6 @@ function SpecsContent() {
   return <SpecsCard model={useModelDetail().model} />;
 }
 
-function OrcaSlicerContent() {
-  return <OrcaSlicerFrame />;
-}
-
 const CONTENT: Record<PanelId, ComponentType<{ fill?: boolean }>> = {
   viewer: ViewerContent,
   description: DescriptionContent,
@@ -91,7 +86,6 @@ const CONTENT: Record<PanelId, ComponentType<{ fill?: boolean }>> = {
   notes: NotesContent,
   printTips: PrintTipsContent,
   specs: SpecsContent,
-  orcaslicer: OrcaSlicerContent,
 };
 
 /** Bare panel body for `id`; also used directly by the stacked (<900px) fallback. */
@@ -129,7 +123,7 @@ function PanelFrame({ api, fill, children }: { api: IDockviewPanelProps["api"]; 
   );
 }
 
-const FILL_PANELS: readonly PanelId[] = ["viewer", "orcaslicer"];
+const FILL_PANELS: readonly PanelId[] = ["viewer"];
 
 /** The single dockview component behind every panel; dockview passes the panel
  * id as `api.id`. */

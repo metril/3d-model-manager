@@ -67,6 +67,16 @@ const viewerWindowRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/ViewerWindowPage"), "ViewerWindowPage"),
 });
 
+// Standalone OrcaSlicer tab/window: session-guarded, OUTSIDE the AppShell (full viewport).
+// Bare `/slicer` is this client route; the OrcaSlicer GUI itself is served
+// same-origin at `/slicer/` (api reverse proxy), which the iframe loads.
+const orcaslicerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/slicer",
+  beforeLoad: (args) => sessionGuard(args),
+  component: lazyRouteComponent(() => import("@/pages/OrcaSlicerPage"), "OrcaSlicerPage"),
+});
+
 // Q4 camera surfaces, all OUTSIDE the AppShell layout. `/camera/$id` and
 // `/camwall` are session-guarded; `/overlay/$id?token=` is public (OBS
 // browser source) and authenticates by its read-only overlay token only.
@@ -233,14 +243,6 @@ const printHistoryRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/PrintHistoryPage"), "PrintHistoryPage"),
 });
 
-// Bare `/slicer` is this client route; the OrcaSlicer GUI itself is served
-// same-origin at `/slicer/` (api reverse proxy), which the iframe loads.
-const orcaslicerRoute = createRoute({
-  getParentRoute: () => authenticatedRoute,
-  path: "/slicer",
-  component: lazyRouteComponent(() => import("@/pages/OrcaSlicerPage"), "OrcaSlicerPage"),
-});
-
 const statsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/stats",
@@ -405,6 +407,7 @@ const externalLinkRoute = createRoute({
 export const routeTree = rootRoute.addChildren([
   loginRoute,
   viewerWindowRoute,
+  orcaslicerRoute,
   cameraWindowRoute,
   cameraShortcutRoute,
   camWallRoute,
@@ -438,7 +441,6 @@ export const routeTree = rootRoute.addChildren([
     systemFinanceRoute,
     jobsRedirectRoute,
     statsRoute,
-    orcaslicerRoute,
     settingsRoute,
     externalLinkRoute,
   ]),

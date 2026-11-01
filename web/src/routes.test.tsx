@@ -219,11 +219,11 @@ describe("printerRedirect", () => {
 });
 
 describe("orcaslicer route", () => {
-  it("registers /slicer inside the shell, session-guarded", async () => {
+  it("registers /slicer outside the shell, session-guarded", async () => {
     mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
     const router = makeRouter("/slicer");
     await router.load();
     expect(router.state.location.pathname).toBe("/slicer");
-    expect(router.state.matches.map((m) => m.routeId)).toContain("/authenticated/slicer");
+    expect(router.state.matches.map((m) => m.routeId)).toContain("/slicer");
   });
 });

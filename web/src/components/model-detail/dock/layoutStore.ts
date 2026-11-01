@@ -1,6 +1,6 @@
 import type { DockviewApi, SerializedDockview } from "dockview-react";
 
-import { OPTIONAL_PANELS, PANEL_IDS, isPanelId, type PanelId } from "./panelMeta";
+import { PANEL_IDS, isPanelId, type PanelId } from "./panelMeta";
 
 export const LAYOUT_KEY = "tdmm.modelDetailLayout.v4";
 export const LAYOUT_VERSION = 2;
@@ -31,20 +31,58 @@ export function parseLayout(raw: string | null): SerializedDockview | null {
 
 export type LoadedLayout = { layout: SerializedDockview; unseen: PanelId[] };
 
-/** Layouts saved before the sidecar rename use the panel id "studio"; remap it
- * to "orcaslicer" (panel ids appear only as quoted strings in a saved layout). */
-function remapLegacyPanelIds(raw: string): string {
-  return raw.replaceAll('"studio"', '"orcaslicer"');
+/** OrcaSlicer no longer has a dock panel (it opens in its own tab/window). Saved layouts that
+ * still carry it (as `orcaslicer`, or its pre-rename id `studio`) are cleaned up before
+ * validation: dropped from `panels`, every leaf's `views`/`activeView`, and `known`; leaves
+ * left empty are removed so the grid stays valid. */
+const RETIRED_PANELS = ["orcaslicer", "studio"];
+
+function stripRetiredPanels(parsed: Record<string, unknown>): void {
+  const layout = parsed.layout;
+  if (!isRecord(layout) || !isRecord(layout.panels)) return;
+  for (const id of RETIRED_PANELS) delete layout.panels[id];
+  if (Array.isArray(parsed.known)) parsed.known = parsed.known.filter((id) => !RETIRED_PANELS.includes(id as string));
+  const grid = layout.grid;
+  if (!isRecord(grid)) return;
+  const prune = (node: unknown): unknown => {
+    if (!isRecord(node)) return node;
+    if (node.type === "leaf" && isRecord(node.data)) {
+      const data = node.data as LeafData;
+      if (!Array.isArray(data.views)) return node;
+      data.views = data.views.filter((id) => !RETIRED_PANELS.includes(id));
+      if (data.views.length === 0) return null;
+      if (data.activeView && !data.views.includes(data.activeView)) data.activeView = data.views[0];
+      return node;
+    }
+    if (node.type === "branch" && Array.isArray(node.data)) {
+      node.data = node.data.map(prune).filter((child) => child !== null);
+      return (node.data as unknown[]).length === 0 ? null : node;
+    }
+    return node;
+  };
+  const root = prune(grid.root);
+  if (root) grid.root = root;
+  else delete grid.root; // nothing left: parseStored rejects the layout -> default layout
+  if (Array.isArray(layout.floatingGroups)) {
+    layout.floatingGroups = layout.floatingGroups.filter((g) => {
+      if (!isRecord(g) || !isRecord(g.data) || !Array.isArray(g.data.views)) return true;
+      const data = g.data as LeafData;
+      data.views = (data.views ?? []).filter((id) => !RETIRED_PANELS.includes(id));
+      if (data.activeView && !data.views.includes(data.activeView)) data.activeView = data.views[0];
+      return data.views.length > 0;
+    });
+  }
 }
 
 function parseStored(raw: string | null): { layout: SerializedDockview; known: PanelId[] } | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(remapLegacyPanelIds(raw));
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (isRecord(parsed)) stripRetiredPanels(parsed);
   if (!isRecord(parsed) || parsed.v !== LAYOUT_VERSION || !isRecord(parsed.layout)) return null;
   const layout = parsed.layout as unknown as SerializedDockview;
   if (!isRecord(layout.grid) || !isRecord(layout.grid.root) || !isRecord(layout.panels)) return null;
@@ -103,7 +141,7 @@ export function loadLayout(storage: Storage = localStorage): LoadedLayout | null
   try {
     const stored = parseStored(storage.getItem(LAYOUT_KEY));
     if (!stored) return null;
-    return { layout: stored.layout, unseen: PANEL_IDS.filter((id) => !OPTIONAL_PANELS.includes(id) && !stored.known.includes(id)) };
+    return { layout: stored.layout, unseen: PANEL_IDS.filter((id) => !stored.known.includes(id)) };
   } catch {
     return null;
   }

@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { modelQueryOptions } from "@/api/library";
-import { FilesTab } from "@/components/model-detail/FilesTab";
+import { FileExplorer } from "@/components/model-detail/explorer/FileExplorer";
 import type { FileOut, Features, ModelDetail, PrinterOut } from "@/api/types";
 
 const authState = vi.hoisted(() => ({ admin: true }));
@@ -109,16 +109,16 @@ function buildModel(files: FileOut[]): ModelDetail {
   };
 }
 
-function renderFilesTab(files: FileOut[], onViewIn3D?: (file: FileOut) => void) {
+function renderExplorer(files: FileOut[], onViewIn3D?: (file: FileOut) => void) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <FilesTab model={buildModel(files)} onViewIn3D={onViewIn3D} />
+      <FileExplorer model={buildModel(files)} onViewIn3D={onViewIn3D} />
     </QueryClientProvider>,
   );
 }
 
-describe("FilesTab", () => {
+describe("FileExplorer", () => {
   beforeEach(() => {
     getMock.mockReset();
     getMock.mockResolvedValue(undefined);
@@ -126,7 +126,7 @@ describe("FilesTab", () => {
   });
 
   // R13c: Download/Delete/View-in-3D moved into the shared `FileActionsMenu`
-  // dropdown (folded out of FilesTab's own per-row buttons) -- opening the
+  // dropdown (folded out of FileExplorer's own per-row buttons) -- opening the
   // menu first (`pointerDown` on its trigger, same convention as
   // `OpenInSlicerButton.test.tsx`) is required before these actions are
   // reachable by role.
@@ -135,7 +135,7 @@ describe("FilesTab", () => {
   }
 
   it("keeps the download action enabled and linked for a verified file", async () => {
-    renderFilesTab([VERIFIED_FILE]);
+    renderExplorer([VERIFIED_FILE]);
     openActionsMenu(VERIFIED_FILE);
 
     const downloadLink = await screen.findByRole("menuitem", { name: `Download ${VERIFIED_FILE.rel_path}` });
@@ -143,7 +143,7 @@ describe("FilesTab", () => {
   });
 
   it("disables the download action for a file still processing (verified_at === null)", async () => {
-    renderFilesTab([PROCESSING_FILE]);
+    renderExplorer([PROCESSING_FILE]);
     openActionsMenu(PROCESSING_FILE);
 
     const downloadItem = await screen.findByRole("menuitem", { name: `Download ${PROCESSING_FILE.rel_path}` });
@@ -154,14 +154,14 @@ describe("FilesTab", () => {
   });
 
   it("renders a thumbnail image when the file's thumb is ready", () => {
-    renderFilesTab([{ ...VERIFIED_FILE, thumb_ready: true }]);
+    renderExplorer([{ ...VERIFIED_FILE, thumb_ready: true }]);
 
     const thumb = screen.getByRole("img");
     expect(thumb).toHaveAttribute("src", `/api/blobs/${VERIFIED_FILE.blob_hash}/thumb?size=256`);
   });
 
   it("falls back to a format icon when the thumb isn't ready, and again after an image load error", () => {
-    const { container } = renderFilesTab([{ ...VERIFIED_FILE, thumb_ready: true }]);
+    const { container } = renderExplorer([{ ...VERIFIED_FILE, thumb_ready: true }]);
 
     const thumb = screen.getByRole("img");
     fireEvent.error(thumb);
@@ -171,13 +171,13 @@ describe("FilesTab", () => {
   });
 
   it("renders a format icon (no image) when the file has no thumb at all", () => {
-    renderFilesTab([{ ...VERIFIED_FILE, thumb_ready: false }]);
+    renderExplorer([{ ...VERIFIED_FILE, thumb_ready: false }]);
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
   it("shows a mesh meta line with tris, dims, and volume, skipping null parts", () => {
-    renderFilesTab([
+    renderExplorer([
       {
         ...VERIFIED_FILE,
         kind: "mesh",
@@ -207,7 +207,7 @@ describe("FilesTab", () => {
   });
 
   it("shows a mesh meta line with only the parts that have data", () => {
-    renderFilesTab([
+    renderExplorer([
       {
         ...VERIFIED_FILE,
         kind: "cad",
@@ -237,7 +237,7 @@ describe("FilesTab", () => {
   });
 
   it("shows a sliced meta line with plate count, print time, and filament weight", () => {
-    renderFilesTab([
+    renderExplorer([
       {
         ...VERIFIED_FILE,
         format: "gcode_3mf",
@@ -268,7 +268,7 @@ describe("FilesTab", () => {
   });
 
   it("shows no meta line when the file has no metadata yet", () => {
-    renderFilesTab([{ ...VERIFIED_FILE, meta: null }]);
+    renderExplorer([{ ...VERIFIED_FILE, meta: null }]);
 
     expect(screen.queryByTitle(/tris|plates/)).not.toBeInTheDocument();
   });
@@ -292,21 +292,21 @@ describe("FilesTab", () => {
   };
 
   it("omits View in 3D for every file when onViewIn3D isn't passed", async () => {
-    renderFilesTab([glbFile, cadPending, notViewable]);
+    renderExplorer([glbFile, cadPending, notViewable]);
     openActionsMenu(glbFile);
     await screen.findByRole("menuitem", { name: `Download ${glbFile.rel_path}` });
     expect(screen.queryByRole("menuitem", { name: /View .* in 3D/ })).not.toBeInTheDocument();
   });
 
   it("shows View in 3D for a glb-ready file once onViewIn3D is passed", async () => {
-    renderFilesTab([glbFile, cadPending, notViewable], vi.fn());
+    renderExplorer([glbFile, cadPending, notViewable], vi.fn());
     openActionsMenu(glbFile);
     expect(await screen.findByRole("menuitem", { name: `View ${glbFile.rel_path} in 3D` })).toBeInTheDocument();
   });
 
   it("shows View in 3D for a CAD file pending GLB conversion, and fires onViewIn3D with that file", async () => {
     const onViewIn3D = vi.fn();
-    renderFilesTab([glbFile, cadPending, notViewable], onViewIn3D);
+    renderExplorer([glbFile, cadPending, notViewable], onViewIn3D);
     openActionsMenu(cadPending);
 
     fireEvent.click(await screen.findByRole("menuitem", { name: `View ${cadPending.rel_path} in 3D` }));
@@ -314,7 +314,7 @@ describe("FilesTab", () => {
   });
 
   it("omits View in 3D for a file that isn't studio-viewable, even when onViewIn3D is passed", async () => {
-    renderFilesTab([glbFile, cadPending, notViewable], vi.fn());
+    renderExplorer([glbFile, cadPending, notViewable], vi.fn());
     openActionsMenu(notViewable);
 
     await screen.findByRole("menuitem", { name: `Download ${notViewable.rel_path}` });
@@ -322,22 +322,25 @@ describe("FilesTab", () => {
   });
 
   it("keeps the compact hash copy button reachable by its accessible name", () => {
-    renderFilesTab([VERIFIED_FILE]);
+    renderExplorer([VERIFIED_FILE]);
 
     expect(screen.getByRole("button", { name: `Copy hash ${VERIFIED_FILE.blob_hash}` })).toBeInTheDocument();
   });
 
-  it("excludes doc-kind files -- they only appear in the Docs tab", () => {
+  it("lists doc-kind files alongside models (the Docs chip narrows to them)", () => {
     const docFile: FileOut = { ...VERIFIED_FILE, id: 5, rel_path: "README.md", format: "md", kind: "doc" };
-    renderFilesTab([VERIFIED_FILE, docFile]);
+    renderExplorer([VERIFIED_FILE, docFile]);
 
     expect(screen.getByText(VERIFIED_FILE.rel_path)).toBeInTheDocument();
-    expect(screen.queryByText(docFile.rel_path)).not.toBeInTheDocument();
+    expect(screen.getByText(docFile.rel_path)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Docs/ }));
+    expect(screen.queryByText(VERIFIED_FILE.rel_path)).not.toBeInTheDocument();
+    expect(screen.getByText(docFile.rel_path)).toBeInTheDocument();
   });
 
   it("hides the Print button for a sliced file when the printer feature is off (default mock)", async () => {
     const slicedFile: FileOut = { ...VERIFIED_FILE, format: "gcode_3mf", kind: "sliced" };
-    renderFilesTab([slicedFile]);
+    renderExplorer([slicedFile]);
 
     await waitFor(() => expect(getMock).toHaveBeenCalledWith("/features"));
     expect(screen.queryByRole("button", { name: `Print ${slicedFile.rel_path}` })).not.toBeInTheDocument();
@@ -364,7 +367,7 @@ describe("FilesTab", () => {
       return Promise.resolve([]);
     });
 
-    renderFilesTab([slicedFile]);
+    renderExplorer([slicedFile]);
 
     expect(await screen.findByRole("button", { name: `Print ${slicedFile.rel_path}` })).toBeInTheDocument();
   });
@@ -384,7 +387,7 @@ function selectFileForUpload(name: string): File {
   return file;
 }
 
-describe("FilesTab -- Add files", () => {
+describe("FileExplorer -- Add files", () => {
   beforeEach(() => {
     getMock.mockReset();
     getMock.mockResolvedValue(undefined);
@@ -398,7 +401,7 @@ describe("FilesTab -- Add files", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <FilesTab model={model} />
+        <FileExplorer model={model} />
       </QueryClientProvider>,
     );
 
@@ -427,7 +430,7 @@ describe("FilesTab -- Add files", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <FilesTab model={model} />
+        <FileExplorer model={model} />
       </QueryClientProvider>,
     );
 
@@ -448,7 +451,7 @@ describe("FilesTab -- Add files", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <FilesTab model={noRevisionModel} />
+        <FileExplorer model={noRevisionModel} />
       </QueryClientProvider>,
     );
 
@@ -462,18 +465,176 @@ describe("FilesTab -- Add files", () => {
     try {
       const { rerender } = render(
         <QueryClientProvider client={queryClient}>
-          <FilesTab model={{ ...base, created_by_user_id: null }} />
+          <FileExplorer model={{ ...base, created_by_user_id: null }} />
         </QueryClientProvider>,
       );
       expect(screen.queryByRole("button", { name: "Add files" })).not.toBeInTheDocument();
       rerender(
         <QueryClientProvider client={queryClient}>
-          <FilesTab model={{ ...base, created_by_user_id: 1 }} />
+          <FileExplorer model={{ ...base, created_by_user_id: 1 }} />
         </QueryClientProvider>,
       );
       expect(screen.getByRole("button", { name: "Add files" })).toBeInTheDocument();
     } finally {
       authState.admin = true;
     }
+  });
+});
+
+describe("FileExplorer -- folders, filters and view settings", () => {
+  const nested = (rel_path: string, id: number, over: Partial<FileOut> = {}): FileOut => ({
+    ...VERIFIED_FILE,
+    id,
+    rel_path,
+    ...over,
+  });
+  const FILES = [
+    nested("top.stl", 10),
+    nested("parts/body.stl", 11),
+    nested("parts/inner/lid.stl", 12),
+    nested("docs/manual.pdf", 13, { format: "pdf", kind: "doc" }),
+    nested("pics/shot.png", 14, { format: "png", kind: "image" }),
+  ];
+
+  beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue(undefined);
+    try {
+      localStorage.clear();
+    } catch {
+      // ignore
+    }
+  });
+
+  it("shows the root's files and subfolders, then drills in via the tree and breadcrumbs", () => {
+    renderExplorer(FILES);
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+    expect(screen.queryByText("body.stl")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open folder parts" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open folder parts" }));
+    expect(screen.getByText("body.stl")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+    const trail = screen.getByRole("navigation", { name: "Folder path" });
+    expect(trail).toHaveTextContent("Files");
+    expect(trail).toHaveTextContent("parts");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open folder inner" }));
+    expect(screen.getByText("lid.stl")).toBeInTheDocument();
+  });
+
+  it("returns to the root from a breadcrumb", () => {
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Open folder parts" }));
+    const trail = screen.getByRole("navigation", { name: "Folder path" });
+    fireEvent.click(within(trail).getByRole("button", { name: "Files" }));
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+  });
+
+  it("counts the whole subtree per chip, and clicking a chip lists exactly those files flat", () => {
+    renderExplorer(FILES);
+    expect(screen.getByRole("button", { name: /^All\s*5$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Models\s*3$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Images\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Docs\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Misc\s*0$/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Models/ }));
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+    expect(screen.getByText("parts/body.stl")).toBeInTheDocument();
+    expect(screen.getByText("parts/inner/lid.stl")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open folder parts" })).not.toBeInTheDocument();
+  });
+
+  it("lists images living only in subfolders when the Images chip is chosen", () => {
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: /^Images/ }));
+    expect(screen.getByText("pics/shot.png")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^All/ }));
+    expect(screen.getByRole("button", { name: "Open folder pics" })).toBeInTheDocument();
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+  });
+
+  it("scopes chip counts and the flat list to the current folder's subtree", () => {
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Open folder parts" }));
+    expect(screen.getByRole("button", { name: /^All\s*2$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Models/ }));
+    expect(screen.getByText("parts/inner/lid.stl")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+  });
+
+
+  it("clears the selection when navigating to another folder", () => {
+    renderExplorer([nested("a.stl", 20), nested("sub/b.stl", 21)]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select a.stl" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open folder sub" }));
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+  });
+
+  it("drops selected files that a new filter hides", () => {
+    renderExplorer([nested("a.stl", 20), nested("b.stl", 21)]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select a.stl" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "b.stl" } });
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "" } });
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+  });
+
+  it("opens the doc preview pane and moves focus into it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve("hi") }));
+    renderExplorer([nested("notes.txt", 30, { format: "txt", kind: "doc" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const pane = await screen.findByRole("region", { name: "Preview of notes.txt" });
+    await waitFor(() => expect(pane).toHaveFocus());
+  });
+
+  it("shows the Preview label on grid cards", () => {
+    renderExplorer([nested("notes.pdf", 31, { format: "pdf", kind: "doc" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+  });
+
+  it("searches across folders and shows full paths", () => {
+    renderExplorer(FILES);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "lid" } });
+    expect(screen.getByText("parts/inner/lid.stl")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+  });
+
+  it("shows a no-match message when filters exclude everything", () => {
+    renderExplorer(FILES);
+    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "zzzz" } });
+    expect(screen.getByText("No files match these filters.")).toBeInTheDocument();
+  });
+
+  it("persists the layout toggle in localStorage and restores it", () => {
+    const first = renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(JSON.parse(localStorage.getItem("tdmm.fileExplorer.view") ?? "{}").layout).toBe("grid");
+    first.unmount();
+    renderExplorer(FILES);
+    expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("falls back to defaults when localStorage throws", () => {
+    const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    renderExplorer(FILES);
+    expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute("aria-pressed", "true");
+    spy.mockRestore();
+  });
+
+  it("keeps the selection bulk bar working (Combine) for selected combinable files", () => {
+    renderExplorer([nested("a.stl", 20), nested("b.stl", 21)]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select a.stl" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Combine onto one plate/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
   });
 });

@@ -6,23 +6,25 @@ import { ApiError } from "@/api/client";
 import { useOpenInOrcaSlicer, useOrcaSlicerSession } from "@/api/orcaslicer";
 import type { FileOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { showOrcaSlicer } from "@/components/orcaslicer/orcaslicerNav";
+import { openOrcaSlicerWindow, readOrcaSlicerMode, type OrcaSlicerOpenMode } from "@/components/orcaslicer/orcaslicerNav";
 
 /** "Open in OrcaSlicer": confirms when it would replace a session on a different file,
- * POSTs, then reveals OrcaSlicer (dock panel on model detail, else the `/slicer` page). */
-export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch: (file: FileOut) => void; dialog: ReactNode } {
+ * opens the OrcaSlicer tab/window synchronously (before any await, so it isn't pop-up blocked),
+ * then POSTs; a failed POST closes the window again. */
+export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch: (file: FileOut, mode?: OrcaSlicerOpenMode) => void; dialog: ReactNode } {
   const { t } = useTranslation();
   const open = useOpenInOrcaSlicer(slug);
   const session = useOrcaSlicerSession({ enabled });
-  const [pending, setPending] = useState<FileOut | null>(null);
+  const [pending, setPending] = useState<{ file: FileOut; mode: OrcaSlicerOpenMode } | null>(null);
 
-  function run(file: FileOut) {
+  function run(file: FileOut, mode: OrcaSlicerOpenMode) {
+    const { win, created } = openOrcaSlicerWindow(mode);
     open.mutate(file.id, {
       onSuccess: (out) => {
         toast.success(t("orcaslicer.opening", { name: out.file.name }));
-        showOrcaSlicer();
       },
       onError: (e) => {
+        if (created) win?.close();
         const code = e instanceof ApiError ? e.code : undefined;
         const key =
           code === "orcaslicer_disabled"
@@ -39,10 +41,10 @@ export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch:
     });
   }
 
-  function launch(file: FileOut) {
+  function launch(file: FileOut, mode: OrcaSlicerOpenMode = readOrcaSlicerMode()) {
     const s = session.data;
-    if (s?.orcaslicer_running || (s && s.file.id !== file.id)) setPending(file);
-    else run(file);
+    if (s?.orcaslicer_running || (s && s.file.id !== file.id)) setPending({ file, mode });
+    else run(file, mode);
   }
 
   const dialog = (
@@ -55,7 +57,7 @@ export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch:
       description={t("orcaslicer.replaceDesc")}
       confirmLabel={t("orcaslicer.replaceConfirm")}
       onConfirm={() => {
-        if (pending) run(pending);
+        if (pending) run(pending.file, pending.mode);
         setPending(null);
       }}
     />
