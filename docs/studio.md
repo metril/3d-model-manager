@@ -1,6 +1,7 @@
 # OrcaSlicer sidecar
 
-The real OrcaSlicer (v2.4.2) GUI, streamed to the browser (Selkies over WebSocket, labwc + Xwayland) from a `studio` container, so models can be edited in the full app. The api reverse-proxies `/studio/` behind our login. Opt-in: nothing runs unless the `studio` profile is on.
+The real OrcaSlicer (v2.4.2) GUI, streamed to the browser (Selkies over WebSocket, labwc + Xwayland) from a `studio` container, so models can be edited in the full app. The api reverse-proxies `/slicer/` behind our login. Opt-in: nothing runs unless the `studio` profile is on.
+Internal identifiers (`studio` service/profile/volume, `/api/studio/*`, `TDMM_STUDIO_*`/`STUDIO_*` env vars) keep the "studio" name for deployment compatibility; the user-facing name is OrcaSlicer and its URL is `/slicer/`.
 
 > **Migrating from Bambu Studio.** The sidecar now runs OrcaSlicer (`lscr.io/linuxserver/orcaslicer`, pinned by digest) instead of Bambu Studio. The `STUDIO_*` / `TDMM_STUDIO_*` settings, ports, volumes and the launcher API are unchanged. The old `studio_config` volume held Bambu Studio's config (`~/.config/BambuStudioBeta`) and is **not migrated**: OrcaSlicer starts with a fresh config and shows its first-run setup wizard once (pick the printer and filaments). Remove the stale volume if you want the space back (`docker volume rm <project>_studio_config`). The headless slicer sidecar (`slicer/`) migrated too: `BAMBU_CLI`/`BAMBU_DIR`/`BAMBU_VERSION` still work as aliases of `SLICER_CLI`/`SLICER_DIR`/`SLICER_VERSION`, and `/health` keeps a deprecated `bambu_version` next to `slicer_name`/`slicer_version`.
 >
@@ -60,4 +61,4 @@ The stream uses WebCodecs, which needs a secure context: serve the app over HTTP
 - **Setup wizard on first run**: complete it once in the stream; it persists in `studio_config`.
 - **Slow rendering**: no GPU override in use. Add `compose.studio.dri.yaml` (Intel/AMD) or `compose.studio.gpu.yaml` (NVIDIA; verify with `scripts/studio-gpu-check.sh`).
 - **arm64 host**: unsupported. The image is x86-64 only (`platform: linux/amd64`).
-- **401/403 on `/studio/`**: log in as an admin; the proxy and sessions API are admin-only.
+- **401/403 on `/slicer/`**: log in as an admin; the proxy and sessions API are admin-only.

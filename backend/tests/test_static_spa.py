@@ -192,7 +192,7 @@ async def test_service_worker_and_manifest_are_not_immutable(static_dir: Path) -
 async def test_bare_studio_served_by_spa(static_dir: Path) -> None:
     app = create_app()
     async with await _client(app) as client:
-        for url in ("/studio", "/studio?x=1"):
+        for url in ("/slicer", "/slicer?x=1"):
             response = await client.get(url)
             assert response.status_code == 200
             assert "spa shell" in response.text
@@ -201,7 +201,7 @@ async def test_bare_studio_served_by_spa(static_dir: Path) -> None:
 async def test_studio_prefix_not_served_by_spa(static_dir: Path) -> None:
     app = create_app()
     async with await _client(app) as client:
-        response = await client.get("/studio/nope")
+        response = await client.get("/slicer/nope")
 
     assert response.status_code != 200
     assert "spa shell" not in response.text
