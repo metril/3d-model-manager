@@ -49,6 +49,17 @@ async function extractError(response: Response): Promise<{ detail: string; code?
       if (typeof detail === "string") {
         return { detail, code: typeof code === "string" ? code : undefined };
       }
+      // FastAPI validation errors (422): a list of {loc, msg}.
+      if (Array.isArray(detail)) {
+        const parts = detail.map((item) => {
+          if (item === null || typeof item !== "object") return String(item);
+          const { loc, msg } = item as { loc?: unknown; msg?: unknown };
+          const where = Array.isArray(loc) ? loc.filter((p) => p !== "body").join(".") : "";
+          const text = typeof msg === "string" ? msg : JSON.stringify(item);
+          return where ? `${where}: ${text}` : text;
+        });
+        if (parts.length > 0) return { detail: parts.join("; ") };
+      }
       // Coded errors from the 2FA routes: `detail: {code, message}`.
       if (detail !== null && typeof detail === "object") {
         const d = detail as { code?: unknown; message?: unknown; files?: unknown };

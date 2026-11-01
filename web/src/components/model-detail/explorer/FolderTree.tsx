@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -15,9 +15,10 @@ interface BranchProps {
   onFocusItem: (path: string) => void;
   onSelect: (path: string) => void;
   folderSlot?: (path: string) => ReactNode;
+  dropProps?: (path: string) => HTMLAttributes<HTMLElement>;
 }
 
-function Branch({ node, depth, current, tabStop, isExpanded, setExpanded, onFocusItem, onSelect, folderSlot }: BranchProps) {
+function Branch({ node, depth, current, tabStop, isExpanded, setExpanded, onFocusItem, onSelect, folderSlot, dropProps }: BranchProps) {
   const { t } = useTranslation();
   const hasChildren = node.folders.length > 0;
   const expanded = isExpanded(node);
@@ -38,7 +39,11 @@ function Branch({ node, depth, current, tabStop, isExpanded, setExpanded, onFocu
       className="outline-none focus-visible:[&>div]:ring-2 focus-visible:[&>div]:ring-ring"
     >
       <div
-        className={cn("group flex items-center gap-1 rounded pr-1 text-sm hover:bg-muted", active && "bg-muted font-medium")}
+        {...(dropProps?.(node.path) as HTMLAttributes<HTMLDivElement> | undefined)}
+        className={cn(
+          "group flex items-center gap-1 rounded pr-1 text-sm hover:bg-muted data-[drop-over=true]:bg-primary/15 data-[drop-over=true]:ring-1 data-[drop-over=true]:ring-primary/50",
+          active && "bg-muted font-medium",
+        )}
         style={{ paddingLeft: `${depth * 0.75}rem` }}
       >
         <button
@@ -76,6 +81,7 @@ function Branch({ node, depth, current, tabStop, isExpanded, setExpanded, onFocu
               onFocusItem={onFocusItem}
               onSelect={onSelect}
               folderSlot={folderSlot}
+              dropProps={dropProps}
             />
           ))}
         </ul>
@@ -94,12 +100,15 @@ export function FolderTree({
   onSelect,
   rootLabel,
   folderSlot,
+  dropProps,
 }: {
   root: TreeNode;
   current: string;
   onSelect: (path: string) => void;
   rootLabel: string;
   folderSlot?: (path: string) => ReactNode;
+  /** Drag-and-drop target attributes per folder (PR 4: move by dropping). */
+  dropProps?: (path: string) => HTMLAttributes<HTMLElement>;
 }) {
   const listRef = useRef<HTMLUListElement>(null);
   // Ancestors of the current folder open automatically; the user can still
@@ -179,6 +188,7 @@ export function FolderTree({
         onFocusItem={setFocusPath}
         onSelect={onSelect}
         folderSlot={folderSlot}
+        dropProps={dropProps}
       />
     </ul>
   );
