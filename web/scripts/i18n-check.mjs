@@ -16,11 +16,13 @@ const walk = (d) =>
 
 const locales = join(root, "i18n/locales");
 const en = new Set(flat(JSON.parse(readFileSync(join(locales, "en.json"), "utf8"))));
+// i18next plural forms (`key_one`/`key_other`) are looked up by their base key.
+const known = new Set([...en, ...[...en].map((k) => k.replace(/_(zero|one|two|few|many|other)$/, ""))]);
 const missing = [];
 const re = /(?:\bt\(\s*|i18nKey=)["'`]([A-Za-z0-9_.&' -]+)["'`]/g;
 for (const file of walk(root)) {
   const src = readFileSync(file, "utf8");
-  for (const m of src.matchAll(re)) if (!en.has(m[1])) missing.push(`${file.replace(root, "src")}: ${m[1]}`);
+  for (const m of src.matchAll(re)) if (!known.has(m[1])) missing.push(`${file.replace(root, "src")}: ${m[1]}`);
 }
 for (const f of readdirSync(locales).filter((f) => f.endsWith(".json") && f !== "en.json")) {
   const have = new Set(flat(JSON.parse(readFileSync(join(locales, f), "utf8"))));
