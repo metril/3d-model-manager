@@ -280,7 +280,16 @@ def move_storage_folder(job_id: str, src: str, new_prefix: str) -> None:
 
 
 def _move_one_file(s: Session, settings: Settings, file_id: int, src: str, new_prefix: str) -> None:
-    file = s.get(File, file_id)
+    # Same lock order as every other mover: model row first, then the file row.
+    model_id = s.scalar(
+        select(Revision.model_id)
+        .join(File, File.revision_id == Revision.id)
+        .where(File.id == file_id)
+    )
+    if model_id is None:
+        return  # deleted
+    lock_model_row_sync(s, model_id)
+    file = s.execute(select(File).where(File.id == file_id).with_for_update()).scalar_one_or_none()
     if file is None or not file.storage_path.startswith(src + "/"):
         return  # deleted, or already moved by a previous (retried) run
     _move_file_to(s, settings, file, rewrite_folder_path(file.storage_path, src, new_prefix))

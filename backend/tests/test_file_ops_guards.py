@@ -90,3 +90,24 @@ async def test_store_imported_file_takes_model_lock(
         revision = s.get(Revision, model.current_revision_id)
         library.store_imported_file_sync(s, model=model, revision=revision, staged=staged)
     assert seen == [m["id"]]
+
+
+async def test_folder_move_takes_model_lock_before_file(
+    authenticated_client, db_session, monkeypatch
+) -> None:
+    m = await _model(authenticated_client, "FolderLock", ["a/x.stl", "b/z.stl"])
+    order: list[str] = []
+    real = relocate.lock_model_row_sync
+    monkeypatch.setattr(
+        relocate, "lock_model_row_sync", lambda s, mid: (order.append("model"), real(s, mid))
+    )
+    orig = relocate._move_file_to
+    monkeypatch.setattr(
+        relocate, "_move_file_to", lambda *a, **k: (order.append("move"), orig(*a, **k))
+    )
+    root = f"{m['slug']}/{m['current_revision']['dir_name']}"
+    r = await authenticated_client.post(
+        "/api/storage/folders/move", json={"src": f"{root}/a", "dest": f"{root}/b"}
+    )
+    assert r.status_code == 200, r.text
+    assert order[:2] == ["model", "move"]
