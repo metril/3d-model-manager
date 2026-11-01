@@ -45,12 +45,10 @@ export function useOrcaSlicerEnabled(): boolean {
   return configured && isAdmin;
 }
 
-export function useOrcaSlicerSession(opts: { enabled?: boolean; pollWhileIdle?: boolean } = {}) {
+export function useOrcaSlicerSession(opts: { enabled?: boolean } = {}) {
   return useQuery({
     ...orcaslicerSessionQueryOptions,
     enabled: opts.enabled ?? true,
-    // Poll while idle (a standalone tab can miss `session_started` if it subscribed late).
-    refetchInterval: opts.pollWhileIdle ? (q) => (q.state.data ? false : 2000) : false,
   });
 }
 

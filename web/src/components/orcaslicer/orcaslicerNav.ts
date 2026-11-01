@@ -27,9 +27,8 @@ let slicerWin: Window | null = null;
  * It loads the Selkies stream (`/slicer/`) directly, not in an iframe: inside one, Chrome reports
  * `pointerrawupdate` coordinates relative to the top-level page, which offsets pointer motion.
  * Call synchronously from a user gesture so the browser doesn't block it as a pop-up.
- * Returns `{ win, created }`: `created` is false when a tab from an earlier call was reused,
- * so callers never close a slicer tab they did not open. */
-export function openOrcaSlicerWindow(mode: OrcaSlicerOpenMode = readOrcaSlicerMode()): { win: Window | null; created: boolean } {
+ */
+export function openOrcaSlicerWindow(mode: OrcaSlicerOpenMode = readOrcaSlicerMode()): void {
   try {
     localStorage.setItem(ORCASLICER_MODE_KEY, mode);
   } catch {
@@ -37,12 +36,10 @@ export function openOrcaSlicerWindow(mode: OrcaSlicerOpenMode = readOrcaSlicerMo
   }
   if (slicerWin && slicerWin.closed === false) {
     slicerWin.focus();
-    return { win: slicerWin, created: false };
+    return;
   }
   const features = `popup,width=${window.screen.availWidth},height=${window.screen.availHeight}`;
-  const win = mode === "window" ? window.open("/slicer/", WINDOW_NAME, features) : window.open("/slicer/", WINDOW_NAME);
-  slicerWin = win;
-  return { win, created: true };
+  slicerWin = mode === "window" ? window.open("/slicer/", WINDOW_NAME, features) : window.open("/slicer/", WINDOW_NAME);
 }
 
 /** Navigates to a model in the app router. */

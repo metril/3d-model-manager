@@ -10,7 +10,7 @@ import { isInsecureOrcaSlicerContext, openOrcaSlicerWindow, readOrcaSlicerMode, 
 
 /** "Open in OrcaSlicer": confirms when it would replace a session on a different file,
  * opens the OrcaSlicer tab/window synchronously (before any await, so it isn't pop-up blocked),
- * then POSTs; a failed POST closes the window again. */
+ * then POSTs; a failed POST just toasts (the tab may be one the user already had open). */
 export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch: (file: FileOut, mode?: OrcaSlicerOpenMode) => void; dialog: ReactNode } {
   const { t } = useTranslation();
   const open = useOpenInOrcaSlicer(slug);
@@ -19,13 +19,12 @@ export function useOrcaSlicerLauncher(slug: string, enabled: boolean): { launch:
 
   function run(file: FileOut, mode: OrcaSlicerOpenMode) {
     if (isInsecureOrcaSlicerContext()) toast.warning(t("orcaslicer.insecure"));
-    const { win, created } = openOrcaSlicerWindow(mode);
+    openOrcaSlicerWindow(mode);
     open.mutate(file.id, {
       onSuccess: (out) => {
         toast.success(t("orcaslicer.opening", { name: out.file.name }));
       },
       onError: (e) => {
-        if (created) win?.close();
         const code = e instanceof ApiError ? e.code : undefined;
         const key =
           code === "orcaslicer_disabled"

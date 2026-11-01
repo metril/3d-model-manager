@@ -26,7 +26,6 @@ vi.mock("@/api/client", async (importOriginal) => {
 });
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), toastMock) }));
 const openMock = vi.fn();
-const closeMock = vi.fn();
 
 const session: OrcaSlicerSession = {
   token: "tok1",
@@ -78,8 +77,8 @@ function file(overrides: Partial<FileOut> = {}): FileOut {
 const model = { id: 1, slug: "m", name: "M" } as ModelDetail;
 
 beforeEach(() => {
-  for (const m of [getMock, postMock, putMock, deleteMock, openMock, closeMock, toastMock.success, toastMock.error, toastMock.warning]) m.mockReset();
-  openMock.mockReturnValue({ close: closeMock });
+  for (const m of [getMock, postMock, putMock, deleteMock, openMock, toastMock.success, toastMock.error, toastMock.warning]) m.mockReset();
+  openMock.mockReturnValue({});
   vi.stubGlobal("open", openMock);
   localStorage.clear();
   resetOrcaSlicerWindow();
@@ -188,24 +187,21 @@ describe("Open in OrcaSlicer menu entry", () => {
     expect(openMock.mock.calls[0][2]).toMatch(/^popup,width=\d+,height=\d+$/);
     resolvePost({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
-    expect(closeMock).not.toHaveBeenCalled();
   });
 
-  it("reuses an open slicer tab and does not close it when the POST fails", async () => {
-    const existing = { closed: false, close: closeMock, focus: vi.fn() };
+  it("reuses an open slicer tab and never closes it when the POST fails", async () => {
+    const existing = { closed: false, close: vi.fn(), focus: vi.fn() };
     openMock.mockReturnValue(existing);
     postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
-    await waitFor(() => expect(postMock).toHaveBeenCalled());
-    // first call created it (and closes it on error); a second click reuses it
     await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
-    closeMock.mockClear();
     fireEvent.pointerDown(screen.getByRole("button", { name: /Actions for/ }), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
+    expect(openMock).toHaveBeenCalledTimes(1);
     expect(existing.focus).toHaveBeenCalled();
-    expect(closeMock).not.toHaveBeenCalled();
+    expect(existing.close).not.toHaveBeenCalled();
   });
 
   it("opens a plain named tab by default", async () => {
@@ -216,13 +212,12 @@ describe("Open in OrcaSlicer menu entry", () => {
     expect(localStorage.getItem("tdmm.orcaslicer.openMode")).toBe("tab");
   });
 
-  it("closes the window and toasts when the POST fails", async () => {
+  it("toasts without closing the window when the POST fails", async () => {
     postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(openMock).toHaveBeenCalled();
-    await waitFor(() => expect(closeMock).toHaveBeenCalled());
-    expect(toastMock.error).toHaveBeenCalled();
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
   });
 
   it("warns when opened over insecure http", async () => {
