@@ -6,7 +6,7 @@
 import { queryOptions, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
-import type { TagCreate, TagOut, TagRef, TagUpdate } from "@/api/types";
+import type { BulkResult, TagCreate, TagOut, TagRef, TagUpdate, TagUsage } from "@/api/types";
 
 export type TagMode = "any" | "all";
 
@@ -73,6 +73,45 @@ export function useMergeTag() {
     mutationFn: ({ id, intoId }: { id: number; intoId: number }) =>
       api.post<TagOut>(`/tags/${id}/merge`, { into_id: intoId }),
     onSuccess: () => invalidateTagged(queryClient),
+  });
+}
+
+export function useTagUsage(id: number | null, limit = 50) {
+  return useQuery({
+    queryKey: ["tags", "usage", id, limit] as const,
+    queryFn: () => api.get<TagUsage>(`/tags/${id}/usage?limit=${limit}`),
+    enabled: id !== null,
+  });
+}
+
+function onBulkSuccess(queryClient: QueryClient) {
+  invalidateTagged(queryClient);
+  void queryClient.invalidateQueries({ queryKey: ["tags", "usage"] });
+}
+
+export function useBulkDeleteTags() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.post<BulkResult>("/tags/bulk-delete", { ids }),
+    onSuccess: () => onBulkSuccess(queryClient),
+  });
+}
+
+export function useBulkMergeTags() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, intoId }: { ids: number[]; intoId: number }) =>
+      api.post<BulkResult>("/tags/bulk-merge", { ids, into_id: intoId }),
+    onSuccess: () => onBulkSuccess(queryClient),
+  });
+}
+
+export function useBulkUpdateTags() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, color }: { ids: number[]; color: string | null }) =>
+      api.post<BulkResult>("/tags/bulk-update", { ids, color }),
+    onSuccess: () => onBulkSuccess(queryClient),
   });
 }
 

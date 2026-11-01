@@ -244,13 +244,13 @@ describe("SettingsPage access gating", () => {
 });
 
 describe("SettingsPage tabs", () => {
-  it("shows exactly General, Storage, Printer, Notifications, Accounts, Access, and Server tabs (admin) -- no Scan tab", async () => {
+  it("shows exactly General, Tags, Storage, Printer, Notifications, Accounts, Access, and Server tabs (admin) -- no Scan tab", async () => {
     mockGet();
 
     renderSettingsPage();
 
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Storage", "Printer", "Notifications", "Accounts", "Access", "Server"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["General", "Tags", "Storage", "Printer", "Notifications", "Accounts", "Access", "Server"]);
     expect(screen.queryByRole("tab", { name: "Scan" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Imports" })).not.toBeInTheDocument();
   });

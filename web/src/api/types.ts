@@ -357,6 +357,14 @@ export interface TagOut extends TagRef {
   counts?: TagCounts | null;
 }
 
+export interface TagUsage {
+  counts: TagCounts;
+  models: Array<{ id: number; slug: string; name: string; thumbnail_url: string | null }>;
+  projects: Array<{ id: number; name: string; status: string }>;
+  collections: Array<{ id: number; title: string; site: string }>;
+  archives: Array<{ id: number; name: string | null; result: string; model_id: number | null; has_thumbnail: boolean }>;
+}
+
 export interface TagCreate {
   name: string;
   color?: string | null;

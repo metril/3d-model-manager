@@ -529,3 +529,50 @@ class FileTagIdsIn(TagIdsIn):
 
 class TagMergeIn(BaseModel):
     into_id: int
+
+
+class TagBulkMergeIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+    into_id: int
+
+
+class TagBulkUpdateIn(BaseModel):
+    """Only fields present are applied (``color: null`` clears)."""
+
+    ids: list[int] = Field(min_length=1, max_length=500)
+    color: TagHexColor | None = None
+
+
+class UsageModel(BaseModel):
+    id: int
+    slug: str
+    name: str
+    thumbnail_url: str | None = None
+
+
+class UsageProject(BaseModel):
+    id: int
+    name: str
+    status: str
+
+
+class UsageCollection(BaseModel):
+    id: int
+    title: str
+    site: str
+
+
+class UsageArchive(BaseModel):
+    id: int
+    name: str | None = None
+    result: str
+    model_id: int | None = None
+    has_thumbnail: bool = False
+
+
+class TagUsageOut(BaseModel):
+    counts: TagCounts
+    models: list[UsageModel]
+    projects: list[UsageProject]
+    collections: list[UsageCollection]
+    archives: list[UsageArchive]

@@ -17,7 +17,7 @@ import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { ApiKeysCard } from "@/components/settings/ApiKeysCard";
 import { BrowserExtensionCard } from "@/components/settings/BrowserExtensionCard";
 import { CategoriesSection } from "@/components/settings/CategoriesSection";
-import { TagManagerCard } from "@/components/settings/TagManagerCard";
+import { TagManager } from "@/components/settings/tags/TagManager";
 import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { FailureDetectionCard } from "@/components/settings/FailureDetectionCard";
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
@@ -92,6 +92,7 @@ export function SettingsPage() {
         >
           <TabsList>
             <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
+            <TabsTrigger value="tags">{t("settings.tabs.tags")}</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}
             {canSettings && <TabsTrigger value="printer">{t("settings.tabs.printer")}</TabsTrigger>}
             {canSettings && (
@@ -108,11 +109,13 @@ export function SettingsPage() {
             <AutomationCard />
             <EmailPrefsCard />
             <CategoriesSection />
-            <TagManagerCard />
             <PrintCostCard />
             {auth.can("inventory:write") && <SpoolmanCard />}
             {auth.data?.has_password && <ChangePasswordCard />}
             <TwoFactorCard />
+          </TabsContent>
+          <TabsContent value="tags" className="space-y-6">
+            <TagManager />
           </TabsContent>
           {canSettings && (
             <TabsContent value="storage" className="space-y-6">

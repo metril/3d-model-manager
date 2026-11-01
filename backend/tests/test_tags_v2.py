@@ -367,3 +367,58 @@ async def test_bulk_add_case_variant_tags(authenticated_client: httpx.AsyncClien
     m = await _model(c)
     r = await c.post("/api/models/bulk", json={"ids": [m["id"]], "add_tags": ["PLA", "pla"]})
     assert r.status_code == 200, r.text
+
+
+async def test_bulk_delete_merge_update_and_usage(authenticated_client: httpx.AsyncClient) -> None:
+    c = authenticated_client
+    a, b, dst, other = [await _tag(c) for _ in range(4)]
+    m1, m2, p = await _model(c), await _model(c), await _project(c)
+    await c.put(f"/api/models/{m1['id']}/tags", json={"tag_ids": [a["id"], dst["id"]]})
+    await c.put(f"/api/models/{m2['id']}/tags", json={"tag_ids": [b["id"]]})
+    await c.put(f"/api/projects/{p['id']}/tags", json={"tag_ids": [a["id"]]})
+
+    u = (await c.get(f"/api/tags/{a['id']}/usage")).json()
+    assert u["counts"]["models"] == 1 and u["counts"]["projects"] == 1
+    assert [x["id"] for x in u["models"]] == [m1["id"]] and u["models"][0]["slug"] == m1["slug"]
+    assert [x["id"] for x in u["projects"]] == [p["id"]]
+    assert (await c.get("/api/tags/999999/usage")).status_code == 404
+
+    bad = {"ids": [a["id"], dst["id"]], "into_id": dst["id"]}
+    assert (await c.post("/api/tags/bulk-merge", json=bad)).status_code == 422
+    nt = {"ids": [a["id"]], "into_id": 999999}
+    assert (await c.post("/api/tags/bulk-merge", json=nt)).status_code == 404
+    ok = {"ids": [a["id"], b["id"], 999998], "into_id": dst["id"]}
+    r = await c.post("/api/tags/bulk-merge", json=ok)
+    assert r.status_code == 200, r.text
+    assert sorted(x["id"] for x in r.json()["results"]) == sorted([a["id"], b["id"]])
+    assert r.json()["not_found"] == [999998]
+    tags = {t["id"]: t for t in (await c.get("/api/tags?with_counts=true")).json()}
+    assert a["id"] not in tags and b["id"] not in tags
+    assert tags[dst["id"]]["counts"]["models"] == 2 and tags[dst["id"]]["counts"]["projects"] == 1
+
+    body = {"ids": [dst["id"], other["id"]], "color": "#ABCDEF"}
+    r = await c.post("/api/tags/bulk-update", json=body)
+    assert r.status_code == 200 and len(r.json()["results"]) == 2
+    tags = {t["id"]: t for t in (await c.get("/api/tags")).json()}
+    assert tags[dst["id"]]["color"] == tags[other["id"]]["color"] == "#abcdef"
+    assert (await c.post("/api/tags/bulk-update", json={"ids": [other["id"]]})).status_code == 422
+
+    r = await c.post("/api/tags/bulk-delete", json={"ids": [dst["id"], other["id"], 999997]})
+    assert r.status_code == 200 and r.json()["not_found"] == [999997]
+    assert len(r.json()["results"]) == 2
+    assert (await c.get(f"/api/models/{m1['slug']}")).json()["tag_refs"] == []
+    assert (await c.post("/api/tags/bulk-delete", json={"ids": []})).status_code == 422
+
+
+async def test_trashed_models_excluded_from_counts_and_usage(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    c = authenticated_client
+    t, m = await _tag(c), await _model(c)
+    await c.put(f"/api/models/{m['id']}/tags", json={"tag_ids": [t["id"]]})
+    assert (await c.get(f"/api/tags/{t['id']}/usage")).json()["counts"]["models"] == 1
+    assert (await c.delete(f"/api/models/{m['slug']}")).status_code == 204
+    u = (await c.get(f"/api/tags/{t['id']}/usage")).json()
+    assert u["counts"]["models"] == 0 and u["counts"]["total"] == 0 and u["models"] == []
+    tags = {x["id"]: x for x in (await c.get("/api/tags?with_counts=true")).json()}
+    assert tags[t["id"]]["counts"]["models"] == 0
