@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /** One file/doc row. Width-agnostic: every layout switch is a container
  * query on the enclosing `@container/files` list, never a viewport query,
@@ -12,6 +12,7 @@ export function FileRow({
   actions,
   below,
   leading,
+  liProps,
 }: {
   thumb: ReactNode;
   /** Optional control (e.g. a select checkbox) shown before the path. */
@@ -25,9 +26,14 @@ export function FileRow({
   actions: ReactNode;
   /** Full-width slot under the row (e.g. a doc preview). */
   below?: ReactNode;
+  /** Extra attributes for the row (drag-and-drop handlers, state data-attributes). */
+  liProps?: HTMLAttributes<HTMLLIElement>;
 }) {
   return (
-    <li className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 py-3">
+    <li
+      {...liProps}
+      className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 py-3 data-[drop-over=true]:bg-primary/10 data-[drop-over=true]:ring-1 data-[drop-over=true]:ring-primary/50"
+    >
       <div className="row-span-2 self-center">{thumb}</div>
       <div className="min-w-0">
         <div className="flex items-center gap-2">

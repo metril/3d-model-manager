@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, type DragEvent, type HTMLAttributes, type ReactNode } from "react";
 import { FileTextIcon, FolderIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -40,6 +40,8 @@ export interface FileEntryProps {
   onArrange?: (file: FileOut) => void;
   /** Extra per-file actions (PR 4: rename, move). Rendered before the actions menu. */
   actionsSlot?: ReactNode;
+  /** Starts a drag-to-move of this file (PR 4); makes the row draggable when set. */
+  onDragStartFile?: (event: DragEvent, file: FileOut) => void;
 }
 
 function FileFacts({ file, model, hash = true }: { file: FileOut; model: ModelDetail; hash?: boolean }) {
@@ -70,7 +72,7 @@ function FileActions({
   onViewIn3D,
   onArrange,
   actionsSlot,
-}: Omit<FileEntryProps, "layout" | "label" | "selectable" | "selected" | "onSelectedChange">) {
+}: Omit<FileEntryProps, "layout" | "label" | "selectable" | "selected" | "onSelectedChange" | "onDragStartFile">) {
   const { t } = useTranslation();
   const isDoc = file.kind === "doc";
   return (
@@ -96,8 +98,11 @@ function FileActions({
 }
 
 export const FileEntry = memo(function FileEntry(props: FileEntryProps) {
-  const { file, model, layout, label, selectable, selected, onSelectedChange } = props;
+  const { file, model, layout, label, selectable, selected, onSelectedChange, onDragStartFile } = props;
   const { t } = useTranslation();
+  const dragProps: HTMLAttributes<HTMLLIElement> = onDragStartFile
+    ? { draggable: true, onDragStart: (event) => onDragStartFile(event, file) }
+    : {};
   const checkbox =
     selectable && onSelectedChange ? (
       <Checkbox
@@ -110,7 +115,7 @@ export const FileEntry = memo(function FileEntry(props: FileEntryProps) {
 
   if (layout === "grid") {
     return (
-      <li className={cn("@container/files flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3", selected && "border-primary/60 bg-primary/5")}>
+      <li {...dragProps} className={cn("@container/files flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3", selected && "border-primary/60 bg-primary/5")}>
         <div className="flex items-start gap-2">
           {checkbox}
           <FileThumb file={file} className="size-16 shrink-0" />
@@ -131,6 +136,7 @@ export const FileEntry = memo(function FileEntry(props: FileEntryProps) {
 
   return (
     <FileRow
+      liProps={dragProps}
       thumb={<FileThumb file={file} />}
       leading={checkbox}
       path={label}
@@ -142,23 +148,53 @@ export const FileEntry = memo(function FileEntry(props: FileEntryProps) {
   );
 });
 
-/** A subfolder entry in the current folder. `actionsSlot` is where PR 4 adds rename/move. */
+/** A subfolder entry in the current folder. `actionsSlot` holds rename/move; it can be
+ * selected, dragged, and dropped onto. */
 export function FolderEntry({
   node,
   layout,
   onOpen,
   actionsSlot,
+  selectable,
+  selected,
+  onSelectedChange,
+  onDragStartFolder,
+  dropProps,
 }: {
   node: TreeNode;
   layout: EntryLayout;
   onOpen: (path: string) => void;
   actionsSlot?: ReactNode;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectedChange?: (path: string, on: boolean) => void;
+  onDragStartFolder?: (event: DragEvent, path: string) => void;
+  dropProps?: (path: string) => HTMLAttributes<HTMLElement>;
 }) {
   const { t } = useTranslation();
   const count = t("explorer.fileCount", { count: node.total });
+  const checkbox =
+    selectable && onSelectedChange ? (
+      <Checkbox
+        checked={selected === true}
+        onCheckedChange={(v) => onSelectedChange(node.path, v === true)}
+        aria-label={t("explorer.selectFolder", { path: node.path })}
+      />
+    ) : null;
+  const liProps = {
+    ...(dropProps?.(node.path) as HTMLAttributes<HTMLLIElement> | undefined),
+    ...(onDragStartFolder ? { draggable: true, onDragStart: (event: DragEvent) => onDragStartFolder(event, node.path) } : {}),
+  };
   if (layout === "grid") {
     return (
-      <li className="flex items-center gap-2 rounded-lg border bg-card p-3 hover:bg-muted/50">
+      <li
+        {...liProps}
+        className={cn(
+          "flex items-center gap-2 rounded-lg border bg-card p-3 hover:bg-muted/50 data-[drop-over=true]:bg-primary/10 data-[drop-over=true]:ring-1 data-[drop-over=true]:ring-primary/50",
+          selected && "border-primary/60 bg-primary/5",
+        )}
+      >
+        {checkbox}
         <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onOpen(node.path)}>
           <FolderIcon className="size-8 shrink-0 text-primary/70" />
           <span className="min-w-0">
@@ -172,6 +208,8 @@ export function FolderEntry({
   }
   return (
     <FileRow
+      liProps={liProps}
+      leading={checkbox}
       thumb={
         <div className="flex size-10 items-center justify-center rounded bg-muted text-primary/70">
           <FolderIcon className="size-5" />

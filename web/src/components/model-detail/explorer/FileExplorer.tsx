@@ -14,6 +14,8 @@ import {
   ArrowUpIcon,
   ChevronRightIcon,
   CombineIcon,
+  FolderInputIcon,
+  Trash2Icon,
   LayoutGridIcon,
   ListIcon,
   PanelLeftIcon,
@@ -30,8 +32,9 @@ import { DocPreview } from "@/components/model-detail/explorer/DocPreview";
 import { ExplorerContext, type ExplorerContextValue } from "@/components/model-detail/explorer/explorerContext";
 import { FileEntry, FolderEntry } from "@/components/model-detail/explorer/FileEntry";
 import { isCombinable } from "@/components/model-detail/explorer/fileMeta";
+import { useExplorerManage } from "@/components/model-detail/explorer/useExplorerManage";
 import { FolderTree } from "@/components/model-detail/explorer/FolderTree";
-import { fileKey, useSelection } from "@/components/model-detail/explorer/selection";
+import { fileKey, folderKey, useSelection } from "@/components/model-detail/explorer/selection";
 import {
   TYPE_GROUPS,
   applyFilters,
@@ -46,6 +49,7 @@ import {
   type SortKey,
   type TypeFilter,
 } from "@/components/model-detail/explorer/tree";
+import { pruneEmptyFolders, withEmptyFolders } from "@/components/model-detail/explorer/treeEdit";
 import { useViewSettings } from "@/components/model-detail/explorer/viewSettings";
 import { canArrange } from "@/components/plate/arrangeable";
 import { PlateEditorDialog } from "@/components/plate/PlateEditorDialog";
@@ -95,10 +99,19 @@ export function FileExplorer({
   const [showAddFiles, setShowAddFiles] = useState(false);
   const [showCombine, setShowCombine] = useState(false);
   const [arrangeFiles, setArrangeFiles] = useState<FileOut[] | null>(null);
+  // Folders created in the UI exist only here until a file lands in them.
+  const [extraFolders, setExtraFolders] = useState<string[]>([]);
 
   const currentRevision = model.current_revision;
   const allFiles = useMemo(() => currentRevision?.files ?? [], [currentRevision]);
-  const fullTree = useMemo(() => buildTree(allFiles), [allFiles]);
+  const realTree = useMemo(() => buildTree(allFiles), [allFiles]);
+  const fullTree = useMemo(() => withEmptyFolders(buildTree(allFiles), extraFolders), [allFiles, extraFolders]);
+  useEffect(() => {
+    setExtraFolders((prev) => {
+      const next = pruneEmptyFolders(realTree, prev);
+      return next.length === prev.length ? prev : next;
+    });
+  }, [realTree]);
   // A folder that vanished (file deleted/moved) falls back to the root.
   const current = findNode(fullTree, folder) ? folder : "";
   const scope = findNode(fullTree, current) ?? fullTree;
@@ -113,7 +126,11 @@ export function FileExplorer({
 
   // Search results are flat across the subtree; otherwise show this folder's
   // direct subfolders and files (only those that still contain a match).
-  const shownTree = useMemo(() => findNode(buildTree(matched), current), [matched, current]);
+  const plainView = !flat && tagFilter.tags.length === 0;
+  const shownTree = useMemo(
+    () => findNode(plainView ? withEmptyFolders(buildTree(matched), extraFolders) : buildTree(matched), current),
+    [matched, current, plainView, extraFolders],
+  );
   const shownFiles = useMemo(
     () => sortFiles(flat ? matched : (shownTree?.files ?? []), view.sort, view.dir),
     [flat, matched, shownTree, view.sort, view.dir],
@@ -126,6 +143,7 @@ export function FileExplorer({
 
   const previewFile = previewId === null ? null : (allFiles.find((file) => file.id === previewId) ?? null);
   // Bulk actions only ever touch files that are currently visible.
+  const selectedCount = selection.keys.size;
   const selectedFiles = useMemo(
     () => shownFiles.filter((file) => selection.has(fileKey(file.id)) && isCombinable(file)),
     [shownFiles, selection],
@@ -135,8 +153,8 @@ export function FileExplorer({
   // search, chip or tag filter.
   const { retain, clear: clearSelection, toggle: toggleKey } = selection;
   useEffect(() => {
-    retain(new Set(shownFiles.map((file) => fileKey(file.id))));
-  }, [shownFiles, retain]);
+    retain(new Set([...shownFiles.map((file) => fileKey(file.id)), ...shownFolders.map((node) => folderKey(node.path))]));
+  }, [shownFiles, shownFolders, retain]);
 
   const previewRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -155,6 +173,7 @@ export function FileExplorer({
     },
     [clearSelection],
   );
+  const toggleFolderSelected = useCallback((path: string, on: boolean) => toggleKey(folderKey(path), on), [toggleKey]);
   const toggleSelected = useCallback((file: FileOut, on: boolean) => toggleKey(fileKey(file.id), on), [toggleKey]);
   const togglePreview = useCallback((file: FileOut) => setPreviewId((prev) => (prev === file.id ? null : file.id)), []);
   const arrangeOne = useCallback((file: FileOut) => setArrangeFiles([file]), []);
@@ -171,13 +190,44 @@ export function FileExplorer({
     // The gallery-only `["models"]` key wouldn't refresh THIS already-open
     // detail page -- invalidate the specific model-detail query instead.
     void queryClient.invalidateQueries({ queryKey: modelQueryOptions(model.slug).queryKey });
+    void queryClient.invalidateQueries({ queryKey: ["storage"] });
   }
 
   const ctx = useMemo<ExplorerContextValue>(
     () => ({ model, canUpload, currentFolder: current, setCurrentFolder: navigate, selection }),
     [model, canUpload, current, navigate, selection],
   );
+  const manage = useExplorerManage({
+    model,
+    canUpload,
+    allFiles,
+    tree: fullTree,
+    extraFolders,
+    setExtraFolders,
+    currentFolder: current,
+    setCurrentFolder: navigate,
+    selection,
+  });
+  const rowActions = useCallback(
+    (file: FileOut) => (
+      <>
+        {manage.fileActions(file)}
+        {fileActions?.(file)}
+      </>
+    ),
+    [manage, fileActions],
+  );
+  const folderRowActions = useCallback(
+    (path: string) => (
+      <>
+        {manage.folderActions(path)}
+        {folderActions?.(path)}
+      </>
+    ),
+    [manage, folderActions],
+  );
   const trail = breadcrumbs(current);
+  const newFolderEmpty = extraFolders.includes(current) && scope.total === 0;
   const rootLabel = t("explorer.root");
   const typeLabel = (key: TypeFilter) => t(`explorer.type.${key}`);
 
@@ -242,6 +292,7 @@ export function FileExplorer({
                 <LayoutGridIcon className="size-4" />
               </Button>
             </div>
+            {manage.newFolderButton}
             {toolbarExtra}
             {canUpload ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setShowAddFiles((prev) => !prev)}>
@@ -272,23 +323,44 @@ export function FileExplorer({
         ) : null}
 
         {canUpload && showAddFiles && currentRevision ? (
-          <UploadDropzone resolveTarget={resolveTarget} onUploadComplete={handleUploadComplete} />
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              {t("explorer.uploadInto", { path: current === "" ? rootLabel : current })}
+            </p>
+            <UploadDropzone resolveTarget={resolveTarget} onUploadComplete={handleUploadComplete} relPathPrefix={current} />
+          </div>
         ) : null}
 
-        {canUpload && selectedFiles.length > 0 ? (
+        {manage.busy ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("explorer.busy")}
+          </p>
+        ) : null}
+
+        {canUpload && selectedCount > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-            <span>{t("explorer.selected", { count: selectedFiles.length })}</span>
+            <span>{t("explorer.selected", { count: selectedCount })}</span>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" size="sm" onClick={() => setShowCombine(true)}>
-                <CombineIcon className="size-4" />
-                {t("explorer.combine")}
-              </Button>
+              {selectedFiles.length > 0 ? (
+                <Button type="button" size="sm" onClick={() => setShowCombine(true)}>
+                  <CombineIcon className="size-4" />
+                  {t("explorer.combine")}
+                </Button>
+              ) : null}
               {selectedFiles.some(canArrange) ? (
                 <Button type="button" size="sm" variant="outline" onClick={() => setArrangeFiles(selectedFiles.filter(canArrange))}>
                   <LayoutGridIcon className="size-4" />
                   {t("explorer.arrange")}
                 </Button>
               ) : null}
+              <Button type="button" size="sm" variant="outline" disabled={manage.busy} onClick={manage.selectionMove}>
+                <FolderInputIcon className="size-4" />
+                {t("explorer.manage.move")}
+              </Button>
+              <Button type="button" size="sm" variant="outline" disabled={manage.busy} onClick={manage.selectionDelete}>
+                <Trash2Icon className="size-4" />
+                {t("explorer.manage.delete")}
+              </Button>
               <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
                 {t("explorer.clear")}
               </Button>
@@ -309,7 +381,8 @@ export function FileExplorer({
                 current={current}
                 onSelect={navigate}
                 rootLabel={rootLabel}
-                folderSlot={folderActions}
+                folderSlot={folderRowActions}
+                dropProps={manage.dropProps}
               />
             </aside>
 
@@ -332,10 +405,11 @@ export function FileExplorer({
                       {index > 0 ? <ChevronRightIcon className="size-3.5 text-muted-foreground" /> : null}
                       <button
                         type="button"
+                        {...manage.dropProps(crumb.path)}
                         onClick={() => navigate(crumb.path)}
                         aria-current={index === trail.length - 1 ? "page" : undefined}
                         title={crumb.name || rootLabel}
-                        className="max-w-full truncate rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground aria-current:font-medium aria-current:text-foreground"
+                        className="max-w-full truncate rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground aria-current:font-medium aria-current:text-foreground data-[drop-over=true]:bg-primary/15 data-[drop-over=true]:ring-1 data-[drop-over=true]:ring-primary/50"
                       >
                         {crumb.name || rootLabel}
                       </button>
@@ -346,7 +420,11 @@ export function FileExplorer({
 
               {shownFiles.length === 0 && shownFolders.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  {query || type !== "all" || tagFilter.tags.length > 0 ? t("explorer.noMatch") : t("explorer.emptyFolder")}
+                  {query || type !== "all" || tagFilter.tags.length > 0
+                    ? t("explorer.noMatch")
+                    : newFolderEmpty
+                      ? t("explorer.emptyNewFolder")
+                      : t("explorer.emptyFolder")}
                 </p>
               ) : (
                 <ul
@@ -363,7 +441,12 @@ export function FileExplorer({
                       node={node}
                       layout={view.layout}
                       onOpen={navigate}
-                      actionsSlot={folderActions?.(node.path)}
+                      actionsSlot={folderRowActions(node.path)}
+                      selectable={canUpload}
+                      selected={selection.has(folderKey(node.path))}
+                      onSelectedChange={toggleFolderSelected}
+                      onDragStartFolder={canUpload ? manage.onDragStartFolder : undefined}
+                      dropProps={manage.dropProps}
                     />
                   ))}
                   {shownFiles.map((file) => {
@@ -374,14 +457,15 @@ export function FileExplorer({
                         model={model}
                         layout={view.layout}
                         label={flat ? file.rel_path : baseName(file.rel_path)}
-                        selectable={canUpload && isCombinable(file)}
+                        selectable={canUpload}
                         selected={selection.has(fileKey(file.id))}
                         onSelectedChange={toggleSelected}
                         previewOpen={previewId === file.id}
                         onTogglePreview={togglePreview}
                         onViewIn3D={onViewIn3D}
                         onArrange={canUpload ? arrangeOne : undefined}
-                        actionsSlot={fileActions?.(file)}
+                        actionsSlot={rowActions(file)}
+                        onDragStartFile={canUpload ? manage.onDragStartFile : undefined}
                       />
                     );
                   })}
@@ -411,6 +495,8 @@ export function FileExplorer({
             </div>
           </div>
         )}
+
+        {manage.dialogs}
 
         {arrangeFiles ? (
           <PlateEditorDialog

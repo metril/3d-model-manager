@@ -41,11 +41,17 @@ export class TerminalEventMap {
   }
 }
 
-function toQueueItems(files: DroppedFile[]): QueueItem[] {
+/** Prefixes a dropped/picked relative path with a destination folder ("" = revision root). */
+function withPrefix(prefix: string | undefined, relPath: string): string {
+  const p = (prefix ?? "").split("/").filter(Boolean).join("/");
+  return p ? `${p}/${relPath}` : relPath;
+}
+
+function toQueueItems(files: DroppedFile[], prefix?: string): QueueItem[] {
   return files.map((entry) => ({
     id: randomId(),
     file: entry.file,
-    relPath: entry.relPath,
+    relPath: withPrefix(prefix, entry.relPath),
     size: entry.file.size,
     progress: 0,
     status: "pending",
@@ -75,6 +81,8 @@ export interface UploadDropzoneProps {
    * duration of a batch, exactly as it did before this component was
    * extracted (preventing a target switch mid-upload). */
   onUploadingChange?: (isUploading: boolean) => void;
+  /** Folder every added file lands in (the explorer's current folder); applied when files are added. */
+  relPathPrefix?: string;
 }
 
 /**
@@ -88,6 +96,7 @@ export function UploadDropzone({
   disabled,
   onUploadComplete,
   onUploadingChange,
+  relPathPrefix,
 }: UploadDropzoneProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -165,7 +174,7 @@ export function UploadDropzone({
 
   function addFiles(files: DroppedFile[]) {
     if (files.length === 0) return;
-    setQueue((prev) => [...prev, ...toQueueItems(files)]);
+    setQueue((prev) => [...prev, ...toQueueItems(files, relPathPrefix)]);
   }
 
   function updateItem(id: string, patch: Partial<QueueItem>) {
