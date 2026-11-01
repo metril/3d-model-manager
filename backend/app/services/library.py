@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import Settings
 from app.importers.base import SiteImporter
@@ -2047,17 +2048,17 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
 
 async def lock_model_row(db: AsyncSession, model: Model) -> None:
     """Take the model row's write lock (``SELECT ... FOR UPDATE``) and refresh
-    ``model`` from it. Every path that mutates the CURRENT revision's file
+    ``model.current_revision_id`` from it. Every path that mutates the CURRENT revision's file
     rows/keys (upload finalize, new revision, delete, and the
     ``move_model_files`` task) takes this FIRST -- before any file-row lock --
     so check-then-act sequences against the revision are serialized and
     lock order is always model -> file. Held until the caller commits."""
-    await db.execute(
-        select(Model)
-        .where(Model.id == model.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    fresh = await db.scalar(
+        select(Model.current_revision_id).where(Model.id == model.id).with_for_update()
     )
+    # Sync only the field the check-then-act callers branch on, without
+    # expiring the rest of the instance (lazy loads are unsafe under asyncio).
+    set_committed_value(model, "current_revision_id", fresh)
 
 
 def validate_move_target(rel: str) -> str | None:
