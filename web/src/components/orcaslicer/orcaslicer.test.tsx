@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
@@ -10,7 +10,7 @@ import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
 import { fakeServer } from "@/components/settings/server/fixtures";
 import { OrcaSlicerServerCard } from "@/components/settings/server/OrcaSlicerServerCard";
 import { resetOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
-import { OrcaSlicerFrame } from "@/components/orcaslicer/OrcaSlicerFrame";
+import { OrcaSlicerSplitButton } from "@/components/orcaslicer/OrcaSlicerSplitButton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const { getMock, postMock, putMock, deleteMock, toastMock } = vi.hoisted(() => ({
@@ -18,7 +18,7 @@ const { getMock, postMock, putMock, deleteMock, toastMock } = vi.hoisted(() => (
   postMock: vi.fn(),
   putMock: vi.fn(),
   deleteMock: vi.fn(),
-  toastMock: { success: vi.fn(), error: vi.fn() },
+  toastMock: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
@@ -26,7 +26,6 @@ vi.mock("@/api/client", async (importOriginal) => {
 });
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), toastMock) }));
 const openMock = vi.fn();
-const closeMock = vi.fn();
 
 const session: OrcaSlicerSession = {
   token: "tok1",
@@ -78,8 +77,8 @@ function file(overrides: Partial<FileOut> = {}): FileOut {
 const model = { id: 1, slug: "m", name: "M" } as ModelDetail;
 
 beforeEach(() => {
-  for (const m of [getMock, postMock, putMock, deleteMock, openMock, closeMock, toastMock.success, toastMock.error]) m.mockReset();
-  openMock.mockReturnValue({ close: closeMock });
+  for (const m of [getMock, postMock, putMock, deleteMock, openMock, toastMock.success, toastMock.error, toastMock.warning]) m.mockReset();
+  openMock.mockReturnValue({});
   vi.stubGlobal("open", openMock);
   localStorage.clear();
   resetOrcaSlicerWindow();
@@ -118,90 +117,28 @@ describe("OrcaSlicerServerCard", () => {
   });
 });
 
-describe("OrcaSlicerFrame", () => {
-  it("shows the https banner off-https and the session strip with End session", async () => {
-    mockGet({ sess: session });
+describe("OrcaSlicerSplitButton session", () => {
+  async function openOptions(sess: OrcaSlicerSession | null) {
+    mockGet({ sess });
+    wrap(<OrcaSlicerSplitButton file={file()} slug="m" />);
+    await screen.findByRole("button", { name: /Open b.stl in OrcaSlicer/ });
+    await new Promise((r) => setTimeout(r, 20));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "OrcaSlicer options" }), { button: 0 });
+  }
+
+  it("shows the edited file and ends the session from the menu", async () => {
     deleteMock.mockResolvedValue(undefined);
-    wrap(<OrcaSlicerFrame />);
+    await openOptions(session);
     expect(await screen.findByText("a.3mf")).toBeInTheDocument();
-    // jsdom serves http://localhost: localhost is exempt, so no banner.
-    expect(screen.queryByText(/needs HTTPS/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "End session" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "End session" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/orcaslicer/session"));
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("OrcaSlicer session ended"));
   });
 
-  it("shows the banner on a non-local http host", async () => {
-    mockGet({});
-    const orig = window.location;
-    Object.defineProperty(window, "location", { value: { ...orig, protocol: "http:", hostname: "tdmm.lan" }, configurable: true });
-    try {
-      wrap(<OrcaSlicerFrame />);
-      expect(await screen.findByText(/needs HTTPS/)).toBeInTheDocument();
-    } finally {
-      Object.defineProperty(window, "location", { value: orig, configurable: true });
-    }
-  });
-
-  it("waits for a file when there is no session", async () => {
-    mockGet({});
-    wrap(<OrcaSlicerFrame />);
-    expect(await screen.findByTestId("orcaslicer-waiting")).toHaveTextContent("Waiting for a file");
-    expect(screen.queryByTitle("OrcaSlicer")).toBeNull();
-  });
-
-  it("renders the iframe with a skeleton until load", async () => {
-    mockGet({ sess: session });
-    wrap(<OrcaSlicerFrame />);
-    const frame = await screen.findByTitle("OrcaSlicer");
-    expect(frame).toHaveAttribute("src", "/slicer/");
-    expect(frame).toHaveAttribute("allow", "clipboard-read; clipboard-write; fullscreen");
-    expect(screen.getByTestId("orcaslicer-skeleton")).toBeInTheDocument();
-    fireEvent.load(frame);
-    expect(screen.queryByTestId("orcaslicer-skeleton")).toBeNull();
-  });
-});
-
-describe("OrcaSlicerFrame theme sync", () => {
-  it("remounts with the new theme only when it changed after load, and only once", async () => {
-    mockGet({ sess: session });
-    const { ThemeProvider, useTheme } = await import("next-themes");
-    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
-    let setTheme: (t: string) => void = () => {};
-    function Grab() {
-      setTheme = useTheme().setTheme;
-      return null;
-    }
-    localStorage.setItem("theme", "dark");
-    wrap(
-      <ThemeProvider attribute="class" storageKey="tdmm-theme" defaultTheme="dark" enableSystem={false}>
-        <Grab />
-        <OrcaSlicerFrame />
-      </ThemeProvider>,
-    );
-    const first = await screen.findByTitle("OrcaSlicer");
-    vi.useFakeTimers();
-    try {
-      fireEvent.load(first);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-      // No toggle, but the theme is the one the frame loaded with: no remount.
-      expect(screen.getByTitle("OrcaSlicer")).toBe(first);
-      act(() => setTheme("light"));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-      expect(localStorage.getItem("theme")).toBe("light");
-      const second = screen.getByTitle("OrcaSlicer");
-      expect(second).not.toBe(first);
-      fireEvent.load(second);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-      expect(screen.getByTitle("OrcaSlicer")).toBe(second);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("has no session entries without a session", async () => {
+    await openOptions(null);
+    await screen.findByRole("menuitem", { name: "Open in a tab" });
+    expect(screen.queryByRole("menuitem", { name: "End session" })).toBeNull();
   });
 });
 
@@ -245,46 +182,55 @@ describe("Open in OrcaSlicer menu entry", () => {
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(openMock).toHaveBeenCalledTimes(1);
-    expect(openMock.mock.calls[0][0]).toBe("/slicer");
+    expect(openMock.mock.calls[0][0]).toBe("/slicer/");
     expect(openMock.mock.calls[0][1]).toBe("tdmm-orcaslicer");
     expect(openMock.mock.calls[0][2]).toMatch(/^popup,width=\d+,height=\d+$/);
     resolvePost({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
-    expect(closeMock).not.toHaveBeenCalled();
   });
 
-  it("reuses an open slicer tab and does not close it when the POST fails", async () => {
-    const existing = { closed: false, close: closeMock, focus: vi.fn() };
+  it("reuses an open slicer tab and never closes it when the POST fails", async () => {
+    const existing = { closed: false, close: vi.fn(), focus: vi.fn() };
     openMock.mockReturnValue(existing);
     postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
-    await waitFor(() => expect(postMock).toHaveBeenCalled());
-    // first call created it (and closes it on error); a second click reuses it
     await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
-    closeMock.mockClear();
     fireEvent.pointerDown(screen.getByRole("button", { name: /Actions for/ }), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
+    expect(openMock).toHaveBeenCalledTimes(1);
     expect(existing.focus).toHaveBeenCalled();
-    expect(closeMock).not.toHaveBeenCalled();
+    expect(existing.close).not.toHaveBeenCalled();
   });
 
   it("opens a plain named tab by default", async () => {
     postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
-    expect(openMock).toHaveBeenCalledWith("/slicer", "tdmm-orcaslicer");
+    expect(openMock).toHaveBeenCalledWith("/slicer/", "tdmm-orcaslicer");
     expect(localStorage.getItem("tdmm.orcaslicer.openMode")).toBe("tab");
   });
 
-  it("closes the window and toasts when the POST fails", async () => {
+  it("toasts without closing the window when the POST fails", async () => {
     postMock.mockRejectedValue(new ApiError(502, "bad gateway", "launcher_unreachable"));
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(openMock).toHaveBeenCalled();
-    await waitFor(() => expect(closeMock).toHaveBeenCalled());
-    expect(toastMock.error).toHaveBeenCalled();
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+  });
+
+  it("warns when opened over insecure http", async () => {
+    postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
+    await openMenu(file(), { enabled: true });
+    const orig = window.location;
+    Object.defineProperty(window, "location", { value: { ...orig, protocol: "http:", hostname: "tdmm.lan" }, configurable: true });
+    try {
+      fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
+      expect(toastMock.warning).toHaveBeenCalledWith(expect.stringMatching(/needs HTTPS/));
+    } finally {
+      Object.defineProperty(window, "location", { value: orig, configurable: true });
+    }
   });
 
   it("opens directly with no session", async () => {
