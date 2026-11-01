@@ -103,26 +103,26 @@ export function FileExplorer({
   const current = findNode(fullTree, folder) ? folder : "";
   const scope = findNode(fullTree, current) ?? fullTree;
 
-  const searching = query.trim() !== "";
+  // A search or a specific type chip lists matches flat across the whole subtree;
+  // plain "All" keeps the folder view (subfolders + direct files).
+  const flat = query.trim() !== "" || type !== "all";
   const scopeFiles = useMemo(() => flattenFiles(scope), [scope]);
-  // Chip counts describe exactly what the list shows for that chip: this
-  // folder's direct files, or the whole subtree while searching.
-  const countBase = searching ? scopeFiles : scope.files;
-  const counts = useMemo(() => countByGroup(applySearch(countBase, { query, tagFilter })), [countBase, query, tagFilter]);
+  // Chip counts always cover the subtree, i.e. what clicking the chip lists.
+  const counts = useMemo(() => countByGroup(applySearch(scopeFiles, { query, tagFilter })), [scopeFiles, query, tagFilter]);
   const matched = useMemo(() => applyFilters(scopeFiles, { query, tagFilter, type }), [scopeFiles, query, tagFilter, type]);
 
   // Search results are flat across the subtree; otherwise show this folder's
   // direct subfolders and files (only those that still contain a match).
   const shownTree = useMemo(() => findNode(buildTree(matched), current), [matched, current]);
   const shownFiles = useMemo(
-    () => sortFiles(searching ? matched : (shownTree?.files ?? []), view.sort, view.dir),
-    [searching, matched, shownTree, view.sort, view.dir],
+    () => sortFiles(flat ? matched : (shownTree?.files ?? []), view.sort, view.dir),
+    [flat, matched, shownTree, view.sort, view.dir],
   );
   const shownFolders = useMemo(() => {
-    if (searching) return [];
+    if (flat) return [];
     const folders = [...(shownTree?.folders ?? [])];
     return view.sort === "name" && view.dir === "desc" ? folders.reverse() : folders;
-  }, [searching, shownTree, view.sort, view.dir]);
+  }, [flat, shownTree, view.sort, view.dir]);
 
   const previewFile = previewId === null ? null : (allFiles.find((file) => file.id === previewId) ?? null);
   // Bulk actions only ever touch files that are currently visible.
@@ -373,7 +373,7 @@ export function FileExplorer({
                         file={file}
                         model={model}
                         layout={view.layout}
-                        label={searching ? file.rel_path : baseName(file.rel_path)}
+                        label={flat ? file.rel_path : baseName(file.rel_path)}
                         selectable={canUpload && isCombinable(file)}
                         selected={selection.has(fileKey(file.id))}
                         onSelectedChange={toggleSelected}

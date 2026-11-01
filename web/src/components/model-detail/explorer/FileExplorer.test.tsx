@@ -531,26 +531,40 @@ describe("FileExplorer -- folders, filters and view settings", () => {
     expect(screen.getByText("top.stl")).toBeInTheDocument();
   });
 
-  it("counts exactly what the list shows: direct files normally, the subtree while searching", () => {
+  it("counts the whole subtree per chip, and clicking a chip lists exactly those files flat", () => {
     renderExplorer(FILES);
-    expect(screen.getByRole("button", { name: /^All\s*1$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Models\s*1$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Images\s*0$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Docs\s*0$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Misc\s*0$/ })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Search files…" }), { target: { value: "s" } });
+    expect(screen.getByRole("button", { name: /^All\s*5$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Models\s*3$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Images\s*1$/ })).toBeInTheDocument();
-  });
+    expect(screen.getByRole("button", { name: /^Docs\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Misc\s*0$/ })).toBeInTheDocument();
 
-  it("narrows the list with the chips, keeping folders that contain matches", () => {
-    renderExplorer(FILES);
-    fireEvent.click(screen.getByRole("button", { name: /^Images/ }));
-    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open folder pics" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Models/ }));
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+    expect(screen.getByText("parts/body.stl")).toBeInTheDocument();
+    expect(screen.getByText("parts/inner/lid.stl")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open folder parts" })).not.toBeInTheDocument();
   });
+
+  it("lists images living only in subfolders when the Images chip is chosen", () => {
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: /^Images/ }));
+    expect(screen.getByText("pics/shot.png")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^All/ }));
+    expect(screen.getByRole("button", { name: "Open folder pics" })).toBeInTheDocument();
+    expect(screen.getByText("top.stl")).toBeInTheDocument();
+  });
+
+  it("scopes chip counts and the flat list to the current folder's subtree", () => {
+    renderExplorer(FILES);
+    fireEvent.click(screen.getByRole("button", { name: "Open folder parts" }));
+    expect(screen.getByRole("button", { name: /^All\s*2$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Models/ }));
+    expect(screen.getByText("parts/inner/lid.stl")).toBeInTheDocument();
+    expect(screen.queryByText("top.stl")).not.toBeInTheDocument();
+  });
+
 
   it("clears the selection when navigating to another folder", () => {
     renderExplorer([nested("a.stl", 20), nested("sub/b.stl", 21)]);
