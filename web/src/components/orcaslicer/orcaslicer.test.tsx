@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
@@ -158,6 +158,39 @@ describe("OrcaSlicerFrame", () => {
     expect(screen.getByTestId("orcaslicer-skeleton")).toBeInTheDocument();
     fireEvent.load(frame);
     expect(screen.queryByTestId("orcaslicer-skeleton")).toBeNull();
+  });
+});
+
+describe("OrcaSlicerFrame theme sync", () => {
+  it("falls back to writing the theme key and remounting the frame once when no toggle shows up", async () => {
+    mockGet({ sess: session });
+    const { ThemeProvider } = await import("next-themes");
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
+    localStorage.setItem("theme", "light");
+    wrap(
+      <ThemeProvider attribute="class" storageKey="tdmm-theme" defaultTheme="dark" enableSystem={false}>
+        <OrcaSlicerFrame />
+      </ThemeProvider>,
+    );
+    const first = await screen.findByTitle("OrcaSlicer");
+    vi.useFakeTimers();
+    try {
+      fireEvent.load(first);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(localStorage.getItem("theme")).toBe("dark");
+      const second = screen.getByTitle("OrcaSlicer");
+      expect(second).not.toBe(first);
+      // A second miss for the same theme does not remount again.
+      fireEvent.load(second);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(screen.getByTitle("OrcaSlicer")).toBe(second);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -10,12 +10,15 @@ import { queryClient } from "@/queryClient";
 import { AppearanceProvider } from "@/lib/appearance";
 import { installPreloadErrorReload } from "@/lib/preloadError";
 import { registerServiceWorker } from "@/lib/pwa";
+import { APP_THEME_KEY, migrateThemeKey, SelkiesThemeBridge } from "@/lib/selkiesTheme";
 import { router } from "@/router";
 import "@/i18n";
 
 import "./index.css";
 
 installPreloadErrorReload();
+
+migrateThemeKey();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -25,7 +28,8 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="system" enableSystem>
+      <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="system" enableSystem storageKey={APP_THEME_KEY}>
+        <SelkiesThemeBridge />
         <AppearanceProvider>
           <AppProviders>
             <RouterProvider router={router} />
