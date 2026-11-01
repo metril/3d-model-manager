@@ -12,7 +12,7 @@ export const PANEL_IDS = [
   "notes",
   "printTips",
   "specs",
-  "studio",
+  "orcaslicer",
 ] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
@@ -29,16 +29,16 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   notes: "Notes",
   printTips: "Print tips",
   specs: "Specs",
-  studio: "OrcaSlicer",
+  orcaslicer: "OrcaSlicer",
 };
 
 /** Panels that exist only while their feature is on: never in the default
  * layout or the "new panel" auto-add, and hidden from the Panels menu when
  * the feature is off. Added on demand ("Open in OrcaSlicer" / Panels menu). */
-export const OPTIONAL_PANELS: readonly PanelId[] = ["studio"];
+export const OPTIONAL_PANELS: readonly PanelId[] = ["orcaslicer"];
 
 /** Panels whose DOM must survive tab switches (an iframe reloads if detached). */
-export const ALWAYS_RENDERED_PANELS: readonly PanelId[] = ["viewer", "studio"];
+export const ALWAYS_RENDERED_PANELS: readonly PanelId[] = ["viewer", "orcaslicer"];
 
 /** Today's two-column order: elastic left column, then the right card stack. */
 export const LEFT_PANELS: readonly PanelId[] = ["viewer", "description", "tagsLinks", "related"];
@@ -59,7 +59,7 @@ export const DEFAULT_GROUPS = {
   leftTop: ["viewer"],
   leftBottom: ["description", "tagsLinks", "related"],
   rightTop: ["gcodeProfiles", "printHistory", "filesDocs"],
-  rightBottom: ["revisions", "notes", "printTips", "specs", "studio"],
+  rightBottom: ["revisions", "notes", "printTips", "specs", "orcaslicer"],
 } as const satisfies Record<string, readonly PanelId[]>;
 export type DefaultGroup = keyof typeof DEFAULT_GROUPS;
 /** The tab that starts active in each default group. */

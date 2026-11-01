@@ -15,7 +15,7 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
     component: id,
     title: PANEL_TITLES[id],
     // The 3D viewer keeps its DOM (and GL context) alive when its tab is
-    // hidden or the group is re-parented; Studio's iframe would reload.
+    // hidden or the group is re-parented; OrcaSlicer's iframe would reload.
     renderer: ALWAYS_RENDERED_PANELS.includes(id) ? "always" : undefined,
     position,
   });

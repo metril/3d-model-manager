@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
-import { useStudioEnabled } from "@/api/studio";
+import { useOrcaSlicerEnabled } from "@/api/orcaslicer";
 import { OPTIONAL_PANELS, PANEL_IDS, PANEL_TITLES } from "./panelMeta";
 
 /** Header dropdown: show/hide each registry panel, or reset to the default layout. */
@@ -27,8 +27,8 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
     return () => subs.forEach((sub) => sub.dispose());
   }, [api]);
 
-  const studioEnabled = useStudioEnabled();
-  const visibleIds = PANEL_IDS.filter((id) => studioEnabled || !OPTIONAL_PANELS.includes(id));
+  const orcaslicerEnabled = useOrcaSlicerEnabled();
+  const visibleIds = PANEL_IDS.filter((id) => orcaslicerEnabled || !OPTIONAL_PANELS.includes(id));
 
   return (
     <DropdownMenu>

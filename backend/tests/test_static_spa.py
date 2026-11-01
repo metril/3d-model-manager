@@ -189,7 +189,7 @@ async def test_service_worker_and_manifest_are_not_immutable(static_dir: Path) -
             assert response.headers["cache-control"] == "no-cache"
 
 
-async def test_bare_studio_served_by_spa(static_dir: Path) -> None:
+async def test_bare_orcaslicer_served_by_spa(static_dir: Path) -> None:
     app = create_app()
     async with await _client(app) as client:
         for url in ("/slicer", "/slicer?x=1"):
@@ -198,7 +198,7 @@ async def test_bare_studio_served_by_spa(static_dir: Path) -> None:
             assert "spa shell" in response.text
 
 
-async def test_studio_prefix_not_served_by_spa(static_dir: Path) -> None:
+async def test_orcaslicer_prefix_not_served_by_spa(static_dir: Path) -> None:
     app = create_app()
     async with await _client(app) as client:
         response = await client.get("/slicer/nope")

@@ -1,0 +1,4 @@
+#!/usr/bin/with-contenv bash
+# Launcher API (relaunch OrcaSlicer on a file). Runs as root so it can signal and
+# respawn OrcaSlicer; OrcaSlicer itself is started as abc.
+exec python3 /app/launcher.py

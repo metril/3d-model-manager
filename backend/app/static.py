@@ -47,7 +47,7 @@ def mount_spa(app: FastAPI, static_dir: Path) -> None:
         # `/slicer/...` belongs to the proxy.
         if full_path == _API_PREFIX or full_path.startswith(_DECLINED_PREFIXES):
             # Never serve the SPA shell for an unmatched /api/* (or /slicer/*,
-            # owned by the Studio proxy) path -- it keeps 404ing as normal
+            # owned by the OrcaSlicer proxy) path -- it keeps 404ing as normal
             # JSON, via FastAPI's default handler.
             raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
 

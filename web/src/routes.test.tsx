@@ -218,7 +218,7 @@ describe("printerRedirect", () => {
   });
 });
 
-describe("studio route", () => {
+describe("orcaslicer route", () => {
   it("registers /slicer inside the shell, session-guarded", async () => {
     mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
     const router = makeRouter("/slicer");

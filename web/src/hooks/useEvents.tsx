@@ -81,13 +81,13 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (parsed.type === "studio.file_returned") {
+      if (parsed.type === "orcaslicer.file_returned") {
         const slug = parsed.model_slug;
         void queryClient.invalidateQueries({ queryKey: ["models", "detail", slug] });
         if (parsed.sliced) void queryClient.invalidateQueries({ queryKey: ["models", "list"] });
-        toast(i18n.t("studio.returned", { name: parsed.name }), {
+        toast(i18n.t("orcaslicer.returned", { name: parsed.name }), {
           action: {
-            label: i18n.t("studio.viewModel"),
+            label: i18n.t("orcaslicer.viewModel"),
             onClick: () => {
               void import("@/router").then((m) => m.router.navigate({ to: "/models/$slug", params: { slug } }));
             },
@@ -96,8 +96,8 @@ export function EventsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (parsed.type === "studio.session_started") {
-        void queryClient.invalidateQueries({ queryKey: ["studio", "session"] });
+      if (parsed.type === "orcaslicer.session_started") {
+        void queryClient.invalidateQueries({ queryKey: ["orcaslicer", "session"] });
         return;
       }
 

@@ -66,10 +66,10 @@ ENV_SEED: dict[str, str] = {
     "sse_heartbeat_s": "SSE_HEARTBEAT_INTERVAL",
     "slicer_url": "TDMM_SLICER_URL",
     "slice_timeout_s": "TDMM_SLICE_TIMEOUT_S",
-    "studio_enabled": "TDMM_STUDIO_ENABLED",
-    "studio_url": "TDMM_STUDIO_URL",
-    "studio_launcher_url": "TDMM_STUDIO_LAUNCHER_URL",
-    "studio_launcher_token": "TDMM_STUDIO_LAUNCHER_TOKEN",
+    "orcaslicer_enabled": "TDMM_ORCASLICER_ENABLED",
+    "orcaslicer_url": "TDMM_ORCASLICER_URL",
+    "orcaslicer_launcher_url": "TDMM_ORCASLICER_LAUNCHER_URL",
+    "orcaslicer_launcher_token": "TDMM_ORCASLICER_LAUNCHER_TOKEN",
     "vp_bind": "TDMM_VP_BIND",
     "vp_port_ssdp": "TDMM_VP_PORT_SSDP",
     "vp_port_mqtt": "TDMM_VP_PORT_MQTT",
@@ -146,10 +146,10 @@ class ServerConfig(BaseModel):
     slicer_enabled: bool = True
     slicer_url: str = "http://slicer:3001"
     slice_timeout_s: int = Field(default=600, ge=30, le=7200)
-    studio_enabled: bool = False
-    studio_url: str = "http://studio:3000"
-    studio_launcher_url: str = "http://studio:3010"
-    studio_launcher_token: SecretStr | None = None
+    orcaslicer_enabled: bool = False
+    orcaslicer_url: str = "http://orcaslicer:3000"
+    orcaslicer_launcher_url: str = "http://orcaslicer:3010"
+    orcaslicer_launcher_token: SecretStr | None = None
     vp_bind: str = "0.0.0.0"  # noqa: S104
     vp_port_ssdp: int = Field(default=2021, ge=1, le=65535)
     vp_port_mqtt: int = Field(default=8883, ge=1, le=65535)
@@ -175,7 +175,7 @@ class ServerConfig(BaseModel):
             raise ValueError("must not contain a query string or fragment")
         return v.rstrip("/")
 
-    @field_validator("slicer_url", "studio_url", "studio_launcher_url", mode="before")
+    @field_validator("slicer_url", "orcaslicer_url", "orcaslicer_launcher_url", mode="before")
     @classmethod
     def _slicer_url(cls, v: Any) -> Any:
         if not isinstance(v, str):
@@ -187,12 +187,12 @@ class ServerConfig(BaseModel):
                 raise ValueError("must be an http(s) URL")
         return v
 
-    @field_validator("studio_launcher_token", mode="before")
+    @field_validator("orcaslicer_launcher_token", mode="before")
     @classmethod
     def _blank_token(cls, v: Any) -> Any:
         return None if v == "" else v
 
-    @field_serializer("studio_launcher_token", when_used="always")
+    @field_serializer("orcaslicer_launcher_token", when_used="always")
     def _ser_token(self, v: SecretStr | None, info: Any) -> str | None:
         if v is None:
             return None
@@ -272,13 +272,13 @@ def _decode_smtp(raw: Any) -> Any:
 
 
 def _decode_token(token: Any) -> Any:
-    """Row -> model input for ``studio_launcher_token`` (undecryptable -> unset)."""
+    """Row -> model input for ``orcaslicer_launcher_token`` (undecryptable -> unset)."""
     if not token:
         return None
     try:
         return decrypt_secret(get_settings(), token)
     except (InvalidToken, ValueError):
-        log.warning("server settings: stored studio_launcher_token is undecryptable; ignoring")
+        log.warning("server settings: stored orcaslicer_launcher_token is undecryptable; ignoring")
         return None
 
 
@@ -289,8 +289,10 @@ def _encode(data: dict[str, Any]) -> dict[str, Any]:
     if smtp.get("password"):
         smtp["password"] = encrypt_secret(get_settings(), smtp["password"])
     out["smtp"] = smtp
-    if out.get("studio_launcher_token"):
-        out["studio_launcher_token"] = encrypt_secret(get_settings(), out["studio_launcher_token"])
+    if out.get("orcaslicer_launcher_token"):
+        out["orcaslicer_launcher_token"] = encrypt_secret(
+            get_settings(), out["orcaslicer_launcher_token"]
+        )
     return out
 
 
@@ -318,7 +320,7 @@ def _resolve(value: dict | None) -> ServerConfig:
         if value and field in value:
             data[field] = value[field]
     data["smtp"] = _decode_smtp(data["smtp"])
-    data["studio_launcher_token"] = _decode_token(data.get("studio_launcher_token"))
+    data["orcaslicer_launcher_token"] = _decode_token(data.get("orcaslicer_launcher_token"))
     try:
         return ServerConfig.model_validate(data)
     except ValidationError as exc:

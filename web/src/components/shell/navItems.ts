@@ -60,8 +60,8 @@ export interface NavItem {
    * everyone else only once billing is on -- `AppSidebar` resolves this
    * with `useFinanceConfig()`, since it isn't a plain permission check. */
   billingGated?: boolean;
-  /** Hidden unless the OrcaSlicer sidecar is enabled (`useStudioEnabled`). */
-  studioGated?: boolean;
+  /** Hidden unless the OrcaSlicer sidecar is enabled (`useOrcaSlicerEnabled`). */
+  orcaslicerGated?: boolean;
   /** Set for admin-configured sidebar links with `open_mode: "newtab"`:
    * rendered as a plain `<a target="_blank">` instead of a router Link. */
   externalUrl?: string;
@@ -87,7 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/print/history", label: "History", icon: ListChecks },
       { to: "/print/plugs", label: "Plugs", icon: Plug },
       { to: "/stats", label: "Stats", icon: BarChart3 },
-      { to: "/slicer", label: "OrcaSlicer", icon: Boxes, studioGated: true },
+      { to: "/slicer", label: "OrcaSlicer", icon: Boxes, orcaslicerGated: true },
     ],
   },
   {
@@ -155,13 +155,13 @@ export function printerNavItems(printers: PrinterOut[] | undefined): NavItem[] {
  * `true` (no printer-visibility penalty) for callers that don't pass it. */
 export function filterNavItems(
   items: NavItem[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; studioEnabled?: boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; orcaslicerEnabled?: boolean },
 ): NavItem[] {
   const hasPrinter = opts.hasPrinter ?? true;
   return items.filter(
     (item) =>
       (!item.featureGated || opts.printerEnabled) &&
-      (!item.studioGated || opts.studioEnabled) &&
+      (!item.orcaslicerGated || opts.orcaslicerEnabled) &&
       (!item.perm || opts.can(item.perm)) &&
       (!item.requiresPrinterAccess || hasPrinter || opts.can("settings:write")),
   );
@@ -174,7 +174,7 @@ export function filterNavItems(
  * for future groups) is dropped too. */
 export function filterNavGroups(
   groups: NavGroup[],
-  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; studioEnabled?: boolean },
+  opts: { printerEnabled: boolean; can: (p: Perm) => boolean; hasPrinter?: boolean; orcaslicerEnabled?: boolean },
 ): NavGroup[] {
   return groups
     .filter((group) => !group.featureGated || opts.printerEnabled)

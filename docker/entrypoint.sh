@@ -12,7 +12,7 @@ if [[ -z "${PRIVDROP_DONE:-}" && ( -n "${PUID:-}" || -n "${PGID:-}" ) ]]; then
   groupmod -o -g "$PGID" tdmm 2>/dev/null || groupadd -o -g "$PGID" tdmm
   usermod  -o -u "$PUID" -g "$PGID" tdmm 2>/dev/null || useradd -o -u "$PUID" -g "$PGID" -M -s /usr/sbin/nologin tdmm
   chown -R tdmm:tdmm /data /library 2>/dev/null || true
-  # Studio exchange folder (shared with the studio sidecar; same PUID/PGID).
+  # OrcaSlicer exchange folder (shared with the orcaslicer sidecar; same PUID/PGID).
   mkdir -p /exchange 2>/dev/null && chown tdmm:tdmm /exchange 2>/dev/null || true
   export PRIVDROP_DONE=1
   exec gosu tdmm:tdmm "$0" "$@"

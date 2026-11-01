@@ -306,11 +306,11 @@ jobs:
             docker push "$t"
           done
 
-  # OrcaSlicer GUI sidecar image (docker/studio): linuxserver Selkies base
+  # OrcaSlicer GUI sidecar image (docker/orcaslicer): linuxserver Selkies base
   # (~6 GB) + launcher. Same tag ladder as the slicer (no version token: the
   # base is pinned by digest). Smoke: Selkies shell on :3000 and launcher on :3010.
-  studio-image:
-    name: Studio sidecar image
+  orcaslicer-image:
+    name: OrcaSlicer sidecar image
     needs: [release-please]
     runs-on: ubuntu-latest
     permissions:
@@ -332,7 +332,7 @@ jobs:
           MAJOR: ${{ needs.release-please.outputs.major }}
           MINOR: ${{ needs.release-please.outputs.minor }}
         run: |
-          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/3d-model-manager-studio"
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/3d-model-manager-orcaslicer"
           tags="$img:edge $img:latest $img:sha-${GITHUB_SHA::7}"
           if [ "$RELEASE_CREATED" = "true" ]; then
             tags="$tags $img:${VERSION} $img:${MAJOR}.${MINOR} $img:${MAJOR}"
@@ -341,22 +341,22 @@ jobs:
       - name: Build (loaded locally)
         uses: docker/build-push-action@v7
         with:
-          context: docker/studio
+          context: docker/orcaslicer
           platforms: linux/amd64
           load: true
-          tags: tdmm-studio:smoke
-          cache-from: type=gha,scope=tdmm-studio
-          cache-to: type=gha,mode=min,scope=tdmm-studio,ignore-error=true
+          tags: tdmm-orcaslicer:smoke
+          cache-from: type=gha,scope=tdmm-orcaslicer
+          cache-to: type=gha,mode=min,scope=tdmm-orcaslicer,ignore-error=true
       - name: Smoke
         run: |
-          docker run -d --name studio --shm-size=1gb -e SUBFOLDER=/studio/ \
-            -p 3000:3000 -p 3010:3010 tdmm-studio:smoke
+          docker run -d --name orcaslicer --shm-size=1gb -e SUBFOLDER=/slicer/ \
+            -p 3000:3000 -p 3010:3010 tdmm-orcaslicer:smoke
           ok=0
           for i in $(seq 1 60); do
-            if curl -sf localhost:3010/health && curl -sf -o /dev/null localhost:3000/studio/; then ok=1; break; fi
+            if curl -sf localhost:3010/health && curl -sf -o /dev/null localhost:3000/slicer/; then ok=1; break; fi
             sleep 2
           done
-          [ "$ok" = 1 ] || { docker logs studio | tail -50; exit 1; }
+          [ "$ok" = 1 ] || { docker logs orcaslicer | tail -50; exit 1; }
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -368,7 +368,7 @@ jobs:
           TAGS: ${{ steps.tag.outputs.list }}
         run: |
           for t in $TAGS; do
-            docker tag tdmm-studio:smoke "$t"
+            docker tag tdmm-orcaslicer:smoke "$t"
             docker push "$t"
           done
 

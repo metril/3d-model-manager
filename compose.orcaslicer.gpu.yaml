@@ -1,0 +1,21 @@
+# NVIDIA GPU (NVENC + EGL) for the orcaslicer sidecar. Host prerequisites in
+# docs/orcaslicer.md; verify with scripts/orcaslicer-gpu-check.sh.
+#   docker compose -f compose.yaml -f compose.orcaslicer.gpu.yaml --profile orcaslicer up -d orcaslicer
+services:
+  orcaslicer:
+    runtime: nvidia
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      PIXELFLUX_WAYLAND: "true"
+      DRINODE: /dev/dri/renderD128
+      DRI_NODE: /dev/dri/renderD128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

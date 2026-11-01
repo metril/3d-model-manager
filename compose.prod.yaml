@@ -77,7 +77,7 @@ services:
     build: !reset null
     pull_policy: always
 
-  studio:
-    image: ghcr.io/metril/3d-model-manager-studio:${IMAGE_TAG:-latest}
+  orcaslicer:
+    image: ghcr.io/metril/3d-model-manager-orcaslicer:${IMAGE_TAG:-latest}
     build: !reset null
     pull_policy: always

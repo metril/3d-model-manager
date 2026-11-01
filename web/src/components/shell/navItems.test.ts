@@ -139,13 +139,13 @@ describe("navItems", () => {
   });
 });
 
-describe("studio nav entry", () => {
+describe("orcaslicer nav entry", () => {
   const base = { printerEnabled: true, can: () => true };
-  const has = (opts: { studioEnabled?: boolean }) =>
+  const has = (opts: { orcaslicerEnabled?: boolean }) =>
     filterNavGroups(NAV_GROUPS, { ...base, ...opts }).some((g) => g.items.some((i) => i.to === "/slicer"));
-  it("sits under Print and only shows when Studio is enabled", () => {
+  it("sits under Print and only shows when OrcaSlicer is enabled", () => {
     expect(NAV_GROUPS.find((g) => g.label === "Print")?.items.some((i) => i.to === "/slicer")).toBe(true);
     expect(has({})).toBe(false);
-    expect(has({ studioEnabled: true })).toBe(true);
+    expect(has({ orcaslicerEnabled: true })).toBe(true);
   });
 });
