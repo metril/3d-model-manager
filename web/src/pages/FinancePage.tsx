@@ -15,7 +15,7 @@ import { LedgerTable } from "@/components/finance/LedgerTable";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 export function FinancePage() {
   const auth = useAuth();
@@ -41,15 +41,13 @@ export function FinancePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch
-                checked={!!config.data?.billing_enabled}
-                disabled={config.isLoading || setBilling.isPending}
-                onCheckedChange={(checked) => setBilling.mutate(checked)}
-                aria-label="Billing enabled"
-              />
-              {config.data?.billing_enabled ? "Billing is on" : "Billing is off"}
-            </label>
+            <SwitchRow
+              label="Billing"
+              description={config.data?.billing_enabled ? "Billing is on" : "Billing is off"}
+              checked={!!config.data?.billing_enabled}
+              disabled={config.isLoading || setBilling.isPending}
+              onCheckedChange={(checked) => setBilling.mutate(checked)}
+            />
           </CardContent>
         </Card>
       )}

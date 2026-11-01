@@ -2,8 +2,7 @@ import { useAuth } from "@/api/auth";
 import { useOpsSettings, useSaveOpsSettings, useUpdateInfo } from "@/api/ops";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 export function UpdatesCard() {
   const auth = useAuth();
@@ -50,14 +49,12 @@ export function UpdatesCard() {
           </p>
         ) : null}
         {ops.data ? (
-          <div className="flex items-center gap-3">
-            <Switch
-              id="upd-enabled"
-              checked={ops.data.update_check_enabled}
-              onCheckedChange={(v) => save.mutate({ update_check_enabled: v })}
-            />
-            <Label htmlFor="upd-enabled">Check for updates</Label>
-          </div>
+          <SwitchRow
+            id="upd-enabled"
+            label="Check for updates"
+            checked={ops.data.update_check_enabled}
+            onCheckedChange={(v) => save.mutate({ update_check_enabled: v })}
+          />
         ) : null}
         {isAdmin ? (
           <Button asChild variant="outline" size="sm">

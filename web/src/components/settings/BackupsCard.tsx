@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 const errText = (e: unknown, fb: string) => (e instanceof ApiError ? e.detail : fb);
 const NONE = "none";
@@ -110,10 +110,7 @@ export function BackupsCard() {
             {errText(ops.error, "Couldn't load backup settings")}
           </p>
         ) : null}
-        <div className="flex items-center gap-3">
-          <Switch id="bk-enabled" checked={enabled} onCheckedChange={setEnabled} />
-          <Label htmlFor="bk-enabled">Scheduled backups</Label>
-        </div>
+        <SwitchRow id="bk-enabled" label="Scheduled backups" checked={enabled} onCheckedChange={setEnabled} />
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="bk-interval">Interval (hours)</Label>

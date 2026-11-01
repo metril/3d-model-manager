@@ -6,9 +6,9 @@ import { useControl } from "@/api/printerControl";
 import type { PrintOptionKey, PrinterOut, PrinterStatusOut, XcamSensitivity, XcamState } from "@/api/types";
 import { capsOf } from "@/components/print/card/caps";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 const LEVELS: XcamSensitivity[] = ["low", "medium", "high", "never_halt"];
 
@@ -96,24 +96,20 @@ export function PrintOptionsModal({
             );
           })}
           <div className="space-y-3 border-t pt-3">
-            <div className="flex items-center gap-3">
-              <Switch
-                id="po-auto-recovery"
-                checked={flagOf("auto_recovery")}
-                disabled={disabled}
-                onCheckedChange={(v) => void setFlag("auto_recovery", v)}
-              />
-              <Label htmlFor="po-auto-recovery">{t("printerOps.printOptions.autoRecovery")}</Label>
-            </div>
-            <div className="flex items-center gap-3">
-              <Switch
-                id="po-auto-switch"
-                checked={flagOf("auto_switch_filament")}
-                disabled={disabled}
-                onCheckedChange={(v) => void setFlag("auto_switch_filament", v)}
-              />
-              <Label htmlFor="po-auto-switch">{t("printerOps.printOptions.autoSwitch")}</Label>
-            </div>
+            <SwitchRow
+              id="po-auto-recovery"
+              label={t("printerOps.printOptions.autoRecovery")}
+              checked={flagOf("auto_recovery")}
+              disabled={disabled}
+              onCheckedChange={(v) => void setFlag("auto_recovery", v)}
+            />
+            <SwitchRow
+              id="po-auto-switch"
+              label={t("printerOps.printOptions.autoSwitch")}
+              checked={flagOf("auto_switch_filament")}
+              disabled={disabled}
+              onCheckedChange={(v) => void setFlag("auto_switch_filament", v)}
+            />
           </div>
         </div>
       </DialogContent>

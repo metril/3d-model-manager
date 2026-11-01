@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+  ChevronRightIcon,
   ChevronsLeftIcon,
   HelpCircle,
   LoaderCircleIcon,
@@ -25,7 +26,9 @@ import { InstallAppButton } from "@/components/InstallAppButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ServiceStatusDot } from "@/components/shell/ServiceStatusDot";
 import { SidebarPrinterWidget } from "@/components/shell/SidebarPrinterWidget";
+import { SidebarSection } from "@/components/shell/SidebarSection";
 import { useNavLabel } from "@/components/shell/useNavLabel";
+import { useAutoExpand, useSectionCollapsed } from "@/components/shell/useSectionCollapsed";
 import { useSidebarCollapsed } from "@/components/shell/useSidebarCollapsed";
 import { type NavItem } from "@/components/shell/navItems";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
@@ -239,6 +242,18 @@ export function AppSidebar({
   }, [updateNavFade]);
   useEffect(updateNavFade); // content (collections, printers) changes scrollHeight
   const navLabel = useNavLabel();
+  const location = useRouterState({ select: (state) => state.location });
+  const pathname = location.pathname;
+  const searchParams = location.search as { category?: unknown; collection?: unknown };
+  const hasCategory = searchParams.category != null;
+  const hasCollection = searchParams.collection != null;
+  const [collectionsHidden, setCollectionsHidden] = useSectionCollapsed("collections");
+  useAutoExpand(collectionsHidden, setCollectionsHidden, hasCollection, `${pathname}|${String(searchParams.collection ?? "")}`);
+  const itemActive = (item: NavItem) =>
+    !item.externalUrl &&
+    !item.orcaslicerWindow &&
+    typeof item.to === "string" &&
+    (item.exact ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`));
   const { groups: visibleGroups, systemItems: visibleSystemItems, externalItems } = useVisibleNav();
 
   useEffect(() => {
@@ -319,14 +334,17 @@ export function AppSidebar({
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-2"
       >
         {visibleGroups.map((group) => (
-          <div key={group.label} className="flex flex-col gap-1">
-            {!collapsed && (
-              <div className="label-caps px-2.5 pb-1">
-                {navLabel(group.label)}
-              </div>
-            )}
+          <SidebarSection
+            key={group.label}
+            name={group.label.toLowerCase()}
+            label={navLabel(group.label)}
+            rail={collapsed}
+            active={group.items.some(itemActive)}
+            locationKey={pathname}
+          >
             {group.items.map((item) => (
-              <div key={`${item.to as string}:${item.params?.id ?? ""}`}>
+              <div key={`${item.to as string}:${item.params?.id ?? ""}`} >
+                <div className={item.to === "/collections" ? "flex items-center gap-0.5 [&>a]:min-w-0 [&>a]:flex-1" : undefined}>
                 <NavLink
                   item={item}
                   collapsed={collapsed}
@@ -344,7 +362,30 @@ export function AppSidebar({
                   }
                 />
                 {item.to === "/collections" && !collapsed && collections.length > 0 && (
-                  <div className="mt-0.5 ml-5 flex flex-col gap-0.5 border-l border-border pl-2.5">
+                  <button
+                    type="button"
+                    aria-expanded={!collectionsHidden}
+                    aria-controls="sidebar-collections"
+                    aria-label={collectionsHidden ? t("shell.expandCollections") : t("shell.collapseCollections")}
+                    title={collectionsHidden ? t("shell.expandCollections") : t("shell.collapseCollections")}
+                    onClick={() => setCollectionsHidden(!collectionsHidden)}
+                    className="relative flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                  >
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      className={cn("size-3.5 transition-transform motion-reduce:transition-none", !collectionsHidden && "rotate-90")}
+                    />
+                    {collectionsHidden && hasCollection ? (
+                      <>
+                        <span aria-hidden="true" className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sidebar-primary" />
+                        <span className="sr-only">{t("shell.sectionActive")}</span>
+                      </>
+                    ) : null}
+                  </button>
+                )}
+                </div>
+                {item.to === "/collections" && !collapsed && collections.length > 0 && !collectionsHidden && (
+                  <div id="sidebar-collections" className="mt-0.5 ml-5 flex flex-col gap-0.5 border-l border-border pl-2.5">
                     {collections.map((c) => (
                       <Link
                         key={c.id}
@@ -366,7 +407,7 @@ export function AppSidebar({
                 )}
               </div>
             ))}
-          </div>
+          </SidebarSection>
         ))}
         {/* Categories (R13b): NOT one of `navItems.ts`'s pages -- a
             dynamic, data-driven list like the Collections sublist above,
@@ -375,10 +416,13 @@ export function AppSidebar({
             same one-way-seed contract `librarySearch.ts` already documents
             for `?collection=<id>`. */}
         {!collapsed && (categories.data?.length ?? 0) > 0 && (
-          <div className="flex flex-col gap-1">
-            <div className="label-caps px-2.5 pb-1">
-              {t("nav.Categories")}
-            </div>
+          <SidebarSection
+            name="categories"
+            label={t("nav.Categories")}
+            rail={collapsed}
+            active={pathname === "/library" && hasCategory}
+            locationKey={`${pathname}|${String(searchParams.category ?? "")}`}
+          >
             {(categories.data ?? []).map((category) => (
               <Link
                 key={category.id}
@@ -395,15 +439,14 @@ export function AppSidebar({
                 <span className="ml-auto text-xs tabular-mono">{category.model_count}</span>
               </Link>
             ))}
-          </div>
+          </SidebarSection>
         )}
         {externalItems.length > 0 && (
-          <div className="flex flex-col gap-1">
-            {!collapsed && <div className="label-caps px-2.5 pb-1">{t("nav.Links")}</div>}
+          <SidebarSection name="links" label={t("nav.Links")} rail={collapsed} active={false} locationKey={pathname}>
             {externalItems.map((item) => (
               <NavLink key={`ext:${item.params?.id}`} item={item} collapsed={collapsed} />
             ))}
-          </div>
+          </SidebarSection>
         )}
       </nav>
       <div
@@ -416,10 +459,17 @@ export function AppSidebar({
       />
       </div>
       <div className="flex shrink-0 flex-col gap-1 border-t border-sidebar-border px-2 py-2">
-        {!collapsed && <div className="label-caps px-2.5 pb-1">System</div>}
-        {visibleSystemItems.map((item) => (
-          <NavLink key={item.to as string} item={item} collapsed={collapsed} />
-        ))}
+        <SidebarSection
+          name="system"
+          label={t("nav.System")}
+          rail={collapsed}
+          active={visibleSystemItems.some(itemActive)}
+          locationKey={pathname}
+        >
+          {visibleSystemItems.map((item) => (
+            <NavLink key={item.to as string} item={item} collapsed={collapsed} />
+          ))}
+        </SidebarSection>
         <ServiceStatusDot collapsed={collapsed} />
         <SidebarPrinterWidget collapsed={collapsed} />
       </div>

@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const STATUS_LABEL: Record<SkuStatus, string> = { ok: "OK", reorder: "Reorder", break: "Stock break" };
@@ -96,14 +96,8 @@ function ConfigForm({ data, canWrite }: { data: Forecast; canWrite: boolean }) {
       >
         Margin in {cfg.safety_margin_unit === "days" ? "grams" : "days"}
       </Button>
-      <label className="flex items-center gap-2">
-        <Switch checked={cfg.include_queue} disabled={!canWrite} onCheckedChange={(v) => patch({ include_queue: v })} />
-        Include queued prints
-      </label>
-      <label className="flex items-center gap-2">
-        <Switch checked={cfg.notify} disabled={!canWrite} onCheckedChange={(v) => patch({ notify: v })} />
-        Notify on reorder
-      </label>
+      <SwitchRow label="Include queued prints" checked={cfg.include_queue} disabled={!canWrite} onCheckedChange={(v) => patch({ include_queue: v })} />
+      <SwitchRow label="Notify on reorder" checked={cfg.notify} disabled={!canWrite} onCheckedChange={(v) => patch({ notify: v })} />
     </div>
   );
 }

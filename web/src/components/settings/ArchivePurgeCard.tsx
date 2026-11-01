@@ -19,7 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { formatDateTime, humanizeBytes } from "@/lib/format";
 
 const errText = (e: unknown, fb: string) => (e instanceof ApiError ? e.detail : fb);
@@ -53,10 +53,7 @@ function Form({ initial }: { initial: ArchivePurgeSettings }) {
         <CardDescription>{t("archiveX.purge.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Switch id="purge-enabled" checked={draft.enabled} onCheckedChange={(v) => set("enabled", v)} />
-          <Label htmlFor="purge-enabled">{t("archiveX.purge.enabled")}</Label>
-        </div>
+        <SwitchRow id="purge-enabled" label={t("archiveX.purge.enabled")} checked={draft.enabled} onCheckedChange={(v) => set("enabled", v)} />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="purge-days">{t("archiveX.purge.olderThan")}</Label>
           <Input
@@ -69,14 +66,8 @@ function Form({ initial }: { initial: ArchivePurgeSettings }) {
             className="w-32"
           />
         </div>
-        <div className="flex items-center gap-2">
-          <Switch id="purge-failed" checked={draft.keep_failed} onCheckedChange={(v) => set("keep_failed", v)} />
-          <Label htmlFor="purge-failed">{t("archiveX.purge.keepFailed")}</Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch id="purge-verdict" checked={draft.keep_with_verdict} onCheckedChange={(v) => set("keep_with_verdict", v)} />
-          <Label htmlFor="purge-verdict">{t("archiveX.purge.keepVerdict")}</Label>
-        </div>
+        <SwitchRow id="purge-failed" label={t("archiveX.purge.keepFailed")} checked={draft.keep_failed} onCheckedChange={(v) => set("keep_failed", v)} />
+        <SwitchRow id="purge-verdict" label={t("archiveX.purge.keepVerdict")} checked={draft.keep_with_verdict} onCheckedChange={(v) => set("keep_with_verdict", v)} />
         <div className="flex flex-wrap items-center gap-2">
           <Button
             disabled={invalid || save.isPending}

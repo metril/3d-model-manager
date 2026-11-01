@@ -378,3 +378,14 @@
   --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9;
   --viz-seq: #3987e5;
 }
+
+/* Sidebar section collapse (Radix Collapsible exposes the measured height). */
+@keyframes sidebar-collapsible-down { from { height: 0; } to { height: var(--radix-collapsible-content-height); } }
+@keyframes sidebar-collapsible-up { from { height: var(--radix-collapsible-content-height); } to { height: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-collapsible[data-state="open"] { animation: sidebar-collapsible-down 150ms ease-out; }
+  .sidebar-collapsible[data-state="closed"] { animation: sidebar-collapsible-up 150ms ease-in; }
+}
+
+/* Switch (w-8) + gap-3: the x offset of a SwitchRow label text column. */
+:root { --switch-indent: calc(2rem + 0.75rem); }

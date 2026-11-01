@@ -19,9 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
@@ -85,10 +84,7 @@ function Form({ initial }: { initial: ObicoSettings }) {
         <CardDescription>{t("settings.server.obico.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <Switch id="srv-obico-enabled" checked={enabled} onCheckedChange={setEnabled} />
-          <Label htmlFor="srv-obico-enabled">{t("settings.server.obico.enable")}</Label>
-        </div>
+        <SwitchRow id="srv-obico-enabled" label={t("settings.server.obico.enable")} checked={enabled} onCheckedChange={setEnabled} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field id="srv-obico-url" label={t("settings.server.obico.url")} field="url" seeded={seeded}>
             <Input id="srv-obico-url" value={url} placeholder="http://obico-ml:3333" onChange={(e) => setUrl(e.target.value)} />

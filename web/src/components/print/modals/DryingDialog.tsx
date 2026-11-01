@@ -13,7 +13,7 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 type Mode = "now" | "at" | "after";
 const POWER = new Set([1, 8]);
@@ -190,10 +190,7 @@ export function DryingDialog({
             {number(tempVal, setTemp, TEMP_RANGE, t("drying.temp"))}
             {number(hoursVal, setHours, HOURS_RANGE, t("drying.hours"))}
           </div>
-          <div className="flex items-center gap-3">
-            <Switch checked={rotate} disabled={disabled} onCheckedChange={setRotate} aria-label={t("drying.rotate")} />
-            <span className="text-sm">{t("drying.rotate")}</span>
-          </div>
+          <SwitchRow label={t("drying.rotate")} checked={rotate} disabled={disabled} onCheckedChange={setRotate} />
           <div className="space-y-2">
             <Label>{t("drying.startMode")}</Label>
             <div role="radiogroup" aria-label={t("drying.startMode")} className="inline-flex gap-1 rounded-md border p-0.5">

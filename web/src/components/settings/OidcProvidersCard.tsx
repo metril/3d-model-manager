@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 function errText(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.detail : fallback;
@@ -185,22 +185,22 @@ function ProviderForm({ provider, onDone }: { provider: OidcProviderOut | null; 
       </div>
       {field("oidc-mapping", "Group mapping (JSON: claim value to group id)", mapping, setMapping)}
       <div className="flex flex-wrap gap-4 text-sm">
-        <label className="flex items-center gap-2">
-          <Switch checked={autoCreate} onCheckedChange={setAutoCreate} aria-label="Auto-create users" />
-          Auto-create users
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch checked={linkEmail} onCheckedChange={setLinkEmail} aria-label="Link by email" />
-          Link by email
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enabled" />
-          Enabled
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch checked={trustsMfa} onCheckedChange={setTrustsMfa} aria-label="Trust identity provider MFA" />
-          Trust identity provider MFA (skip app 2FA)
-        </label>
+        <SwitchRow
+          label="Auto-create users"
+          checked={autoCreate} onCheckedChange={setAutoCreate}
+        />
+        <SwitchRow
+          label="Link by email"
+          checked={linkEmail} onCheckedChange={setLinkEmail}
+        />
+        <SwitchRow
+          label="Enabled"
+          checked={enabled} onCheckedChange={setEnabled}
+        />
+        <SwitchRow
+          label="Trust identity provider MFA (skip app 2FA)"
+          checked={trustsMfa} onCheckedChange={setTrustsMfa}
+        />
       </div>
       {(localError || mut.isError) && (
         <p role="alert" className="text-sm text-destructive">
