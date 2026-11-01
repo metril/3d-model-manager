@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 export function QueueBehaviourCard() {
   const { t } = useTranslation();
@@ -58,17 +58,14 @@ export function QueueBehaviourCard() {
         <CardDescription>{t("queueSched.behaviour_card.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <label className="flex items-center gap-2 text-sm">
-          <Switch
-            checked={plateClear}
-            onCheckedChange={(v) => {
-              setSaved(false);
-              setPlateClear(v);
-            }}
-            aria-label={t("queueSched.behaviour_card.plateClear")}
-          />
-          {t("queueSched.behaviour_card.plateClear")}
-        </label>
+        <SwitchRow
+          label={t("queueSched.behaviour_card.plateClear")}
+          checked={plateClear}
+          onCheckedChange={(v) => {
+            setSaved(false);
+            setPlateClear(v);
+          }}
+        />
         <div className="space-y-1.5">
           <Label htmlFor="qb-heads-up">{t("queueSched.behaviour_card.headsUp")}</Label>
           <Input

@@ -91,7 +91,7 @@ describe("FinancePage", () => {
   it("shows manager controls (billing switch, New center, Edit, Deposit, Delete)", async () => {
     renderPage();
     expect(await screen.findByText("Shared shop")).toBeInTheDocument();
-    expect(screen.getByLabelText("Billing enabled")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Billing is on" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New center" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deposit" })).toBeInTheDocument();
@@ -102,7 +102,7 @@ describe("FinancePage", () => {
     authState.perms = [];
     renderPage();
     expect(await screen.findByText("Shared shop")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Billing enabled")).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New center" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(getMock).toHaveBeenCalledWith(expect.stringContaining("mine=true"));

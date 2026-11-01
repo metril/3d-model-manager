@@ -16,8 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { humanizeBytes } from "@/lib/format";
 
 function SlicerInfo({ info, appTimeoutS }: { info: SlicerProbeInfo | null | undefined; appTimeoutS: number }) {
@@ -110,10 +109,7 @@ export function SlicerServerCard({ data }: { data: ServerSettingsOut }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <SlicerInfo info={status.data?.slicer.info} appTimeoutS={valid ? tN : c.slice_timeout_s} />
-        <div className="flex items-center gap-3">
-          <Switch id="srv-slicer-enabled" checked={enabled} onCheckedChange={setEnabled} />
-          <Label htmlFor="srv-slicer-enabled">{t("settings.server.slicer.enable")}</Label>
-        </div>
+        <SwitchRow id="srv-slicer-enabled" label={t("settings.server.slicer.enable")} checked={enabled} onCheckedChange={setEnabled} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field id="srv-slicer-url" label={t("settings.server.slicer.url")} field="slicer_url" seeded={data.seeded_from_env} className="sm:col-span-2">
             <div className="flex gap-2">

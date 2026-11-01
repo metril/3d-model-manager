@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SwitchRow } from "@/components/ui/switch-row";
 
 const inRange = (v: number, lo: number, hi: number) => Number.isFinite(v) && v >= lo && v <= hi;
 
@@ -49,11 +49,8 @@ function Form({ initial }: { initial: DryingSettings }) {
   const patch = (p: Partial<DryingSettings>) => setS((o) => ({ ...o, ...p }));
   const setPreset = (name: string, field: keyof DryingPreset, v: number) =>
     patch({ presets: { ...s.presets, [name]: { ...s.presets[name], [field]: v } } });
-  const toggle = (label: string, key: keyof DryingSettings) => (
-    <div className="flex items-center gap-3">
-      <Switch checked={s[key] as boolean} onCheckedChange={(v) => patch({ [key]: v })} aria-label={label} />
-      <span className="text-sm">{label}</span>
-    </div>
+  const toggle = (label: string, key: keyof DryingSettings, extra?: { indent?: boolean; children?: ReactNode }) => (
+    <SwitchRow label={label} checked={s[key] as boolean} onCheckedChange={(v) => patch({ [key]: v })} {...extra} />
   );
 
   return (
@@ -170,20 +167,24 @@ function Form({ initial }: { initial: DryingSettings }) {
       </div>
 
       <div className="space-y-3">
-        {toggle(t("drying.settings.ambient"), "ambient_drying_enabled")}
-        <div className="space-y-1 pl-12">
-          <Label>{t("drying.settings.sustained")}</Label>
-          <Input
-            type="number"
-            className="w-28"
-            aria-label={t("drying.settings.sustained")}
-            disabled={!s.ambient_drying_enabled}
-            value={Number.isNaN(s.ambient_sustained_min) ? "" : s.ambient_sustained_min}
-            onChange={(e) => patch({ ambient_sustained_min: num(e.target.value) })}
-          />
-        </div>
-        {toggle(t("drying.settings.queue"), "queue_drying_enabled")}
-        <div className="pl-12">{toggle(t("drying.settings.queueBlock"), "queue_drying_block")}</div>
+        {toggle(t("drying.settings.ambient"), "ambient_drying_enabled", {
+          children: (
+            <div className="space-y-1">
+              <Label htmlFor="drying-sustained">{t("drying.settings.sustained")}</Label>
+              <Input
+                id="drying-sustained"
+                type="number"
+                className="w-28"
+                disabled={!s.ambient_drying_enabled}
+                value={Number.isNaN(s.ambient_sustained_min) ? "" : s.ambient_sustained_min}
+                onChange={(e) => patch({ ambient_sustained_min: num(e.target.value) })}
+              />
+            </div>
+          ),
+        })}
+        {toggle(t("drying.settings.queue"), "queue_drying_enabled", {
+          children: toggle(t("drying.settings.queueBlock"), "queue_drying_block"),
+        })}
         {toggle(t("drying.settings.print"), "print_drying_enabled")}
       </div>
 
