@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
@@ -49,8 +49,12 @@ vi.mock("@/api/scan", () => ({
   useScanRuns: () => ({ data: undefined }),
 }));
 
+const { followedBox } = vi.hoisted(() => ({
+  followedBox: { current: [] as Array<{ id: number; title: string }> },
+}));
+
 vi.mock("@/api/collections", () => ({
-  useFollowedCollections: () => ({ data: [] }),
+  useFollowedCollections: () => ({ data: followedBox.current }),
 }));
 
 const { categoriesBox } = vi.hoisted(() => ({
@@ -237,5 +241,109 @@ describe("AppSidebar -- Finance nav entry (P7 Task 8)", () => {
     financeConfigBox.current = { billing_enabled: true };
     renderSidebar();
     expect(await screen.findByRole("link", { name: "Finance" })).toHaveAttribute("href", "/system/finance");
+  });
+});
+
+describe("AppSidebar -- collapsible sections", () => {
+  function renderAt(path: string) {
+    const rootRoute = createRootRoute({ component: () => <AppSidebar onOpenShortcuts={vi.fn()} mobileOpen={false} onCloseMobile={vi.fn()} /> });
+    const routes = ["/", "/settings", "/library", "/collections"].map((p) =>
+      createRoute({ getParentRoute: () => rootRoute, path: p, component: () => null }),
+    );
+    const router = createRouter({
+      routeTree: rootRoute.addChildren(routes),
+      history: createMemoryHistory({ initialEntries: [path] }),
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    return router;
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    featuresBox.current = { printer_enabled: false };
+    categoriesBox.current = [{ id: 1, name: "Miniatures", color: "red", model_count: 5 }];
+    followedBox.current = [{ id: 7, title: "Dragons" }];
+    reviewCountBox.current = undefined;
+    failedBox.current = 0;
+  });
+
+  it("toggles a group with aria-expanded and persists it", async () => {
+    renderAt("/");
+    const header = await screen.findByRole("button", { name: /Library/ });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(header).toHaveAttribute("aria-controls");
+    expect(screen.getByRole("link", { name: "Projects" })).toBeInTheDocument();
+
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: "Projects" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("tdmm.sidebarSection.library")).toBe("1");
+
+    fireEvent.click(header);
+    expect(screen.getByRole("link", { name: "Projects" })).toBeInTheDocument();
+    expect(window.localStorage.getItem("tdmm.sidebarSection.library")).toBe("0");
+  });
+
+  it("restores the persisted state on mount and syncs across tabs", async () => {
+    window.localStorage.setItem("tdmm.sidebarSection.categories", "1");
+    renderAt("/");
+    const header = await screen.findByRole("button", { name: /Categories/ });
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: /Miniatures/ })).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "tdmm.sidebarSection.categories", newValue: "0" }));
+    });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: /Miniatures/ })).toBeInTheDocument();
+  });
+
+  it("collapses the System section", async () => {
+    renderAt("/");
+    const system = await screen.findByRole("button", { name: /System/ });
+    fireEvent.click(system);
+    expect(screen.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+  });
+
+  it("collapses the collections sublist but keeps the Collections link", async () => {
+    renderAt("/");
+    const toggle = await screen.findByRole("button", { name: "Hide followed collections" });
+    expect(screen.getByRole("link", { name: "Dragons" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All collections" })).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("link", { name: "Dragons" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Collections/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show followed collections" })).toHaveAttribute("aria-expanded", "false");
+    expect(window.localStorage.getItem("tdmm.sidebarSection.collections")).toBe("1");
+  });
+
+  it("auto-expands a collapsed section when navigating into it", async () => {
+    window.localStorage.setItem("tdmm.sidebarSection.system", "1");
+    window.localStorage.setItem("tdmm.sidebarSection.library", "1");
+    const router = renderAt("/");
+    const system = await screen.findByRole("button", { name: /System/ });
+    expect(system).toHaveAttribute("aria-expanded", "false");
+    expect(system).not.toHaveTextContent("current page");
+
+    await act(async () => {
+      await router.navigate({ to: "/settings" });
+    });
+    expect(screen.getByRole("button", { name: /System/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    // Unrelated collapsed sections stay collapsed.
+    expect(screen.getByRole("button", { name: /Library/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows the active marker on a collapsed section while the route is inside it", async () => {
+    renderAt("/settings");
+    const system = await screen.findByRole("button", { name: /System/ });
+    fireEvent.click(system);
+    expect(system).toHaveAttribute("aria-expanded", "false");
+    expect(system).toHaveTextContent("current page is in this section");
   });
 });

@@ -212,7 +212,7 @@ describe("AppShell nav", () => {
     const nav = await screen.findByRole("navigation");
     const groupLabels = within(nav)
       .getAllByText(/^(Print|Library|Inventory)$/)
-      .filter((el) => el.tagName === "DIV")
+      .filter((el) => el.closest("button[aria-expanded]"))
       .map((el) => el.textContent);
     expect(groupLabels).toEqual(["Print", "Library", "Inventory"]);
     expect(screen.getByRole("link", { name: /Settings/ })).toBeInTheDocument();
