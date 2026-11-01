@@ -144,7 +144,7 @@ export function TagManager() {
       {
         onSuccess: (res) => {
           drop(ids);
-          toast.success(t("settings.tags.bulk.merged", { count: res.results.length, into: into.name }));
+          toast.success(plural(t, "settings.tags.bulk.merged", res.results.length, { into: into.name }));
         },
         onError: (e) => toast.error(errMsg(e, t("settings.tags.bulk.error"))),
       },
@@ -156,7 +156,7 @@ export function TagManager() {
     bulkDeleteTags.mutate(ids, {
       onSuccess: (res) => {
         drop(ids);
-        toast.success(t("settings.tags.bulk.deleted", { count: res.results.length }));
+        toast.success(plural(t, "settings.tags.bulk.deleted", res.results.length));
       },
       onError: (e) => toast.error(errMsg(e, t("settings.tags.bulk.error"))),
     });
@@ -166,7 +166,7 @@ export function TagManager() {
     bulkUpdateTags.mutate(
       { ids: selected.map((tag) => tag.id), color: hex },
       {
-        onSuccess: (res) => toast.success(t("settings.tags.bulk.recolored", { count: res.results.length })),
+        onSuccess: (res) => toast.success(plural(t, "settings.tags.bulk.recolored", res.results.length)),
         onError: (e) => toast.error(errMsg(e, t("settings.tags.bulk.error"))),
       },
     );
@@ -407,7 +407,7 @@ export function TagManager() {
             ? plural(t, "settings.tags.bulk.mergeTitle", mergeSources.length, { into: bulkMergeInto?.name ?? "" })
             : t("settings.tags.bulk.mergeInto")
         }
-        description={t("settings.tags.bulk.mergeDesc", { uses: mergeUses, into: bulkMergeInto?.name ?? "" })}
+        description={plural(t, "settings.tags.bulk.mergeDesc", mergeUses, { into: bulkMergeInto?.name ?? "" })}
         confirmLabel={t("settings.tags.merge")}
         confirmDisabled={mergeSources.length === 0}
         destructive
@@ -418,7 +418,7 @@ export function TagManager() {
         open={bulkDelete}
         onOpenChange={setBulkDelete}
         title={plural(t, "settings.tags.bulk.deleteTitle", selected.length)}
-        description={t("settings.tags.bulk.deleteDesc", { uses: selectedUses })}
+        description={plural(t, "settings.tags.bulk.deleteDesc", selectedUses)}
         confirmLabel={t("settings.tags.delete")}
         destructive
         onConfirm={runBulkDelete}
