@@ -2037,16 +2037,55 @@ async def delete_file(db: AsyncSession, settings: Settings, file_id: int) -> Non
     await _hard_delete_file_row(db, settings, file=file, model=model)
 
 
+def validate_move_target(rel: str) -> str | None:
+    """Error message when ``rel`` is not an acceptable move target, else
+    ``None``. Storage normalizes keys (``./a``, ``a//b``, ``a/`` collapse), so
+    anything that isn't already in normal form is rejected rather than being
+    allowed to alias another file."""
+    pure = PurePosixPath(rel)
+    if (
+        not rel
+        or "\\" in rel
+        or pure.is_absolute()
+        or pure.parts == ()
+        or ".." in pure.parts
+        or str(pure) != rel
+    ):
+        return f"unsafe rel_path: {rel!r}"
+    if layout.is_snapshot_path(rel) or pure.parts[0] == layout.SNAPSHOT_PREFIX.rstrip("/"):
+        return "_snapshots/ is reserved"
+    return None
+
+
+def move_target_clash(target: str, others: Iterable[str]) -> str | None:
+    """The first of ``others`` that ``target`` would collide with: the same
+    path (case-insensitively, for SMB/macOS), an existing folder of that name
+    (``target/...`` exists), or an existing file standing where a parent
+    folder of ``target`` would go."""
+    t = target.casefold()
+    for other in others:
+        o = other.casefold()
+        if o == t or o.startswith(t + "/") or t.startswith(o + "/"):
+            return other
+    return None
+
+
 async def plan_file_moves(
-    db: AsyncSession, moves: list[tuple[int, str]], *, model_id: int | None = None
+    db: AsyncSession,
+    moves: list[tuple[int, str]],
+    *,
+    model_id: int | None = None,
+    authorize: Callable[[Model], None] | None = None,
 ) -> tuple[Model, list[tuple[int, str]]]:
     """Validate a rename/move batch against the model's CURRENT revision and
-    return ``(model, [(file_id, rel_path)])`` with no-op entries dropped. The
-    caller authorizes against ``model`` (after this resolves it).
+    return ``(model, [(file_id, rel_path)])`` with no-op entries dropped.
+    ``authorize`` runs as soon as the model is resolved, before any path
+    validation, so non-owners can't probe the layout.
 
     All files must belong to one model (``model_id`` when given), be in its
-    current revision, not be mid-store, and land on a free, safe ``rel_path``
-    (no collision with an existing file or another entry of the batch).
+    current revision, not be mid-store, and land on a free, normalized
+    ``rel_path`` (no collision with an existing file/folder or another entry
+    of the batch).
     """
     if len({fid for fid, _ in moves}) != len(moves):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "duplicate file_id in moves")
@@ -2068,31 +2107,36 @@ async def plan_file_moves(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "files must belong to the given model")
     model = await db.get(Model, next(iter(model_ids)))
     assert model is not None  # FK guarantees this
+    if authorize is not None:
+        authorize(model)
     if revision_ids != {model.current_revision_id}:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "file belongs to a revision that is not the model's current revision",
         )
-    targets: set[str] = set()
+    existing = {
+        fid: rel
+        for fid, rel in (
+            await db.execute(
+                select(File.id, File.rel_path).where(File.revision_id == model.current_revision_id)
+            )
+        ).all()
+    }
     planned: list[tuple[int, str]] = []
     for fid, rel in moves:
-        _validate_rel_path(rel)
-        if PurePosixPath(rel).parts[0] == "_snapshots":
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "_snapshots/ is reserved")
-        if rel in targets:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"rel_path {rel!r} targeted twice")
-        targets.add(rel)
+        if layout.is_snapshot_path(files[fid].rel_path):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "snapshot files cannot be moved")
+        if (err := validate_move_target(rel)) is not None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, err)
         if files[fid].rel_path != rel:
             planned.append((fid, rel))
-    wanted = [rel for _, rel in planned]
-    if wanted:
-        taken = await db.scalar(
-            select(File.rel_path)
-            .where(File.revision_id == model.current_revision_id, File.rel_path.in_(wanted))
-            .limit(1)
-        )
-        if taken is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"rel_path {taken!r} already exists")
+    for i, (fid, rel) in enumerate(planned):
+        others = [r for f, r in existing.items() if f != fid]
+        others += [r for _, r in planned[:i]]  # earlier targets of this batch
+        if (clash := move_target_clash(rel, others)) is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"rel_path {rel!r} conflicts with {clash!r}"
+            )
     if await _files_store_pending(db, [files[fid] for fid, _ in planned]):
         raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing; retry once stored")
     return model, planned
@@ -2109,8 +2153,12 @@ async def enqueue_file_moves(
     from app.api.deps import require_owner_or_admin
     from app.tasks.relocate import move_model_files
 
-    model, planned = await plan_file_moves(db, moves, model_id=model_id)
-    require_owner_or_admin(ctx, model.created_by_user_id)
+    model, planned = await plan_file_moves(
+        db,
+        moves,
+        model_id=model_id,
+        authorize=lambda m: require_owner_or_admin(ctx, m.created_by_user_id, "modify"),
+    )
     job = await jobs_service.create_job(
         db, id=uuid.uuid4(), type="move_model_files", subject_type="model", subject_id=model.id
     )

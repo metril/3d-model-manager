@@ -306,23 +306,29 @@ def maybe_enqueue_assembly_sync(session: SyncSession, *, blob_hash: str) -> None
         select(File.revision_id).where(File.blob_hash == blob_hash).distinct()
     ).scalars()
     for revision_id in revision_ids:
-        if _revision_assembly_ready(session, revision_id) and not _assembly_job_in_flight(
-            session, revision_id
-        ):
-            job = jobs.create_job_sync(
-                session,
-                id=uuid.uuid4(),
-                type="render_assembly_thumb",
-                subject_type="revision",
-                subject_id=revision_id,
-            )
-            _dispatch_best_effort_sync(
-                session,
-                job,
-                lambda job=job, revision_id=revision_id: render_assembly_thumb.apply_async(
-                    args=[str(job.id), revision_id], task_id=str(job.id)
-                ),
-            )
+        maybe_enqueue_assembly_for_revision_sync(session, revision_id)
+
+
+def maybe_enqueue_assembly_for_revision_sync(session: SyncSession, revision_id: int) -> None:
+    """Queue ``render_assembly_thumb`` for ONE revision if it's ready and
+    none is already in flight (best-effort dispatch)."""
+    if _revision_assembly_ready(session, revision_id) and not _assembly_job_in_flight(
+        session, revision_id
+    ):
+        job = jobs.create_job_sync(
+            session,
+            id=uuid.uuid4(),
+            type="render_assembly_thumb",
+            subject_type="revision",
+            subject_id=revision_id,
+        )
+        _dispatch_best_effort_sync(
+            session,
+            job,
+            lambda job=job, revision_id=revision_id: render_assembly_thumb.apply_async(
+                args=[str(job.id), revision_id], task_id=str(job.id)
+            ),
+        )
 
 
 async def maybe_enqueue_assembly_async(db: AsyncSession, *, revision_id: int) -> None:

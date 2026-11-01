@@ -42,6 +42,7 @@ Runs entirely in the worker's SYNC world -- see ``app.tasks.base``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -52,14 +53,20 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.models import File, FileLocation, Model, Revision
 from app.models.tag_links import model_file_tags
-from app.services import jobs
-from app.services.library import _escape_like
+from app.services import jobs, layout
+from app.services.library import (
+    _escape_like,
+    file_store_pending_sync,
+    move_target_clash,
+    validate_move_target,
+)
 from app.services.storage_backends import (
     backend_for_id_sync,
     resolve_default_backend_sync,
 )
 from app.services.storage_tree import rewrite_folder_path
 from app.storage.base import StorageBackend
+from app.storage.errors import StorageError, StorageKeyNotFound
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -294,15 +301,26 @@ def _move_file_to(s: Session, settings: Settings, file: File, new: str) -> None:
     ).scalars():
         holders.append((backend_for_id_sync(s, settings, loc.backend_id), old))
 
-    for backend, _ in holders:
+    written: list[StorageBackend] = []  # backends THIS call wrote `new` on
 
-        def _chunks(backend=backend, old=old):
-            yield from backend.read(old)
+    def _cleanup() -> None:
+        for b in written:
+            with contextlib.suppress(Exception):
+                b.delete(new)
 
-        result = backend.write(new, _chunks())
-        if result.hash != expected:
-            backend.delete(new)
-            raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
+    try:
+        for backend, _ in holders:
+
+            def _chunks(backend=backend, old=old):
+                yield from backend.read(old)
+
+            result = backend.write(new, _chunks())
+            written.append(backend)
+            if result.hash != expected:
+                raise RuntimeError(f"hash mismatch moving file {file.id} ({old!r})")
+    except Exception:
+        _cleanup()
+        raise
 
     old_rel = file.rel_path
     file.storage_path = new
@@ -344,32 +362,88 @@ def _rekey_file_tags(s: Session, file: File, old_rel: str) -> None:
         s.execute(delete(t).where(t.c.model_id == model_id, t.c.rel_path == old_rel))
 
 
-@celery_app.task(name="app.tasks.relocate.move_model_files")
-def move_model_files(job_id: str, model_id: int, moves: list[list]) -> None:
+class MoveRejected(Exception):
+    """A move failed re-validation at run time (nothing was touched)."""
+
+
+def _recheck_move(s: Session, file: File, new_rel: str) -> None:
+    """Run-time twin of ``plan_file_moves``' checks, against fresh state
+    (the file row is already locked by the caller)."""
+    model_current = s.scalar(
+        select(Model.current_revision_id)
+        .join(Revision, Revision.model_id == Model.id)
+        .where(Revision.id == file.revision_id)
+    )
+    if model_current != file.revision_id:
+        raise MoveRejected(f"file {file.id} is not in the model's current revision")
+    if layout.is_snapshot_path(file.rel_path):
+        raise MoveRejected(f"file {file.id} is a snapshot file")
+    if (err := validate_move_target(new_rel)) is not None:
+        raise MoveRejected(err)
+    others = s.execute(
+        select(File.rel_path).where(File.revision_id == file.revision_id, File.id != file.id)
+    ).scalars()
+    if (clash := move_target_clash(new_rel, others)) is not None:
+        raise MoveRejected(f"{new_rel!r} conflicts with {clash!r}")
+    if file_store_pending_sync(s, file):
+        raise MoveRejected(f"file {file.id} is still being stored")
+
+
+_TRANSIENT = (OSError, StorageError)  # StorageKeyNotFound excluded in the handler
+
+
+@celery_app.task(
+    name="app.tasks.relocate.move_model_files",
+    bind=True,
+    max_retries=3,
+    retry_backoff=15,
+    retry_backoff_max=120,
+)
+def move_model_files(self, job_id: str, model_id: int, moves: list[list]) -> None:
     """Rename/move individual files of a model's current revision
-    (``moves`` = ``[[file_id, new_rel_path], ...]``). Per file: the same
-    copy-verify-commit-delete as folder moves. Retries skip files already at
-    their target (``_move_file_to`` is a no-op there)."""
+    (``moves`` = ``[[file_id, new_rel_path], ...]``). Per file: lock the row,
+    re-validate against fresh state, then the same copy-verify-commit-delete
+    as folder moves. Files already at their target are skipped, so a retry or
+    re-run resumes a partial batch. A rejected move is recorded and the rest
+    of the batch still runs; the job then fails listing the rejections.
+    Transient storage errors retry (bounded) without failing the job."""
     settings = get_settings()
     with base.sync_session() as s:
         jobs.mark_running(s, job_id)
-    blob_hashes: set[str] = set()
+    rejected: list[str] = []
+    revision_ids: set[int] = set()
     try:
         for file_id, new_rel in moves:
             with base.sync_session() as s:
-                file = s.get(File, file_id)
-                if file is None:
-                    continue  # deleted since the request
+                file = s.execute(
+                    select(File).where(File.id == file_id).with_for_update()
+                ).scalar_one_or_none()
+                if file is None or file.rel_path == new_rel:
+                    continue  # deleted since the request, or already moved
+                try:
+                    _recheck_move(s, file, new_rel)
+                except MoveRejected as exc:
+                    s.rollback()
+                    rejected.append(str(exc))
+                    continue
                 parts = file.storage_path.split("/", 2)
+                revision_ids.add(file.revision_id)
                 _move_file_to(s, settings, file, f"{parts[0]}/{parts[1]}/{new_rel}")
-                blob_hashes.add(file.blob_hash)
         with base.sync_session() as s:
             s.execute(update(Model).where(Model.id == model_id).values(updated_at=func.now()))
             s.commit()
-            from app.tasks.pipeline import maybe_enqueue_assembly_sync
+            from app.tasks.pipeline import maybe_enqueue_assembly_for_revision_sync
 
-            for h in blob_hashes:
-                maybe_enqueue_assembly_sync(s, blob_hash=h)
+            for revision_id in revision_ids:
+                maybe_enqueue_assembly_for_revision_sync(s, revision_id)
+        if rejected:
+            raise RuntimeError("; ".join(rejected))
+    except _TRANSIENT as exc:
+        if self.request.retries < self.max_retries and not isinstance(exc, StorageKeyNotFound):
+            raise self.retry(exc=exc) from exc
+        with base.sync_session() as s:
+            jobs.mark_failed(s, job_id, str(exc))
+        raise
     except Exception as exc:
         with base.sync_session() as s:
             jobs.mark_failed(s, job_id, str(exc))
