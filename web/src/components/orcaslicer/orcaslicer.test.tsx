@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
@@ -158,6 +158,50 @@ describe("OrcaSlicerFrame", () => {
     expect(screen.getByTestId("orcaslicer-skeleton")).toBeInTheDocument();
     fireEvent.load(frame);
     expect(screen.queryByTestId("orcaslicer-skeleton")).toBeNull();
+  });
+});
+
+describe("OrcaSlicerFrame theme sync", () => {
+  it("remounts with the new theme only when it changed after load, and only once", async () => {
+    mockGet({ sess: session });
+    const { ThemeProvider, useTheme } = await import("next-themes");
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false })) as unknown as typeof window.matchMedia;
+    let setTheme: (t: string) => void = () => {};
+    function Grab() {
+      setTheme = useTheme().setTheme;
+      return null;
+    }
+    localStorage.setItem("theme", "dark");
+    wrap(
+      <ThemeProvider attribute="class" storageKey="tdmm-theme" defaultTheme="dark" enableSystem={false}>
+        <Grab />
+        <OrcaSlicerFrame />
+      </ThemeProvider>,
+    );
+    const first = await screen.findByTitle("OrcaSlicer");
+    vi.useFakeTimers();
+    try {
+      fireEvent.load(first);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      // No toggle, but the theme is the one the frame loaded with: no remount.
+      expect(screen.getByTitle("OrcaSlicer")).toBe(first);
+      act(() => setTheme("light"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(localStorage.getItem("theme")).toBe("light");
+      const second = screen.getByTitle("OrcaSlicer");
+      expect(second).not.toBe(first);
+      fireEvent.load(second);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(screen.getByTitle("OrcaSlicer")).toBe(second);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
