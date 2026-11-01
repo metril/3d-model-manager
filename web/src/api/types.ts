@@ -584,7 +584,7 @@ export interface Features {
   // from `/settings/server/status` and `/slicer/health`).
   slicer_configured?: boolean;
   // Bambu Studio sidecar enabled + URL set in Settings -> Server.
-  studio_configured?: boolean;
+  orcaslicer_configured?: boolean;
 }
 
 // `GET`/`PUT /settings/app` (backend/app/schemas/settings.py's
@@ -1182,9 +1182,9 @@ export interface SliceUpdatedEvent {
   sliced_file_id: number | null;
 }
 
-/** `studio.file_returned`: a file was saved back from Bambu Studio into the model. */
-export interface StudioFileReturnedEvent {
-  type: "studio.file_returned";
+/** `orcaslicer.file_returned`: a file was saved back from OrcaSlicer into the model. */
+export interface OrcaSlicerFileReturnedEvent {
+  type: "orcaslicer.file_returned";
   model_slug: string;
   model_id: number;
   file_id: number;
@@ -1192,9 +1192,9 @@ export interface StudioFileReturnedEvent {
   sliced: boolean;
 }
 
-/** `studio.session_started`: a Studio session was opened (possibly from another tab). */
-export interface StudioSessionStartedEvent {
-  type: "studio.session_started";
+/** `orcaslicer.session_started`: an OrcaSlicer session was opened (possibly from another tab). */
+export interface OrcaSlicerSessionStartedEvent {
+  type: "orcaslicer.session_started";
   token: string;
   model_slug: string;
   file_name: string;
@@ -1204,8 +1204,8 @@ export type AppEvent =
   | JobUpdatedEvent
   | PrintJobUpdatedEvent
   | SliceUpdatedEvent
-  | StudioFileReturnedEvent
-  | StudioSessionStartedEvent;
+  | OrcaSlicerFileReturnedEvent
+  | OrcaSlicerSessionStartedEvent;
 
 // -- imports (backend/app/schemas/imports.py, app/models/enums.py) --------
 

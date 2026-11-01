@@ -273,7 +273,7 @@
         "unlimited": "unlimited",
         "timeoutWarn": "The sidecar kills jobs after {{sidecar}}s, before the {{app}}s slice timeout set here, so long slices will fail. Raise SLICER_JOB_TIMEOUT_S on the sidecar or lower the timeout."
       },
-      "studio": {
+      "orcaslicer": {
         "title": "OrcaSlicer",
         "desc": "Full OrcaSlicer GUI streamed into the browser from a sidecar container, for editing models in the real app.",
         "docs": "Setup guide",
@@ -282,7 +282,7 @@
         "launcherUrl": "Launcher URL",
         "launcherToken": "Launcher token",
         "tokenKeep": "A token is set. Leave as is to keep it; clear the field to remove it.",
-        "tokenUnset": "No token set (matches an unset STUDIO_LAUNCHER_TOKEN on the sidecar).",
+        "tokenUnset": "No token set (matches an unset ORCASLICER_LAUNCHER_TOKEN on the sidecar).",
         "invalid": "OrcaSlicer URL and launcher URL are required while enabled."
       },
       "obico": {
@@ -351,7 +351,7 @@
           "beat": "Scheduler (beat)",
           "printerd": "Printer daemon",
           "slicer": "Slicer",
-          "studio": "OrcaSlicer",
+          "orcaslicer": "OrcaSlicer",
           "obico": "Failure detection (Obico)",
           "virtual_printer": "Virtual printer",
           "spoolman": "Spoolman",
@@ -1523,7 +1523,7 @@
       "require": "Require two-factor for all users"
     }
   },
-  "studio": {
+  "orcaslicer": {
     "title": "OrcaSlicer",
     "open": "Open in OrcaSlicer",
     "opening": "Opening {{name}} in OrcaSlicer",

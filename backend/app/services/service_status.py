@@ -49,7 +49,7 @@ ORDER = (
     "beat",
     "printerd",
     "slicer",
-    "studio",
+    "orcaslicer",
     "obico",
     "virtual_printer",
     "spoolman",
@@ -187,33 +187,33 @@ async def _slicer(cfg: ServerConfig) -> dict[str, ServiceStatus]:
     return {"slicer": _st("ok" if ok else "down", detail, ver)}
 
 
-async def _studio(cfg: ServerConfig) -> dict[str, ServiceStatus]:
-    if not cfg.studio_enabled:
-        return {"studio": _st("off", "disabled")}
-    if not cfg.studio_launcher_url:
-        return {"studio": _st("down", "not configured")}
+async def _orcaslicer(cfg: ServerConfig) -> dict[str, ServiceStatus]:
+    if not cfg.orcaslicer_enabled:
+        return {"orcaslicer": _st("off", "disabled")}
+    if not cfg.orcaslicer_launcher_url:
+        return {"orcaslicer": _st("down", "not configured")}
     headers = {}
-    if cfg.studio_launcher_token is not None:
-        headers["X-Launcher-Token"] = cfg.studio_launcher_token.get_secret_value()
+    if cfg.orcaslicer_launcher_token is not None:
+        headers["X-Launcher-Token"] = cfg.orcaslicer_launcher_token.get_secret_value()
     try:
         async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as client:
             resp = await client.get(
-                f"{cfg.studio_launcher_url.rstrip('/')}/health", headers=headers
+                f"{cfg.orcaslicer_launcher_url.rstrip('/')}/health", headers=headers
             )
     except httpx.TimeoutException:
-        return {"studio": _st("down", "timed out")}
+        return {"orcaslicer": _st("down", "timed out")}
     except httpx.HTTPError as exc:
-        return {"studio": _st("down", type(exc).__name__)}
+        return {"orcaslicer": _st("down", type(exc).__name__)}
     if resp.status_code != 200:
-        return {"studio": _st("down", f"HTTP {resp.status_code}")}
+        return {"orcaslicer": _st("down", f"HTTP {resp.status_code}")}
     body: dict = {}
     with contextlib.suppress(ValueError):
         parsed = resp.json()
         if isinstance(parsed, dict):
             body = parsed
-    if body.get("studio_running"):
-        return {"studio": _st("ok", "running")}
-    return {"studio": _st("warn", "launcher up, Studio not running")}
+    if body.get("orcaslicer_running"):
+        return {"orcaslicer": _st("ok", "running")}
+    return {"orcaslicer": _st("warn", "launcher up, OrcaSlicer not running")}
 
 
 async def _obico(
@@ -362,7 +362,7 @@ async def collect(db: AsyncSession, r: aioredis.Redis, settings: Settings) -> Ad
         (("beat",), lambda: _beat(r)),
         (("printerd",), lambda: _printerd(r, app_cfg.printer_enabled)),
         (("slicer",), lambda: _slicer(server)),
-        (("studio",), lambda: _studio(server)),
+        (("orcaslicer",), lambda: _orcaslicer(server)),
         (("obico",), lambda: _obico(r, ocfg, ml)),
         (("virtual_printer",), lambda: _vp(r)),
         (("spoolman",), lambda: _spoolman(sp)),

@@ -10,7 +10,7 @@ import { PublicUrlCard } from "@/components/settings/server/PublicUrlCard";
 import { ServicesCard } from "@/components/settings/server/ServicesCard";
 import { SmtpCard } from "@/components/settings/server/SmtpCard";
 import { SlicerServerCard } from "@/components/settings/server/SlicerServerCard";
-import { StudioServerCard } from "@/components/settings/server/StudioServerCard";
+import { OrcaSlicerServerCard } from "@/components/settings/server/OrcaSlicerServerCard";
 import { VpNetworkCard } from "@/components/settings/server/VpNetworkCard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,7 +44,7 @@ export function ServerTab() {
       <PublicUrlCard data={data} />
       <LimitsCard data={data} />
       <SlicerServerCard data={data} />
-      <StudioServerCard data={data} />
+      <OrcaSlicerServerCard data={data} />
       <SmtpCard data={data} />
       <ObicoServerCard />
       <VpNetworkCard data={data} />

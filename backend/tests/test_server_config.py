@@ -505,45 +505,47 @@ def test_no_moved_settings_reads_outside_seed_modules() -> None:
     assert not offenders, "\n".join(offenders)
 
 
-# --- studio -----------------------------------------------------------------
+# --- orcaslicer -----------------------------------------------------------------
 
 
-async def test_studio_defaults_and_env_seed(db_session, monkeypatch) -> None:
+async def test_orcaslicer_defaults_and_env_seed(db_session, monkeypatch) -> None:
     cfg = ServerConfig()
-    assert (cfg.studio_enabled, cfg.studio_url, cfg.studio_launcher_url) == (
+    assert (cfg.orcaslicer_enabled, cfg.orcaslicer_url, cfg.orcaslicer_launcher_url) == (
         False,
-        "http://studio:3000",
-        "http://studio:3010",
+        "http://orcaslicer:3000",
+        "http://orcaslicer:3010",
     )
-    assert cfg.studio_launcher_token is None
+    assert cfg.orcaslicer_launcher_token is None
     await _drop_row(db_session)
-    monkeypatch.setenv("TDMM_STUDIO_ENABLED", "true")
-    monkeypatch.setenv("TDMM_STUDIO_URL", "http://s:1/")
-    monkeypatch.setenv("TDMM_STUDIO_LAUNCHER_TOKEN", "sekret")
+    monkeypatch.setenv("TDMM_ORCASLICER_ENABLED", "true")
+    monkeypatch.setenv("TDMM_ORCASLICER_URL", "http://s:1/")
+    monkeypatch.setenv("TDMM_ORCASLICER_LAUNCHER_TOKEN", "sekret")
     await sc.seed_server_config(db_session)
     got = await sc.get_server_config(db_session)
-    assert got.studio_enabled is True and got.studio_url == "http://s:1"
-    assert got.studio_launcher_token.get_secret_value() == "sekret"
+    assert got.orcaslicer_enabled is True and got.orcaslicer_url == "http://s:1"
+    assert got.orcaslicer_launcher_token.get_secret_value() == "sekret"
     value = await _row(db_session)
-    assert value["studio_launcher_token"] != "sekret"  # encrypted at rest
+    assert value["orcaslicer_launcher_token"] != "sekret"  # encrypted at rest
 
 
-async def test_studio_token_masked_and_kept_on_put(authenticated_client) -> None:
+async def test_orcaslicer_token_masked_and_kept_on_put(authenticated_client) -> None:
     cfg = (await authenticated_client.get("/api/settings/server")).json()["config"]
     put = await authenticated_client.put(
         "/api/settings/server",
-        json={**cfg, "studio_enabled": True, "studio_launcher_token": "abc"},
+        json={**cfg, "orcaslicer_enabled": True, "orcaslicer_launcher_token": "abc"},
     )
     assert put.status_code == 200, put.text
-    assert put.json()["config"]["studio_launcher_token"] == "***"
+    assert put.json()["config"]["orcaslicer_launcher_token"] == "***"
     cfg = put.json()["config"]
     again = await authenticated_client.put("/api/settings/server", json=cfg)  # "***" keeps
-    assert again.json()["config"]["studio_launcher_token"] == "***"
+    assert again.json()["config"]["orcaslicer_launcher_token"] == "***"
     cleared = await authenticated_client.put(
-        "/api/settings/server", json={**cfg, "studio_launcher_token": ""}
+        "/api/settings/server", json={**cfg, "orcaslicer_launcher_token": ""}
     )
-    assert cleared.json()["config"]["studio_launcher_token"] is None
-    bad = await authenticated_client.put("/api/settings/server", json={**cfg, "studio_url": "nope"})
+    assert cleared.json()["config"]["orcaslicer_launcher_token"] is None
+    bad = await authenticated_client.put(
+        "/api/settings/server", json={**cfg, "orcaslicer_url": "nope"}
+    )
     assert bad.status_code == 422
 
 

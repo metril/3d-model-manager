@@ -35,7 +35,7 @@ async def test_status_shape_and_heartbeats(
         assert svc["beat"]["ok"] is True
         assert svc["printerd"]["ok"] is True and "2 printer" in svc["printerd"]["detail"]
         assert svc["slicer"]["state"] in ("off", "ok", "down")
-        assert svc["studio"]["state"] == "off"
+        assert svc["orcaslicer"]["state"] == "off"
         assert svc["virtual_printer"]["state"] == "down"  # no status published in tests
         assert svc["smtp"]["state"] == "off" and svc["spoolman"]["state"] == "off"
         assert all(s["checked_at"] > 0 for s in svc.values())
@@ -73,19 +73,19 @@ async def test_missing_workers_and_probe_timeout(
 
 
 @respx.mock
-async def test_studio_probe() -> None:
+async def test_orcaslicer_probe() -> None:
     from app.services.server_config import ServerConfig
 
-    off = await ss._studio(ServerConfig())
-    assert off["studio"].state == "off"
-    cfg = ServerConfig(studio_enabled=True, studio_launcher_token="tok")  # noqa: S106
-    route = respx.get("http://studio:3010/health")
-    route.respond(200, json={"studio_running": True})
-    assert (await ss._studio(cfg))["studio"].state == "ok"
+    off = await ss._orcaslicer(ServerConfig())
+    assert off["orcaslicer"].state == "off"
+    cfg = ServerConfig(orcaslicer_enabled=True, orcaslicer_launcher_token="tok")  # noqa: S106
+    route = respx.get("http://orcaslicer:3010/health")
+    route.respond(200, json={"orcaslicer_running": True})
+    assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "ok"
     assert route.calls.last.request.headers["x-launcher-token"] == "tok"
-    route.respond(200, json={"studio_running": False})
-    assert (await ss._studio(cfg))["studio"].state == "warn"
+    route.respond(200, json={"orcaslicer_running": False})
+    assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "warn"
     route.respond(500)
-    assert (await ss._studio(cfg))["studio"].state == "down"
+    assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "down"
     route.mock(side_effect=httpx.ConnectError("x"))
-    assert (await ss._studio(cfg))["studio"].state == "down"
+    assert (await ss._orcaslicer(cfg))["orcaslicer"].state == "down"

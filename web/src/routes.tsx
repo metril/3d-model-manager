@@ -233,12 +233,12 @@ const printHistoryRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/PrintHistoryPage"), "PrintHistoryPage"),
 });
 
-// Bare `/slicer` is this client route; the Studio GUI itself is served
+// Bare `/slicer` is this client route; the OrcaSlicer GUI itself is served
 // same-origin at `/slicer/` (api reverse proxy), which the iframe loads.
-const studioRoute = createRoute({
+const orcaslicerRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/slicer",
-  component: lazyRouteComponent(() => import("@/pages/StudioPage"), "StudioPage"),
+  component: lazyRouteComponent(() => import("@/pages/OrcaSlicerPage"), "OrcaSlicerPage"),
 });
 
 const statsRoute = createRoute({
@@ -438,7 +438,7 @@ export const routeTree = rootRoute.addChildren([
     systemFinanceRoute,
     jobsRedirectRoute,
     statsRoute,
-    studioRoute,
+    orcaslicerRoute,
     settingsRoute,
     externalLinkRoute,
   ]),

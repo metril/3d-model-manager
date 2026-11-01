@@ -1,0 +1,24 @@
+#!/usr/bin/with-contenv bash
+# Runs as root before services: make OrcaSlicer's file dialogs default to the
+# shared /exchange folder and keep native single-instance off (the launcher
+# relaunches instead). OrcaSlicer's first-run wizard on a fresh /config is
+# answered once in the stream -- see docs/orcaslicer.md.
+CONF_DIR=/config/.config/OrcaSlicer
+CONF=$CONF_DIR/OrcaSlicer.conf
+mkdir -p "$CONF_DIR" /exchange
+python3 - "$CONF" <<'PY'
+import json, sys
+p = sys.argv[1]
+try:
+    c = json.load(open(p))
+except (OSError, ValueError):
+    c = {}
+c.setdefault("app", {})["single_instance"] = False
+for section in ("app", "recent"):
+    sec = c.setdefault(section, {})
+    sec["last_opened_folder"] = "/exchange"
+    sec["last_export_path"] = "/exchange"
+json.dump(c, open(p, "w"), indent=4)
+PY
+chown -R abc:abc "$CONF_DIR"
+chown abc:abc /exchange 2>/dev/null || true

@@ -86,10 +86,10 @@ class Settings(BaseSettings):
     # importing a slicer export that's still being written mid-poll.
     # Env: `WATCH_STABLE` (seconds).
     watch_stable_s: float = Field(default=10.0, validation_alias=AliasChoices("WATCH_STABLE"))
-    # OrcaSlicer (Studio) sidecar exchange dir (shared with the studio container as
+    # OrcaSlicer sidecar exchange dir (shared with the orcaslicer container as
     # `/exchange`): per-session `<token>/in/` inputs, `<token>/*` returns.
-    studio_exchange_dir: Path = Field(
-        default=Path("/exchange"), validation_alias=AliasChoices("STUDIO_EXCHANGE_DIR")
+    orcaslicer_exchange_dir: Path = Field(
+        default=Path("/exchange"), validation_alias=AliasChoices("ORCASLICER_EXCHANGE_DIR")
     )
     # Printer integration (SPEC "Printer integration"; M4). OFF by default:
     # the whole app is fully functional without it -- the printers API 503s,

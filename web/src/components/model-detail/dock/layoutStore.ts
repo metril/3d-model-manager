@@ -31,11 +31,17 @@ export function parseLayout(raw: string | null): SerializedDockview | null {
 
 export type LoadedLayout = { layout: SerializedDockview; unseen: PanelId[] };
 
+/** Layouts saved before the sidecar rename use the panel id "studio"; remap it
+ * to "orcaslicer" (panel ids appear only as quoted strings in a saved layout). */
+function remapLegacyPanelIds(raw: string): string {
+  return raw.replaceAll('"studio"', '"orcaslicer"');
+}
+
 function parseStored(raw: string | null): { layout: SerializedDockview; known: PanelId[] } | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(remapLegacyPanelIds(raw));
   } catch {
     return null;
   }

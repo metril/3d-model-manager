@@ -159,7 +159,7 @@ def publish_slice_event_sync(redis_url: str, **kwargs: object) -> None:
 
 
 def publish_event_sync(redis_url: str, payload: dict) -> None:
-    """Best-effort generic publish (studio events); a Redis blip never raises."""
+    """Best-effort generic publish (orcaslicer events); a Redis blip never raises."""
     try:
         client = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
         try:

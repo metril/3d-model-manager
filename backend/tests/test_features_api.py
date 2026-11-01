@@ -26,7 +26,7 @@ async def test_features_disabled_by_default(authenticated_client):
         "watch_enabled": False,
         "virtual_printer_enabled": True,
         "slicer_configured": False,
-        "studio_configured": False,
+        "orcaslicer_configured": False,
     }
 
 
@@ -38,7 +38,7 @@ async def test_features_enabled(authenticated_client, printer_enabled):
         "watch_enabled": False,
         "virtual_printer_enabled": True,
         "slicer_configured": False,
-        "studio_configured": False,
+        "orcaslicer_configured": False,
     }
 
 
@@ -124,12 +124,16 @@ async def test_features_slicer_configured(authenticated_client):
     assert (await authenticated_client.get("/api/features")).json()["slicer_configured"] is False
 
 
-async def test_features_studio_configured(authenticated_client):
+async def test_features_orcaslicer_configured(authenticated_client):
     from tests.server_helpers import set_server
 
-    await set_server(studio_enabled=True, studio_url="http://studio:3000")
-    assert (await authenticated_client.get("/api/features")).json()["studio_configured"] is True
-    await set_server(studio_enabled=False)
-    assert (await authenticated_client.get("/api/features")).json()["studio_configured"] is False
-    await set_server(studio_enabled=True, studio_url="")
-    assert (await authenticated_client.get("/api/features")).json()["studio_configured"] is False
+    await set_server(orcaslicer_enabled=True, orcaslicer_url="http://orcaslicer:3000")
+    assert (await authenticated_client.get("/api/features")).json()["orcaslicer_configured"] is True
+    await set_server(orcaslicer_enabled=False)
+    assert (await authenticated_client.get("/api/features")).json()[
+        "orcaslicer_configured"
+    ] is False
+    await set_server(orcaslicer_enabled=True, orcaslicer_url="")
+    assert (await authenticated_client.get("/api/features")).json()[
+        "orcaslicer_configured"
+    ] is False

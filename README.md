@@ -91,14 +91,14 @@ Docker's layer cache and are much faster.
 
 Either path brings up the same stack.
 
-This starts every service below, always (the opt-in `studio` sidecar aside): `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
+This starts every service below, always (the opt-in `orcaslicer` sidecar aside): `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
 metadata/GLB-conversion/thumbnail pipeline, one process per core,
 memory-recycled -- see "Worker split" below), `beat` (ticks the scan/
 collection-sync/watched-folder dispatcher), `printerd` (the Bambu LAN MQTT
 supervisor), `slicer` and `obico-ml` (sidecars), `virtual-printer` (a fake
-LAN Bambu printer), `db` (Postgres 16), and `redis`. One more sidecar, `studio`
+LAN Bambu printer), `db` (Postgres 16), and `redis`. One more sidecar, `orcaslicer`
 (the real OrcaSlicer GUI streamed to the browser), is **opt-in**: set
-`COMPOSE_PROFILES=studio`; x86-64 only, see [docs/studio.md](docs/studio.md). `beat`, `printerd`,
+`COMPOSE_PROFILES=orcaslicer`; x86-64 only, see [docs/orcaslicer.md](docs/orcaslicer.md). `beat`, `printerd`,
 `virtual-printer` and the sidecars idle harmlessly when their features are off
 in Settings — see "Scheduled scan" and "Printer integration" below. The
 sidecars are **always-on**: they cost RAM (the slicer is capped at 4 GiB) and
@@ -724,14 +724,14 @@ same token list, so a token from one works for the other).
 
 ### Embedded OrcaSlicer (sidecar)
 
-An opt-in `studio` container (`COMPOSE_PROFILES=studio`, x86-64 only) runs the
-real OrcaSlicer GUI (it replaced Bambu Studio; see the migration note in [docs/studio.md](docs/studio.md)) and streams it into the browser, so a model can be edited
+An opt-in `orcaslicer` container (`COMPOSE_PROFILES=orcaslicer`, x86-64 only) runs the
+real OrcaSlicer GUI (it replaced Bambu Studio; see the upgrade notes in [docs/orcaslicer.md](docs/orcaslicer.md)) and streams it into the browser, so a model can be edited
 in the full app without installing anything. It is **admin-only** (the api
 proxies `/slicer/` behind login) and **export-only**: it never holds printer
 credentials. "Open in OrcaSlicer" on a model copies the file into a per-session
 exchange folder; files you save or export there are ingested back under the
 originating model. Setup, GPU options, security and troubleshooting:
-[docs/studio.md](docs/studio.md).
+[docs/orcaslicer.md](docs/orcaslicer.md).
 
 ## Gallery importers
 

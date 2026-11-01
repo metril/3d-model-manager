@@ -60,7 +60,7 @@ celery_app.conf.update(
         "app.tasks.importing",
         "app.tasks.sync_collections",
         "app.tasks.slicer_watch",
-        "app.tasks.studio_exchange",
+        "app.tasks.orcaslicer_exchange",
         "app.tasks.scheduler",
         "app.tasks.slicing",
         "app.tasks.dispatch",

@@ -16,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useDeleteFile, usePatchModel } from "@/api/library";
-import { isStudioOpenable, useStudioEnabled } from "@/api/studio";
+import { isOrcaSlicerOpenable, useOrcaSlicerEnabled } from "@/api/orcaslicer";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useStudioLauncher } from "@/components/studio/useStudioLauncher";
+import { useOrcaSlicerLauncher } from "@/components/orcaslicer/useOrcaSlicerLauncher";
 import { canArrange } from "@/components/plate/arrangeable";
 import { isStudioViewable } from "@/components/viewer/viewable";
 import type { FileOut, ModelDetail } from "@/api/types";
@@ -53,9 +53,9 @@ export function FileActionsMenu({
   const patchModel = usePatchModel(model.slug);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const { t } = useTranslation();
-  const studioEnabled = useStudioEnabled();
-  const studio = useStudioLauncher(model.slug, studioEnabled);
-  const showStudio = studioEnabled && !isDoc && !!file.verified_at && isStudioOpenable(file);
+  const orcaslicerEnabled = useOrcaSlicerEnabled();
+  const orcaslicer = useOrcaSlicerLauncher(model.slug, orcaslicerEnabled);
+  const showOrcaSlicer = orcaslicerEnabled && !isDoc && !!file.verified_at && isOrcaSlicerOpenable(file);
 
   const showViewIn3D = !isDoc && !!onViewIn3D && isStudioViewable(file);
   const canSetCover = file.kind === "image";
@@ -97,10 +97,10 @@ export function FileActionsMenu({
               Arrange on plate…
             </DropdownMenuItem>
           ) : null}
-          {showStudio ? (
-            <DropdownMenuItem aria-label={`Open ${file.rel_path} in OrcaSlicer`} onSelect={() => studio.launch(file)}>
+          {showOrcaSlicer ? (
+            <DropdownMenuItem aria-label={`Open ${file.rel_path} in OrcaSlicer`} onSelect={() => orcaslicer.launch(file)}>
               <BoxesIcon className="size-4" />
-              {t("studio.open")}
+              {t("orcaslicer.open")}
             </DropdownMenuItem>
           ) : null}
           {file.verified_at ? (
@@ -147,7 +147,7 @@ export function FileActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {studio.dialog}
+      {orcaslicer.dialog}
       <ConfirmDialog
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}

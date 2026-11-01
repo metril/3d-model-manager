@@ -43,5 +43,5 @@ async def get_features(
         "watch_enabled": settings.watch_dir is not None and config.watch_interval_s > 0,
         "virtual_printer_enabled": True,  # always on (compat constant)
         "slicer_configured": server.slicer_enabled and bool(server.slicer_url),
-        "studio_configured": server.studio_enabled and bool(server.studio_url),
+        "orcaslicer_configured": server.orcaslicer_enabled and bool(server.orcaslicer_url),
     }

@@ -17,7 +17,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { useStudioEnabled } from "@/api/studio";
+import { useOrcaSlicerEnabled } from "@/api/orcaslicer";
 import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -36,7 +36,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const [printOpen, setPrintOpen] = useState(false);
   const { can } = useAuth();
   const printerEnabled = !!useFeatures().data?.printer_enabled;
-  const studioEnabled = useStudioEnabled();
+  const orcaslicerEnabled = useOrcaSlicerEnabled();
   const followed = useFollowedCollections();
   const categoriesQuery = useCategories();
   const printersQuery = usePrinters({ enabled: printerEnabled });
@@ -99,7 +99,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           {filterNavItems(ALL_NAV_ITEMS, {
             printerEnabled,
             can,
-            studioEnabled,
+            orcaslicerEnabled,
             hasPrinter: (printersQuery.data?.length ?? 0) > 0,
           }).map((item) => (
             <CommandItem key={item.to as string} value={item.label} onSelect={() => goTo(item.to as string)}>

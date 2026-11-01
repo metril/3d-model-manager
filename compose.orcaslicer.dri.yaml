@@ -1,0 +1,10 @@
+# Intel/AMD (VA-API/Mesa) GPU for the orcaslicer sidecar -- dev host.
+#   docker compose -f compose.yaml -f compose.orcaslicer.dri.yaml --profile orcaslicer up -d orcaslicer
+# Pick the render node with ORCASLICER_DRINODE (default /dev/dri/renderD128).
+services:
+  orcaslicer:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      DRINODE: ${ORCASLICER_DRINODE:-/dev/dri/renderD128}
+      DRI_NODE: ${ORCASLICER_DRINODE:-/dev/dri/renderD128}
