@@ -94,7 +94,7 @@ describe("StudioServerCard", () => {
   it("keeps the masked token when untouched", async () => {
     putMock.mockImplementation((_p: string, body: unknown) => Promise.resolve({ ...data, config: body }));
     renderCard();
-    fireEvent.change(screen.getByLabelText("Studio URL"), { target: { value: "http://studio2:3000" } });
+    fireEvent.change(screen.getByLabelText("OrcaSlicer URL"), { target: { value: "http://studio2:3000" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     expect(putMock.mock.calls[0][1]).toMatchObject({
@@ -144,7 +144,7 @@ describe("StudioFrame", () => {
     mockGet({});
     wrap(<StudioFrame />);
     const frame = await screen.findByTitle("OrcaSlicer");
-    expect(frame).toHaveAttribute("src", "/studio/");
+    expect(frame).toHaveAttribute("src", "/slicer/");
     expect(frame).toHaveAttribute("allow", "clipboard-read; clipboard-write; fullscreen");
     expect(screen.getByTestId("studio-skeleton")).toBeInTheDocument();
     fireEvent.load(frame);
@@ -186,7 +186,7 @@ describe("Open in OrcaSlicer menu entry", () => {
   });
 
   it("opens directly with no session, then reveals Studio", async () => {
-    postMock.mockResolvedValue({ token: "t", iframe_path: "/studio/", replaced_session: false, file: { id: 2, name: "b.stl" } });
+    postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: false, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/models/m/files/2/studio", {}));
@@ -195,7 +195,7 @@ describe("Open in OrcaSlicer menu entry", () => {
   });
 
   it("confirms before replacing a session on a different file", async () => {
-    postMock.mockResolvedValue({ token: "t", iframe_path: "/studio/", replaced_session: true, file: { id: 2, name: "b.stl" } });
+    postMock.mockResolvedValue({ token: "t", iframe_path: "/slicer/", replaced_session: true, file: { id: 2, name: "b.stl" } });
     await openMenu(file(), { enabled: true, sess: session });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     expect(await screen.findByText(/unsaved work there is lost/)).toBeInTheDocument();
@@ -215,7 +215,7 @@ describe("Open in OrcaSlicer menu entry", () => {
     postMock.mockRejectedValue(new ApiError(409, "busy", "launcher_busy"));
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Studio is restarting, try again in a few seconds"));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("OrcaSlicer is restarting, try again in a few seconds"));
   });
 
   it("maps launcher_unreachable to a toast", async () => {

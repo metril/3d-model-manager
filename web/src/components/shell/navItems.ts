@@ -87,7 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/print/history", label: "History", icon: ListChecks },
       { to: "/print/plugs", label: "Plugs", icon: Plug },
       { to: "/stats", label: "Stats", icon: BarChart3 },
-      { to: "/studio", label: "OrcaSlicer", icon: Boxes, studioGated: true },
+      { to: "/slicer", label: "OrcaSlicer", icon: Boxes, studioGated: true },
     ],
   },
   {

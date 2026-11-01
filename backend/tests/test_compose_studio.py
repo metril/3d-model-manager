@@ -22,7 +22,7 @@ def test_studio_service_shape():
     assert studio["profiles"] == ["studio"]
     assert "healthcheck" in studio
     assert any(v.endswith(":/exchange") for v in studio["volumes"])
-    assert studio["environment"]["SUBFOLDER"] == "/studio/"
+    assert studio["environment"]["SUBFOLDER"] == "/slicer/"
     assert studio["environment"]["STUDIO_LAUNCHER_TOKEN"] == "${TDMM_STUDIO_LAUNCHER_TOKEN:-}"
     assert studio["environment"]["SELKIES_FILE_TRANSFERS"] == ""
     assert studio["networks"] == ["studio_net"]

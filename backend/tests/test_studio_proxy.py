@@ -40,16 +40,16 @@ async def _enable(db_session, url: str = UPSTREAM, **kw) -> None:
 
 
 async def test_requires_session(client: httpx.AsyncClient) -> None:
-    assert (await client.get("/studio/")).status_code == 401
+    assert (await client.get("/slicer/")).status_code == 401
 
 
 async def test_requires_admin(
     viewer_client: httpx.AsyncClient, member_client: httpx.AsyncClient, db_session
 ) -> None:
     await _enable(db_session)
-    assert (await viewer_client.get("/studio/")).status_code == 403
+    assert (await viewer_client.get("/slicer/")).status_code == 403
     # member has library:write but is not admin -> still 403
-    assert (await member_client.get("/studio/")).status_code == 403
+    assert (await member_client.get("/slicer/")).status_code == 403
 
 
 @respx.mock
@@ -57,32 +57,32 @@ async def test_admin_ok_and_dotdot_rejected(
     authenticated_client: httpx.AsyncClient, db_session
 ) -> None:
     await _enable(db_session)
-    respx.get(f"{UPSTREAM}/studio/ok").respond(200, text="hi")
-    assert (await authenticated_client.get("/studio/ok")).status_code == 200
-    for bad in ("/studio/a/%2e%2e/x", "/studio/a/%252e%252e/x"):
+    respx.get(f"{UPSTREAM}/slicer/ok").respond(200, text="hi")
+    assert (await authenticated_client.get("/slicer/ok")).status_code == 200
+    for bad in ("/slicer/a/%2e%2e/x", "/slicer/a/%252e%252e/x"):
         r = await authenticated_client.get(bad)
         assert r.status_code == 400, bad
 
 
 async def test_disabled_is_404(authenticated_client: httpx.AsyncClient) -> None:
-    r = await authenticated_client.get("/studio/api/x")
+    r = await authenticated_client.get("/slicer/api/x")
     assert r.status_code == 404 and r.json()["detail"] == "studio disabled"
 
 
 @respx.mock
 async def test_http_passthrough(authenticated_client: httpx.AsyncClient, db_session) -> None:
     await _enable(db_session)
-    html = respx.get(f"{UPSTREAM}/studio/").respond(
+    html = respx.get(f"{UPSTREAM}/slicer/").respond(
         200,
         html="<html>studio</html>",
         headers={"Cache-Control": "max-age=60", "Connection": "close", "X-Up": "1"},
     )
-    js = respx.get(f"{UPSTREAM}/studio/app.js").respond(
+    js = respx.get(f"{UPSTREAM}/slicer/app.js").respond(
         200, content=b"x" * 100_000, headers={"Content-Type": "text/javascript"}
     )
-    post = respx.post(f"{UPSTREAM}/studio/api/thing").respond(201, json={"ok": True})
+    post = respx.post(f"{UPSTREAM}/slicer/api/thing").respond(201, json={"ok": True})
 
-    r = await authenticated_client.get("/studio/")
+    r = await authenticated_client.get("/slicer/")
     assert r.status_code == 200 and r.text == "<html>studio</html>"
     assert r.headers["content-security-policy"] == "frame-ancestors 'self'"
     assert r.headers["x-frame-options"] == "SAMEORIGIN"
@@ -90,12 +90,12 @@ async def test_http_passthrough(authenticated_client: httpx.AsyncClient, db_sess
     sent = html.calls.last.request
     assert "cookie" not in sent.headers and "authorization" not in sent.headers
 
-    r = await authenticated_client.get("/studio/app.js", headers={"Authorization": "Bearer x"})
+    r = await authenticated_client.get("/slicer/app.js", headers={"Authorization": "Bearer x"})
     assert r.content == b"x" * 100_000
     assert "content-security-policy" not in r.headers
     assert "authorization" not in js.calls.last.request.headers
 
-    r = await authenticated_client.post("/studio/api/thing?a=1", json={"k": "v"})
+    r = await authenticated_client.post("/slicer/api/thing?a=1", json={"k": "v"})
     assert r.status_code == 201 and r.json() == {"ok": True}
     req = post.calls.last.request
     assert req.url.query == b"a=1" and json.loads(req.content) == {"k": "v"}
@@ -104,8 +104,8 @@ async def test_http_passthrough(authenticated_client: httpx.AsyncClient, db_sess
 @respx.mock
 async def test_upstream_down_is_502(authenticated_client: httpx.AsyncClient, db_session) -> None:
     await _enable(db_session)
-    respx.get(f"{UPSTREAM}/studio/").mock(side_effect=httpx.ConnectError("nope"))
-    assert (await authenticated_client.get("/studio/")).status_code == 502
+    respx.get(f"{UPSTREAM}/slicer/").mock(side_effect=httpx.ConnectError("nope"))
+    assert (await authenticated_client.get("/slicer/")).status_code == 502
 
 
 def test_ws_unauthenticated_closes_4401() -> None:
@@ -113,7 +113,7 @@ def test_ws_unauthenticated_closes_4401() -> None:
     with (
         pytest.raises(WebSocketDisconnect) as exc,
         TestClient(create_app()).websocket_connect(
-            "/studio/api/websockets", subprotocols=["selkies"]
+            "/slicer/api/websockets", subprotocols=["selkies"]
         ),
     ):
         pass
@@ -160,7 +160,7 @@ async def test_ws_bridge(authenticated_client: httpx.AsyncClient, db_session) ->
         async with (
             _serve_app() as port,
             ws_connect(
-                f"ws://127.0.0.1:{port}/studio/api/websockets?token=1",
+                f"ws://127.0.0.1:{port}/slicer/api/websockets?token=1",
                 subprotocols=["selkies"],
                 additional_headers={"Cookie": f"{SESSION_COOKIE_NAME}={cookie}"},
             ) as ws,
@@ -171,7 +171,7 @@ async def test_ws_bridge(authenticated_client: httpx.AsyncClient, db_session) ->
             await ws.send(b"\x00\x01\x02")
             assert await ws.recv() == b"\x00\x01\x02"
             await ws.close(code=1000)
-    assert seen["path"] == "/studio/api/websockets?token=1"
+    assert seen["path"] == "/slicer/api/websockets?token=1"
     assert seen["origin"] == f"http://127.0.0.1:{up_port}"
     assert seen["cookie"] is None and seen["subprotocol"] == "selkies"
 
@@ -185,7 +185,7 @@ async def test_ws_rejects_without_perm_and_when_disabled(
     async def attempt(port: int, cookie: str) -> int:
         with pytest.raises(InvalidStatus) as exc:
             async with ws_connect(
-                f"ws://127.0.0.1:{port}/studio/api/websockets",
+                f"ws://127.0.0.1:{port}/slicer/api/websockets",
                 additional_headers={"Cookie": f"{SESSION_COOKIE_NAME}={cookie}"},
             ):
                 pass
@@ -207,4 +207,4 @@ def test_upstream_url_rejects_dotdot() -> None:
         with pytest.raises(HTTPException) as exc:
             studio_proxy._upstream_url(cfg, bad, "")
         assert exc.value.status_code == 400
-    assert studio_proxy._upstream_url(cfg, "a..b/c", "").endswith("/studio/a..b/c")
+    assert studio_proxy._upstream_url(cfg, "a..b/c", "").endswith("/slicer/a..b/c")

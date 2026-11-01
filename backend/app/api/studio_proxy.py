@@ -1,7 +1,7 @@
-"""Reverse proxy for the OrcaSlicer (Selkies) Studio sidecar under ``/studio/``.
+"""Reverse proxy for the OrcaSlicer (Selkies) Studio sidecar under ``/slicer/``.
 
 Registered OUTSIDE ``/api`` and before the SPA catch-all. HTTP is streamed
-through ``httpx``; WebSockets (``/studio/api/websockets`` etc.) are bridged
+through ``httpx``; WebSockets (``/slicer/api/websockets`` etc.) are bridged
 with the ``websockets`` library. Both require an ``admin`` session: the Studio
 desktop is a root shell on the compose network, so it must not be reachable by
 members. WebSocket auth is checked at connect only (not re-validated while the
@@ -80,7 +80,7 @@ def _upstream_url(cfg: ServerConfig, path: str, query: str) -> str:
     decoded = unquote(unquote(path)).replace("\\", "/")
     if any(seg == ".." for seg in decoded.split("/")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid path")
-    url = f"{cfg.studio_url.rstrip('/')}/studio/{quote(path, safe='/:@!$&()*+,;=-._~%')}"
+    url = f"{cfg.studio_url.rstrip('/')}/slicer/{quote(path, safe='/:@!$&()*+,;=-._~%')}"
     return f"{url}?{query}" if query else url
 
 
@@ -90,7 +90,7 @@ async def _body(request: Request) -> AsyncIterator[bytes]:
 
 
 @router.api_route(
-    "/studio/{path:path}",
+    "/slicer/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     dependencies=[Depends(require_perm("admin"))],
 )
@@ -159,7 +159,7 @@ def _ws_code(code: int | None) -> int:
     return 1000 if code is None or code in _NO_CODE else code
 
 
-@router.websocket("/studio/{path:path}")
+@router.websocket("/slicer/{path:path}")
 async def proxy_ws(websocket: WebSocket, path: str) -> None:
     if not _same_origin(websocket):
         await websocket.close(code=WS_FORBIDDEN_ORIGIN)

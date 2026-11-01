@@ -80,7 +80,7 @@ async def open_in_studio(
     )
     return {
         "token": created.token,
-        "iframe_path": "/studio/",
+        "iframe_path": "/slicer/",
         "replaced_session": created.replaced,
         "file": {"id": file.id, "name": created.file_name},
     }
