@@ -47,7 +47,14 @@ export function useAutoExpand(
 ) {
   const latest = useRef({ collapsed, setCollapsed, active });
   latest.current = { collapsed, setCollapsed, active };
+  const mounted = useRef(false);
   useEffect(() => {
+    // Skip the mount run: a section the user collapsed before a reload stays
+    // collapsed; only a later navigation re-opens it.
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     const cur = latest.current;
     if (cur.active && cur.collapsed) cur.setCollapsed(false);
   }, [locationKey]);

@@ -339,6 +339,31 @@ describe("AppSidebar -- collapsible sections", () => {
     expect(screen.getByRole("button", { name: /Library/ })).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("does not re-open a collapsed section on mount, even when the route is inside it", async () => {
+    window.localStorage.setItem("tdmm.sidebarSection.system", "1");
+    renderAt("/settings");
+    const system = await screen.findByRole("button", { name: /System/ });
+    expect(system).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps the failed-imports badge visible beside the collections toggle", async () => {
+    failedBox.current = 3;
+    renderAt("/");
+    const badge = await screen.findByLabelText(/3 failed imports/);
+    const toggle = screen.getByRole("button", { name: "Hide followed collections" });
+    expect(badge.closest("a")).toBeInTheDocument();
+    expect(badge.closest("a")?.contains(toggle)).toBe(false);
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText(/3 failed imports/)).toBeInTheDocument();
+  });
+
+  it("labels the active marker on a collapsed collections toggle", async () => {
+    window.localStorage.setItem("tdmm.sidebarSection.collections", "1");
+    renderAt("/library?collection=7");
+    const toggle = await screen.findByRole("button", { name: "Show followed collections" });
+    expect(toggle).toHaveTextContent("current page is in this section");
+  });
+
   it("shows the active marker on a collapsed section while the route is inside it", async () => {
     renderAt("/settings");
     const system = await screen.findByRole("button", { name: /System/ });

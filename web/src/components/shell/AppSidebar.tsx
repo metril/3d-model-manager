@@ -248,7 +248,7 @@ export function AppSidebar({
   const hasCategory = searchParams.category != null;
   const hasCollection = searchParams.collection != null;
   const [collectionsHidden, setCollectionsHidden] = useSectionCollapsed("collections");
-  useAutoExpand(collectionsHidden, setCollectionsHidden, hasCollection, `${pathname}|${hasCollection}`);
+  useAutoExpand(collectionsHidden, setCollectionsHidden, hasCollection, `${pathname}|${String(searchParams.collection ?? "")}`);
   const itemActive = (item: NavItem) =>
     !item.externalUrl &&
     !item.orcaslicerWindow &&
@@ -343,7 +343,8 @@ export function AppSidebar({
             locationKey={pathname}
           >
             {group.items.map((item) => (
-              <div key={`${item.to as string}:${item.params?.id ?? ""}`} className="relative">
+              <div key={`${item.to as string}:${item.params?.id ?? ""}`} >
+                <div className={item.to === "/collections" ? "flex items-center gap-0.5 [&>a]:min-w-0 [&>a]:flex-1" : undefined}>
                 <NavLink
                   item={item}
                   collapsed={collapsed}
@@ -368,15 +369,21 @@ export function AppSidebar({
                     aria-label={collectionsHidden ? t("shell.expandCollections") : t("shell.collapseCollections")}
                     title={collectionsHidden ? t("shell.expandCollections") : t("shell.collapseCollections")}
                     onClick={() => setCollectionsHidden(!collectionsHidden)}
-                    className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                    className="relative flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                   >
                     <ChevronRightIcon
                       aria-hidden="true"
                       className={cn("size-3.5 transition-transform motion-reduce:transition-none", !collectionsHidden && "rotate-90")}
                     />
-                    {collectionsHidden && hasCollection ? <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sidebar-primary" /> : null}
+                    {collectionsHidden && hasCollection ? (
+                      <>
+                        <span aria-hidden="true" className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sidebar-primary" />
+                        <span className="sr-only">{t("shell.sectionActive")}</span>
+                      </>
+                    ) : null}
                   </button>
                 )}
+                </div>
                 {item.to === "/collections" && !collapsed && collections.length > 0 && !collectionsHidden && (
                   <div id="sidebar-collections" className="mt-0.5 ml-5 flex flex-col gap-0.5 border-l border-border pl-2.5">
                     {collections.map((c) => (
