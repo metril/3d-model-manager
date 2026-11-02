@@ -55,6 +55,10 @@ from app.importers.registry import register_importer
 from app.models.enums import ImportSite
 
 _BASE_URL = "https://makerworld.com/api/v1"
+# `ImportFile.remote_id` for the design's raw "all files" zip (print-profile
+# files use their numeric profileId).
+_RAW_REMOTE_ID = "raw"
+_URL_KEYS = ("url", "presignedUrl", "presigned_url", "downloadUrl", "download_url", "fileUrl")
 _ALLOWED_HOSTS = {"makerworld.com", "www.makerworld.com"}
 # MakerWorld URLs: /en/models/<id>[-<slug>] (locale prefix optional/variable:
 # /de/, /fr/, /zh/, /ja/, ... or none at all) -- the id is always the numeric
@@ -172,6 +176,39 @@ def _authed_client(token: str, region: str = "global") -> httpx.Client:
         follow_redirects=True,
         headers={"User-Agent": _UA, "Authorization": f"Bearer {token}"},
     )
+
+
+def _raw_model_client(token: str) -> httpx.Client:
+    """Bearer-authenticated seam for the raw "all files" download call, which
+    (unlike ``_authed_client``) lives on ``makerworld.com`` and wants the web
+    headers. Monkeypatchable like ``_authed_client``/``_favorites_client``."""
+    return httpx.Client(
+        base_url=_BASE_URL,
+        timeout=30.0,
+        follow_redirects=True,
+        headers={
+            "User-Agent": _UA,
+            "x-bbl-app-source": "makerworld",
+            "x-bbl-client-name": "MakerWorld",
+            "x-bbl-client-type": "web",
+            "x-bbl-client-version": "00.00.00.01",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+
+def _extract_download_url(body: dict) -> str | None:
+    """First recognizable file-URL field in a download response (top level or
+    under ``data``)."""
+    data = body.get("data")
+    for candidate in (body, data if isinstance(data, dict) else None):
+        if not candidate:
+            continue
+        for key in _URL_KEYS:
+            value = candidate.get(key)
+            if value:
+                return value
+    return None
 
 
 def _bambu_session() -> tuple[str, str]:
@@ -342,10 +379,18 @@ class MakerWorldImporter:
             name = inst.get("title") or title
             filename = safe_filename(f"{name}-{inst.get('id')}.zip")
             files.append(ImportFile(remote_id=str(profile_id), filename=filename))
+        # Raw-model-only designs (no print-profile instances, but the creator
+        # uploaded raw STEP/STL files): fall back to the "all files" zip.
+        if not files and (d.get("rawModelFileDownloadCount") or not d.get("instances")):
+            filename = safe_filename(f"{title}-{external_id}.zip")
+            files.append(ImportFile(remote_id=_RAW_REMOTE_ID, filename=filename))
         return files
 
     def resolve_download(self, external_id: str, file: ImportFile) -> ResolvedDownload:
         token, region = _require_bambu_session()
+        if file.remote_id == _RAW_REMOTE_ID:
+            url, name = self._fetch_raw_model_url(external_id, token)
+            return ResolvedDownload(url=url, filename=name or file.filename)
         # The download endpoint (see `_fetch_authed_download_url`) is keyed
         # on `profileId` (carried through as `file.remote_id`) + the
         # design's `modelId` string -- re-fetch the (anonymous, cheap)
@@ -388,22 +433,9 @@ class MakerWorldImporter:
             )
             r.raise_for_status()
             body = r.json()
-        candidates = (body, body.get("data") if isinstance(body.get("data"), dict) else None)
-        url_keys = (
-            "url",
-            "presignedUrl",
-            "presigned_url",
-            "downloadUrl",
-            "download_url",
-            "fileUrl",
-        )
-        for candidate in candidates:
-            if not candidate:
-                continue
-            for key in url_keys:
-                value = candidate.get(key)
-                if value:
-                    return value
+        url = _extract_download_url(body)
+        if url:
+            return url
         from app.tasks.importing import ImportRejected
 
         raise ImportRejected(
@@ -411,6 +443,35 @@ class MakerWorldImporter:
             "file URL (the endpoint's shape may have changed -- see "
             "MakerWorldImporter._fetch_authed_download_url)."
         )
+
+    def _fetch_raw_model_url(self, external_id: str, token: str) -> tuple[str, str]:
+        """``(presigned url, filename)`` for the design's raw "all files" zip.
+
+        LIVE-VERIFIED 2026-11-02: ``GET {makerworld.com/api/v1}/design-service/
+        design/{id}/model?modelType=all&type=download`` with the Bambu access
+        token as ``Authorization: Bearer`` (web headers) returns
+        ``{"name": "", "url": "https://makerworld.bblmw.com/.../all.zip?<sig>",
+        "highCompression": ""}``. ``modelType=all`` is required (404 without),
+        and anonymous calls get 403. ``name`` is usually empty."""
+        from app.tasks.importing import ImportRejected
+
+        with _raw_model_client(token) as c:
+            r = c.get(
+                f"/design-service/design/{external_id}/model",
+                params={"modelType": "all", "type": "download"},
+            )
+            if r.status_code in (401, 403):
+                raise ImportRejected(_BAMBU_SESSION_EXPIRED)
+            r.raise_for_status()
+            body = r.json()
+        url = _extract_download_url(body)
+        if not url:
+            raise ImportRejected(
+                "MakerWorld's raw-model download response didn't include a recognizable "
+                "file URL (the endpoint's shape may have changed -- see "
+                "MakerWorldImporter._fetch_raw_model_url)."
+            )
+        return url, (body.get("name") or "")
 
     # ========================================================================
 
