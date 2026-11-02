@@ -306,6 +306,58 @@ def test_list_files_with_connected_account_maps_zip_stl_instances(monkeypatch):
     assert files[0].filename == "Default-3391581.zip"
 
 
+def test_list_files_emits_raw_zip_for_design_without_instances(monkeypatch):
+    monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
+    monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(fx.DESIGN_RAW_ONLY))
+    files = MakerWorldImporter().list_files("541281")
+    assert files == [ImportFile(remote_id="raw", filename="PCIe 92mm fan bracket v3-541281.zip")]
+
+
+def test_list_files_prefers_instances_over_raw_zip(monkeypatch):
+    monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
+    design = {**fx.DESIGN_3018898, "rawModelFileDownloadCount": 50}
+    monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(design))
+    files = MakerWorldImporter().list_files(fx.DESIGN_ID)
+    assert [f.remote_id for f in files] == ["12345"]
+
+
+def _raw_model_client_for(status_code, body=None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/design-service/design/541281/model"
+        assert dict(request.url.params) == {"modelType": "all", "type": "download"}
+        assert request.headers.get("Authorization") == "Bearer test-access-token"
+        return httpx.Response(status_code, json=body or {})
+
+    return lambda token: httpx.Client(
+        base_url="https://makerworld.com/api/v1",
+        headers={"Authorization": f"Bearer {token}"},
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def test_resolve_download_raw_hits_model_endpoint_and_returns_url(monkeypatch):
+    monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
+    monkeypatch.setattr(
+        makerworld, "_raw_model_client", _raw_model_client_for(200, fx.RAW_MODEL_RESPONSE)
+    )
+    out = MakerWorldImporter().resolve_download(
+        "541281", ImportFile(remote_id="raw", filename="PCIe-541281.zip")
+    )
+    assert out.url == fx.RAW_MODEL_RESPONSE["url"]
+    assert out.filename == "PCIe-541281.zip"  # always ours, never the response `name`
+    assert out.headers == {}
+
+
+def test_resolve_download_raw_forbidden_is_rejected(monkeypatch):
+    monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
+    monkeypatch.setattr(makerworld, "_raw_model_client", _raw_model_client_for(403))
+    with pytest.raises(ImportRejected) as exc_info:
+        MakerWorldImporter().resolve_download(
+            "541281", ImportFile(remote_id="raw", filename="x.zip")
+        )
+    assert str(exc_info.value) == makerworld._BAMBU_SESSION_EXPIRED
+
+
 def _mock_favorites_client(token, *, profile=None, hits_by_list=None):
     """Mock the cookie-authed `/api/v1` seam `_favorites_client` builds:
     handles `/user-service/my/profile` and `/design-service/favorites/

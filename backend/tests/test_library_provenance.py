@@ -89,3 +89,30 @@ async def test_create_imported_model_sync_commit_false_defers_visibility_to_call
     # Now that the caller committed, a fresh connection sees it.
     with sync_session() as s3:
         assert s3.get(Model, model_id) is not None
+
+
+def test_create_imported_model_sync_tags_are_case_insensitive(backend):
+    from app.models.library import Model, Tag
+    from app.tasks.base import sync_session
+
+    with sync_session() as s:
+        s.add(Tag(name="House"))
+        s.commit()
+    with sync_session() as s:
+        model = library.create_imported_model_sync(
+            s,
+            backend,
+            name="Tagged",
+            description=None,
+            source_url="https://example.com/1",
+            source_site="thingiverse",
+            source_author=None,
+            source_license=None,
+            imported_at=datetime(2026, 7, 7, tzinfo=UTC),
+            tags=["house", "Lora", "lora ", " "],
+            initial_revision_name="imported",
+        )
+        mid = model.id
+    with sync_session() as s:
+        m = s.get(Model, mid)
+        assert sorted(t.name for t in m.tags) == ["House", "Lora"]

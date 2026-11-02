@@ -361,12 +361,12 @@ def create_imported_model_sync(
     backend.mkdirs(layout.revision_dir_key(slug, dir_name))
     layout.write_sidecar(backend, model.id, slug, model.name)
     for tag_name in tags:
-        tag = session.scalar(select(Tag).where(Tag.name == tag_name))
-        if tag is None:
-            tag = Tag(name=tag_name)
-            session.add(tag)
-            session.flush()
-        model.tags.append(tag)
+        tag_name = tag_name.strip()
+        if not tag_name:
+            continue
+        tag = tags_svc.get_or_create_tag_sync(session, tag_name)
+        if tag not in model.tags:
+            model.tags.append(tag)
     model.current_revision_id = revision.id
     if commit:
         session.commit()

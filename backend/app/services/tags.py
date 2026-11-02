@@ -12,6 +12,7 @@ from sqlalchemy import Table, delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.library import File, Model, Revision, Tag, model_tags
@@ -75,6 +76,26 @@ async def get_or_create_tag(db: AsyncSession, name: str, color: str | None = Non
             .on_conflict_do_nothing(index_elements=[func.lower(Tag.name)])
         )
         tag = await find_by_name(db, name)
+        assert tag is not None
+    return tag
+
+
+def find_by_name_sync(session: SyncSession, name: str) -> Tag | None:
+    return session.execute(
+        select(Tag).where(func.lower(Tag.name) == name.lower())
+    ).scalar_one_or_none()
+
+
+def get_or_create_tag_sync(session: SyncSession, name: str, color: str | None = None) -> Tag:
+    """SYNC twin of ``get_or_create_tag`` for worker tasks (flushes, never commits)."""
+    tag = find_by_name_sync(session, name)
+    if tag is None:
+        session.execute(
+            pg_insert(Tag)
+            .values(name=name, color=_norm_color(color))
+            .on_conflict_do_nothing(index_elements=[func.lower(Tag.name)])
+        )
+        tag = find_by_name_sync(session, name)
         assert tag is not None
     return tag
 

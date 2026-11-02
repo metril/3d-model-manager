@@ -41,6 +41,25 @@ DESIGN_3018898 = {
     ],
 }
 
+# Raw-file-only design (trimmed from live design 541281): no print-profile
+# instances, but the creator uploaded raw model files.
+DESIGN_RAW_ONLY = {
+    **DESIGN_3018898,
+    "id": 541281,
+    "title": "PCIe 92mm fan bracket v3",
+    "modelId": "US179caeb8dbff35",
+    "instances": [],
+    "rawModelFileDownloadCount": 169,
+}
+
+# Live-captured shape of GET /design-service/design/541281/model
+# ?modelType=all&type=download (2026-11-02).
+RAW_MODEL_RESPONSE = {
+    "name": "",
+    "url": "https://makerworld.bblmw.com/makerworld/model/US179caeb8dbff35/mszipfile/1721011756/all.zip?sig=abc",
+    "highCompression": "",
+}
+
 DESIGN_PAID = {
     **DESIGN_3018898,
     "id": 9999999,
