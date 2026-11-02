@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/metril/3d-model-manager/compare/v0.11.1...v0.11.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **import:** MakerWorld raw-file downloads + case-insensitive tags ([#191](https://github.com/metril/3d-model-manager/issues/191)) ([2d34b24](https://github.com/metril/3d-model-manager/commit/2d34b248d85246c71fbc2c61edf9a71888c3b700))
+
 ## [0.11.1](https://github.com/metril/3d-model-manager/compare/v0.11.0...v0.11.1) (2026-11-01)
 
 
