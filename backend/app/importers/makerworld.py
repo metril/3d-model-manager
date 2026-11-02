@@ -389,8 +389,10 @@ class MakerWorldImporter:
     def resolve_download(self, external_id: str, file: ImportFile) -> ResolvedDownload:
         token, region = _require_bambu_session()
         if file.remote_id == _RAW_REMOTE_ID:
-            url, name = self._fetch_raw_model_url(external_id, token)
-            return ResolvedDownload(url=url, filename=name or file.filename)
+            # Always our sanitized `.zip` name: the response's `name` is
+            # unsanitized and a non-`.zip` suffix would skip extraction.
+            url = self._fetch_raw_model_url(external_id, token)
+            return ResolvedDownload(url=url, filename=file.filename)
         # The download endpoint (see `_fetch_authed_download_url`) is keyed
         # on `profileId` (carried through as `file.remote_id`) + the
         # design's `modelId` string -- re-fetch the (anonymous, cheap)
@@ -444,15 +446,15 @@ class MakerWorldImporter:
             "MakerWorldImporter._fetch_authed_download_url)."
         )
 
-    def _fetch_raw_model_url(self, external_id: str, token: str) -> tuple[str, str]:
-        """``(presigned url, filename)`` for the design's raw "all files" zip.
+    def _fetch_raw_model_url(self, external_id: str, token: str) -> str:
+        """Presigned URL for the design's raw "all files" zip.
 
         LIVE-VERIFIED 2026-11-02: ``GET {makerworld.com/api/v1}/design-service/
         design/{id}/model?modelType=all&type=download`` with the Bambu access
         token as ``Authorization: Bearer`` (web headers) returns
         ``{"name": "", "url": "https://makerworld.bblmw.com/.../all.zip?<sig>",
         "highCompression": ""}``. ``modelType=all`` is required (404 without),
-        and anonymous calls get 403. ``name`` is usually empty."""
+        and anonymous calls get 403. ``name`` is ignored (usually empty)."""
         from app.tasks.importing import ImportRejected
 
         with _raw_model_client(token) as c:
@@ -471,7 +473,7 @@ class MakerWorldImporter:
                 "file URL (the endpoint's shape may have changed -- see "
                 "MakerWorldImporter._fetch_raw_model_url)."
             )
-        return url, (body.get("name") or "")
+        return url
 
     # ========================================================================
 

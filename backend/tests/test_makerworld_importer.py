@@ -344,7 +344,7 @@ def test_resolve_download_raw_hits_model_endpoint_and_returns_url(monkeypatch):
         "541281", ImportFile(remote_id="raw", filename="PCIe-541281.zip")
     )
     assert out.url == fx.RAW_MODEL_RESPONSE["url"]
-    assert out.filename == "PCIe-541281.zip"  # empty `name` -> keep ours
+    assert out.filename == "PCIe-541281.zip"  # always ours, never the response `name`
     assert out.headers == {}
 
 
