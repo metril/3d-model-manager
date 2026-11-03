@@ -1,4 +1,5 @@
 import contextlib
+import re
 
 import httpx
 import pytest
@@ -386,12 +387,16 @@ def _mock_favorites_client(token, *, profile=None, hits_by_list=None):
         path = request.url.path
         if path == "/api/v1/user-service/my/profile":
             return httpx.Response(200, json=profile)
-        if path.startswith("/api/v1/design-service/favorites/designs/"):
-            list_id = path.rsplit("/", 1)[-1]
+        named = re.fullmatch(r"/api/v1/design-service/favorites/(\d+)/designs", path)
+        if path.startswith("/api/v1/design-service/favorites/designs/") or named:
+            list_id = named.group(1) if named else path.rsplit("/", 1)[-1]
             params = dict(request.url.params)
             assert params.get("handle") == f"@{profile['name']}"
             hits = hits_by_list.get(list_id, [])
-            return httpx.Response(200, json={"hits": hits, "total": len(hits), "seed": 1})
+            lim, off = int(params.get("limit", 20)), int(params.get("offset", 0))
+            return httpx.Response(
+                200, json={"hits": hits[off : off + lim], "total": len(hits), "seed": 1}
+            )
         return httpx.Response(404, text="unexpected path")
 
     return httpx.Client(
@@ -806,3 +811,63 @@ def test_resolve_download_hits_authed_endpoint_and_returns_presigned_url(monkeyp
     # No Bearer forwarded to the presigned CDN URL itself (Thingiverse
     # posture: never leak the app/account token to a public/signed asset URL).
     assert out.headers == {}
+
+
+def test_named_list_uses_collection_path_and_pages(monkeypatch):
+    monkeypatch.setattr(makerworld, "_makerworld_web_token", lambda: "test-token")
+    paths: list[str] = []
+    hits = [{"id": i, "title": f"m{i}"} for i in range(1, 71)]
+    inner = _mock_favorites_client("test-token", hits_by_list={"555": hits})
+    base = inner._transport
+
+    def spy(request):
+        paths.append(request.url.path)
+        return base.handler(request)
+
+    def make(token):
+        return httpx.Client(
+            base_url="https://makerworld.com/api/v1",
+            headers={"Cookie": "token=test-token"},
+            transport=httpx.MockTransport(spy),
+        )
+
+    monkeypatch.setattr(makerworld, "_favorites_client", make)
+    imp = MakerWorldImporter()
+    got = []
+    for page in range(1, 6):
+        items = imp.list_list_items("555", page)
+        got += [r.external_id for r in items]
+        if len(items) < makerworld._SEARCH_PAGE_SIZE:
+            break
+    assert got == [str(i) for i in range(1, 71)]
+    assert "/api/v1/design-service/favorites/555/designs" in paths
+    assert not any("/favorites/designs/555" in p for p in paths)
+
+
+def test_named_list_403_falls_back_to_cache(monkeypatch, _items_db):
+    with tasks_base.sync_session() as s:
+        remote_collections_service.replace_list_items_sync(
+            s,
+            ImportSite.MAKERWORLD,
+            "555",
+            [
+                remote_collections_service.ItemEntry(
+                    external_id="9", title="cached", url="https://www.makerworld.com/en/models/9"
+                )
+            ],
+        )
+    monkeypatch.setattr(makerworld, "_makerworld_web_token", lambda: "test-token")
+
+    def handler(request):
+        if request.url.path.endswith("/my/profile"):
+            return httpx.Response(200, json=fx.PROFILE_TERMINALFOO)
+        return httpx.Response(403, text="<!DOCTYPE html>Just a moment...")
+
+    monkeypatch.setattr(
+        makerworld,
+        "_favorites_client",
+        lambda token: httpx.Client(
+            base_url="https://makerworld.com/api/v1", transport=httpx.MockTransport(handler)
+        ),
+    )
+    assert [r.external_id for r in MakerWorldImporter().list_list_items("555")] == ["9"]

@@ -54,6 +54,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pyotp>=2.10.0",
     "apprise>=2.1.0",
+    "curl-cffi>=0.17.0",
 ]
 
 [dependency-groups]
