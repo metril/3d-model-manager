@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.5](https://github.com/metril/3d-model-manager/compare/v0.11.4...v0.11.5) (2026-11-03)
+
+
+### Bug Fixes
+
+* **web:** virtualize library grid against the shell scroll container ([#198](https://github.com/metril/3d-model-manager/issues/198)) ([bb0d71e](https://github.com/metril/3d-model-manager/commit/bb0d71ebe390165a84851cca4302a6e010d61b3c))
+
 ## [0.11.4](https://github.com/metril/3d-model-manager/compare/v0.11.3...v0.11.4) (2026-11-03)
 
 
