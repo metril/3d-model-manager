@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.4](https://github.com/metril/3d-model-manager/compare/v0.11.3...v0.11.4) (2026-11-03)
+
+
+### Bug Fixes
+
+* **extension:** page MakerWorld collections via favorites/{id}/designs ([#195](https://github.com/metril/3d-model-manager/issues/195)) ([1b6d2d6](https://github.com/metril/3d-model-manager/commit/1b6d2d6364a0c2ef5b978285ae150c091a0016bc))
+* **makerworld:** page named collections via favorites/{id}/designs, impersonate Chrome TLS ([#196](https://github.com/metril/3d-model-manager/issues/196)) ([e4ab3af](https://github.com/metril/3d-model-manager/commit/e4ab3afdb215ae560578cf48328e5242446e6368))
+
 ## [0.11.3](https://github.com/metril/3d-model-manager/compare/v0.11.2...v0.11.3) (2026-11-03)
 
 
