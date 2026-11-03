@@ -58,7 +58,7 @@ async def test_dismiss_failed_only_touches_undismissed_failed_rows(
 
     r = await authenticated_client.post("/api/imports/dismiss-failed")
     assert r.status_code == 200 and r.json() == {"dismissed": 1}
-    rows = {x["id"]: x for x in (await authenticated_client.get("/api/imports")).json()}
+    rows = {x["id"]: x for x in (await authenticated_client.get("/api/imports")).json()["items"]}
     assert rows[a.id]["dismissed_at"] and rows[b.id]["dismissed_at"]
     assert rows[done.id]["dismissed_at"] is None
     assert (await authenticated_client.post("/api/imports/dismiss-failed")).json() == {
@@ -77,12 +77,41 @@ async def test_list_filters_offset_and_failed_count(
     await authenticated_client.post(f"/api/imports/{ids[0]}/dismiss")
 
     assert (await authenticated_client.get("/api/imports/failed-count")).json() == {"count": 2}
-    failed = (await authenticated_client.get("/api/imports?state=failed")).json()
+    failed = (await authenticated_client.get("/api/imports?state=failed")).json()["items"]
     assert {r["id"] for r in failed} == set(ids)
     hidden = (
         await authenticated_client.get("/api/imports?state=failed&include_dismissed=false")
-    ).json()
+    ).json()["items"]
     assert {r["id"] for r in hidden} == set(ids[1:])
-    page = (await authenticated_client.get("/api/imports?state=failed&limit=2&offset=2")).json()
+    page = (await authenticated_client.get("/api/imports?state=failed&limit=2&offset=2")).json()["items"]
     assert len(page) == 1
     assert (await authenticated_client.get("/api/imports?limit=0")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_multi_state_exclude_and_keyset_cursor(
+    authenticated_client, library_root, data_dir, db_session
+):
+    failed = [
+        (await _seed(db_session, state=ImportState.FAILED, external_id=f"f{i}")).id
+        for i in range(3)
+    ]
+    done = (await _seed(db_session, state=ImportState.DONE, external_id="d")).id
+    pend = (await _seed(db_session, state=ImportState.PENDING, external_id="p")).id
+
+    r = await authenticated_client.get("/api/imports?exclude_state=failed")
+    assert {x["id"] for x in r.json()["items"]} == {done, pend}
+    r = await authenticated_client.get("/api/imports?state=done&state=pending")
+    assert {x["id"] for x in r.json()["items"]} == {done, pend}
+
+    seen: list[int] = []
+    cursor = None
+    for _ in range(5):
+        url = "/api/imports?limit=2" + (f"&before={cursor}" if cursor else "")
+        body = (await authenticated_client.get(url)).json()
+        seen += [x["id"] for x in body["items"]]
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == sorted([*failed, done, pend], reverse=True)
+    assert (await authenticated_client.get("/api/imports?before=junk")).status_code == 422

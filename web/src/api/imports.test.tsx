@@ -57,30 +57,40 @@ describe("useImportsList", () => {
     postMock.mockReset();
   });
 
-  it("fetches GET /imports with limit/offset and flattens pages", async () => {
-    getMock.mockResolvedValue([fakeImport()]);
+  it("downloads view excludes failed, pages 25, and flattens items", async () => {
+    getMock.mockResolvedValue({ items: [fakeImport()], next_cursor: null });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     const { result } = renderHook(() => useImportsList(), { wrapper: wrapper(queryClient) });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(getMock).toHaveBeenCalledWith("/imports?limit=50&offset=0");
+    expect(getMock).toHaveBeenCalledWith("/imports?limit=25&exclude_state=failed");
     expect(result.current.data).toEqual([fakeImport()]);
     expect(result.current.hasNextPage).toBe(false);
   });
 
-  it("the failed view adds state=failed and pages by offset", async () => {
-    const full = Array.from({ length: 50 }, (_, i) => fakeImport({ id: i + 1, state: "failed" }));
-    getMock.mockResolvedValueOnce(full).mockResolvedValueOnce([fakeImport({ id: 99, state: "failed" })]);
+  it("failures view hides dismissed by default and follows next_cursor", async () => {
+    getMock
+      .mockResolvedValueOnce({ items: [fakeImport({ id: 2, state: "failed" })], next_cursor: "abc=" })
+      .mockResolvedValueOnce({ items: [fakeImport({ id: 1, state: "failed" })], next_cursor: null });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    const { result } = renderHook(() => useImportsList("failed"), { wrapper: wrapper(queryClient) });
+    const { result } = renderHook(() => useImportsList("failures"), { wrapper: wrapper(queryClient) });
 
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));
-    expect(getMock).toHaveBeenCalledWith("/imports?limit=50&offset=0&state=failed");
+    expect(getMock).toHaveBeenCalledWith("/imports?limit=25&state=failed&include_dismissed=false");
     await result.current.fetchNextPage();
-    await waitFor(() => expect(result.current.data).toHaveLength(51));
-    expect(getMock).toHaveBeenLastCalledWith("/imports?limit=50&offset=50&state=failed");
+    await waitFor(() => expect(result.current.data).toHaveLength(2));
+    expect(getMock).toHaveBeenLastCalledWith(
+      "/imports?limit=25&state=failed&include_dismissed=false&before=abc%3D",
+    );
+  });
+
+  it("showDismissed drops the include_dismissed filter", async () => {
+    getMock.mockResolvedValue({ items: [], next_cursor: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useImportsList("failures", true), { wrapper: wrapper(queryClient) });
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/imports?limit=25&state=failed"));
   });
 });
 

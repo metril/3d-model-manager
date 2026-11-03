@@ -353,7 +353,7 @@ class MakerWorldImporter:
             license=d.get("license"),
             cover_url=d.get("coverUrl"),
             image_urls=_image_urls(d),
-            tags=tuple(t for t in d.get("tags", []) if t),
+            tags=tuple(t for t in (d.get("tags") or []) if t),
             reject_reason=reject,
         )
 
@@ -370,7 +370,7 @@ class MakerWorldImporter:
         d = self._design(external_id)
         title = d.get("title") or f"model {external_id}"
         files = []
-        for inst in d.get("instances", []):
+        for inst in d.get("instances") or []:
             if not inst.get("hasZipStl"):
                 continue
             profile_id = inst.get("profileId")

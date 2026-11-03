@@ -299,7 +299,7 @@ class PrintablesImporter:
             license=(p.get("license") or {}).get("name"),
             cover_url=cover,
             image_urls=_image_urls(p),
-            tags=tuple(t["name"] for t in p.get("tags", []) if t.get("name")),
+            tags=tuple(t["name"] for t in (p.get("tags") or []) if t.get("name")),
             reject_reason=reject,
         )
 
@@ -312,7 +312,7 @@ class PrintablesImporter:
                 url=None,
                 size=s.get("fileSize"),
             )
-            for s in p.get("stls", [])
+            for s in (p.get("stls") or [])
             if s.get("id") and s.get("name")
         ]
 

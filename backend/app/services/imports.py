@@ -94,7 +94,31 @@ async def start_import(
     return imp, True
 
 
-async def retry_failed_import(db: AsyncSession, import_id: int) -> Import:
+def _reset_failed_stmt(import_id: int, keep_dismissed: bool):
+    values: dict = {"state": ImportState.PENDING, "error": None}
+    if not keep_dismissed:
+        values["dismissed_at"] = None
+    return (
+        update(Import)
+        .where(Import.id == import_id, Import.state == ImportState.FAILED)
+        .values(**values)
+    )
+
+
+def reset_failed_import_sync(session, import_id: int, *, keep_dismissed: bool = True) -> bool:
+    """Worker-side twin of the reset in :func:`retry_failed_import` (the
+    collection sync runs in the sync world): flip a ``failed`` row back to
+    ``pending`` in place, preserving ``dismissed_at`` by default so a
+    dismissed failure that fails again stays dismissed. Returns whether the
+    row was reset; the caller dispatches ``import_from_url`` when True."""
+    result = session.execute(_reset_failed_stmt(import_id, keep_dismissed))
+    session.commit()
+    return result.rowcount > 0
+
+
+async def retry_failed_import(
+    db: AsyncSession, import_id: int, *, keep_dismissed: bool = False
+) -> Import:
     """Re-enqueue a ``failed`` import (T2, import-health branch) -- the UI's
     "retry" action once a dead Bambu session or other transient cause has
     been fixed. 404 unknown id, 409 unless the row is currently ``failed``.
@@ -117,11 +141,7 @@ async def retry_failed_import(db: AsyncSession, import_id: int) -> Import:
     to reach it -- the loser's statement matches zero rows, so only one
     caller ever proceeds to ``_enqueue``.
     """
-    result = await db.execute(
-        update(Import)
-        .where(Import.id == import_id, Import.state == ImportState.FAILED)
-        .values(state=ImportState.PENDING, error=None, dismissed_at=None)
-    )
+    result = await db.execute(_reset_failed_stmt(import_id, keep_dismissed))
     if result.rowcount == 0:
         # Either no such import, or one that exists but wasn't `failed` (a
         # lost race, or just the wrong state) -- this extra read is OUTSIDE

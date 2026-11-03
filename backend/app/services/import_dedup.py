@@ -106,6 +106,29 @@ def find_active_import_sync(
     return session.execute(_active_import_stmt(site, external_id)).scalars().first()
 
 
+def find_latest_failed_import_sync(
+    session: SyncSession, site: ImportSite, external_id: str | None
+) -> Import | None:
+    """The newest ``failed`` import of this pair, so a sync can retry it in
+    place instead of stacking a fresh duplicate row per run."""
+    if not external_id:
+        return None
+    return (
+        session.execute(
+            select(Import)
+            .where(
+                Import.site == site,
+                Import.external_id == external_id,
+                Import.state == ImportState.FAILED,
+            )
+            .order_by(Import.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
 async def find_active_import(
     db: AsyncSession, site: ImportSite, external_id: str | None
 ) -> Import | None:
@@ -143,3 +166,43 @@ async def find_model_by_blob_hash(
     if exclude_model_id is not None:
         stmt = stmt.where(Model.id != exclude_model_id)
     return (await db.execute(stmt)).scalars().first()
+
+
+# ---------------------------------------------------------------------------
+# One-time collapse of duplicate ``failed`` rows (used by an Alembic data
+# migration): older sync runs minted a fresh failed row per item per run.
+# ---------------------------------------------------------------------------
+_COLLAPSE_INHERIT_SQL = """
+UPDATE imports i SET dismissed_at = d.max_dismissed
+FROM (
+    SELECT site, external_id, MAX(id) AS keep_id, MAX(dismissed_at) AS max_dismissed
+    FROM imports
+    WHERE state = 'failed' AND external_id IS NOT NULL
+    GROUP BY site, external_id
+    HAVING COUNT(*) > 1
+) d
+WHERE i.id = d.keep_id AND i.dismissed_at IS NULL AND d.max_dismissed IS NOT NULL
+"""
+
+_COLLAPSE_DELETE_SQL = """
+DELETE FROM imports i
+USING (
+    SELECT site, external_id, MAX(id) AS keep_id
+    FROM imports
+    WHERE state = 'failed' AND external_id IS NOT NULL
+    GROUP BY site, external_id
+    HAVING COUNT(*) > 1
+) d
+WHERE i.state = 'failed' AND i.site = d.site AND i.external_id = d.external_id
+  AND i.id < d.keep_id
+"""
+
+
+def collapse_duplicate_failed_imports(conn) -> int:
+    """Per ``(site, external_id)`` keep only the newest ``failed`` import; it
+    inherits ``dismissed_at`` when any collapsed duplicate was dismissed.
+    ``conn`` is a SQLAlchemy sync Connection. Returns the rows deleted."""
+    from sqlalchemy import text
+
+    conn.execute(text(_COLLAPSE_INHERIT_SQL))
+    return conn.execute(text(_COLLAPSE_DELETE_SQL)).rowcount

@@ -306,6 +306,21 @@ def test_list_files_with_connected_account_maps_zip_stl_instances(monkeypatch):
     assert files[0].filename == "Default-3391581.zip"
 
 
+def test_fetch_metadata_tolerates_null_tags(monkeypatch):
+    design = {**fx.DESIGN_3018898, "tags": None}
+    monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(design))
+    assert MakerWorldImporter().fetch_metadata(fx.DESIGN_ID).tags == ()
+
+
+def test_list_files_tolerates_null_instances(monkeypatch):
+    monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
+    design = {**fx.DESIGN_3018898, "instances": None}
+    monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(design))
+    # No crash; null instances behaves like none -> the raw-model fallback.
+    files = MakerWorldImporter().list_files(fx.DESIGN_ID)
+    assert [f.remote_id for f in files] == ["raw"]
+
+
 def test_list_files_emits_raw_zip_for_design_without_instances(monkeypatch):
     monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
     monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(fx.DESIGN_RAW_ONLY))
