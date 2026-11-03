@@ -593,7 +593,7 @@ function filterDesigns(array) {
  * of the array as the page served it (what a partial-read check must compare
  * against the collection's count, since filtered/unmappable entries still
  * count toward what the server returned).
- * @returns {{key: string, designs: Array, rawLength: number}|null}
+ * @returns {{key: string, designs: Array, rawLength: number, total?: number|null}|null}
  */
 export function findDesignListIn(pageProps) {
   if (!pageProps || typeof pageProps !== "object") {
@@ -635,7 +635,10 @@ export function findDesignListIn(pageProps) {
         }
         const nestedDesigns = Array.isArray(nestedValue) ? filterDesigns(nestedValue) : null;
         if (nestedDesigns) {
-          return { key: `${key}.${nestedKey}`, designs: nestedDesigns, rawLength: nestedValue.length };
+          // `total` (sibling of `hits`) is the real reachable count, which can
+          // be below the collection's `designCnt` (hidden designs).
+          const total = Number.isFinite(value.total) && value.total >= 0 ? value.total : null;
+          return { key: `${key}.${nestedKey}`, designs: nestedDesigns, rawLength: nestedValue.length, total };
         }
       }
     }

@@ -106,7 +106,7 @@ async function readCollectionsDataInPage(expectedPathname) {
       } else if (value && typeof value === "object") {
         const inner = {};
         for (const [innerKey, innerValue] of Object.entries(value)) {
-          if (Array.isArray(innerValue)) {
+          if (Array.isArray(innerValue) || (innerKey === "total" && typeof innerValue === "number")) {
             inner[innerKey] = innerValue;
           } else if (innerValue === null || typeof innerValue !== "object") {
             inner[innerKey] =
@@ -242,6 +242,45 @@ async function fetchCollectionDataRouteInPage(buildId, collectionPathname, expec
 }
 
 /**
+ * Executed IN THE PAGE. Fetches one page of a collection's designs from
+ * MakerWorld's own "load more" endpoint. Aborts (null) when the tab navigated
+ * away (`expectedPathname`), on a non-OK response, or after 15s.
+ * @param {string} collectionId
+ * @param {number} offset
+ * @param {string|null} expectedPathname navigation-race guard
+ * @returns {Promise<{hits: unknown[], total: number|null}|null>}
+ */
+async function fetchCollectionDesignsPageInPage(collectionId, offset, expectedPathname) {
+  const norm = (p) => String(p || "").replace(/\/$/, "");
+  if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
+    return null;
+  }
+  try {
+    const response = await fetch(
+      `/api/v1/design-service/favorites/${encodeURIComponent(collectionId)}/designs?limit=20&offset=${offset}`,
+      {
+        credentials: "include",
+        headers: { "x-bbl-client-type": "web", "x-bbl-app-source": "makerworld" },
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const body = await response.json();
+    if (expectedPathname && norm(location.pathname) !== norm(expectedPathname)) {
+      return null;
+    }
+    if (!body || !Array.isArray(body.hits)) {
+      return null;
+    }
+    return { hits: body.hits, total: typeof body.total === "number" ? body.total : null };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reads one collection's items off a candidate SSR data-route pathname.
  * Logs which key matched via `report` (informational). Never throws.
  *
@@ -292,6 +331,7 @@ async function readCollectionItemsFromDataRoute(
     found: true,
     key: found.key,
     rawLength: found.rawLength,
+    total: found.total ?? null,
     diagnostic: `route ok, matched pageProps.${found.key}`,
   };
 }
@@ -299,23 +339,40 @@ async function readCollectionItemsFromDataRoute(
 /** Hard bound on extra pages per collection (a looping route can't spin forever). */
 const MAX_EXTRA_PAGES = 50;
 
+/** Runs the in-page designs-page fetcher; `null` on any failure. */
+async function readDesignsPage(tabId, collectionId, offset, exec, guard) {
+  try {
+    return (await exec(tabId, fetchCollectionDesignsPageInPage, [collectionId, offset, guard])) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * A collection's data route serves only its first page of designs. While the
- * items read so far fall short of `count`, keeps requesting the same route
- * with `page`/`offset`/`limit` params (sized from the first page) and merges
- * new ids. Stops on an unreadable/empty page, or one adding nothing new (a
- * route that ignores the params just repeats page 1) -- leaving the result
- * short, which the caller still reports as partial. Never throws.
+ * A collection's SSR data route serves only its first page of designs. While
+ * fewer than `target` are read, pages MakerWorld's own
+ * `favorites/{id}/designs?limit=20&offset=N` endpoint (offset = hits read so
+ * far) and merges new ids. Stops at `offset >= target` (or the endpoint's own
+ * `total`), on a failed/empty page, or one adding nothing new. Never throws.
+ * @param {{items: object[], rawLength: number}} first
+ * @param {number} target
+ * @param {(offset: number) => Promise<{hits: unknown[], total: number|null}|null>} readPage
  * @returns {Promise<{items: object[], rawLength: number}>}
  */
-async function readRemainingPages(first, count, read) {
+async function readRemainingPages(first, target, readPage) {
   const items = [...first.items];
   const seen = new Set(items.map((item) => item.external_id));
-  const pageSize = first.rawLength;
   let rawLength = first.rawLength;
-  for (let page = 2; page <= MAX_EXTRA_PAGES + 1 && rawLength < count; page += 1) {
-    const attempt = await read(`?page=${page}&offset=${(page - 1) * pageSize}&limit=${pageSize}`);
-    const fresh = attempt.found ? attempt.items.filter((item) => !seen.has(item.external_id)) : [];
+  let limit = target;
+  for (let n = 0; n < MAX_EXTRA_PAGES && rawLength < limit; n += 1) {
+    const page = await readPage(rawLength);
+    if (!page || !Array.isArray(page.hits) || page.hits.length === 0) {
+      break;
+    }
+    if (typeof page.total === "number") {
+      limit = page.total;
+    }
+    const fresh = mapDesignHits({ hits: normalizeDesigns(page.hits) }).filter((item) => !seen.has(item.external_id));
     if (fresh.length === 0) {
       break;
     }
@@ -323,7 +380,7 @@ async function readRemainingPages(first, count, read) {
       seen.add(item.external_id);
       items.push(item);
     }
-    rawLength += attempt.rawLength;
+    rawLength += page.hits.length;
   }
   return { items, rawLength };
 }
@@ -541,9 +598,12 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
       }
     }
 
-    if (primary.found && entry.count != null && primary.rawLength > 0 && primary.rawLength < entry.count) {
-      const paged = await readRemainingPages(primary, entry.count, (query) =>
-        readCollectionItemsFromDataRoute(tabId, buildId, primary.pathname, entry.title, exec, report, guard, query),
+    // `total` (real reachable count) beats the list's `designCnt`, which
+    // includes hidden designs.
+    const target = primary.total ?? entry.count;
+    if (primary.found && target != null && primary.rawLength > 0 && primary.rawLength < target) {
+      const paged = await readRemainingPages(primary, target, (offset) =>
+        readDesignsPage(tabId, entry.list_id, offset, exec, guard),
       );
       primary = { ...primary, items: paged.items, rawLength: paged.rawLength };
     }
@@ -569,7 +629,7 @@ export async function syncCollections({ tabId, url, exec, api, report, page }) {
       return { status: "failed" };
     }
     // Partial: the raw array served is shorter than the known count.
-    const partial = entry.count != null && primary.rawLength < entry.count;
+    const partial = target != null && primary.rawLength < target;
     return { status: partial ? "partial" : "ok", pushed: primary.items.length };
   };
 
@@ -670,8 +730,19 @@ export async function readCollectionDetailPage({ tabId, url, exec }) {
   if (!found) {
     return { parsed, pageProps, items: [], title: null, count: null, found: false, key: null, rawLength: 0 };
   }
-  const items = mapDesignHits({ hits: normalizeDesigns(found.designs) });
+  let items = mapDesignHits({ hits: normalizeDesigns(found.designs) });
+  let rawLength = found.rawLength;
   const info = findCollectionTitleIn(pageProps, parsed.id);
+  const total = found.total ?? null;
+  const target = total ?? (info ? info.count : null);
+  if (typeof target === "number" && rawLength > 0 && rawLength < target) {
+    const guard = pathnameOf(url);
+    const paged = await readRemainingPages({ items, rawLength }, target, (offset) =>
+      readDesignsPage(tabId, parsed.id, offset, exec, guard),
+    );
+    items = paged.items;
+    rawLength = paged.rawLength;
+  }
   return {
     parsed,
     pageProps,
@@ -680,7 +751,8 @@ export async function readCollectionDetailPage({ tabId, url, exec }) {
     count: info ? info.count : null,
     found: true,
     key: found.key,
-    rawLength: found.rawLength,
+    rawLength,
+    total,
   };
 }
 
@@ -774,14 +846,16 @@ export async function syncCollectionDetail({ tabId, url, exec, api, report, page
   const { parsed, items, title, count } = resolvedPage;
   const rawLength = resolvedPage.rawLength ?? items.length;
   const countDerived = typeof count === "number";
+  // The endpoint's own `total` (reachable designs) beats `count` (includes hidden).
+  const target = typeof resolvedPage.total === "number" ? resolvedPage.total : count;
   const namedKey = NAMED_LIST_KEYS.has(resolvedPage.key);
   const skipped = (message) => {
     report(message, "warn");
     return { listId: parsed.id, title: title || null, items: 0, partial: true, countDerived, persistable: false };
   };
 
-  if (countDerived && rawLength < count) {
-    return skipped(`Partial read (${rawLength} of ${count}) — skipped.`);
+  if (countDerived && rawLength < target) {
+    return skipped(`Partial read (${rawLength} of ${target}) — skipped.`);
   }
   if (!countDerived && !namedKey) {
     return skipped("Couldn't confirm this collection was read completely — skipped.");
