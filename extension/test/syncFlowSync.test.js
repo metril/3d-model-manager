@@ -27,7 +27,7 @@ const LIST = [
  * Path-routed exec stub: dispatches on the injected function's NAME so tests
  * don't depend on call order (collections are read concurrently).
  */
-function routedExec({ page, anchors = [], routes = {} } = {}) {
+function routedExec({ page, anchors = [], routes = {}, designsPage } = {}) {
   const calls = [];
   const exec = async (tabId, func, args = []) => {
     calls.push({ name: func.name, args });
@@ -40,6 +40,10 @@ function routedExec({ page, anchors = [], routes = {} } = {}) {
       const r = routes[args[1]];
       if (typeof r === "function") return r(args);
       return r === undefined ? null : r;
+    }
+    if (func.name === "fetchCollectionDesignsPageInPage") {
+      if (!designsPage) throw new Error("no designsPage stub");
+      return designsPage(args[0], args[1]);
     }
     throw new Error(`unexpected injected func ${func.name}`);
   };
@@ -241,40 +245,87 @@ test("syncCollections: partial uses the RAW array length vs. the count (and stil
   assert.equal(shouldPersistHash(result), false);
 });
 
-test("syncCollections: pages through every item when the first page is shorter than the count", async () => {
-  const pages = { 1: [1, 2], 2: [3, 4], 3: [5] };
-  const { exec, calls } = routedExec({
-    page: listPage([{ id: 1, title: "One", slug: "one", designCnt: 5 }]),
-    routes: {
-      "/en/collections/1-one": (args) => {
-        const n = Number(new URLSearchParams(args[3] || "").get("page") || 1);
-        return route({ designs: (pages[n] || []).map((id) => design(id)) });
-      },
-    },
-  });
-  const { api, calls: apiCalls } = stubApi();
-  const { report } = reporter();
-  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report });
-  assert.deepEqual(result, { collections: 1, items: 5, unreadable: [], failed: [], partial: [] });
-  assert.equal(apiCalls.pushCollectionItems.length, 1);
-  assert.deepEqual(
-    apiCalls.pushCollectionItems[0].items.map((i) => i.external_id),
-    ["1", "2", "3", "4", "5"],
-  );
-  assert.equal(calls.filter((c) => c.name === "fetchCollectionDataRouteInPage").length, 3);
+// Fake of favorites/{id}/designs?limit=20&offset=N over `all` ids.
+const pager = (all, total = all.length, log = []) => (id, offset) => {
+  log.push(offset);
+  return { hits: all.slice(offset, offset + 20).map((n) => design(n)), total };
+};
+const ids = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const listOne = (designCnt) => listPage([{ id: 1, title: "One", slug: "one", designCnt }]);
+const firstRoute = (all, total) => ({
+  "/en/collections/1-one": route({ favoriteDesigns: { hits: all.slice(0, 20).map((n) => design(n)), total } }),
 });
 
-test("syncCollections: a route that ignores paging params stops after one repeat page and stays partial", async () => {
-  const { exec, calls } = routedExec({
-    page: listPage([{ id: 1, title: "One", slug: "one", designCnt: 9 }]),
-    routes: { "/en/collections/1-one": route({ designs: [design(1), design(2)] }) },
+test("syncCollections: pages favorites/{id}/designs by offset until total (multi-page, short last page)", async () => {
+  const all = ids(1, 70);
+  const offsets = [];
+  const { exec } = routedExec({ page: listOne(70), routes: firstRoute(all, 70), designsPage: pager(all, 70, offsets) });
+  const { api, calls: apiCalls } = stubApi();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report: () => {} });
+  assert.deepEqual(result, { collections: 1, items: 70, unreadable: [], failed: [], partial: [] });
+  assert.deepEqual(offsets, [20, 40, 60]);
+  assert.deepEqual(apiCalls.pushCollectionItems[0].items.map((i) => i.external_id), all.map(String));
+});
+
+test("syncCollections: total below designCnt (hidden designs) is not partial", async () => {
+  const all = ids(1, 30);
+  const { exec } = routedExec({ page: listOne(35), routes: firstRoute(all, 30), designsPage: pager(all, 30) });
+  const { api, calls: apiCalls } = stubApi();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report: () => {} });
+  assert.deepEqual(result.partial, []);
+  assert.equal(apiCalls.pushCollectionItems[0].items.length, 30);
+});
+
+test("syncCollections: a page repeating known ids stops paging and stays partial", async () => {
+  const all = ids(1, 40);
+  const offsets = [];
+  const { exec } = routedExec({
+    page: listOne(40),
+    routes: firstRoute(all, 40),
+    designsPage: (id, offset) => (offsets.push(offset), { hits: ids(1, 20).map((n) => design(n)), total: 40 }),
   });
   const { api, calls: apiCalls } = stubApi();
-  const { report } = reporter();
-  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report });
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report: () => {} });
   assert.deepEqual(result.partial, ["One"]);
-  assert.equal(apiCalls.pushCollectionItems[0].items.length, 2);
-  assert.equal(calls.filter((c) => c.name === "fetchCollectionDataRouteInPage").length, 2);
+  assert.deepEqual(offsets, [20]);
+  assert.equal(apiCalls.pushCollectionItems[0].items.length, 20);
+});
+
+test("syncCollections: a failed page fetch leaves the collection partial but pushes what it has", async () => {
+  const all = ids(1, 40);
+  const { exec } = routedExec({ page: listOne(40), routes: firstRoute(all, 40), designsPage: () => null });
+  const { api, calls: apiCalls } = stubApi();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report: () => {} });
+  assert.deepEqual(result.partial, ["One"]);
+  assert.equal(apiCalls.pushCollectionItems[0].items.length, 20);
+});
+
+test("syncCollections: falls back to designCnt as target when the route has no total", async () => {
+  const all = ids(1, 25);
+  const { exec } = routedExec({
+    page: listOne(25),
+    routes: { "/en/collections/1-one": route({ designs: all.slice(0, 20).map((n) => design(n)) }) },
+    designsPage: pager(all, 25),
+  });
+  const { api, calls: apiCalls } = stubApi();
+  const result = await syncCollections({ tabId: 1, url: LIST_URL, exec, api, report: () => {} });
+  assert.deepEqual(result.partial, []);
+  assert.equal(apiCalls.pushCollectionItems[0].items.length, 25);
+});
+
+test("syncCollectionDetail: pages the rest of a long collection and pushes every item", async () => {
+  const all = ids(1, 45);
+  const exec = routedExec({
+    page: detailPage({
+      favoritesInfo: { ...INFO, designCnt: 48 },
+      favoriteDesigns: { hits: all.slice(0, 20).map((n) => design(n)), total: 45 },
+    }),
+    designsPage: pager(all, 45),
+  }).exec;
+  const { api, calls } = stubApi();
+  const result = await syncCollectionDetail({ tabId: 1, url: DETAIL_URL, exec, api, report: () => {} });
+  assert.equal(result.persistable, true);
+  assert.equal(calls.pushCollectionItems[0].items.length, 45);
 });
 
 test("syncCollections: per-collection work runs with bounded concurrency (4)", async () => {
