@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import {
+  elementScroll,
+  observeElementOffset,
+  observeElementRect,
+  observeWindowOffset,
+  observeWindowRect,
+  useVirtualizer,
+  windowScroll,
+} from "@tanstack/react-virtual";
 import {
   ArchiveIcon,
   BookmarkIcon,
@@ -57,6 +65,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { chunkIntoRows, columnsForWidth, estimateListRowHeight, estimateRowHeight } from "@/lib/grid";
 import { useDebouncedValue } from "@/lib/format";
+import { findScrollParent, offsetInScrollParent } from "@/lib/scrollParent";
 import {
   BLOB_FORMATS,
   type BlobFormat,
@@ -447,12 +456,20 @@ export function LibraryPage() {
   const gridObserverRef = useRef<ResizeObserver | null>(null);
   const [columns, setColumns] = useState(() => columnsForWidth(0));
   const [containerWidth, setContainerWidth] = useState(0);
+  // The app shell scrolls inside <main>, not the window, so virtualize against
+  // the grid's nearest scrollable ancestor (window only if none exists).
+  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
 
   const gridRef = useCallback((node: HTMLDivElement | null) => {
     gridObserverRef.current?.disconnect();
     gridObserverRef.current = null;
     gridNodeRef.current = node;
     if (!node) return;
+
+    const parent = findScrollParent(node);
+    setScrollEl(parent);
+    setScrollMargin(offsetInScrollParent(node, parent));
 
     const rect = node.getBoundingClientRect();
     setColumns(columnsForWidth(rect.width));
@@ -485,11 +502,17 @@ export function LibraryPage() {
     () => (viewMode === "list" ? estimateListRowHeight() : estimateRowHeight(containerWidth, columns)),
     [viewMode, containerWidth, columns],
   );
-  const rowVirtualizer = useWindowVirtualizer({
+  const rowVirtualizer = useVirtualizer<Element, Element>({
     count: rows.length,
     estimateSize: () => rowHeightEstimate,
     overscan: 3,
-    scrollMargin: gridNodeRef.current?.offsetTop ?? 0,
+    scrollMargin,
+    getScrollElement: () => scrollEl ?? (window as unknown as Element),
+    observeElementRect: (instance, cb) =>
+      scrollEl ? observeElementRect(instance as never, cb) : observeWindowRect(instance as never, cb),
+    observeElementOffset: (instance, cb) =>
+      scrollEl ? observeElementOffset(instance as never, cb) : observeWindowOffset(instance as never, cb),
+    scrollToFn: scrollEl ? elementScroll : (windowScroll as never),
     // The default measures via ResizeObserver entries / getBoundingClientRect,
     // which is exactly right in a real browser -- but jsdom (tests) reports
     // 0 for every element's layout box, which would otherwise collapse every
@@ -500,6 +523,14 @@ export function LibraryPage() {
       return height > 0 ? height : rowHeightEstimate;
     },
   });
+
+  // Filter bars etc. can shift the grid without resizing it; resync the margin.
+  useLayoutEffect(() => {
+    const node = gridNodeRef.current;
+    if (!node) return;
+    const next = offsetInScrollParent(node, scrollEl);
+    if (Math.abs(next - scrollMargin) >= 1) setScrollMargin(next);
+  }, [scrollEl, scrollMargin, rows.length, containerWidth, columns, viewMode]);
 
   useEffect(() => {
     rowVirtualizer.measure();
