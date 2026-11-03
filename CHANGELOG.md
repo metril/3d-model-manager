@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3](https://github.com/metril/3d-model-manager/compare/v0.11.2...v0.11.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **imports:** null-safe importers, no duplicate failures on sync, Downloads/Failures history ([#193](https://github.com/metril/3d-model-manager/issues/193)) ([3a2958f](https://github.com/metril/3d-model-manager/commit/3a2958f7d5b42be35f1feef50b7bba0e3667c8d9))
+
 ## [0.11.2](https://github.com/metril/3d-model-manager/compare/v0.11.1...v0.11.2) (2026-11-02)
 
 
