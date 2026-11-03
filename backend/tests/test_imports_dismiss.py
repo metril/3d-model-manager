@@ -83,7 +83,9 @@ async def test_list_filters_offset_and_failed_count(
         await authenticated_client.get("/api/imports?state=failed&include_dismissed=false")
     ).json()["items"]
     assert {r["id"] for r in hidden} == set(ids[1:])
-    page = (await authenticated_client.get("/api/imports?state=failed&limit=2&offset=2")).json()["items"]
+    page = (await authenticated_client.get("/api/imports?state=failed&limit=2&offset=2")).json()[
+        "items"
+    ]
     assert len(page) == 1
     assert (await authenticated_client.get("/api/imports?limit=0")).status_code == 422
 
