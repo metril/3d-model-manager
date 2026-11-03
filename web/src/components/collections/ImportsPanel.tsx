@@ -1,30 +1,34 @@
 /**
- * Recent imports card (import-health task T3): the last `GET /imports?limit=50`
- * rows, newest first, visually capped at `VISIBLE_LIMIT` with a muted "and N
- * more…" line -- a monitoring strip, not a paginated list. Every FAILED row
- * surfaces its stored `error` and offers a one-click Retry
- * (`POST /imports/{id}/retry`); a 409 (already retried, no longer failed) or
- * 404 (unknown id) is toasted by `queryClient.ts`'s global
- * `MutationCache.onError`, so there's no local error text beyond the row's
- * own `error` field. Stays live via `useImportsList()` (SSE invalidation +
- * a short poll while anything is non-terminal -- see `api/imports.ts`), so
- * no manual refresh is needed on this page.
+ * Import history card: two tabs -- Downloads (everything that isn't failed)
+ * and Failures (N undismissed). Rows are grouped under sticky date headers
+ * (`lib/dateGroups.ts`), keyset-paged 25 at a time (`useImportsList`), and
+ * auto-load the next page when the sentinel scrolls into view, with a "Show
+ * more" button as fallback. Failures hides dismissed rows unless "Show
+ * dismissed" is on. FAILED rows surface their stored `error`, Retry
+ * (`POST /imports/{id}/retry`; a 409/404 is toasted by `queryClient.ts`'s
+ * global `MutationCache.onError`) and Dismiss; Done rows link to their model.
+ * Stays live via SSE invalidation plus a short poll while anything is
+ * non-terminal -- see `api/imports.ts`.
  */
 import {
-  type ImportsFilter,
+  type ImportsView,
   useDismissFailedImports,
   useDismissImport,
   useFailedImportsCount,
   useImportsList,
   useRetryImport,
 } from "@/api/imports";
-import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 
 import type { ImportOut, ImportState } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { groupByDate } from "@/lib/dateGroups";
 import { formatRelativeTime } from "@/lib/format";
 
 
@@ -74,13 +78,20 @@ function ImportRow({ imp }: { imp: ImportOut }) {
               {STATE_LABEL[imp.state]}
             </Badge>
             {dismissed ? <Badge variant="outline">Dismissed</Badge> : null}
-            {/* `done` rows with a `model_id` would ideally link straight to the
-                model, but the only route that shows one (`/models/$slug`) needs
-                a slug the import list doesn't carry and no by-id route exists
-                to redirect through -- left as plain text (see T3 report). */}
-            <span className="min-w-0 text-sm font-medium break-all text-foreground" title={imp.url}>
-              {title}
-            </span>
+            {imp.state === "done" && imp.model_slug ? (
+              <Link
+                to="/models/$slug"
+                params={{ slug: imp.model_slug }}
+                className="min-w-0 text-sm font-medium break-all text-foreground hover:underline"
+                title={imp.url}
+              >
+                {title}
+              </Link>
+            ) : (
+              <span className="min-w-0 text-sm font-medium break-all text-foreground" title={imp.url}>
+                {title}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(imp.created_at)}</p>
           {imp.state === "failed" && imp.error ? (
@@ -117,71 +128,94 @@ function ImportRow({ imp }: { imp: ImportOut }) {
 }
 
 export function ImportsPanel() {
-  const [filter, setFilter] = useState<ImportsFilter>("all");
-  const importsQuery = useImportsList(filter);
+  const [view, setView] = useState<ImportsView>("downloads");
+  const [showDismissed, setShowDismissed] = useState(false);
+  const importsQuery = useImportsList(view, showDismissed);
   const imports = importsQuery.data ?? [];
+  const groups = groupByDate(imports, (r) => r.created_at);
   const dismissAll = useDismissFailedImports();
   const undismissed = useFailedImportsCount();
 
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = importsQuery;
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasNextPage || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, imports.length]);
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle>Recent imports</CardTitle>
-        <div className="flex gap-1" role="group" aria-label="Filter imports">
-          {(["all", "failed"] as const).map((f) => (
-            <Button
-              key={f}
-              type="button"
-              size="sm"
-              variant={filter === f ? "secondary" : "ghost"}
-              aria-pressed={filter === f}
-              onClick={() => setFilter(f)}
-            >
-              {f === "all" ? "All" : "Failed"}
-            </Button>
-          ))}
-        </div>
-        {undismissed > 0 ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={dismissAll.isPending}
-            onClick={() => dismissAll.mutate()}
-          >
-            Dismiss all failed ({undismissed})
-          </Button>
-        ) : null}
+        <Tabs value={view} onValueChange={(v) => setView(v as ImportsView)}>
+          <TabsList>
+            <TabsTrigger value="downloads">Downloads</TabsTrigger>
+            <TabsTrigger value="failures">Failures{undismissed > 0 ? ` (${undismissed})` : ""}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </CardHeader>
       <CardContent>
-        {importsQuery.isLoading ? (
-          <Skeleton className="h-24 w-full rounded-lg" />
-        ) : imports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {filter === "failed"
-              ? "No failed imports."
-              : "No imports yet. Save a model from the extension or approve one from a collection review."}
-          </p>
-        ) : (
-          <>
-            <ul className="space-y-2" data-testid="imports-list">
-              {imports.map((imp) => (
-                <ImportRow key={imp.id} imp={imp} />
-              ))}
-            </ul>
-            {importsQuery.hasNextPage ? (
+        {view === "failures" ? (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Switch checked={showDismissed} onCheckedChange={setShowDismissed} aria-label="Show dismissed" />
+              Show dismissed
+            </label>
+            {undismissed > 0 ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="mt-2"
-                disabled={importsQuery.isFetchingNextPage}
-                onClick={() => void importsQuery.fetchNextPage()}
+                disabled={dismissAll.isPending}
+                onClick={() => dismissAll.mutate()}
               >
-                {importsQuery.isFetchingNextPage ? "Loading…" : "Show more"}
+                Dismiss all failed ({undismissed})
               </Button>
             ) : null}
-          </>
+          </div>
+        ) : null}
+        {importsQuery.isLoading ? (
+          <Skeleton className="h-24 w-full rounded-lg" />
+        ) : imports.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {view === "failures"
+              ? "No failed imports."
+              : "No imports yet. Save a model from the extension or approve one from a collection review."}
+          </p>
+        ) : (
+          <div data-testid="imports-list">
+            {groups.map((g) => (
+              <section key={g.label} aria-label={g.label} className="mb-3">
+                <h3 className="sticky top-0 z-10 bg-card py-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  {g.label}
+                </h3>
+                <ul className="space-y-2">
+                  {g.rows.map((imp) => (
+                    <ImportRow key={imp.id} imp={imp} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+            {hasNextPage ? (
+              <>
+                <div ref={sentinel} aria-hidden className="h-px" />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isFetchingNextPage}
+                  onClick={() => void fetchNextPage()}
+                >
+                  {isFetchingNextPage ? "Loading…" : "Show more"}
+                </Button>
+              </>
+            ) : null}
+          </div>
         )}
       </CardContent>
     </Card>

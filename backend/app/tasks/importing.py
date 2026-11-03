@@ -466,6 +466,11 @@ def import_from_url(import_id: int) -> None:
             # type + message (never `exc_info=True`) as defense in depth,
             # mirroring app.printerd/app.tasks.printing's type-only scrub.
             logger.warning("import %s failed: %s: %s", import_id, type(exc).__name__, message)
+            if not isinstance(exc, RuntimeError) or not str(exc).startswith("download failed for"):
+                # Anything not raised by the (URL-redacting) download block is
+                # safe to trace, so e.g. a TypeError on odd site JSON is
+                # diagnosable. The sanitized download error stays traceback-free.
+                logger.warning("import %s traceback", import_id, exc_info=True)
         with base.sync_session() as s:
             if created_model_id is not None:
                 # A failure in phase (c) happened AFTER Model+Revision (and,

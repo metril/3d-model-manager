@@ -1223,8 +1223,15 @@ export interface ImportOut {
   meta: Record<string, unknown> | null;
   /** Set when the user dismissed this failed import (stops counting in the nav badge). */
   dismissed_at: string | null;
+  /** Present on list rows whose import produced a model (for linking). */
+  model_slug?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ImportPage {
+  items: ImportOut[];
+  next_cursor: string | null;
 }
 
 export interface ImportCreate {

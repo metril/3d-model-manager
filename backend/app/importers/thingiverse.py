@@ -116,7 +116,7 @@ class ThingiverseImporter:
             license=_map_license(d.get("license")),
             cover_url=images[0].get("url") if images else None,
             image_urls=image_urls,
-            tags=tuple(t["name"] for t in d.get("tags", []) if t.get("name")),
+            tags=tuple(t["name"] for t in (d.get("tags") or []) if t.get("name")),
         )
 
     def list_files(self, external_id: str) -> list[ImportFile]:
@@ -167,7 +167,7 @@ class ThingiverseImporter:
         # hit is a thing summary: {id, name, creator: {name}, thumbnail,
         # public_url, ...}.
         results = []
-        for hit in body.get("hits", []):
+        for hit in body.get("hits") or []:
             tid = hit.get("id")
             if not tid:
                 continue

@@ -34,7 +34,12 @@ from app.models.library import Model
 from app.models.system import Import, Job
 from app.services import collections as collections_svc
 from app.services import jobs
-from app.services.import_dedup import find_active_import_sync, find_live_import_sync
+from app.services.import_dedup import (
+    find_active_import_sync,
+    find_latest_failed_import_sync,
+    find_live_import_sync,
+)
+from app.services.imports import reset_failed_import_sync
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 from app.tasks.importing import import_from_url
@@ -129,16 +134,27 @@ def _sync_one(session, collection: FollowedCollection) -> None:
             continue
 
         if collection.mode == CollectionSyncMode.AUTO:
-            imp = Import(
-                url=item.url,
-                site=item.site,
-                external_id=item.external_id,
-                state=ImportState.PENDING,
-                collection_id=collection.id,
-            )
-            session.add(imp)
-            session.commit()
-            session.refresh(imp)
+            # Retry the item's latest failed row in place (keeping a dismissal)
+            # rather than minting a duplicate failure per sync.
+            failed = find_latest_failed_import_sync(session, item.site, item.external_id)
+            if failed is not None:
+                if not reset_failed_import_sync(session, failed.id):
+                    # Lost the race to a manual retry or an overlapping sync:
+                    # the row is already back in flight, so don't mint a twin.
+                    collections_svc.drop_pending_sync(session, collection, item.external_id)
+                    continue
+                imp = failed
+            else:
+                imp = Import(
+                    url=item.url,
+                    site=item.site,
+                    external_id=item.external_id,
+                    state=ImportState.PENDING,
+                    collection_id=collection.id,
+                )
+                session.add(imp)
+                session.commit()
+                session.refresh(imp)
             import_from_url.apply_async(args=[imp.id], task_id=f"import-{imp.id}")
             # A stale review row (e.g. queued earlier under the aggregate).
             collections_svc.drop_pending_sync(session, collection, item.external_id)

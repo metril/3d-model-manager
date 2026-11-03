@@ -32,6 +32,8 @@ class ImportOut(BaseModel):
     error: str | None
     meta: dict | None
     dismissed_at: datetime | None = None
+    # Set by the list endpoint only (one batched lookup) so Done rows can link.
+    model_slug: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -50,6 +52,11 @@ class ImportOut(BaseModel):
             created_at=imp.created_at,
             updated_at=imp.updated_at,
         )
+
+
+class ImportPage(BaseModel):
+    items: list[ImportOut]
+    next_cursor: str | None = None
 
 
 class SearchResultOut(BaseModel):

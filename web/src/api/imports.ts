@@ -18,6 +18,7 @@ import { api } from "@/api/client";
 import type {
   ImportCreate,
   ImportOut,
+  ImportPage,
   ImportSite,
   ImportTokensIn,
   ImportTokensOut,
@@ -33,28 +34,35 @@ const ACTIVE: ReadonlyArray<ImportOut["state"]> = ["pending", "fetching", "downl
 // and "the SSE connection/browser tab actually delivered that event".
 const LIST_POLL_MS = 5000;
 
-const PAGE_SIZE = 50;
+export const IMPORTS_PAGE_SIZE = 25;
 
-export type ImportsFilter = "all" | "failed";
+export type ImportsView = "downloads" | "failures";
 
-/** The "Recent imports" card's data source -- polls every `LIST_POLL_MS`
- * ONLY while some row is non-terminal, and stops once everything has
- * settled (mirrors `useJob`/`useImport`'s refetchInterval-stops-on-terminal-
- * state idiom). `AppShell`'s failed-imports nav badge deliberately does NOT
- * use this hook -- see `useFailedImportsCount` below -- so the poll only
- * runs while the Collections page (which mounts this) is actually open. */
-export function useImportsList(filter: ImportsFilter = "all") {
+/** The history card's data source, keyset-paged (`before=<next_cursor>`) via
+ * `useInfiniteQuery` like `useModelsQuery`. `downloads` = everything that
+ * isn't failed; `failures` = failed only, hiding dismissed rows unless
+ * `showDismissed`. Polls every `LIST_POLL_MS` ONLY while some row is
+ * non-terminal. `AppShell`'s failed-imports nav badge deliberately does NOT
+ * use this hook -- see `useFailedImportsCount` below. */
+export function useImportsList(view: ImportsView = "downloads", showDismissed = false) {
   return useInfiniteQuery({
-    queryKey: ["imports", "list", filter] as const,
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      api.get<ImportOut[]>(
-        `/imports?limit=${PAGE_SIZE}&offset=${pageParam}${filter === "failed" ? "&state=failed" : ""}`,
-      ),
-    getNextPageParam: (last, pages) => (last.length >= PAGE_SIZE ? pages.length * PAGE_SIZE : undefined),
-    select: (d) => d.pages.flat(),
+    queryKey: ["imports", "list", view, view === "failures" && showDismissed] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const params = new URLSearchParams({ limit: String(IMPORTS_PAGE_SIZE) });
+      if (view === "failures") {
+        params.set("state", "failed");
+        if (!showDismissed) params.set("include_dismissed", "false");
+      } else {
+        params.set("exclude_state", "failed");
+      }
+      if (pageParam) params.set("before", pageParam);
+      return api.get<ImportPage>(`/imports?${params.toString()}`);
+    },
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    select: (d) => d.pages.flatMap((p) => p.items),
     refetchInterval: (query) => {
-      const rows = query.state.data?.pages.flat() ?? [];
+      const rows = query.state.data?.pages.flatMap((p) => p.items) ?? [];
       return rows.some((row) => ACTIVE.includes(row.state)) ? LIST_POLL_MS : false;
     },
   });

@@ -20,9 +20,17 @@ const { importsBox, retryMock, dismissMock, dismissAllMock, failedBox, filterSpy
   dismissAllMock: vi.fn(),
 }));
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to, params, ...rest }: { children: React.ReactNode; to: string; params: { slug: string } }) => (
+    <a href={to.replace("$slug", params.slug)} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock("@/api/imports", () => ({
-  useImportsList: (f: string) => {
-    filterSpy(f);
+  useImportsList: (v: string, showDismissed: boolean) => {
+    filterSpy(v, showDismissed);
     return { fetchNextPage: moreMock, hasNextPage: false, isFetchingNextPage: false, ...importsBox.current };
   },
   useFailedImportsCount: () => failedBox.current,
@@ -72,6 +80,7 @@ describe("ImportsPanel", () => {
     renderPanel();
 
     expect(screen.getByText("Recent imports")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Downloads" })).toBeInTheDocument();
     expect(
       screen.getByText("No imports yet. Save a model from the extension or approve one from a collection review."),
     ).toBeInTheDocument();
@@ -103,6 +112,7 @@ describe("ImportsPanel", () => {
     };
 
     renderPanel();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Failures/ }));
 
     const badge = screen.getAllByText("Failed").find((el) => el.getAttribute("data-slot") === "badge")!;
     expect(badge).toHaveAttribute("data-variant", "destructive");
@@ -117,12 +127,14 @@ describe("ImportsPanel", () => {
     };
 
     renderPanel();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Failures/ }));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(retryMock).toHaveBeenCalledWith(9);
   });
 
-  it("Dismiss calls the dismiss mutation; Dismiss all failed shows the undismissed count", () => {
+  it("Failures tab shows the undismissed count; Dismiss and Dismiss all call their mutations", () => {
+    failedBox.current = 2;
     importsBox.current = {
       data: [
         fakeImport({ id: 1, state: "failed", error: "a" }),
@@ -131,9 +143,9 @@ describe("ImportsPanel", () => {
       ],
       isLoading: false,
     };
-
-    failedBox.current = 2;
     renderPanel();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Failures (2)" }));
+
     // Row 3 is dismissed: no Dismiss button for it, but a label, and Retry stays.
     expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(2);
     expect(screen.getByText("Dismissed")).toBeInTheDocument();
@@ -141,15 +153,47 @@ describe("ImportsPanel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(dismissMock).toHaveBeenCalledWith(1);
-
     fireEvent.click(screen.getByRole("button", { name: "Dismiss all failed (2)" }));
     expect(dismissAllMock).toHaveBeenCalled();
   });
 
-  it("hides Dismiss all failed when nothing is undismissed", () => {
+  it("Failures hides dismissed by default; the switch asks for them", () => {
+    renderPanel();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Failures/ }));
+    expect(filterSpy).toHaveBeenLastCalledWith("failures", false);
+    fireEvent.click(screen.getByRole("switch", { name: "Show dismissed" }));
+    expect(filterSpy).toHaveBeenLastCalledWith("failures", true);
+  });
+
+  it("Downloads has no dismiss controls", () => {
+    failedBox.current = 3;
     importsBox.current = { data: [fakeImport({ id: 1 })], isLoading: false };
     renderPanel();
     expect(screen.queryByRole("button", { name: /Dismiss all failed/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("groups rows under date headers", () => {
+    const day = 86_400_000;
+    importsBox.current = {
+      data: [
+        fakeImport({ id: 1 }),
+        fakeImport({ id: 2, created_at: new Date(Date.now() - 90 * day).toISOString() }),
+      ],
+      isLoading: false,
+    };
+    renderPanel();
+    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Older" })).toBeInTheDocument();
+  });
+
+  it("Done rows with a model_slug link to the model", () => {
+    importsBox.current = {
+      data: [fakeImport({ id: 1, model_slug: "cool-thing", meta: { title: "Cool thing" } })],
+      isLoading: false,
+    };
+    renderPanel();
+    expect(screen.getByRole("link", { name: "Cool thing" })).toHaveAttribute("href", "/models/cool-thing");
   });
 
   it("lists every returned row (no client-side cap) and pages with Show more", () => {
@@ -166,11 +210,11 @@ describe("ImportsPanel", () => {
     expect(moreMock).toHaveBeenCalled();
   });
 
-  it("the Failed filter switches the query to the failed view", () => {
+  it("the Failures tab switches the query to the failures view", () => {
     renderPanel();
-    expect(filterSpy).toHaveBeenLastCalledWith("all");
-    fireEvent.click(screen.getByRole("button", { name: "Failed" }));
-    expect(filterSpy).toHaveBeenLastCalledWith("failed");
+    expect(filterSpy).toHaveBeenLastCalledWith("downloads", false);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Failures/ }));
+    expect(filterSpy).toHaveBeenLastCalledWith("failures", false);
     expect(screen.getByText("No failed imports.")).toBeInTheDocument();
   });
 

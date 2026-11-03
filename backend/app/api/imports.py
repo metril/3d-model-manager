@@ -9,11 +9,13 @@ a friendly 422, never a crash; an unsupported one always does."""
 
 from __future__ import annotations
 
+import base64
+from datetime import datetime
 from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm, require_session
@@ -24,10 +26,12 @@ from app.importers.registry import (
     registered_sites,
 )
 from app.models.enums import ImportSite, ImportState
+from app.models.library import Model
 from app.models.system import Import
 from app.schemas.imports import (
     ImportCreate,
     ImportOut,
+    ImportPage,
     RemoteListOut,
     SearchResponse,
     SearchResultOut,
@@ -195,24 +199,59 @@ async def create_import(
     return ImportOut.from_model(imp)
 
 
-@router.get("", response_model=list[ImportOut])
+@router.get("", response_model=ImportPage)
 async def list_imports(
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-    state: ImportState | None = None,
+    state: Annotated[list[ImportState] | None, Query()] = None,
+    exclude_state: Annotated[list[ImportState] | None, Query()] = None,
     include_dismissed: bool = True,
+    before: str | None = None,
     db: AsyncSession = Depends(get_db),
-) -> list[ImportOut]:
-    """Newest first. ``state`` filters to one state; ``include_dismissed=false``
-    hides dismissed rows; ``offset`` pages."""
+) -> ImportPage:
+    """Newest first. ``state`` (repeatable) keeps only those states,
+    ``exclude_state`` (repeatable) drops them; ``include_dismissed=false`` hides
+    dismissed rows. Page with ``offset`` or, drift-free, with the keyset
+    ``before=<next_cursor>`` from the previous page (``next_cursor`` is null on
+    the last page)."""
     stmt = select(Import)
-    if state is not None:
-        stmt = stmt.where(Import.state == state)
+    if state:
+        stmt = stmt.where(Import.state.in_(state))
+    if exclude_state:
+        stmt = stmt.where(Import.state.not_in(exclude_state))
     if not include_dismissed:
         stmt = stmt.where(Import.dismissed_at.is_(None))
-    stmt = stmt.order_by(Import.created_at.desc(), Import.id.desc()).limit(limit).offset(offset)
-    rows = (await db.execute(stmt)).scalars().all()
-    return [ImportOut.from_model(r) for r in rows]
+    if before:
+        try:
+            ts_raw, id_raw = base64.urlsafe_b64decode(before.encode()).decode().rsplit(",", 1)
+            ts, last_id = datetime.fromisoformat(ts_raw), int(id_raw)
+        except ValueError:  # includes bad base64 / unicode
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid cursor") from None
+        stmt = stmt.where(
+            or_(Import.created_at < ts, and_(Import.created_at == ts, Import.id < last_id))
+        )
+    stmt = stmt.order_by(Import.created_at.desc(), Import.id.desc()).limit(limit + 1)
+    if not before:
+        stmt = stmt.offset(offset)
+    rows = list((await db.execute(stmt)).scalars().all())
+    more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = None
+    if more and rows:
+        raw = f"{rows[-1].created_at.isoformat()},{rows[-1].id}"
+        next_cursor = base64.urlsafe_b64encode(raw.encode()).decode()
+    ids = {r.model_id for r in rows if r.model_id is not None}
+    slugs = (
+        dict((await db.execute(select(Model.id, Model.slug).where(Model.id.in_(ids)))).all())
+        if ids
+        else {}
+    )
+    items = []
+    for r in rows:
+        out = ImportOut.from_model(r)
+        out.model_slug = slugs.get(r.model_id)
+        items.append(out)
+    return ImportPage(items=items, next_cursor=next_cursor)
 
 
 @router.get("/failed-count")
