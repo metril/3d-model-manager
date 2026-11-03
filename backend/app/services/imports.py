@@ -10,7 +10,7 @@ between the two call sites.
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.importers.registry import build_importer_for_url, deferred_site_for_url
@@ -95,7 +95,9 @@ async def start_import(
 
 
 def _reset_failed_stmt(import_id: int, keep_dismissed: bool):
-    values: dict = {"state": ImportState.PENDING, "error": None}
+    # Bump created_at so a retried row resurfaces at the top of the
+    # newest-first history instead of staying buried under its old date.
+    values: dict = {"state": ImportState.PENDING, "error": None, "created_at": func.now()}
     if not keep_dismissed:
         values["dismissed_at"] = None
     return (

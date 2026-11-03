@@ -137,7 +137,12 @@ def _sync_one(session, collection: FollowedCollection) -> None:
             # Retry the item's latest failed row in place (keeping a dismissal)
             # rather than minting a duplicate failure per sync.
             failed = find_latest_failed_import_sync(session, item.site, item.external_id)
-            if failed is not None and reset_failed_import_sync(session, failed.id):
+            if failed is not None:
+                if not reset_failed_import_sync(session, failed.id):
+                    # Lost the race to a manual retry or an overlapping sync:
+                    # the row is already back in flight, so don't mint a twin.
+                    collections_svc.drop_pending_sync(session, collection, item.external_id)
+                    continue
                 imp = failed
             else:
                 imp = Import(

@@ -120,3 +120,16 @@ def test_collapse_keeps_newest_and_inherits_dismissal():
         assert set(remaining) == set(ids)
         assert remaining[newest.id].dismissed_at == when
         assert remaining[other.id].dismissed_at is None
+
+
+@pytest.mark.usefixtures("db_session")
+def test_resync_losing_reset_race_does_not_mint_duplicate(auto_collection, monkeypatch):
+    # A manual retry / overlapping sync flipped the row first: the conditional
+    # reset matches nothing, and the sync must not add a second row.
+    monkeypatch.setattr(sc, "reset_failed_import_sync", lambda *a, **k: False)
+    with base.sync_session() as s:
+        s.add(_failed())
+        s.commit()
+    _run_sync()
+    with base.sync_session() as s:
+        assert len(list(s.scalars(select(Import)))) == 1
