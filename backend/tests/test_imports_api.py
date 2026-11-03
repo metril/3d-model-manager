@@ -326,7 +326,7 @@ async def test_list_items_endpoint_serves_extension_pushed_membership_for_a_name
         path = request.url.path
         if path == "/api/v1/user-service/my/profile":
             return httpx.Response(200, json={"uid": 3054026541, "name": "Terminalfoo"})
-        if path == f"/api/v1/design-service/favorites/designs/{list_id}":
+        if path == f"/api/v1/design-service/favorites/{list_id}/designs":
             # Live-verified shape a real named-collection id actually
             # returns: total 0, no hits, even though the collection has
             # items (that's exactly why the cache fallback exists).

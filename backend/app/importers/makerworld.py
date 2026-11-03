@@ -41,6 +41,7 @@ from typing import ClassVar
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from curl_cffi import requests as cffi_requests
 
 from app.importers.base import (
     AGGREGATE_LIST_TITLE,
@@ -118,10 +119,58 @@ def parse_collection_url(url: str) -> str | None:
     return None
 
 
+class _Cookies(dict):
+    def set(self, name: str, value: str) -> None:
+        self[name] = value
+
+
+class _ImpersonatingClient:
+    """Minimal httpx.Client look-alike over ``curl_cffi`` with Chrome TLS/HTTP2
+    impersonation. makerworld.com's Cloudflare 403s plain httpx from server IPs.
+    Responses come back as ``httpx.Response`` and transport failures as
+    ``httpx.TransportError`` so callers' existing httpx handling is unchanged."""
+
+    def __init__(self, base_url: str, headers: dict[str, str] | None = None) -> None:
+        self._base = base_url.rstrip("/")
+        self._headers = dict(headers or {})
+        self.cookies = _Cookies()
+        self._session = cffi_requests.Session(
+            impersonate="chrome", timeout=30, allow_redirects=True
+        )
+
+    def __enter__(self) -> _ImpersonatingClient:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._session.close()
+
+    def get(
+        self, path: str, *, params: dict | None = None, headers: dict[str, str] | None = None
+    ) -> httpx.Response:
+        url = path if path.startswith("http") else f"{self._base}{path}"
+        try:
+            r = self._session.get(
+                url,
+                params=params,
+                headers={**self._headers, **(headers or {})},
+                cookies=dict(self.cookies) or None,
+            )
+        except cffi_requests.RequestsError as exc:
+            raise httpx.TransportError(str(exc)) from exc
+        skip = {"content-encoding", "content-length", "transfer-encoding"}
+        return httpx.Response(
+            r.status_code,
+            headers=[(k, v) for k, v in r.headers.items() if k.lower() not in skip],
+            content=r.content,
+            request=httpx.Request("GET", r.url or url),
+        )
+
+
 def _client() -> httpx.Client:
-    return httpx.Client(
-        base_url=_BASE_URL, timeout=30.0, follow_redirects=True, headers={"User-Agent": _UA}
-    )
+    return _ImpersonatingClient(_BASE_URL, {"User-Agent": _UA})  # type: ignore[return-value]
 
 
 _WEB_BASE_URL = "https://makerworld.com"
@@ -131,9 +180,7 @@ def _web_client() -> httpx.Client:
     """Client rooted at the SITE (not `/api/v1`) for the Next.js SSR data route
     that backs keyword search + the buildId lookup. Separate httpx seam so tests
     can monkeypatch search independently of the `/api/v1` calls."""
-    return httpx.Client(
-        base_url=_WEB_BASE_URL, timeout=30.0, follow_redirects=True, headers={"User-Agent": _UA}
-    )
+    return _ImpersonatingClient(_WEB_BASE_URL, {"User-Agent": _UA})  # type: ignore[return-value]
 
 
 # MakerWorld's Next.js build id changes on every deploy and namespaces the SSR
@@ -182,11 +229,9 @@ def _raw_model_client(token: str) -> httpx.Client:
     """Bearer-authenticated seam for the raw "all files" download call, which
     (unlike ``_authed_client``) lives on ``makerworld.com`` and wants the web
     headers. Monkeypatchable like ``_authed_client``/``_favorites_client``."""
-    return httpx.Client(
-        base_url=_BASE_URL,
-        timeout=30.0,
-        follow_redirects=True,
-        headers={
+    return _ImpersonatingClient(  # type: ignore[return-value]
+        _BASE_URL,
+        {
             "User-Agent": _UA,
             "x-bbl-app-source": "makerworld",
             "x-bbl-client-name": "MakerWorld",
@@ -251,11 +296,9 @@ def _favorites_client(token: str) -> httpx.Client:
     function tests swap independently of the anonymous `_client` and SSR
     `_web_client` seams). Headers match the live-captured browser request
     (mw_capture_notes.md's grounding); the `token` cookie is the actual auth."""
-    return httpx.Client(
-        base_url=_BASE_URL,
-        timeout=30.0,
-        follow_redirects=True,
-        headers={
+    return _ImpersonatingClient(  # type: ignore[return-value]
+        _BASE_URL,
+        {
             "User-Agent": _UA,
             "Content-Type": "application/json",
             "x-bbl-app-source": "makerworld",
@@ -659,25 +702,32 @@ class MakerWorldImporter:
             return []
         uid, handle = _profile(token)
         offset = max(page - 1, 0) * _SEARCH_PAGE_SIZE
-        # LIVE-VERIFIED (2026-07-11, corrects an earlier "VERIFIED ... named
-        # collection id" comment that was wrong): this endpoint serves ONLY
-        # the uid aggregate ("all collected models") from a server IP -- a
-        # real named collection id comes back `200 {"total":0}` even though
-        # the collection genuinely has items (checked against 3 real ids).
-        # Still attempted first every time (a live hit always wins -- if
-        # MakerWorld ever fixes this server-side, nothing here needs to
-        # change), but a named collection (list_id != uid) that comes back
-        # empty falls back to `remote_collection_items` below: the browser
-        # extension's own push from the user's authenticated browser, where
-        # the wall around this endpoint isn't up (see
-        # `app.models.collections.RemoteCollectionItem`'s docstring).
-        with _favorites_client(token) as c:
-            r = c.get(
-                f"/design-service/favorites/designs/{list_id}",
-                params={"handle": f"@{handle}", "limit": _SEARCH_PAGE_SIZE, "offset": offset},
-            )
-            r.raise_for_status()
-            hits = (r.json() or {}).get("hits") or []
+        # The uid aggregate ("all collected models") is served by
+        # `favorites/designs/{uid}`; a named collection by
+        # `favorites/{collectionId}/designs` (live-verified 2026-11-02). Both
+        # need Chrome TLS impersonation from a server IP (see
+        # `_ImpersonatingClient`). A named list that errors (Cloudflare 403,
+        # transport failure) or comes back empty falls back to the extension's
+        # pushed `remote_collection_items`.
+        is_aggregate = list_id == str(uid)
+        path = (
+            f"/design-service/favorites/designs/{list_id}"
+            if is_aggregate
+            else f"/design-service/favorites/{list_id}/designs"
+        )
+        try:
+            with _favorites_client(token) as c:
+                r = c.get(
+                    path,
+                    params={"handle": f"@{handle}", "limit": _SEARCH_PAGE_SIZE, "offset": offset},
+                )
+                r.raise_for_status()
+                hits = (r.json() or {}).get("hits") or []
+        except (httpx.HTTPError, ValueError) as exc:
+            if is_aggregate:
+                raise
+            logger.warning("makerworld collection %s fetch failed: %r", list_id, exc)
+            return self._cached_list_items(list_id, page)
         results: list[SearchResult] = []
         for h in hits:
             hid = h.get("id")
@@ -693,7 +743,7 @@ class MakerWorldImporter:
                     thumbnail_url=h.get("cover"),
                 )
             )
-        if results or list_id == str(uid):
+        if results or is_aggregate:
             return results
         return self._cached_list_items(list_id, page)
 
