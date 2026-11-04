@@ -200,6 +200,30 @@ describe("SliceDialog", () => {
     untrackSlice("job-1");
   });
 
+  it("sends plate null when All plates is chosen", async () => {
+    postMock.mockResolvedValue({ ...JOB, state: "queued" });
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/files/5"
+        ? Promise.resolve({
+            format: "3mf",
+            blob_hash: "hh",
+            plates: [1, 2].map((index) => ({
+              index, prediction_s: null, weight_g: null, est_cost: null, thumbnail_available: false,
+              filaments: [], name: `P${index}`, has_glb: false, fits: true,
+            })),
+          })
+        : base(path),
+    );
+    ui(<SliceDialog open onOpenChange={() => {}} file={FILE} />);
+    fireEvent.click(await screen.findByLabelText("A1 PETG"));
+    fireEvent.click(await screen.findByRole("radio", { name: /Plate 2/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /All plates/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Slice" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/files/5/slice", { recipe_id: 4, plate: null }));
+    untrackSlice("job-1");
+  });
+
   it("keeps Slice disabled until a recipe is chosen", async () => {
     ui(<SliceDialog open onOpenChange={() => {}} file={FILE} />);
     await screen.findByLabelText("A1 PLA");

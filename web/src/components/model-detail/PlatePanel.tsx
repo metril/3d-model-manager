@@ -3,7 +3,7 @@ import { ImageIcon, LayersIcon, LoaderCircleIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatCost, humanizeDuration } from "@/lib/format";
-import { plateLabel, setSelectedPlate, useSelectedPlate } from "@/components/viewer/plates";
+import { plateLabel, setSelectedPlate, useIsActiveViewerBlob, useSelectedPlate } from "@/components/viewer/plates";
 import { cn } from "@/lib/utils";
 import type { FileOut, PlateOut } from "@/api/types";
 
@@ -56,7 +56,8 @@ function plateCaption(plate: PlateOut): string {
 
 function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate: PlateOut; small?: boolean }) {
   const active = useSelectedPlate(blobHash) === plate.index;
-  const selectable = plate.has_glb === true;
+  const inViewer = useIsActiveViewerBlob(blobHash);
+  const selectable = plate.has_glb === true && inViewer;
   const Wrapper = selectable ? "button" : "div";
   return (
     <Wrapper

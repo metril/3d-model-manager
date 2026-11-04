@@ -176,7 +176,7 @@ export function SliceJobsHost() {
           open
           onOpenChange={(o) => !o && setPrintJob(null)}
           source={{ kind: "file", fileId: printJob.sliced_file_id, format: "gcode_3mf" }}
-          initialPlate={printJob.plate}
+          initialPlate={printJob.plate || null}
         />
       ) : null}
     </>

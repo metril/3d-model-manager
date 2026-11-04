@@ -30,7 +30,7 @@ import {
   type ViewerToolsState,
 } from "@/components/viewer/tools";
 import type { ViewerStageProps } from "@/components/viewer/ViewerStage";
-import { partUrl, setSelectedPlate, useSelectedPlate, viewerPlates } from "@/components/viewer/plates";
+import { clearSelectedPlate, partUrl, setActiveViewerBlob, setSelectedPlate, useSelectedPlate, viewerPlates } from "@/components/viewer/plates";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import type { FileOut } from "@/api/types";
 
@@ -167,7 +167,18 @@ export function useViewerScene({
   // the checklist changing which parts even exist in the tree (which used to
   // force the whole canvas to remount on every checkbox click). `checkedIds`
   // still drives `visible`, `checkedList`, and the "N of M" header below.
-  const plateInfo = useMemo(() => viewerPlates(files), [files]);
+  const plateInfo = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
+  const plateBlob = plateInfo?.blobHash ?? null;
+  // Publish which blob this viewer drives (plate cards act only on it) and
+  // forget its selection when the viewer goes away or the model changes.
+  useEffect(() => {
+    if (!plateBlob) return;
+    setActiveViewerBlob(plateBlob);
+    return () => {
+      setActiveViewerBlob(null);
+      clearSelectedPlate(plateBlob);
+    };
+  }, [plateBlob]);
   const selectedPlate = useSelectedPlate(plateInfo?.blobHash);
   const parts: ViewerPart[] = useMemo(
     () =>

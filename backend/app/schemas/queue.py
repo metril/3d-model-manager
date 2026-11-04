@@ -42,7 +42,7 @@ class QueueEnqueueIn(BaseModel):
     # ``file_id`` is None -- idempotent, unchanged from Branch 4 Task 1.
     model_id: int | None = None
     file_id: int | None = None
-    plate: int | None = None
+    plate: int | None = Field(None, ge=1)
     printer_id: int | None = None
     recipe_id: int | None = None
     copies: int = Field(1, ge=1, le=50)

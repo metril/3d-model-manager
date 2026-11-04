@@ -34,7 +34,7 @@
  * sliced file -- collapse to "Mapped after slicing" instead of calling
  * `/print/plan`.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -255,7 +255,7 @@ export function PrintDialog({
     setAutoAdvanced(false);
     setPickedModelId(null);
     setPickedFileId(null);
-    setPlate(initialPlate ?? null);
+    setPlate(initialPlate || null);
     setPrinterId(printerIdProp ?? null);
     setSliceOnly(sliceOnlyProp);
     setOverrides({});
@@ -333,6 +333,16 @@ export function PrintDialog({
 
   const effectiveFileId = source.kind === "archive" ? archiveFileId : resolvedFileId;
   const usingReprintPlan = source.kind === "archive" && archiveFileId == null;
+  // A different file (pick mode: new model/file) invalidates the chosen plate.
+  const prevFileId = useRef<number | null>(effectiveFileId);
+  useEffect(() => {
+    const prev = prevFileId.current;
+    prevFileId.current = effectiveFileId;
+    if (prev == null || prev === effectiveFileId || source.kind === "archive") return;
+    setPlate(null);
+    setAutoAdvanced(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveFileId]);
   // Plates (and the blob hash for their thumbnails/GLBs) of the chosen file:
   // an unsliced project lists them too, so the plate is picked BEFORE slicing.
   const filePlatesQ = useFilePlates(effectiveFileId, open);

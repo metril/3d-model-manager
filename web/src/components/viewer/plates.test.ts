@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getSelectedPlate, partUrl, plateLabel, selectablePlates, setSelectedPlate, viewerPlates } from "@/components/viewer/plates";
+import { clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, selectablePlates, setSelectedPlate, viewerPlates } from "@/components/viewer/plates";
 import type { FileOut, PlateOut } from "@/api/types";
 
 const plate = (index: number, over: Partial<PlateOut> = {}): PlateOut => ({
@@ -37,5 +37,15 @@ describe("plates", () => {
     expect(getSelectedPlate("hx")).toBe(3);
     setSelectedPlate("hx", null);
     expect(getSelectedPlate("hx")).toBeNull();
+  });
+
+  it("follows the checked file and clears a stale selection", () => {
+    const a = { ...file([plate(1), plate(2)]), id: 1, blob_hash: "ha" } as FileOut;
+    const b = { ...file([plate(1), plate(2)]), id: 2, blob_hash: "hb" } as FileOut;
+    expect(viewerPlates([a, b], new Set([2]))?.blobHash).toBe("hb");
+    expect(viewerPlates([a, b], new Set())?.blobHash).toBe("ha");
+    setSelectedPlate("ha", 2);
+    clearSelectedPlate("ha");
+    expect(getSelectedPlate("ha")).toBeNull();
   });
 });

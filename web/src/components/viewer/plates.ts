@@ -23,9 +23,14 @@ export function plateLabel(plate: Pick<PlateOut, "index" | "name">): string {
   return plate.name ? `Plate ${plate.index} · ${plate.name}` : `Plate ${plate.index}`;
 }
 
-/** The blob + plates the viewer's selector drives: the first file with 2+ plates. */
-export function viewerPlates(files: FileOut[]): { blobHash: string; plates: PlateOut[] } | null {
-  for (const file of files) {
+/** The blob + plates the viewer's selector drives: the first CHECKED (shown)
+ * file with 2+ plates, else the first such file. */
+export function viewerPlates(
+  files: FileOut[],
+  checkedIds?: ReadonlySet<number>,
+): { blobHash: string; plates: PlateOut[] } | null {
+  const ordered = checkedIds ? [...files.filter((f) => checkedIds.has(f.id)), ...files.filter((f) => !checkedIds.has(f.id))] : files;
+  for (const file of ordered) {
     const plates = selectablePlates(file.meta?.plates);
     if (plates.length > 0 && plates.some((p) => p.has_glb)) return { blobHash: file.blob_hash, plates };
   }
@@ -39,6 +44,24 @@ export function partUrl(file: FileOut, plate: number | null): string {
     if (match?.has_glb) return plateGlbUrl(file.blob_hash, plate);
   }
   return glbUrl(file);
+}
+
+// The blob the viewer is currently driving: plate cards only act on this one.
+let activeBlob: string | null = null;
+
+export function setActiveViewerBlob(blobHash: string | null) {
+  if (activeBlob === blobHash) return;
+  activeBlob = blobHash;
+  for (const l of listeners) l();
+}
+
+export function useIsActiveViewerBlob(blobHash: string): boolean {
+  return useSyncExternalStore(subscribe, () => activeBlob === blobHash);
+}
+
+/** Forget a blob's selection (viewer unmounted / model changed). */
+export function clearSelectedPlate(blobHash: string) {
+  if (selected.delete(blobHash)) for (const l of listeners) l();
 }
 
 const selected = new Map<string, number | null>();
