@@ -362,6 +362,69 @@ def _image_urls(d: dict) -> list[str]:
     return urls
 
 
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _compat_entry(c) -> dict | None:
+    if not isinstance(c, dict):
+        return None
+    model, product = c.get("devModelName"), c.get("devProductName")
+    if not (model or product):
+        return None
+    return {"model": model, "product": product, "nozzle": _num(c.get("nozzleDiameter"))}
+
+
+def _plate_thumb(p: dict) -> str | None:
+    t = p.get("thumbnail")
+    url = t.get("url") if isinstance(t, dict) else t
+    return url if isinstance(url, str) and url else None
+
+
+def _profile_meta(inst: dict, title: str) -> dict:
+    """Per-print-profile provenance from ``instances[].extention.modelInfo``
+    (sic -- upstream misspells it). Read defensively: any piece may be missing."""
+    ext = inst.get("extention")
+    info = ext.get("modelInfo") if isinstance(ext, dict) else None
+    if not isinstance(info, dict):
+        info = {}
+    compat = [
+        e
+        for e in (
+            _compat_entry(info.get("compatibility")),
+            *(
+                _compat_entry(c)
+                for c in (
+                    info.get("otherCompatibility")
+                    if isinstance(info.get("otherCompatibility"), list)
+                    else []
+                )
+            ),
+        )
+        if e
+    ]
+    plates = []
+    for p in info.get("plates") if isinstance(info.get("plates"), list) else []:
+        if not isinstance(p, dict):
+            continue
+        plates.append(
+            {
+                "index": p.get("index"),
+                "name": p.get("name") or None,
+                "thumb": _plate_thumb(p),
+                "prediction": _num(p.get("prediction")),
+                "weight": _num(p.get("weight")),
+            }
+        )
+    return {
+        "profile_id": inst.get("profileId"),
+        "instance_id": inst.get("id"),
+        "title": title,
+        "compat": compat,
+        "plates": plates,
+    }
+
+
 class MakerWorldImporter:
     site: ClassVar[ImportSite] = ImportSite.MAKERWORLD
 
@@ -421,7 +484,11 @@ class MakerWorldImporter:
                 continue
             name = inst.get("title") or title
             filename = safe_filename(f"{name}-{inst.get('id')}.zip")
-            files.append(ImportFile(remote_id=str(profile_id), filename=filename))
+            files.append(
+                ImportFile(
+                    remote_id=str(profile_id), filename=filename, meta=_profile_meta(inst, name)
+                )
+            )
         # Raw-model-only designs (no print-profile instances, but the creator
         # uploaded raw STEP/STL files): fall back to the "all files" zip.
         if not files and (d.get("rawModelFileDownloadCount") or not d.get("instances")):

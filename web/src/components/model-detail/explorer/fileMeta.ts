@@ -21,11 +21,30 @@ function slicedMetaLine(meta: BlobMetaOut): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-export function fileMetaLine(file: FileOut): string | null {
+function baseMetaLine(file: FileOut): string | null {
   if (!file.meta) return null;
   if (file.kind === "mesh" || file.kind === "cad") return meshMetaLine(file.meta);
   if (file.kind === "sliced") return slicedMetaLine(file.meta);
   return null;
+}
+
+/** "Printers: P1S, A1 mini +12 · 8 plates" from a MakerWorld profile's `source_meta`. */
+export function profileMetaLine(file: FileOut): string | null {
+  const sm = file.source_meta;
+  if (!sm) return null;
+  const names = [...new Set((sm.compat ?? []).map((c) => c.product || c.model).filter(Boolean))] as string[];
+  const parts: string[] = [];
+  if (names.length) {
+    const shown = names.slice(0, 3).join(", ");
+    parts.push(`Printers: ${shown}${names.length > 3 ? ` +${names.length - 3}` : ""}`);
+  }
+  const plates = sm.plates?.length ?? 0;
+  if (plates) parts.push(`${plates} ${plates === 1 ? "plate" : "plates"}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export function fileMetaLine(file: FileOut): string | null {
+  return [baseMetaLine(file), profileMetaLine(file)].filter(Boolean).join(" · ") || null;
 }
 
 /** STL/OBJ/3MF meshes that finished storing can be laid out on one plate. */

@@ -381,7 +381,12 @@ def create_imported_model_sync(
 
 
 def store_imported_file_sync(
-    session: SyncSession, *, model: Model, revision: Revision, staged: StagedFile
+    session: SyncSession,
+    *,
+    model: Model,
+    revision: Revision,
+    staged: StagedFile,
+    source_meta: dict | None = None,
 ) -> File:
     """The §3a ingest seam for one staged import file (SYNC twin of the
     ``finalize_upload`` + ``create_job`` + ``store_to_backend.apply_async``
@@ -426,6 +431,7 @@ def store_imported_file_sync(
         rel_path=staged.rel_path,
         storage_path=layout.file_key(model.slug, revision.dir_name, staged.rel_path),
         verified_at=None,
+        source_meta=source_meta,
     )
     session.add(file)
     session.commit()

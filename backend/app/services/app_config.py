@@ -90,6 +90,9 @@ class AppConfig(BaseModel):
     # Library trash: days a trashed model is kept before the daily purge
     # removes it (and its blobs). 0 = never auto-purge.
     trash_retention_days: int = 30
+    # MakerWorld import: keep every print profile ("all") or only those
+    # compatible with an enabled printer ("owned").
+    makerworld_profiles: Literal["all", "owned"] = "all"
 
 
 def _env_config(settings: Settings) -> AppConfig:

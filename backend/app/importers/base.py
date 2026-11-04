@@ -53,6 +53,9 @@ class ImportFile:
     filename: str
     url: str | None = None
     size: int | None = None
+    # Site-specific per-file provenance (MakerWorld print-profile printers/
+    # plates); persisted to ``files.source_meta``.
+    meta: dict | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

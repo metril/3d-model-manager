@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -20,6 +20,8 @@ class ImportCreate(BaseModel):
     tags: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
     ] = Field(default_factory=list, max_length=20)
+    # Per-import override of the `makerworld_profiles` setting (MakerWorld only).
+    profile_filter: Literal["all", "owned"] | None = None
 
 
 class ImportOut(BaseModel):

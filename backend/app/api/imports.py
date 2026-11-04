@@ -193,7 +193,12 @@ async def create_import(
     # nothing was created. This is what makes a repeated collection sync (and a
     # double-click on "Add to library") idempotent across imports, not just
     # across Celery redeliveries.
-    imp, created = await start_import(db, payload.url, created_by_user_id=ctx.user.id)
+    imp, created = await start_import(
+        db,
+        payload.url,
+        created_by_user_id=ctx.user.id,
+        profile_filter=payload.profile_filter,
+    )
     if not created:
         response.status_code = status.HTTP_200_OK
     return ImportOut.from_model(imp)

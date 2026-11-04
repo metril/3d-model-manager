@@ -27,6 +27,7 @@ _DEFAULTS = {
     "energy_cost_per_kwh": 0.0,
     "sensor_history_days": 30,
     "trash_retention_days": 30,
+    "makerworld_profiles": "all",
 }
 
 
@@ -70,6 +71,7 @@ async def test_put_persists_all_five_fields_and_get_reflects_them(authenticated_
         "energy_price_ha_entity": "sensor.tariff",
         "sensor_history_days": 14,
         "trash_retention_days": 7,
+        "makerworld_profiles": "owned",
     }
     put = await authenticated_client.put("/api/settings/app", json=payload)
     assert put.status_code == 200
@@ -349,3 +351,16 @@ async def test_billing_enabled_defaults_false(db_session):
     backing (a literal default, like `filament_cost_per_kg`)."""
     config = await app_config.get_app_config(db_session, get_settings())
     assert config.billing_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_makerworld_profiles_round_trips(authenticated_client):
+    got = (await authenticated_client.get("/api/settings/app")).json()
+    assert got["makerworld_profiles"] == "all"
+    got["makerworld_profiles"] = "owned"
+    put = await authenticated_client.put("/api/settings/app", json=got)
+    assert put.json()["makerworld_profiles"] == "owned"
+    bad = await authenticated_client.put(
+        "/api/settings/app", json={**got, "makerworld_profiles": "x"}
+    )
+    assert bad.status_code == 422

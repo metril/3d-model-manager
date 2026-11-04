@@ -486,3 +486,30 @@ async def test_redownload_dispatches_tracked_job_via_api(
     assert body["type"] == "redownload_model"
     assert body["id"]
     assert body["state"] in {"queued", "running", "done", "failed"}
+
+
+async def test_redownload_ignores_owned_profile_setting(db_session, backend, fake_import) -> None:
+    from app.services import app_config
+
+    meta = {"compat": [{"model": "C12", "product": "P1S", "nozzle": 0.4}], "plates": []}
+    fake_import.files = {"a.stl": corpus.box_stl(), "b.stl": corpus.box_stl()}
+    fake_import.file_meta = {
+        "a.stl": meta,
+        "b.stl": {**meta, "compat": [{"model": "N2S", "product": "A1", "nozzle": 0.4}]},
+    }
+    cfg = await app_config.get_app_config(db_session, get_settings())
+    await app_config.set_app_config(
+        db_session, get_settings(), cfg.model_copy(update={"makerworld_profiles": "owned"})
+    )
+    model, revision, _ = await _seed_source_model(db_session, backend)
+    job_id = await _seed_redownload_job(db_session, model.id)
+
+    redownload_model(job_id, model.id, "replace")
+
+    rows = (
+        (await db_session.execute(select(File).where(File.revision_id == revision.id)))
+        .scalars()
+        .all()
+    )
+    assert sorted(f.rel_path for f in rows) == ["a.stl", "b.stl"]
+    assert all(f.source_meta for f in rows)

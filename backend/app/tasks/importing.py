@@ -73,6 +73,7 @@ from app.config import Settings, get_settings
 from app.importers import download
 from app.importers.archives import process_staged_zips
 from app.importers.base import ImportFile, SiteImporter
+from app.importers.profile_filter import filter_profiles
 from app.importers.registry import IMPORTER_REGISTRY
 from app.models.collections import FollowedCollection
 from app.models.enums import ImportSite, ImportState
@@ -239,6 +240,42 @@ def _should_refresh_cover(s, model, cover_staged: download.StagedFile | None) ->
     return _is_auto_import_cover(s, model.id, model.cover_blob_hash)
 
 
+def _apply_profile_filter(
+    s, settings: Settings, files: list[ImportFile], override: str | None
+) -> tuple[list[ImportFile], int, int]:
+    """MakerWorld profile filter: the per-import ``override`` beats the
+    ``makerworld_profiles`` setting. Returns ``(files, profiles_total,
+    profiles_kept)``; totals count only files carrying profile metadata."""
+    from app.models import Printer
+    from app.services import app_config
+
+    total = sum(1 for f in files if f.meta is not None)
+    if total == 0:
+        return files, 0, 0
+    mode = override or app_config.get_app_config_sync(s, settings).makerworld_profiles
+    if mode != "owned":
+        return files, total, total
+    printers = list(s.execute(select(Printer).where(Printer.enabled.is_(True))).scalars())
+    kept = filter_profiles(files, printers, mode)
+    return kept, total, sum(1 for f in kept if f.meta is not None)
+
+
+def _source_meta_for(rel_path: str, files: list[ImportFile]) -> dict | None:
+    """The profile metadata of the ImportFile a staged ``rel_path`` came from
+    (a ``<stem>.zip`` download becomes ``<stem>.3mf`` or ``<stem>/...``)."""
+    for f in files:
+        if f.meta is None:
+            continue
+        stem = f.filename.rsplit(".", 1)[0]
+        if (
+            rel_path == f.filename
+            or rel_path.rsplit(".", 1)[0] == stem
+            or rel_path.startswith(stem + "/")
+        ):
+            return f.meta
+    return None
+
+
 def _stage_and_process_files(
     settings: Settings,
     importer: SiteImporter,
@@ -357,6 +394,7 @@ def import_from_url(import_id: int) -> None:
             if importer is None:
                 raise ImportRejected(f"no importer registered for {imp.site}")
             external_id = imp.external_id or ""
+            profile_override = (imp.meta or {}).get("profile_filter")
             _set_state(s, imp, ImportState.FETCHING)
 
         meta = importer.fetch_metadata(external_id)
@@ -367,6 +405,9 @@ def import_from_url(import_id: int) -> None:
             raise ImportRejected("no downloadable files found for this model")
 
         with base.sync_session() as s:
+            files, profiles_total, profiles_kept = _apply_profile_filter(
+                s, settings, files, profile_override
+            )
             imp = s.get(Import, import_id)
             _set_state(s, imp, ImportState.DOWNLOADING)
 
@@ -437,7 +478,13 @@ def import_from_url(import_id: int) -> None:
             s.commit()
             rev = s.get(Revision, model.current_revision_id)
             for sf in staged:
-                library.store_imported_file_sync(s, model=model, revision=rev, staged=sf)
+                library.store_imported_file_sync(
+                    s,
+                    model=model,
+                    revision=rev,
+                    staged=sf,
+                    source_meta=_source_meta_for(sf.rel_path, files),
+                )
             # T2: gallery images land the SAME way as any other imported
             # file (Blob + File in this revision, thumb derivative pipeline
             # dispatched as usual) -- `store_imported_file_sync` is what
@@ -449,11 +496,15 @@ def import_from_url(import_id: int) -> None:
                 model.cover_blob_hash = cover_staged.blob_hash
             imp = s.get(Import, import_id)
             imp.meta = {
+                **(imp.meta or {}),
                 "cover_url": meta.cover_url,
                 "license": meta.license,
                 "files": [sf.rel_path for sf in staged],
                 "images": len(staged_images),
             }
+            if profiles_total:
+                imp.meta["profiles_total"] = profiles_total
+                imp.meta["profiles_kept"] = profiles_kept
             _set_state(s, imp, ImportState.DONE)
     except Exception as exc:  # noqa: BLE001 -- failure is a recorded terminal state, not a crash
         for sf in [*staged, *staged_images]:
@@ -513,6 +564,7 @@ def _store_redownload_as_new_revision(
     staged: list[download.StagedFile],
     staged_images: list[download.StagedFile],
     cover_staged: download.StagedFile | None,
+    files: list[ImportFile],
 ) -> None:
     """``mode="revision"``: lands the fresh download as a brand-new revision
     -- numbered max+1, named "re-downloaded", directory via
@@ -552,7 +604,13 @@ def _store_redownload_as_new_revision(
     backend.mkdirs(layout.revision_dir_key(model.slug, dir_name))
 
     for sf in staged:
-        library.store_imported_file_sync(s, model=model, revision=revision, staged=sf)
+        library.store_imported_file_sync(
+            s,
+            model=model,
+            revision=revision,
+            staged=sf,
+            source_meta=_source_meta_for(sf.rel_path, files),
+        )
     # T2 refresh: the freshly-downloaded gallery images land in the new
     # revision the SAME way any other imported file does.
     for sf in staged_images:
@@ -575,6 +633,7 @@ def _store_redownload_in_place(
     staged: list[download.StagedFile],
     staged_images: list[download.StagedFile],
     cover_staged: download.StagedFile | None,
+    files: list[ImportFile],
 ) -> None:
     """``mode="replace"``: overwrites the CURRENT revision's files in place
     -- same revision id/dir_name, fresh bytes. The caller has ALREADY
@@ -614,7 +673,13 @@ def _store_redownload_in_place(
     s.commit()
 
     for sf in staged:
-        library.store_imported_file_sync(s, model=model, revision=revision, staged=sf)
+        library.store_imported_file_sync(
+            s,
+            model=model,
+            revision=revision,
+            staged=sf,
+            source_meta=_source_meta_for(sf.rel_path, files),
+        )
     # T2 refresh: replaces the old `images/` set the same way any other
     # current-revision file was just replaced above.
     for sf in staged_images:
@@ -709,10 +774,12 @@ def redownload_model(job_id: str, model_id: int, mode: str) -> None:
                 raise LookupError(f"model {model_id} disappeared mid-redownload")
             if mode == "revision":
                 _store_redownload_as_new_revision(
-                    s, settings, model, staged, staged_images, cover_staged
+                    s, settings, model, staged, staged_images, cover_staged, files
                 )
             else:
-                _store_redownload_in_place(s, settings, model, staged, staged_images, cover_staged)
+                _store_redownload_in_place(
+                    s, settings, model, staged, staged_images, cover_staged, files
+                )
     except Exception as exc:  # noqa: BLE001 -- failure is a recorded terminal job state, not a crash
         for sf in [*staged, *staged_images]:
             sf.spool_path.unlink(missing_ok=True)

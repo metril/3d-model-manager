@@ -38,6 +38,8 @@ class FakeImporter:
     # EVERY `files` entry as one of the model's own downloadable files;
     # gallery images are the site's own photos, never one of those.
     image_bytes: dict[str, bytes] = field(default_factory=dict)
+    # Per-file profile metadata (``ImportFile.meta``), keyed by filename.
+    file_meta: dict[str, dict] = field(default_factory=dict)
 
     def canonicalize(self, url: str) -> str | None:
         if url.startswith(FAKE_BASE):
@@ -61,7 +63,13 @@ class FakeImporter:
 
     def list_files(self, external_id: str) -> list[ImportFile]:
         return [
-            ImportFile(remote_id=name, filename=name, url=f"{FAKE_DL}{name}", size=len(data))
+            ImportFile(
+                remote_id=name,
+                filename=name,
+                url=f"{FAKE_DL}{name}",
+                size=len(data),
+                meta=self.file_meta.get(name),
+            )
             for name, data in self.files.items()
         ]
 

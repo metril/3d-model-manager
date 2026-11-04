@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ImageIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
+import { useAppSettings } from "@/api/appSettings";
 import { useCreateImport, useImport, useImportSearch } from "@/api/imports";
 import { useCreateModel } from "@/api/library";
 import { UploadDropzone, type UploadTarget } from "@/components/upload/UploadDropzone";
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SwitchRow } from "@/components/ui/switch-row";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { detectSite } from "@/lib/importSites";
 import { useDebouncedValue } from "@/lib/format";
@@ -127,12 +129,23 @@ function UploadPanel() {
 function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => void }) {
   const [url, setUrl] = useState("");
   const createImport = useCreateImport();
+  const appSettings = useAppSettings();
+  // null = follow the server setting until the user flips the toggle.
+  const [ownedOnly, setOwnedOnly] = useState<boolean | null>(null);
 
   const detected = useMemo(() => detectSite(url), [url]);
   const canImport = detected.supported && !createImport.isPending;
+  const isMakerWorld = detected.site === "makerworld";
+  const ownedChecked = ownedOnly ?? appSettings.data?.makerworld_profiles === "owned";
 
   function start() {
-    createImport.mutate({ url: url.trim() }, { onSuccess: (imp) => onImportStarted(imp.id) });
+    createImport.mutate(
+      {
+        url: url.trim(),
+        ...(isMakerWorld ? { profile_filter: ownedChecked ? "owned" : "all" } : {}),
+      },
+      { onSuccess: (imp) => onImportStarted(imp.id) },
+    );
   }
 
   return (
@@ -163,6 +176,16 @@ function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => v
           <p role="alert" className="text-sm text-destructive">
             Unrecognized link — paste a Thingiverse, Printables, or MakerWorld model URL.
           </p>
+        )}
+
+        {isMakerWorld && (
+          <SwitchRow
+            id="import-owned-profiles"
+            label="Only profiles for my printers"
+            description="Skip print profiles that aren't compatible with your enabled printers. If none match, every profile is kept."
+            checked={ownedChecked}
+            onCheckedChange={setOwnedOnly}
+          />
         )}
 
         <Button type="button" onClick={start} disabled={!canImport}>

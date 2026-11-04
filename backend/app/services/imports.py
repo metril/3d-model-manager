@@ -41,6 +41,7 @@ async def start_import(
     collection: FollowedCollection | None = None,
     created_by_user_id: int | None = None,
     extra_tags: list[str] | None = None,
+    profile_filter: str | None = None,
 ) -> tuple[Import, bool]:
     """Returns ``(import_row, created)``. ``created`` is False when the model was
     already in the library -- the caller then hands back the EXISTING import
@@ -79,6 +80,7 @@ async def start_import(
         collection_id=collection.id if collection else None,
         created_by_user_id=created_by_user_id,
         extra_tags=extra_tags or None,
+        meta={"profile_filter": profile_filter} if profile_filter else None,
     )
     db.add(imp)
     await db.commit()
@@ -189,4 +191,5 @@ async def start_import_with_options(
         collection=collection,
         created_by_user_id=created_by_user_id,
         extra_tags=payload.tags or None,
+        profile_filter=payload.profile_filter,
     )
