@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/metril/3d-model-manager/compare/v0.12.1...v0.12.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **pipeline:** export GLBs glTF Y-up and regenerate stale ones ([#207](https://github.com/metril/3d-model-manager/issues/207)) ([839b67a](https://github.com/metril/3d-model-manager/commit/839b67a295d852d96580a3788d149b82d2044167))
+
 ## [0.12.1](https://github.com/metril/3d-model-manager/compare/v0.12.0...v0.12.1) (2026-11-04)
 
 
