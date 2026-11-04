@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import Blob, BlobMeta, Derivative, Job, Model, Revision
 from app.models.enums import BlobFormat, BlobKind, DerivativeKind, DerivativeStatus
-from app.pipeline import meshload, slicedmeta
+from app.pipeline import convert, meshload, slicedmeta
 from app.storage.local import LocalStorageBackend
 from app.tasks import pipeline
 from app.tasks.base import sync_session
@@ -662,7 +662,7 @@ async def test_extract_metadata_cad_branch_reads_glb_derivative(
     glb_path = derivatives_service.derivative_path(settings, blob_hash, DerivativeKind.GLB)
     glb_path.parent.mkdir(parents=True, exist_ok=True)
     box = trimesh.creation.box(extents=(20.0, 10.0, 5.0))
-    glb_path.write_bytes(box.export(file_type="glb"))
+    glb_path.write_bytes(convert.to_y_up(box).export(file_type="glb"))  # GLBs are Y-up
 
     db_session.add(
         Derivative(

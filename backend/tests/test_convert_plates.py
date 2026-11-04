@@ -70,6 +70,7 @@ async def test_convert_writes_plate_glbs_thumbs_and_meta(
         glb = derivatives.plate_glb_path(s, f.blob_hash, i)
         mesh = trimesh.load(glb, force="mesh")
         assert len(mesh.faces) == 12 and mesh.bounds[1][:2].max() <= 180
+        assert mesh.bounds[0][1] == pytest.approx(0.0, abs=1e-3)  # Y-up: sits on y=0
         assert derivatives.plate_thumb_path(s, f.blob_hash, i).read_bytes().startswith(b"\x89PNG")
 
 
@@ -168,3 +169,67 @@ async def test_backfill_chains_only_on_full_batch(
     assert chained == [{"countdown": 5}]
     pipeline.backfill_plates()  # one left: partial batch, no re-enqueue
     assert chained == [{"countdown": 5}]
+
+
+def test_plate_glb_is_y_up(tmp_path) -> None:
+    flat = trimesh.creation.box(extents=(70, 40, 3.5))  # print space, Z-up
+    pipeline._publish_plate_glb(get_settings(), "f" * 64, 1, flat)
+    out = trimesh.load(derivatives.plate_glb_path(get_settings(), "f" * 64, 1), force="mesh")
+    assert out.extents == pytest.approx((70, 3.5, 40), abs=1e-3)
+    assert flat.extents == pytest.approx((70, 40, 3.5))  # source mesh untouched
+
+
+async def test_glb_orientation_backfill(
+    db_session: AsyncSession, backend, seed_file, chained, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy import select as sa_select
+
+    from app.models import Derivative
+    from app.models.enums import DerivativeKind
+    from app.pipeline import convert
+
+    monkeypatch.setattr(
+        pipeline.backfill_glb_orientation,
+        "apply_async",
+        lambda *a, **k: chained.append(k),
+        raising=False,
+    )
+    _, f = await _seed(db_session, seed_file, make_project_3mf(3), "orient")
+    _convert(backend, f.blob_hash)
+
+    async def version() -> int:
+        d = (
+            await db_session.execute(
+                sa_select(Derivative).where(
+                    Derivative.blob_hash == f.blob_hash, Derivative.kind == DerivativeKind.GLB
+                )
+            )
+        ).scalar_one()
+        await db_session.refresh(d)
+        return d.version
+
+    assert await version() == convert.GLB_VERSION  # fresh conversions are current
+    assert pipeline.backfill_glb_orientation() == 0  # nothing stale
+
+    with sync_session() as s:
+        d = pipeline._glb_derivative(s, f.blob_hash)
+        d.version = 0
+        s.commit()
+    assert pipeline.backfill_glb_orientation() == 1
+    assert await version() == convert.GLB_VERSION
+    assert chained == []  # partial batch: no chaining
+    assert pipeline.backfill_glb_orientation() == 0
+
+    # Failures are stamped -1 and never retried; a full batch chains.
+    with sync_session() as s:
+        d = pipeline._glb_derivative(s, f.blob_hash)
+        d.version = 0
+        s.commit()
+    monkeypatch.setattr(pipeline, "BACKFILL_BATCH", 1)
+    monkeypatch.setattr(
+        pipeline, "_regenerate_glb", lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    assert pipeline.backfill_glb_orientation() == 0
+    assert await version() == -1
+    assert len(chained) == 1 and chained[0]["countdown"] == 5
+    assert pipeline.backfill_glb_orientation() == 0

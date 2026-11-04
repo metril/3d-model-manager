@@ -29,11 +29,11 @@ describe("useViewerScene plates", () => {
       { wrapper },
     );
     const { stageProps } = result.current;
-    expect(stageProps.parts[0].url).toBe("/api/blobs/vs1/glb");
+    expect(stageProps.parts[0].url).toBe("/api/blobs/vs1/glb?v=2");
     const fit0 = stageProps.fitSignal;
 
     act(() => result.current.stageProps.plateInfo!.onChange(2));
-    expect(result.current.stageProps.parts[0].url).toBe("/api/blobs/vs1/plates/2/glb");
+    expect(result.current.stageProps.parts[0].url).toBe("/api/blobs/vs1/plates/2/glb?v=2");
     expect(result.current.stageProps.fitSignal).toBe(fit0 + 1);
 
     unmount();

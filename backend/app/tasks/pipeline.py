@@ -551,7 +551,8 @@ def _cad_blob_meta(session: SyncSession, settings: Settings, blob: Blob) -> Blob
         raise RuntimeError("glb derivative not ready; pipeline order broken")
 
     glb_path = derivatives.derivative_path(settings, blob.hash, DerivativeKind.GLB)
-    mesh = meshload.to_single_mesh(trimesh.load(glb_path))
+    # The GLB is Y-up; metadata dims stay in print (Z-up) space.
+    mesh = convert.to_z_up(meshload.to_single_mesh(trimesh.load(glb_path)))
     return _mesh_blob_meta(blob.hash, mesh, "glb-derived")
 
 
@@ -848,6 +849,8 @@ def _convert_to_glb_step(
     derivatives.mark_derivative(
         session, deriv, status=DerivativeStatus.OK, local_path=str(dest), tool=tool
     )
+    deriv.version = convert.GLB_VERSION
+    session.commit()
     return "done"
 
 
@@ -936,7 +939,7 @@ def _publish_plate_glb(
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        mesh.export(tmp_path, file_type="glb")
+        convert.to_y_up(mesh).export(tmp_path, file_type="glb")
         if len(mesh.faces) > PREVIEW_TRIANGLE_THRESHOLD:
             lod = tmp_path.with_suffix(".lod.glb")
             try:
@@ -985,6 +988,99 @@ def backfill_plates() -> int:
         full_batch = len(rows) >= BACKFILL_BATCH
     if full_batch:  # more may remain: chain instead of waiting for the beat
         backfill_plates.apply_async(countdown=5)
+    return done
+
+
+def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> None:
+    """Rewrite a stale (pre-Y-up) blob's raw GLB, plate GLBs, glb_web and
+    preview LOD from the source file, then stamp ``GLB_VERSION``."""
+    deriv = _glb_derivative(session, blob.hash)
+    dest = derivatives.derivative_path(settings, blob.hash, DerivativeKind.GLB)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=".tdmm-glb-", suffix=".glb")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
+            src = derivatives.fetch_blob_to_temp(
+                session, settings, blob.hash, Path(tmp), f".{blob.format.value}"
+            )
+            convert.convert_to_glb_file(src, blob.format, tmp_path)
+            if blob.format is BlobFormat.THREEMF:
+                _generate_plate_assets(session, settings, blob, src)
+        derivatives.publish_file(tmp_path, dest)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    # Drop the stale compressed copies, then rebuild them from the new raw GLB.
+    derivatives.glb_web_path(settings, blob.hash).unlink(missing_ok=True)
+    derivatives.derivative_path(settings, blob.hash, DerivativeKind.GLB_PREVIEW).unlink(
+        missing_ok=True
+    )
+    preview = _glb_preview_derivative(session, blob.hash)
+    if preview is not None:
+        session.delete(preview)
+    deriv.version = convert.GLB_VERSION
+    session.commit()
+    # Best-effort from here: the raw GLB is already correct (and served as
+    # the fallback when glb_web is absent); the pipeline steps can redo these.
+    try:
+        _optimize_glb_step(session, settings, None, blob)  # type: ignore[arg-type]
+    except Exception:
+        session.rollback()
+        logger.warning("glb_web rebuild failed for %s", blob.hash, exc_info=True)
+    # f3d thumbs were rendered from the old orientation; re-render them.
+    thumb = session.execute(
+        select(Derivative).where(
+            Derivative.blob_hash == blob.hash, Derivative.kind == DerivativeKind.THUMB_1024
+        )
+    ).scalar_one_or_none()
+    if thumb is not None and thumb.tool == "f3d":
+        try:
+            _render_mesh_thumb(session, settings, blob)
+        except Exception:
+            session.rollback()
+            logger.warning("thumb re-render failed for %s", blob.hash, exc_info=True)
+
+
+@celery_app.task(name="app.tasks.pipeline.backfill_glb_orientation")
+def backfill_glb_orientation() -> int:
+    """Self-draining beat task: rewrite GLBs written before ``GLB_VERSION``
+    (Z-up) as glTF Y-up, ``BACKFILL_BATCH`` per run. Failures are stamped
+    ``version = -1`` so a poisoned blob never loops."""
+    settings = get_settings()
+    done = 0
+    with base.sync_session() as session:
+        rows = (
+            session.execute(
+                select(Blob)
+                .join(Derivative, Derivative.blob_hash == Blob.hash)
+                .where(
+                    Derivative.kind == DerivativeKind.GLB,
+                    Derivative.status == DerivativeStatus.OK,
+                    Derivative.version >= 0,
+                    Derivative.version < convert.GLB_VERSION,
+                )
+                .order_by(Blob.hash)
+                .limit(BACKFILL_BATCH)
+            )
+            .scalars()
+            .all()
+        )
+        for blob in rows:
+            try:
+                _regenerate_glb(session, settings, blob)
+                done += 1
+            except Exception:
+                session.rollback()
+                logger.warning("glb orientation backfill failed for %s", blob.hash, exc_info=True)
+                deriv = _glb_derivative(session, blob.hash)
+                if deriv is not None:
+                    deriv.version = -1
+                    session.commit()
+        full_batch = len(rows) >= BACKFILL_BATCH
+    if full_batch:
+        backfill_glb_orientation.apply_async(countdown=5)
     return done
 
 

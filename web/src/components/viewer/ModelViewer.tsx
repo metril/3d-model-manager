@@ -1014,7 +1014,8 @@ export default function ModelViewer({
     let next: SceneStats | null = null;
     if (any) {
       const size = union.getSize(new THREE.Vector3());
-      next = { x: size.x, y: size.y, z: size.z, triangles };
+      // GLBs are glTF Y-up; report print space (Z = height): swap y/z.
+      next = { x: size.x, y: size.z, z: size.y, triangles };
     }
 
     const prev = lastStatsRef.current;

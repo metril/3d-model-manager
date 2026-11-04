@@ -17,6 +17,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    SmallInteger,
     Text,
     UniqueConstraint,
     func,
@@ -90,6 +91,11 @@ class Derivative(Base):
     )
     error: Mapped[str | None] = mapped_column(Text)
     tool: Mapped[str | None] = mapped_column(Text)
+    # GLB derivatives: ``convert.GLB_VERSION`` they were written at (0 = legacy
+    # Z-up, -1 = regeneration failed, never retried).
+    version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0", default=0
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

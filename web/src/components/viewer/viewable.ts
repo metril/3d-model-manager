@@ -28,12 +28,16 @@ export interface ViewerPart {
 // keep in sync by hand (Global Constraints "types.ts" convention).
 const PREVIEW_TRIANGLE_THRESHOLD = 1_500_000;
 
+/** Cache-buster for the immutable GLB URLs; bump with the backend's `GLB_VERSION`
+ * (v2 = Y-up orientation fix). */
+export const GLB_CACHE_V = 2;
+
 /** `GET /api/blobs/{hash}/glb`, requesting the decimated preview LOD once
  * it's ready for meshes heavy enough to need it. */
 export function glbUrl(file: FileOut): string {
   const wantsPreview =
     file.glb_preview_ready && (file.meta?.triangle_count ?? 0) > PREVIEW_TRIANGLE_THRESHOLD;
-  const query = wantsPreview ? "?preview=true" : "";
+  const query = wantsPreview ? `?preview=true&v=${GLB_CACHE_V}` : `?v=${GLB_CACHE_V}`;
   return `/api/blobs/${file.blob_hash}/glb${query}`;
 }
 
