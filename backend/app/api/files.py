@@ -76,11 +76,15 @@ async def get_file_format(
     file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    blob = await db.get(Blob, file.blob_hash, options=[selectinload(Blob.meta), selectinload(Blob.derivatives)])
+    blob = await db.get(
+        Blob, file.blob_hash, options=[selectinload(Blob.meta), selectinload(Blob.derivatives)]
+    )
     if blob is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
     enrichment = (
-        await library._build_file_enrichments(settings, [blob], await library._cost_rates(db, settings))
+        await library._build_file_enrichments(
+            settings, [blob], await library._cost_rates(db, settings)
+        )
     )[blob.hash]
     return FileFormatOut(
         id=file.id,

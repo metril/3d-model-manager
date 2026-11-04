@@ -181,12 +181,16 @@ def test_unavailable_no_attempt(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.usefixtures("migrated_db")
-def test_plate_zero_means_all_plates_and_stores_plate_one(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes):
+def test_plate_zero_means_all_plates_and_stores_plate_one(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
     # 0 = "all plates" on the wire (Orca `--slice 0`); the stored result is plate 1.
     with base.sync_session() as session:
         entry_id = _seed(session, plate=0).id
 
-    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes))
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes)
+    )
     slicing.slice_file(entry_id)
 
     with base.sync_session() as session:

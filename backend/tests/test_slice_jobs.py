@@ -105,7 +105,9 @@ async def test_slice_rejects_plate_zero(
     authenticated_client: httpx.AsyncClient, db_session, seed_file
 ) -> None:
     _, f, recipe = await _setup(db_session, seed_file, "sj-p0")
-    r = await authenticated_client.post(f"/api/files/{f.id}/slice", json={"recipe_id": recipe.id, "plate": 0})
+    r = await authenticated_client.post(
+        f"/api/files/{f.id}/slice", json={"recipe_id": recipe.id, "plate": 0}
+    )
     assert r.status_code == 422
     r = await authenticated_client.post("/api/queue", json={"file_id": f.id, "plate": 0})
     assert r.status_code == 422
