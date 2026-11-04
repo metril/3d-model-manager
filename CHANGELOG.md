@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0](https://github.com/metril/3d-model-manager/compare/v0.11.5...v0.12.0) (2026-11-04)
+
+
+### Features
+
+* **makerworld:** per-profile printer/plate metadata + optional owned-printer filter ([#203](https://github.com/metril/3d-model-manager/issues/203)) ([9b667d0](https://github.com/metril/3d-model-manager/commit/9b667d08e49d44efc8a3a289c87f6cc05a7aabbd))
+* **plates:** per-plate GLBs, thumbs and bed-fit for unsliced multi-plate 3MFs ([#200](https://github.com/metril/3d-model-manager/issues/200)) ([dba23d1](https://github.com/metril/3d-model-manager/commit/dba23d1c1f956e67f64a933400889c08c343c52d))
+* **plates:** pick the plate before slicing; viewer plate selector ([#201](https://github.com/metril/3d-model-manager/issues/201)) ([0bcabe2](https://github.com/metril/3d-model-manager/commit/0bcabe25f836bc741abe4ff6b158e59054245756))
+
+
+### Bug Fixes
+
+* **viewer,pipeline:** refit camera on plate swap; bad embedded thumbs no longer stop the chain ([#204](https://github.com/metril/3d-model-manager/issues/204)) ([0d2f09c](https://github.com/metril/3d-model-manager/commit/0d2f09cb73481709accc6868e1ec57e14bbec901))
+
 ## [0.11.5](https://github.com/metril/3d-model-manager/compare/v0.11.4...v0.11.5) (2026-11-03)
 
 
