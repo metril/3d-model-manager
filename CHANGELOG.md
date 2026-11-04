@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/metril/3d-model-manager/compare/v0.12.0...v0.12.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **viewer:** isolate the selected plate's file and pick among plated files ([#205](https://github.com/metril/3d-model-manager/issues/205)) ([868ea3b](https://github.com/metril/3d-model-manager/commit/868ea3bc785ffda94a8a8bf1f9cb59b7b31381ee))
+
 ## [0.12.0](https://github.com/metril/3d-model-manager/compare/v0.11.5...v0.12.0) (2026-11-04)
 
 
