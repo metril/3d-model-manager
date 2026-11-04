@@ -773,7 +773,13 @@ def _extract_embedded_thumbs_step(
     if source_bytes is None:
         return "done"
 
-    _publish_image_thumbs(session, settings, blob.hash, source_bytes, "embedded")
+    try:
+        _publish_image_thumbs(session, settings, blob.hash, source_bytes, "embedded")
+    except ValueError as exc:
+        # An unreadable embedded preview must not stop the chain (convert_to_glb
+        # and the plate assets come next); the thumb derivatives stay `failed`
+        # and render_thumb rasterizes the mesh later.
+        logger.warning("skipping unreadable embedded thumbnail for %s: %s", blob.hash, exc)
     return "done"
 
 
