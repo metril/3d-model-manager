@@ -64,6 +64,9 @@ class BlobMeta(Base):
     infill_pct: Mapped[float | None] = mapped_column(Float)
     slicer: Mapped[str | None] = mapped_column(Text)
     raw: Mapped[dict | None] = mapped_column(JSONB)
+    # Unsliced multi-plate 3MF plates: [{index,name,object_count,has_glb,bbox,fits}].
+    # NULL = never analysed; [] = analysed, fewer than two plates.
+    plates_json: Mapped[list | None] = mapped_column(JSONB)
 
 
 class Derivative(Base):

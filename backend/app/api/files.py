@@ -77,6 +77,7 @@ async def file_bed_fit(
     file_id: int,
     printer_id: int | None = None,
     recipe_id: int | None = None,
+    plate: int | None = None,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
@@ -85,7 +86,7 @@ async def file_bed_fit(
     file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    result = await fit_for_selection(db, file, printer_id, recipe_id, settings)
+    result = await fit_for_selection(db, file, printer_id, recipe_id, settings, plate)
     await db.commit()  # persist a freshly computed plate_count
     return result.model_dump()
 

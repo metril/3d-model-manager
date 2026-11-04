@@ -20,7 +20,7 @@ from app.config import Settings
 from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
 from app.services import library
-from app.services.bed_fit import guard_recipe_fit
+from app.services.bed_fit import guard_plate_index, guard_recipe_fit
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
 from app.services.slicer_client import client_from_config
@@ -64,8 +64,9 @@ async def create_job(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "file is not in a format the slicer can accept"
         )
+    await guard_plate_index(db, file, payload.plate)
     if not payload.force:
-        await guard_recipe_fit(db, recipe, file, options, settings)
+        await guard_recipe_fit(db, recipe, file, options, settings, payload.plate)
     job_id = uuid.uuid4()
     job = SliceJob(
         id=job_id,

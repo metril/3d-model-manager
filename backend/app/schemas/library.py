@@ -224,6 +224,12 @@ class PlateOut(BaseModel):
     thumbnail_available: bool
     est_cost: float | None
     filaments: list[PlateFilamentOut]
+    # Unsliced multi-plate projects: plate name + whether a per-plate GLB
+    # exists (``GET /blobs/{hash}/plates/{n}/glb``); bbox = extents mm.
+    name: str = ""
+    has_glb: bool = False
+    bbox: list[float] | None = None
+    fits: bool | None = None
 
     @classmethod
     def from_raw(cls, raw: dict, *, thumbnail_available: bool, rates: CostRates) -> PlateOut:
@@ -234,6 +240,10 @@ class PlateOut(BaseModel):
             thumbnail_available=thumbnail_available,
             est_cost=price_run(raw.get("weight_g"), raw.get("prediction_s"), rates).total_cost,
             filaments=[PlateFilamentOut.from_raw(f) for f in raw.get("filaments") or []],
+            name=raw.get("name") or "",
+            has_glb=bool(raw.get("has_glb")),
+            bbox=raw.get("bbox"),
+            fits=raw.get("fits"),
         )
 
 

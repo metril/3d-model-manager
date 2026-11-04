@@ -315,3 +315,52 @@ async def test_pipeline_queue_step_guard_and_force(
         f"/api/slicer-pipelines/{pid}/run", json={"file_id": f.id, "force": True}
     )
     assert r.status_code == 201 and r.json()["kind"] == "queue", r.text
+
+
+async def _seed_plated(db, seed_file, slug):
+    from app.models.enums import BlobFormat, BlobKind
+    from app.models.library import Revision
+
+    model, f, recipe, _ = await _prep(db, seed_file, slug, None, False)
+    rev = await db.get(Revision, f.revision_id)
+    f3 = await seed_file(
+        model, rev, "proj.3mf", b"3mf", blob_format=BlobFormat.THREEMF, blob_kind=BlobKind.MESH
+    )
+    plates = [
+        {"index": 1, "name": "", "object_count": 1, "has_glb": True, "bbox": [50, 50, 20]},
+        {"index": 2, "name": "", "object_count": 1, "has_glb": True, "bbox": [212, 50, 20]},
+    ]
+    db.add(
+        BlobMeta(blob_hash=f3.blob_hash, dims_mm=[900, 200, 50], plate_count=2, plates_json=plates)
+    )
+    await db.commit()
+    return model, f3, recipe
+
+
+@pytest.mark.parametrize(("plate", "expect"), [(1, "fits"), (2, "too_large"), (0, "too_large")])
+async def test_multi_plate_checked_per_plate(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file, plate, expect
+) -> None:
+    _, f3, recipe = await _seed_plated(db_session, seed_file, f"bf-pp{plate}")
+    r = await authenticated_client.get(
+        f"/api/files/{f3.id}/bed-fit", params={"recipe_id": recipe.id, "plate": plate}
+    )
+    assert r.json()["status"] == expect
+
+
+async def test_slice_plate_guard_per_plate_and_range(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file, monkeypatch
+) -> None:
+    from app.tasks import slicing
+    from tests.server_helpers import set_server
+
+    _, f3, recipe = await _seed_plated(db_session, seed_file, "bf-pg")
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeClient(error=RuntimeError()))
+    url = f"/api/files/{f3.id}/slice"
+    r = await authenticated_client.post(url, json={"recipe_id": recipe.id, "plate": 5})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_plate"
+    r = await authenticated_client.post(url, json={"recipe_id": recipe.id, "plate": 2})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "does_not_fit"
+    r = await authenticated_client.post(url, json={"recipe_id": recipe.id, "plate": 1})
+    assert r.status_code == 201, r.text

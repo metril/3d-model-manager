@@ -565,6 +565,8 @@ class File(Base):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     mtime: Mapped[datetime | None]
     verified_at: Mapped[datetime | None]
+    # Importer-supplied provenance (e.g. MakerWorld profile metadata).
+    source_meta: Mapped[dict | None] = mapped_column(JSONB)
     # PRIMARY backend to read this file's bytes from (SPEC "Workstream C
     # multi-backend storage"); NULL only transiently on a pre-migration row
     # mid-migration -- the data-seed backfills every existing file to the

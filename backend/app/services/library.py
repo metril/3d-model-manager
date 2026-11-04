@@ -152,6 +152,13 @@ async def _cost_rates(db: AsyncSession, settings: Settings) -> CostRates:
     return CostRates.from_config(await get_app_config(db, settings))
 
 
+def _raw_plates(meta) -> list[dict] | None:
+    """Sliced plates (``raw.plates``) else the unsliced project's plates."""
+    if meta is None:
+        return None
+    return (meta.raw or {}).get("plates") or meta.plates_json or None
+
+
 async def _build_file_enrichments(
     settings: Settings, blobs: Iterable[Blob], rates: CostRates
 ) -> dict[str, FileEnrichment]:
@@ -167,7 +174,7 @@ async def _build_file_enrichments(
 
     plate_paths: dict[tuple[str, int], object] = {}
     for blob_hash, blob in unique_blobs.items():
-        raw_plates = (blob.meta.raw or {}).get("plates") if blob.meta is not None else None
+        raw_plates = _raw_plates(blob.meta)
         for plate in raw_plates or []:
             plate_paths[(blob_hash, plate["index"])] = derivatives.plate_thumb_path(
                 settings, blob_hash, plate["index"]
@@ -182,7 +189,7 @@ async def _build_file_enrichments(
     for blob_hash, blob in unique_blobs.items():
         meta_out = None
         if blob.meta is not None:
-            raw_plates = (blob.meta.raw or {}).get("plates")
+            raw_plates = _raw_plates(blob.meta)
             plates_out = (
                 [
                     PlateOut.from_raw(

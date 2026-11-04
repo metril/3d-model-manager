@@ -142,6 +142,27 @@ async def get_blob_plate_thumb(
     )
 
 
+@router.get("/{blob_hash}/plates/{index}/glb")
+async def get_blob_plate_glb(
+    blob_hash: str,
+    request: Request,
+    index: int = Path(ge=1),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """One plate of an unsliced multi-plate project 3MF, recentred onto a
+    single bed (``BlobMeta.plates_json[].has_glb``)."""
+    await _get_blob_or_404(db, blob_hash)
+    return await _conditional_file_response(
+        request,
+        derivatives.plate_glb_path(settings, blob_hash, index),
+        f"{blob_hash}:plateglb{index}",
+        "model/gltf-binary",
+        cache_control=_IMMUTABLE_CACHE_CONTROL,
+        missing_detail="plate glb not found",
+    )
+
+
 @router.get("/{blob_hash}/glb")
 async def get_blob_glb(
     blob_hash: str,
