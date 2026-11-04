@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setActiveViewerBlob, getSelectedPlate } from "@/components/viewer/plates";
 import { PlatePanel } from "@/components/model-detail/PlatePanel";
 import type { BlobMetaOut, FileOut, PlateOut } from "@/api/types";
 
@@ -181,5 +182,26 @@ describe("PlatePanel", () => {
 
     await waitFor(() => expect(screen.getByTestId("gcode-preview-stub")).toBeInTheDocument());
     expect(screen.getByTestId("gcode-preview-stub")).toHaveAttribute("data-file-id", "1");
+  });
+});
+
+describe("PlatePanel plate cards", () => {
+  const unsliced = (): FileOut => {
+    const f = { ...fakeFile({ plates: [{ ...PLATE_1, has_glb: true, name: "A" }, { ...PLATE_2, has_glb: true, name: "B" }] }), blob_hash: "pp1" };
+    return f as FileOut;
+  };
+
+  it("cards are inert unless the viewer shows this file's blob", () => {
+    setActiveViewerBlob(null);
+    renderPlatePanel(unsliced());
+    expect(screen.queryByRole("button", { name: /Plate 2/ })).not.toBeInTheDocument();
+  });
+
+  it("selects the plate in the viewer when it is the active blob", () => {
+    setActiveViewerBlob("pp1");
+    renderPlatePanel(unsliced());
+    fireEvent.click(screen.getByRole("button", { name: /Plate 2/ }));
+    expect(getSelectedPlate("pp1")).toBe(2);
+    setActiveViewerBlob(null);
   });
 });

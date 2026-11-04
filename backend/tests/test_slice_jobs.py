@@ -101,6 +101,18 @@ async def test_start_slice_disabled_and_validation(
     assert (await authenticated_client.get(f"/api/slice-jobs/{uuid.uuid4()}")).status_code == 404
 
 
+async def test_slice_rejects_plate_zero(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    _, f, recipe = await _setup(db_session, seed_file, "sj-p0")
+    r = await authenticated_client.post(
+        f"/api/files/{f.id}/slice", json={"recipe_id": recipe.id, "plate": 0}
+    )
+    assert r.status_code == 422
+    r = await authenticated_client.post("/api/queue", json={"file_id": f.id, "plate": 0})
+    assert r.status_code == 422
+
+
 async def test_slice_job_success_roundtrip(
     authenticated_client: httpx.AsyncClient,
     db_session,

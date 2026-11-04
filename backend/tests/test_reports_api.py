@@ -685,6 +685,12 @@ async def test_get_file_format(
 
     response = await authenticated_client.get(f"/api/files/{file.id}")
     assert response.status_code == 200
-    assert response.json() == {"id": file.id, "rel_path": "part.stl", "format": "stl"}
+    assert response.json() == {
+        "id": file.id,
+        "rel_path": "part.stl",
+        "format": "stl",
+        "blob_hash": file.blob_hash,
+        "plates": None,
+    }
 
     assert (await authenticated_client.get("/api/files/999999")).status_code == 404

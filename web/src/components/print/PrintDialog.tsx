@@ -34,10 +34,9 @@
  * sliced file -- collapse to "Mapped after slicing" instead of calling
  * `/print/plan`.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ImageIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -51,7 +50,9 @@ import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
-import { useFileBedFit, useRecipes, useSlicerHealth } from "@/api/slicing";
+import { useFileBedFit, useFilePlates, useRecipes, useSlicerHealth } from "@/api/slicing";
+import { PlatePicker } from "@/components/print/PlatePicker";
+import { selectablePlates } from "@/components/viewer/plates";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
@@ -197,6 +198,7 @@ export function PrintDialog({
   onSent,
   printerId: printerIdProp,
   sliceOnly: sliceOnlyProp = false,
+  initialPlate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -206,6 +208,8 @@ export function PrintDialog({
   printerId?: number;
   /** The chosen file is an unsliced source: start in recipe mode. */
   sliceOnly?: boolean;
+  /** Seeds the plate selection (e.g. the plate a just-finished slice produced). */
+  initialPlate?: number | null;
 }) {
   // A file source's format: passed by the caller, else fetched.
   const passedFormat = source.kind === "file" ? source.format : undefined;
@@ -247,11 +251,11 @@ export function PrintDialog({
   // launch must not leak into this one.
   useEffect(() => {
     if (!open) return;
-    setStep(source.kind === "pick" ? SOURCE : source.kind === "model" ? SOURCE : sliceOnlyProp ? PROFILE : PLATE);
+    setStep(source.kind === "pick" ? SOURCE : source.kind === "model" ? SOURCE : PLATE);
     setAutoAdvanced(false);
     setPickedModelId(null);
     setPickedFileId(null);
-    setPlate(null);
+    setPlate(initialPlate || null);
     setPrinterId(printerIdProp ?? null);
     setSliceOnly(sliceOnlyProp);
     setOverrides({});
@@ -267,7 +271,7 @@ export function PrintDialog({
     setBatchChoice(NO_BATCH);
     setTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, printerIdProp, sliceOnlyProp, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
+  }, [open, printerIdProp, sliceOnlyProp, initialPlate, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   // Once a file source's format is known it decides the mode: sliced ->
   // as-sliced (never a recipe), anything else -> recipe. Runs after the
@@ -329,6 +333,21 @@ export function PrintDialog({
 
   const effectiveFileId = source.kind === "archive" ? archiveFileId : resolvedFileId;
   const usingReprintPlan = source.kind === "archive" && archiveFileId == null;
+  // A different file (pick mode: new model/file) invalidates the chosen plate.
+  const prevFileId = useRef<number | null>(effectiveFileId);
+  useEffect(() => {
+    const prev = prevFileId.current;
+    prevFileId.current = effectiveFileId;
+    if (prev == null || prev === effectiveFileId || source.kind === "archive") return;
+    setPlate(null);
+    setAutoAdvanced(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveFileId]);
+  // Plates (and the blob hash for their thumbnails/GLBs) of the chosen file:
+  // an unsliced project lists them too, so the plate is picked BEFORE slicing.
+  const filePlatesQ = useFilePlates(effectiveFileId, open);
+  const blobHash = filePlatesQ.data?.blob_hash ?? null;
+  const recipePlates = selectablePlates(filePlatesQ.data?.plates);
 
   // `plate`/`printerId` state only holds an EXPLICIT choice -- omitted from
   // the plan body (left `undefined`) until the person actually picks one,
@@ -368,14 +387,15 @@ export function PrintDialog({
   const recipeReady = profileMode === "recipe" && effectiveFileId != null;
   useEffect(() => {
     if ((!plan && !recipeReady) || autoAdvanced) return;
+    if (recipeReady && filePlatesQ.isLoading) return;
     let next = step;
     const sourceNeeded = source.kind === "pick" || (source.kind === "model" && slicedFiles.files.length > 1);
     if (next === SOURCE && !sourceNeeded) next = PLATE;
-    if (next === PLATE && (recipeReady || (plan?.plates.length ?? 0) <= 1)) next = PROFILE;
+    if (next === PLATE && (recipeReady ? recipePlates.length < 2 : (plan?.plates.length ?? 0) <= 1)) next = PROFILE;
     if (next === PROFILE && !recipeReady) next = FILAMENT;
     setStep(next);
     setAutoAdvanced(true);
-  }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length]);
+  }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length, filePlatesQ.isLoading, recipePlates.length]);
 
   const { t } = useTranslation();
   const [forcedFor, setForcedFor] = useState<number | null>(null);
@@ -515,7 +535,7 @@ export function PrintDialog({
   // the recipe id they apply to, so switching recipe clears both.
   const bedFit = useFileBedFit(
     effectiveFileId,
-    { printerId: effectivePrinterId, recipeId: selectedRecipeId },
+    { printerId: effectivePrinterId, recipeId: selectedRecipeId, plate: effectivePlate },
     profileMode === "recipe" && selectedRecipeId != null,
   );
   const tooLarge =
@@ -656,6 +676,7 @@ export function PrintDialog({
       {
         file_id: effectiveFileId,
         recipe_id: selectedRecipeId,
+        plate: effectivePlate ?? undefined,
         printer_id: effectivePrinterId ?? undefined,
         copies,
         front: true,
@@ -675,6 +696,7 @@ export function PrintDialog({
       {
         file_id: effectiveFileId,
         recipe_id: selectedRecipeId,
+        plate: effectivePlate ?? undefined,
         printer_id: effectivePrinterId ?? undefined,
         copies,
         front: false,
@@ -772,37 +794,25 @@ export function PrintDialog({
             ) : null}
 
             {step === PLATE && profileMode === "recipe" ? (
-              <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+              recipePlates.length >= 2 ? (
+                <PlatePicker
+                  blobHash={blobHash}
+                  plates={recipePlates}
+                  value={plate}
+                  allowAll
+                  onChange={(next) => { setTouched(true); setPlate(next); }}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+              )
             ) : step === PLATE ? (
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {(plan?.plates ?? []).map((p) => (
-                  <button
-                    type="button"
-                    key={p.index}
-                    onClick={() => { setTouched(true); setPlate(p.index); }}
-                    className={cn(
-                      "w-40 shrink-0 space-y-2 rounded-lg border p-3 text-left",
-                      effectivePlate === p.index ? "border-primary" : "border-border",
-                    )}
-                  >
-                    <div className="flex aspect-square items-center justify-center overflow-hidden rounded bg-muted">
-                      {p.thumbnail_available && effectiveFileId != null ? (
-                        <img
-                          src={`/api/blobs/${plan?.file_id}/plates/${p.index}/thumb`}
-                          alt={`Plate ${p.index}`}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <ImageIcon className="size-8 text-muted-foreground" />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Plate {p.index}
-                      {p.weight_g != null ? ` · ${Math.round(p.weight_g)} g` : ""}
-                    </p>
-                  </button>
-                ))}
-              </div>
+              <PlatePicker
+                blobHash={blobHash}
+                plates={plan?.plates ?? []}
+                value={effectivePlate}
+                onChange={(next) => { setTouched(true); setPlate(next); }}
+                preview={false}
+              />
             ) : null}
 
             {step === PROFILE ? (

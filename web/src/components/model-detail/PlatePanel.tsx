@@ -3,6 +3,8 @@ import { ImageIcon, LayersIcon, LoaderCircleIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatCost, humanizeDuration } from "@/lib/format";
+import { plateLabel, setSelectedPlate, useIsActiveViewerBlob, useSelectedPlate } from "@/components/viewer/plates";
+import { cn } from "@/lib/utils";
 import type { FileOut, PlateOut } from "@/api/types";
 
 // `gcode-preview` drives its own three.js/WebGL renderer (Global Constraints
@@ -44,7 +46,7 @@ function metaLine(file: FileOut): string | null {
  * non-null). */
 function plateCaption(plate: PlateOut): string {
   const parts = [
-    `Plate ${plate.index}`,
+    plateLabel(plate),
     plate.prediction_s !== null ? humanizeDuration(plate.prediction_s) : null,
     plate.weight_g !== null ? `${Math.round(plate.weight_g)} g` : null,
     plate.est_cost !== null ? `Est. cost: ${formatCost(plate.est_cost)}` : null,
@@ -53,8 +55,26 @@ function plateCaption(plate: PlateOut): string {
 }
 
 function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate: PlateOut; small?: boolean }) {
+  const active = useSelectedPlate(blobHash) === plate.index;
+  const inViewer = useIsActiveViewerBlob(blobHash);
+  const selectable = plate.has_glb === true && inViewer;
+  const Wrapper = selectable ? "button" : "div";
   return (
-    <div className={`shrink-0 space-y-1.5 rounded-lg border border-border p-2 ${small ? "w-40" : "w-48"}`}>
+    <Wrapper
+      {...(selectable
+        ? {
+            type: "button" as const,
+            "aria-pressed": active,
+            title: "Show this plate in the viewer",
+            onClick: () => setSelectedPlate(blobHash, active ? null : plate.index),
+          }
+        : {})}
+      className={cn(
+        "shrink-0 space-y-1.5 rounded-lg border p-2 text-left",
+        small ? "w-40" : "w-48",
+        active ? "border-primary" : "border-border",
+      )}
+    >
       <div
         className={`flex items-center justify-center overflow-hidden rounded bg-muted ${small ? "h-14" : "aspect-square"}`}
       >
@@ -68,7 +88,10 @@ function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate
           <ImageIcon className="size-8 text-muted-foreground" />
         )}
       </div>
-      <p className="text-xs text-muted-foreground">{plateCaption(plate)}</p>
+      <p className="text-xs text-muted-foreground">
+        {plateCaption(plate)}
+        {plate.fits === false ? <span className="ml-1 font-medium text-destructive">Too large</span> : null}
+      </p>
       {plate.filaments.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {plate.filaments.map((filament, index) => (
@@ -88,7 +111,7 @@ function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate
           ))}
         </div>
       )}
-    </div>
+    </Wrapper>
   );
 }
 

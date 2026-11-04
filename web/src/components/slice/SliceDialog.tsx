@@ -12,7 +12,9 @@ import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import { usePipelines, useRunPipeline } from "@/api/pipelines";
 import { usePrinters } from "@/api/printers";
-import { useBedFit, useRecipes, useSlicerHealth, useStartSlice } from "@/api/slicing";
+import { useBedFit, useFilePlates, useRecipes, useSlicerHealth, useStartSlice } from "@/api/slicing";
+import { PlatePicker } from "@/components/print/PlatePicker";
+import { selectablePlates } from "@/components/viewer/plates";
 import { BedFitChip } from "@/components/slice/BedFitChip";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
 import { trackSlice } from "@/components/slice/sliceTracker";
@@ -52,7 +54,9 @@ export function SliceDialog({
   const [mode, setMode] = useState<"recipe" | "pipeline">("recipe");
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [recipeId, setRecipeId] = useState<number | null>(null);
-  const [plate, setPlate] = useState("");
+  const [plate, setPlate] = useState<number | null>(null);
+  const filePlatesQ = useFilePlates(file.id, open);
+  const plates = selectablePlates(filePlatesQ.data?.plates);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 250);
 
@@ -76,17 +80,16 @@ export function SliceDialog({
   const fitRecipeId = pipelineMode
     ? (pipelineList.find((p) => p.id === pipelineId)?.recipe_id ?? null)
     : recipeId;
-  const bedFit = useBedFit(modelSlug, file.id, { printerId, recipeId: fitRecipeId });
+  const bedFit = useBedFit(modelSlug, file.id, { printerId, recipeId: fitRecipeId, plate });
   const selectionKey = `${pipelineMode ? "p" : "r"}${pipelineMode ? pipelineId : recipeId}`;
   const tooLarge = bedFit.data?.status === "too_large" || serverRefused === selectionKey;
   const blocked = tooLarge && !force;
-  const plateN = plate.trim() === "" ? null : Number(plate);
-  const plateValid = plateN === null || (Number.isInteger(plateN) && plateN >= 1);
+  const plateN = plate;
   const slicerDown = health.data != null && health.data.ok !== true;
   const name = file.rel_path.split("/").pop() ?? file.rel_path;
 
   function submitPipeline() {
-    if (pipelineId == null || !plateValid) return;
+    if (pipelineId == null) return;
     runPipeline.mutate(
       { id: pipelineId, fileId: file.id, plate: plateN, force: force && tooLarge },
       {
@@ -108,7 +111,7 @@ export function SliceDialog({
 
   function submit() {
     if (pipelineMode) return submitPipeline();
-    if (recipeId == null || !plateValid) return;
+    if (recipeId == null) return;
     start.mutate(
       { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge },
       {
@@ -133,14 +136,14 @@ export function SliceDialog({
           setMode("recipe");
           setPipelineId(null);
           setRecipeId(null);
-          setPlate("");
+          setPlate(null);
           setSearch("");
           setPrinterId(null);
           setForce(false);
           setServerRefused(null);
         }
       }}
-      dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== "" || printerId !== null}
+      dirty={mode !== "recipe" || pipelineId !== null || recipeId !== null || plate !== null || printerId !== null}
       busy={start.isPending || runPipeline.isPending}
     >
       <DialogHeader>
@@ -243,18 +246,18 @@ export function SliceDialog({
           </Label>
         </div>
       ) : null}
-      <div className="grid gap-1.5">
-        <Label htmlFor="slice-plate">Plate (optional)</Label>
-        <Input
-          id="slice-plate"
-          type="number"
-          min={1}
-          placeholder="First plate"
-          value={plate}
-          onChange={(e) => setPlate(e.target.value)}
-          className="w-32"
-        />
-      </div>
+      {plates.length >= 2 ? (
+        <div className="grid gap-1.5">
+          <Label>Plate</Label>
+          <PlatePicker
+            blobHash={filePlatesQ.data?.blob_hash}
+            plates={plates}
+            value={plate}
+            onChange={setPlate}
+            allowAll
+          />
+        </div>
+      ) : null}
       {slicerDown ? (
         <p role="alert" className="text-sm text-destructive">
           The slicer sidecar is not reachable
@@ -266,7 +269,6 @@ export function SliceDialog({
           type="button"
           disabled={
             (pipelineMode ? pipelineId == null : recipeId == null) ||
-            !plateValid ||
             start.isPending ||
             runPipeline.isPending ||
             slicerDown ||

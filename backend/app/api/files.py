@@ -18,6 +18,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, s
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from starlette.concurrency import iterate_in_threadpool
 
 from app.api.deps import (
@@ -33,7 +34,7 @@ from app.models import Blob, File
 from app.models.enums import BlobFormat
 from app.pipeline import slicedmeta
 from app.schemas.jobs import JobOut
-from app.schemas.library import FileMoveIn
+from app.schemas.library import FileMoveIn, PlateOut
 from app.services import library, signed_urls
 from app.services.bed_fit import fit_for_selection
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
@@ -57,19 +58,41 @@ class FileFormatOut(BaseModel):
     id: int
     rel_path: str
     format: BlobFormat
+    blob_hash: str
+    # Plates of the file (sliced or unsliced multi-plate project), for the
+    # print/slice plate pickers; ``None`` when the blob has no plate data.
+    plates: list[PlateOut] | None = None
 
 
 @router.get("/{file_id}", response_model=FileFormatOut)
-async def get_file_format(file_id: int, db: AsyncSession = Depends(get_db)) -> FileFormatOut:
-    """Minimal file lookup (id, path, format) -- the print dialog needs a
-    file's format to know whether it is already sliced."""
+async def get_file_format(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> FileFormatOut:
+    """Minimal file lookup (id, path, format, plates) -- the print dialog
+    needs a file's format to know whether it is already sliced, and its
+    plates to let the person pick one before slicing."""
     file = await library.get_live_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    blob = await db.get(Blob, file.blob_hash)
+    blob = await db.get(
+        Blob, file.blob_hash, options=[selectinload(Blob.meta), selectinload(Blob.derivatives)]
+    )
     if blob is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found")
-    return FileFormatOut(id=file.id, rel_path=file.rel_path, format=blob.format)
+    enrichment = (
+        await library._build_file_enrichments(
+            settings, [blob], await library._cost_rates(db, settings)
+        )
+    )[blob.hash]
+    return FileFormatOut(
+        id=file.id,
+        rel_path=file.rel_path,
+        format=blob.format,
+        blob_hash=blob.hash,
+        plates=enrichment.meta.plates if enrichment.meta else None,
+    )
 
 
 @router.get("/{file_id}/bed-fit")

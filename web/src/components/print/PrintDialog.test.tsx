@@ -81,6 +81,10 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
+vi.mock("@/components/print/PlatePreview", () => ({
+  default: ({ plate }: { plate: number }) => <div data-testid="plate-preview">preview {plate}</div>,
+}));
+
 function basePlan(overrides: Record<string, unknown> = {}) {
   return {
     file_id: 10,
@@ -208,13 +212,13 @@ function mockApi({
   });
 }
 
-function renderDialog(source: Parameters<typeof PrintDialog>[0]["source"], onSent = vi.fn()) {
+function renderDialog(source: Parameters<typeof PrintDialog>[0]["source"], onSent = vi.fn(), extra: { initialPlate?: number | null } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return {
     onSent,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <PrintDialog open onOpenChange={() => {}} source={source} onSent={onSent} />
+        <PrintDialog open onOpenChange={() => {}} source={source} onSent={onSent} {...extra} />
       </QueryClientProvider>,
     ),
   };
@@ -843,5 +847,102 @@ describe("PrintDialog scheduling (T4)", () => {
       expect.objectContaining({ name: "Run A", quantity: 4, file_id: 10, plate_targets: { "1": 4 } }),
     );
     expect(queueBody()).toBeUndefined();
+  });
+});
+
+
+describe("PrintDialog plate before slicing", () => {
+  const PLATES = [1, 2, 3].map((index) => ({
+    index, prediction_s: null, weight_g: null, est_cost: null, thumbnail_available: true, filaments: [],
+    name: `Part ${index}`, has_glb: true, fits: index !== 3,
+  }));
+
+  function multiPlate() {
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/files/10") return Promise.resolve({ id: 10, rel_path: "p.3mf", format: "3mf", blob_hash: "hh", plates: PLATES });
+      return base(path);
+    });
+  }
+
+  it("stops at the Plate step for an unsliced multi-plate file and sends the chosen plate", async () => {
+    multiPlate();
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Plate" })).toHaveAttribute("aria-current", "step"));
+    expect(screen.getByText("Too large")).toBeInTheDocument();
+    expect(screen.getByText(/only plate 1 prints/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: /Plate 2/ }));
+    expect(await screen.findByTestId("plate-preview")).toHaveTextContent("preview 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ recipe_id: 9, plate: 2, front: true })),
+    );
+  });
+
+  it("All plates sends no plate", async () => {
+    multiPlate();
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Plate" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ recipe_id: 9 })));
+    const body = postMock.mock.calls.find((c) => c[0] === "/queue")![1] as Record<string, unknown>;
+    expect(body.plate).toBeUndefined();
+  });
+
+  it("a single-plate unsliced file skips the Plate step", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "stl" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Profile" })).toHaveAttribute("aria-current", "step"));
+  });
+
+  it("initialPlate seeds the plan's plate", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "gcode_3mf" }, vi.fn(), { initialPlate: 2 });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/print/plan", expect.objectContaining({ plate: 2 })),
+    );
+  });
+
+  it("switching file in pick mode drops the previous file's plate", async () => {
+    const base = getMock.getMockImplementation()!;
+    const withPlates = (hash: string) => ({
+      id: 0, rel_path: "x.3mf", format: "3mf", blob_hash: hash, plates: PLATES,
+    });
+    getMock.mockImplementation((path: string) => {
+      if (path === "/features") return Promise.resolve({ printer_enabled: true, slicer_configured: true });
+      if (path === "/models/3/revisions") return Promise.resolve([{ id: 103 }]);
+      if (path === "/revisions/103")
+        return Promise.resolve({
+          files: [
+            { id: 21, rel_path: "a.3mf", format: "3mf" },
+            { id: 22, rel_path: "b.3mf", format: "3mf" },
+          ],
+        });
+      if (path === "/files/21") return Promise.resolve(withPlates("ha"));
+      if (path === "/files/22") return Promise.resolve(withPlates("hb"));
+      return base(path);
+    });
+    renderDialog({ kind: "model", modelId: 3 });
+    fireEvent.click(await screen.findByText("a.3mf"));
+    fireEvent.click(screen.getByRole("button", { name: "Plate" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /Plate 2/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    fireEvent.click(await screen.findByText("b.3mf"));
+    fireEvent.click(screen.getByRole("button", { name: "Plate" }));
+    const all = await screen.findByRole("radio", { name: /All plates/ });
+    expect(all).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("initialPlate 0 is ignored", async () => {
+    renderDialog({ kind: "file", fileId: 10, format: "gcode_3mf" }, vi.fn(), { initialPlate: 0 });
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/print/plan", expect.anything()));
+    const body = postMock.mock.calls.find((c) => c[0] === "/print/plan")![1] as Record<string, unknown>;
+    expect(body.plate).toBeUndefined();
   });
 });

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import Fanout, ProfileKind, ProfileSource
 from app.schemas.library import NonEmptyStr
@@ -139,7 +139,7 @@ class SlicerHealthOut(BaseModel):
 
 class SliceJobIn(BaseModel):
     recipe_id: int
-    plate: int | None = None
+    plate: int | None = Field(None, ge=1)
     # Slice even when the part doesn't fit the recipe's printer bed.
     force: bool = False
 

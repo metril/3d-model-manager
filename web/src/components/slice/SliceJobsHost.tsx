@@ -48,7 +48,7 @@ export function SliceToast({
         <p className="min-w-0 break-words font-medium">
           {state === "queued" ? `Slicing ${fileName}: waiting for the slicer…` : null}
           {state === "running" ? `Slicing ${fileName}…` : null}
-          {state === "done" ? `Sliced ${fileName}` : null}
+          {state === "done" ? `Sliced ${fileName}${job?.plate ? ` · plate ${job.plate}` : ""}` : null}
           {state === "failed" ? `Slicing ${fileName} failed` : null}
           {state === "cancelled" ? `Slicing ${fileName} cancelled` : null}
         </p>
@@ -176,6 +176,7 @@ export function SliceJobsHost() {
           open
           onOpenChange={(o) => !o && setPrintJob(null)}
           source={{ kind: "file", fileId: printJob.sliced_file_id, format: "gcode_3mf" }}
+          initialPlate={printJob.plate || null}
         />
       ) : null}
     </>
