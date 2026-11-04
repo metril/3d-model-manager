@@ -850,13 +850,13 @@ def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
     return meta is not None and meta.plates_json is None
 
 
-def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> None:
+def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> bool:
     with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
         src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
-        _generate_plate_assets(session, settings, blob, src)
+        return _generate_plate_assets(session, settings, blob, src)
 
 
-def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob, src: Path) -> None:
+def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob, src: Path) -> bool:
     """Unsliced multi-plate project 3MF: per-plate thumbs + recentred GLBs +
     ``BlobMeta.plates_json``. Best-effort -- a failure here never fails the
     main conversion (``plates_json`` stays NULL so the backfill retries).
@@ -864,7 +864,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
     """
     meta = session.get(BlobMeta, blob.hash)
     if meta is None:
-        return
+        return True
     try:
         with zipfile.ZipFile(src) as zf:
             plates = plates3mf.parse_unsliced_plates(zf)
@@ -875,7 +875,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
         if len(plates) < 2:
             meta.plates_json = []
             session.commit()
-            return
+            return True
         meshes: dict[int, trimesh.Trimesh] = {}
         if len(plates) <= plates3mf.MAX_PLATE_GLBS:
             meshes = plates3mf.plate_meshes(src, plates, bed)
@@ -895,7 +895,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
                 if bed is not None:
                     from app.services.bed_fit import check_fit
 
-                    fits = check_fit((bbox[0], bbox[1], bbox[2]), bed).fits
+                    fits = check_fit((bbox[0], bbox[1], bbox[2]), bed, allow_rotate=False).fits
             out.append(
                 {
                     "index": idx,
@@ -912,6 +912,13 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
     except Exception:
         session.rollback()
         logger.warning("plate assets failed for %s", blob.hash, exc_info=True)
+        # Mark analysed-with-nothing so the backfill never re-picks a poisoned blob.
+        meta = session.get(BlobMeta, blob.hash)
+        if meta is not None:
+            meta.plates_json = []
+            session.commit()
+        return False
+    return True
 
 
 def _publish_plate_glb(
@@ -952,6 +959,7 @@ def backfill_plates() -> int:
                 select(Blob)
                 .join(BlobMeta, BlobMeta.blob_hash == Blob.hash)
                 .where(Blob.format == BlobFormat.THREEMF, BlobMeta.plates_json.is_(None))
+                .order_by(Blob.hash)
                 .limit(BACKFILL_BATCH)
             )
             .scalars()
@@ -959,8 +967,8 @@ def backfill_plates() -> int:
         )
         for blob in rows:
             try:
-                _plates_for_blob(session, settings, blob)
-                done += 1
+                if _plates_for_blob(session, settings, blob):
+                    done += 1
             except Exception:
                 session.rollback()
                 logger.warning("plate backfill failed for %s", blob.hash, exc_info=True)

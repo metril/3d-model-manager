@@ -170,13 +170,23 @@ def plate_meshes(
             pos = slots[inst] if inst < len(slots) else slots[0]
             assigned[plate["index"]].append(pos)
             claimed.add(pos)
-    first = plates[0]["index"]
-    for pos in range(len(items)):
-        if pos not in claimed:
-            logger.info("plates3mf: build item %d on no plate; placing on plate %d", pos, first)
-            assigned[first].append(pos)
-
     n = max(max(p["index"] for p in plates), len(plates))
+    eff = bed or DEFAULT_BED
+    cols = max(1, math.ceil(math.sqrt(n)))
+    for pos in range(len(items)):
+        if pos in claimed or items[pos] is None:
+            continue
+        lo, hi = items[pos].bounds
+        cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
+        col = round((cx - eff[0] / 2) / (eff[0] * (1 + PLATE_GAP)))
+        row = round(-(cy - eff[1] / 2) / (eff[1] * (1 + PLATE_GAP)))
+        target = row * cols + col + 1
+        if col < 0 or col >= cols or row < 0 or target not in assigned:
+            logger.info("plates3mf: build item %d on no plate and no grid cell; dropped", pos)
+            continue
+        logger.info("plates3mf: build item %d on no plate; placing on plate %d", pos, target)
+        assigned[target].append(pos)
+
     out: dict[int, trimesh.Trimesh] = {}
     for plate in plates:
         parts = [items[pos] for pos in assigned[plate["index"]] if items[pos] is not None]

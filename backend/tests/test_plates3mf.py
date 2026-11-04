@@ -75,6 +75,22 @@ def test_unassigned_object_goes_on_plate_one(tmp_path: Path, caplog) -> None:
         meshes = plates3mf.plate_meshes(path, plates, bed)
     assert "on no plate" in caplog.text
     assert len(meshes[1].faces) == 24 and len(meshes[2].faces) == 12
+    assert meshes[1].bounds[1][:2].max() <= 180  # attached by cell, not smeared across beds
+
+
+def test_unassigned_object_attaches_to_its_own_cell_plate(tmp_path: Path) -> None:
+    path, plates, bed = _load(tmp_path, extra_unassigned=True, extra_cell=1)
+    meshes = plates3mf.plate_meshes(path, plates, bed)
+    assert len(meshes[2].faces) == 24 and len(meshes[1].faces) == 12
+    assert meshes[2].bounds[1][:2].max() <= 180
+
+
+def test_unassigned_object_in_empty_cell_is_dropped(tmp_path: Path, caplog) -> None:
+    path, plates, bed = _load(tmp_path, extra_unassigned=True, extra_cell=3)
+    with caplog.at_level("INFO"):
+        meshes = plates3mf.plate_meshes(path, plates, bed)
+    assert "dropped" in caplog.text
+    assert all(len(m.faces) == 12 for m in meshes.values())
 
 
 def test_single_plate_and_no_config(tmp_path: Path) -> None:

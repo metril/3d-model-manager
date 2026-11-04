@@ -121,3 +121,29 @@ async def test_plate_endpoints_and_file_plates(
 def test_alembic_single_head() -> None:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     assert len(ScriptDirectory.from_config(cfg).get_heads()) == 1
+
+
+async def test_corrupt_3mf_is_marked_and_backfill_advances(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    from sqlalchemy import select as sa_select
+
+    for i in range(pipeline.BACKFILL_BATCH + 2):
+        await _seed(db_session, seed_file, b"not a zip %d" % i, f"bad{i}")
+    assert pipeline.backfill_plates() == 0
+    assert pipeline.backfill_plates() == 0
+    pending = (
+        (await db_session.execute(sa_select(BlobMeta).where(BlobMeta.plates_json.is_(None))))
+        .scalars()
+        .all()
+    )
+    assert pending == []
+
+
+async def test_stored_fits_uses_no_rotation(db_session: AsyncSession, backend, seed_file) -> None:
+    # 20mm cube on a 20mm bed: no margin -> not fit; rotation irrelevant, but the
+    # flag must be False-compatible (status derives from allow_rotate=False).
+    _, f = await _seed(db_session, seed_file, make_project_3mf(2, bed=20.0), "fitsrot")
+    _convert(backend, f.blob_hash)
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert [p["fits"] for p in meta.plates_json] == [False, False]

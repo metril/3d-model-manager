@@ -43,6 +43,7 @@ def make_project_3mf(
     on_grid: bool = True,
     names: list[str] | None = None,
     extra_unassigned: bool = False,
+    extra_cell: int | None = 0,
     thumbs: bool = True,
 ) -> bytes:
     """``n_plates`` plates, one ``cube``-mm cube each. ``on_grid`` places each
@@ -74,6 +75,9 @@ def make_project_3mf(
         )
         if on_grid and k < n_plates:
             ox, oy = grid_origin(k, n_plates, bed_for_layout)
+            tx, ty = ox + bed_for_layout / 2 - cube / 2, oy + bed_for_layout / 2 - cube / 2
+        elif k >= n_plates and extra_cell is not None:
+            ox, oy = grid_origin(extra_cell, n_plates, bed_for_layout)
             tx, ty = ox + bed_for_layout / 2 - cube / 2, oy + bed_for_layout / 2 - cube / 2
         else:
             tx, ty = 1000.0 + 50 * k, -900.0
