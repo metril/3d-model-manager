@@ -30,7 +30,8 @@ import { ViewerFooterStrip } from "@/components/viewer/ViewerFooterStrip";
 import { ViewerMorePanel } from "@/components/viewer/ViewerMorePanel";
 import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
-import type { FileOut } from "@/api/types";
+import { PlateSelector } from "@/components/viewer/PlateSelector";
+import type { FileOut, PlateOut } from "@/api/types";
 
 // three.js/@react-three/fiber/drei are heavy (Global Constraints "BUNDLE
 // RULE") — load them only once a GLB actually needs rendering, so the main
@@ -328,6 +329,13 @@ export interface ViewerStageProps {
    * should bind the hotkey; defaults to `true` since every other caller
    * (the pop-out window) only ever has one stage mounted at a time. */
   active?: boolean;
+  /** Plate chooser for multi-plate projects; `null`/absent hides it. */
+  plateInfo?: {
+    blobHash: string;
+    plates: PlateOut[];
+    value: number | null;
+    onChange: (plate: number | null) => void;
+  } | null;
 }
 
 /** Canvas + absolutely-positioned chrome -- the whole redesigned viewer
@@ -387,6 +395,7 @@ export function ViewerStage({
   capturingCover,
   canCaptureCover,
   active = true,
+  plateInfo = null,
 }: ViewerStageProps) {
   const handleAutoRotateToggle = useCallback(() => {
     onToolsChange({ autoRotate: !tools.autoRotate });
@@ -609,6 +618,11 @@ export function ViewerStage({
           onToggleFullscreen={toggleFullscreen}
           container={portalContainer}
         />
+        {plateInfo ? (
+          <div className="pointer-events-none absolute inset-x-0 top-11 flex justify-center">
+            <PlateSelector {...plateInfo} />
+          </div>
+        ) : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-2">
           <ViewerDock
             tools={tools}

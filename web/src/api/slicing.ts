@@ -7,6 +7,7 @@ import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient }
 
 import { api, ApiError } from "@/api/client";
 import type {
+  PlateOut,
   PrintRecipe,
   PrintRecipeIn,
   ProfileImportResult,
@@ -191,13 +192,13 @@ export interface BedFit {
 export function useBedFit(
   slug: string | undefined,
   fileId: number,
-  { printerId, recipeId }: { printerId: number | null; recipeId: number | null },
+  { printerId, recipeId, plate = null }: { printerId: number | null; recipeId: number | null; plate?: number | null },
 ) {
   return useQuery({
-    queryKey: ["bed-fit", slug, fileId, printerId, recipeId] as const,
+    queryKey: ["bed-fit", slug, fileId, printerId, recipeId, plate] as const,
     queryFn: () => {
       // The recipe's own printer profile is what the slice guard checks.
-      const q = recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`;
+      const q = (recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`) + (plate ? `&plate=${plate}` : "");
       return api.get<BedFit>(`/models/${slug}/files/${fileId}/bed-fit?${q}`);
     },
     enabled: !!slug && (recipeId != null || printerId != null),
@@ -234,17 +235,31 @@ export function useCancelSliceJob() {
 /** `GET /files/{id}/bed-fit` -- slug-free twin of `useBedFit` for the print wizard. */
 export function useFileBedFit(
   fileId: number | null,
-  { printerId, recipeId }: { printerId: number | null; recipeId: number | null },
+  { printerId, recipeId, plate = null }: { printerId: number | null; recipeId: number | null; plate?: number | null },
   enabled = true,
 ) {
   return useQuery({
-    queryKey: ["bed-fit", "file", fileId, printerId, recipeId] as const,
+    queryKey: ["bed-fit", "file", fileId, printerId, recipeId, plate] as const,
     queryFn: () => {
-      const q = recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`;
+      const q = (recipeId != null ? `recipe_id=${recipeId}` : `printer_id=${printerId}`) + (plate ? `&plate=${plate}` : "");
       return api.get<BedFit>(`/files/${fileId}/bed-fit?${q}`);
     },
     enabled: enabled && fileId != null && (recipeId != null || printerId != null),
     retry: false,
     staleTime: 60_000,
+  });
+}
+
+/** `GET /files/{id}` -- format, blob hash and plates (sliced or unsliced), for the plate pickers. */
+export interface FilePlates {
+  format: string;
+  blob_hash?: string;
+  plates?: PlateOut[] | null;
+}
+export function useFilePlates(fileId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["files", "format", fileId] as const,
+    queryFn: () => api.get<FilePlates>(`/files/${fileId}`),
+    enabled: enabled && fileId != null,
   });
 }

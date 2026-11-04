@@ -30,7 +30,8 @@ import {
   type ViewerToolsState,
 } from "@/components/viewer/tools";
 import type { ViewerStageProps } from "@/components/viewer/ViewerStage";
-import { glbUrl, type ViewerPart } from "@/components/viewer/viewable";
+import { partUrl, setSelectedPlate, useSelectedPlate, viewerPlates } from "@/components/viewer/plates";
+import type { ViewerPart } from "@/components/viewer/viewable";
 import type { FileOut } from "@/api/types";
 
 // Fallback build-plate mm side length when there's no configured printer
@@ -166,16 +167,30 @@ export function useViewerScene({
   // the checklist changing which parts even exist in the tree (which used to
   // force the whole canvas to remount on every checkbox click). `checkedIds`
   // still drives `visible`, `checkedList`, and the "N of M" header below.
+  const plateInfo = useMemo(() => viewerPlates(files), [files]);
+  const selectedPlate = useSelectedPlate(plateInfo?.blobHash);
   const parts: ViewerPart[] = useMemo(
     () =>
       files.map((file) => ({
         id: file.id,
-        url: glbUrl(file),
+        // Per-plate GLB when a plate is selected on this file's blob.
+        url: partUrl(file, plateInfo?.blobHash === file.blob_hash ? selectedPlate : null),
         color: colors[file.id],
         visible: checkedIds.has(file.id),
       })),
-    [files, checkedIds, colors],
+    [files, checkedIds, colors, plateInfo, selectedPlate],
   );
+
+  // A plate swap loads different geometry: reset explode (its offsets
+  // describe the old parts) and reframe/fit to the bed.
+  const lastPlate = useRef(selectedPlate);
+  const explodeNow = tools.explode;
+  useEffect(() => {
+    if (lastPlate.current === selectedPlate) return;
+    lastPlate.current = selectedPlate;
+    if (explodeNow !== 0) setTools({ explode: 0 });
+    setFitSignal((prev) => prev + 1);
+  }, [selectedPlate, explodeNow, setTools]);
 
   function toggleFile(fileId: number, checked: boolean) {
     setCheckedIds((prev) => {
@@ -299,6 +314,14 @@ export function useViewerScene({
     onCaptureCover: captureCover,
     capturingCover,
     canCaptureCover: persist,
+    plateInfo: plateInfo
+      ? {
+          blobHash: plateInfo.blobHash,
+          plates: plateInfo.plates,
+          value: selectedPlate,
+          onChange: (plate) => setSelectedPlate(plateInfo.blobHash, plate),
+        }
+      : null,
   };
 
   return { stageProps };

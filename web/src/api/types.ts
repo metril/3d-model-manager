@@ -166,6 +166,11 @@ export interface PlateOut {
   est_cost: number | null;
   thumbnail_available: boolean;
   filaments: PlateFilamentOut[];
+  /** Unsliced multi-plate projects: plate name, per-plate GLB, extents (mm), bed fit. */
+  name?: string;
+  has_glb?: boolean;
+  bbox?: number[] | null;
+  fits?: boolean | null;
 }
 
 export interface BlobMetaOut {
