@@ -210,6 +210,22 @@ export interface FileOut {
   glb_status: GlbStatus | null;
   glb_preview_ready: boolean;
   tag_refs?: TagRef[];
+  /** Import provenance (MakerWorld print-profile printers/plates). */
+  source_meta?: SourceMeta | null;
+}
+
+export interface SourceMeta {
+  profile_id?: number | null;
+  instance_id?: number | null;
+  title?: string | null;
+  compat?: { model: string | null; product: string | null; nozzle: number | null }[];
+  plates?: {
+    index: number | null;
+    name: string | null;
+    thumb: string | null;
+    prediction: number | null;
+    weight: number | null;
+  }[];
 }
 
 export interface NoteCreate {
@@ -611,6 +627,8 @@ export interface AppSettings {
   energy_price_ha_entity: string;
   // Library trash: days a trashed model is kept before auto-purge (0 = never).
   trash_retention_days: number;
+  // MakerWorld import: keep all print profiles or only those for enabled printers.
+  makerworld_profiles: "all" | "owned";
 }
 
 export interface TrashItem {
@@ -1236,6 +1254,8 @@ export interface ImportPage {
 
 export interface ImportCreate {
   url: string;
+  /** Per-import override of the `makerworld_profiles` setting. */
+  profile_filter?: "all" | "owned";
 }
 
 export interface ImportTokensIn {

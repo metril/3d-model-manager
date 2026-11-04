@@ -75,6 +75,7 @@ class AppSettingsIn(BaseModel):
     energy_price_ha_entity: str = Field(default="", max_length=255)
     sensor_history_days: int = Field(default=30, ge=1, le=3650)
     trash_retention_days: int = Field(default=30, ge=0, le=3650)
+    makerworld_profiles: Literal["all", "owned"] = "all"
 
 
 class AppSettingsOut(BaseModel):
@@ -90,6 +91,7 @@ class AppSettingsOut(BaseModel):
     energy_price_ha_entity: str
     sensor_history_days: int
     trash_retention_days: int
+    makerworld_profiles: Literal["all", "owned"]
 
     @classmethod
     def from_config(cls, config: AppConfig) -> AppSettingsOut:

@@ -34,6 +34,7 @@ function fakeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     energy_price_source: "fixed",
     energy_price_ha_entity: "",
     trash_retention_days: 30,
+    makerworld_profiles: "all",
     ...overrides,
   };
 }
@@ -118,6 +119,7 @@ describe("AutomationCard", () => {
         energy_price_source: "fixed",
         energy_price_ha_entity: "",
         trash_retention_days: 30,
+        makerworld_profiles: "all",
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();

@@ -93,7 +93,14 @@ function ImportRow({ imp }: { imp: ImportOut }) {
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{formatRelativeTime(imp.created_at)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {formatRelativeTime(imp.created_at)}
+            {typeof imp.meta?.profiles_total === "number" &&
+            typeof imp.meta?.profiles_kept === "number" &&
+            imp.meta.profiles_kept < imp.meta.profiles_total
+              ? ` · filtered ${imp.meta.profiles_kept}/${imp.meta.profiles_total}`
+              : ""}
+          </p>
           {imp.state === "failed" && imp.error ? (
             <p className="mt-1 max-w-prose text-xs whitespace-pre-wrap text-destructive/90">{imp.error}</p>
           ) : null}

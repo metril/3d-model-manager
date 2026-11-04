@@ -8,6 +8,7 @@ import { useStorageBackends } from "@/api/settings";
 import { useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
+import { MakerWorldProfilesCard } from "@/components/settings/MakerWorldProfilesCard";
 import { BambuAccountCard } from "@/components/settings/BambuAccountCard";
 import { TrashRetentionCard } from "@/components/settings/TrashRetentionCard";
 import { ArchivePurgeCard } from "@/components/settings/ArchivePurgeCard";
@@ -177,6 +178,7 @@ export function SettingsPage() {
               <BrowserExtensionCard />
               <SlicerIntegrationCard />
             </div>
+            <MakerWorldProfilesCard />
             <ApiKeysCard />
           </TabsContent>
           {isAdmin && (

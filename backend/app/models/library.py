@@ -577,4 +577,8 @@ class File(Base):
         BigInteger, ForeignKey("storage_backends.id"), index=True
     )
 
+    # Import provenance for this file (MakerWorld print-profile printers/
+    # plates); NULL for anything not imported from a profile.
+    source_meta: Mapped[dict | None] = mapped_column(JSONB)
+
     blob: Mapped["Blob"] = relationship()

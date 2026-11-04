@@ -323,6 +323,7 @@ class FileOut(BaseModel):
     glb_status: GlbStatus | None = None
     glb_preview_ready: bool = False
     tag_refs: list[TagRef] = []
+    source_meta: dict | None = None
 
     @classmethod
     def from_model(cls, file: File, enrichment: FileEnrichment | None = None) -> FileOut:
@@ -337,6 +338,7 @@ class FileOut(BaseModel):
             kind=file.blob.kind,
             mtime=file.mtime,
             verified_at=file.verified_at,
+            source_meta=file.source_meta,
             meta=enrichment.meta if enrichment else None,
             thumb_ready=enrichment.thumb_ready if enrichment else False,
             glb_status=enrichment.glb_status if enrichment else None,

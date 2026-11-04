@@ -150,3 +150,204 @@ FAVORITE_DESIGNS = [
         "designCreator": {"uid": 4268272778, "name": "Javier Lorenzana"},
     },
 ]
+
+# Trimmed from live design 137041 (3 print profiles; plates cut to 3 each).
+DESIGN_137041 = {
+    "id": 137041,
+    "title": "RJ45 Cap coupler Protection Cover for LAN cables",
+    "modelId": "USd4c4619315b7fc",
+    "coverUrl": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/design/2024-01-14_1cfc14dc5e9fd.jpg",
+    "paidSetting": {"isPaid": False},
+    "instances": [
+        {
+            "id": 151331,
+            "title": "no brim, 0.2mm layer, 2 walls, 15% infill",
+            "hasZipStl": True,
+            "profileId": 166302083,
+            "extention": {
+                "modelInfo": {
+                    "compatibility": {
+                        "devModelName": "C12",
+                        "devProductName": "P1S",
+                        "nozzleDiameter": 0.4,
+                    },
+                    "otherCompatibility": [
+                        {"devModelName": "C11", "devProductName": "P1P", "nozzleDiameter": 0.4},
+                        {"devModelName": "BL-P002", "devProductName": "X1", "nozzleDiameter": 0.4},
+                        {
+                            "devModelName": "BL-P001",
+                            "devProductName": "X1 Carbon",
+                            "nozzleDiameter": 0.4,
+                        },
+                        {"devModelName": "C13", "devProductName": "X1E", "nozzleDiameter": 0.4},
+                        {"devModelName": "N2S", "devProductName": "A1", "nozzleDiameter": 0.4},
+                        {"devModelName": "N1", "devProductName": "A1 mini", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1D", "devProductName": "H2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1E", "devProductName": "H2D Pro", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1S", "devProductName": "H2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "N7", "devProductName": "P2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1C2", "devProductName": "H2C", "nozzleDiameter": 0.4},
+                        {"devModelName": "N6", "devProductName": "X2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "N9", "devProductName": "A2L", "nozzleDiameter": 0.4},
+                        {"devModelName": "N10", "devProductName": "H3C", "nozzleDiameter": 0.4},
+                    ],
+                    "plates": [
+                        {
+                            "index": 1,
+                            "name": "labeled-1to24",
+                            "thumbnail": {
+                                "name": "plate_1.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/166302083/instance/plate_1.png",
+                            },
+                            "prediction": 8252,
+                            "weight": 62,
+                        },
+                        {
+                            "index": 2,
+                            "name": "labeled-1to48",
+                            "thumbnail": {
+                                "name": "plate_2.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/166302083/instance/plate_2.png",
+                            },
+                            "prediction": 16243,
+                            "weight": 124,
+                        },
+                        {
+                            "index": 3,
+                            "name": "unlabeled-cap",
+                            "thumbnail": {
+                                "name": "plate_3.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/166302083/instance/plate_3.png",
+                            },
+                            "prediction": 835,
+                            "weight": 3,
+                        },
+                    ],
+                }
+            },
+        },
+        {
+            "id": 151334,
+            "title": "with brim, 0.2mm layer, 2 walls, 15% infill",
+            "hasZipStl": True,
+            "profileId": 113204515,
+            "extention": {
+                "modelInfo": {
+                    "compatibility": {
+                        "devModelName": "C12",
+                        "devProductName": "P1S",
+                        "nozzleDiameter": 0.4,
+                    },
+                    "otherCompatibility": [
+                        {"devModelName": "C11", "devProductName": "P1P", "nozzleDiameter": 0.4},
+                        {"devModelName": "BL-P002", "devProductName": "X1", "nozzleDiameter": 0.4},
+                        {
+                            "devModelName": "BL-P001",
+                            "devProductName": "X1 Carbon",
+                            "nozzleDiameter": 0.4,
+                        },
+                        {"devModelName": "C13", "devProductName": "X1E", "nozzleDiameter": 0.4},
+                        {"devModelName": "N2S", "devProductName": "A1", "nozzleDiameter": 0.4},
+                        {"devModelName": "N1", "devProductName": "A1 mini", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1D", "devProductName": "H2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1E", "devProductName": "H2D Pro", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1S", "devProductName": "H2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "N7", "devProductName": "P2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1C2", "devProductName": "H2C", "nozzleDiameter": 0.4},
+                        {"devModelName": "N6", "devProductName": "X2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "N9", "devProductName": "A2L", "nozzleDiameter": 0.4},
+                        {"devModelName": "N10", "devProductName": "H3C", "nozzleDiameter": 0.4},
+                    ],
+                    "plates": [
+                        {
+                            "index": 1,
+                            "name": "labeled-1to24",
+                            "thumbnail": {
+                                "name": "plate_1.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/113204515/instance/plate_1.png",
+                            },
+                            "prediction": 8447,
+                            "weight": 63,
+                        },
+                        {
+                            "index": 2,
+                            "name": "labeled-1to48",
+                            "thumbnail": {
+                                "name": "plate_2.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/113204515/instance/plate_2.png",
+                            },
+                            "prediction": 16560,
+                            "weight": 125,
+                        },
+                        {
+                            "index": 3,
+                            "name": "unlabeled-cap",
+                            "thumbnail": {
+                                "name": "plate_3.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/113204515/instance/plate_3.png",
+                            },
+                            "prediction": 851,
+                            "weight": 3,
+                        },
+                    ],
+                }
+            },
+        },
+        {
+            "id": 1029382,
+            "title": "Box for couplers",
+            "hasZipStl": True,
+            "profileId": 212695799,
+            "extention": {
+                "modelInfo": {
+                    "compatibility": {
+                        "devModelName": "C12",
+                        "devProductName": "P1S",
+                        "nozzleDiameter": 0.4,
+                    },
+                    "otherCompatibility": [
+                        {"devModelName": "C11", "devProductName": "P1P", "nozzleDiameter": 0.4},
+                        {"devModelName": "BL-P002", "devProductName": "X1", "nozzleDiameter": 0.4},
+                        {
+                            "devModelName": "BL-P001",
+                            "devProductName": "X1 Carbon",
+                            "nozzleDiameter": 0.4,
+                        },
+                        {"devModelName": "C13", "devProductName": "X1E", "nozzleDiameter": 0.4},
+                        {"devModelName": "N2S", "devProductName": "A1", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1D", "devProductName": "H2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1E", "devProductName": "H2D Pro", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1S", "devProductName": "H2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "N7", "devProductName": "P2S", "nozzleDiameter": 0.4},
+                        {"devModelName": "O1C2", "devProductName": "H2C", "nozzleDiameter": 0.4},
+                        {"devModelName": "N6", "devProductName": "X2D", "nozzleDiameter": 0.4},
+                        {"devModelName": "N9", "devProductName": "A2L", "nozzleDiameter": 0.4},
+                        {"devModelName": "N10", "devProductName": "H3C", "nozzleDiameter": 0.4},
+                    ],
+                    "plates": [
+                        {
+                            "index": 1,
+                            "name": "Plate 1",
+                            "thumbnail": {
+                                "name": "plate_1.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/212695799/instance/plate_1.png",
+                            },
+                            "prediction": 5151,
+                            "weight": 57,
+                        },
+                        {
+                            "index": 2,
+                            "name": "",
+                            "thumbnail": {
+                                "name": "plate_2.png",
+                                "url": "https://makerworld.bblmw.com/makerworld/model/USd4c4619315b7fc/212695799/instance/plate_2.png",
+                            },
+                            "prediction": 3666,
+                            "weight": 31,
+                        },
+                    ],
+                }
+            },
+        },
+    ],
+}
