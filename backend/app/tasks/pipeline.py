@@ -982,6 +982,9 @@ def backfill_plates() -> int:
                 if meta is not None:  # don't retry a poisoned blob forever
                     meta.plates_json = []
                     session.commit()
+        full_batch = len(rows) >= BACKFILL_BATCH
+    if full_batch:  # more may remain: chain instead of waiting for the beat
+        backfill_plates.apply_async(countdown=5)
     return done
 
 

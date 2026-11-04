@@ -30,7 +30,17 @@ import {
   type ViewerToolsState,
 } from "@/components/viewer/tools";
 import type { ViewerStageProps } from "@/components/viewer/ViewerStage";
-import { clearSelectedPlate, partUrl, setActiveViewerBlob, setSelectedPlate, useSelectedPlate, viewerPlates } from "@/components/viewer/plates";
+import {
+  clearSelectedPlate,
+  partUrl,
+  resolveActive,
+  setActiveViewerBlob,
+  setSelectedPlate,
+  useActiveViewerBlob,
+  useSelectedPlate,
+  viewerPlates,
+  visibleParts,
+} from "@/components/viewer/plates";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import type { FileOut } from "@/api/types";
 
@@ -167,10 +177,13 @@ export function useViewerScene({
   // the checklist changing which parts even exist in the tree (which used to
   // force the whole canvas to remount on every checkbox click). `checkedIds`
   // still drives `visible`, `checkedList`, and the "N of M" header below.
-  const plateInfo = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
+  const plateFiles = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
+  const preferredBlob = useActiveViewerBlob();
+  const plateInfo = useMemo(() => resolveActive(plateFiles, preferredBlob), [plateFiles, preferredBlob]);
   const plateBlob = plateInfo?.blobHash ?? null;
   // Publish which blob this viewer drives (plate cards act only on it) and
-  // forget its selection when the viewer goes away or the model changes.
+  // forget its selection when the viewer goes away, the model changes or the
+  // file picker moves on.
   useEffect(() => {
     if (!plateBlob) return;
     setActiveViewerBlob(plateBlob);
@@ -179,29 +192,32 @@ export function useViewerScene({
       clearSelectedPlate(plateBlob);
     };
   }, [plateBlob]);
-  const selectedPlate = useSelectedPlate(plateInfo?.blobHash);
+  const selectedPlate = useSelectedPlate(plateBlob);
+  // A selected plate isolates that file; "All plates" restores the checked set.
+  const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob, selectedPlate), [files, checkedIds, plateBlob, selectedPlate]);
   const parts: ViewerPart[] = useMemo(
     () =>
       files.map((file) => ({
         id: file.id,
         // Per-plate GLB when a plate is selected on this file's blob.
-        url: partUrl(file, plateInfo?.blobHash === file.blob_hash ? selectedPlate : null),
+        url: partUrl(file, plateBlob === file.blob_hash ? selectedPlate : null),
         color: colors[file.id],
-        visible: checkedIds.has(file.id),
+        visible: shown.has(file.id),
       })),
-    [files, checkedIds, colors, plateInfo, selectedPlate],
+    [files, shown, colors, plateBlob, selectedPlate],
   );
 
-  // A plate swap loads different geometry: reset explode (its offsets
-  // describe the old parts) and reframe/fit to the bed.
-  const lastPlate = useRef(selectedPlate);
+  // A plate swap loads different geometry (and isolates one file): reset
+  // explode (its offsets describe the old parts) and reframe/fit to the bed.
+  const lastPlate = useRef(`${plateBlob}:${selectedPlate}`);
   const explodeNow = tools.explode;
   useEffect(() => {
-    if (lastPlate.current === selectedPlate) return;
-    lastPlate.current = selectedPlate;
+    const key = `${plateBlob}:${selectedPlate}`;
+    if (lastPlate.current === key) return;
+    lastPlate.current = key;
     if (explodeNow !== 0) setTools({ explode: 0 });
     setFitSignal((prev) => prev + 1);
-  }, [selectedPlate, explodeNow, setTools]);
+  }, [plateBlob, selectedPlate, explodeNow, setTools]);
 
   function toggleFile(fileId: number, checked: boolean) {
     setCheckedIds((prev) => {
@@ -329,8 +345,13 @@ export function useViewerScene({
       ? {
           blobHash: plateInfo.blobHash,
           plates: plateInfo.plates,
+          files: plateFiles,
           value: selectedPlate,
           onChange: (plate) => setSelectedPlate(plateInfo.blobHash, plate),
+          onFileChange: (blobHash) => {
+            clearSelectedPlate(plateInfo.blobHash);
+            setActiveViewerBlob(blobHash);
+          },
         }
       : null,
   };

@@ -23,18 +23,49 @@ export function plateLabel(plate: Pick<PlateOut, "index" | "name">): string {
   return plate.name ? `Plate ${plate.index} · ${plate.name}` : `Plate ${plate.index}`;
 }
 
-/** The blob + plates the viewer's selector drives: the first CHECKED (shown)
- * file with 2+ plates, else the first such file. */
-export function viewerPlates(
-  files: FileOut[],
-  checkedIds?: ReadonlySet<number>,
-): { blobHash: string; plates: PlateOut[] } | null {
+export interface ViewerPlateFile {
+  fileId: number;
+  blobHash: string;
+  label: string;
+  plates: PlateOut[];
+}
+
+/** "dir/Benchy-1234567.3mf" -> "Benchy" (extension and trailing MakerWorld id dropped). */
+export function fileLabel(relPath: string): string {
+  const base = relPath.split("/").pop() ?? relPath;
+  const stem = base.replace(/\.[^.]+$/, "");
+  return stem.replace(/-\d+$/, "") || stem || base;
+}
+
+/** Every file the viewer's selector can drive: 2+ plates with some GLB.
+ * CHECKED (shown) files first, then the rest; one entry per blob. */
+export function viewerPlates(files: FileOut[], checkedIds?: ReadonlySet<number>): ViewerPlateFile[] {
   const ordered = checkedIds ? [...files.filter((f) => checkedIds.has(f.id)), ...files.filter((f) => !checkedIds.has(f.id))] : files;
+  const out: ViewerPlateFile[] = [];
   for (const file of ordered) {
     const plates = selectablePlates(file.meta?.plates);
-    if (plates.length > 0 && plates.some((p) => p.has_glb)) return { blobHash: file.blob_hash, plates };
+    if (plates.length > 0 && plates.some((p) => p.has_glb) && !out.some((o) => o.blobHash === file.blob_hash)) {
+      out.push({ fileId: file.id, blobHash: file.blob_hash, label: fileLabel(file.rel_path ?? ""), plates });
+    }
   }
-  return null;
+  return out;
+}
+
+/** The entry the selector currently drives: the preferred blob if still offered, else the first. */
+export function resolveActive(entries: ViewerPlateFile[], preferred: string | null): ViewerPlateFile | null {
+  return entries.find((e) => e.blobHash === preferred) ?? entries[0] ?? null;
+}
+
+/** File ids to render. A selected plate isolates the active blob's file(s);
+ * no plate ("All plates") keeps the normal multi-file checked view. */
+export function visibleParts(
+  files: Pick<FileOut, "id" | "blob_hash">[],
+  checkedIds: ReadonlySet<number>,
+  activeBlob: string | null,
+  selectedPlate: number | null,
+): Set<number> {
+  if (selectedPlate == null || !activeBlob) return new Set(checkedIds);
+  return new Set(files.filter((f) => f.blob_hash === activeBlob).map((f) => f.id));
 }
 
 /** Part GLB url: the per-plate GLB when a plate is selected on this file's blob. */
@@ -53,6 +84,10 @@ export function setActiveViewerBlob(blobHash: string | null) {
   if (activeBlob === blobHash) return;
   activeBlob = blobHash;
   for (const l of listeners) l();
+}
+
+export function useActiveViewerBlob(): string | null {
+  return useSyncExternalStore(subscribe, () => activeBlob);
 }
 
 export function useIsActiveViewerBlob(blobHash: string): boolean {

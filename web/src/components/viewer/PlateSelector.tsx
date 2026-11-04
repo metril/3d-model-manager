@@ -1,6 +1,7 @@
 import { ImageIcon } from "lucide-react";
 
-import { plateLabel, plateThumbUrl, selectablePlates } from "@/components/viewer/plates";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { plateLabel, plateThumbUrl, selectablePlates, type ViewerPlateFile } from "@/components/viewer/plates";
 import { cn } from "@/lib/utils";
 import type { PlateOut } from "@/api/types";
 
@@ -11,11 +12,16 @@ export function PlateSelector({
   plates,
   value,
   onChange,
+  files,
+  onFileChange,
 }: {
   blobHash: string;
   plates: PlateOut[] | null | undefined;
   value: number | null;
   onChange: (plate: number | null) => void;
+  /** All plated files; a file picker shows only when there is more than one. */
+  files?: ViewerPlateFile[];
+  onFileChange?: (blobHash: string) => void;
 }) {
   const list = selectablePlates(plates);
   if (list.length === 0) return null;
@@ -26,6 +32,20 @@ export function PlateSelector({
     );
   return (
     <div role="radiogroup" aria-label="Plate" className="pointer-events-none flex max-w-full gap-1.5 overflow-x-auto px-2">
+      {files && files.length > 1 && onFileChange ? (
+        <Select value={blobHash} onValueChange={onFileChange}>
+          <SelectTrigger aria-label="Plate file" className="pointer-events-auto h-7 w-auto max-w-48 shrink-0 gap-1.5 rounded-full bg-background/80 px-2.5 text-xs backdrop-blur-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {files.map((f) => (
+              <SelectItem key={f.blobHash} value={f.blobHash}>
+                {f.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
       <button type="button" role="radio" aria-checked={value == null} className={chip(value == null)} onClick={() => onChange(null)}>
         All plates
       </button>
