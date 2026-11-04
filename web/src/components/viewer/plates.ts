@@ -7,7 +7,7 @@
  */
 import { useSyncExternalStore } from "react";
 
-import { glbUrl } from "@/components/viewer/viewable";
+import { GLB_CACHE_V, glbUrl } from "@/components/viewer/viewable";
 import type { FileOut, PlateOut } from "@/api/types";
 
 /** Plates worth offering a choice between: a selector needs at least two. */
@@ -15,12 +15,14 @@ export function selectablePlates(plates: PlateOut[] | null | undefined): PlateOu
   return plates && plates.length >= 2 ? plates : [];
 }
 
-export const plateGlbUrl = (blobHash: string, plate: number) => `/api/blobs/${blobHash}/plates/${plate}/glb`;
+export const plateGlbUrl = (blobHash: string, plate: number) => `/api/blobs/${blobHash}/plates/${plate}/glb?v=${GLB_CACHE_V}`;
 export const plateThumbUrl = (blobHash: string, plate: number) => `/api/blobs/${blobHash}/plates/${plate}/thumb`;
 
-/** "Plate 2 · Lid" (name omitted when empty). */
+/** "Plate 2 · Lid" (name omitted when empty or just the default "Plate N"). */
 export function plateLabel(plate: Pick<PlateOut, "index" | "name">): string {
-  return plate.name ? `Plate ${plate.index} · ${plate.name}` : `Plate ${plate.index}`;
+  const base = `Plate ${plate.index}`;
+  const name = plate.name?.trim();
+  return name && name.toLowerCase() !== base.toLowerCase() ? `${base} · ${name}` : base;
 }
 
 export interface ViewerPlateFile {

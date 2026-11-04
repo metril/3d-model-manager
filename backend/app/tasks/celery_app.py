@@ -173,6 +173,12 @@ celery_app.conf.beat_schedule["plates-backfill"] = {
     "schedule": 600,
 }
 
+# Additive: rewrite legacy Z-up GLBs as glTF Y-up (self-draining backfill).
+celery_app.conf.beat_schedule["glb-orientation-backfill"] = {
+    "task": "app.tasks.pipeline.backfill_glb_orientation",
+    "schedule": 600,
+}
+
 # Additive: library trash retention -- daily purge of expired trashed models.
 from app.tasks import trash as _trash  # noqa: E402,F401
 

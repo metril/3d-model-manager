@@ -25,14 +25,17 @@ describe("plates", () => {
 
   it("swaps the part url to the plate endpoint", () => {
     const f = file([plate(1), plate(2)]);
-    expect(partUrl(f, null)).toBe("/api/blobs/h1/glb");
-    expect(partUrl(f, 2)).toBe("/api/blobs/h1/plates/2/glb");
-    expect(partUrl(f, 9)).toBe("/api/blobs/h1/glb");
+    expect(partUrl(f, null)).toBe("/api/blobs/h1/glb?v=2");
+    expect(partUrl(f, 2)).toBe("/api/blobs/h1/plates/2/glb?v=2");
+    expect(partUrl(f, 9)).toBe("/api/blobs/h1/glb?v=2");
   });
 
   it("labels and stores the selection", () => {
     expect(plateLabel({ index: 2, name: "Lid" })).toBe("Plate 2 · Lid");
     expect(plateLabel({ index: 2, name: "" })).toBe("Plate 2");
+    expect(plateLabel({ index: 1, name: "Plate 1" })).toBe("Plate 1");
+    expect(plateLabel({ index: 3, name: "plate 3" })).toBe("Plate 3");
+    expect(plateLabel({ index: 2, name: "Plate 3" })).toBe("Plate 2 · Plate 3");
     setSelectedPlate("hx", 3);
     expect(getSelectedPlate("hx")).toBe(3);
     setSelectedPlate("hx", null);

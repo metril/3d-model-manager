@@ -33,7 +33,9 @@ from tests.corpus import CorpusPaths
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
 _GLB_MAGIC = b"glTF"
-EXPECTED_EXTENTS_MM = (20.0, 10.0, 5.0)
+EXPECTED_EXTENTS_MM = (20.0, 10.0, 5.0)  # print space (Z-up)
+# glTF is Y-up: (x, y, z) -> (x, z, -y), so the 5 mm height lands on Y.
+EXPECTED_GLB_EXTENTS = (20.0, 5.0, 10.0)
 
 
 def _round_trip(path: Path) -> trimesh.Trimesh:
@@ -73,7 +75,8 @@ def test_convert_to_glb_file_every_format_branch(
     assert dst.read_bytes()[:4] == _GLB_MAGIC
     mesh = _round_trip(dst)
     assert len(mesh.faces) == 12
-    assert mesh.extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
+    assert mesh.extents == pytest.approx(EXPECTED_GLB_EXTENTS, abs=1e-3)
+    assert convert.to_z_up(mesh).extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
 
 
 def test_convert_to_glb_file_stl_raises_clearly_on_unparseable_content(tmp_path: Path) -> None:
@@ -228,7 +231,7 @@ async def test_convert_to_glb_step_every_format_branch(
     assert glb_path.read_bytes()[:4] == _GLB_MAGIC
     mesh = _round_trip(glb_path)
     assert len(mesh.faces) == 12
-    assert mesh.extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
+    assert convert.to_z_up(mesh).extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
 
 
 async def test_convert_to_glb_step_multi_object_no_unit_3mf_succeeds(
@@ -272,7 +275,7 @@ async def test_convert_to_glb_step_multi_object_no_unit_3mf_succeeds(
     assert glb_path.read_bytes()[:4] == _GLB_MAGIC
     mesh = _round_trip(glb_path)
     assert len(mesh.faces) == 24
-    assert mesh.extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
+    assert convert.to_z_up(mesh).extents == pytest.approx(EXPECTED_EXTENTS_MM, abs=1e-3)
 
 
 async def test_convert_to_glb_step_skips_when_derivative_already_ok(
