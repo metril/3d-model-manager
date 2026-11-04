@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/metril/3d-model-manager/compare/v0.12.2...v0.12.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **viewer:** isolated plate drops other files so it centres on the bed ([#209](https://github.com/metril/3d-model-manager/issues/209)) ([729f4f2](https://github.com/metril/3d-model-manager/commit/729f4f25b24e9fa807f616b12760fca0a5fcf138))
+
 ## [0.12.2](https://github.com/metril/3d-model-manager/compare/v0.12.1...v0.12.2) (2026-11-04)
 
 
