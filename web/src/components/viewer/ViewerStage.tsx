@@ -32,6 +32,7 @@ import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { FileOut, PlateOut } from "@/api/types";
+import type { ViewerPlateFile } from "@/components/viewer/plates";
 
 // three.js/@react-three/fiber/drei are heavy (Global Constraints "BUNDLE
 // RULE") — load them only once a GLB actually needs rendering, so the main
@@ -333,8 +334,10 @@ export interface ViewerStageProps {
   plateInfo?: {
     blobHash: string;
     plates: PlateOut[];
+    files?: ViewerPlateFile[];
     value: number | null;
     onChange: (plate: number | null) => void;
+    onFileChange?: (blobHash: string) => void;
   } | null;
 }
 

@@ -21,6 +21,16 @@ from tests.threemf_builder import make_project_3mf
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
 
+@pytest.fixture(autouse=True)
+def chained(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Capture backfill self-chaining instead of hitting the broker."""
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        pipeline.backfill_plates, "apply_async", lambda *a, **k: calls.append(k), raising=False
+    )
+    return calls
+
+
 async def _seed(db: AsyncSession, seed_file, data: bytes, slug: str = "plates"):
     model = Model(slug=slug, name=slug)
     db.add(model)
@@ -147,3 +157,14 @@ async def test_stored_fits_uses_no_rotation(db_session: AsyncSession, backend, s
     _convert(backend, f.blob_hash)
     meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
     assert [p["fits"] for p in meta.plates_json] == [False, False]
+
+
+async def test_backfill_chains_only_on_full_batch(
+    db_session: AsyncSession, backend, seed_file, chained: list[dict]
+) -> None:
+    for i in range(pipeline.BACKFILL_BATCH + 1):
+        await _seed(db_session, seed_file, b"not a zip %d" % i, f"chain{i}")
+    pipeline.backfill_plates()
+    assert chained == [{"countdown": 5}]
+    pipeline.backfill_plates()  # one left: partial batch, no re-enqueue
+    assert chained == [{"countdown": 5}]
