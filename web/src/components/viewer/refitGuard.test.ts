@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { canFit, createInteractionLod, createPoseGuard, createRefitScheduler } from "./refitGuard";
+import { boxesKey, fitDistance, canFit, createInteractionLod, createPoseGuard, createRefitScheduler } from "./refitGuard";
 
 const box = (v: number) => ({ min: { x: 0, y: 0, z: 0 }, max: { x: v, y: v, z: v } });
 
@@ -79,5 +79,34 @@ describe("createInteractionLod", () => {
     vi.advanceTimersByTime(200);
     expect(cb).toHaveBeenLastCalledWith(false);
     expect(cb).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("boxesKey", () => {
+  const box = (n: number) => ({ min: { x: 0, y: 0, z: 0 }, max: { x: n, y: n, z: n } });
+  it("is stable for identical boxes", () => {
+    expect(boxesKey([[1, box(20)]])).toBe(boxesKey([[1, box(20)]]));
+  });
+  it("changes when one part's geometry is swapped in place (same count)", () => {
+    expect(boxesKey([[1, box(20)]])).not.toBe(boxesKey([[1, box(256)]]));
+  });
+  it("changes when the box only moves", () => {
+    const moved = { min: { x: 5, y: 0, z: 0 }, max: { x: 25, y: 20, z: 20 } };
+    expect(boxesKey([[1, box(20)]])).not.toBe(boxesKey([[1, moved]]));
+  });
+  it("distinguishes part ids", () => {
+    expect(boxesKey([[1, box(20)]])).not.toBe(boxesKey([[2, box(20)]]));
+  });
+});
+
+describe("fitDistance", () => {
+  it("keeps the bounding sphere inside the view for a cube at a wide FOV", () => {
+    const d = fitDistance({ x: 1, y: 1, z: 1 }, 75, 2, 1.2);
+    const radius = Math.sqrt(3) / 2;
+    expect(d * Math.sin((75 * Math.PI) / 360)).toBeGreaterThanOrEqual(radius * 1.2 - 1e-9);
+    expect(d).toBeGreaterThan(1.035); // drei's longest-edge distance for this cube
+  });
+  it("uses the narrower horizontal fov on tall panels", () => {
+    expect(fitDistance({ x: 1, y: 1, z: 1 }, 50, 0.5)).toBeGreaterThan(fitDistance({ x: 1, y: 1, z: 1 }, 50, 2));
   });
 });

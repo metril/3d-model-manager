@@ -68,7 +68,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useOnRelocate } from "@/lib/windowRelocate";
 import { createInvalidateInstaller, createRafScheduler } from "@/components/viewer/rafDriver";
-import { canFit, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
+import { FIT_MARGIN, boxesKey, canFit, fitDistance, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
 import {
   Bounds,
   Center,
@@ -427,11 +427,14 @@ interface OrbitLike {
 
 function BoundsRefitter({
   loadedCount,
+  geometryKey,
   fitSignal,
   getVisibleBox,
   bus,
 }: {
   loadedCount: number;
+  /** `boxesKey` of the loaded parts: refit when geometry is swapped in place. */
+  geometryKey: number;
   fitSignal: number;
   getVisibleBox: () => THREE.Box3 | null;
   bus: GestureBus;
@@ -460,7 +463,21 @@ function BoundsRefitter({
     if (box) api.refresh(box);
     else if (loadedCount > 0) api.refresh();
     else return;
-    const measured = api.getSize();
+    let measured = api.getSize();
+    // drei sizes the distance from the box's longest edge and ignores depth, so
+    // a cube-ish box (a single plate) overflows at a wide FOV. Inflate the box
+    // until drei's distance clears the bounding sphere.
+    const persp = camera as THREE.PerspectiveCamera;
+    if (box && persp.isPerspectiveCamera) {
+      const need = fitDistance(box.getSize(new THREE.Vector3()), persp.fov, persp.aspect, FIT_MARGIN);
+      const scale = need / measured.distance;
+      if (Number.isFinite(scale) && scale > 1) {
+        const c = box.getCenter(new THREE.Vector3());
+        const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5 * scale);
+        api.refresh(new THREE.Box3(c.clone().sub(half), c.clone().add(half)));
+        measured = api.getSize();
+      }
+    }
     if (!canFit(sz, measured.box) || !Number.isFinite(measured.distance)) return;
     api.clip();
     const orbit = ctl as unknown as OrbitLike | null;
@@ -511,7 +528,7 @@ function BoundsRefitter({
   useLayoutEffect(() => {
     void controls;
     scheduler.request("now");
-  }, [loadedCount, fitSignal, controls, sizeOk, scheduler]);
+  }, [loadedCount, geometryKey, fitSignal, controls, sizeOk, scheduler]);
   // Resize: debounced + instant.
   const firstSize = useRef(true);
   useEffect(() => {
@@ -896,6 +913,7 @@ export default function ModelViewer({
   }, [parts]);
 
   const loadedCount = loadedParts.size;
+  const geometryKey = useMemo(() => boxesKey(Array.from(loadedParts, ([id, p]) => [id, p.box] as const)), [loadedParts]);
 
   const allBox = useMemo(() => {
     if (loadedParts.size === 0) return null;
@@ -1103,9 +1121,13 @@ export default function ModelViewer({
           `PartErrorBoundary` (inside the per-part wrapper) instead of one
           shared boundary around the whole map -- see the file header for
           why. */}
-      <Bounds margin={1.2}>
-        <Resize box3={allBox ?? UNIT_BOX}>
-          <Center top cacheKey={loadedCount} disable={loadedCount === 0}>
+      <Bounds margin={FIT_MARGIN}>
+        {/* Remounted when the loaded geometry changes: `Center` measures its
+            subtree in WORLD space, so a stale `Resize` scale from the previous
+            geometry (e.g. 1/236 after "All plates", then a 20 mm plate GLB)
+            would skew its centring. A fresh mount measures at scale 1. */}
+        <Resize key={geometryKey} box3={allBox ?? UNIT_BOX}>
+          <Center top cacheKey={geometryKey} disable={loadedCount === 0}>
             {parts.map((part) => (
               <PartErrorBoundary key={part.id}>
                 <Suspense fallback={null}>
@@ -1127,6 +1149,7 @@ export default function ModelViewer({
         </Resize>
         <BoundsRefitter
           loadedCount={loadedCount}
+          geometryKey={geometryKey}
           fitSignal={fitSignal + presetFitBump}
           getVisibleBox={getVisibleBox}
           bus={gestureBus}

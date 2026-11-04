@@ -325,7 +325,7 @@ def _corrupted_thumb_3mf_bytes() -> bytes:
     return buf.getvalue()
 
 
-async def test_extract_embedded_thumbs_corrupted_png_fails_job_and_derivative(
+async def test_extract_embedded_thumbs_corrupted_png_is_non_fatal(
     db_session: AsyncSession,
     backend: LocalStorageBackend,
     seed_file,
@@ -348,12 +348,10 @@ async def test_extract_embedded_thumbs_corrupted_png_fails_job_and_derivative(
     await db_session.commit()
     await db_session.refresh(job)
 
-    with pytest.raises(ValueError, match="cannot read embedded thumbnail image"):
-        pipeline.extract_embedded_thumbs(str(job.id), file.blob_hash)
+    pipeline.extract_embedded_thumbs(str(job.id), file.blob_hash)
 
     await db_session.refresh(job)
-    assert job.state == "failed"
-    assert "cannot read embedded thumbnail image" in job.error
+    assert job.state == "done"
 
     with sync_session() as session:
         derivs = (
@@ -361,6 +359,8 @@ async def test_extract_embedded_thumbs_corrupted_png_fails_job_and_derivative(
             .scalars()
             .all()
         )
+    # The chain continued past the bad thumb (convert_to_glb ran next).
+    derivs = [d for d in derivs if d.kind != DerivativeKind.GLB]
     assert len(derivs) == 2
     assert {d.kind for d in derivs} == {DerivativeKind.THUMB_1024, DerivativeKind.THUMB_256}
     assert all(d.status == DerivativeStatus.FAILED for d in derivs)

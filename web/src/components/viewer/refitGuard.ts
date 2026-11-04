@@ -18,6 +18,30 @@ export function canFit(size: { width: number; height: number }, box: BoxLike | n
 }
 
 /**
+ * Stable integer key for the set of loaded part boxes (id + rounded min/max).
+ * Changes whenever a part's GEOMETRY changes even if the part COUNT doesn't
+ * (e.g. a plate swap replaces one GLB with another), so `Center`'s cacheKey
+ * and the refit trigger re-measure instead of keeping the previous model's
+ * centre/scale.
+ */
+export function boxesKey(entries: Iterable<readonly [number, BoxLike]>): number {
+  let h = 2166136261;
+  const mix = (n: number) => {
+    h = Math.imul(h ^ (Math.round(n * 1000) | 0), 16777619);
+  };
+  for (const [id, { min, max }] of entries) {
+    mix(id);
+    mix(min.x);
+    mix(min.y);
+    mix(min.z);
+    mix(max.x);
+    mix(max.y);
+    mix(max.z);
+  }
+  return h >>> 0;
+}
+
+/**
  * Runs `run` immediately for explicit triggers (`now`) and after `delay` of
  * quiet for resize triggers (`debounced`). Either is held back while a
  * gesture is active and flushed (once) by `gestureEnd`.
@@ -116,4 +140,18 @@ export function createInteractionLod(restoreDelay: number, onChange: (interactin
       timer = null;
     },
   };
+}
+
+export const FIT_MARGIN = 1.2;
+
+/**
+ * Camera distance (to the box centre) at which a perspective camera sees the
+ * box's whole bounding sphere with `margin` to spare. Depth-aware, unlike
+ * drei's longest-edge formula, so a cube-ish box doesn't overflow.
+ */
+export function fitDistance(size: Vec3Like, fovDeg: number, aspect: number, margin = FIT_MARGIN): number {
+  const radius = Math.hypot(size.x, size.y, size.z) / 2;
+  const vHalf = (fovDeg * Math.PI) / 360;
+  const hHalf = Math.atan(Math.tan(vHalf) * (aspect > 0 ? aspect : 1));
+  return (margin * radius) / Math.sin(Math.min(vHalf, hHalf));
 }
