@@ -496,6 +496,7 @@ def import_from_url(import_id: int) -> None:
                 model.cover_blob_hash = cover_staged.blob_hash
             imp = s.get(Import, import_id)
             imp.meta = {
+                **(imp.meta or {}),
                 "cover_url": meta.cover_url,
                 "license": meta.license,
                 "files": [sf.rel_path for sf in staged],
@@ -758,8 +759,6 @@ def redownload_model(job_id: str, model_id: int, mode: str) -> None:
         files = importer.list_files(external_id)
         if not files:
             raise RuntimeError("no downloadable files found for this model")
-        with base.sync_session() as s:
-            files, _total, _kept = _apply_profile_filter(s, settings, files, None)
 
         # Spool-first (per the T3 brief): everything is downloaded to spool
         # BEFORE either apply function below touches a single existing row

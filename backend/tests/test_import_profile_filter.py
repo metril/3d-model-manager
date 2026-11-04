@@ -95,6 +95,7 @@ async def test_override_beats_setting(db_session, library_root, data_dir, fake_i
     await _printer(db_session, "A1")
     await _config(db_session, "owned")
     imp = await _run(db_session, override="all")
+    assert imp.meta["profile_filter"] == "all"
     assert imp.meta["profiles_kept"] == 2
     assert sorted(imp.meta["files"]) == ["a1.stl", "p1s.stl"]
 
