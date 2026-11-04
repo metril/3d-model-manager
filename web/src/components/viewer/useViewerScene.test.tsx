@@ -40,6 +40,20 @@ describe("useViewerScene plates", () => {
     expect(getSelectedPlate("vs1")).toBeNull();
   });
 
+  it("drops the other files from the tree while a plate is isolated", () => {
+    const other = { ...FILE, id: 2, blob_hash: "vs2", meta: { triangle_count: 5 } } as unknown as FileOut;
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [FILE, other], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1, 2]);
+    act(() => result.current.stageProps.plateInfo!.onChange(2));
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1]);
+    act(() => result.current.stageProps.plateInfo!.onChange(null));
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1, 2]);
+    unmount();
+  });
+
   it("has no plate info for a single-plate file", () => {
     const single = { ...FILE, meta: { ...FILE.meta, plates: [plate(1)] } } as unknown as FileOut;
     const { result } = renderHook(() => useViewerScene({ slug: "m", files: [single], persist: false }), { wrapper });

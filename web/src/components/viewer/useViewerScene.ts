@@ -195,16 +195,21 @@ export function useViewerScene({
   const selectedPlate = useSelectedPlate(plateBlob);
   // A selected plate isolates that file; "All plates" restores the checked set.
   const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob, selectedPlate), [files, checkedIds, plateBlob, selectedPlate]);
+  // Isolation DROPS the other files from the tree rather than hiding them:
+  // `Resize`/`Center` measure hidden parts too (so checkbox toggles never
+  // shift the layout), which would ground and centre the lone plate against
+  // the whole multi-file pile.
+  const isolating = selectedPlate != null && plateBlob != null;
   const parts: ViewerPart[] = useMemo(
     () =>
-      files.map((file) => ({
+      (isolating ? files.filter((file) => shown.has(file.id)) : files).map((file) => ({
         id: file.id,
         // Per-plate GLB when a plate is selected on this file's blob.
         url: partUrl(file, plateBlob === file.blob_hash ? selectedPlate : null),
         color: colors[file.id],
         visible: shown.has(file.id),
       })),
-    [files, shown, colors, plateBlob, selectedPlate],
+    [files, shown, colors, plateBlob, selectedPlate, isolating],
   );
 
   // A plate swap loads different geometry (and isolates one file): reset
