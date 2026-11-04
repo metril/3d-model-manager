@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session as SyncSession
 from app.config import Settings, get_settings
 from app.models import Blob, BlobMeta, Derivative, File, Job
 from app.models.enums import BlobFormat, DerivativeKind, DerivativeStatus
-from app.pipeline import convert, gcode_meta, meshload, render, slicedmeta, thumbs
+from app.pipeline import convert, gcode_meta, meshload, plates3mf, render, slicedmeta, thumbs
 from app.services import derivatives, jobs
 from app.services.storage_config import resolve_backend_sync
 from app.storage.base import StorageBackend
@@ -815,6 +815,9 @@ def _convert_to_glb_step(
     """
     existing = _glb_derivative(session, blob.hash)
     if existing is not None and existing.status == DerivativeStatus.OK:
+        if blob.format is BlobFormat.THREEMF and _plates_pending(session, blob.hash):
+            _plates_for_blob(session, settings, blob)
+            return "done"
         return "skipped"
 
     deriv = derivatives.upsert_derivative(session, blob.hash, DerivativeKind.GLB)
@@ -829,6 +832,8 @@ def _convert_to_glb_step(
                 session, settings, blob.hash, Path(tmp), f".{blob.format.value}"
             )
             tool = convert.convert_to_glb_file(src, blob.format, tmp_path)
+            if blob.format is BlobFormat.THREEMF:
+                _generate_plate_assets(session, settings, blob, src)
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         derivatives.mark_derivative(session, deriv, status=DerivativeStatus.FAILED, error=str(exc))
@@ -838,6 +843,132 @@ def _convert_to_glb_step(
         session, deriv, status=DerivativeStatus.OK, local_path=str(dest), tool=tool
     )
     return "done"
+
+
+def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
+    meta = session.get(BlobMeta, blob_hash)
+    return meta is not None and meta.plates_json is None
+
+
+def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> None:
+    with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
+        src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
+        _generate_plate_assets(session, settings, blob, src)
+
+
+def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob, src: Path) -> None:
+    """Unsliced multi-plate project 3MF: per-plate thumbs + recentred GLBs +
+    ``BlobMeta.plates_json``. Best-effort -- a failure here never fails the
+    main conversion (``plates_json`` stays NULL so the backfill retries).
+    ``plates_json = []`` records "analysed, fewer than two plates".
+    """
+    meta = session.get(BlobMeta, blob.hash)
+    if meta is None:
+        return
+    try:
+        with zipfile.ZipFile(src) as zf:
+            plates = plates3mf.parse_unsliced_plates(zf)
+            bed = plates3mf.read_bed(zf)
+            thumbs_by_index = {
+                p["index"]: zf.read(p["thumb_member"]) for p in plates if p["thumb_member"]
+            }
+        if len(plates) < 2:
+            meta.plates_json = []
+            session.commit()
+            return
+        meshes: dict[int, trimesh.Trimesh] = {}
+        if len(plates) <= plates3mf.MAX_PLATE_GLBS:
+            meshes = plates3mf.plate_meshes(src, plates, bed)
+        out: list[dict] = []
+        for plate in plates:
+            idx = plate["index"]
+            if idx in thumbs_by_index:
+                _publish_plate_thumb(thumbs_by_index[idx], settings, blob.hash, idx)
+            mesh = meshes.get(idx)
+            has_glb = False
+            bbox = None
+            fits = None
+            if mesh is not None:
+                _publish_plate_glb(settings, blob.hash, idx, mesh)
+                has_glb = True
+                bbox = plates3mf.plate_extents(mesh)
+                if bed is not None:
+                    from app.services.bed_fit import check_fit
+
+                    fits = check_fit((bbox[0], bbox[1], bbox[2]), bed).fits
+            out.append(
+                {
+                    "index": idx,
+                    "name": plate["name"],
+                    "object_count": len(plate["object_ids"]),
+                    "has_glb": has_glb,
+                    "bbox": bbox,
+                    "fits": fits,
+                }
+            )
+        meta.plates_json = out
+        meta.plate_count = len(plates)
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning("plate assets failed for %s", blob.hash, exc_info=True)
+
+
+def _publish_plate_glb(
+    settings: Settings, blob_hash: str, index: int, mesh: trimesh.Trimesh
+) -> None:
+    dest = derivatives.plate_glb_path(settings, blob_hash, index)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=".tdmm-plateglb-", suffix=".glb")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        mesh.export(tmp_path, file_type="glb")
+        if len(mesh.faces) > PREVIEW_TRIANGLE_THRESHOLD:
+            lod = tmp_path.with_suffix(".lod.glb")
+            try:
+                _run_gltfpack(settings, ["-i", str(tmp_path), "-o", str(lod), "-si", "0.5", "-cc"])
+                os.replace(lod, tmp_path)
+            finally:
+                lod.unlink(missing_ok=True)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    derivatives.publish_file(tmp_path, dest)
+
+
+BACKFILL_BATCH = 25
+
+
+@celery_app.task(name="app.tasks.pipeline.backfill_plates")
+def backfill_plates() -> int:
+    """Self-draining beat task: analyse existing 3MFs that were never plate-
+    analysed (``plates_json IS NULL``), ``BACKFILL_BATCH`` per run."""
+    settings = get_settings()
+    done = 0
+    with base.sync_session() as session:
+        rows = (
+            session.execute(
+                select(Blob)
+                .join(BlobMeta, BlobMeta.blob_hash == Blob.hash)
+                .where(Blob.format == BlobFormat.THREEMF, BlobMeta.plates_json.is_(None))
+                .limit(BACKFILL_BATCH)
+            )
+            .scalars()
+            .all()
+        )
+        for blob in rows:
+            try:
+                _plates_for_blob(session, settings, blob)
+                done += 1
+            except Exception:
+                session.rollback()
+                logger.warning("plate backfill failed for %s", blob.hash, exc_info=True)
+                meta = session.get(BlobMeta, blob.hash)
+                if meta is not None:  # don't retry a poisoned blob forever
+                    meta.plates_json = []
+                    session.commit()
+    return done
 
 
 @pipeline_step("convert_to_glb")

@@ -1,0 +1,123 @@
+"""Per-plate assets for unsliced project 3MFs: convert step, backfill, API."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+import trimesh
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.models import Blob, BlobMeta, Model, Revision
+from app.models.enums import BlobFormat, BlobKind
+from app.services import derivatives
+from app.tasks import pipeline
+from app.tasks.base import sync_session
+from tests.conftest import BACKEND_DIR
+from tests.threemf_builder import make_project_3mf
+
+pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
+
+
+async def _seed(db: AsyncSession, seed_file, data: bytes, slug: str = "plates"):
+    model = Model(slug=slug, name=slug)
+    db.add(model)
+    await db.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001")
+    db.add(rev)
+    await db.flush()
+    model.current_revision_id = rev.id
+    f = await seed_file(
+        model, rev, "proj.3mf", data, blob_format=BlobFormat.THREEMF, blob_kind=BlobKind.MESH
+    )
+    db.add(BlobMeta(blob_hash=f.blob_hash))
+    await db.commit()
+    return model, f
+
+
+def _convert(backend, blob_hash: str):
+    with sync_session() as session:
+        blob = session.get(Blob, blob_hash)
+        return pipeline._convert_to_glb_step(session, get_settings(), backend, blob)
+
+
+async def test_convert_writes_plate_glbs_thumbs_and_meta(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    _, f = await _seed(db_session, seed_file, make_project_3mf(3, names=["A", "B", "C"]))
+    assert _convert(backend, f.blob_hash) == "done"
+    s = get_settings()
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert meta.plate_count == 3
+    assert [p["name"] for p in meta.plates_json] == ["A", "B", "C"]
+    assert all(
+        p["has_glb"] and p["fits"] is True and p["object_count"] == 1 for p in meta.plates_json
+    )
+    assert meta.plates_json[0]["bbox"] == [20.0, 20.0, 20.0]
+    for i in (1, 2, 3):
+        glb = derivatives.plate_glb_path(s, f.blob_hash, i)
+        mesh = trimesh.load(glb, force="mesh")
+        assert len(mesh.faces) == 12 and mesh.bounds[1][:2].max() <= 180
+        assert derivatives.plate_thumb_path(s, f.blob_hash, i).read_bytes().startswith(b"\x89PNG")
+
+
+async def test_single_plate_gets_empty_plates_json(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    _, f = await _seed(db_session, seed_file, make_project_3mf(1), "single")
+    _convert(backend, f.blob_hash)
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert meta.plates_json == []
+    assert not derivatives.plate_glb_path(get_settings(), f.blob_hash, 1).exists()
+
+
+async def test_cap_skips_glbs_above_16_plates(db_session: AsyncSession, backend, seed_file) -> None:
+    _, f = await _seed(db_session, seed_file, make_project_3mf(17, bed=100.0), "many")
+    _convert(backend, f.blob_hash)
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert len(meta.plates_json) == 17 and not any(p["has_glb"] for p in meta.plates_json)
+    assert derivatives.plate_thumb_path(get_settings(), f.blob_hash, 17).exists()
+
+
+async def test_backfill_analyses_existing_3mf(db_session: AsyncSession, backend, seed_file) -> None:
+    _, f = await _seed(db_session, seed_file, make_project_3mf(3), "backfill")
+    assert pipeline.backfill_plates() == 1
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert len(meta.plates_json) == 3
+    assert pipeline.backfill_plates() == 0
+
+
+async def test_plate_endpoints_and_file_plates(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, backend, seed_file
+) -> None:
+    model, f = await _seed(db_session, seed_file, make_project_3mf(3, names=["A", "B", "C"]), "api")
+    _convert(backend, f.blob_hash)
+    h = f.blob_hash
+    r = await authenticated_client.get(f"/api/blobs/{h}/plates/2/glb")
+    assert r.status_code == 200 and r.content[:4] == b"glTF"
+    assert r.headers["content-type"] == "model/gltf-binary"
+    r = await authenticated_client.get(f"/api/blobs/{h}/plates/2/thumb")
+    assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
+    assert (await authenticated_client.get(f"/api/blobs/{h}/plates/9/glb")).status_code == 404
+    assert (await authenticated_client.get(f"/api/blobs/{h}/plates/9/thumb")).status_code == 404
+    assert (
+        await authenticated_client.get(f"/api/blobs/{'0' * 64}/plates/1/glb")
+    ).status_code == 404
+    assert (await authenticated_client.get(f"/api/blobs/{h}/plates/0/glb")).status_code == 422
+
+    r = await authenticated_client.get(f"/api/models/{model.slug}")
+    assert r.status_code == 200, r.text
+    files = [x for rev in [r.json()] for x in (rev.get("current_revision") or {}).get("files", [])]
+    plates = files[0]["meta"]["plates"]
+    assert [(p["index"], p["name"], p["has_glb"], p["thumbnail_available"]) for p in plates] == [
+        (1, "A", True, True),
+        (2, "B", True, True),
+        (3, "C", True, True),
+    ]
+
+
+def test_alembic_single_head() -> None:
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    assert len(ScriptDirectory.from_config(cfg).get_heads()) == 1

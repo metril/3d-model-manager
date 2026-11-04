@@ -167,6 +167,12 @@ celery_app.conf.beat_schedule["stock-forecast"] = {
     "schedule": 6 * 3600,
 }
 
+# Additive: plate-analyse existing unsliced 3MFs (self-draining backfill).
+celery_app.conf.beat_schedule["plates-backfill"] = {
+    "task": "app.tasks.pipeline.backfill_plates",
+    "schedule": 600,
+}
+
 # Additive: library trash retention -- daily purge of expired trashed models.
 from app.tasks import trash as _trash  # noqa: E402,F401
 

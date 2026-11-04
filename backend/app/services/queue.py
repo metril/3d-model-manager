@@ -42,7 +42,7 @@ from app.schemas.queue import (
 )
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
-from app.services.bed_fit import guard_recipe_fit
+from app.services.bed_fit import guard_plate_index, guard_recipe_fit
 from app.services.print_plan import estimate_item_sync
 from app.services.queue_filaments import details_for_entries
 from app.services.queue_settings import get_queue_config
@@ -482,8 +482,9 @@ async def enqueue_file(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "file is not in a format the slicer can accept",
             )
+        await guard_plate_index(db, file, payload.plate)
         if not payload.force:
-            await guard_recipe_fit(db, recipe, file, slice_options, settings)
+            await guard_recipe_fit(db, recipe, file, slice_options, settings, payload.plate)
         state = QueueState.WAITING
     else:
         if blob is None or blob.format != BlobFormat.GCODE_3MF:

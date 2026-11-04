@@ -132,21 +132,94 @@ def load_mesh(path: Path, fmt: BlobFormat) -> MeshLoad:
     return MeshLoad(load_3mf_lib3mf(path), "lib3mf")
 
 
-def load_3mf_lib3mf(path: Path) -> trimesh.Trimesh:
-    """Parse ``path`` via lib3mf's reference-implementation reader (RESEARCH
-    §1's documented approach): ``Wrapper`` -> ``model`` -> ``GetMeshObjects``
-    iterator -> per-object vertices/triangles into numpy -> ``trimesh.Trimesh``
-    -> ``trimesh.util.concatenate``. This is the fallback for 3MF geometry
-    trimesh's own reader can't follow (Production Extension ``<build><item
-    p:path>`` references).
+def _lib3mf_matrix(transform) -> np.ndarray:
+    """lib3mf ``Transform`` (``Fields[4][3]``: three linear rows + translation
+    row, row-vector convention) -> a column-vector 4x4."""
+    fields = np.array([[float(c) for c in row] for row in transform.Fields], dtype=np.float64)
+    m = np.eye(4)
+    m[:3, :3] = fields[:3].T
+    m[:3, 3] = fields[3]
+    return m
+
+
+def _lib3mf_object_meshes(model, obj, matrix: np.ndarray, depth: int = 0) -> list[trimesh.Trimesh]:
+    """Flatten one lib3mf object (mesh or components tree) into transformed
+    meshes. ``matrix`` is the accumulated build-item/component transform."""
+    if depth > 8:  # malformed/cyclic component graphs
+        return []
+    if obj.IsMeshObject():
+        mesh_object = model.GetMeshObjectByID(obj.GetResourceID())
+        vertices = np.array([v.Coordinates for v in mesh_object.GetVertices()], dtype=np.float64)
+        triangles = np.array([t.Indices for t in mesh_object.GetTriangleIndices()], dtype=np.int64)
+        if len(vertices) == 0 or len(triangles) == 0:
+            return []
+        mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, process=False)
+        mesh.apply_transform(matrix)
+        return [mesh]
+    if obj.IsComponentsObject():
+        comps = model.GetComponentsObjectByID(obj.GetResourceID())
+        out: list[trimesh.Trimesh] = []
+        for i in range(comps.GetComponentCount()):
+            comp = comps.GetComponent(i)
+            sub = _lib3mf_matrix(comp.GetTransform()) if comp.HasTransform() else np.eye(4)
+            out += _lib3mf_object_meshes(model, comp.GetObjectResource(), matrix @ sub, depth + 1)
+        return out
+    return []
+
+
+def load_3mf_build_items(path: Path) -> list[trimesh.Trimesh | None]:
+    """One mm-scaled, build-transformed mesh per ``<build><item>``, in
+    document order (``None`` for an item with no geometry). Components and
+    Production-Extension ``p:path`` references are followed by lib3mf.
     """
     import lib3mf
 
     wrapper = lib3mf.get_wrapper()
     model = wrapper.CreateModel()
-    reader = model.QueryReader("3mf")
-    reader.ReadFromFile(str(path))
+    model.QueryReader("3mf").ReadFromFile(str(path))
+    factor = _LIB3MF_UNIT_TO_MM.get(int(model.GetUnit()), 1.0)
 
+    items: list[trimesh.Trimesh | None] = []
+    it = model.GetBuildItems()
+    while it.MoveNext():
+        item = it.GetCurrent()
+        matrix = (
+            _lib3mf_matrix(item.GetObjectTransform()) if item.HasObjectTransform() else np.eye(4)
+        )
+        parts = _lib3mf_object_meshes(model, item.GetObjectResource(), matrix)
+        if not parts:
+            items.append(None)
+            continue
+        merged = trimesh.util.concatenate(parts)
+        if factor != 1.0:
+            merged.apply_scale(factor)
+        items.append(merged)
+    return items
+
+
+def load_3mf_lib3mf(path: Path) -> trimesh.Trimesh:
+    """Parse ``path`` via lib3mf's reference-implementation reader (RESEARCH
+    §1's documented approach). This is the fallback for 3MF geometry
+    trimesh's own reader can't follow (Production Extension ``<build><item
+    p:path>`` references). Build-item transforms are applied (objects are
+    placed where the slicer put them); a file with no build items falls back
+    to the raw mesh objects.
+    """
+    meshes = [m for m in load_3mf_build_items(path) if m is not None]
+    if not meshes:
+        meshes = _load_raw_mesh_objects(path)
+    if not meshes:
+        raise ValueError(f"no mesh objects found in 3mf: {path}")
+    return trimesh.util.concatenate(meshes)
+
+
+def _load_raw_mesh_objects(path: Path) -> list[trimesh.Trimesh]:
+    import lib3mf
+
+    wrapper = lib3mf.get_wrapper()
+    model = wrapper.CreateModel()
+    model.QueryReader("3mf").ReadFromFile(str(path))
+    factor = _LIB3MF_UNIT_TO_MM.get(int(model.GetUnit()), 1.0)
     meshes: list[trimesh.Trimesh] = []
     iterator = model.GetMeshObjects()
     while iterator.MoveNext():
@@ -155,12 +228,8 @@ def load_3mf_lib3mf(path: Path) -> trimesh.Trimesh:
         triangles = np.array([t.Indices for t in mesh_object.GetTriangleIndices()], dtype=np.int64)
         if len(vertices) == 0 or len(triangles) == 0:
             continue
-        meshes.append(trimesh.Trimesh(vertices=vertices, faces=triangles))
-
-    if not meshes:
-        raise ValueError(f"no mesh objects found in 3mf: {path}")
-    factor = _LIB3MF_UNIT_TO_MM.get(int(model.GetUnit()), 1.0)
-    merged = trimesh.util.concatenate(meshes)
-    if factor != 1.0:
-        merged.apply_scale(factor)  # normalize to mm (no-op for MilliMeter)
-    return merged
+        mesh = trimesh.Trimesh(vertices=vertices, faces=triangles)
+        if factor != 1.0:
+            mesh.apply_scale(factor)
+        meshes.append(mesh)
+    return meshes

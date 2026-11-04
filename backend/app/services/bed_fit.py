@@ -207,11 +207,13 @@ async def fit_for_file(
     bed: Bed | None,
     allow_rotate: bool = False,
     settings=None,
+    plate: int | None = None,
 ) -> FitResult:
     """``unknown`` when there is no bed or no dims, the blob is already
-    sliced, or the dims are not trustworthy: only STL/OBJ and single-plate
-    3MFs are checked (a multi-plate 3MF's stored extent merges every plate,
-    which sit side by side)."""
+    sliced, or the dims are not trustworthy: only STL/OBJ, single-plate 3MFs
+    and multi-plate projects with analysed plates (``plates_json``) are
+    checked. For those, ``plate`` (1-based; 0/None = all) picks which plate's
+    recentred bbox is checked; "all" is ``too_large`` if any plate is."""
     from app.models.enums import BlobFormat
     from app.models.library import Blob
     from app.models.processing import BlobMeta
@@ -226,17 +228,40 @@ async def fit_for_file(
     blob = await db.get(Blob, blob_hash)
     if blob is None:
         return unknown_fit()
+    d = meta.dims_mm
     if blob.format is BlobFormat.THREEMF:
-        if await _ensure_plate_count(db, meta, file, settings) != 1:
-            return unknown_fit()
+        count = await _ensure_plate_count(db, meta, file, settings)
+        if count != 1:
+            boxes = {
+                p["index"]: p["bbox"]
+                for p in meta.plates_json or []
+                if isinstance(p.get("bbox"), list) and len(p["bbox"]) >= 3
+            }
+            if not boxes:
+                return unknown_fit()
+            if plate:
+                if plate not in boxes:
+                    return unknown_fit()
+                chosen = [boxes[plate]]
+            else:
+                chosen = list(boxes.values())
+            results = [
+                check_fit((b[0], b[1], b[2]), bed[0], bed[1], allow_rotate=allow_rotate)
+                for b in chosen
+            ]
+            return next((r for r in results if r.status == "too_large"), results[0])
     elif blob.format not in (BlobFormat.STL, BlobFormat.OBJ):
         return unknown_fit()
-    d = meta.dims_mm
     return check_fit((d[0], d[1], d[2]), bed[0], bed[1], allow_rotate=allow_rotate)
 
 
 async def fit_for_selection(
-    db: AsyncSession, file, printer_id: int | None, recipe_id: int | None, settings=None
+    db: AsyncSession,
+    file,
+    printer_id: int | None,
+    recipe_id: int | None,
+    settings=None,
+    plate: int | None = None,
 ) -> FitResult:
     """Chip lookup: the recipe's own printer profile (what the slice guards
     use) wins over the printer lookup, so chip and guard agree."""
@@ -250,17 +275,49 @@ async def fit_for_selection(
         allow_rotate = rotation_allowed(recipe.options)
     elif printer_id is not None:
         bed = await bed_for_printer(db, printer_id)
-    return await fit_for_file(db, file, bed, allow_rotate, settings) if bed else unknown_fit()
+    return (
+        await fit_for_file(db, file, bed, allow_rotate, settings, plate) if bed else unknown_fit()
+    )
+
+
+async def guard_plate_index(db: AsyncSession, file, plate: int | None) -> None:
+    """422 ``invalid_plate`` when ``plate`` is past the file's plate count
+    (0/None = all plates, always valid). Unknown counts are not blocking."""
+    from fastapi import HTTPException, status
+
+    from app.models.processing import BlobMeta
+
+    if not plate or plate < 1:
+        return
+    meta = await db.get(BlobMeta, file.blob_hash)
+    count = meta.plate_count if meta is not None else None
+    if count is not None and plate > count:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "invalid_plate",
+                "message": f"plate {plate} does not exist (file has {count})",
+                "plate": plate,
+                "plate_count": count,
+            },
+        )
 
 
 async def guard_recipe_fit(
-    db: AsyncSession, recipe, file, options: dict | None = None, settings=None
+    db: AsyncSession,
+    recipe,
+    file,
+    options: dict | None = None,
+    settings=None,
+    plate: int | None = None,
 ) -> None:
     """422 ``does_not_fit`` when the part is too large for the recipe's printer."""
     from fastapi import HTTPException, status
 
     bed = await bed_from_profile(db, recipe.printer_profile_id)
-    fit = await fit_for_file(db, file, bed, rotation_allowed(recipe.options, options), settings)
+    fit = await fit_for_file(
+        db, file, bed, rotation_allowed(recipe.options, options), settings, plate
+    )
     if fit.status == "too_large":
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,

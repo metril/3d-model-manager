@@ -67,6 +67,12 @@ def plate_thumb_path(settings: Settings, blob_hash: str, index: int) -> Path:
     return _derivative_dir(settings, blob_hash) / f"{blob_hash}.plate_{index}.png"
 
 
+def plate_glb_path(settings: Settings, blob_hash: str, index: int) -> Path:
+    """Path for an unsliced-3MF per-plate GLB (rowless, like
+    ``plate_thumb_path``): that plate's objects recentred onto one bed."""
+    return _derivative_dir(settings, blob_hash) / f"{blob_hash}.plate_{index}.glb"
+
+
 def glb_web_path(settings: Settings, blob_hash: str) -> Path:
     """Path for the meshopt-compressed, browser-only GLB (rowless: this is
     NOT the ``derivatives`` ``glb`` row, which is always the uncompressed
