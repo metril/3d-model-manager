@@ -3,13 +3,17 @@
  * millimetres, bed corner at the origin: GLB derivatives are already mm and
  * keep the source mesh's axes, so no conversion is needed. Each part is
  * wrapped so its footprint centre / bottom sits at the group origin, matching
- * the server pose contract T(x,y,0)·Rz·S·T(-cx,-cy,-zmin).
+ * the server pose contract T(x,y,0)·Rz·S·T(-cx,-cy,-zmin)·O, where O is the
+ * item's orient quaternion (applied to the mesh first, so the footprint and
+ * bottom are measured on the rotated mesh).
  */
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
+import { coplanarTriangles, trianglePositions } from "@/components/plate/faceRegion";
+import type { Vec3 } from "@/components/plate/orient";
 import type { PlateItem } from "@/components/plate/poseStore";
 
 export type PlateMode = "translate" | "rotate" | "scale";
@@ -26,18 +30,45 @@ interface Bed {
   height: number | null;
 }
 
-function PartMesh({ url, tint }: { url: string; tint: string | null }) {
+const HIGHLIGHT = "#facc15";
+
+function PartMesh({
+  url,
+  tint,
+  orient,
+  faceMode,
+  onDims,
+  onFace,
+}: {
+  url: string;
+  tint: string | null;
+  orient: PlateItem["orient"];
+  faceMode: boolean;
+  onDims: (dims: { w_mm: number; d_mm: number; h_mm: number }) => void;
+  onFace: (worldNormal: Vec3) => void;
+}) {
   const gltf = useGLTF(url);
-  const { object, offset } = useMemo(() => {
+  const [qx, qy, qz, qw] = orient;
+  const { object, offset, size } = useMemo(() => {
     const clone = gltf.scene.clone(true);
     clone.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) mesh.material = (mesh.material as THREE.Material).clone();
     });
-    const box = new THREE.Box3().setFromObject(clone);
+    // Orient first, then measure the rotated vertices (precise) for the drop-to-bed offset.
+    const wrapper = new THREE.Group();
+    wrapper.add(clone);
+    wrapper.quaternion.set(qx, qy, qz, qw);
+    wrapper.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wrapper, true);
     const offset = new THREE.Vector3(-(box.min.x + box.max.x) / 2, -(box.min.y + box.max.y) / 2, -box.min.z);
-    return { object: clone, offset };
-  }, [gltf]);
+    return { object: wrapper, offset, size: box.getSize(new THREE.Vector3()) };
+  }, [gltf, qx, qy, qz, qw]);
+
+  useLayoutEffect(() => {
+    onDims({ w_mm: size.x, d_mm: size.y, h_mm: size.z });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size]);
 
   useLayoutEffect(() => {
     object.traverse((o) => {
@@ -49,7 +80,79 @@ function PartMesh({ url, tint }: { url: string; tint: string | null }) {
     });
   }, [object, tint]);
 
-  return <primitive object={object} position={offset} />;
+  // Place-on-face hover: highlight the flat region under the pointer.
+  const overlay = useRef<{ mesh: THREE.Mesh; host: THREE.Mesh; tris: Set<number> } | null>(null);
+  const clearOverlay = () => {
+    const o = overlay.current;
+    if (!o) return;
+    o.host.remove(o.mesh);
+    o.mesh.geometry.dispose();
+    (o.mesh.material as THREE.Material).dispose();
+    overlay.current = null;
+  };
+  useEffect(() => (faceMode ? undefined : clearOverlay()), [faceMode]);
+  useEffect(() => clearOverlay, [object]);
+
+  const hit = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
+    const mesh = e.object as THREE.Mesh;
+    return mesh.isMesh && e.face && e.faceIndex != null ? mesh : null;
+  };
+
+  return (
+    <primitive
+      object={object}
+      position={offset}
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+        if (!faceMode) return;
+        const mesh = hit(e);
+        if (!mesh) return;
+        e.stopPropagation();
+        const current = overlay.current;
+        if (current && current.host === mesh && current.tris.has(e.faceIndex!)) return;
+        clearOverlay();
+        const tris = coplanarTriangles(mesh.geometry, e.faceIndex!);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(trianglePositions(mesh.geometry, tris), 3));
+        const highlight = new THREE.Mesh(
+          geo,
+          new THREE.MeshBasicMaterial({
+            color: HIGHLIGHT,
+            transparent: true,
+            opacity: 0.65,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          }),
+        );
+        highlight.raycast = () => {};
+        mesh.add(highlight);
+        overlay.current = { mesh: highlight, host: mesh, tris: new Set(tris) };
+      }}
+      onPointerOut={() => faceMode && clearOverlay()}
+      onClick={(e: ThreeEvent<MouseEvent>) => {
+        if (!faceMode) return;
+        const mesh = hit(e);
+        if (!mesh) return;
+        e.stopPropagation();
+        clearOverlay();
+        const n = e.face!.normal.clone().transformDirection(mesh.matrixWorld);
+        onFace([n.x, n.y, n.z]);
+      }}
+    />
+  );
+}
+
+function FaceCursor({ active }: { active: boolean }) {
+  const el = useThree((s) => s.gl.domElement);
+  useEffect(() => {
+    el.style.cursor = active ? "crosshair" : "";
+    return () => {
+      el.style.cursor = "";
+    };
+  }, [el, active]);
+  return null;
 }
 
 function PlatePart({
@@ -59,7 +162,10 @@ function PlatePart({
   fits,
   mode,
   freeRotate,
+  faceMode,
   onSelect,
+  onDims,
+  onFace,
   onBegin,
   onChange,
   onOrbitLock,
@@ -70,7 +176,10 @@ function PlatePart({
   fits: boolean;
   mode: PlateMode;
   freeRotate: boolean;
+  faceMode: boolean;
   onSelect: (uid: string) => void;
+  onDims: (uid: string, dims: { w_mm: number; d_mm: number; h_mm: number }) => void;
+  onFace: (uid: string, worldNormal: Vec3) => void;
   onBegin: () => void;
   onChange: (uid: string, fields: { x_mm: number; y_mm: number; rot_z_deg: number; scale: number }) => void;
   onOrbitLock: (locked: boolean) => void;
@@ -87,14 +196,21 @@ function PlatePart({
         scale={item.scale}
         onClick={(e: ThreeEvent<MouseEvent>) => {
           e.stopPropagation();
-          onSelect(item.uid);
+          if (!faceMode) onSelect(item.uid);
         }}
       >
         <Suspense fallback={null}>
-          <PartMesh url={part.url} tint={tint} />
+          <PartMesh
+            url={part.url}
+            tint={tint}
+            orient={item.orient}
+            faceMode={faceMode}
+            onDims={(d) => onDims(item.uid, d)}
+            onFace={(n) => onFace(item.uid, n)}
+          />
         </Suspense>
       </group>
-      {selected && ref.current ? (
+      {selected && !faceMode && ref.current ? (
         <TransformControls
           object={ref.current}
           mode={mode}
@@ -173,7 +289,10 @@ export default function PlateScene({
   mode,
   freeRotate,
   orbitLocked,
+  faceMode,
   onSelect,
+  onDims,
+  onFace,
   onBegin,
   onChange,
   onOrbitLock,
@@ -186,7 +305,10 @@ export default function PlateScene({
   mode: PlateMode;
   freeRotate: boolean;
   orbitLocked: boolean;
+  faceMode: boolean;
   onSelect: (uid: string | null) => void;
+  onDims: (uid: string, dims: { w_mm: number; d_mm: number; h_mm: number }) => void;
+  onFace: (uid: string, worldNormal: Vec3) => void;
   onBegin: () => void;
   onChange: (uid: string, fields: { x_mm: number; y_mm: number; rot_z_deg: number; scale: number }) => void;
   onOrbitLock: (locked: boolean) => void;
@@ -203,6 +325,7 @@ export default function PlateScene({
       <ambientLight intensity={1.1} />
       <directionalLight position={[reach, -reach, reach * 2]} intensity={2.2} />
       <directionalLight position={[-reach, reach, reach]} intensity={0.8} />
+      <FaceCursor active={faceMode} />
       <BedVolume bed={bed} />
       <OrbitTarget bed={bed} locked={orbitLocked} />
       {items.map((item) => {
@@ -216,7 +339,10 @@ export default function PlateScene({
             fits={fitsByUid.get(item.uid) ?? true}
             mode={mode}
             freeRotate={freeRotate}
+            faceMode={faceMode}
             onSelect={onSelect}
+            onDims={onDims}
+            onFace={onFace}
             onBegin={onBegin}
             onChange={onChange}
             onOrbitLock={onOrbitLock}

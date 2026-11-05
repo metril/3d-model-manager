@@ -24,6 +24,7 @@ from typing import Literal
 
 from app.models.enums import BlobFormat
 from app.pipeline.meshload import load_mesh
+from app.services.orient import IDENTITY, Quat, normalize, rotate_vertices
 
 # Every item is a full object for the slicer to arrange and slice; past this a
 # single plate cannot hold them and the request is more likely a typo.
@@ -52,6 +53,9 @@ class CombinePart:
     path: Path
     copies: int = 1
     scale: float = 1.0
+    # Unit quaternion (x, y, z, w) applied to the source mesh before the part
+    # is dropped on the bed; identity keeps the mesh as authored.
+    orient: Quat = IDENTITY
 
 
 @dataclass(frozen=True)
@@ -164,13 +168,16 @@ class LoadedPart:
     scale: float = 1.0
     # Min corner of the source mesh's AABB before it was shifted to the origin.
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    orient: Quat = IDENTITY
 
 
 @dataclass(frozen=True)
 class Pose:
     """One instance placed by hand. ``x``/``y`` is where the footprint centre
     of the source mesh lands on the bed (bed corner = origin); z is always on
-    the bed. Matrix = T(x,y,0) Rz(rot) S(scale) T(-cx,-cy,-zmin)."""
+    the bed. Matrix = T(x,y,0) Rz(rot) S(scale) T(-cx,-cy,-zmin); the part's
+    vertices already carry its orientation (``LoadedPart.orient``), so
+    ``owner`` indexes a (file, orientation) part and the matrix stays Z-only."""
 
     owner: int
     x: float
@@ -255,17 +262,26 @@ def _object_name(filename: str) -> str:
     return re.sub(r"[\x00-\x1f]", "", stem)[:200] or "object"
 
 
-def _load_part(part: CombinePart) -> LoadedPart:
+def read_mesh(part: CombinePart):
+    """The source mesh of ``part`` as authored (same loader as the GLB
+    derivative the plate editor shows, so the footprint pivot agrees:
+    multi-object / Bambu 3MFs, unit scaling)."""
     fmt = _SUFFIX_FORMAT.get(part.path.suffix.lower())
     try:
-        # Same loader as the GLB derivative the plate editor shows, so the
-        # footprint pivot agrees (multi-object / Bambu 3MFs, unit scaling).
         mesh = load_mesh(part.path, fmt).mesh if fmt is not None else None
     except Exception as exc:
         raise MeshCombineError(f"Could not read {part.name}: {exc}") from exc
     if mesh is None or len(mesh.vertices) == 0 or len(mesh.faces) == 0:
         raise MeshCombineError(f"{part.name} contains no printable geometry")
-    vertices = mesh.vertices.copy()
+    return mesh
+
+
+def _load_part(part: CombinePart, mesh=None) -> LoadedPart:
+    if mesh is None:
+        mesh = read_mesh(part)
+    orient = normalize(part.orient)
+    # Bake the orientation in, then drop to the bed: footprint min at (0, 0), z min at 0.
+    vertices = rotate_vertices(mesh.vertices, orient).copy()
     lo = vertices.min(axis=0)
     hi = vertices.max(axis=0)
     vertices -= lo
@@ -279,6 +295,7 @@ def _load_part(part: CombinePart) -> LoadedPart:
         scale=part.scale,
         height=float(hi[2] - lo[2]),
         origin=(float(lo[0]), float(lo[1]), float(lo[2])),
+        orient=orient,
     )
 
 
@@ -305,9 +322,13 @@ def _load_parts(parts: list[CombinePart]) -> list[LoadedPart]:
         )
     loaded: list[LoadedPart] = []
     faces = 0
+    meshes: dict[Path, object] = {}  # one read per file, however many orientations
     for part in parts:
-        item = _load_part(part)
-        faces += len(item.faces)
+        mesh = meshes.get(part.path)
+        if mesh is None:
+            mesh = meshes[part.path] = read_mesh(part)
+            faces += len(mesh.faces)
+        item = _load_part(part, mesh)
         if faces > MAX_COMBINE_SOURCE_FACES:
             raise MeshCombineError(
                 f"The selected models are too detailed to combine: more than {MAX_COMBINE_SOURCE_FACES:,} triangles"

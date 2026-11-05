@@ -7,6 +7,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  BoxSelectIcon,
   CopyPlusIcon,
   MinusIcon,
   MoveIcon,
@@ -19,16 +20,18 @@ import {
   ScissorsIcon,
   Trash2Icon,
   Undo2Icon,
+  ArrowDownToLineIcon,
   WandSparklesIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
-import { bedFromProfile, useAutoArrange, useCombine, type CombineRequest } from "@/api/combine";
+import { bedFromProfile, useAutoArrange, useAutoOrient, useCombine, type CombinePose, type CombineRequest } from "@/api/combine";
 import { useProfiles } from "@/api/slicing";
 import type { FileOut } from "@/api/types";
 import { canArrange } from "@/components/plate/arrangeable";
+import { normalizeQuat, type Quat } from "@/components/plate/orient";
 import { buildManualRequest, clearLayout, loadLayout, saveLayout } from "@/components/plate/payload";
 import {
   initialState,
@@ -52,6 +55,21 @@ import { glbUrl } from "@/components/viewer/viewable";
 const PlateScene = lazy(() => import("@/components/plate/PlateScene"));
 
 const COLORS = ["#2dd4bf", "#60a5fa", "#f59e0b", "#f472b6", "#a78bfa", "#34d399", "#fb7185", "#fbbf24"];
+
+function poseToItem(p: CombinePose): PlateItem {
+  return {
+    uid: newUid(),
+    file_id: p.file_id,
+    x_mm: p.x_mm,
+    y_mm: p.y_mm,
+    rot_z_deg: p.rot_z_deg,
+    scale: p.scale,
+    copy_index: p.copy_index,
+    orient: normalizeQuat(p.orient),
+  };
+}
+
+const poseDims = (p: CombinePose): PartDims => ({ w_mm: p.w_mm, d_mm: p.d_mm, h_mm: p.h_mm });
 
 const baseName = (relPath: string) => relPath.split("/").pop() ?? relPath;
 
@@ -112,10 +130,15 @@ export function PlateEditorDialog({
   const profiles = useProfiles("printer");
   const combine = useCombine(slug);
   const auto = useAutoArrange(slug);
+  const autoOrient = useAutoOrient(slug);
   const [state, dispatch] = useReducer(plateReducer, initialState);
   const [mode, setMode] = useState<PlateMode>("translate");
   const [freeRotate, setFreeRotate] = useState(false);
   const [orbitLocked, setOrbitLocked] = useState(false);
+  const [faceMode, setFaceMode] = useState(false);
+  const [orientFirst, setOrientFirst] = useState(false);
+  // Per-copy oriented source dims (the scene measures the rotated mesh; the server's numbers seed it).
+  const [itemDims, setItemDims] = useState<Map<string, PartDims>>(new Map());
   const [profileId, setProfileId] = useState("");
   const [bedX, setBedX] = useState("256");
   const [bedY, setBedY] = useState("256");
@@ -171,20 +194,9 @@ export function PlateEditorDialog({
       onSuccess: (res) => {
         setDims(new Map(res.parts.map((p) => [p.file_id, p])));
         const saved = loadLayout(slug, fileIds);
-        dispatch({
-          type: "init",
-          items:
-            saved ??
-            res.poses.map((p) => ({
-              uid: newUid(),
-              file_id: p.file_id,
-              x_mm: p.x_mm,
-              y_mm: p.y_mm,
-              rot_z_deg: p.rot_z_deg,
-              scale: p.scale,
-              copy_index: p.copy_index,
-            })),
-        });
+        const fresh = res.poses.map((p) => ({ item: poseToItem(p), dims: poseDims(p) }));
+        setItemDims(saved ? new Map() : new Map(fresh.map((f) => [f.item.uid, f.dims])));
+        dispatch({ type: "init", items: saved ?? fresh.map((f) => f.item) });
         setReady(true);
       },
       onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
@@ -196,6 +208,7 @@ export function PlateEditorDialog({
     if (open) return;
     started.current = false;
     setReady(false);
+    setFaceMode(false);
     dispatch({ type: "init", items: [] });
   }, [open]);
 
@@ -210,8 +223,8 @@ export function PlateEditorDialog({
     [usableFiles],
   );
   const fitsByUid = useMemo(
-    () => new Map(state.items.map((i) => [i.uid, itemFits(dims.get(i.file_id), i, bedSize, height)])),
-    [state.items, dims, bedSize, height],
+    () => new Map(state.items.map((i) => [i.uid, itemFits(itemDims.get(i.uid) ?? dims.get(i.file_id), i, bedSize, height)])),
+    [state.items, itemDims, dims, bedSize, height],
   );
   const labelOf = (i: PlateItem) => {
     const f = usableFiles.find((x) => x.id === i.file_id);
@@ -223,34 +236,71 @@ export function PlateEditorDialog({
 
   function autoArrange() {
     if (!bedValid) return;
-    const counts = new Map<number, number>();
-    for (const i of state.items) counts.set(i.file_id, (counts.get(i.file_id) ?? 0) + 1);
     const req = autoRequest();
-    const scaleOf = new Map(state.items.map((i) => [i.file_id, i.scale]));
-    req.items = usableFiles
-      .filter((f) => counts.has(f.id))
-      .map((f) => ({ file_id: f.id, copies: counts.get(f.id) ?? 1, scale: scaleOf.get(f.id) ?? 1 }));
+    // One request item per (file, orientation, scale) so tilted copies stay tilted.
+    const groups = new Map<string, { file_id: number; orient: Quat; scale: number; copies: number }>();
+    for (const i of state.items) {
+      const k = `${i.file_id}|${i.orient.join(",")}|${i.scale}`;
+      const g = groups.get(k);
+      if (g) g.copies += 1;
+      else groups.set(k, { file_id: i.file_id, orient: i.orient, scale: i.scale, copies: 1 });
+    }
+    req.items = [...groups.values()].map((g) => ({ file_id: g.file_id, copies: g.copies, scale: g.scale, orient: g.orient }));
     if (req.items.length === 0) return;
+    req.auto_orient = orientFirst;
     auto.mutate(req, {
       onSuccess: (res) => {
         setDims(new Map(res.parts.map((p) => [p.file_id, p])));
-        dispatch({
-          type: "replace",
-          items: res.poses.map((p) => ({
-            uid: newUid(),
-            file_id: p.file_id,
-            x_mm: p.x_mm,
-            y_mm: p.y_mm,
-            rot_z_deg: 0,
-            scale: p.scale,
-            copy_index: p.copy_index,
-          })),
-        });
+        const fresh = res.poses.map((p) => ({ item: { ...poseToItem(p), rot_z_deg: 0 }, dims: poseDims(p) }));
+        setItemDims(new Map(fresh.map((f) => [f.item.uid, f.dims])));
+        dispatch({ type: "replace", items: fresh.map((f) => f.item) });
         if (!res.fits) toast.warning(t("plate.autoNoFit"));
       },
       onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
     });
   }
+
+  // Auto orient: the selected copy, or every copy when nothing is selected.
+  function orientAuto() {
+    const targets = selected ? [selected] : state.items;
+    if (targets.length === 0) return;
+    autoOrient.mutate([...new Set(targets.map((i) => i.file_id))], {
+      onSuccess: (res) => {
+        const byFile = new Map(res.files.map((f) => [f.file_id, f]));
+        dispatch({
+          type: "setOrient",
+          entries: targets.flatMap((i) => {
+            const f = byFile.get(i.file_id);
+            return f ? [{ uid: i.uid, orient: f.orient }] : [];
+          }),
+        });
+        setItemDims((prev) => {
+          const next = new Map(prev);
+          for (const i of targets) {
+            const f = byFile.get(i.file_id);
+            if (f) next.set(i.uid, f);
+          }
+          return next;
+        });
+      },
+      onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.orientFailed")),
+    });
+  }
+
+  function onFace(uid: string, normal: [number, number, number]) {
+    dispatch({ type: "layOnFace", uid, normal });
+    dispatch({ type: "select", uid });
+    setFaceMode(false);
+  }
+
+  const onDims = useCallback((uid: string, d: PartDims) => {
+    setItemDims((prev) => {
+      const cur = prev.get(uid);
+      const near = (a: number, b: number) => Math.abs(a - b) < 1e-3;
+      if (cur && near(cur.w_mm, d.w_mm) && near(cur.d_mm, d.d_mm) && near(cur.h_mm, d.h_mm)) return prev;
+      return new Map(prev).set(uid, { w_mm: d.w_mm, d_mm: d.d_mm, h_mm: d.h_mm });
+    });
+  }, []);
 
   function save(thenSlice: boolean) {
     combine.mutate(buildManualRequest(state.items, { profileId: selectedProfile?.profile.id ?? null, bed: bedSize }, name), {
@@ -279,7 +329,11 @@ export function PlateEditorDialog({
     } else if (k === "g") setMode("translate");
     else if (k === "r") setMode("rotate");
     else if (k === "s") setMode("scale");
-    else if (k === "escape" && state.selected) {
+    else if (k === "f" && state.items.length > 0) setFaceMode((on) => !on);
+    else if (k === "escape" && faceMode) {
+      e.stopPropagation();
+      setFaceMode(false);
+    } else if (k === "escape" && state.selected) {
       e.stopPropagation();
       dispatch({ type: "select", uid: null });
     }
@@ -330,6 +384,9 @@ export function PlateEditorDialog({
                   mode={mode}
                   freeRotate={freeRotate}
                   orbitLocked={orbitLocked}
+                  faceMode={faceMode}
+                  onDims={onDims}
+                  onFace={onFace}
                   onSelect={(uid) => dispatch({ type: "select", uid })}
                   onBegin={() => (editRecorded.current = false)}
                   onChange={(uid, fields) => dispatch({ type: "patch", uid, fields, record: recordOnce() })}
@@ -364,6 +421,39 @@ export function PlateEditorDialog({
               <Button type="button" size="sm" variant="ghost" disabled={auto.isPending || !bedValid || !ready} onClick={autoArrange}>
                 <WandSparklesIcon className="size-4" />
                 {t("plate.autoArrange")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={autoOrient.isPending || !ready || state.items.length === 0}
+                title={state.items.length === 0 ? t("plate.noParts") : t("plate.autoOrientHint")}
+                onClick={orientAuto}
+              >
+                <BoxSelectIcon className="size-4" />
+                {t("plate.autoOrient")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={faceMode ? "default" : "ghost"}
+                aria-pressed={faceMode}
+                disabled={!ready || state.items.length === 0}
+                title={state.items.length === 0 ? t("plate.noParts") : `${t("plate.layOnFaceHint")} (F)`}
+                onClick={() => setFaceMode((on) => !on)}
+              >
+                <ArrowDownToLineIcon className="size-4" />
+                {t("plate.layOnFace")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={orientFirst ? "default" : "ghost"}
+                aria-pressed={orientFirst}
+                title={t("plate.orientFirstHint")}
+                onClick={() => setOrientFirst((on) => !on)}
+              >
+                {t("plate.orientFirst")}
               </Button>
               {mode === "rotate" && selected ? (
                 <>

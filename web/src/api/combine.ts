@@ -13,6 +13,8 @@ export interface CombineItem {
   rot_z_deg?: number;
   scale?: number;
   copy_index?: number;
+  /** unit quaternion [x, y, z, w] applied to the mesh before it is dropped on the bed. */
+  orient?: [number, number, number, number];
 }
 
 export interface CombineRequest {
@@ -23,6 +25,8 @@ export interface CombineRequest {
   bed?: { x_mm: number; y_mm: number } | null;
   name?: string | null;
   dry_run?: boolean;
+  /** grid/auto: orient every item for printing first. */
+  auto_orient?: boolean;
 }
 
 export interface CombinePlacement {
@@ -41,6 +45,11 @@ export interface CombinePose {
   scale: number;
   copy_index: number;
   fits: boolean;
+  orient: [number, number, number, number];
+  /** oriented, unscaled source dims of this pose's mesh */
+  w_mm: number;
+  d_mm: number;
+  h_mm: number;
 }
 
 /** Source mesh AABB in mm; the pose pivot is (min_x + w/2, min_y + d/2, min_z). */
@@ -108,5 +117,21 @@ export function useAutoArrange(slug: string) {
   return useMutation({
     mutationFn: (request: CombineRequest) =>
       api.post<CombineResult>(`/models/${encodeURIComponent(slug)}/combine?auto=1`, request),
+  });
+}
+
+export interface OrientResult {
+  file_id: number;
+  orient: [number, number, number, number];
+  w_mm: number;
+  d_mm: number;
+  h_mm: number;
+}
+
+/** Best print orientation (quaternion + resulting dims) per file. */
+export function useAutoOrient(slug: string) {
+  return useMutation({
+    mutationFn: (fileIds: number[]) =>
+      api.post<{ files: OrientResult[] }>(`/models/${encodeURIComponent(slug)}/orient`, { file_ids: fileIds }),
   });
 }
