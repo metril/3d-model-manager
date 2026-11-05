@@ -46,3 +46,16 @@ async def test_fetch_failure_is_cached_as_error(authenticated_client):
 async def test_route_without_cache(authenticated_client):
     r = await authenticated_client.get("/api/system/update")
     assert r.status_code == 200 and r.json()["latest"] is None
+
+
+@respx.mock
+async def test_route_recomputes_after_upgrade(authenticated_client, monkeypatch):
+    """A cache written by an older release must not keep the badge lit."""
+    monkeypatch.setenv("APP_VERSION", "1.0.0")
+    get_settings.cache_clear()
+    respx.get(updates.RELEASES_URL).respond(json={"tag_name": "v1.1.0"})
+    assert updates_check.delay().get()["update_available"] is True
+    monkeypatch.setenv("APP_VERSION", "1.1.1")  # upgraded past the cached latest
+    get_settings.cache_clear()
+    body = (await authenticated_client.get("/api/system/update")).json()
+    assert body["current"] == "1.1.1" and body["update_available"] is False
