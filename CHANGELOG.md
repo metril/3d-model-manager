@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.5](https://github.com/metril/3d-model-manager/compare/v0.12.4...v0.12.5) (2026-11-05)
+
+
+### Bug Fixes
+
+* **viewer:** lay plated 3MFs out on real beds ([#213](https://github.com/metril/3d-model-manager/issues/213)) ([dc757a0](https://github.com/metril/3d-model-manager/commit/dc757a088adb6e857d478eef53f45edfcbe3f7d0))
+
 ## [0.12.4](https://github.com/metril/3d-model-manager/compare/v0.12.3...v0.12.4) (2026-11-05)
 
 
