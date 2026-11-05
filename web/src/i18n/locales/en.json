@@ -1692,6 +1692,7 @@
     "redo": "Redo",
     "autoArrange": "Auto-arrange",
     "autoOrient": "Auto orient",
+    "platesFilter": "Plates",
     "autoOrientHint": "Lay the selected part (or all parts) on its best flat face",
     "orientFailed": "Could not work out an orientation",
     "layOnFace": "Place on face",

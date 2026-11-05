@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -263,3 +264,76 @@ def whole_file_mesh(path: Path) -> trimesh.Trimesh | None:
 
 def plate_extents(mesh: trimesh.Trimesh) -> list[float]:
     return [round(float(x), 2) for x in mesh.extents]
+
+
+# An editor can place at most this many items; past it a file is not split.
+MAX_OBJECTS = 100
+
+
+@dataclass(frozen=True)
+class ObjectPiece:
+    """One build item of a 3MF as its own mesh, on a single bed (``plate`` is
+    the 1-based plate it came from, ``None`` when the file has no plates)."""
+
+    index: int  # position among the file's <build><item>s (stable, 0-based)
+    plate: int | None
+    name: str
+    mesh: trimesh.Trimesh
+
+
+def _object_names(zf: zipfile.ZipFile) -> dict[int, str]:
+    data = slicedmeta.read_zip_member(zf, MODEL_SETTINGS)
+    if data is None:
+        return {}
+    try:
+        root = ET.fromstring(data)  # noqa: S314 - same trust level as slicedmeta
+    except ET.ParseError:
+        return {}
+    out: dict[int, str] = {}
+    for obj in root.findall("object"):
+        oid = slicedmeta._parse_int(obj.get("id"))
+        for meta in obj.findall("metadata"):
+            if oid is not None and meta.get("key") == "name" and meta.get("value"):
+                out[oid] = meta.get("value", "").strip()
+                break
+    return out
+
+
+def object_meshes(path: Path) -> list[ObjectPiece]:
+    """Each build item of a 3MF as an independent mesh (painted by filament
+    colour for multi-filament projects). Items of a multi-plate project are
+    moved from the virtual plate grid onto the single bed, exactly as
+    :func:`plate_meshes` does per plate. ``[]`` when the file is not
+    splittable: fewer than two items, more than ``MAX_OBJECTS``, or lib3mf
+    and the XML disagree."""
+    with zipfile.ZipFile(path) as zf:
+        plates = parse_unsliced_plates(zf)
+        bed = read_bed(zf)
+        names = _object_names(zf)
+    loaded = _load_items(path, plates, bed)
+    if loaded is None:
+        return []
+    items, assigned, item_oids = loaded
+    live = [pos for pos, m in enumerate(items) if m is not None]
+    if len(live) < 2 or len(live) > MAX_OBJECTS:
+        return []
+    plate_of: dict[int, int] = {}
+    n = max([p["index"] for p in plates] + [len(plates)]) if plates else 0
+    for plate in plates:
+        group = [pos for pos in assigned.get(plate["index"], []) if items[pos] is not None]
+        if not group:
+            continue
+        merged = trimesh.util.concatenate([items[pos] for pos in group])
+        before = merged.bounds[0].copy()
+        _recentre(merged, plate["index"], n, bed)
+        shift = merged.bounds[0] - before
+        shift[2] = 0.0
+        for pos in group:
+            items[pos].apply_translation(shift)
+            plate_of[pos] = plate["index"]
+    out: list[ObjectPiece] = []
+    for pos in live:
+        oid = item_oids[pos]
+        name = (names.get(oid) if oid is not None else None) or f"Object {pos + 1}"
+        out.append(ObjectPiece(pos, plate_of.get(pos), name, items[pos]))
+    return out

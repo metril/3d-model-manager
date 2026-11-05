@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.models.enums import BlobFormat
+from app.pipeline import plates3mf
 from app.pipeline.meshload import load_mesh
 from app.services.orient import IDENTITY, Quat, normalize, rotate_vertices
 
@@ -56,6 +57,9 @@ class CombinePart:
     # Unit quaternion (x, y, z, w) applied to the source mesh before the part
     # is dropped on the bed; identity keeps the mesh as authored.
     orient: Quat = IDENTITY
+    # Build item of a 3MF (``plates3mf.object_meshes`` index) instead of the
+    # whole file; ``None`` = the whole file as authored.
+    object: int | None = None
 
 
 @dataclass(frozen=True)
@@ -262,10 +266,25 @@ def _object_name(filename: str) -> str:
     return re.sub(r"[\x00-\x1f]", "", stem)[:200] or "object"
 
 
-def read_mesh(part: CombinePart):
+def read_mesh(part: CombinePart, objects: dict[Path, dict[int, object]] | None = None):
     """The source mesh of ``part`` as authored (same loader as the GLB
     derivative the plate editor shows, so the footprint pivot agrees:
-    multi-object / Bambu 3MFs, unit scaling)."""
+    multi-object / Bambu 3MFs, unit scaling). With ``part.object`` the single
+    build item, on a single bed (``objects`` memoises the split per file)."""
+    if part.object is not None:
+        try:
+            if objects is not None and part.path in objects:
+                by_index = objects[part.path]
+            else:
+                by_index = {o.index: o.mesh for o in plates3mf.object_meshes(part.path)}
+                if objects is not None:
+                    objects[part.path] = by_index
+        except Exception as exc:
+            raise MeshCombineError(f"Could not read {part.name}: {exc}") from exc
+        mesh = by_index.get(part.object)
+        if mesh is None or len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+            raise MeshCombineError(f"{part.name} has no object {part.object}")
+        return mesh
     fmt = _SUFFIX_FORMAT.get(part.path.suffix.lower())
     try:
         mesh = load_mesh(part.path, fmt).mesh if fmt is not None else None
@@ -322,11 +341,12 @@ def _load_parts(parts: list[CombinePart]) -> list[LoadedPart]:
         )
     loaded: list[LoadedPart] = []
     faces = 0
-    meshes: dict[Path, object] = {}  # one read per file, however many orientations
+    meshes: dict[tuple[Path, int | None], object] = {}  # one read per (file, object)
+    objects: dict[Path, dict[int, object]] = {}
     for part in parts:
-        mesh = meshes.get(part.path)
+        mesh = meshes.get((part.path, part.object))
         if mesh is None:
-            mesh = meshes[part.path] = read_mesh(part)
+            mesh = meshes[(part.path, part.object)] = read_mesh(part, objects)
             faces += len(mesh.faces)
         item = _load_part(part, mesh)
         if faces > MAX_COMBINE_SOURCE_FACES:

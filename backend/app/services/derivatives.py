@@ -73,6 +73,16 @@ def plate_glb_path(settings: Settings, blob_hash: str, index: int) -> Path:
     return _derivative_dir(settings, blob_hash) / f"{blob_hash}.plate_{index}.glb"
 
 
+def objects_json_path(settings: Settings, blob_hash: str) -> Path:
+    """Cached per-object listing of a 3MF (see ``services.object_assets``)."""
+    return _derivative_dir(settings, blob_hash) / f"{blob_hash}.objects.json"
+
+
+def object_glb_path(settings: Settings, blob_hash: str, index: int) -> Path:
+    """Per-object GLB of a 3MF build item, on a single bed (rowless)."""
+    return _derivative_dir(settings, blob_hash) / f"{blob_hash}.object_{index}.glb"
+
+
 def glb_web_path(settings: Settings, blob_hash: str) -> Path:
     """Path for the meshopt-compressed, browser-only GLB (rowless: this is
     NOT the ``derivatives`` ``glb`` row, which is always the uncompressed

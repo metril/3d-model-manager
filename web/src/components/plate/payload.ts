@@ -13,6 +13,7 @@ export function buildManualRequest(
     spacing_mm: 0,
     items: items.map((i) => ({
       file_id: i.file_id,
+      ...(i.object_index == null ? {} : { object_index: i.object_index }),
       copies: 1,
       x_mm: i.x_mm,
       y_mm: i.y_mm,
@@ -37,8 +38,13 @@ export function loadLayout(slug: string, fileIds: number[]): PlateItem[] | null 
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
     const ids = new Set(fileIds);
     if (!parsed.every((i) => ids.has(i.file_id) && Number.isFinite(i.x_mm) && Number.isFinite(i.y_mm))) return null;
-    // Layouts saved before orientation existed have no `orient`: as authored.
-    return parsed.map((i) => ({ ...i, orient: normalizeQuat(i.orient) }));
+    // Layouts saved before orientation / objects existed have no `orient` /
+    // `object_index`: as authored, the whole file.
+    return parsed.map((i) => ({
+      ...i,
+      object_index: Number.isInteger(i.object_index) ? i.object_index : null,
+      orient: normalizeQuat(i.orient),
+    }));
   } catch {
     return null;
   }
