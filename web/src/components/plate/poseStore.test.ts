@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { layOnFaceOrient, Y_UP_TO_Z_UP_QUAT, yUpToZUp, zUpToYUp, normalizeQuat, quatBetween, rotateVec, type Quat, type Vec3 } from "@/components/plate/orient";
 import { buildManualRequest, loadLayout, saveLayout } from "@/components/plate/payload";
+import { capItems, groupItems, seedsMayOverlap } from "@/components/plate/seeds";
 import {
   halfExtents,
   initialState,
@@ -242,5 +243,36 @@ describe("per-object parts", () => {
     const loaded = loadLayout("m", [1]);
     expect(loaded?.[0].object_index).toBeNull();
     expect(loaded?.[1].object_index).toBe(2);
+  });
+});
+
+describe("object seeds", () => {
+  it("flags seeds that could overlap", () => {
+    const one = new Map([[1, [{ plate: 1 }, { plate: 1 }]]]);
+    expect(seedsMayOverlap(one, 0)).toBe(false);
+    expect(seedsMayOverlap(one, 1)).toBe(true);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: 1 }, { plate: 2 }]]]), 0)).toBe(true);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: null }, { plate: null }]]]), 0)).toBe(false);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: 1 }]], [2, [{ plate: 1 }]]]), 0)).toBe(true);
+  });
+
+  it("caps seeds and reports truncation", () => {
+    expect(capItems([1, 2, 3], 2)).toEqual({ items: [1, 2], truncated: true });
+    expect(capItems([1, 2], 5)).toEqual({ items: [1, 2], truncated: false });
+    expect(capItems([1], -3)).toEqual({ items: [], truncated: true });
+  });
+
+  it("groups items per part, orientation and scale", () => {
+    const req = groupItems([
+      item("a", { object_index: 0 }),
+      item("b", { object_index: 0, x_mm: 9 }),
+      item("c", { object_index: 1 }),
+      item("d"),
+    ]);
+    expect(req.map((r) => [r.file_id, r.object_index, r.copies])).toEqual([
+      [1, 0, 2],
+      [1, 1, 1],
+      [1, undefined, 1],
+    ]);
   });
 });

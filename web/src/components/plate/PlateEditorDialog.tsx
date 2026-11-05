@@ -40,7 +40,8 @@ import {
 import { useProfiles } from "@/api/slicing";
 import type { FileOut } from "@/api/types";
 import { canArrange } from "@/components/plate/arrangeable";
-import { normalizeQuat, type Quat } from "@/components/plate/orient";
+import { normalizeQuat } from "@/components/plate/orient";
+import { capItems, groupItems, seedsMayOverlap } from "@/components/plate/seeds";
 import { buildManualRequest, clearLayout, loadLayout, saveLayout } from "@/components/plate/payload";
 import {
   initialState,
@@ -241,15 +242,22 @@ export function PlateEditorDialog({
       )
         ? saved
         : null;
-    const finish = (res: { parts: { file_id: number; object_index?: number | null; w_mm: number; d_mm: number; h_mm: number }[]; poses: CombinePose[] } | null) => {
+    const wholeCount = usableFiles.filter((f) => !splitObjects.has(f.id)).length;
+    const capped = capItems(objectSeeds, MAX_ITEMS - wholeCount);
+    if (capped.truncated) toast.warning(t("plate.seedsTruncated", { max: MAX_ITEMS }));
+    // Seeds that could overlap go through the server's auto-arrange with the whole-file parts.
+    const arrangeSeeds = capped.items.length > 0 && seedsMayOverlap(splitObjects, wholeCount);
+    const finish = (res: { fits?: boolean; parts: { file_id: number; object_index?: number | null; w_mm: number; d_mm: number; h_mm: number }[]; poses: CombinePose[] } | null) => {
       setDims(new Map([...objectParts, ...(res?.parts ?? []).map((p): [string, PartDims] => [partKey(p), p])]));
       const saved = usableSaved(loadLayout(slug, fileIds));
       const fresh = (res?.poses ?? []).map((p) => ({ item: poseToItem(p), dims: poseDims(p) }));
       setItemDims(saved ? new Map() : new Map(fresh.map((f) => [f.item.uid, f.dims])));
-      dispatch({ type: "init", items: saved ?? [...fresh.map((f) => f.item), ...objectSeeds] });
+      dispatch({ type: "init", items: saved ?? [...fresh.map((f) => f.item), ...(arrangeSeeds ? [] : capped.items)] });
+      if (!saved && arrangeSeeds && res && !res.fits) toast.warning(t("plate.autoNoFit"));
       setReady(true);
     };
     const req = autoRequest();
+    if (arrangeSeeds) req.items = [...req.items, ...groupItems(capped.items)];
     if (req.items.length === 0) {
       finish(null);
       return;
@@ -301,26 +309,13 @@ export function PlateEditorDialog({
   const selected = state.items.find((i) => i.uid === state.selected) ?? null;
   const canSave = ready && bedValid && state.items.length > 0 && offBed.length === 0 && !combine.isPending;
 
-  function autoArrange() {
+  // Server auto-arrange of `items` (replaces the layout; undoable).
+  function arrangeItems(items: PlateItem[], autoOrientFirst = false) {
     if (!bedValid) return;
     const req = autoRequest();
-    // One request item per (file, orientation, scale) so tilted copies stay tilted.
-    const groups = new Map<string, { file_id: number; object_index: number | null; orient: Quat; scale: number; copies: number }>();
-    for (const i of state.items) {
-      const k = `${partKey(i)}|${i.orient.join(",")}|${i.scale}`;
-      const g = groups.get(k);
-      if (g) g.copies += 1;
-      else groups.set(k, { file_id: i.file_id, object_index: i.object_index ?? null, orient: i.orient, scale: i.scale, copies: 1 });
-    }
-    req.items = [...groups.values()].map((g) => ({
-      file_id: g.file_id,
-      ...(g.object_index == null ? {} : { object_index: g.object_index }),
-      copies: g.copies,
-      scale: g.scale,
-      orient: g.orient,
-    }));
+    req.items = groupItems(items);
     if (req.items.length === 0) return;
-    req.auto_orient = orientFirst;
+    req.auto_orient = autoOrientFirst;
     auto.mutate(req, {
       onSuccess: (res) => {
         setDims((prev) => new Map([...prev, ...res.parts.map((p): [string, PartDims] => [partKey(p), p])]));
@@ -332,6 +327,8 @@ export function PlateEditorDialog({
       onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
     });
   }
+
+  const autoArrange = () => arrangeItems(state.items, orientFirst);
 
   // Auto orient: the selected copy, or every copy when nothing is selected.
   function orientAuto() {
@@ -373,9 +370,15 @@ export function PlateEditorDialog({
       });
       return;
     }
-    const added = list.filter((o) => onPlate.has(o.index)).map((o) => objectItem(fileId, o));
-    if (state.items.length + added.length > MAX_ITEMS) return;
-    dispatch({ type: "replace", items: [...state.items, ...added] });
+    const capped = capItems(
+      list.filter((o) => onPlate.has(o.index)).map((o) => objectItem(fileId, o)),
+      MAX_ITEMS - state.items.length,
+    );
+    if (capped.truncated) toast.warning(t("plate.seedsTruncated", { max: MAX_ITEMS }));
+    if (capped.items.length === 0) return;
+    // Bed-local spots may be taken: re-pack so nothing overlaps.
+    if (state.items.length === 0) dispatch({ type: "replace", items: capped.items });
+    else arrangeItems([...state.items, ...capped.items]);
   }
 
   function onFace(uid: string, normal: [number, number, number]) {

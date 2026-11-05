@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { modelQueryOptions } from "@/api/library";
@@ -171,9 +172,14 @@ export function useFileObjects(slug: string, files: Pick<FileOut, "id" | "format
   });
   // A failed/unreadable 3MF falls back to the whole file.
   const settled = queries.every((q) => !enabled || q.isSuccess || q.isError);
-  const byFile = new Map<number, FileObject[]>();
-  queries.forEach((q, i) => {
-    if (q.data && q.data.objects.length > 1) byFile.set(threeMf[i].id, q.data.objects);
-  });
+  const stamp = queries.map((q) => `${q.dataUpdatedAt}`).join(",");
+  const byFile = useMemo(() => {
+    const m = new Map<number, FileObject[]>();
+    queries.forEach((q, i) => {
+      if (q.data && q.data.objects.length > 1) m.set(threeMf[i].id, q.data.objects);
+    });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stamp, threeMf.map((f) => f.id).join(",")]);
   return { byFile, settled: enabled && settled };
 }

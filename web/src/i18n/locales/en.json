@@ -1700,6 +1700,7 @@
     "orientFirst": "Orient first",
     "orientFirstHint": "Auto-arrange orients every part for printing before packing it",
     "noParts": "Add a part to the plate first",
+    "seedsTruncated": "Only the first {{max}} objects fit in the editor.",
     "autoNoFit": "The parts do not fit this bed; shown packed beyond its edge.",
     "rotateLeft": "Rotate 90 degrees left",
     "rotateRight": "Rotate 90 degrees right",
