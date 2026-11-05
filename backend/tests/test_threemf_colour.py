@@ -104,3 +104,42 @@ def test_bake_does_not_blend_shared_vertices() -> None:
     baked = threemf_colour.bake_vertex_colours(box)
     assert {tuple(c) for c in np.unique(baked.visual.vertex_colors, axis=0)} == {RED, BLUE}
     assert len(baked.faces) == 12
+
+
+def test_plate_filaments_and_colour_changes(tmp_path: Path) -> None:
+    path, plates, _ = _setup(tmp_path)
+    with zipfile.ZipFile(path) as zf:
+        got = plates3mf.plate_filament_info(zf, plates)
+    # modifier part (extruder 2) on plate 1 is skipped
+    assert got[1] == {
+        "filaments": [{"slot": 1, "colour": "#FF0000"}, {"slot": 3, "colour": "#0000FF"}],
+        "colour_changes": [],
+    }
+    assert got[2]["filaments"] == [{"slot": 2, "colour": "#00FF00"}]
+    assert got[2]["colour_changes"] == [{"z": 10.0, "slot": 3, "colour": "#0000FF"}]
+
+
+def test_plain_project_has_no_filament_data(tmp_path: Path) -> None:
+    p = tmp_path / "plain.3mf"
+    p.write_bytes(make_project_3mf(2))
+    with zipfile.ZipFile(p) as zf:
+        got = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf))
+    assert got[1] == {"filaments": [], "colour_changes": []}
+
+
+def test_read_3mf_profile_meta(tmp_path: Path) -> None:
+    p = tmp_path / "m.3mf"
+    p.write_bytes(make_coloured_project_3mf(profile_meta=True))
+    with zipfile.ZipFile(p) as zf:
+        assert plates3mf.read_3mf_profile_meta(zf) == {
+            "profile_id": 777,
+            "title": "Fast profile",
+            "design_id": "555",
+            "design_title": "Benchy",
+            "description": "0.2 layers",
+            "author": "alice",
+            "origin": "3mf",
+        }
+    p.write_bytes(make_coloured_project_3mf())
+    with zipfile.ZipFile(p) as zf:
+        assert plates3mf.read_3mf_profile_meta(zf) is None

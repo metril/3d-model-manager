@@ -157,6 +157,14 @@ export interface PlateFilamentOut {
   color: string | null;
   used_m: number | null;
   used_g: number | null;
+  /** AMS slot (0-based) when known. */
+  slot?: number | null;
+}
+
+export interface PlateColourChange {
+  z: number;
+  slot: number | null;
+  colour: string;
 }
 
 export interface PlateOut {
@@ -166,6 +174,8 @@ export interface PlateOut {
   est_cost: number | null;
   thumbnail_available: boolean;
   filaments: PlateFilamentOut[];
+  /** Mid-print colour swaps (unsliced Bambu 3MFs). */
+  colour_changes?: PlateColourChange[];
   /** Unsliced multi-plate projects: plate name, per-plate GLB, extents (mm), bed fit. */
   name?: string;
   has_glb?: boolean;
@@ -226,6 +236,12 @@ export interface SourceMeta {
   profile_id?: number | null;
   instance_id?: number | null;
   title?: string | null;
+  /** From the 3MF itself (origin "3mf"). */
+  design_id?: number | string | null;
+  design_title?: string | null;
+  description?: string | null;
+  author?: string | null;
+  origin?: string | null;
   compat?: { model: string | null; product: string | null; nozzle: number | null }[];
   plates?: {
     index: number | null;

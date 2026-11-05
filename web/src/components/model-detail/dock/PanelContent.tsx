@@ -7,6 +7,7 @@ import { DescriptionCard } from "@/components/model-detail/cards/DescriptionCard
 import { FilesDocsCard } from "@/components/model-detail/cards/FilesDocsCard";
 import { GcodeProfilesCard } from "@/components/model-detail/cards/GcodeProfilesCard";
 import { NotesCard } from "@/components/model-detail/cards/NotesCard";
+import { ProfilesPanel } from "@/components/model-detail/ProfilesPanel";
 import { PrintHistoryCard } from "@/components/model-detail/cards/PrintHistoryCard";
 import { PrintTipsCard } from "@/components/model-detail/cards/PrintTipsCard";
 import { RevisionsCard } from "@/components/model-detail/cards/RevisionsCard";
@@ -52,7 +53,13 @@ function RelatedContent() {
   return <RelatedModels model={useModelDetail().model} />;
 }
 function GcodeProfilesContent() {
-  return <GcodeProfilesCard model={useModelDetail().model} selection={useModelDetail().studio.selection} onView={useModelDetail().studio.onSelectFile} />;
+  const { model, studio } = useModelDetail();
+  return (
+    <div className="space-y-4">
+      <ProfilesPanel model={model} />
+      <GcodeProfilesCard model={model} selection={studio.selection} onView={studio.onSelectFile} />
+    </div>
+  );
 }
 function PrintHistoryContent() {
   return <PrintHistoryCard model={useModelDetail().model} />;

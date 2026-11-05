@@ -3,7 +3,6 @@ import { EyeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlatePanel } from "@/components/model-detail/PlatePanel";
-import { selectablePlates } from "@/components/viewer/plates";
 import type { StudioSelection } from "@/components/model-detail/studioSelection";
 import type { FileOut, ModelDetail } from "@/api/types";
 
@@ -21,26 +20,14 @@ export function GcodeProfilesCard({
   onView?: (file: FileOut) => void;
 }) {
   const slicedFiles = (model.current_revision?.files ?? []).filter((file) => file.kind === "sliced");
-  // Unsliced multi-plate projects: their plates, selectable into the viewer.
-  const plateFiles = (model.current_revision?.files ?? []).filter(
-    (file) => file.kind !== "sliced" && selectablePlates(file.meta?.plates).some((p) => p.has_glb),
-  );
-  if (slicedFiles.length === 0 && plateFiles.length === 0) return null;
+  if (slicedFiles.length === 0) return null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{slicedFiles.length === 0 ? "Plates" : "G-code profiles"}</CardTitle>
+        <CardTitle>G-code profiles</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {plateFiles.map((file) => (
-          <div key={`plates-${file.id}`} className="space-y-2">
-            <span className="block truncate text-sm font-medium" title={file.rel_path}>
-              {file.rel_path.split("/").pop()}
-            </span>
-            <PlatePanel file={file} compact />
-          </div>
-        ))}
         {slicedFiles.map((file) => {
           const active = selection?.type === "file" && selection.id === file.id;
           return (

@@ -48,7 +48,7 @@ from typing import Literal
 
 import trimesh
 from celery import Task
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
@@ -213,9 +213,37 @@ def start_pipeline_sync(session: SyncSession, *, blob_hash: str, file_id: int) -
     blob = session.get(Blob, blob_hash)
     if blob is None:
         return
+    if blob.format == BlobFormat.THREEMF:
+        _fill_file_source_meta(session, get_settings(), blob, file_id)
     step = next_step(blob.format, None)
     if step is not None:
         enqueue_step_sync(session, step=step, blob_hash=blob_hash, file_id=file_id)
+
+
+def _fill_file_source_meta(
+    session: SyncSession, settings: Settings, blob: Blob, file_id: int
+) -> None:
+    """A File that dedups onto an already-analysed blob never reaches
+    ``_fill_source_meta`` via the pipeline; fill its NULL ``source_meta`` here.
+    Best-effort."""
+    try:
+        file = session.get(File, file_id)
+        if file is None or file.source_meta is not None:
+            return
+        with tempfile.TemporaryDirectory(prefix="tdmm-sm-") as tmp:
+            src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
+            with zipfile.ZipFile(src) as zf:
+                sm = plates3mf.read_3mf_profile_meta(zf)
+        if sm is not None:
+            session.execute(
+                update(File)
+                .where(File.id == file_id, File.source_meta.is_(None))
+                .values(source_meta=sm)
+            )
+            session.commit()
+    except Exception:
+        session.rollback()
+        logger.warning("source_meta fill failed for file %s", file_id, exc_info=True)
 
 
 # Global Constraints "Pipeline shape": the formats whose glb derivative
@@ -854,6 +882,10 @@ def _convert_to_glb_step(
     return "done"
 
 
+# Bump when ``plates_json`` gains fields so the startup backfill re-analyses old rows.
+PLATES_VERSION = 2
+
+
 def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
     meta = session.get(BlobMeta, blob_hash)
     return meta is not None and meta.plates_json is None
@@ -866,19 +898,49 @@ def _mark_plates_poisoned(meta: BlobMeta) -> None:
         meta.plates_json = [{**p, "bed": p.get("bed")} for p in meta.plates_json]
     else:
         meta.plates_json = []
+    meta.plates_version = PLATES_VERSION
 
 
 def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> bool:
     with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
         src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
+        meta = session.get(BlobMeta, blob.hash)
+        if meta is not None and meta.plates_json and "bed" in meta.plates_json[0]:
+            _refresh_plate_info(session, blob, meta, src)  # up-to-date GLBs: no regeneration
+            return True
         return _generate_plate_assets(session, settings, blob, src)
+
+
+def _fill_source_meta(session: SyncSession, blob_hash: str, zf: zipfile.ZipFile) -> None:
+    """Fill ``files.source_meta`` from the 3MF's own MakerWorld metadata. Never
+    overwrites a non-NULL value."""
+    sm = plates3mf.read_3mf_profile_meta(zf)
+    if sm is None:
+        return
+    session.execute(
+        update(File)
+        .where(File.blob_hash == blob_hash, File.source_meta.is_(None))
+        .values(source_meta=sm)
+    )
+
+
+def _refresh_plate_info(session: SyncSession, blob: Blob, meta: BlobMeta, src: Path) -> None:
+    """Add filament/colour-change data (and ``source_meta``) to existing plates
+    without regenerating their GLBs/thumbs."""
+    with zipfile.ZipFile(src) as zf:
+        info = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf))
+        _fill_source_meta(session, blob.hash, zf)
+    meta.plates_json = [{**p, **info.get(p.get("index"), {})} for p in meta.plates_json]
+    meta.plates_version = PLATES_VERSION
+    session.commit()
 
 
 def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob, src: Path) -> bool:
     """Unsliced multi-plate project 3MF: per-plate thumbs + recentred GLBs +
     ``BlobMeta.plates_json``. Best-effort -- a failure here never fails the
     main conversion (``plates_json`` stays NULL so the backfill retries).
-    ``plates_json = []`` records "analysed, fewer than two plates".
+    A single-plate project gets a one-entry ``plates_json`` (``has_glb`` false,
+    filament data only); ``[]`` records "no plates found".
     """
     meta = session.get(BlobMeta, blob.hash)
     if meta is None:
@@ -887,15 +949,21 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
         with zipfile.ZipFile(src) as zf:
             plates = plates3mf.parse_unsliced_plates(zf)
             bed = plates3mf.read_bed(zf)
+            fil_info = plates3mf.plate_filament_info(zf, plates)
+            try:
+                _fill_source_meta(session, blob.hash, zf)
+            except Exception:
+                logger.warning("source_meta fill failed for %s", blob.hash, exc_info=True)
             thumbs_by_index = {
                 p["index"]: zf.read(p["thumb_member"]) for p in plates if p["thumb_member"]
             }
-        if len(plates) < 2:
+        if not plates:
             meta.plates_json = []
+            meta.plates_version = PLATES_VERSION
             session.commit()
             return True
         meshes: dict[int, trimesh.Trimesh] = {}
-        if len(plates) <= plates3mf.MAX_PLATE_GLBS:
+        if 1 < len(plates) <= plates3mf.MAX_PLATE_GLBS:
             meshes = plates3mf.plate_meshes(src, plates, bed)
         out: list[dict] = []
         plate_bed = bed or plates3mf.DEFAULT_BED
@@ -926,9 +994,11 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
                     "fits": fits,
                     "bed": list(plate_bed),
                     "origin": list(plates3mf.plate_origin(idx, n_grid, plate_bed)),
+                    **fil_info.get(idx, {"filaments": [], "colour_changes": []}),
                 }
             )
         meta.plates_json = out
+        meta.plates_version = PLATES_VERSION
         meta.plate_count = len(plates)
         session.commit()
     except Exception:
@@ -992,7 +1062,12 @@ def backfill_plates() -> int:
                 .join(BlobMeta, BlobMeta.blob_hash == Blob.hash)
                 .where(
                     Blob.format == BlobFormat.THREEMF,
-                    or_(BlobMeta.plates_json.is_(None), _plates_missing_bed()),
+                    or_(
+                        BlobMeta.plates_json.is_(None),
+                        _plates_missing_bed(),
+                        BlobMeta.plates_version.is_(None),
+                        BlobMeta.plates_version < PLATES_VERSION,
+                    ),
                 )
                 .order_by(Blob.hash)
                 .limit(BACKFILL_BATCH)
