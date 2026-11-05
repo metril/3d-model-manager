@@ -167,17 +167,8 @@ celery_app.conf.beat_schedule["stock-forecast"] = {
     "schedule": 6 * 3600,
 }
 
-# Additive: plate-analyse existing unsliced 3MFs (self-draining backfill).
-celery_app.conf.beat_schedule["plates-backfill"] = {
-    "task": "app.tasks.pipeline.backfill_plates",
-    "schedule": 600,
-}
-
-# Additive: rewrite legacy Z-up GLBs as glTF Y-up (self-draining backfill).
-celery_app.conf.beat_schedule["glb-orientation-backfill"] = {
-    "task": "app.tasks.pipeline.backfill_glb_orientation",
-    "schedule": 600,
-}
+# plates / glb-orientation backfills are NOT on beat: they run once per worker
+# start (see `app.tasks.startup_backfills`) and self-chain until drained.
 
 # Additive: library trash retention -- daily purge of expired trashed models.
 from app.tasks import trash as _trash  # noqa: E402,F401
@@ -273,6 +264,7 @@ from celery.signals import (  # noqa: E402
     beat_init,
     task_prerun,
     worker_process_init,
+    worker_ready,
 )
 
 _level_poller = None
@@ -302,6 +294,13 @@ def _on_worker_process_init(**_: object) -> None:
 
     seed_all_sync_safe()
     _apply_log_level_now()
+
+
+@worker_ready.connect
+def _on_worker_ready(**_: object) -> None:
+    from app.tasks.startup_backfills import enqueue_startup_backfills
+
+    enqueue_startup_backfills()
 
 
 @beat_init.connect

@@ -981,7 +981,7 @@ def _plates_missing_bed():
 
 @celery_app.task(name="app.tasks.pipeline.backfill_plates")
 def backfill_plates() -> int:
-    """Self-draining beat task: analyse existing 3MFs that were never plate-
+    """Self-draining task (run at worker start): analyse existing 3MFs that were never plate-
     analysed (``plates_json IS NULL``), ``BACKFILL_BATCH`` per run."""
     settings = get_settings()
     done = 0
@@ -1012,7 +1012,7 @@ def backfill_plates() -> int:
                     _mark_plates_poisoned(meta)
                     session.commit()
         full_batch = len(rows) >= BACKFILL_BATCH
-    if full_batch:  # more may remain: chain instead of waiting for the beat
+    if full_batch:  # more may remain: chain instead of waiting
         backfill_plates.apply_async(countdown=5)
     return done
 
@@ -1071,7 +1071,7 @@ def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> Non
 
 @celery_app.task(name="app.tasks.pipeline.backfill_glb_orientation")
 def backfill_glb_orientation() -> int:
-    """Self-draining beat task: rewrite GLBs written before ``GLB_VERSION``
+    """Self-draining task (run at worker start): rewrite GLBs written before ``GLB_VERSION``
     (Z-up) as glTF Y-up, ``BACKFILL_BATCH`` per run. Failures are stamped
     ``version = -1`` so a poisoned blob never loops."""
     settings = get_settings()
