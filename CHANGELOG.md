@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/metril/3d-model-manager/compare/v0.13.0...v0.13.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **pipeline:** colour 3MF GLBs by filament and colour changes ([#217](https://github.com/metril/3d-model-manager/issues/217)) ([3d348ca](https://github.com/metril/3d-model-manager/commit/3d348ca48ab54b3affba435df50b7c3875a2cdee))
+
 ## [0.13.0](https://github.com/metril/3d-model-manager/compare/v0.12.5...v0.13.0) (2026-11-05)
 
 
