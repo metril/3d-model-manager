@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.jobs import JobOut
 from app.schemas.library import FileOut
@@ -21,6 +22,19 @@ class CombineItemIn(BaseModel):
     rot_z_deg: float = Field(default=0.0, ge=-3600, le=3600)
     scale: float = Field(default=1.0, gt=0, le=20)
     copy_index: int = Field(default=0, ge=0, le=1000)
+    # Unit quaternion [x, y, z, w] applied to the mesh before it is dropped on
+    # the bed (then Z-rotated/scaled by the pose). Missing = as authored.
+    orient: list[float] | None = Field(default=None, min_length=4, max_length=4)
+
+    @field_validator("orient")
+    @classmethod
+    def _unit_quat(cls, v: list[float] | None) -> list[float] | None:
+        if v is None:
+            return None
+        norm = math.sqrt(sum(c * c for c in v))
+        if not all(math.isfinite(c) for c in v) or not 0.5 < norm < 2.0:
+            raise ValueError("orient must be a unit quaternion [x, y, z, w]")
+        return v
 
 
 class BedIn(BaseModel):
@@ -38,6 +52,9 @@ class CombineIn(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     # Plan only: nothing is written, the placements come back for a preview.
     dry_run: bool = False
+    # grid/auto only: orient every item for printing (best flat face down)
+    # before laying it out, ignoring any ``orient`` on the items.
+    auto_orient: bool = False
 
     @model_validator(mode="after")
     def _manual_needs_poses(self) -> CombineIn:
@@ -62,6 +79,11 @@ class CombinePoseOut(BaseModel):
     scale: float
     copy_index: int
     fits: bool
+    orient: list[float] = [0.0, 0.0, 0.0, 1.0]
+    # Oriented, unscaled source dims of this pose's mesh.
+    w_mm: float = 0.0
+    d_mm: float = 0.0
+    h_mm: float = 0.0
 
 
 class CombinePartOut(BaseModel):
@@ -75,6 +97,23 @@ class CombinePartOut(BaseModel):
     w_mm: float
     d_mm: float
     h_mm: float
+    orient: list[float] = [0.0, 0.0, 0.0, 1.0]
+
+
+class OrientIn(BaseModel):
+    file_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class OrientFileOut(BaseModel):
+    file_id: int
+    orient: list[float]
+    w_mm: float
+    d_mm: float
+    h_mm: float
+
+
+class OrientOut(BaseModel):
+    files: list[OrientFileOut]
 
 
 class CombineOut(BaseModel):

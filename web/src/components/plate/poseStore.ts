@@ -1,8 +1,12 @@
+import { layOnFaceOrient, normalizeQuat, type Quat, type Vec3 } from "@/components/plate/orient";
+
 /**
  * Pure pose state for the plate editor: one entry per placed copy, with a small
  * undo/redo stack. Poses follow the server contract (`POST /models/{slug}/combine`
  * `layout: "manual"`): x/y is the part's footprint centre on the bed in mm, the
- * part always sits on the bed, rotation is about Z, scale is uniform.
+ * part always sits on the bed, rotation is about Z, scale is uniform. `orient`
+ * (unit quaternion) tilts the source mesh first: final transform =
+ * T(x,y) Rz(rot_z) S(scale) drop-to-bed O(orient).
  */
 export interface PlateItem {
   uid: string;
@@ -12,6 +16,7 @@ export interface PlateItem {
   rot_z_deg: number;
   scale: number;
   copy_index: number;
+  orient: Quat;
 }
 
 export type PoseFields = Pick<PlateItem, "x_mm" | "y_mm" | "rot_z_deg" | "scale">;
@@ -30,6 +35,8 @@ export type PlateAction =
   | { type: "snapshot" }
   | { type: "patch"; uid: string; fields: Partial<PoseFields>; record?: boolean }
   | { type: "rotateBy"; uid: string; deg: number }
+  | { type: "setOrient"; entries: { uid: string; orient: readonly number[] }[] }
+  | { type: "layOnFace"; uid: string; normal: Vec3 }
   | { type: "addCopy"; file_id: number }
   | { type: "removeCopy"; uid: string }
   | { type: "removeLast"; file_id: number }
@@ -96,6 +103,20 @@ export function plateReducer(state: PlateState, action: PlateAction): PlateState
         fields: { rot_z_deg: item.rot_z_deg + action.deg },
       });
     }
+    case "setOrient": {
+      const by = new Map(action.entries.map((e) => [e.uid, normalizeQuat(e.orient)]));
+      if (!state.items.some((i) => by.has(i.uid))) return state;
+      const items = state.items.map((i) => (by.has(i.uid) ? { ...i, orient: by.get(i.uid)! } : i));
+      return { ...state, ...push(state), items };
+    }
+    case "layOnFace": {
+      const item = state.items.find((i) => i.uid === action.uid);
+      if (!item) return state;
+      return plateReducer(state, {
+        type: "setOrient",
+        entries: [{ uid: item.uid, orient: layOnFaceOrient(item.orient, item.rot_z_deg, action.normal) }],
+      });
+    }
     case "addCopy": {
       if (state.items.length >= MAX_ITEMS) return state;
       const mine = state.items.filter((i) => i.file_id === action.file_id);
@@ -108,6 +129,7 @@ export function plateReducer(state: PlateState, action: PlateAction): PlateState
         rot_z_deg: last?.rot_z_deg ?? 0,
         scale: last?.scale ?? 1,
         copy_index: mine.reduce((m, i) => Math.max(m, i.copy_index + 1), 0),
+        orient: last?.orient ?? [0, 0, 0, 1],
       };
       return { ...state, ...push(state), items: [...state.items, next], selected: next.uid };
     }

@@ -26,6 +26,9 @@ from app.schemas.combine import (
     CombinePartOut,
     CombinePlacementOut,
     CombinePoseOut,
+    OrientFileOut,
+    OrientIn,
+    OrientOut,
 )
 from app.schemas.jobs import JobOut
 from app.services import jobs as jobs_service
@@ -43,7 +46,16 @@ from app.services.mesh_combine import (
     placements_to_poses,
     plan_parts,
     pose_too_tall,
+    read_mesh,
     write_3mf,
+)
+from app.services.orient import (
+    IDENTITY,
+    Quat,
+    best_orientation,
+    normalize,
+    quat_key,
+    rotate_vertices,
 )
 from app.services.storage_backends import resolve_backend_for_file
 from app.storage.base import StorageBackend
@@ -115,27 +127,25 @@ async def combine_files(
         )
 
     by_id = {f.id: f for f in revision.files}
-    rows: list[tuple[File, int, StorageBackend]] = []
-    row_of: dict[int, int] = {}  # manual: file id -> index into rows
+    # One row per (file, orientation) in manual mode, one per item otherwise.
+    rows: list[tuple[File, int, StorageBackend, Quat]] = []
+    row_of: dict[tuple[int, tuple[int, ...]], int] = {}  # manual: -> index into rows
     for item in payload.items:
-        if manual and item.file_id in row_of:
-            i = row_of[item.file_id]
-            rows[i] = (rows[i][0], rows[i][1] + 1, rows[i][2])
+        orient = normalize(tuple(item.orient)) if item.orient else IDENTITY  # type: ignore[arg-type]
+        key = (item.file_id, quat_key(orient))
+        if manual and key in row_of:
+            i = row_of[key]
+            rows[i] = (rows[i][0], rows[i][1] + 1, rows[i][2], rows[i][3])
             continue
-        file = by_id.get(item.file_id)
-        if file is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, f"file {item.file_id} is not on the current revision"
-            )
-        if file.blob.format not in _COMBINE_FORMATS:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, f"{file.rel_path} is not an STL/OBJ/3MF mesh"
-            )
-        if file.verified_at is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"{file.rel_path} is still processing")
-        row_of[item.file_id] = len(rows)
+        file = await _usable_file(by_id, item.file_id)
+        row_of[key] = len(rows)
         rows.append(
-            (file, 1 if manual else item.copies, await resolve_backend_for_file(db, settings, file))
+            (
+                file,
+                1 if manual else item.copies,
+                await resolve_backend_for_file(db, settings, file),
+                orient,
+            )
         )
 
     spool_root = await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
@@ -147,9 +157,19 @@ async def combine_files(
         list[LoadedPart], list[Pose], list[PoseFit], tuple[float, float], str, int
     ]:
         parts = []
-        for idx, (file, copies, backend) in enumerate(rows):
-            tmp = _copy_to_temp(backend, file.storage_path, spool_root, Path(file.rel_path).suffix)
-            temps.append(tmp)
+        tmp_of: dict[int, Path] = {}  # one copy per file, shared by its orientations
+        best_of: dict[int, Quat] = {}
+        for idx, (file, copies, backend, orient) in enumerate(rows):
+            tmp = tmp_of.get(file.id)
+            if tmp is None:
+                tmp = tmp_of[file.id] = _copy_to_temp(
+                    backend, file.storage_path, spool_root, Path(file.rel_path).suffix
+                )
+                temps.append(tmp)
+            if payload.auto_orient and not manual:
+                if file.id not in best_of:
+                    best_of[file.id] = _auto_orient(file, tmp)
+                orient = best_of[file.id]
             parts.append(
                 CombinePart(
                     name=Path(file.rel_path).name,
@@ -157,13 +177,22 @@ async def combine_files(
                     copies=copies,
                     # grid/auto: rows mirror payload.items, each scaled as asked.
                     scale=1.0 if manual else payload.items[idx].scale,
+                    orient=orient,
                 )
             )
         bed_t = (bed.x_mm, bed.y_mm)
         if manual:
             loaded = load_parts(parts)
             poses = [
-                Pose(row_of[i.file_id], i.x_mm or 0.0, i.y_mm or 0.0, i.rot_z_deg, i.scale)
+                Pose(
+                    row_of[
+                        (i.file_id, quat_key(normalize(tuple(i.orient)) if i.orient else IDENTITY))
+                    ],  # type: ignore[arg-type]
+                    i.x_mm or 0.0,
+                    i.y_mm or 0.0,
+                    i.rot_z_deg,
+                    i.scale,
+                )
                 for i in payload.items
             ]
             fits = check_poses(loaded, poses, bed_t, max_height=max_height)
@@ -224,20 +253,26 @@ async def combine_files(
             )
             for po, f in zip(poses, fits, strict=True)
         ]
-        seen: dict[int, int] = {}
+        seen: dict[int, int] = {}  # per file: copy_index of auto/grid poses
         pose_out = []
         for idx, (po, f) in enumerate(zip(poses, fits, strict=True)):
-            n = seen.get(po.owner, 0)
-            seen[po.owner] = n + 1
+            lp = loaded[po.owner]
+            fid = rows[po.owner][0].id
+            n = seen.get(fid, 0)
+            seen[fid] = n + 1
             pose_out.append(
                 CombinePoseOut(
-                    file_id=rows[po.owner][0].id,
+                    file_id=fid,
                     x_mm=po.x,
                     y_mm=po.y,
                     rot_z_deg=po.rot_deg,
                     scale=po.scale,
                     copy_index=payload.items[idx].copy_index if manual else n,
                     fits=f.fits,
+                    orient=list(lp.orient),
+                    w_mm=lp.width,
+                    d_mm=lp.depth,
+                    h_mm=lp.height,
                 )
             )
         part_out = [
@@ -249,6 +284,7 @@ async def combine_files(
                 w_mm=lp.width,
                 d_mm=lp.depth,
                 h_mm=lp.height,
+                orient=list(lp.orient),
             )
             for i, lp in enumerate(loaded)
         ]
@@ -336,3 +372,77 @@ async def combine_files(
         file=file_out,
         job=JobOut.from_model(job),
     )
+
+
+async def _usable_file(by_id: dict[int, File], file_id: int) -> File:
+    file = by_id.get(file_id)
+    if file is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"file {file_id} is not on the current revision"
+        )
+    if file.blob.format not in _COMBINE_FORMATS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{file.rel_path} is not an STL/OBJ/3MF mesh"
+        )
+    if file.verified_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{file.rel_path} is still processing")
+    return file
+
+
+def _auto_orient(file: File, path: Path) -> Quat:
+    mesh = read_mesh(CombinePart(name=Path(file.rel_path).name, path=path))
+    return best_orientation(mesh.vertices, mesh.faces)
+
+
+@router.post(
+    "/{slug}/orient",
+    response_model=OrientOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def orient_files(
+    slug: str,
+    payload: OrientIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> OrientOut:
+    """Best print orientation (unit quaternion to apply to the source mesh) and
+    the resulting dimensions for each file, for the plate editor's Auto orient."""
+    model = await library.get_model_by_slug(db, slug)
+    require_owner_or_admin(ctx, model.created_by_user_id)
+    if model.current_revision_id is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "model has no current revision")
+    revision = await library.get_revision_or_404(db, model.current_revision_id)
+    by_id = {f.id: f for f in revision.files}
+    picked: list[tuple[File, StorageBackend]] = []
+    for fid in dict.fromkeys(payload.file_ids):
+        file = await _usable_file(by_id, fid)
+        picked.append((file, await resolve_backend_for_file(db, settings, file)))
+    spool_root = await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
+
+    def _work() -> list[OrientFileOut]:
+        out: list[OrientFileOut] = []
+        for file, backend in picked:
+            tmp = _copy_to_temp(backend, file.storage_path, spool_root, Path(file.rel_path).suffix)
+            try:
+                mesh = read_mesh(CombinePart(name=Path(file.rel_path).name, path=tmp))
+            finally:
+                tmp.unlink(missing_ok=True)
+            q = best_orientation(mesh.vertices, mesh.faces)
+            v = rotate_vertices(mesh.vertices, q)
+            size = v.max(axis=0) - v.min(axis=0)
+            out.append(
+                OrientFileOut(
+                    file_id=file.id,
+                    orient=list(q),
+                    w_mm=float(size[0]),
+                    d_mm=float(size[1]),
+                    h_mm=float(size[2]),
+                )
+            )
+        return out
+
+    try:
+        return OrientOut(files=await anyio.to_thread.run_sync(_work))
+    except MeshCombineError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc

@@ -131,7 +131,9 @@ def test_pose_half_extents_and_bed_check() -> None:
 pytestmark_api = pytest.mark.usefixtures("library_root", "data_dir")
 
 
-async def _model_with_stl(client: httpx.AsyncClient, name: str) -> tuple[dict, int]:
+async def _model_with_stl(
+    client: httpx.AsyncClient, name: str, content: bytes | None = None
+) -> tuple[dict, int]:
     created = (await client.post("/api/models", json={"name": name})).json()
     response = await client.put(
         "/api/uploads",
@@ -140,7 +142,7 @@ async def _model_with_stl(client: httpx.AsyncClient, name: str) -> tuple[dict, i
             "revision_id": created["current_revision"]["id"],
             "rel_path": "box.stl",
         },
-        content=box_stl(),
+        content=content or box_stl(),
     )
     assert response.status_code == 201, response.text
     return created, response.json()["file_id"]
@@ -406,3 +408,162 @@ async def test_combine_height_limit_and_scaled_auto(
                 or a["y_mm"] + a["d_mm"] <= b["y_mm"] + 1e-6
                 or b["y_mm"] + b["d_mm"] <= a["y_mm"] + 1e-6
             )
+
+
+# -- orientation ------------------------------------------------------------
+
+_SIDE = (0.7071067811865476, 0.0, 0.0, 0.7071067811865476)  # +90 deg about X
+
+
+def _tall_box_stl() -> bytes:
+    import trimesh
+
+    return trimesh.creation.box(extents=(10.0, 10.0, 40.0)).export(file_type="stl")
+
+
+async def _manual(client, slug, items, bed=(180, 180), **extra):
+    body = {"items": items, "layout": "manual", **extra}
+    if bed is not None:
+        body["bed"] = {"x_mm": bed[0], "y_mm": bed[1]}
+    return await client.post(f"/api/models/{slug}/combine", json=body)
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_manual_orient_uses_rotated_dims_and_sits_on_bed(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Orient", _tall_box_stl())
+    slug = created["slug"]
+    # 10x10x40 as authored; laid on its side by 90 deg about X -> 10 x 40 x 10.
+    items = [
+        {"file_id": file_id, "x_mm": 60, "y_mm": 60, "orient": list(_SIDE), "copy_index": 0},
+        {"file_id": file_id, "x_mm": 120, "y_mm": 60, "copy_index": 1},
+    ]
+    dry = await _manual(authenticated_client, slug, items, dry_run=True)
+    assert dry.status_code == 200, dry.text
+    poses = dry.json()["poses"]
+    assert (poses[0]["w_mm"], poses[0]["d_mm"], poses[0]["h_mm"]) == pytest.approx((10, 40, 10))
+    assert poses[1]["h_mm"] == pytest.approx(40)
+    assert poses[0]["orient"] == pytest.approx(list(_SIDE))
+    assert poses[1]["orient"] == [0, 0, 0, 1]
+    assert dry.json()["placements"][0]["d_mm"] == pytest.approx(40)
+
+    saved = await _manual(authenticated_client, slug, items, name="oriented")
+    assert saved.status_code == 200, saved.text
+    download = await authenticated_client.get(f"/api/files/{saved.json()['file']['id']}/download")
+    with zipfile.ZipFile(io.BytesIO(download.content)) as zf:
+        xml = zf.read("3D/3dmodel.model").decode()
+    # One object per (file, orientation); every vertex z >= 0 with the minimum exactly 0.
+    assert len(re.findall(r"<object ", xml)) == 2
+    for obj in re.findall(r"<object .*?</object>", xml, re.S):
+        zs = [float(z) for z in re.findall(r'<vertex [^>]*z="([^"]+)"', obj)]
+        assert min(zs) == 0.0
+    heights = sorted(
+        max(float(z) for z in re.findall(r'<vertex [^>]*z="([^"]+)"', obj))
+        for obj in re.findall(r"<object .*?</object>", xml, re.S)
+    )
+    assert heights == pytest.approx([10, 40])
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_height_and_fit_use_oriented_dims(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    profile = SlicerProfile(
+        kind=ProfileKind.PRINTER,
+        name="Short",
+        data={"printable_area": ["0x0", "100x0", "100x100", "0x100"], "printable_height": "20"},
+    )
+    db_session.add(profile)
+    await db_session.commit()
+    created, file_id = await _model_with_stl(authenticated_client, "Tall", _tall_box_stl())
+    slug = created["slug"]
+    base = {"file_id": file_id, "x_mm": 50, "y_mm": 50}
+    standing = await _manual(
+        authenticated_client, slug, [base], dry_run=True, printer_profile_id=profile.id, bed=None
+    )
+    assert standing.json()["poses"][0]["fits"] is False  # 40 mm tall on a 20 mm printer
+    lying = await _manual(
+        authenticated_client,
+        slug,
+        [{**base, "orient": list(_SIDE)}],
+        dry_run=True,
+        printer_profile_id=profile.id,
+        bed=None,
+    )
+    assert lying.json()["poses"][0]["fits"] is True
+    # Footprint is now 10 x 40, so 90 deg of rot_z swaps it and a 30 mm bed no longer fits.
+    narrow = await _manual(
+        authenticated_client,
+        slug,
+        [{**base, "orient": list(_SIDE), "x_mm": 20, "y_mm": 20}],
+        bed=(30, 30),
+        dry_run=True,
+    )
+    assert narrow.json()["poses"][0]["fits"] is False
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_combine_rejects_bad_orient(authenticated_client: httpx.AsyncClient) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Bad Orient")
+    for bad in ([0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 5]):
+        r = await _manual(
+            authenticated_client,
+            created["slug"],
+            [{"file_id": file_id, "x_mm": 50, "y_mm": 50, "orient": bad}],
+            dry_run=True,
+        )
+        assert r.status_code == 422
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_auto_arrange_applies_orientations_and_auto_orient(
+    authenticated_client: httpx.AsyncClient,
+) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Auto Orient", _tall_box_stl())
+    slug = created["slug"]
+    bed = {"x_mm": 180, "y_mm": 180}
+    keep = await authenticated_client.post(
+        f"/api/models/{slug}/combine?auto=1",
+        json={
+            "items": [
+                {"file_id": file_id, "copies": 2, "orient": list(_SIDE)},
+                {"file_id": file_id, "copies": 1},
+            ],
+            "layout": "auto",
+            "bed": bed,
+        },
+    )
+    assert keep.status_code == 200, keep.text
+    poses = keep.json()["poses"]
+    assert [round(p["h_mm"]) for p in poses] == [10, 10, 40]
+    assert sorted(p["copy_index"] for p in poses) == [0, 1, 2]
+    forced = await authenticated_client.post(
+        f"/api/models/{slug}/combine?auto=1",
+        json={
+            "items": [{"file_id": file_id, "copies": 2}],
+            "layout": "auto",
+            "bed": bed,
+            "auto_orient": True,
+        },
+    )
+    assert forced.status_code == 200, forced.text
+    assert [round(p["h_mm"]) for p in forced.json()["poses"]] == [10, 10]
+
+
+@pytest.mark.usefixtures("library_root", "data_dir")
+async def test_orient_endpoint(authenticated_client: httpx.AsyncClient) -> None:
+    created, file_id = await _model_with_stl(authenticated_client, "Orient EP", _tall_box_stl())
+    r = await authenticated_client.post(
+        f"/api/models/{created['slug']}/orient", json={"file_ids": [file_id, file_id]}
+    )
+    assert r.status_code == 200, r.text
+    (only,) = r.json()["files"]
+    assert only["file_id"] == file_id and len(only["orient"]) == 4
+    assert only["h_mm"] == pytest.approx(10) and sorted(
+        [only["w_mm"], only["d_mm"]]
+    ) == pytest.approx([10, 40])
+    missing = await authenticated_client.post(
+        f"/api/models/{created['slug']}/orient", json={"file_ids": [999999]}
+    )
+    assert missing.status_code == 404

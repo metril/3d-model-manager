@@ -1,4 +1,5 @@
 import type { CombineRequest } from "@/api/combine";
+import { normalizeQuat } from "@/components/plate/orient";
 import type { PlateItem } from "@/components/plate/poseStore";
 
 /** `POST /models/{slug}/combine` body for the editor's current layout. */
@@ -18,6 +19,7 @@ export function buildManualRequest(
       rot_z_deg: i.rot_z_deg,
       scale: i.scale,
       copy_index: i.copy_index,
+      orient: i.orient,
     })),
     printer_profile_id: target.profileId,
     bed: target.profileId == null ? target.bed : null,
@@ -34,7 +36,9 @@ export function loadLayout(slug: string, fileIds: number[]): PlateItem[] | null 
     const parsed = JSON.parse(raw) as PlateItem[];
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
     const ids = new Set(fileIds);
-    return parsed.every((i) => ids.has(i.file_id) && Number.isFinite(i.x_mm) && Number.isFinite(i.y_mm)) ? parsed : null;
+    if (!parsed.every((i) => ids.has(i.file_id) && Number.isFinite(i.x_mm) && Number.isFinite(i.y_mm))) return null;
+    // Layouts saved before orientation existed have no `orient`: as authored.
+    return parsed.map((i) => ({ ...i, orient: normalizeQuat(i.orient) }));
   } catch {
     return null;
   }
