@@ -48,7 +48,7 @@ from typing import Literal
 
 import trimesh
 from celery import Task
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
@@ -859,6 +859,15 @@ def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
     return meta is not None and meta.plates_json is None
 
 
+def _mark_plates_poisoned(meta: BlobMeta) -> None:
+    """Analysis failed: never re-pick. Fresh rows -> ``[]``; legacy rows keep
+    their plates but get ``bed: null`` so the bed backfill skips them."""
+    if meta.plates_json:
+        meta.plates_json = [{**p, "bed": p.get("bed")} for p in meta.plates_json]
+    else:
+        meta.plates_json = []
+
+
 def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> bool:
     with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
         src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
@@ -889,6 +898,8 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
         if len(plates) <= plates3mf.MAX_PLATE_GLBS:
             meshes = plates3mf.plate_meshes(src, plates, bed)
         out: list[dict] = []
+        plate_bed = bed or plates3mf.DEFAULT_BED
+        n_grid = max(max(p["index"] for p in plates), len(plates))
         for plate in plates:
             idx = plate["index"]
             if idx in thumbs_by_index:
@@ -913,6 +924,8 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
                     "has_glb": has_glb,
                     "bbox": bbox,
                     "fits": fits,
+                    "bed": list(plate_bed),
+                    "origin": list(plates3mf.plate_origin(idx, n_grid, plate_bed)),
                 }
             )
         meta.plates_json = out
@@ -924,7 +937,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
         # Mark analysed-with-nothing so the backfill never re-picks a poisoned blob.
         meta = session.get(BlobMeta, blob.hash)
         if meta is not None:
-            meta.plates_json = []
+            _mark_plates_poisoned(meta)
             session.commit()
         return False
     return True
@@ -956,6 +969,16 @@ def _publish_plate_glb(
 BACKFILL_BATCH = 25
 
 
+def _plates_missing_bed():
+    """Analysed multi-plate rows written before ``bed``/``origin`` existed."""
+    first = BlobMeta.plates_json[0]
+    return and_(
+        func.jsonb_typeof(BlobMeta.plates_json) == "array",
+        func.jsonb_array_length(BlobMeta.plates_json) > 0,
+        func.not_(func.jsonb_exists(first, "bed")),
+    )
+
+
 @celery_app.task(name="app.tasks.pipeline.backfill_plates")
 def backfill_plates() -> int:
     """Self-draining beat task: analyse existing 3MFs that were never plate-
@@ -967,7 +990,10 @@ def backfill_plates() -> int:
             session.execute(
                 select(Blob)
                 .join(BlobMeta, BlobMeta.blob_hash == Blob.hash)
-                .where(Blob.format == BlobFormat.THREEMF, BlobMeta.plates_json.is_(None))
+                .where(
+                    Blob.format == BlobFormat.THREEMF,
+                    or_(BlobMeta.plates_json.is_(None), _plates_missing_bed()),
+                )
                 .order_by(Blob.hash)
                 .limit(BACKFILL_BATCH)
             )
@@ -983,7 +1009,7 @@ def backfill_plates() -> int:
                 logger.warning("plate backfill failed for %s", blob.hash, exc_info=True)
                 meta = session.get(BlobMeta, blob.hash)
                 if meta is not None:  # don't retry a poisoned blob forever
-                    meta.plates_json = []
+                    _mark_plates_poisoned(meta)
                     session.commit()
         full_batch = len(rows) >= BACKFILL_BATCH
     if full_batch:  # more may remain: chain instead of waiting for the beat

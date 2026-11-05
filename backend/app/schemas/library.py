@@ -230,6 +230,9 @@ class PlateOut(BaseModel):
     has_glb: bool = False
     bbox: list[float] | None = None
     fits: bool | None = None
+    # Bed size + virtual-grid origin (Z-up mm) for the viewer's plate layout.
+    bed: list[float] | None = None
+    origin: list[float] | None = None
 
     @classmethod
     def from_raw(cls, raw: dict, *, thumbnail_available: bool, rates: CostRates) -> PlateOut:
@@ -244,6 +247,8 @@ class PlateOut(BaseModel):
             has_glb=bool(raw.get("has_glb")),
             bbox=raw.get("bbox"),
             fits=raw.get("fits"),
+            bed=raw.get("bed"),
+            origin=raw.get("origin"),
         )
 
 

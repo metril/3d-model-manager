@@ -32,7 +32,7 @@ import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { FileOut, PlateOut } from "@/api/types";
-import type { ViewerPlateFile } from "@/components/viewer/plates";
+import type { PlateLayout, ViewerPlateFile } from "@/components/viewer/plates";
 
 // three.js/@react-three/fiber/drei are heavy (Global Constraints "BUNDLE
 // RULE") — load them only once a GLB actually needs rendering, so the main
@@ -153,6 +153,7 @@ function MeshCanvas({
   lighting,
   tools,
   plateSize,
+  layout,
   onStats,
   fitSignal,
   apiRef,
@@ -167,6 +168,8 @@ function MeshCanvas({
   lighting: LightingRig;
   tools: ViewerToolsState;
   plateSize: number;
+  /** Real-bed plate layout (plated 3MFs), or null for the single square grid. */
+  layout?: PlateLayout | null;
   onStats: (stats: SceneStats | null) => void;
   fitSignal: number;
   apiRef: React.MutableRefObject<ViewerApi | null>;
@@ -214,6 +217,7 @@ function MeshCanvas({
             lighting={lighting}
             tools={tools}
             plateSize={plateSize}
+            layout={layout}
             onStats={onStats}
             fitSignal={fitSignal}
             apiRef={apiRef}
@@ -290,6 +294,8 @@ export interface ViewerStageProps {
   /** The build plate's mm side length -- single source in `useViewerScene`
    * today, so a future settings surface can override it in one place. */
   plateSize: number;
+  /** Real-bed plate layout (plated 3MFs), or null for the single square grid. */
+  layout?: PlateLayout | null;
   /** A counter `ModelViewer`'s `BoundsRefitter` treats as "refit now" on
    * every change -- `useViewerScene`'s `onFit` bumps it. A counter rather
    * than a boolean since "fit" is a one-shot action: two fits in a row (the
@@ -390,6 +396,7 @@ export function ViewerStage({
   stats,
   onStats,
   plateSize,
+  layout,
   fitSignal,
   onFit,
   viewerApiRef,
@@ -569,6 +576,7 @@ export function ViewerStage({
           lighting={lighting}
           tools={tools}
           plateSize={plateSize}
+          layout={layout}
           onStats={onStats}
           fitSignal={fitSignal}
           apiRef={viewerApiRef}

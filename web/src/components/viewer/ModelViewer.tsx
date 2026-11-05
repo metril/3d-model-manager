@@ -86,6 +86,8 @@ import {
 } from "@react-three/drei";
 import { explodeLayout } from "@/components/viewer/explode";
 import type { ExplodeMode, PartExtent } from "@/components/viewer/explode";
+import { bedsBounds } from "@/components/viewer/plates";
+import type { PlateLayout } from "@/components/viewer/plates";
 import type { LightingRig } from "@/components/viewer/lighting";
 import {
   sectionPlaneParams,
@@ -97,7 +99,7 @@ import {
 } from "@/components/viewer/tools";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import { ViewerEffects } from "@/components/viewer/scene/Effects";
-import { CameraLayers, PlateGrid } from "@/components/viewer/scene/PlateGrid";
+import { CameraLayers, PlateBeds, PlateGrid } from "@/components/viewer/scene/PlateGrid";
 import {
   AutoRotate,
   CaptureBridge,
@@ -753,6 +755,7 @@ export default function ModelViewer({
   lighting,
   tools,
   plateSize,
+  layout = null,
   onStats,
   fitSignal,
   apiRef,
@@ -765,6 +768,10 @@ export default function ModelViewer({
   lighting: LightingRig;
   tools: ViewerToolsState;
   plateSize: number;
+  /** Plated 3MF on real beds: parts keep their bed-local positions (their
+   * `offset`), beds are drawn per plate, framing/scale follow the beds and
+   * explode is inert. `null` keeps the single centred square grid. */
+  layout?: PlateLayout | null;
   onStats?: (stats: SceneStats | null) => void;
   /** Bumped by `ViewerStage`'s "Fit view" button/`F` key (and the ortho
    * toggle's post-swap recovery) to force a re-fit outside the normal
@@ -858,10 +865,16 @@ export default function ModelViewer({
   // `refresh(Object3D)` path does exactly the same bake. Returns null when
   // nothing visible is loaded (all parts hidden, or nothing loaded yet) --
   // `BoundsRefitter` then falls back to the whole-scene measure.
+  const layoutWorldBox = useRef<THREE.Box3 | null>(null);
   const getVisibleBox = useCallback((): THREE.Box3 | null => {
     const union = new THREE.Box3();
     const partBox = new THREE.Box3();
     let any = false;
+    // Plate layout: the beds are part of the frame (the whole plate shows).
+    if (layoutWorldBox.current) {
+      union.copy(layoutWorldBox.current);
+      any = true;
+    }
     for (const group of partGroups.current.values()) {
       if (!group.visible) continue;
       group.updateWorldMatrix(true, true);
@@ -930,12 +943,32 @@ export default function ModelViewer({
   // meaningful once `allBox` exists; `PlateGrid` is gated on `allBox` below
   // so this value is never rendered from while it's still the 1-unit
   // fallback.
+  // Plate layout: the beds (plus any part poking past them) in native Y-up mm.
+  const layoutBox = useMemo(() => {
+    if (!layout) return null;
+    const bounds = bedsBounds(layout.beds);
+    if (!bounds) return null;
+    const box = new THREE.Box3(new THREE.Vector3(...bounds.min), new THREE.Vector3(...bounds.max));
+    for (const part of parts) {
+      const loaded = loadedParts.get(part.id);
+      if (loaded) box.union(loaded.box.clone().translate(new THREE.Vector3(...(part.offset ?? ZERO_OFFSET))));
+    }
+    return box;
+  }, [layout, parts, loadedParts]);
+  const scaleBox = layoutBox ?? allBox;
+
   const s = useMemo(() => {
-    const box = allBox ?? UNIT_BOX;
+    const box = scaleBox ?? UNIT_BOX;
     const size = box.getSize(new THREE.Vector3());
     const maxDimension = Math.max(size.x, size.y, size.z);
     return maxDimension > 0 ? 1 / maxDimension : 1;
-  }, [allBox]);
+  }, [scaleBox]);
+  // `Resize` scales about the origin and the layout isn't recentred, so the
+  // world-space frame is just the native box times `s`.
+  layoutWorldBox.current = layoutBox
+    ? new THREE.Box3(layoutBox.min.clone().multiplyScalar(s), layoutBox.max.clone().multiplyScalar(s))
+    : null;
+  const layoutKey = layout ? layout.beds.map((b) => `${b.index}@${b.offset.join(",")}`).join("|") : "";
 
   // Task 5 cross-section: the world-space (normalized-scene) clipping plane
   // every `GltfPart` gets assigned onto its owned materials, or `null` when
@@ -959,7 +992,7 @@ export default function ModelViewer({
   // origin) falls back to a grid so the parts actually separate; fewer than
   // two loaded parts is `mode: "none"` with no offsets. Naturally zero at
   // `tools.explode === 0`, so the resting view is untouched.
-  const { mode: explodeMode, offsets } = useMemo(() => {
+  const { mode: explodeMode, offsets: explodeOffsets } = useMemo(() => {
     const extents: PartExtent[] = [];
     for (const [id, { box }] of loadedParts) {
       const center = box.getCenter(new THREE.Vector3());
@@ -969,13 +1002,23 @@ export default function ModelViewer({
     return explodeLayout(extents, tools.explode);
   }, [loadedParts, tools.explode]);
 
+  // Plate layout owns part positions: explode is inert (reported as "none"
+  // so the control disables instead of going dead).
+  const layoutOffsets = useMemo(() => {
+    const map = new Map<number, [number, number, number]>();
+    if (layout) for (const part of parts) if (part.offset) map.set(part.id, part.offset);
+    return map;
+  }, [layout, parts]);
+  const offsets = layout ? layoutOffsets : explodeOffsets;
+  const reportedMode: ExplodeMode = layout ? "none" : explodeMode;
+
   const lastModeRef = useRef<ExplodeMode | null>(null);
   useEffect(() => {
     if (!onExplodeModeChange) return;
-    if (lastModeRef.current === explodeMode) return;
-    lastModeRef.current = explodeMode;
-    onExplodeModeChange(explodeMode);
-  }, [explodeMode, onExplodeModeChange]);
+    if (lastModeRef.current === reportedMode) return;
+    lastModeRef.current = reportedMode;
+    onExplodeModeChange(reportedMode);
+  }, [reportedMode, onExplodeModeChange]);
 
   // R10 camera presets: bumped by `CameraPresetTween.onSettled` once a
   // preset's reorientation has had time to finish, so `BoundsRefitter` runs
@@ -1006,7 +1049,7 @@ export default function ModelViewer({
       if (!part.visible) continue;
       const loaded = loadedParts.get(part.id);
       if (!loaded) continue;
-      union.union(loaded.box);
+      union.union(part.offset ? loaded.box.clone().translate(new THREE.Vector3(...part.offset)) : loaded.box);
       triangles += loaded.triangles;
       any = true;
     }
@@ -1032,6 +1075,24 @@ export default function ModelViewer({
       onStats(next);
     }
   }, [parts, loadedParts, onStats]);
+
+  const partNodes = parts.map((part) => (
+    <PartErrorBoundary key={part.id}>
+      <Suspense fallback={null}>
+        <GltfPart
+          id={part.id}
+          url={part.url}
+          color={part.color}
+          visible={part.visible}
+          shading={tools.shading}
+          plane={plane}
+          offset={offsets.get(part.id)}
+          onLoaded={onLoaded}
+          registerGroup={registerPartGroup}
+        />
+      </Suspense>
+    </PartErrorBoundary>
+  ));
 
   return (
     // `antialias: false` -- the scene now renders offscreen into the
@@ -1127,26 +1188,14 @@ export default function ModelViewer({
             subtree in WORLD space, so a stale `Resize` scale from the previous
             geometry (e.g. 1/236 after "All plates", then a 20 mm plate GLB)
             would skew its centring. A fresh mount measures at scale 1. */}
-        <Resize key={geometryKey} box3={allBox ?? UNIT_BOX}>
-          <Center top cacheKey={geometryKey} disable={loadedCount === 0}>
-            {parts.map((part) => (
-              <PartErrorBoundary key={part.id}>
-                <Suspense fallback={null}>
-                  <GltfPart
-                    id={part.id}
-                    url={part.url}
-                    color={part.color}
-                    visible={part.visible}
-                    shading={tools.shading}
-                    plane={plane}
-                    offset={offsets.get(part.id)}
-                    onLoaded={onLoaded}
-                    registerGroup={registerPartGroup}
-                  />
-                </Suspense>
-              </PartErrorBoundary>
-            ))}
-          </Center>
+        <Resize key={`${geometryKey}:${layoutKey}`} box3={scaleBox ?? UNIT_BOX}>
+          {layout ? (
+            partNodes
+          ) : (
+            <Center top cacheKey={geometryKey} disable={loadedCount === 0}>
+              {partNodes}
+            </Center>
+          )}
         </Resize>
         <BoundsRefitter
           loadedCount={loadedCount}
@@ -1167,7 +1216,8 @@ export default function ModelViewer({
           model agree on scale by construction (see `s`'s comment). Gated on
           `allBox` (not just `tools.grid`) since `s` is only meaningful once
           a part has actually loaded. */}
-      {tools.grid && allBox && <PlateGrid plateSize={plateSize} scaleFactor={s} />}
+      {tools.grid && allBox && !layout && <PlateGrid plateSize={plateSize} scaleFactor={s} />}
+      {tools.grid && layout && <PlateBeds beds={layout.beds} scaleFactor={s} />}
 
       {/* A render-target soft shadow, not a shadow map -- `<Canvas>` has no
           `shadows` prop and no light here has `castShadow`. Adding either

@@ -20,7 +20,10 @@
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { useThree } from "@react-three/fiber";
-import { Grid } from "@react-three/drei";
+import { Grid, Html } from "@react-three/drei";
+
+import { plateLabel } from "@/components/viewer/plates";
+import type { PlateBed } from "@/components/viewer/plates";
 
 /** Every object `PlateGrid` renders lives on this layer -- see the file
  * header for why. */
@@ -51,31 +54,38 @@ export function CameraLayers() {
   return null;
 }
 
-/** The build-plate grid at real mm scale, plus a thin outline of the
- * plate's edge. `plateSize` is the plate's mm side length; `scaleFactor` is
- * the SAME `1 / max(allBox dimensions)` factor `ModelViewer` hands
- * `<Resize>`, so the grid and the model land in the same normalized scene
- * space by construction -- multiplying any raw mm length (the plate size,
- * the 10mm cell, the 50mm section) by it converts that length into scene
- * units. */
-export function PlateGrid({ plateSize, scaleFactor }: { plateSize: number; scaleFactor: number }) {
-  const size = plateSize * scaleFactor;
-  const half = size / 2;
+/** One rectangular bed: grid + edge loop. `width`/`depth` are mm along X/Z,
+ * `center` the bed centre's (x, z) in mm; `scaleFactor` converts every mm
+ * length into the normalized scene space `Resize` puts the model in. */
+function BedGrid({
+  width,
+  depth,
+  center,
+  scaleFactor,
+}: {
+  width: number;
+  depth: number;
+  center: [number, number];
+  scaleFactor: number;
+}) {
+  const w = width * scaleFactor;
+  const d = depth * scaleFactor;
+  const cx = center[0] * scaleFactor;
+  const cz = center[1] * scaleFactor;
 
   const edgeGeometry = useMemo(
     () =>
       new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-half, 0, -half),
-        new THREE.Vector3(half, 0, -half),
-        new THREE.Vector3(half, 0, half),
-        new THREE.Vector3(-half, 0, half),
+        new THREE.Vector3(cx - w / 2, 0, cz - d / 2),
+        new THREE.Vector3(cx + w / 2, 0, cz - d / 2),
+        new THREE.Vector3(cx + w / 2, 0, cz + d / 2),
+        new THREE.Vector3(cx - w / 2, 0, cz + d / 2),
       ]),
-    [half],
+    [cx, cz, w, d],
   );
 
-  // `useGLTF`'s cache aside, this geometry is created fresh by us on every
-  // `half` change -- dispose the stale one so resizing the plate doesn't
-  // leak a `BufferGeometry` per change.
+  // This geometry is created fresh by us on every size change -- dispose the
+  // stale one so resizing the plate doesn't leak a `BufferGeometry` per change.
   useEffect(() => () => edgeGeometry.dispose(), [edgeGeometry]);
 
   return (
@@ -84,7 +94,7 @@ export function PlateGrid({ plateSize, scaleFactor }: { plateSize: number; scale
           `scaleFactor`). `y=-0.002` sits just under `ContactShadows`'
           plane (`y=-0.001` in ModelViewer.tsx) so the two never z-fight. */}
       <Grid
-        args={[size, size]}
+        args={[w, d]}
         cellSize={10 * scaleFactor}
         sectionSize={50 * scaleFactor}
         cellColor={CELL_COLOR}
@@ -92,12 +102,56 @@ export function PlateGrid({ plateSize, scaleFactor }: { plateSize: number; scale
         cellThickness={0.6}
         sectionThickness={1}
         fadeDistance={4}
-        position={[0, -0.002, 0]}
+        position={[cx, -0.002, cz]}
         layers={GRID_LAYER}
       />
       <lineLoop geometry={edgeGeometry} position={[0, -0.002, 0]} layers={GRID_LAYER}>
         <lineBasicMaterial color={EDGE_COLOR} transparent opacity={EDGE_OPACITY} />
       </lineLoop>
+    </>
+  );
+}
+
+/** The build-plate grid at real mm scale, plus a thin outline of the
+ * plate's edge. `plateSize` is the plate's mm side length; `scaleFactor` is
+ * the SAME `1 / max(allBox dimensions)` factor `ModelViewer` hands
+ * `<Resize>`, so the grid and the model land in the same normalized scene
+ * space by construction. Centred on the origin (the `Center top` layout). */
+export function PlateGrid({ plateSize, scaleFactor }: { plateSize: number; scaleFactor: number }) {
+  return <BedGrid width={plateSize} depth={plateSize} center={[0, 0]} scaleFactor={scaleFactor} />;
+}
+
+/** One real-sized bed per plate of a plated 3MF (`PlateLayout.beds`), at the
+ * layout offsets -- no recentring, the parts sit on them in the same space. */
+export function PlateBeds({ beds, scaleFactor }: { beds: PlateBed[]; scaleFactor: number }) {
+  return (
+    <>
+      {beds.map((bed) => (
+        <BedGrid
+          key={bed.index}
+          width={bed.size[0]}
+          depth={bed.size[1]}
+          center={[bed.offset[0] + bed.size[0] / 2, bed.offset[2] - bed.size[1] / 2]}
+          scaleFactor={scaleFactor}
+        />
+      ))}
+      {beds.length > 1 &&
+        beds.map((bed) => (
+          <Html
+            key={`l${bed.index}`}
+            position={[
+              (bed.offset[0] + bed.size[0] / 2) * scaleFactor,
+              0,
+              (bed.offset[2] + bed.size[1] * 0.04) * scaleFactor,
+            ]}
+            center
+            style={{ pointerEvents: "none" }}
+          >
+            <span className="whitespace-nowrap rounded bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {plateLabel({ index: bed.index, name: bed.name })}
+            </span>
+          </Html>
+        ))}
     </>
   );
 }

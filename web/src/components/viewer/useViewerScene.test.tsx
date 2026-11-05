@@ -22,6 +22,49 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
 );
 
+const BED_FILE = {
+  ...FILE,
+  meta: {
+    triangle_count: 10,
+    plates: [
+      { ...plate(1), bed: [256, 256], origin: [0, 0] },
+      { ...plate(2), bed: [256, 256], origin: [307.2, 0] },
+    ],
+  },
+} as unknown as FileOut;
+
+describe("useViewerScene plate layout", () => {
+  it("All plates: one offset part per plate, other files dropped; plate: bed-local", () => {
+    const other = { ...FILE, id: 2, blob_hash: "vs2", meta: { triangle_count: 5 } } as unknown as FileOut;
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [BED_FILE, other], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    let sp = result.current.stageProps;
+    expect(sp.layout?.beds).toHaveLength(2);
+    expect(sp.parts.map((p) => [p.id, p.url, p.offset])).toEqual([
+      [-1001, "/api/blobs/vs1/plates/1/glb?v=2", [0, 0, 0]],
+      [-1002, "/api/blobs/vs1/plates/2/glb?v=2", [307.2, 0, 0]],
+    ]);
+    act(() => result.current.stageProps.plateInfo!.onChange(2));
+    sp = result.current.stageProps;
+    expect(sp.layout?.beds).toHaveLength(1);
+    expect(sp.parts.map((p) => [p.id, p.offset])).toEqual([[-1002, [0, 0, 0]]]);
+    act(() => result.current.stageProps.plateInfo!.onChange(null));
+    unmount();
+  });
+
+  it("legacy plates without bed keep the single-grid behaviour", () => {
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [FILE], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    expect(result.current.stageProps.layout).toBeNull();
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1]);
+    unmount();
+  });
+});
+
 describe("useViewerScene plates", () => {
   it("swaps the part GLB to the plate endpoint, refits and clears on unmount", () => {
     const { result, unmount } = renderHook(

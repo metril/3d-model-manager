@@ -31,8 +31,11 @@ import {
 } from "@/components/viewer/tools";
 import type { ViewerStageProps } from "@/components/viewer/ViewerStage";
 import {
+  buildPlateLayout,
   clearSelectedPlate,
+  layoutPartId,
   partUrl,
+  plateGlbUrl,
   resolveActive,
   setActiveViewerBlob,
   setSelectedPlate,
@@ -42,6 +45,7 @@ import {
   visibleParts,
 } from "@/components/viewer/plates";
 import type { ViewerPart } from "@/components/viewer/viewable";
+import { glbUrl } from "@/components/viewer/viewable";
 import type { FileOut } from "@/api/types";
 
 // Fallback build-plate mm side length when there's no configured printer
@@ -200,17 +204,36 @@ export function useViewerScene({
   // shift the layout), which would ground and centre the lone plate against
   // the whole multi-file pile.
   const isolating = selectedPlate != null && plateBlob != null;
-  const parts: ViewerPart[] = useMemo(
-    () =>
-      (isolating ? files.filter((file) => shown.has(file.id)) : files).map((file) => ({
-        id: file.id,
-        // Per-plate GLB when a plate is selected on this file's blob.
-        url: partUrl(file, plateBlob === file.blob_hash ? selectedPlate : null),
-        color: colors[file.id],
-        visible: shown.has(file.id),
-      })),
-    [files, shown, colors, plateBlob, selectedPlate, isolating],
+  // Real-bed layout (plates carry `bed`/`origin`): the active blob's file(s)
+  // become one part per plate (All plates) or the lone plate, placed on its
+  // bed. Other files are dropped in BOTH modes -- they have no place on a
+  // bed and would distort the layout framing (same rule as isolation).
+  const layout = useMemo(
+    () => (plateInfo && plateBlob ? buildPlateLayout(plateInfo.plates, selectedPlate) : null),
+    [plateInfo, plateBlob, selectedPlate],
   );
+  const parts: ViewerPart[] = useMemo(() => {
+    if (layout) {
+      return files
+        .filter((file) => file.blob_hash === plateBlob)
+        .flatMap((file) =>
+          layout.parts.map((lp) => ({
+            id: layoutPartId(file.id, lp.plate),
+            url: lp.plate == null ? glbUrl(file) : plateGlbUrl(file.blob_hash, lp.plate),
+            color: colors[file.id],
+            visible: shown.has(file.id),
+            offset: lp.offset,
+          })),
+        );
+    }
+    return (isolating ? files.filter((file) => shown.has(file.id)) : files).map((file) => ({
+      id: file.id,
+      // Per-plate GLB when a plate is selected on this file's blob.
+      url: partUrl(file, plateBlob === file.blob_hash ? selectedPlate : null),
+      color: colors[file.id],
+      visible: shown.has(file.id),
+    }));
+  }, [files, shown, colors, plateBlob, selectedPlate, isolating, layout]);
 
   // A plate swap loads different geometry (and isolates one file): reset
   // explode (its offsets describe the old parts) and reframe/fit to the bed.
@@ -339,6 +362,7 @@ export function useViewerScene({
     stats,
     onStats: setStats,
     plateSize,
+    layout,
     fitSignal,
     onFit: () => setFitSignal((prev) => prev + 1),
     viewerApiRef,

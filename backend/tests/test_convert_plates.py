@@ -66,6 +66,9 @@ async def test_convert_writes_plate_glbs_thumbs_and_meta(
         p["has_glb"] and p["fits"] is True and p["object_count"] == 1 for p in meta.plates_json
     )
     assert meta.plates_json[0]["bbox"] == [20.0, 20.0, 20.0]
+    assert all(p["bed"] == [256.0, 256.0] or len(p["bed"]) == 2 for p in meta.plates_json)
+    assert meta.plates_json[0]["origin"] == [0.0, 0.0]
+    assert meta.plates_json[1]["origin"][0] > meta.plates_json[1]["bed"][0]  # next column, gapped
     for i in (1, 2, 3):
         glb = derivatives.plate_glb_path(s, f.blob_hash, i)
         mesh = trimesh.load(glb, force="mesh")
@@ -100,6 +103,22 @@ async def test_backfill_analyses_existing_3mf(db_session: AsyncSession, backend,
     assert pipeline.backfill_plates() == 0
 
 
+async def test_backfill_refreshes_plates_missing_bed(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    _, f = await _seed(db_session, seed_file, make_project_3mf(3), "legacybed")
+    assert pipeline.backfill_plates() == 1
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    meta.plates_json = [
+        {k: v for k, v in p.items() if k not in ("bed", "origin")} for p in meta.plates_json
+    ]
+    await db_session.commit()
+    assert pipeline.backfill_plates() == 1
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert all(p["bed"] and p["origin"] for p in meta.plates_json)
+    assert pipeline.backfill_plates() == 0
+
+
 async def test_plate_endpoints_and_file_plates(
     authenticated_client: httpx.AsyncClient, db_session: AsyncSession, backend, seed_file
 ) -> None:
@@ -127,6 +146,7 @@ async def test_plate_endpoints_and_file_plates(
         (2, "B", True, True),
         (3, "C", True, True),
     ]
+    assert plates[1]["bed"] and plates[1]["origin"][0] > 0
 
 
 def test_alembic_single_head() -> None:
