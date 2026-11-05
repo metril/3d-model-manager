@@ -285,8 +285,11 @@ export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
         </PopoverTrigger>
         <PopoverContent
           container={container}
+          side="top"
           align="end"
-          className="max-h-[70vh] w-80 overflow-y-auto"
+          collisionBoundary={container ?? undefined}
+          collisionPadding={8}
+          className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[var(--radix-popover-content-available-width)] overflow-y-auto"
           onKeyDown={(event) => event.stopPropagation()}
         >
           <MorePanelBody {...bodyProps} />
@@ -305,7 +308,7 @@ export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
       <SheetContent
         container={container}
         side="bottom"
-        className="max-h-[80vh] overflow-y-auto"
+        className="max-h-[80%] overflow-y-auto"
         onKeyDown={(event) => event.stopPropagation()}
       >
         <SheetTitle className="sr-only">Viewer options</SheetTitle>
