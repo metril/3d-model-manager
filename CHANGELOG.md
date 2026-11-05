@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/metril/3d-model-manager/compare/v0.12.5...v0.13.0) (2026-11-05)
+
+
+### Features
+
+* **tasks:** run backfills on worker start instead of beat polling ([#215](https://github.com/metril/3d-model-manager/issues/215)) ([705c630](https://github.com/metril/3d-model-manager/commit/705c63022ccce161f4d34bc5c16fc979f0582626))
+
 ## [0.12.5](https://github.com/metril/3d-model-manager/compare/v0.12.4...v0.12.5) (2026-11-05)
 
 
