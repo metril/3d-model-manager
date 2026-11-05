@@ -79,6 +79,78 @@ export function partUrl(file: FileOut, plate: number | null): string {
   return glbUrl(file);
 }
 
+/** One printer bed in the plate layout, in viewer space (Y-up, mm): `offset`
+ * is the bed's corner; the bed covers x in [ox, ox+bx], z in [oz-by, oz]. */
+export interface PlateBed {
+  index: number;
+  name: string;
+  size: [number, number];
+  offset: [number, number, number];
+}
+
+/** A part of the layout: a plate GLB (`plate`) or the full GLB (`null`). */
+export interface PlateLayoutPart {
+  plate: number | null;
+  offset: [number, number, number];
+}
+
+export interface PlateLayout {
+  beds: PlateBed[];
+  parts: PlateLayoutPart[];
+}
+
+/** Z-up plate origin [ox, oy] (backend `plate_origin`) -> Y-up offset. */
+export const originToOffset = (origin: number[]): [number, number, number] => [origin[0], 0, 0 - origin[1]];
+
+const hasBed = (p: PlateOut) => p.bed?.length === 2 && p.origin?.length === 2;
+
+/** Real-bed layout for a plated file, or null (legacy rows without `bed`,
+ * or fewer than two plates) so the viewer keeps its single square grid.
+ * Selected plate: that bed alone, its GLB bed-local (offset 0) -- or, with no
+ * per-plate GLB, the full GLB at raw world coords and the bed at its origin.
+ * All plates: every bed at its origin; each plate GLB offset by it, or the
+ * full GLB (offset 0) when no plate has one. */
+export function buildPlateLayout(plates: PlateOut[], selected: number | null): PlateLayout | null {
+  if (plates.length < 2 || !plates.every(hasBed)) return null;
+  const bedOf = (p: PlateOut): PlateBed => ({
+    index: p.index,
+    name: p.name ?? "",
+    size: [p.bed![0], p.bed![1]],
+    offset: originToOffset(p.origin!),
+  });
+  const one = selected != null ? plates.find((p) => p.index === selected) : undefined;
+  if (one) {
+    const bed = bedOf(one);
+    if (one.has_glb) return { beds: [{ ...bed, offset: [0, 0, 0] }], parts: [{ plate: one.index, offset: [0, 0, 0] }] };
+    return { beds: [bed], parts: [{ plate: null, offset: [0, 0, 0] }] };
+  }
+  const beds = plates.map(bedOf);
+  const withGlb = plates.filter((p) => p.has_glb);
+  const parts: PlateLayoutPart[] = withGlb.length
+    ? withGlb.map((p) => ({ plate: p.index, offset: originToOffset(p.origin!) }))
+    : [{ plate: null, offset: [0, 0, 0] }];
+  return { beds, parts };
+}
+
+/** Bounding box of the beds (y = 0 plane) as [min, max], or null if empty. */
+export function bedsBounds(beds: PlateBed[]): { min: [number, number, number]; max: [number, number, number] } | null {
+  if (beds.length === 0) return null;
+  const min: [number, number, number] = [Infinity, 0, Infinity];
+  const max: [number, number, number] = [-Infinity, 0, -Infinity];
+  for (const b of beds) {
+    min[0] = Math.min(min[0], b.offset[0]);
+    max[0] = Math.max(max[0], b.offset[0] + b.size[0]);
+    min[2] = Math.min(min[2], b.offset[2] - b.size[1]);
+    max[2] = Math.max(max[2], b.offset[2]);
+  }
+  return { min, max };
+}
+
+/** Stable id for a plate part: the file's own id for the full GLB, a negative
+ * synthetic one per plate (cannot collide with DB ids). */
+export const layoutPartId = (fileId: number, plate: number | null): number =>
+  plate == null ? fileId : -(fileId * 1000 + plate);
+
 // The blob the viewer is currently driving: plate cards only act on this one.
 let activeBlob: string | null = null;
 

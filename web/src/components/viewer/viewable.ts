@@ -22,6 +22,8 @@ export interface ViewerPart {
   url: string;
   color?: string;
   visible: boolean;
+  /** Plate-layout mode: scene-space (Y-up, mm) offset of this part. */
+  offset?: [number, number, number];
 }
 
 // Mirrors `PREVIEW_TRIANGLE_THRESHOLD` in `backend/app/tasks/pipeline.py` —

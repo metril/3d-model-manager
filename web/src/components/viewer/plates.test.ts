@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts } from "@/components/viewer/plates";
+import { bedsBounds, buildPlateLayout, layoutPartId, clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts } from "@/components/viewer/plates";
 import type { FileOut, PlateOut } from "@/api/types";
 
 const plate = (index: number, over: Partial<PlateOut> = {}): PlateOut => ({
@@ -73,5 +73,51 @@ describe("multi-file plates + isolation", () => {
     expect([...visibleParts([a, b, c], checked, "ha", null)]).toEqual([1, 2, 3]);
     expect([...visibleParts([a, b, c], checked, "ha", 2)]).toEqual([1]);
     expect([...visibleParts([a, b, c], new Set([2]), "ha", 1)]).toEqual([1]);
+  });
+});
+
+describe("plate layout", () => {
+  const bedPlate = (i: number, over: Partial<PlateOut> = {}) =>
+    plate(i, { bed: [256, 256], origin: [(i - 1) * 307.2, 0], ...over });
+
+  it("is null for legacy rows without bed/origin", () => {
+    expect(buildPlateLayout([plate(1), plate(2)], null)).toBeNull();
+    expect(buildPlateLayout([bedPlate(1), plate(2)], null)).toBeNull();
+  });
+
+  it("all plates: one bed + offset GLB part per plate at (ox, 0, -oy)", () => {
+    const l = buildPlateLayout([bedPlate(1), bedPlate(2, { origin: [307.2, -307.2] })], null)!;
+    expect(l.beds.map((b) => b.offset)).toEqual([[0, 0, 0], [307.2, 0, 307.2]]);
+    expect(l.parts).toEqual([
+      { plate: 1, offset: [0, 0, 0] },
+      { plate: 2, offset: [307.2, 0, 307.2] },
+    ]);
+  });
+
+  it("all plates without plate GLBs falls back to the full GLB at raw coords", () => {
+    const l = buildPlateLayout([bedPlate(1, { has_glb: false }), bedPlate(2, { has_glb: false })], null)!;
+    expect(l.parts).toEqual([{ plate: null, offset: [0, 0, 0] }]);
+    expect(l.beds).toHaveLength(2);
+  });
+
+  it("selected plate: its bed alone, GLB bed-local", () => {
+    const l = buildPlateLayout([bedPlate(1), bedPlate(2)], 2)!;
+    expect(l.beds).toHaveLength(1);
+    expect(l.beds[0].offset).toEqual([0, 0, 0]);
+    expect(l.parts).toEqual([{ plate: 2, offset: [0, 0, 0] }]);
+    const noGlb = buildPlateLayout([bedPlate(1), bedPlate(2, { has_glb: false })], 2)!;
+    expect(noGlb.beds[0].offset).toEqual([307.2, 0, 0]);
+    expect(noGlb.parts).toEqual([{ plate: null, offset: [0, 0, 0] }]);
+  });
+
+  it("bounds cover every bed (x right, z toward -Y)", () => {
+    const l = buildPlateLayout([bedPlate(1), bedPlate(2, { bed: [100, 50], origin: [300, -400] })], null)!;
+    expect(bedsBounds(l.beds)).toEqual({ min: [0, 0, -256], max: [400, 0, 400] });
+    expect(bedsBounds([])).toBeNull();
+  });
+
+  it("synthetic part ids never collide with file ids", () => {
+    expect(layoutPartId(7, null)).toBe(7);
+    expect(layoutPartId(7, 2)).toBe(-7002);
   });
 });

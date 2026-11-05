@@ -171,6 +171,9 @@ export interface PlateOut {
   has_glb?: boolean;
   bbox?: number[] | null;
   fits?: boolean | null;
+  /** Bed size [x, y] + virtual-grid origin [x, y] (Z-up mm); null/absent on legacy rows. */
+  bed?: number[] | null;
+  origin?: number[] | null;
 }
 
 export interface BlobMetaOut {
