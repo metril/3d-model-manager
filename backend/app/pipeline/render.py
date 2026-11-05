@@ -114,6 +114,12 @@ def _egl_probe_failure() -> str | None:
     return f"EGL probe {status}; stderr: {(proc.stderr or '').strip()[-2000:]}"
 
 
+def _is_cache_error(exc: BaseException) -> bool:
+    """True when f3d failed on its cache dir (permissions/filesystem), not on GL."""
+    msg = str(exc).lower()
+    return "could not use cache" in msg or "cannot create directories" in msg
+
+
 @lru_cache
 def _engine() -> f3d.Engine:
     """The process-wide cached f3d engine: OSMesa if available, else EGL
@@ -128,6 +134,12 @@ def _engine() -> f3d.Engine:
     try:
         engine = f3d.Engine.create_osmesa()
     except Exception as osmesa_exc:
+        if _is_cache_error(osmesa_exc):
+            raise RuntimeError(
+                "f3d could not use its cache directory (not a GL backend problem): "
+                f"{osmesa_exc}. Make $XDG_CACHE_HOME (or ~/.cache) writable by the "
+                "worker user -- docker/Dockerfile sets XDG_CACHE_HOME=/var/cache/tdmm."
+            ) from osmesa_exc
         failure = _egl_probe_failure()
         if failure is not None:
             raise RuntimeError(

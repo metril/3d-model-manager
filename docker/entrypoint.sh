@@ -14,6 +14,9 @@ if [[ -z "${PRIVDROP_DONE:-}" && ( -n "${PUID:-}" || -n "${PGID:-}" ) ]]; then
   chown -R tdmm:tdmm /data /library 2>/dev/null || true
   # OrcaSlicer exchange folder (shared with the orcaslicer sidecar; same PUID/PGID).
   mkdir -p /exchange 2>/dev/null && chown tdmm:tdmm /exchange 2>/dev/null || true
+  mkdir -p "${XDG_CACHE_HOME:-/var/cache/tdmm}" /home/tdmm 2>/dev/null || true
+  chmod 1777 "${XDG_CACHE_HOME:-/var/cache/tdmm}" 2>/dev/null || true
+  chown tdmm:tdmm /home/tdmm 2>/dev/null || true
   export PRIVDROP_DONE=1
   exec gosu tdmm:tdmm "$0" "$@"
 fi
