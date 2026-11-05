@@ -25,7 +25,7 @@ from xml.etree import ElementTree as ET
 
 import trimesh
 
-from app.pipeline import meshload, slicedmeta
+from app.pipeline import meshload, slicedmeta, threemf_colour
 
 logger = logging.getLogger(__name__)
 
@@ -140,21 +140,16 @@ def _recentre(mesh: trimesh.Trimesh, index: int, n: int, bed: tuple[float, float
     mesh.apply_translation([eff[0] / 2 - cx, eff[1] / 2 - cy, 0.0])
 
 
-def plate_meshes(
-    path: Path, plates: list[dict], bed: tuple[float, float] | None = None
-) -> dict[int, trimesh.Trimesh]:
-    """``{plate index: mesh}`` recentred onto one bed. Plates with no
-    geometry are omitted. Build items not claimed by any plate go on plate 1
-    (logged)."""
+def _assign_items(
+    items: list[trimesh.Trimesh | None],
+    item_oids: list[int | None],
+    plates: list[dict],
+    bed: tuple[float, float] | None,
+) -> dict[int, list[int]]:
+    """``{plate index: [build item positions]}``. Items not claimed by any
+    plate go on the plate whose grid cell holds them (logged)."""
     if not plates:
         return {}
-    with zipfile.ZipFile(path) as zf:
-        item_oids = _build_item_object_ids(zf)
-    items = meshload.load_3mf_build_items(path)
-    if len(items) != len(item_oids):
-        logger.warning("plates3mf: %d lib3mf items vs %d xml items", len(items), len(item_oids))
-        return {}
-
     by_object: dict[int, list[int]] = {}
     for pos, oid in enumerate(item_oids):
         if oid is not None:
@@ -186,7 +181,58 @@ def plate_meshes(
             continue
         logger.info("plates3mf: build item %d on no plate; placing on plate %d", pos, target)
         assigned[target].append(pos)
+    return assigned
 
+
+def _load_items(
+    path: Path, plates: list[dict], bed: tuple[float, float] | None, *, colour: bool = True
+) -> tuple[list[trimesh.Trimesh | None], dict[int, list[int]], list[int | None]] | None:
+    """Build items (painted by filament colour when the file is a
+    multi-filament Bambu/Orca project) plus plate assignment. ``None`` when
+    lib3mf and the XML disagree about the item count."""
+    with zipfile.ZipFile(path) as zf:
+        item_oids = _build_item_object_ids(zf)
+        info = threemf_colour.read_colour_info(zf) if colour else None
+    if info is not None and not info.is_multicolour:
+        info = None
+    pieces = meshload.load_3mf_build_pieces(path)
+    if len(pieces) != len(item_oids):
+        logger.warning("plates3mf: %d lib3mf items vs %d xml items", len(pieces), len(item_oids))
+        return None
+    plain = [trimesh.util.concatenate(p) if p else None for p in pieces]
+    assigned = _assign_items(plain, item_oids, plates, bed)
+    if info is None:
+        return plain, assigned, item_oids
+    plate_of = {pos: idx for idx, poss in assigned.items() for pos in poss}
+    items: list[trimesh.Trimesh | None] = []
+    for pos, parts in enumerate(pieces):
+        oid = item_oids[pos]
+        changes = info.changes.get(plate_of.get(pos, -1))
+        painted: list[trimesh.Trimesh] = []
+        for piece in parts:
+            rgba = (
+                info.part_rgba(oid, piece.metadata.get("part_index")) if oid is not None else None
+            )
+            if rgba is None:
+                continue  # modifier / negative part / support blocker
+            painted.append(threemf_colour.paint_faces(piece, rgba, changes))
+        items.append(trimesh.util.concatenate(painted) if painted else None)
+    return items, assigned, item_oids
+
+
+def plate_meshes(
+    path: Path, plates: list[dict], bed: tuple[float, float] | None = None
+) -> dict[int, trimesh.Trimesh]:
+    """``{plate index: mesh}`` recentred onto one bed, painted by filament
+    colour for multi-filament projects. Plates with no geometry are omitted.
+    Build items not claimed by any plate go on plate 1 (logged)."""
+    if not plates:
+        return {}
+    loaded = _load_items(path, plates, bed)
+    if loaded is None:
+        return {}
+    items, assigned, _ = loaded
+    n = max(max(p["index"] for p in plates), len(plates))
     out: dict[int, trimesh.Trimesh] = {}
     for plate in plates:
         parts = [items[pos] for pos in assigned[plate["index"]] if items[pos] is not None]
@@ -196,6 +242,23 @@ def plate_meshes(
         _recentre(merged, plate["index"], n, bed)
         out[plate["index"]] = merged
     return out
+
+
+def whole_file_mesh(path: Path) -> trimesh.Trimesh | None:
+    """The whole-file mesh (all plates on the virtual grid, as sliced), painted
+    by filament colour -- or ``None`` when the file is not a multi-filament
+    Bambu/Orca project (the caller keeps its plain mesh)."""
+    with zipfile.ZipFile(path) as zf:
+        info = threemf_colour.read_colour_info(zf)
+        if info is None or not info.is_multicolour:
+            return None
+        plates = parse_unsliced_plates(zf)
+        bed = read_bed(zf)
+    loaded = _load_items(path, plates, bed)
+    if loaded is None:
+        return None
+    parts = [m for m in loaded[0] if m is not None]
+    return trimesh.util.concatenate(parts) if parts else None
 
 
 def plate_extents(mesh: trimesh.Trimesh) -> list[float]:

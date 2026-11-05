@@ -31,8 +31,8 @@ export interface ViewerPart {
 const PREVIEW_TRIANGLE_THRESHOLD = 1_500_000;
 
 /** Cache-buster for the immutable GLB URLs; bump with the backend's `GLB_VERSION`
- * (v2 = Y-up orientation fix). */
-export const GLB_CACHE_V = 2;
+ * (v2 = Y-up orientation fix, v3 = 3MF filament colours). */
+export const GLB_CACHE_V = 3;
 
 /** `GET /api/blobs/{hash}/glb`, requesting the decimated preview LOD once
  * it's ready for meshes heavy enough to need it. */
