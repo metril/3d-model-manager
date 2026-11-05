@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/metril/3d-model-manager/compare/v0.13.1...v0.13.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **docker:** give f3d a writable cache dir for the tdmm user ([#219](https://github.com/metril/3d-model-manager/issues/219)) ([44cec32](https://github.com/metril/3d-model-manager/commit/44cec32f04b2bcc76bd906ba3abf4fcb72cc828d))
+
 ## [0.13.1](https://github.com/metril/3d-model-manager/compare/v0.13.0...v0.13.1) (2026-11-05)
 
 
