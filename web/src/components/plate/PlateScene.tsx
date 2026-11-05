@@ -1,7 +1,7 @@
 /**
  * R3F scene for the plate editor (lazy-loaded by `PlateEditorDialog`). Z-up in
- * millimetres, bed corner at the origin: GLB derivatives are already mm and
- * keep the source mesh's axes, so no conversion is needed. Each part is
+ * millimetres, bed corner at the origin: GLB derivatives are mm but glTF Y-up, so
+ * each part first gets a +90 degree X rotation back to the Z-up source frame. Each part is
  * wrapped so its footprint centre / bottom sits at the group origin, matching
  * the server pose contract T(x,y,0)·Rz·S·T(-cx,-cy,-zmin)·O, where O is the
  * item's orient quaternion (applied to the mesh first, so the footprint and
@@ -13,7 +13,7 @@ import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
 import { coplanarTriangles, trianglePositions } from "@/components/plate/faceRegion";
-import type { Vec3 } from "@/components/plate/orient";
+import { Y_UP_TO_Z_UP_QUAT, type Vec3 } from "@/components/plate/orient";
 import type { PlateItem } from "@/components/plate/poseStore";
 
 export type PlateMode = "translate" | "rotate" | "scale";
@@ -55,9 +55,13 @@ function PartMesh({
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) mesh.material = (mesh.material as THREE.Material).clone();
     });
-    // Orient first, then measure the rotated vertices (precise) for the drop-to-bed offset.
+    // GLBs are glTF Y-up: rotate back to the Z-up source frame the server works
+    // in, then orient, then measure the rotated vertices (precise) for the drop-to-bed offset.
+    const fix = new THREE.Group();
+    fix.quaternion.set(...Y_UP_TO_Z_UP_QUAT);
+    fix.add(clone);
     const wrapper = new THREE.Group();
-    wrapper.add(clone);
+    wrapper.add(fix);
     wrapper.quaternion.set(qx, qy, qz, qw);
     wrapper.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(wrapper, true);

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { layOnFaceOrient, normalizeQuat, quatBetween, rotateVec, type Quat, type Vec3 } from "@/components/plate/orient";
+import { layOnFaceOrient, Y_UP_TO_Z_UP_QUAT, yUpToZUp, zUpToYUp, normalizeQuat, quatBetween, rotateVec, type Quat, type Vec3 } from "@/components/plate/orient";
 import { buildManualRequest, loadLayout, saveLayout } from "@/components/plate/payload";
 import {
   halfExtents,
@@ -183,5 +183,19 @@ describe("orientation", () => {
     const { orient: _drop, ...legacy } = item("a");
     localStorage.setItem("plate-layout:m:1", JSON.stringify([legacy]));
     expect(loadLayout("m", [1])?.[0].orient).toEqual([0, 0, 0, 1]);
+  });
+
+  it("recovers the Z-up source frame from Y-up GLBs and lays the right face down", () => {
+    const src: Vec3 = [1, 2, 3];
+    close(yUpToZUp(zUpToYUp(src)), src);
+    close(rotateVec(Y_UP_TO_Z_UP_QUAT, zUpToYUp(src)), src);
+    // Source +X face on a part spun 40 deg about Z, already tilted by SIDE:
+    // the scene normal is Rz * O * (GLB -> source) applied to the GLB normal.
+    const glbNormal = zUpToYUp([1, 0, 0]);
+    const h = (40 * Math.PI) / 360;
+    const rz: Quat = [0, 0, Math.sin(h), Math.cos(h)];
+    const sceneNormal = rotateVec(rz, rotateVec(SIDE, rotateVec(Y_UP_TO_Z_UP_QUAT, glbNormal)));
+    const q = layOnFaceOrient(SIDE, 40, sceneNormal);
+    close(rotateVec(q, [1, 0, 0]), [0, 0, -1]);
   });
 });

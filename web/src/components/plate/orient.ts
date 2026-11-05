@@ -83,3 +83,13 @@ export function layOnFaceOrient(orient: readonly number[], rotZDeg: number, worl
   const unspun = rotateVec([0, 0, Math.sin(half), Math.cos(half)], n);
   return normalizeQuat(mulQuat(quatBetween(unspun, DOWN), normalizeQuat(orient)));
 }
+
+/**
+ * GLB derivatives are glTF Y-up (backend `convert.to_y_up`: source (x, y, z)
+ * -> (x, z, -y)). This is the inverse, (x, Y, Z) -> (x, -Z, Y), which recovers
+ * the print-space (Z-up) source frame the server computes orientations in.
+ */
+export const yUpToZUp = (v: Vec3): Vec3 => [v[0], -v[2], v[1]];
+export const zUpToYUp = (v: Vec3): Vec3 => [v[0], v[2], -v[1]];
+/** +90 degrees about X as a quaternion: the same map as `yUpToZUp`. */
+export const Y_UP_TO_Z_UP_QUAT: Quat = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
