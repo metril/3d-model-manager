@@ -43,8 +43,8 @@ describe("useViewerScene plate layout", () => {
     let sp = result.current.stageProps;
     expect(sp.layout?.beds).toHaveLength(2);
     expect(sp.parts.map((p) => [p.id, p.url, p.offset])).toEqual([
-      [-1001, "/api/blobs/vs1/plates/1/glb?v=2", [0, 0, 0]],
-      [-1002, "/api/blobs/vs1/plates/2/glb?v=2", [307.2, 0, 0]],
+      [-1001, "/api/blobs/vs1/plates/1/glb?v=3", [0, 0, 0]],
+      [-1002, "/api/blobs/vs1/plates/2/glb?v=3", [307.2, 0, 0]],
     ]);
     act(() => result.current.stageProps.plateInfo!.onChange(2));
     sp = result.current.stageProps;
@@ -72,11 +72,11 @@ describe("useViewerScene plates", () => {
       { wrapper },
     );
     const { stageProps } = result.current;
-    expect(stageProps.parts[0].url).toBe("/api/blobs/vs1/glb?v=2");
+    expect(stageProps.parts[0].url).toBe("/api/blobs/vs1/glb?v=3");
     const fit0 = stageProps.fitSignal;
 
     act(() => result.current.stageProps.plateInfo!.onChange(2));
-    expect(result.current.stageProps.parts[0].url).toBe("/api/blobs/vs1/plates/2/glb?v=2");
+    expect(result.current.stageProps.parts[0].url).toBe("/api/blobs/vs1/plates/2/glb?v=3");
     expect(result.current.stageProps.fitSignal).toBe(fit0 + 1);
 
     unmount();

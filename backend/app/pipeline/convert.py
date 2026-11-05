@@ -8,6 +8,7 @@ derivative/job bookkeeping around it.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import cascadio
@@ -15,7 +16,9 @@ import numpy as np
 import trimesh
 
 from app.models.enums import BlobFormat
-from app.pipeline import cad, meshload
+from app.pipeline import cad, meshload, plates3mf, threemf_colour
+
+logger = logging.getLogger(__name__)
 
 _MESH_FORMATS = (BlobFormat.STL, BlobFormat.OBJ, BlobFormat.THREEMF)
 
@@ -36,7 +39,8 @@ _CASCADIO_METERS_TO_MM = 1000.0
 
 # Bump to regenerate every stored GLB derivative (``Derivative.version``).
 # v1: GLBs are glTF Y-up (print-space Z-up meshes rotated -90 deg about X).
-GLB_VERSION = 1
+# v2: Bambu/Orca multi-filament 3MFs carry per-vertex filament colours.
+GLB_VERSION = 2
 
 # Z-up (print/CAD space) -> Y-up (glTF): (x, y, z) -> (x, z, -y).
 _Z_UP_TO_Y_UP = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
@@ -46,7 +50,7 @@ _Y_UP_TO_Z_UP = np.linalg.inv(_Z_UP_TO_Y_UP)
 def to_y_up(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     """Rotated COPY of a print-space (Z-up) mesh, ready for glTF export.
     Every GLB writer goes through this; metadata/bbox stay in print space."""
-    out = mesh.copy()
+    out = threemf_colour.bake_vertex_colours(mesh.copy())
     out.apply_transform(_Z_UP_TO_Y_UP)
     return out
 
@@ -72,6 +76,14 @@ def convert_to_glb_file(src: Path, fmt: BlobFormat, dst: Path) -> str:
     """
     if fmt in _MESH_FORMATS:
         mesh, tool = meshload.load_mesh(src, fmt)
+        if fmt is BlobFormat.THREEMF:
+            try:
+                coloured = plates3mf.whole_file_mesh(src)
+            except Exception:  # noqa: BLE001 - colour is best-effort; keep the plain mesh
+                logger.warning("3mf colouring failed for %s", src.name, exc_info=True)
+                coloured = None
+            if coloured is not None:
+                mesh, tool = coloured, "lib3mf"
         to_y_up(mesh).export(dst, file_type="glb")
         return tool
     if fmt is BlobFormat.STEP:

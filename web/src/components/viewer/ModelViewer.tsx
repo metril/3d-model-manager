@@ -53,6 +53,7 @@
  * a plain checkbox click -- the new visible set is simply what the next fit
  * measures.
  */
+import { applyColorOverride } from "@/components/viewer/materialColor";
 import {
   Component,
   Suspense,
@@ -276,13 +277,7 @@ function GltfPart({
       ownedMaterialsOf(mesh).forEach((material) => {
         const std = material as THREE.MeshStandardMaterial;
         const source = material.userData.__source as THREE.MeshStandardMaterial | undefined;
-        if (std.color) {
-          if (color) {
-            std.color.set(color);
-          } else if (source?.color) {
-            std.color.copy(source.color);
-          }
-        }
+        applyColorOverride(std, source, color);
         std.wireframe = shading === "wireframe";
         if (shading === "xray") {
           material.transparent = true;

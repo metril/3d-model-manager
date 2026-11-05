@@ -142,9 +142,15 @@ def _lib3mf_matrix(transform) -> np.ndarray:
     return m
 
 
-def _lib3mf_object_meshes(model, obj, matrix: np.ndarray, depth: int = 0) -> list[trimesh.Trimesh]:
+def _lib3mf_object_meshes(
+    model, obj, matrix: np.ndarray, depth: int = 0, part: int | None = None
+) -> list[trimesh.Trimesh]:
     """Flatten one lib3mf object (mesh or components tree) into transformed
-    meshes. ``matrix`` is the accumulated build-item/component transform."""
+    meshes. ``matrix`` is the accumulated build-item/component transform.
+    Each piece carries ``metadata["part_index"]``: the ORDER of the top-level
+    component it came from (lib3mf renumbers resource ids, so order is the
+    only stable key; Bambu lists parts in ``model_settings`` order), or
+    ``None`` for a build item that is a bare mesh."""
     if depth > 8:  # malformed/cyclic component graphs
         return []
     if obj.IsMeshObject():
@@ -155,6 +161,7 @@ def _lib3mf_object_meshes(model, obj, matrix: np.ndarray, depth: int = 0) -> lis
             return []
         mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, process=False)
         mesh.apply_transform(matrix)
+        mesh.metadata["part_index"] = part
         return [mesh]
     if obj.IsComponentsObject():
         comps = model.GetComponentsObjectByID(obj.GetResourceID())
@@ -162,16 +169,22 @@ def _lib3mf_object_meshes(model, obj, matrix: np.ndarray, depth: int = 0) -> lis
         for i in range(comps.GetComponentCount()):
             comp = comps.GetComponent(i)
             sub = _lib3mf_matrix(comp.GetTransform()) if comp.HasTransform() else np.eye(4)
-            out += _lib3mf_object_meshes(model, comp.GetObjectResource(), matrix @ sub, depth + 1)
+            out += _lib3mf_object_meshes(
+                model,
+                comp.GetObjectResource(),
+                matrix @ sub,
+                depth + 1,
+                i if depth == 0 else part,
+            )
         return out
     return []
 
 
-def load_3mf_build_items(path: Path) -> list[trimesh.Trimesh | None]:
-    """One mm-scaled, build-transformed mesh per ``<build><item>``, in
-    document order (``None`` for an item with no geometry). Components and
-    Production-Extension ``p:path`` references are followed by lib3mf.
-    """
+def load_3mf_build_pieces(path: Path) -> list[list[trimesh.Trimesh]]:
+    """Per ``<build><item>``, in document order: its mm-scaled,
+    build-transformed mesh pieces (one per component leaf; ``[]`` for an item
+    with no geometry). Components and Production-Extension ``p:path``
+    references are followed by lib3mf."""
     import lib3mf
 
     wrapper = lib3mf.get_wrapper()
@@ -179,7 +192,7 @@ def load_3mf_build_items(path: Path) -> list[trimesh.Trimesh | None]:
     model.QueryReader("3mf").ReadFromFile(str(path))
     factor = _LIB3MF_UNIT_TO_MM.get(int(model.GetUnit()), 1.0)
 
-    items: list[trimesh.Trimesh | None] = []
+    items: list[list[trimesh.Trimesh]] = []
     it = model.GetBuildItems()
     while it.MoveNext():
         item = it.GetCurrent()
@@ -187,14 +200,19 @@ def load_3mf_build_items(path: Path) -> list[trimesh.Trimesh | None]:
             _lib3mf_matrix(item.GetObjectTransform()) if item.HasObjectTransform() else np.eye(4)
         )
         parts = _lib3mf_object_meshes(model, item.GetObjectResource(), matrix)
-        if not parts:
-            items.append(None)
-            continue
-        merged = trimesh.util.concatenate(parts)
         if factor != 1.0:
-            merged.apply_scale(factor)
-        items.append(merged)
+            for part in parts:
+                part.apply_scale(factor)
+        items.append(parts)
     return items
+
+
+def load_3mf_build_items(path: Path) -> list[trimesh.Trimesh | None]:
+    """One mm-scaled, build-transformed mesh per ``<build><item>``, in
+    document order (``None`` for an item with no geometry)."""
+    return [
+        trimesh.util.concatenate(parts) if parts else None for parts in load_3mf_build_pieces(path)
+    ]
 
 
 def load_3mf_lib3mf(path: Path) -> trimesh.Trimesh:
