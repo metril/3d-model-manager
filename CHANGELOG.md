@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/metril/3d-model-manager/compare/v0.14.0...v0.15.0) (2026-11-05)
+
+
+### Features
+
+* **plate:** split 3MF build objects into independent plate-editor parts ([#224](https://github.com/metril/3d-model-manager/issues/224)) ([7072e53](https://github.com/metril/3d-model-manager/commit/7072e53e0d355638fced54def042079e822a2060))
+
 ## [0.14.0](https://github.com/metril/3d-model-manager/compare/v0.13.2...v0.14.0) (2026-11-05)
 
 
