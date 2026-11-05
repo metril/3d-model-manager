@@ -31,7 +31,7 @@ from app.schemas.ops import (
     UpdateOut,
 )
 from app.services import backup as backup_svc
-from app.services import service_status
+from app.services import service_status, updates
 from app.services.log_stream import redact_line
 from app.services.ops_settings import get_ops_config, get_update_cache, set_ops_config
 from app.services.service_status import AdminStatusOut
@@ -225,7 +225,9 @@ async def get_update(
         current=settings.app_version,
         url=cache.get("url"),
         notes=cache.get("notes"),
-        update_available=bool(cache.get("update_available")),
+        # Recompute vs the running version: the cache was written by an older
+        # release, so its stored flag goes stale after an upgrade.
+        update_available=updates.is_newer(cache.get("latest"), settings.app_version),
         checked_at=cache.get("checked_at"),
         error=cache.get("error"),
     )
