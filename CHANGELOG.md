@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0](https://github.com/metril/3d-model-manager/compare/v0.13.2...v0.14.0) (2026-11-05)
+
+
+### Features
+
+* **plate:** auto orient and lay-on-face in the plate editor ([#222](https://github.com/metril/3d-model-manager/issues/222)) ([4d2c9d4](https://github.com/metril/3d-model-manager/commit/4d2c9d4d2c6ce26a9d354a0a188277c41f6c1e1e))
+
+
+### Bug Fixes
+
+* **ops:** recompute update badge against the running version ([#221](https://github.com/metril/3d-model-manager/issues/221)) ([11de36f](https://github.com/metril/3d-model-manager/commit/11de36f902d6732631dfa547fd50fb0ce834351d))
+
 ## [0.13.2](https://github.com/metril/3d-model-manager/compare/v0.13.1...v0.13.2) (2026-11-05)
 
 
