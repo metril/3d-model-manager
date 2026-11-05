@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.4](https://github.com/metril/3d-model-manager/compare/v0.12.3...v0.12.4) (2026-11-05)
+
+
+### Bug Fixes
+
+* **viewer:** keep "..." panel inside the viewer stage ([#211](https://github.com/metril/3d-model-manager/issues/211)) ([2ed4897](https://github.com/metril/3d-model-manager/commit/2ed4897e7706bc822c14924bb6fcadfc37ee061d))
+
 ## [0.12.3](https://github.com/metril/3d-model-manager/compare/v0.12.2...v0.12.3) (2026-11-04)
 
 
