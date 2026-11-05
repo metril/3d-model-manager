@@ -67,7 +67,13 @@ RUN apt-get update \
 # just placeholders, immediately overwritten by `usermod -o -u "$PUID" ...`
 # when PUID/PGID are set. Root stays the default (see the ENTRYPOINT note
 # below) when neither is set.
-RUN groupadd -g 1000 tdmm && useradd -u 1000 -g tdmm -M -s /usr/sbin/nologin tdmm
+RUN groupadd -g 1000 tdmm && useradd -u 1000 -g tdmm -M -s /usr/sbin/nologin tdmm \
+    && mkdir -p /home/tdmm /var/cache/tdmm \
+    && chown tdmm:tdmm /home/tdmm && chmod 1777 /var/cache/tdmm
+
+# f3d (and anything else XDG-aware) writes ~/.cache/f3d; $HOME may be missing or
+# unwritable after a PUID remap, so point the cache at a world-writable dir.
+ENV XDG_CACHE_HOME=/var/cache/tdmm MPLCONFIGDIR=/var/cache/tdmm/matplotlib
 
 COPY --from=gltfpack-build /build/gltfpack /usr/local/bin/gltfpack
 

@@ -587,3 +587,26 @@ async def test_stl_upload_pipeline_runs_through_render_thumb(
     for step in ("extract_metadata", "convert_to_glb", "optimize_glb", "render_thumb"):
         step_job = next(j for j in jobs_list if j["type"] == step)
         assert step_job["state"] == "done", (step, step_job)
+
+
+@pytest.mark.usefixtures("_fresh_engine_cache")
+def test_engine_reports_cache_error_not_missing_gl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _cache_denied(*args, **kwargs):
+        raise RuntimeError(
+            "Could not use cache: filesystem error: cannot create directories: "
+            "Permission denied [/home/tdmm/.cache/f3d]"
+        )
+
+    def _probe_boom():
+        raise AssertionError("cache errors must not reach the EGL probe")
+
+    monkeypatch.setattr(f3d.Engine, "create_osmesa", _cache_denied)
+    monkeypatch.setattr(render, "_egl_probe_failure", _probe_boom)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        render._engine()
+
+    assert "cache directory" in str(excinfo.value)
+    assert "no usable headless GL backend" not in str(excinfo.value)
