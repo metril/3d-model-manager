@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { layOnFaceOrient, Y_UP_TO_Z_UP_QUAT, yUpToZUp, zUpToYUp, normalizeQuat, quatBetween, rotateVec, type Quat, type Vec3 } from "@/components/plate/orient";
 import { buildManualRequest, loadLayout, saveLayout } from "@/components/plate/payload";
+import { capItems, groupItems, seedsMayOverlap } from "@/components/plate/seeds";
 import {
   halfExtents,
   initialState,
   itemFits,
   MAX_ITEMS,
+  partKey,
   plateReducer,
   type PlateAction,
   type PlateItem,
@@ -16,6 +18,7 @@ import {
 const item = (uid: string, over: Partial<PlateItem> = {}): PlateItem => ({
   uid,
   file_id: 1,
+  object_index: null,
   x_mm: 50,
   y_mm: 50,
   rot_z_deg: 0,
@@ -197,5 +200,79 @@ describe("orientation", () => {
     const sceneNormal = rotateVec(rz, rotateVec(SIDE, rotateVec(Y_UP_TO_Z_UP_QUAT, glbNormal)));
     const q = layOnFaceOrient(SIDE, 40, sceneNormal);
     close(rotateVec(q, [1, 0, 0]), [0, 0, -1]);
+  });
+});
+
+describe("per-object parts", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("keys parts by file and object; copies and removal are per object", () => {
+    expect(partKey({ file_id: 1 })).toBe("1");
+    expect(partKey({ file_id: 1, object_index: null })).toBe("1");
+    expect(partKey({ file_id: 1, object_index: 2 })).toBe("1:2");
+    let s = run(initialState, { type: "init", items: [item("a", { object_index: 0 }), item("b", { object_index: 1, x_mm: 90 })] });
+    s = run(s, { type: "addCopy", file_id: 1, object_index: 1 });
+    expect(s.items).toHaveLength(3);
+    expect(s.items[2]).toMatchObject({ object_index: 1, copy_index: 1, x_mm: 100 });
+    s = run(s, { type: "removeLast", file_id: 1, object_index: 0 });
+    expect(s.items.map((i) => i.uid).includes("a")).toBe(false);
+    expect(s.items).toHaveLength(2);
+  });
+
+  it("orients one object independently", () => {
+    const q: Quat = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+    const s = run(
+      initialState,
+      { type: "init", items: [item("a", { object_index: 0 }), item("b", { object_index: 1 })] },
+      { type: "setOrient", entries: [{ uid: "b", orient: q }] },
+    );
+    expect(s.items[0].orient).toEqual([0, 0, 0, 1]);
+    close(s.items[1].orient, q);
+  });
+
+  it("sends object_index only for split parts, and old layouts load as the whole file", () => {
+    const req = buildManualRequest(
+      [item("a"), item("b", { object_index: 3 })],
+      { profileId: null, bed: { x_mm: 1, y_mm: 1 } },
+      "",
+    );
+    expect(req.items[0]).not.toHaveProperty("object_index");
+    expect(req.items[1].object_index).toBe(3);
+    const { object_index: _drop, ...legacy } = item("a");
+    localStorage.setItem("plate-layout:m:1", JSON.stringify([legacy, item("b", { object_index: 2 })]));
+    const loaded = loadLayout("m", [1]);
+    expect(loaded?.[0].object_index).toBeNull();
+    expect(loaded?.[1].object_index).toBe(2);
+  });
+});
+
+describe("object seeds", () => {
+  it("flags seeds that could overlap", () => {
+    const one = new Map([[1, [{ plate: 1 }, { plate: 1 }]]]);
+    expect(seedsMayOverlap(one, 0)).toBe(false);
+    expect(seedsMayOverlap(one, 1)).toBe(true);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: 1 }, { plate: 2 }]]]), 0)).toBe(true);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: null }, { plate: null }]]]), 0)).toBe(false);
+    expect(seedsMayOverlap(new Map([[1, [{ plate: 1 }]], [2, [{ plate: 1 }]]]), 0)).toBe(true);
+  });
+
+  it("caps seeds and reports truncation", () => {
+    expect(capItems([1, 2, 3], 2)).toEqual({ items: [1, 2], truncated: true });
+    expect(capItems([1, 2], 5)).toEqual({ items: [1, 2], truncated: false });
+    expect(capItems([1], -3)).toEqual({ items: [], truncated: true });
+  });
+
+  it("groups items per part, orientation and scale", () => {
+    const req = groupItems([
+      item("a", { object_index: 0 }),
+      item("b", { object_index: 0, x_mm: 9 }),
+      item("c", { object_index: 1 }),
+      item("d"),
+    ]);
+    expect(req.map((r) => [r.file_id, r.object_index, r.copies])).toEqual([
+      [1, 0, 2],
+      [1, 1, 1],
+      [1, undefined, 1],
+    ]);
   });
 });

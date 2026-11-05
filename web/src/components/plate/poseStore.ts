@@ -11,6 +11,8 @@ import { layOnFaceOrient, normalizeQuat, type Quat, type Vec3 } from "@/componen
 export interface PlateItem {
   uid: string;
   file_id: number;
+  /** build item of a multi-object 3MF; missing/null = the whole file. */
+  object_index?: number | null;
   x_mm: number;
   y_mm: number;
   rot_z_deg: number;
@@ -37,11 +39,15 @@ export type PlateAction =
   | { type: "rotateBy"; uid: string; deg: number }
   | { type: "setOrient"; entries: { uid: string; orient: readonly number[] }[] }
   | { type: "layOnFace"; uid: string; normal: Vec3 }
-  | { type: "addCopy"; file_id: number }
+  | { type: "addCopy"; file_id: number; object_index?: number | null }
   | { type: "removeCopy"; uid: string }
-  | { type: "removeLast"; file_id: number }
+  | { type: "removeLast"; file_id: number; object_index?: number | null }
   | { type: "undo" }
   | { type: "redo" };
+
+/** Identity of a placeable part: a whole file, or one object of a split 3MF. */
+export const partKey = (p: { file_id: number; object_index?: number | null }) =>
+  p.object_index == null ? String(p.file_id) : `${p.file_id}:${p.object_index}`;
 
 export const MAX_ITEMS = 100;
 export const MIN_SCALE = 0.01;
@@ -119,11 +125,12 @@ export function plateReducer(state: PlateState, action: PlateAction): PlateState
     }
     case "addCopy": {
       if (state.items.length >= MAX_ITEMS) return state;
-      const mine = state.items.filter((i) => i.file_id === action.file_id);
+      const mine = state.items.filter((i) => partKey(i) === partKey(action));
       const last = mine[mine.length - 1];
       const next: PlateItem = {
         uid: newUid(),
         file_id: action.file_id,
+        object_index: action.object_index ?? null,
         x_mm: (last?.x_mm ?? 0) + COPY_OFFSET_MM,
         y_mm: (last?.y_mm ?? 0) + COPY_OFFSET_MM,
         rot_z_deg: last?.rot_z_deg ?? 0,
@@ -143,7 +150,7 @@ export function plateReducer(state: PlateState, action: PlateAction): PlateState
       };
     }
     case "removeLast": {
-      const mine = state.items.filter((i) => i.file_id === action.file_id);
+      const mine = state.items.filter((i) => partKey(i) === partKey(action));
       const last = mine[mine.length - 1];
       return last ? plateReducer(state, { type: "removeCopy", uid: last.uid }) : state;
     }

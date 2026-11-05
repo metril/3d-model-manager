@@ -16,6 +16,8 @@ class CombineItemIn(BaseModel):
     (``x_mm``/``y_mm`` = footprint centre on the bed, ``copies`` ignored)."""
 
     file_id: int
+    # Build item of a multi-object 3MF to use instead of the whole file.
+    object_index: int | None = Field(default=None, ge=0, le=100_000)
     copies: int = Field(default=1, ge=1, le=100)
     x_mm: float | None = Field(default=None, ge=-5000, le=5000)
     y_mm: float | None = Field(default=None, ge=-5000, le=5000)
@@ -65,6 +67,7 @@ class CombineIn(BaseModel):
 
 class CombinePlacementOut(BaseModel):
     file_id: int
+    object_index: int | None = None
     x_mm: float
     y_mm: float
     w_mm: float
@@ -73,6 +76,7 @@ class CombinePlacementOut(BaseModel):
 
 class CombinePoseOut(BaseModel):
     file_id: int
+    object_index: int | None = None
     x_mm: float
     y_mm: float
     rot_z_deg: float
@@ -91,6 +95,7 @@ class CombinePartOut(BaseModel):
     (min_x + w/2, min_y + d/2, min_z)."""
 
     file_id: int
+    object_index: int | None = None
     min_x: float
     min_y: float
     min_z: float
@@ -100,12 +105,49 @@ class CombinePartOut(BaseModel):
     orient: list[float] = [0.0, 0.0, 0.0, 1.0]
 
 
+class OrientTarget(BaseModel):
+    file_id: int
+    object_index: int | None = None
+
+
 class OrientIn(BaseModel):
-    file_ids: list[int] = Field(min_length=1, max_length=100)
+    """``file_ids`` (whole files) and/or ``targets`` (a file's build item)."""
+
+    file_ids: list[int] = Field(default_factory=list, max_length=100)
+    targets: list[OrientTarget] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def _something(self) -> OrientIn:
+        if not self.file_ids and not self.targets:
+            raise ValueError("give file_ids or targets")
+        return self
+
+
+class ObjectOut(BaseModel):
+    """One build item of a multi-object 3MF on a single bed (bed-local mm;
+    ``x_mm``/``y_mm`` = footprint centre)."""
+
+    index: int
+    plate: int | None
+    name: str
+    x_mm: float
+    y_mm: float
+    w_mm: float
+    d_mm: float
+    h_mm: float
+    glb_url: str
+
+
+class FileObjectsOut(BaseModel):
+    """Empty ``objects`` = a single object / not a 3MF: use the whole file."""
+
+    file_id: int
+    objects: list[ObjectOut]
 
 
 class OrientFileOut(BaseModel):
     file_id: int
+    object_index: int | None = None
     orient: list[float]
     w_mm: float
     d_mm: float

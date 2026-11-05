@@ -27,17 +27,28 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { ApiError } from "@/api/client";
-import { bedFromProfile, useAutoArrange, useAutoOrient, useCombine, type CombinePose, type CombineRequest } from "@/api/combine";
+import {
+  bedFromProfile,
+  useAutoArrange,
+  useAutoOrient,
+  useCombine,
+  useFileObjects,
+  type CombinePose,
+  type CombineRequest,
+  type FileObject,
+} from "@/api/combine";
 import { useProfiles } from "@/api/slicing";
 import type { FileOut } from "@/api/types";
 import { canArrange } from "@/components/plate/arrangeable";
-import { normalizeQuat, type Quat } from "@/components/plate/orient";
+import { normalizeQuat } from "@/components/plate/orient";
+import { capItems, groupItems, seedsMayOverlap } from "@/components/plate/seeds";
 import { buildManualRequest, clearLayout, loadLayout, saveLayout } from "@/components/plate/payload";
 import {
   initialState,
   itemFits,
   MAX_ITEMS,
   newUid,
+  partKey,
   plateReducer,
   type PartDims,
   type PlateItem,
@@ -60,6 +71,7 @@ function poseToItem(p: CombinePose): PlateItem {
   return {
     uid: newUid(),
     file_id: p.file_id,
+    object_index: p.object_index ?? null,
     x_mm: p.x_mm,
     y_mm: p.y_mm,
     rot_z_deg: p.rot_z_deg,
@@ -70,6 +82,23 @@ function poseToItem(p: CombinePose): PlateItem {
 }
 
 const poseDims = (p: CombinePose): PartDims => ({ w_mm: p.w_mm, d_mm: p.d_mm, h_mm: p.h_mm });
+
+/** A split-3MF object placed where it sits on its own plate (bed-local). */
+function objectItem(file_id: number, o: FileObject): PlateItem {
+  return {
+    uid: newUid(),
+    file_id,
+    object_index: o.index,
+    x_mm: o.x_mm,
+    y_mm: o.y_mm,
+    rot_z_deg: 0,
+    scale: 1,
+    copy_index: 0,
+    orient: [0, 0, 0, 1],
+  };
+}
+
+const objectDims = (o: FileObject): PartDims => ({ w_mm: o.w_mm, d_mm: o.d_mm, h_mm: o.h_mm });
 
 const baseName = (relPath: string) => relPath.split("/").pop() ?? relPath;
 
@@ -143,10 +172,17 @@ export function PlateEditorDialog({
   const [bedX, setBedX] = useState("256");
   const [bedY, setBedY] = useState("256");
   const [name, setName] = useState("");
-  const [dims, setDims] = useState<Map<number, PartDims>>(new Map());
+  const [dims, setDims] = useState<Map<string, PartDims>>(new Map());
   const [ready, setReady] = useState(false);
   const [sliceFile, setSliceFile] = useState<FileOut | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const objects = useFileObjects(slug, usableFiles, open);
+  const splitObjects = objects.byFile; // file id -> build items (only files worth splitting)
+  const objectOf = useCallback(
+    (i: { file_id: number; object_index?: number | null }) =>
+      i.object_index == null ? undefined : splitObjects.get(i.file_id)?.find((o) => o.index === i.object_index),
+    [splitObjects],
+  );
 
   const withBed = (profiles.data ?? []).map((p) => ({ profile: p, bed: bedFromProfile(p.data) }));
   const usable = withBed.filter((p) => p.bed !== null);
@@ -167,13 +203,13 @@ export function PlateEditorDialog({
 
   const autoRequest = useCallback(
     (): CombineRequest => ({
-      items: usableFiles.map((f) => ({ file_id: f.id, copies: 1 })),
+      items: usableFiles.filter((f) => !splitObjects.has(f.id)).map((f) => ({ file_id: f.id, copies: 1 })),
       layout: "auto",
       spacing_mm: 5,
       printer_profile_id: selectedProfile ? selectedProfile.profile.id : null,
       bed: selectedProfile ? null : { x_mm: bedSize.x_mm, y_mm: bedSize.y_mm },
     }),
-    [usableFiles, selectedProfile, bedSize.x_mm, bedSize.y_mm],
+    [usableFiles, splitObjects, selectedProfile, bedSize.x_mm, bedSize.y_mm],
   );
 
   // Initial layout: the remembered one for this file set, else the server's auto-arrange.
@@ -188,21 +224,50 @@ export function PlateEditorDialog({
   };
   const started = useRef(false);
   useEffect(() => {
-    if (!open || started.current || !bedValid || profiles.isLoading || usableFiles.length === 0) return;
+    if (!open || started.current || !bedValid || profiles.isLoading || usableFiles.length === 0 || !objects.settled) return;
     started.current = true;
-    auto.mutate(autoRequest(), {
-      onSuccess: (res) => {
-        setDims(new Map(res.parts.map((p) => [p.file_id, p])));
-        const saved = loadLayout(slug, fileIds);
-        const fresh = res.poses.map((p) => ({ item: poseToItem(p), dims: poseDims(p) }));
-        setItemDims(saved ? new Map() : new Map(fresh.map((f) => [f.item.uid, f.dims])));
-        dispatch({ type: "init", items: saved ?? fresh.map((f) => f.item) });
-        setReady(true);
-      },
+    const objectParts = new Map<string, PartDims>();
+    const objectSeeds: PlateItem[] = [];
+    for (const [fid, list] of splitObjects) {
+      for (const o of list) {
+        objectParts.set(partKey({ file_id: fid, object_index: o.index }), objectDims(o));
+        objectSeeds.push(objectItem(fid, o));
+      }
+    }
+    // A remembered layout only counts when it still matches how the files split.
+    const usableSaved = (saved: PlateItem[] | null) =>
+      saved &&
+      saved.every((i) =>
+        splitObjects.has(i.file_id) ? objectParts.has(partKey(i)) : i.object_index == null,
+      )
+        ? saved
+        : null;
+    const wholeCount = usableFiles.filter((f) => !splitObjects.has(f.id)).length;
+    const capped = capItems(objectSeeds, MAX_ITEMS - wholeCount);
+    if (capped.truncated) toast.warning(t("plate.seedsTruncated", { max: MAX_ITEMS }));
+    // Seeds that could overlap go through the server's auto-arrange with the whole-file parts.
+    const arrangeSeeds = capped.items.length > 0 && seedsMayOverlap(splitObjects, wholeCount);
+    const finish = (res: { fits?: boolean; parts: { file_id: number; object_index?: number | null; w_mm: number; d_mm: number; h_mm: number }[]; poses: CombinePose[] } | null) => {
+      setDims(new Map([...objectParts, ...(res?.parts ?? []).map((p): [string, PartDims] => [partKey(p), p])]));
+      const saved = usableSaved(loadLayout(slug, fileIds));
+      const fresh = (res?.poses ?? []).map((p) => ({ item: poseToItem(p), dims: poseDims(p) }));
+      setItemDims(saved ? new Map() : new Map(fresh.map((f) => [f.item.uid, f.dims])));
+      dispatch({ type: "init", items: saved ?? [...fresh.map((f) => f.item), ...(arrangeSeeds ? [] : capped.items)] });
+      if (!saved && arrangeSeeds && res && !res.fits) toast.warning(t("plate.autoNoFit"));
+      setReady(true);
+    };
+    const req = autoRequest();
+    if (arrangeSeeds) req.items = [...req.items, ...groupItems(capped.items)];
+    if (req.items.length === 0) {
+      finish(null);
+      return;
+    }
+    auto.mutate(req, {
+      onSuccess: finish,
       onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, bedValid, profiles.isLoading, usableFiles.length]);
+  }, [open, bedValid, profiles.isLoading, usableFiles.length, objects.settled]);
 
   useEffect(() => {
     if (open) return;
@@ -216,41 +281,44 @@ export function PlateEditorDialog({
     if (ready) saveLayout(slug, fileIds, state.items);
   }, [ready, slug, fileIds, state.items]);
 
-  const colorOf = (fileId: number) => COLORS[Math.max(0, fileIds.indexOf(fileId)) % COLORS.length];
-  const parts = useMemo(
-    () => new Map<number, ScenePart>(usableFiles.map((f) => [f.id, { file_id: f.id, url: glbUrl(f), color: colorOf(f.id) }])),
+  const colorOf = (fileId: number, objectIndex?: number | null) =>
+    COLORS[(Math.max(0, fileIds.indexOf(fileId)) + (objectIndex ?? 0)) % COLORS.length];
+  const parts = useMemo(() => {
+    const m = new Map<string, ScenePart>();
+    for (const f of usableFiles) {
+      const list = splitObjects.get(f.id);
+      if (!list) m.set(partKey({ file_id: f.id }), { key: partKey({ file_id: f.id }), url: glbUrl(f), color: colorOf(f.id) });
+      else for (const o of list) {
+        const key = partKey({ file_id: f.id, object_index: o.index });
+        m.set(key, { key, url: o.glb_url, color: colorOf(f.id, o.index) });
+      }
+    }
+    return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [usableFiles],
-  );
+  }, [usableFiles, splitObjects]);
   const fitsByUid = useMemo(
-    () => new Map(state.items.map((i) => [i.uid, itemFits(itemDims.get(i.uid) ?? dims.get(i.file_id), i, bedSize, height)])),
+    () => new Map(state.items.map((i) => [i.uid, itemFits(itemDims.get(i.uid) ?? dims.get(partKey(i)), i, bedSize, height)])),
     [state.items, itemDims, dims, bedSize, height],
   );
   const labelOf = (i: PlateItem) => {
     const f = usableFiles.find((x) => x.id === i.file_id);
-    return `${f ? baseName(f.rel_path) : i.file_id} #${i.copy_index + 1}`;
+    const o = objectOf(i);
+    return `${o ? o.name : f ? baseName(f.rel_path) : i.file_id} #${i.copy_index + 1}`;
   };
   const offBed = state.items.filter((i) => fitsByUid.get(i.uid) === false);
   const selected = state.items.find((i) => i.uid === state.selected) ?? null;
   const canSave = ready && bedValid && state.items.length > 0 && offBed.length === 0 && !combine.isPending;
 
-  function autoArrange() {
+  // Server auto-arrange of `items` (replaces the layout; undoable).
+  function arrangeItems(items: PlateItem[], autoOrientFirst = false) {
     if (!bedValid) return;
     const req = autoRequest();
-    // One request item per (file, orientation, scale) so tilted copies stay tilted.
-    const groups = new Map<string, { file_id: number; orient: Quat; scale: number; copies: number }>();
-    for (const i of state.items) {
-      const k = `${i.file_id}|${i.orient.join(",")}|${i.scale}`;
-      const g = groups.get(k);
-      if (g) g.copies += 1;
-      else groups.set(k, { file_id: i.file_id, orient: i.orient, scale: i.scale, copies: 1 });
-    }
-    req.items = [...groups.values()].map((g) => ({ file_id: g.file_id, copies: g.copies, scale: g.scale, orient: g.orient }));
+    req.items = groupItems(items);
     if (req.items.length === 0) return;
-    req.auto_orient = orientFirst;
+    req.auto_orient = autoOrientFirst;
     auto.mutate(req, {
       onSuccess: (res) => {
-        setDims(new Map(res.parts.map((p) => [p.file_id, p])));
+        setDims((prev) => new Map([...prev, ...res.parts.map((p): [string, PartDims] => [partKey(p), p])]));
         const fresh = res.poses.map((p) => ({ item: { ...poseToItem(p), rot_z_deg: 0 }, dims: poseDims(p) }));
         setItemDims(new Map(fresh.map((f) => [f.item.uid, f.dims])));
         dispatch({ type: "replace", items: fresh.map((f) => f.item) });
@@ -260,24 +328,27 @@ export function PlateEditorDialog({
     });
   }
 
+  const autoArrange = () => arrangeItems(state.items, orientFirst);
+
   // Auto orient: the selected copy, or every copy when nothing is selected.
   function orientAuto() {
     const targets = selected ? [selected] : state.items;
     if (targets.length === 0) return;
-    autoOrient.mutate([...new Set(targets.map((i) => i.file_id))], {
+    const unique = new Map(targets.map((i) => [partKey(i), { file_id: i.file_id, object_index: i.object_index ?? null }]));
+    autoOrient.mutate([...unique.values()], {
       onSuccess: (res) => {
-        const byFile = new Map(res.files.map((f) => [f.file_id, f]));
+        const byFile = new Map(res.files.map((f) => [partKey(f), f]));
         dispatch({
           type: "setOrient",
           entries: targets.flatMap((i) => {
-            const f = byFile.get(i.file_id);
+            const f = byFile.get(partKey(i));
             return f ? [{ uid: i.uid, orient: f.orient }] : [];
           }),
         });
         setItemDims((prev) => {
           const next = new Map(prev);
           for (const i of targets) {
-            const f = byFile.get(i.file_id);
+            const f = byFile.get(partKey(i));
             if (f) next.set(i.uid, f);
           }
           return next;
@@ -285,6 +356,29 @@ export function PlateEditorDialog({
       },
       onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.orientFailed")),
     });
+  }
+
+  // Plate filter for a split file: bring a plate's objects in (at their bed-local spot) or take them out.
+  function togglePlate(fileId: number, plate: number) {
+    const list = splitObjects.get(fileId) ?? [];
+    const onPlate = new Set(list.filter((o) => o.plate === plate).map((o) => o.index));
+    const present = state.items.some((i) => i.file_id === fileId && onPlate.has(i.object_index ?? -1));
+    if (present) {
+      dispatch({
+        type: "replace",
+        items: state.items.filter((i) => !(i.file_id === fileId && onPlate.has(i.object_index ?? -1))),
+      });
+      return;
+    }
+    const capped = capItems(
+      list.filter((o) => onPlate.has(o.index)).map((o) => objectItem(fileId, o)),
+      MAX_ITEMS - state.items.length,
+    );
+    if (capped.truncated) toast.warning(t("plate.seedsTruncated", { max: MAX_ITEMS }));
+    if (capped.items.length === 0) return;
+    // Bed-local spots may be taken: re-pack so nothing overlaps.
+    if (state.items.length === 0) dispatch({ type: "replace", items: capped.items });
+    else arrangeItems([...state.items, ...capped.items]);
   }
 
   function onFace(uid: string, normal: [number, number, number]) {
@@ -475,20 +569,25 @@ export function PlateEditorDialog({
           </div>
 
           <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
-            {usableFiles.map((f) => {
-              const mine = state.items.filter((i) => i.file_id === f.id);
+            {usableFiles.flatMap((f) => {
+              const list = splitObjects.get(f.id);
+              const plates = list ? [...new Set(list.flatMap((o) => (o.plate == null ? [] : [o.plate])))].sort((x, y) => x - y) : [];
+              const groups: (FileObject | null)[] = list ? list.filter((o) => state.items.some((i) => i.file_id === f.id && i.object_index === o.index)) : [null];
+              const rows = groups.map((o) => {
+              const mine = state.items.filter((i) => partKey(i) === partKey({ file_id: f.id, object_index: o?.index }));
+              const title = o ? o.name : baseName(f.rel_path);
               return (
-                <div key={f.id} className="space-y-1.5">
+                <div key={partKey({ file_id: f.id, object_index: o?.index })} className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="size-2.5 shrink-0 rounded-sm" style={{ background: colorOf(f.id) }} />
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs" title={f.rel_path}>
-                      {baseName(f.rel_path)}
+                    <span className="size-2.5 shrink-0 rounded-sm" style={{ background: colorOf(f.id, o?.index) }} />
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs" title={o ? `${baseName(f.rel_path)} / ${o.name}` : f.rel_path}>
+                      {title}
                     </span>
-                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.removeCopy", { name: baseName(f.rel_path) })} disabled={mine.length === 0} onClick={() => dispatch({ type: "removeLast", file_id: f.id })}>
+                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.removeCopy", { name: title })} disabled={mine.length === 0} onClick={() => dispatch({ type: "removeLast", file_id: f.id, object_index: o?.index })}>
                       <MinusIcon className="size-4" />
                     </Button>
                     <span className="w-6 text-center text-xs tabular-nums">{mine.length}</span>
-                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.addCopy", { name: baseName(f.rel_path) })} disabled={state.items.length >= MAX_ITEMS} onClick={() => dispatch({ type: "addCopy", file_id: f.id })}>
+                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.addCopy", { name: title })} disabled={state.items.length >= MAX_ITEMS} onClick={() => dispatch({ type: "addCopy", file_id: f.id, object_index: o?.index })}>
                       <PlusIcon className="size-4" />
                     </Button>
                   </div>
@@ -520,6 +619,29 @@ export function PlateEditorDialog({
                   ))}
                 </div>
               );
+              });
+              if (!list) return rows;
+              return [
+                <div key={`plates-${f.id}`} className="space-y-1">
+                  <span className="block truncate font-mono text-xs" title={f.rel_path}>
+                    {baseName(f.rel_path)}
+                  </span>
+                  {plates.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t("plate.platesFilter")}>
+                      <span className="text-[10px] text-muted-foreground">{t("plate.platesFilter")}</span>
+                      {plates.map((pl) => {
+                        const on = state.items.some((i) => i.file_id === f.id && list.some((o) => o.plate === pl && o.index === i.object_index));
+                        return (
+                          <Button key={pl} type="button" size="sm" variant={on ? "default" : "outline"} aria-pressed={on} className="h-6 px-2 text-xs" onClick={() => togglePlate(f.id, pl)}>
+                            {pl}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>,
+                ...rows,
+              ];
             })}
           </div>
         </div>

@@ -1,4 +1,5 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { modelQueryOptions } from "@/api/library";
 import { api } from "@/api/client";
@@ -6,6 +7,8 @@ import type { FileOut } from "@/api/types";
 
 export interface CombineItem {
   file_id: number;
+  /** build item of a multi-object 3MF; absent = the whole file. */
+  object_index?: number | null;
   copies: number;
   /** manual layout only: footprint centre on the bed, mm. */
   x_mm?: number;
@@ -39,6 +42,7 @@ export interface CombinePlacement {
 
 export interface CombinePose {
   file_id: number;
+  object_index?: number | null;
   x_mm: number;
   y_mm: number;
   rot_z_deg: number;
@@ -55,6 +59,7 @@ export interface CombinePose {
 /** Source mesh AABB in mm; the pose pivot is (min_x + w/2, min_y + d/2, min_z). */
 export interface CombinePart {
   file_id: number;
+  object_index?: number | null;
   min_x: number;
   min_y: number;
   min_z: number;
@@ -122,6 +127,7 @@ export function useAutoArrange(slug: string) {
 
 export interface OrientResult {
   file_id: number;
+  object_index?: number | null;
   orient: [number, number, number, number];
   w_mm: number;
   d_mm: number;
@@ -131,7 +137,49 @@ export interface OrientResult {
 /** Best print orientation (quaternion + resulting dims) per file. */
 export function useAutoOrient(slug: string) {
   return useMutation({
-    mutationFn: (fileIds: number[]) =>
-      api.post<{ files: OrientResult[] }>(`/models/${encodeURIComponent(slug)}/orient`, { file_ids: fileIds }),
+    mutationFn: (targets: { file_id: number; object_index: number | null }[]) =>
+      api.post<{ files: OrientResult[] }>(`/models/${encodeURIComponent(slug)}/orient`, { targets }),
   });
+}
+
+/** One build item of a multi-object 3MF on a single bed (bed-local mm, x/y = footprint centre). */
+export interface FileObject {
+  index: number;
+  plate: number | null;
+  name: string;
+  x_mm: number;
+  y_mm: number;
+  w_mm: number;
+  d_mm: number;
+  h_mm: number;
+  glb_url: string;
+}
+
+/** `GET /models/{slug}/files/{id}/objects` for each 3MF: empty `objects` = use the whole file. */
+export function useFileObjects(slug: string, files: Pick<FileOut, "id" | "format" | "blob_hash">[], enabled: boolean) {
+  const threeMf = files.filter((f) => f.format === "3mf");
+  const queries = useQueries({
+    queries: threeMf.map((f) => ({
+      queryKey: ["file-objects", slug, f.id, f.blob_hash] as const,
+      queryFn: () =>
+        api.get<{ file_id: number; objects: FileObject[] }>(
+          `/models/${encodeURIComponent(slug)}/files/${f.id}/objects`,
+        ),
+      enabled,
+      staleTime: Infinity,
+      retry: false,
+    })),
+  });
+  // A failed/unreadable 3MF falls back to the whole file.
+  const settled = queries.every((q) => !enabled || q.isSuccess || q.isError);
+  const stamp = queries.map((q) => `${q.dataUpdatedAt}`).join(",");
+  const byFile = useMemo(() => {
+    const m = new Map<number, FileObject[]>();
+    queries.forEach((q, i) => {
+      if (q.data && q.data.objects.length > 1) m.set(threeMf[i].id, q.data.objects);
+    });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stamp, threeMf.map((f) => f.id).join(",")]);
+  return { byFile, settled: enabled && settled };
 }

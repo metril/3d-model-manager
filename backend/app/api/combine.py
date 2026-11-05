@@ -12,6 +12,7 @@ from pathlib import Path
 import anyio
 import blake3
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_owner_or_admin, require_perm, require_session
@@ -26,13 +27,15 @@ from app.schemas.combine import (
     CombinePartOut,
     CombinePlacementOut,
     CombinePoseOut,
+    FileObjectsOut,
+    ObjectOut,
     OrientFileOut,
     OrientIn,
     OrientOut,
 )
 from app.schemas.jobs import JobOut
+from app.services import derivatives, library, object_assets, spool
 from app.services import jobs as jobs_service
-from app.services import library, spool
 from app.services.bed_fit import parse_printable_area, parse_printable_height
 from app.services.mesh_combine import (
     FIT_MARGIN_MM,
@@ -128,14 +131,14 @@ async def combine_files(
 
     by_id = {f.id: f for f in revision.files}
     # One row per (file, orientation) in manual mode, one per item otherwise.
-    rows: list[tuple[File, int, StorageBackend, Quat]] = []
-    row_of: dict[tuple[int, tuple[int, ...]], int] = {}  # manual: -> index into rows
+    rows: list[tuple[File, int, StorageBackend, Quat, int | None]] = []
+    row_of: dict[tuple[int, int | None, tuple[int, ...]], int] = {}  # manual: -> index into rows
     for item in payload.items:
         orient = normalize(tuple(item.orient)) if item.orient else IDENTITY  # type: ignore[arg-type]
-        key = (item.file_id, quat_key(orient))
+        key = (item.file_id, item.object_index, quat_key(orient))
         if manual and key in row_of:
             i = row_of[key]
-            rows[i] = (rows[i][0], rows[i][1] + 1, rows[i][2], rows[i][3])
+            rows[i] = (rows[i][0], rows[i][1] + 1, rows[i][2], rows[i][3], rows[i][4])
             continue
         file = await _usable_file(by_id, item.file_id)
         row_of[key] = len(rows)
@@ -145,6 +148,7 @@ async def combine_files(
                 1 if manual else item.copies,
                 await resolve_backend_for_file(db, settings, file),
                 orient,
+                item.object_index,
             )
         )
 
@@ -158,8 +162,8 @@ async def combine_files(
     ]:
         parts = []
         tmp_of: dict[int, Path] = {}  # one copy per file, shared by its orientations
-        best_of: dict[int, Quat] = {}
-        for idx, (file, copies, backend, orient) in enumerate(rows):
+        best_of: dict[tuple[int, int | None], Quat] = {}
+        for idx, (file, copies, backend, orient, obj) in enumerate(rows):
             tmp = tmp_of.get(file.id)
             if tmp is None:
                 tmp = tmp_of[file.id] = _copy_to_temp(
@@ -167,12 +171,13 @@ async def combine_files(
                 )
                 temps.append(tmp)
             if payload.auto_orient and not manual:
-                if file.id not in best_of:
-                    best_of[file.id] = _auto_orient(file, tmp)
-                orient = best_of[file.id]
+                if (file.id, obj) not in best_of:
+                    best_of[(file.id, obj)] = _auto_orient(file, tmp, obj)
+                orient = best_of[(file.id, obj)]
             parts.append(
                 CombinePart(
-                    name=Path(file.rel_path).name,
+                    name=_part_name(file, obj),
+                    object=obj,
                     path=tmp,
                     copies=copies,
                     # grid/auto: rows mirror payload.items, each scaled as asked.
@@ -186,7 +191,11 @@ async def combine_files(
             poses = [
                 Pose(
                     row_of[
-                        (i.file_id, quat_key(normalize(tuple(i.orient)) if i.orient else IDENTITY))
+                        (
+                            i.file_id,
+                            i.object_index,
+                            quat_key(normalize(tuple(i.orient)) if i.orient else IDENTITY),
+                        )
                     ],  # type: ignore[arg-type]
                     i.x_mm or 0.0,
                     i.y_mm or 0.0,
@@ -246,6 +255,7 @@ async def combine_files(
         placements = [
             CombinePlacementOut(
                 file_id=rows[po.owner][0].id,
+                object_index=rows[po.owner][4],
                 x_mm=f.min_x,
                 y_mm=f.min_y,
                 w_mm=f.max_x - f.min_x,
@@ -253,16 +263,17 @@ async def combine_files(
             )
             for po, f in zip(poses, fits, strict=True)
         ]
-        seen: dict[int, int] = {}  # per file: copy_index of auto/grid poses
+        seen: dict[tuple[int, int | None], int] = {}  # per part: copy_index of auto/grid poses
         pose_out = []
         for idx, (po, f) in enumerate(zip(poses, fits, strict=True)):
             lp = loaded[po.owner]
-            fid = rows[po.owner][0].id
-            n = seen.get(fid, 0)
-            seen[fid] = n + 1
+            fid, oidx = rows[po.owner][0].id, rows[po.owner][4]
+            n = seen.get((fid, oidx), 0)
+            seen[(fid, oidx)] = n + 1
             pose_out.append(
                 CombinePoseOut(
                     file_id=fid,
+                    object_index=oidx,
                     x_mm=po.x,
                     y_mm=po.y,
                     rot_z_deg=po.rot_deg,
@@ -278,6 +289,7 @@ async def combine_files(
         part_out = [
             CombinePartOut(
                 file_id=rows[i][0].id,
+                object_index=rows[i][4],
                 min_x=lp.origin[0],
                 min_y=lp.origin[1],
                 min_z=lp.origin[2],
@@ -389,8 +401,13 @@ async def _usable_file(by_id: dict[int, File], file_id: int) -> File:
     return file
 
 
-def _auto_orient(file: File, path: Path) -> Quat:
-    mesh = read_mesh(CombinePart(name=Path(file.rel_path).name, path=path))
+def _part_name(file: File, obj: int | None) -> str:
+    name = Path(file.rel_path).name
+    return name if obj is None else f"{Path(name).stem} #{obj + 1}.3mf"
+
+
+def _auto_orient(file: File, path: Path, obj: int | None = None) -> Quat:
+    mesh = read_mesh(CombinePart(name=_part_name(file, obj), path=path, object=obj))
     return best_orientation(mesh.vertices, mesh.faces)
 
 
@@ -414,18 +431,21 @@ async def orient_files(
         raise HTTPException(status.HTTP_409_CONFLICT, "model has no current revision")
     revision = await library.get_revision_or_404(db, model.current_revision_id)
     by_id = {f.id: f for f in revision.files}
-    picked: list[tuple[File, StorageBackend]] = []
-    for fid in dict.fromkeys(payload.file_ids):
+    picked: list[tuple[File, StorageBackend, int | None]] = []
+    wanted = [(fid, None) for fid in payload.file_ids] + [
+        (t.file_id, t.object_index) for t in payload.targets
+    ]
+    for fid, oidx in dict.fromkeys(wanted):
         file = await _usable_file(by_id, fid)
-        picked.append((file, await resolve_backend_for_file(db, settings, file)))
+        picked.append((file, await resolve_backend_for_file(db, settings, file), oidx))
     spool_root = await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
 
     def _work() -> list[OrientFileOut]:
         out: list[OrientFileOut] = []
-        for file, backend in picked:
+        for file, backend, oidx in picked:
             tmp = _copy_to_temp(backend, file.storage_path, spool_root, Path(file.rel_path).suffix)
             try:
-                mesh = read_mesh(CombinePart(name=Path(file.rel_path).name, path=tmp))
+                mesh = read_mesh(CombinePart(name=_part_name(file, oidx), path=tmp, object=oidx))
             finally:
                 tmp.unlink(missing_ok=True)
             q = best_orientation(mesh.vertices, mesh.faces)
@@ -434,6 +454,7 @@ async def orient_files(
             out.append(
                 OrientFileOut(
                     file_id=file.id,
+                    object_index=oidx,
                     orient=list(q),
                     w_mm=float(size[0]),
                     d_mm=float(size[1]),
@@ -446,3 +467,83 @@ async def orient_files(
         return OrientOut(files=await anyio.to_thread.run_sync(_work))
     except MeshCombineError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+
+@router.get(
+    "/{slug}/files/{file_id}/objects",
+    response_model=FileObjectsOut,
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def file_objects(
+    slug: str,
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> FileObjectsOut:
+    """The build items of a multi-object 3MF, each on a single bed, for the
+    plate editor to move/orient independently. ``objects`` is empty for a
+    single-object 3MF or any other format (use the whole file)."""
+    file = await _current_file(db, slug, file_id, ctx)
+    if file.blob.format is not BlobFormat.THREEMF:
+        return FileObjectsOut(file_id=file.id, objects=[])
+    backend = await resolve_backend_for_file(db, settings, file)
+    spool_root = await anyio.to_thread.run_sync(spool.ensure_spool_dir, settings)
+
+    def _work() -> list[dict]:
+        cached = object_assets.read_cached(settings, file.blob_hash)
+        if cached is not None:
+            return cached
+        tmp = _copy_to_temp(backend, file.storage_path, spool_root, ".3mf")
+        try:
+            return object_assets.ensure_objects(settings, file.blob_hash, tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    try:
+        objects = await anyio.to_thread.run_sync(_work)
+    except Exception as exc:  # unreadable 3MF: fall back to the whole file
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    base = f"/api/models/{slug}/files/{file.id}/objects"
+    return FileObjectsOut(
+        file_id=file.id,
+        objects=[
+            ObjectOut(
+                **o,
+                glb_url=f"{base}/{o['index']}/glb?v={object_assets.OBJECTS_V}&h={file.blob_hash[:12]}",
+            )
+            for o in objects
+        ],
+    )
+
+
+@router.get(
+    "/{slug}/files/{file_id}/objects/{index}/glb",
+    dependencies=[Depends(require_perm("library:write"))],
+)
+async def file_object_glb(
+    slug: str,
+    file_id: int,
+    index: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> FileResponse:
+    file = await _current_file(db, slug, file_id, ctx)
+    path = derivatives.object_glb_path(settings, file.blob_hash, index)
+    if not await anyio.to_thread.run_sync(path.is_file):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "object glb not found")
+    return FileResponse(
+        path,
+        media_type="model/gltf-binary",
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
+
+
+async def _current_file(db: AsyncSession, slug: str, file_id: int, ctx: AuthContext) -> File:
+    model = await library.get_model_by_slug(db, slug)
+    require_owner_or_admin(ctx, model.created_by_user_id)
+    if model.current_revision_id is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "model has no current revision")
+    revision = await library.get_revision_or_404(db, model.current_revision_id)
+    return await _usable_file({f.id: f for f in revision.files}, file_id)

@@ -14,12 +14,13 @@ import * as THREE from "three";
 
 import { coplanarTriangles, trianglePositions } from "@/components/plate/faceRegion";
 import { Y_UP_TO_Z_UP_QUAT, type Vec3 } from "@/components/plate/orient";
-import type { PlateItem } from "@/components/plate/poseStore";
+import { partKey, type PlateItem } from "@/components/plate/poseStore";
 
 export type PlateMode = "translate" | "rotate" | "scale";
 
 export interface ScenePart {
-  file_id: number;
+  /** `partKey` of the file / split-3MF object. */
+  key: string;
   url: string;
   color: string;
 }
@@ -303,7 +304,7 @@ export default function PlateScene({
 }: {
   bed: Bed;
   items: PlateItem[];
-  parts: Map<number, ScenePart>;
+  parts: Map<string, ScenePart>;
   selected: string | null;
   fitsByUid: Map<string, boolean>;
   mode: PlateMode;
@@ -333,7 +334,7 @@ export default function PlateScene({
       <BedVolume bed={bed} />
       <OrbitTarget bed={bed} locked={orbitLocked} />
       {items.map((item) => {
-        const part = parts.get(item.file_id);
+        const part = parts.get(partKey(item));
         return part ? (
           <PlatePart
             key={item.uid}
