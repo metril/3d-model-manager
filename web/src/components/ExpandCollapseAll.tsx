@@ -1,4 +1,5 @@
 import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 
@@ -22,14 +23,15 @@ export function ExpandCollapseAll({
    * groups" -- used in the aria-labels and title tooltips. */
   label: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-1">
       <Button
         type="button"
         variant="ghost"
         size="xs"
-        aria-label={`Expand all ${label}`}
-        title={`Expand all ${label}`}
+        aria-label={t("expandCollapse.expandAll", { label })}
+        title={t("expandCollapse.expandAll", { label })}
         disabled={allOpen}
         onClick={onExpandAll}
       >
@@ -39,8 +41,8 @@ export function ExpandCollapseAll({
         type="button"
         variant="ghost"
         size="xs"
-        aria-label={`Collapse all ${label}`}
-        title={`Collapse all ${label}`}
+        aria-label={t("expandCollapse.collapseAll", { label })}
+        title={t("expandCollapse.collapseAll", { label })}
         disabled={allClosed}
         onClick={onCollapseAll}
       >

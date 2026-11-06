@@ -180,4 +180,84 @@ describe("UploadDropzone", () => {
     await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(1));
     expect(resolveTarget).toHaveBeenCalledTimes(1);
   });
+
+  function addFiles(container: HTMLElement, names: string[]) {
+    const input = container.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error("file input not found");
+    fireEvent.change(input, { target: { files: names.map((n) => new File([n], n)) } });
+  }
+
+  it("uploads at most 3 files at a time", async () => {
+    const releases: Array<(r: UploadResult) => void> = [];
+    let inFlight = 0;
+    let peak = 0;
+    uploadFileMock.mockImplementation(
+      () =>
+        new Promise<UploadResult>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          releases.push((r) => {
+            inFlight -= 1;
+            resolve(r);
+          });
+        }),
+    );
+    const { container } = render(<UploadDropzone resolveTarget={vi.fn().mockResolvedValue(TARGET)} />);
+    addFiles(container, ["a.stl", "b.stl", "c.stl", "d.stl", "e.stl"]);
+    fireEvent.click(screen.getByRole("button", { name: /^Upload/ }));
+
+    await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(3));
+    expect(peak).toBe(3);
+    act(() => releases[0]!(fakeUploadResult("j1")));
+    await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(4));
+    act(() => releases[1]!(fakeUploadResult("j2")));
+    await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(5));
+    expect(peak).toBe(3);
+    releases.slice(2).forEach((r, n) => act(() => r(fakeUploadResult(`j${n + 3}`))));
+  });
+
+  it("cancels one in-flight item without stopping the others, and retries it", async () => {
+    const { UploadAbortedError } = await import("@/api/upload");
+    uploadFileMock.mockImplementation(
+      (_args: unknown, cbs: { signal?: AbortSignal }) =>
+        new Promise<UploadResult>((resolve, reject) => {
+          const name = (_args as { file: File }).file.name;
+          if (name === "slow.stl") cbs.signal?.addEventListener("abort", () => reject(new UploadAbortedError()), { once: true });
+          else resolve(fakeUploadResult(`job-${name}`));
+        }),
+    );
+    const { container } = render(<UploadDropzone resolveTarget={vi.fn().mockResolvedValue(TARGET)} />);
+    addFiles(container, ["slow.stl", "fast.stl"]);
+    fireEvent.click(screen.getByRole("button", { name: /^Upload/ }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel slow.stl" }));
+    expect(await screen.findByText("Canceled")).toBeInTheDocument();
+    // The other file was unaffected.
+    expect(screen.getByText("Processing")).toBeInTheDocument();
+
+    uploadFileMock.mockImplementation(() => Promise.resolve(fakeUploadResult("job-retry")));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry slow.stl" }));
+    await waitFor(() => expect(uploadFileMock.mock.calls.filter((c) => (c[0] as { file: File }).file.name === "slow.stl")).toHaveLength(2));
+  });
+
+  it("Upload anyway runs through the busy state and fires onUploadComplete", async () => {
+    const { DuplicateUploadError } = await import("@/api/upload");
+    uploadFileMock.mockRejectedValueOnce(
+      new DuplicateUploadError({ detail: "duplicate", existing: { slug: "d", name: "Dragon", url: "/models/d" }, suggested_name: "a (2)" }),
+    );
+    uploadFileMock.mockResolvedValueOnce(fakeUploadResult("job-x"));
+    const onUploadComplete = vi.fn();
+    const onUploadingChange = vi.fn();
+    const { container } = render(
+      <UploadDropzone resolveTarget={vi.fn().mockResolvedValue(TARGET)} onUploadComplete={onUploadComplete} onUploadingChange={onUploadingChange} />,
+    );
+    addFiles(container, ["a.stl"]);
+    fireEvent.click(screen.getByRole("button", { name: /^Upload/ }));
+    await screen.findByText("Dragon");
+    await waitFor(() => expect(onUploadComplete).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload anyway" }));
+    await waitFor(() => expect(onUploadComplete).toHaveBeenCalledTimes(2));
+    expect(onUploadingChange).toHaveBeenLastCalledWith(false);
+  });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { PencilIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ export function InlineEdit({
   displayClassName,
   "aria-label": ariaLabel,
 }: InlineEditProps) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -98,10 +100,10 @@ export function InlineEdit({
         />
         <span className="flex gap-2">
           <Button type="button" size="sm" onClick={commit}>
-            Save
+            {t("inlineEdit.save")}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={cancel}>
-            Cancel
+            {t("inlineEdit.cancel")}
           </Button>
         </span>
       </span>
@@ -118,7 +120,7 @@ export function InlineEdit({
         type="button"
         variant="ghost"
         size="icon-xs"
-        aria-label={ariaLabel ? `Edit ${ariaLabel}` : "Edit"}
+        aria-label={ariaLabel ? t("inlineEdit.editNamed", { label: ariaLabel }) : t("inlineEdit.edit")}
         onClick={() => setEditing(true)}
         className="mt-0.5 shrink-0 opacity-60 hover:opacity-100"
       >

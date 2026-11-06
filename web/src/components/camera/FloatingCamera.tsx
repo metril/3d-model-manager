@@ -8,6 +8,7 @@
 import { MinusIcon, PictureInPicture2Icon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 import { usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
@@ -15,11 +16,31 @@ import { useHotkeys } from "@/hooks/useHotkeys";
 import { floatingCamera, MIN_H, MIN_W, useFloatingCamera, type FloatingRect } from "@/lib/floatingCamera";
 import { pipSupported, popOutElement } from "@/lib/pip";
 
+/** Keeps the overlay fully reachable: its top-left corner (and so the drag
+ * handle) stays on-screen and it never extends past the viewport. */
+function clampToViewport(r: FloatingRect): FloatingRect {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.min(r.w, Math.max(MIN_W, vw));
+  const h = Math.min(r.h, Math.max(MIN_H, vh));
+  return {
+    ...r,
+    w,
+    h,
+    x: Math.min(Math.max(0, r.x), Math.max(0, vw - w)),
+    y: Math.min(Math.max(0, r.y), Math.max(0, vh - h)),
+  };
+}
+
 export function FloatingCamera() {
+  const { t } = useTranslation();
   const s = useFloatingCamera();
   const overview = usePrintersOverview();
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const dragCleanup = useRef<(() => void) | null>(null);
+  // Drop any in-progress drag listeners if the overlay unmounts mid-drag.
+  useEffect(() => () => dragCleanup.current?.(), []);
   const id = s.printerId;
   const firstId = overview.data?.printers?.[0]?.printer.id;
 
@@ -46,13 +67,14 @@ export function FloatingCamera() {
 
   if (id == null) return null;
   const item = overview.data?.printers?.find((p) => p.printer.id === id);
-  const name = item?.printer.name ?? `Printer ${id}`;
+  const name = item?.printer.name ?? t("cameraUi.printerFallback", { id });
   const online = item?.status?.online ?? false;
   const { rect } = s;
 
   function drag(e: ReactPointerEvent, mode: "move" | "resize") {
     if (e.button !== 0) return;
     e.preventDefault();
+    dragCleanup.current?.();
     const start = { x: e.clientX, y: e.clientY, rect: { ...floatingCamera.get().rect } };
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - start.x;
@@ -61,14 +83,18 @@ export function FloatingCamera() {
         mode === "move"
           ? { ...start.rect, x: start.rect.x + dx, y: start.rect.y + dy }
           : { ...start.rect, w: Math.max(MIN_W, start.rect.w + dx), h: Math.max(MIN_H, start.rect.h + dy) };
-      floatingCamera.setRect(next);
+      floatingCamera.setRect(clampToViewport(next));
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      dragCleanup.current = null;
     };
+    dragCleanup.current = up;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   }
 
   async function popOut() {
@@ -80,7 +106,7 @@ export function FloatingCamera() {
     <div
       ref={rootRef}
       role="complementary"
-      aria-label={`Camera: ${name}`}
+      aria-label={t("cameraUi.overlay", { name })}
       tabIndex={-1}
       data-testid="floating-camera"
       className="fixed z-50 flex flex-col overflow-hidden rounded-lg border bg-black text-white shadow-2xl"
@@ -97,17 +123,17 @@ export function FloatingCamera() {
         <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
         <div className="flex items-center gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
           {pipSupported() && !s.minimized ? (
-            <HeaderButton label="Pop out" onClick={() => void popOut()}>
+            <HeaderButton label={t("cameraUi.popOut")} onClick={() => void popOut()}>
               <PictureInPicture2Icon className="size-3.5" />
             </HeaderButton>
           ) : null}
           <HeaderButton
-            label={s.minimized ? "Restore camera" : "Minimise camera"}
+            label={s.minimized ? t("cameraUi.restore") : t("cameraUi.minimise")}
             onClick={() => floatingCamera.setMinimized(!s.minimized)}
           >
             {s.minimized ? <SquareIcon className="size-3.5" /> : <MinusIcon className="size-3.5" />}
           </HeaderButton>
-          <HeaderButton label="Close camera" onClick={() => floatingCamera.close()}>
+          <HeaderButton label={t("cameraUi.close")} onClick={() => floatingCamera.close()}>
             <XIcon className="size-3.5" />
           </HeaderButton>
         </div>
@@ -119,7 +145,7 @@ export function FloatingCamera() {
           </div>
           <div
             role="separator"
-            aria-label="Resize camera"
+            aria-label={t("cameraUi.resize")}
             className="absolute bottom-0 right-0 size-4 cursor-nwse-resize touch-none"
             onPointerDown={(e) => drag(e, "resize")}
           />

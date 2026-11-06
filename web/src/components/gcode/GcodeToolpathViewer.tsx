@@ -57,12 +57,39 @@ class NoopObserver {
 
 type LoadState = "loading" | "ready" | "empty" | "error";
 
+/** Reads the body as text, reporting 0-100 progress when Content-Length is
+ * known (the parser itself still needs the whole text). */
+async function readTextWithProgress(res: Response, onProgress: (pct: number | null) => void): Promise<string> {
+  const reader = res.body?.getReader?.();
+  if (!reader) return res.text();
+  const total = Number(res.headers.get("content-length")) || 0;
+  const decoder = new TextDecoder();
+  let loaded = 0;
+  let out = "";
+  let lastPct = -1;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    loaded += value.byteLength;
+    out += decoder.decode(value, { stream: true });
+    if (total > 0) {
+      const pct = Math.min(100, Math.floor((loaded / total) * 100));
+      if (pct !== lastPct) {
+        lastPct = pct;
+        onProgress(pct);
+      }
+    }
+  }
+  return out + decoder.decode();
+}
+
 export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialColorMode = "feature", onLoaded }: GcodeToolpathViewerProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<LoadState>("loading");
   const [parsed, setParsed] = useState<ParsedToolpath | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [progress, setProgress] = useState<number | null>(null);
   const [mode, setMode] = useState<GcodeColorMode>(initialColorMode);
   const [range, setRange] = useState<[number, number]>([0, 0]);
   const [hiddenKeys, setHiddenKeys] = useState<ReadonlySet<string>>(new Set());
@@ -88,13 +115,17 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
   useEffect(() => {
     const ctrl = new AbortController();
     setState("loading");
+    setProgress(null);
     setParsed(null);
     (async () => {
       try {
         const res = await fetch(gcodeUrl, { credentials: "include", signal: ctrl.signal });
         if (res.status === 404) return setState("empty");
         if (!res.ok) throw new Error(String(res.status));
-        const result = await parseGcodeAsync(await res.text(), ctrl.signal);
+        const text = await readTextWithProgress(res, (pct) => {
+          if (!ctrl.signal.aborted) setProgress(pct);
+        });
+        const result = await parseGcodeAsync(text, ctrl.signal);
         if (ctrl.signal.aborted) return;
         if (result.layers.length === 0) return setState("empty");
         framedRef.current = false;
@@ -310,6 +341,7 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-sm text-muted-foreground" role="status">
             <Loader2 className="size-4 animate-spin" />
             {t("gcodeViewer.loading")}
+            {progress != null ? <span className="tabular-nums">{progress}%</span> : null}
           </div>
         )}
         {state === "empty" && (

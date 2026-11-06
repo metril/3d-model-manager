@@ -7,6 +7,7 @@
  * assuming every served file is playable inline).
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { archiveTimelapseUrl } from "@/api/archives";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ export function TimelapsePlayer({
   poster?: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const [unplayable, setUnplayable] = useState(false);
   const src = archiveTimelapseUrl(archiveId);
 
@@ -32,10 +34,10 @@ export function TimelapsePlayer({
           className,
         )}
       >
-        <p>Can&apos;t play in this browser</p>
+        <p>{t("timelapsePlayer.unplayable")}</p>
         <Button asChild variant="outline" size="sm">
           <a href={src} download>
-            Download
+            {t("timelapsePlayer.download")}
           </a>
         </Button>
       </div>

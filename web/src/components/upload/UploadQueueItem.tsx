@@ -1,4 +1,5 @@
-import { XIcon } from "lucide-react";
+import { RotateCcwIcon, XIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { ExistingUploadModel } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -24,13 +25,13 @@ export interface QueueItem {
   duplicate?: { existing: ExistingUploadModel; suggestedName: string };
 }
 
-const STATUS_LABEL: Record<QueueStatus, string> = {
-  pending: "Pending",
-  uploading: "Uploading",
-  processing: "Processing",
-  stored: "Stored",
-  failed: "Failed",
-  duplicate: "Duplicate",
+const STATUS_KEY: Record<QueueStatus, string> = {
+  pending: "upload.status.pending",
+  uploading: "upload.status.uploading",
+  processing: "upload.status.processing",
+  stored: "upload.status.stored",
+  failed: "upload.status.failed",
+  duplicate: "upload.status.duplicate",
 };
 
 const STATUS_VARIANT: Record<QueueStatus, "outline" | "secondary" | "destructive"> = {
@@ -48,12 +49,17 @@ interface UploadQueueItemProps {
   onRemove: () => void;
   /** Retries this item's upload with `allow_duplicate=true` (R11-C item 18). */
   onUploadAnyway?: () => void;
+  /** Cancels this item's in-flight upload (it parks as failed, retryable). */
+  onCancel?: () => void;
+  /** Re-uploads a failed item. */
+  onRetry?: () => void;
 }
 
 /** One row in the upload queue: editable rel_path, progress bar, status chip.
  * A "duplicate" item additionally shows an inline card pointing at the
  * existing model, with "Open existing"/"Upload anyway" actions. */
-export function UploadQueueItem({ item, onRelPathChange, onRemove, onUploadAnyway }: UploadQueueItemProps) {
+export function UploadQueueItem({ item, onRelPathChange, onRemove, onUploadAnyway, onCancel, onRetry }: UploadQueueItemProps) {
+  const { t } = useTranslation();
   const editable = item.status === "pending";
 
   return (
@@ -65,24 +71,46 @@ export function UploadQueueItem({ item, onRelPathChange, onRemove, onUploadAnywa
             onChange={(event) => onRelPathChange(event.target.value)}
             disabled={!editable}
             className="font-mono text-xs"
-            aria-label={`Path for ${item.file.name}`}
+            aria-label={t("upload.pathFor", { name: item.file.name })}
           />
           <div className="flex items-center gap-2">
-            <Progress value={item.progress} className="h-1.5 flex-1" aria-label={`Progress for ${item.file.name}`} />
+            <Progress value={item.progress} className="h-1.5 flex-1" aria-label={t("upload.progressFor", { name: item.file.name })} />
             <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{humanizeBytes(item.size)}</span>
           </div>
           {item.error ? <p className="text-xs text-destructive">{item.error}</p> : null}
         </div>
-        <Badge variant={STATUS_VARIANT[item.status]}>{STATUS_LABEL[item.status]}</Badge>
+        <Badge variant={STATUS_VARIANT[item.status]}>{t(STATUS_KEY[item.status])}</Badge>
         {editable ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={`Remove ${item.file.name}`}
+            aria-label={t("upload.remove", { name: item.file.name })}
             onClick={onRemove}
           >
             <XIcon className="size-4" />
+          </Button>
+        ) : null}
+        {item.status === "uploading" && onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("upload.cancelItem", { name: item.file.name })}
+            onClick={onCancel}
+          >
+            <XIcon className="size-4" />
+          </Button>
+        ) : null}
+        {item.status === "failed" && onRetry ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("upload.retryItem", { name: item.file.name })}
+            onClick={onRetry}
+          >
+            <RotateCcwIcon className="size-4" />
           </Button>
         ) : null}
       </div>
@@ -90,17 +118,17 @@ export function UploadQueueItem({ item, onRelPathChange, onRemove, onUploadAnywa
         <Card className="py-3">
           <CardContent className="flex flex-wrap items-center gap-2 px-3 text-sm">
             <span>
-              Already in your library:{" "}
+              {t("upload.alreadyInLibrary")}{" "}
               <a href={item.duplicate.existing.url} className="font-medium underline">
                 {item.duplicate.existing.name}
               </a>
             </span>
             <div className="ml-auto flex gap-2">
               <Button type="button" variant="outline" size="sm" asChild>
-                <a href={item.duplicate.existing.url}>Open existing</a>
+                <a href={item.duplicate.existing.url}>{t("upload.openExisting")}</a>
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={onUploadAnyway}>
-                Upload anyway
+                {t("upload.uploadAnyway")}
               </Button>
             </div>
           </CardContent>
