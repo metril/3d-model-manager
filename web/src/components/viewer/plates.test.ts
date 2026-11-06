@@ -26,9 +26,9 @@ describe("plates", () => {
 
   it("swaps the part url to the plate endpoint", () => {
     const f = file([plate(1), plate(2)]);
-    expect(partUrl(f, null)).toBe("/api/blobs/h1/glb?v=4");
-    expect(partUrl(f, 2)).toBe("/api/blobs/h1/plates/2/glb?v=4");
-    expect(partUrl(f, 9)).toBe("/api/blobs/h1/glb?v=4");
+    expect(partUrl(f, null)).toBe("/api/blobs/h1/glb?v=5");
+    expect(partUrl(f, 2)).toBe("/api/blobs/h1/plates/2/glb?v=5");
+    expect(partUrl(f, 9)).toBe("/api/blobs/h1/glb?v=5");
   });
 
   it("labels and stores the selection", () => {

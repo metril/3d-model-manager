@@ -156,8 +156,8 @@ describe("ViewerWindowPage", () => {
     // matching part regardless.
     const parts = modelViewerMock.mock.calls.at(-1)?.[0].parts;
     expect(parts).toEqual([
-      { id: 1, url: "/api/blobs/aaa/glb?v=4", color: undefined, visible: false },
-      { id: 2, url: "/api/blobs/bbb/glb?v=4", color: "#ff0000", visible: true },
+      { id: 1, url: "/api/blobs/aaa/glb?v=5", color: undefined, visible: false },
+      { id: 2, url: "/api/blobs/bbb/glb?v=5", color: "#ff0000", visible: true },
     ]);
   });
 
