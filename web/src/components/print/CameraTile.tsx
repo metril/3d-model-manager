@@ -31,8 +31,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "react-i18next";
+
 import { useAuth } from "@/api/auth";
-import { useCameraLight, useCameraStatus, useCameraUrls } from "@/api/printers";
+import { useCameraLight, useCameraStatus, useCameraUrls, usePrinterStatus } from "@/api/printers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useElementFullscreen } from "@/hooks/useElementFullscreen";
 import { framesEqual, isStreamStalled, MAX_RECONNECTS, reconnectDelayMs } from "@/lib/cameraStall";
@@ -40,6 +42,8 @@ import { floatingCamera, useOverlayOwnsStream } from "@/lib/floatingCamera";
 import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
+const RETRY_MAX_MS = 120_000;
+const RETRY_MAX_TRIES = 6;
 const STALL_MS = 20_000;
 const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
@@ -76,10 +80,10 @@ function withParam(url: string, key: string, value: string | number): string {
 
 /** Downsampled RGBA of the img's current frame; `null` when nothing is
  * decoded yet or canvas sampling is unavailable. */
-function sampleFrame(img: HTMLImageElement | null): Uint8ClampedArray | null {
+function sampleFrame(img: HTMLImageElement | null, canvasRef: { current: HTMLCanvasElement | null }): Uint8ClampedArray | null {
   if (!img || img.naturalWidth === 0) return null;
   try {
-    const canvas = document.createElement("canvas");
+    const canvas = (canvasRef.current ??= document.createElement("canvas"));
     canvas.width = SAMPLE_PX;
     canvas.height = SAMPLE_PX;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -128,6 +132,7 @@ export function CameraTile({
   controls = true,
   overlay = false,
 }: CameraTileProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const lastImg = useRef<HTMLImageElement | null>(null);
@@ -147,6 +152,8 @@ export function CameraTile({
   const [box, setBox] = useState({ w: 0, h: 0 });
   const attempts = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const errorTries = useRef(0);
 
   const tokens = useCameraUrls(printerId, { enabled: online && !urls });
   const status = useCameraStatus(printerId, { enabled: online && !urls });
@@ -161,23 +168,29 @@ export function CameraTile({
   const hasUrls = urls != null;
   const noCamera = status.data?.source === "none";
 
-  // Auto-retry (10s) after a stream error: refetch a fresh token and give
-  // the `<img>` another try.
+  // Auto-retry after a stream error (10s, doubling, capped; gives up after
+  // RETRY_MAX_TRIES): refetch a fresh token and give the `<img>` another try.
   useEffect(() => {
     if (!errored) return;
+    if (errorTries.current >= RETRY_MAX_TRIES) return;
+    const delay = Math.min(RETRY_MS * 2 ** errorTries.current, RETRY_MAX_MS);
     const timer = setTimeout(() => {
+      errorTries.current += 1;
       setErrored(false);
       setLoaded(false);
       attempts.current = 0;
       if (!hasUrls) void refetchToken();
       else setNonce((n) => n + 1);
-    }, RETRY_MS);
+    }, delay);
     return () => clearTimeout(timer);
   }, [errored, refetchToken, hasUrls]);
 
   // A printer going back online clears any stale error from a previous session.
   useEffect(() => {
-    if (!online) setErrored(false);
+    if (!online) {
+      setErrored(false);
+      errorTries.current = 0;
+    }
   }, [online]);
 
   useEffect(() => {
@@ -208,7 +221,7 @@ export function CameraTile({
     const id = setInterval(() => {
       const img = imgRef.current;
       const w = img?.naturalWidth ?? 0;
-      const frame = sampleFrame(img);
+      const frame = sampleFrame(img, canvasRef);
       if (frame) {
         if (last && !framesEqual(last, frame)) {
           // A changed frame (sensor noise counts) proves the stream is live.
@@ -236,7 +249,10 @@ export function CameraTile({
         setNonce((n) => n + 1);
       }, reconnectDelayMs(a));
     }, 1000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    };
   }, [showImg, mode, nonce]);
 
   // Stop on unmount: no backend stop route, so drop the src to close the socket.
@@ -249,6 +265,8 @@ export function CameraTile({
   );
 
   const setImg = useCallback((node: HTMLImageElement | null) => {
+    // Closing the socket: drop the src of the node being detached.
+    if (!node && imgRef.current) imgRef.current.src = "";
     imgRef.current = node;
     if (node) lastImg.current = node;
   }, []);
@@ -268,16 +286,28 @@ export function CameraTile({
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinchDist = useRef<number | null>(null);
 
-  const zoomTo = (s: number) =>
-    setView((v) => {
-      const next = clampZoom(s);
-      return next === 1 ? { s: 1, x: 0, y: 0 } : { ...v, s: next };
-    });
+  const zoomBy = useCallback(
+    (factor: number) =>
+      setView((v) => {
+        const next = clampZoom(v.s * factor);
+        return next === 1 ? { s: 1, x: 0, y: 0 } : { ...v, s: next };
+      }),
+    [],
+  );
 
-  function onWheel(e: React.WheelEvent) {
-    if (!controls) return;
-    zoomTo(view.s * Math.exp(-e.deltaY * 0.002));
-  }
+  // React's onWheel is passive, so preventDefault (stop the page scrolling
+  // while zooming) needs a native non-passive listener.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !controls) return;
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as Element | null)?.closest?.('[role="toolbar"]')) return;
+      e.preventDefault();
+      zoomBy(Math.exp(-e.deltaY * 0.002));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [controls, zoomBy]);
   function onPointerDown(e: React.PointerEvent) {
     if (!controls) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -296,7 +326,7 @@ export function CameraTile({
     if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
       const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-      if (pinchDist.current) zoomTo(view.s * (d / pinchDist.current));
+      if (pinchDist.current) zoomBy(d / pinchDist.current);
       pinchDist.current = d;
     } else if (view.s > 1) {
       setView((v) => ({ ...v, x: v.x + (cur.x - prev.x), y: v.y + (cur.y - prev.y) }));
@@ -325,7 +355,6 @@ export function CameraTile({
             }
           : undefined
       }
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -335,12 +364,12 @@ export function CameraTile({
       {yielded ? (
         <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
           <PictureInPicture2Icon className="size-6" aria-hidden="true" />
-          <span className="label-caps text-xs">Showing in floating camera</span>
+          <span className="label-caps text-xs">{t("camera.floating")}</span>
         </div>
       ) : offline || noCamera ? (
         <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
           <VideoOffIcon className="size-6" aria-hidden="true" />
-          <span className="label-caps text-xs">{noCamera && !offline ? "No camera" : "Camera offline"}</span>
+          <span className="label-caps text-xs">{noCamera && !offline ? t("camera.none") : t("camera.offline")}</span>
         </div>
       ) : (
         <>
@@ -354,7 +383,7 @@ export function CameraTile({
                 key={`${mode}-${nonce}`}
                 ref={setImg}
                 src={src}
-                alt="Camera feed"
+                alt={t("camera.feed")}
                 draggable={false}
                 className={cn(
                   "size-full transition-opacity",
@@ -362,7 +391,10 @@ export function CameraTile({
                   loaded ? "opacity-100" : "opacity-0",
                 )}
                 style={cssRotation ? { transform: imgTransform } : undefined}
-                onLoad={() => setLoaded(true)}
+                onLoad={() => {
+                  setLoaded(true);
+                  errorTries.current = 0;
+                }}
                 onError={() => setErrored(true)}
               />
             </div>
@@ -380,15 +412,14 @@ export function CameraTile({
       {controls && !offline && !noCamera && !yielded ? (
         <div
           role="toolbar"
-          aria-label="Camera controls"
+          aria-label={t("camera.controls")}
           className="absolute inset-x-0 bottom-0 flex items-center justify-end gap-0.5 bg-gradient-to-t from-black/60 to-transparent p-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
           onPointerDown={stop}
           onDoubleClick={stop}
-          onWheel={stop}
         >
           {!urls ? <LightToggle printerId={printerId} /> : null}
           <ToolButton
-            label={mode === "stream" ? "Switch to snapshots" : "Switch to live stream"}
+            label={mode === "stream" ? t("camera.toSnapshots") : t("camera.toStream")}
             onClick={() => {
               setLoaded(false);
               setMode((m) => (m === "stream" ? "snapshot" : "stream"));
@@ -398,7 +429,7 @@ export function CameraTile({
           </ToolButton>
           {mode === "stream" ? (
             <select
-              aria-label="Frame rate"
+              aria-label={t("camera.frameRate")}
               value={fps ?? ""}
               onChange={(e) => {
                 setFpsOverride(Number(e.target.value));
@@ -414,22 +445,22 @@ export function CameraTile({
               ))}
             </select>
           ) : null}
-          <ToolButton label="Zoom out" onClick={() => zoomTo(view.s / 1.5)}>
+          <ToolButton label={t("camera.zoomOut")} onClick={() => zoomBy(1 / 1.5)}>
             <ZoomOutIcon className="size-4" />
           </ToolButton>
-          <ToolButton label="Zoom in" onClick={() => zoomTo(view.s * 1.5)}>
+          <ToolButton label={t("camera.zoomIn")} onClick={() => zoomBy(1.5)}>
             <ZoomInIcon className="size-4" />
           </ToolButton>
-          <ToolButton label="Reset zoom" onClick={() => setView({ s: 1, x: 0, y: 0 })}>
+          <ToolButton label={t("camera.resetZoom")} onClick={() => setView({ s: 1, x: 0, y: 0 })}>
             <RotateCcwIcon className="size-4" />
           </ToolButton>
           {!overlay && !urls ? (
-            <ToolButton label="Floating camera" onClick={() => floatingCamera.toggle(printerId)}>
+            <ToolButton label={t("camera.floatingBtn")} onClick={() => floatingCamera.toggle(printerId)}>
               <PictureInPicture2Icon className="size-4" />
             </ToolButton>
           ) : null}
           {fullscreen.supported ? (
-            <ToolButton label={fullscreen.active ? "Exit fullscreen" : "Fullscreen"} onClick={fullscreen.toggle}>
+            <ToolButton label={fullscreen.active ? t("camera.exitFullscreen") : t("camera.fullscreen")} onClick={fullscreen.toggle}>
               {fullscreen.active ? <MinimizeIcon className="size-4" /> : <ExpandIcon className="size-4" />}
             </ToolButton>
           ) : null}
@@ -442,13 +473,16 @@ export function CameraTile({
 /** Light button: session-only (token contexts never render it) and only
  * for viewers with `control` on this printer. */
 function LightToggle({ printerId }: { printerId: number }) {
+  const { t } = useTranslation();
   const { canPrinter } = useAuth();
   const light = useCameraLight(printerId);
-  const [on, setOn] = useState(false);
+  const status = usePrinterStatus(printerId);
+  const [override, setOn] = useState<boolean | null>(null);
+  const on = override ?? status.data?.light_on === true;
   if (!canPrinter(printerId, "control")) return null;
   return (
     <ToolButton
-      label={on ? "Light off" : "Light on"}
+      label={on ? t("camera.lightOff") : t("camera.lightOn")}
       pressed={on}
       onClick={() => {
         const next = !on;

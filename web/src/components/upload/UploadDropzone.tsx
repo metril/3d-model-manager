@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadCloudIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import { api } from "@/api/client";
+import type { JobOut } from "@/api/types";
 import { DuplicateUploadError, UploadAbortedError, uploadFile } from "@/api/upload";
 import { Button } from "@/components/ui/button";
 import { UploadQueueItem, type QueueItem } from "@/components/upload/UploadQueueItem";
@@ -26,14 +29,27 @@ export interface UploadTarget {
  * global `Map.prototype` and picking up every unrelated `Map` React/Radix/
  * TanStack Query use internally. */
 export class TerminalEventMap {
+  /** Orphan records (an event whose upload never claims it) are evicted
+   * oldest-first past this size. */
+  static readonly MAX_ENTRIES = 500;
   private readonly entries = new Map<string, "done" | "failed">();
+
+  get size(): number {
+    return this.entries.size;
+  }
 
   get(jobId: string): "done" | "failed" | undefined {
     return this.entries.get(jobId);
   }
 
   set(jobId: string, state: "done" | "failed"): void {
+    this.entries.delete(jobId);
     this.entries.set(jobId, state);
+    while (this.entries.size > TerminalEventMap.MAX_ENTRIES) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
   }
 
   delete(jobId: string): void {
@@ -46,6 +62,13 @@ function withPrefix(prefix: string | undefined, relPath: string): string {
   const p = (prefix ?? "").split("/").filter(Boolean).join("/");
   return p ? `${p}/${relPath}` : relPath;
 }
+
+/** Parallel uploads per batch. */
+const UPLOAD_CONCURRENCY = 3;
+const PROGRESS_THROTTLE_MS = 100;
+/** No SSE terminal event this long after the PUT -> fall back to polling the job. */
+const PROCESSING_POLL_AFTER_MS = 60_000;
+const PROCESSING_POLL_EVERY_MS = 10_000;
 
 function toQueueItems(files: DroppedFile[], prefix?: string): QueueItem[] {
   return files.map((entry) => ({
@@ -98,7 +121,13 @@ export function UploadDropzone({
   onUploadingChange,
   relPathPrefix,
 }: UploadDropzoneProps) {
+  const { t } = useTranslation();
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  // The batch loop reads the queue through this ref, so items added or
+  // edited while it runs are seen instead of a stale snapshot.
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const dragDepth = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -118,6 +147,16 @@ export function UploadDropzone({
   // start two batches; `isUploading` state only flips after `resolveTarget`.
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Per-item controllers (single-item cancel) and the ids cancelled that way.
+  const itemAborts = useRef(new Map<string, AbortController>());
+  const canceledItems = useRef(new Set<string>());
+  const lastProgress = useRef(new Map<string, number>());
+  // Uploads currently running (batch workers + single retries): the batch
+  // "uploading" state and onUploadComplete follow this counter.
+  const activeRuns = useRef(0);
+  const mounted = useRef(true);
+  const callbacks = useRef({ onUploadComplete, onUploadingChange });
+  callbacks.current = { onUploadComplete, onUploadingChange };
 
   // Warn before the tab closes mid-upload.
   useEffect(() => {
@@ -130,16 +169,17 @@ export function UploadDropzone({
     return () => window.removeEventListener("beforeunload", handler);
   }, [isUploading]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
-
   useEffect(() => {
-    return events.subscribe((event) => {
-      if (event.state !== "done" && event.state !== "failed") return;
-      // Narrowed to a local so the type survives into the nested `setQueue`
-      // updater below (TS doesn't carry a narrowing on `event.state` itself
-      // through a closure).
-      const terminalState = event.state;
+    mounted.current = true;
+    const aborts = itemAborts.current;
+    return () => {
+      mounted.current = false;
+      abortRef.current?.abort();
+      for (const c of aborts.values()) c.abort();
+    };
+  }, []);
 
+  const applyTerminal = useCallback((jobId: string, terminalState: "done" | "failed") => {
       // The eviction decision has to be made *inside* the updater, off
       // whatever `prev` React actually hands it -- reading a flag set by
       // the updater immediately after calling `setQueue` doesn't work
@@ -148,29 +188,62 @@ export function UploadDropzone({
       // defer running this one until the next render pass), so such a flag
       // can still read as its initial value here.
       setQueue((prev) => {
-        const matchIndex = prev.findIndex((item) => item.jobId === event.job_id);
+        const matchIndex = prev.findIndex((item) => item.jobId === jobId);
         if (matchIndex === -1) {
           // The event raced ahead of the upload's PUT response attaching
           // this jobId to a queue item -- keep the record so
           // `handleStartUpload`'s post-await consultation below can still
           // find it once the response resolves, which evicts it there.
-          seenTerminal.current.set(event.job_id, terminalState);
+          seenTerminal.current.set(jobId, terminalState);
           return prev;
         }
         // Applied directly to the item that already carried this jobId --
         // no future lookup will ever need the pending record again, so
         // evict it now instead of letting `seenTerminal` grow for the rest
         // of the tab's life (M2-Minor 5).
-        seenTerminal.current.delete(event.job_id);
+        seenTerminal.current.delete(jobId);
         return prev.map((item, index) => {
           if (index !== matchIndex) return item;
           return terminalState === "done"
             ? { ...item, status: "stored" }
-            : { ...item, status: "failed", error: "Processing failed" };
+            : { ...item, status: "failed", error: t("upload.processingFailed") };
         });
       });
+  }, [t]);
+
+  useEffect(() => {
+    return events.subscribe((event) => {
+      if (event.state !== "done" && event.state !== "failed") return;
+      applyTerminal(event.job_id, event.state);
     });
-  }, [events]);
+  }, [events, applyTerminal]);
+
+  /** Fallback when the SSE terminal event never arrives (dropped stream):
+   * after a grace period, poll the job list until the job settles. */
+  const watchProcessing = useCallback(
+    (itemId: string, jobId: string) => {
+      void (async () => {
+        await new Promise((r) => setTimeout(r, PROCESSING_POLL_AFTER_MS));
+        for (;;) {
+          if (!mounted.current) return;
+          const cur = queueRef.current.find((i) => i.id === itemId);
+          if (!cur || cur.status !== "processing" || cur.jobId !== jobId) return;
+          try {
+            const jobs = await api.get<JobOut[]>("/jobs?limit=200");
+            const job = jobs.find((j) => j.id === jobId);
+            if (job && (job.state === "done" || job.state === "failed")) {
+              applyTerminal(jobId, job.state);
+              return;
+            }
+          } catch {
+            /* transient: keep polling */
+          }
+          await new Promise((r) => setTimeout(r, PROCESSING_POLL_EVERY_MS));
+        }
+      })();
+    },
+    [applyTerminal],
+  );
 
   function addFiles(files: DroppedFile[]) {
     if (files.length === 0) return;
@@ -203,11 +276,31 @@ export function UploadDropzone({
 
   const pendingCount = queue.filter((item) => item.status === "pending").length;
 
+  function beginRun() {
+    if (activeRuns.current++ === 0) {
+      setIsUploading(true);
+      callbacks.current.onUploadingChange?.(true);
+    }
+  }
+  function endRun() {
+    if (--activeRuns.current === 0) {
+      if (mounted.current) setIsUploading(false);
+      callbacks.current.onUploadingChange?.(false);
+      callbacks.current.onUploadComplete?.();
+    }
+  }
+
   /** Uploads a single queue item against `target`, updating its status as
-   * it goes. Shared by the batch loop below and the "Upload anyway" retry
-   * (which re-runs just this one item, outside the batch). */
-  async function uploadOne(item: QueueItem, target: UploadTarget, allowDuplicate = false) {
-    updateItem(item.id, { status: "uploading", progress: 0, duplicate: undefined });
+   * it goes. Shared by the batch workers and the single-item retries
+   * ("Upload anyway", "Retry"). `batchSignal` aborts every item at once;
+   * each item also has its own controller for a per-item cancel. */
+  async function uploadOne(item: QueueItem, target: UploadTarget, opts: { allowDuplicate?: boolean; batchSignal?: AbortSignal } = {}) {
+    const ic = new AbortController();
+    itemAborts.current.set(item.id, ic);
+    canceledItems.current.delete(item.id);
+    const onBatchAbort = () => ic.abort();
+    opts.batchSignal?.addEventListener("abort", onBatchAbort, { once: true });
+    updateItem(item.id, { status: "uploading", progress: 0, error: undefined, duplicate: undefined });
     try {
       const result = await uploadFile(
         {
@@ -215,12 +308,17 @@ export function UploadDropzone({
           revisionId: target.revisionId,
           relPath: item.relPath,
           file: item.file,
-          ...(allowDuplicate ? { allowDuplicate: true } : {}),
+          ...(opts.allowDuplicate ? { allowDuplicate: true } : {}),
         },
         {
-          onProgress: (loaded, total) =>
-            updateItem(item.id, { progress: total > 0 ? Math.round((loaded / total) * 100) : 0 }),
-          signal: abortRef.current?.signal,
+          // Throttled: XHR progress can fire far faster than React should re-render.
+          onProgress: (loaded, total) => {
+            const now = Date.now();
+            if (loaded < total && now - (lastProgress.current.get(item.id) ?? 0) < PROGRESS_THROTTLE_MS) return;
+            lastProgress.current.set(item.id, now);
+            updateItem(item.id, { progress: total > 0 ? Math.round((loaded / total) * 100) : 0 });
+          },
+          signal: ic.signal,
         },
       );
       updateItem(item.id, { status: "processing", progress: 100, jobId: result.job_id });
@@ -231,12 +329,20 @@ export function UploadDropzone({
         if (terminal === "done") {
           updateItem(item.id, { status: "stored" });
         } else {
-          updateItem(item.id, { status: "failed", error: "Processing failed" });
+          updateItem(item.id, { status: "failed", error: t("upload.processingFailed") });
         }
+      } else {
+        watchProcessing(item.id, result.job_id);
       }
     } catch (error) {
       if (error instanceof UploadAbortedError) {
-        updateItem(item.id, { status: "pending", progress: 0 });
+        // A per-item cancel parks the item as failed (retryable); a whole-batch
+        // cancel returns it to pending.
+        if (canceledItems.current.has(item.id)) {
+          updateItem(item.id, { status: "failed", progress: 0, error: t("upload.canceled") });
+        } else {
+          updateItem(item.id, { status: "pending", progress: 0 });
+        }
         return;
       }
       if (error instanceof DuplicateUploadError) {
@@ -248,8 +354,12 @@ export function UploadDropzone({
       }
       updateItem(item.id, {
         status: "failed",
-        error: error instanceof Error ? error.message : "Upload failed",
+        error: error instanceof Error ? error.message : t("upload.failed"),
       });
+    } finally {
+      opts.batchSignal?.removeEventListener("abort", onBatchAbort);
+      itemAborts.current.delete(item.id);
+      lastProgress.current.delete(item.id);
     }
   }
 
@@ -262,47 +372,77 @@ export function UploadDropzone({
       targetRef.current = target;
       const controller = new AbortController();
       abortRef.current = controller;
-      setIsUploading(true);
-      onUploadingChange?.(true);
-
-      for (const item of queue) {
-        if (item.status !== "pending") continue;
-        if (controller.signal.aborted) break;
-        await uploadOne(item, target);
+      beginRun();
+      try {
+        const claimed = new Set<string>();
+        const worker = async () => {
+          for (;;) {
+            if (controller.signal.aborted) return;
+            const next = queueRef.current.find((i) => i.status === "pending" && !claimed.has(i.id));
+            if (!next) return;
+            claimed.add(next.id);
+            await uploadOne(next, target, { batchSignal: controller.signal });
+          }
+        };
+        await Promise.all(Array.from({ length: UPLOAD_CONCURRENCY }, worker));
+      } finally {
+        endRun();
       }
-
-      setIsUploading(false);
-      onUploadingChange?.(false);
-      onUploadComplete?.();
     } finally {
       inFlightRef.current = false;
     }
   }
 
-  function handleUploadAnyway(item: QueueItem) {
+  /** Re-runs one item outside the batch (same busy state + completion callback). */
+  function runSingle(item: QueueItem, allowDuplicate: boolean) {
     const target = targetRef.current;
     if (!target) return;
-    if (!abortRef.current || abortRef.current.signal.aborted) abortRef.current = new AbortController();
-    void uploadOne(item, target, true);
+    beginRun();
+    void uploadOne(item, target, { allowDuplicate }).finally(endRun);
+  }
+
+  function handleUploadAnyway(item: QueueItem) {
+    runSingle(item, true);
+  }
+
+  function handleRetry(item: QueueItem) {
+    runSingle(item, false);
+  }
+
+  function handleCancelItem(item: QueueItem) {
+    canceledItems.current.add(item.id);
+    itemAborts.current.get(item.id)?.abort();
   }
 
   return (
     <div className="space-y-3">
       <div
+        onDragEnter={() => {
+          dragDepth.current += 1;
+          setDragActive(true);
+        }}
         onDragOver={(event) => {
           event.preventDefault();
           setDragActive(true);
         }}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={(event) => void handleDrop(event)}
+        // Child elements fire their own enter/leave pairs: count depth so the
+        // highlight only clears when the pointer really leaves the zone.
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          dragDepth.current = 0;
+          void handleDrop(event);
+        }}
         className={`flex flex-col items-center gap-2 rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
           dragActive ? "border-primary bg-primary/5" : "border-border"
         }`}
       >
         <UploadCloudIcon className="size-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Drag and drop files or folders here</p>
+        <p className="text-sm text-muted-foreground">{t("upload.dropHint")}</p>
         <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-          Browse files
+          {t("upload.browse")}
         </Button>
         <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileInputChange} />
       </div>
@@ -310,11 +450,11 @@ export function UploadDropzone({
       {queue.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Queue ({queue.length})</h3>
+            <h3 className="text-sm font-semibold">{t("upload.queue", { count: queue.length })}</h3>
             <div className="flex gap-2">
               {isUploading && (
                 <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               )}
               <Button
@@ -322,7 +462,7 @@ export function UploadDropzone({
                 onClick={() => void handleStartUpload()}
                 disabled={disabled || isUploading || pendingCount === 0}
               >
-                {isUploading ? "Uploading..." : `Upload ${pendingCount || ""}`.trim()}
+                {isUploading ? t("upload.uploading") : `${t("upload.upload")} ${pendingCount || ""}`.trim()}
               </Button>
             </div>
           </div>
@@ -334,6 +474,8 @@ export function UploadDropzone({
                 onRelPathChange={(relPath) => updateItem(item.id, { relPath })}
                 onRemove={() => removeItem(item.id)}
                 onUploadAnyway={() => handleUploadAnyway(item)}
+                onCancel={() => handleCancelItem(item)}
+                onRetry={() => handleRetry(item)}
               />
             ))}
           </div>

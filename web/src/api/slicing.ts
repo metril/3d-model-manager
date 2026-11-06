@@ -155,6 +155,7 @@ const ACTIVE_SLICE_STATES = ["queued", "running"];
 /** `POST /files/{id}/slice` -- slices a file with a recipe, no queue entry. */
 export function useStartSlice() {
   return useMutation({
+    meta: { silentError: true },
     mutationFn: ({
       fileId,
       recipeId,

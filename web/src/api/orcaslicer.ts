@@ -55,6 +55,7 @@ export function useOrcaSlicerSession(opts: { enabled?: boolean } = {}) {
 export function useOpenInOrcaSlicer(slug: string) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silentError: true },
     mutationFn: (fileId: number) => api.post<OpenInOrcaSlicerOut>(`/models/${slug}/files/${fileId}/orcaslicer`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: orcaslicerSessionQueryOptions.queryKey }),
   });
@@ -63,6 +64,7 @@ export function useOpenInOrcaSlicer(slug: string) {
 export function useEndOrcaSlicerSession() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silentError: true },
     mutationFn: () => api.delete<void>("/orcaslicer/session"),
     onSuccess: () => qc.invalidateQueries({ queryKey: orcaslicerSessionQueryOptions.queryKey }),
   });
