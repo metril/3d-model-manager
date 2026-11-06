@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/metril/3d-model-manager/compare/v0.17.4...v0.18.0) (2026-11-06)
+
+
+### Features
+
+* **ha:** searchable entity picker for HA-linked fields ([#268](https://github.com/metril/3d-model-manager/issues/268)) ([7f01033](https://github.com/metril/3d-model-manager/commit/7f01033f075f64c2098edfd0e47b0233d2af85f2))
+
 ## [0.17.4](https://github.com/metril/3d-model-manager/compare/v0.17.3...v0.17.4) (2026-11-06)
 
 
