@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -38,38 +38,49 @@ def blob_hashes(arc: PrintArchive) -> set[str]:
 def release_blobs(session: Session, settings: Settings, hashes: set[str]) -> tuple[int, list[Path]]:
     """Drop each blob row no longer referenced by a library file or any
     archive column / photo. Returns (bytes freed, files to unlink); the caller
-    commits, then calls ``unlink_all``."""
+    commits, then calls ``unlink_all``. Reference checks are batched: one
+    query per column (not per hash), photos via indexed JSONB containment."""
     from app.services.archive import archive_path
+
+    if not hashes:
+        return 0, []
+    wanted = list(hashes)
+    blobs = {b.hash: b for b in session.scalars(select(Blob).where(Blob.hash.in_(wanted)))}
+    if not blobs:
+        return 0, []
+    candidates = list(blobs)
+    used: set[str] = set(
+        session.scalars(select(File.blob_hash).where(File.blob_hash.in_(candidates)))
+    )
+    for col in (
+        PrintArchive.archive_blob,
+        PrintArchive.thumbnail_blob,
+        PrintArchive.snapshot_blob,
+        PrintArchive.timelapse_blob,
+        PrintArchive.source_blob,
+        PrintArchive.f3d_blob,
+    ):
+        left = [h for h in candidates if h not in used]
+        if not left:
+            break
+        used.update(session.scalars(select(col).where(col.in_(left))))
+    for h in (h for h in candidates if h not in used):
+        # ``@>`` hits the GIN index on photos; photos entries are {"blob": sha, ...}.
+        if session.scalars(
+            select(PrintArchive.id).where(PrintArchive.photos.contains([{"blob": h}])).limit(1)
+        ).first():
+            used.add(h)
 
     freed = 0
     paths: list[Path] = []
-    for h in hashes:
-        blob = session.get(Blob, h)
-        if blob is None:
+    for h in candidates:
+        if h in used:
             continue
-        if session.scalars(select(File.id).where(File.blob_hash == h).limit(1)).first():
-            continue
-        used = session.scalars(
-            select(PrintArchive.id)
-            .where(
-                or_(
-                    PrintArchive.archive_blob == h,
-                    PrintArchive.thumbnail_blob == h,
-                    PrintArchive.snapshot_blob == h,
-                    PrintArchive.timelapse_blob == h,
-                    PrintArchive.source_blob == h,
-                    PrintArchive.f3d_blob == h,
-                    cast(PrintArchive.photos, String).like(f'%"{h}"%'),
-                )
-            )
-            .limit(1)
-        ).first()
-        if used is not None:
-            continue
+        blob = blobs[h]
         paths.append(archive_path(settings, h, blob_ext(blob.format)))
         freed += blob.size
         session.delete(blob)
-        session.flush()
+    session.flush()
     return freed, paths
 
 
