@@ -1,6 +1,6 @@
 # Slicer sidecar: FastAPI wrapper around the OrcaSlicer CLI (AppImage,
 # extracted -- no FUSE needed). Build: `docker build slicer/`.
-FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
 # uv installs the pinned deps from uv.lock (same uv as docker/Dockerfile).
 COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /usr/local/bin/uv
