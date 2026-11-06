@@ -147,7 +147,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
       ) : null}
       {archive.media_note ? <p className="text-muted-foreground">{archive.media_note}</p> : null}
       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-        <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{archive.result}</Badge>
+        <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${archive.result}`, { defaultValue: archive.result })}</Badge>
         <RunCountBadge count={archive.run_count} />
         <span>{archive.printer_name}</span>
         {archive.duration_s != null ? <span className="tabular-nums">{humanizeDuration(archive.duration_s)}</span> : null}

@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
-import { PANEL_IDS, PANEL_TITLES } from "./panelMeta";
+import { PANEL_IDS, PANEL_TITLE_KEYS } from "./panelMeta";
 
 /** Header dropdown: show/hide each registry panel, or reset to the default layout. */
 export function PanelsMenu({ api }: { api: DockviewApi }) {
@@ -47,7 +47,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
               else api.getPanel(id)?.api.close();
             }}
           >
-            {PANEL_TITLES[id]}
+            {t(PANEL_TITLE_KEYS[id])}
           </DropdownMenuCheckboxItem>
         ))}
         <DropdownMenuSeparator />

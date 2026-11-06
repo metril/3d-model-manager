@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
-import { PANEL_IDS, PANEL_TITLES } from "./panelMeta";
+import { PANEL_IDS, PANEL_TITLE_KEYS } from "./panelMeta";
 import { useTranslation } from "react-i18next";
 
 /** Show/hide each dashboard panel, or reset to the default dock layout. */
@@ -47,7 +47,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
               else api.getPanel(id)?.api.close();
             }}
           >
-            {PANEL_TITLES[id]}
+            {t(PANEL_TITLE_KEYS[id])}
           </DropdownMenuCheckboxItem>
         ))}
         <DropdownMenuSeparator />

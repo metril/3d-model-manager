@@ -153,7 +153,7 @@ function JobRow({ job }: { job: JobOut }) {
         {dead ? (
           <Badge variant="destructive">{t("jobsPage.filter.dead")}</Badge>
         ) : (
-          <Badge variant={STATE_VARIANT[job.state]}>{job.state}</Badge>
+          <Badge variant={STATE_VARIANT[job.state]}>{t(`jobsPage.state.${job.state}`, { defaultValue: job.state })}</Badge>
         )}
       </TableCell>
       <TableCell className="text-sm text-muted-foreground">

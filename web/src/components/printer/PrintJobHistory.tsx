@@ -70,7 +70,7 @@ function RunRow({
       <TableCell className="max-w-64 truncate text-sm">{name}</TableCell>
       <TableCell>{run.printer_name}</TableCell>
       <TableCell>
-        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{run.result}</Badge>
+        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
         <RunCountBadge count={run.run_count} />
       </TableCell>
       <TableCell className="font-mono tabular-nums">
@@ -147,7 +147,7 @@ export function PrintJobHistory({
               <SelectItem value={ALL}>{t("printJobHistory.allResults")}</SelectItem>
               {RESULTS.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {r}
+                  {t(`resultStatus.${r}`, { defaultValue: r })}
                 </SelectItem>
               ))}
             </SelectContent>

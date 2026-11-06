@@ -6,7 +6,8 @@ import { ModelDetailProvider, type ModelDetailContextValue } from "./ModelDetail
 import { ModelDetailDock } from "./ModelDetailDock";
 import { StackedPanels } from "./StackedPanels";
 import { LAYOUT_KEY } from "./layoutStore";
-import { PANEL_TITLES } from "./panelMeta";
+import i18n from "i18next";
+import { PANEL_TITLE_KEYS } from "./panelMeta";
 
 // Card internals are covered elsewhere; here each is a single identifiable div.
 const { stub } = vi.hoisted(() => ({ stub: (testId: string) => () => <div data-testid={testId} /> }));
@@ -58,7 +59,7 @@ describe("ModelDetailDock", () => {
         <ModelDetailDock />
       </ModelDetailProvider>,
     );
-    for (const title of Object.values(PANEL_TITLES)) {
+    for (const title of Object.values(PANEL_TITLE_KEYS).map((k) => i18n.t(k))) {
       expect(await screen.findByText(title)).toBeInTheDocument();
     }
   });
@@ -70,7 +71,7 @@ describe("ModelDetailDock", () => {
         <ModelDetailDock />
       </ModelDetailProvider>,
     );
-    expect(await screen.findByText(PANEL_TITLES.notes)).toBeInTheDocument();
+    expect(await screen.findByText(i18n.t(PANEL_TITLE_KEYS.notes))).toBeInTheDocument();
   });
 });
 

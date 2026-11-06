@@ -1,6 +1,7 @@
+import i18n from "i18next";
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import { DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
+import { DEFAULT_GROUPS, PANEL_TITLE_KEYS, type DefaultGroup, type PanelId } from "./panelMeta";
 
 const MAIN_WIDTH = 0.72;
 const MAIN_HEIGHT = 0.72;
@@ -10,7 +11,7 @@ type Direction = "above" | "below" | "left" | "right";
 type Position = { referencePanel: IDockviewPanel; direction: Direction | "within" };
 
 function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
-  return api.addPanel({ id, component: id, title: PANEL_TITLES[id], position });
+  return api.addPanel({ id, component: id, title: i18n.t(PANEL_TITLE_KEYS[id]), position });
 }
 
 /** The classic page as dock groups: printers (left), queue over archives

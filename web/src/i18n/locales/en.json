@@ -2834,7 +2834,14 @@
     },
     "retrying": "Retrying…",
     "retryFailed": "Retry failed.",
-    "rerunHint": "Re-run from Settings"
+    "rerunHint": "Re-run from Settings",
+    "state": {
+      "queued": "queued",
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "dead": "dead"
+    }
   },
   "financePage": {
     "title": "Finance",
@@ -4847,7 +4854,18 @@
   },
   "mdPanels": {
     "panels": "Panels",
-    "reset": "Reset layout"
+    "reset": "Reset layout",
+    "viewer": "3D viewer",
+    "description": "Description",
+    "tagsLinks": "Tags & links",
+    "related": "Related",
+    "gcodeProfiles": "Profiles",
+    "printHistory": "Print history",
+    "filesDocs": "Files",
+    "revisions": "Revisions",
+    "notes": "Notes",
+    "printTips": "Print tips",
+    "specs": "Specs"
   },
   "mdHash": {
     "copy": "Copy hash {{hash}}"
@@ -4879,5 +4897,29 @@
   },
   "mdPage": {
     "loadError": "Could not load this model."
+  },
+  "printPanels": {
+    "printers": "Printers",
+    "queue": "Up next",
+    "archives": "Recent archives",
+    "camera": "Cameras",
+    "stats": "Stats",
+    "forecast": "Stock forecast"
+  },
+  "printState": {
+    "printing": "Printing",
+    "preparing": "Preparing",
+    "paused": "Paused",
+    "finished": "Finished",
+    "failed": "Failed",
+    "idle": "Idle",
+    "offline": "Offline",
+    "noData": "No data"
+  },
+  "resultStatus": {
+    "completed": "completed",
+    "failed": "failed",
+    "canceled": "canceled",
+    "stopped": "stopped"
   }
 }
