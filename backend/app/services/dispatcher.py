@@ -785,9 +785,7 @@ def _housekeeping(
     """T4: bed keep-warm + auto power-off. Both ask "is more work queued for
     this printer?" over the deferred-inclusive queue; a failure here must
     never stall dispatch."""
-    has_auto_off = next(client.scan_iter(f"{queue_schedule.AUTO_OFF_PREFIX}*", count=10), None)
-    has_warm = next(client.scan_iter(f"{queue_schedule.KEEPWARM_PREFIX}*", count=10), None)
-    if not (cfg.keep_warm_enabled or has_auto_off or has_warm):
+    if not (cfg.keep_warm_enabled or queue_schedule.has_housekeeping_work(client)):
         return
     try:
         horizon = datetime.now(UTC) + timedelta(minutes=cfg.keep_warm_max_min)
@@ -797,6 +795,7 @@ def _housekeeping(
         _, pending = queue_target_ids(session, client, soon, acl_cache, memo)
         queue_schedule.run_keep_warm(session, client, cfg, pending)
         queue_schedule.process_auto_off(session, settings, client, wanted)
+        queue_schedule.prune_housekeeping_set(client)
     except Exception:  # noqa: BLE001
         session.rollback()
 

@@ -106,12 +106,31 @@ def _sha(token: str) -> str:
 # --- security settings ------------------------------------------------------
 
 
+_REQUIRE_TTL_S = 5.0
+_require_cache: tuple[float, bool] | None = None  # (expires_monotonic, value)
+
+
+def reset_require_cache() -> None:
+    global _require_cache
+    _require_cache = None
+
+
 async def require_2fa_enabled(db: AsyncSession) -> bool:
+    """Instance-wide policy; read on every authenticated request, so cached
+    briefly in-process (``set_require_2fa`` refreshes it immediately; other
+    workers converge within the TTL)."""
+    global _require_cache
+    hit = _require_cache
+    if hit is not None and hit[0] > time.monotonic():
+        return hit[1]
     row = await db.get(Setting, SECURITY_KEY)
-    return bool(row and (row.value or {}).get("require_2fa") is True)
+    value = bool(row and (row.value or {}).get("require_2fa") is True)
+    _require_cache = (time.monotonic() + _REQUIRE_TTL_S, value)
+    return value
 
 
 async def set_require_2fa(db: AsyncSession, value: bool) -> None:
+    reset_require_cache()
     row = await db.get(Setting, SECURITY_KEY)
     if row is None:
         db.add(Setting(key=SECURITY_KEY, value={"require_2fa": value}))

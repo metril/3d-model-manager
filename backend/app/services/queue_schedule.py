@@ -74,6 +74,30 @@ def _load(client: Redis, key: str) -> dict | None:
 
 def _save(client: Redis, key: str, rec: dict, ex: int = _STATE_TTL_S) -> None:
     client.set(key, json.dumps(rec), ex=ex)
+    if key.startswith(KEEPWARM_PREFIX):
+        client.sadd(HOUSEKEEPING_SET, key)
+
+
+# Superset index of live keepwarm/autooff keys so the dispatcher can ask "any
+# housekeeping pending?" in O(1) instead of SCANning the keyspace every tick.
+# Stale members are pruned by ``prune_housekeeping_set``.
+HOUSEKEEPING_SET = "queue:housekeeping"
+_HK_INIT = "queue:housekeeping:init"
+
+
+def has_housekeeping_work(client: Redis) -> bool:
+    if not client.exists(_HK_INIT):  # first run / pre-upgrade keys: index them once
+        for prefix in (AUTO_OFF_PREFIX, KEEPWARM_PREFIX):
+            for raw in client.scan_iter(f"{prefix}*"):
+                client.sadd(HOUSEKEEPING_SET, raw)
+        client.set(_HK_INIT, "1")
+    return bool(client.scard(HOUSEKEEPING_SET))
+
+
+def prune_housekeeping_set(client: Redis) -> None:
+    for raw in client.smembers(HOUSEKEEPING_SET):
+        if not client.exists(raw):
+            client.srem(HOUSEKEEPING_SET, raw)
 
 
 # -- previous-success gate ---------------------------------------------------
@@ -327,6 +351,7 @@ def note_finished(
         drained = bool(printer is not None and printer.power_off_when_drained)
     if item.auto_off_after or drained:
         client.set(autooff_key(pid), item.id, ex=_STATE_TTL_S)
+        client.sadd(HOUSEKEEPING_SET, autooff_key(pid))
 
 
 def process_auto_off(session: Session, settings: Settings, client: Redis, wanted: set[int]) -> int:

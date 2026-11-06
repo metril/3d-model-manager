@@ -248,11 +248,10 @@ async def slot_map(db: AsyncSession, printer_ids: Iterable[int]) -> dict[tuple[i
     if not ids:
         return {}
     rows = (
-        (await db.execute(select(SpoolSlot).where(SpoolSlot.printer_id.in_(ids)))).scalars().all()
-    )
-    result: dict[tuple[int, int], Spool] = {}
-    for row in rows:
-        spool = await db.get(Spool, row.spool_id)
-        if spool is not None:
-            result[(row.printer_id, global_tray(row.ams_unit, row.slot))] = spool
-    return result
+        await db.execute(
+            select(SpoolSlot, Spool)
+            .join(Spool, Spool.id == SpoolSlot.spool_id)
+            .where(SpoolSlot.printer_id.in_(ids))
+        )
+    ).all()
+    return {(slot.printer_id, global_tray(slot.ams_unit, slot.slot)): spool for slot, spool in rows}

@@ -93,10 +93,7 @@ def delete_archives(session: Session, settings: Settings, ids: list[int]) -> int
     """Delete archive rows (never ``print_jobs``) and release their blobs.
     Returns bytes freed; commits."""
     hashes: set[str] = set()
-    for aid in ids:
-        arc = session.get(PrintArchive, aid)
-        if arc is None:
-            continue
+    for arc in session.scalars(select(PrintArchive).where(PrintArchive.id.in_(ids))):
         hashes |= blob_hashes(arc)
         session.delete(arc)
     session.flush()
