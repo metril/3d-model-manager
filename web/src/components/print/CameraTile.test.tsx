@@ -273,4 +273,13 @@ describe("CameraTile", () => {
     expect(ev.defaultPrevented).toBe(true);
     expect(screen.getByTestId("camera-view").style.transform).not.toContain("scale(1)");
   });
+
+  it("offers a Retry button after a stream error that restarts the feed", async () => {
+    renderTile();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    act(() => void fireEvent.error(img));
+    expect(screen.queryByRole("img", { name: "Camera feed" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("img", { name: "Camera feed" })).toBeInTheDocument();
+  });
 });

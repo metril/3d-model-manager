@@ -409,6 +409,13 @@ export function UploadDropzone({
     runSingle(item, false);
   }
 
+  /** Aborts the batch controller and every run actually in flight (single
+   * Retry / Upload anyway runs have no batch controller). */
+  function cancelAll() {
+    abortRef.current?.abort();
+    for (const c of itemAborts.current.values()) c.abort();
+  }
+
   function handleCancelItem(item: QueueItem) {
     canceledItems.current.add(item.id);
     itemAborts.current.get(item.id)?.abort();
@@ -453,7 +460,7 @@ export function UploadDropzone({
             <h3 className="text-sm font-semibold">{t("upload.queue", { count: queue.length })}</h3>
             <div className="flex gap-2">
               {isUploading && (
-                <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
+                <Button type="button" variant="outline" onClick={cancelAll}>
                   {t("common.cancel")}
                 </Button>
               )}

@@ -43,7 +43,6 @@ import { cn } from "@/lib/utils";
 
 const RETRY_MS = 10_000;
 const RETRY_MAX_MS = 120_000;
-const RETRY_MAX_TRIES = 6;
 const STALL_MS = 20_000;
 const SAMPLE_PX = 64;
 const FPS_CHOICES = [1, 2, 5, 10, 15];
@@ -168,11 +167,10 @@ export function CameraTile({
   const hasUrls = urls != null;
   const noCamera = status.data?.source === "none";
 
-  // Auto-retry after a stream error (10s, doubling, capped; gives up after
-  // RETRY_MAX_TRIES): refetch a fresh token and give the `<img>` another try.
+  // Auto-retry after a stream error (10s, doubling, capped at RETRY_MAX_MS; keeps
+  // retrying slowly): refetch a fresh token and give the `<img>` another try.
   useEffect(() => {
     if (!errored) return;
-    if (errorTries.current >= RETRY_MAX_TRIES) return;
     const delay = Math.min(RETRY_MS * 2 ** errorTries.current, RETRY_MAX_MS);
     const timer = setTimeout(() => {
       errorTries.current += 1;
@@ -184,6 +182,20 @@ export function CameraTile({
     }, delay);
     return () => clearTimeout(timer);
   }, [errored, refetchToken, hasUrls]);
+
+  // Coming back into view restarts the backoff from the fast end.
+  useEffect(() => {
+    if (visible) errorTries.current = 0;
+  }, [visible]);
+
+  const retryNow = () => {
+    errorTries.current = 0;
+    attempts.current = 0;
+    setErrored(false);
+    setLoaded(false);
+    if (!hasUrls) void refetchToken();
+    else setNonce((n) => n + 1);
+  };
 
   // A printer going back online clears any stale error from a previous session.
   useEffect(() => {
@@ -370,6 +382,11 @@ export function CameraTile({
         <div className="flex size-full flex-col items-center justify-center gap-1.5 text-muted-foreground">
           <VideoOffIcon className="size-6" aria-hidden="true" />
           <span className="label-caps text-xs">{noCamera && !offline ? t("camera.none") : t("camera.offline")}</span>
+          {errored && online && !noCamera ? (
+            <button type="button" onClick={retryNow} className="rounded border px-2 py-0.5 text-xs hover:bg-muted">
+              {t("common.retry")}
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
