@@ -335,7 +335,7 @@ async def clear_plate(
         )
     )
     await db.commit()
-    hooks.plate_cleared(printer_id, ctx.user.id)
+    await anyio.to_thread.run_sync(hooks.plate_cleared, printer_id, ctx.user.id)  # sync DB hook
     return JSONResponse(status_code=200, content={"awaiting_plate_clear": False})
 
 

@@ -492,41 +492,44 @@ async def timelapse_info(
 
 
 def _frames(path: Any, duration: float, n: int) -> list[str]:
-    out: list[str] = []
-    for i in range(n):
-        t = max(duration * (i + 0.5) / n, 0)
-        try:
-            r = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-v",
-                    "error",
-                    "-ss",
-                    f"{t:.3f}",
-                    "-i",
-                    str(path),
-                    "-frames:v",
-                    "1",
-                    "-vf",
-                    "scale=160:-2",
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    "mjpeg",
-                    "-q:v",
-                    "6",
-                    "pipe:1",
-                ],  # fmt: skip
-                check=True,
-                capture_output=True,
-                timeout=_FFPROBE_TIMEOUT,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ffmpeg unavailable") from e
-        if r.stdout:
-            out.append("data:image/jpeg;base64," + base64.b64encode(r.stdout).decode())
-    return out
+    """``n`` evenly spaced 160px thumbnails from ONE ffmpeg pass (the ``fps``
+    filter samples at the mid-point of each of ``n`` equal segments) instead of
+    one process + seek per frame."""
+    rate = n / duration if duration > 0 else 1.0
+    start = max(duration / (2 * n), 0) if duration > 0 else 0.0
+    try:
+        r = subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-v",
+                "error",
+                "-ss",
+                f"{start:.3f}",
+                "-i",
+                str(path),
+                "-vf",
+                f"fps={rate:.6f},scale=160:-2",
+                "-frames:v",
+                str(n),
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
+                "-q:v",
+                "6",
+                "pipe:1",
+            ],  # fmt: skip
+            check=True,
+            capture_output=True,
+            timeout=_FFPROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ffmpeg unavailable") from e
+    return [
+        "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + chunk).decode()
+        for chunk in r.stdout.split(b"\xff\xd8\xff")[1:]
+    ][:n]
 
 
 @router.get("/{archive_id}/timelapse/thumbnails", response_model=TimelapseThumbsOut)
