@@ -20,7 +20,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.api.deps import AuthContext, require_printer_access, require_session
+from app.api.deps import (
+    AuthContext,
+    require_printer_access,
+    require_printer_enabled,
+    require_session,
+)
 from app.api.printer_control import run_command
 from app.api.printers import _get_enabled_or_404, _get_or_404
 from app.config import Settings, get_settings
@@ -44,7 +49,9 @@ from app.schemas.printer_ops import (
 from app.services import ams_backup, kprofiles
 from app.services.printer_state import read_state_async
 
-router = APIRouter(prefix="/printers", tags=["printer-ops"])
+router = APIRouter(
+    prefix="/printers", tags=["printer-ops"], dependencies=[Depends(require_printer_enabled)]
+)
 _control = Depends(require_printer_access("control"))
 _view = Depends(require_printer_access("print"))
 
@@ -344,6 +351,12 @@ async def download_sd(
     if norm == "/":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "path must name a file")
     _, adapter = await _sd_adapter(db, settings, printer_id)
+    # Size from the directory listing BEFORE pulling bytes onto local disk.
+    parent, _, leaf = norm.rpartition("/")
+    listing = await _ftp(adapter, adapter.list_files, parent or "/")
+    for entry in listing:
+        if entry.name == leaf and entry.size is not None and entry.size > MAX_SD_DOWNLOAD:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "file too large to download")
     fd, tmp_name = tempfile.mkstemp(prefix="sd-")  # mode 0600
     os.close(fd)
     tmp = Path(tmp_name)

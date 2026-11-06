@@ -17,11 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SESSION_COOKIE_NAME, SESSION_MAX_AGE, AuthContext, require_session
 from app.db import get_db
+from app.models import ApiToken, AuthEphemeralToken, User
 from app.models import Session as SessionModel
-from app.models import User
 from app.security import DUMMY_HASH, hash_password, verify_password
 from app.services import login_throttle, two_factor
 from app.services.server_config import cookie_secure, get_server_config
+from app.services.session_tokens import hash_session_token, new_session_token
 
 public_router = APIRouter(prefix="/auth", tags=["auth"])
 protected_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -110,7 +111,12 @@ async def start_session(
     """Create a session row, stamp ``last_login_at``, set the cookie on the
     given ``response`` (any Response, e.g. a RedirectResponse) and commit.
     """
-    session = SessionModel(user_id=user.id, expires_at=datetime.now(UTC) + SESSION_MAX_AGE)
+    token = new_session_token()
+    session = SessionModel(
+        user_id=user.id,
+        token_hash=hash_session_token(token),
+        expires_at=datetime.now(UTC) + SESSION_MAX_AGE,
+    )
     db.add(session)
     user.last_login_at = datetime.now(UTC)
     await db.commit()
@@ -118,7 +124,7 @@ async def start_session(
     secure = cookie_secure(await get_server_config(db), request)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
-        value=str(session.id),
+        value=token,
         max_age=int(SESSION_MAX_AGE.total_seconds()),
         path="/",
         httponly=True,
@@ -239,6 +245,9 @@ async def change_password(
             SessionModel.id != ctx.session.id,
         )
     )
+    # A credential change also kills bearer keys and pending pre-auth tokens.
+    await db.execute(delete(ApiToken).where(ApiToken.user_id == ctx.user.id))
+    await db.execute(delete(AuthEphemeralToken).where(AuthEphemeralToken.user_id == ctx.user.id))
     await db.commit()
 
 

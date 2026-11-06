@@ -7,9 +7,26 @@ server logs look consistent regardless of which component emitted them.
 
 import logging
 import logging.config
+import re
 import time
 from collections import deque
 from typing import Any
+
+_SECRET_QS = re.compile(r"((?:[?&])(?:token|access_token|api_key|key)=)[^&\s\"']+", re.IGNORECASE)
+
+
+class RedactTokensFilter(logging.Filter):
+    """Masks ``token=...``-style query secrets in uvicorn access-log lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                _SECRET_QS.sub(r"\1***", a) if isinstance(a, str) else a for a in record.args
+            )
+        if isinstance(record.msg, str):
+            record.msg = _SECRET_QS.sub(r"\1***", record.msg)
+        return True
+
 
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(message)s"
 
@@ -19,6 +36,7 @@ def build_log_config(level: str = "INFO") -> dict[str, Any]:
     return {
         "version": 1,
         "disable_existing_loggers": False,
+        "filters": {"redact_tokens": {"()": f"{__name__}.RedactTokensFilter"}},
         "formatters": {
             "default": {"format": LOG_FORMAT},
         },
@@ -26,6 +44,7 @@ def build_log_config(level: str = "INFO") -> dict[str, Any]:
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
+                "filters": ["redact_tokens"],
                 "stream": "ext://sys.stdout",
             },
         },
