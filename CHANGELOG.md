@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/metril/3d-model-manager/compare/v0.16.0...v0.16.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **profiles:** decode escaped HTML in MakerWorld profile descriptions ([#228](https://github.com/metril/3d-model-manager/issues/228)) ([ed059e7](https://github.com/metril/3d-model-manager/commit/ed059e7b4c09a9426b4cf03ecf636facd4bd8f21))
+
 ## [0.16.0](https://github.com/metril/3d-model-manager/compare/v0.15.0...v0.16.0) (2026-11-06)
 
 
