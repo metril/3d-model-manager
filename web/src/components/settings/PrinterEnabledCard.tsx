@@ -9,6 +9,7 @@
  * `QueuePage`/`SlicerIntegrationCard`/AppShell's nav all react immediately --
  * no restart, no reload.
  */
+import { useTranslation } from "react-i18next";
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SwitchRow } from "@/components/ui/switch-row";
 
 export function PrinterEnabledCard() {
+  const { t } = useTranslation();
   const settings = useAppSettings();
   const update = useUpdateAppSettings();
 
@@ -25,9 +27,9 @@ export function PrinterEnabledCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Printer integration</CardTitle>
+          <CardTitle>{t("settingsPrinterEnabled.title")}</CardTitle>
           <CardDescription>
-            {settings.error instanceof ApiError ? settings.error.detail : "Couldn't load this setting."}
+            {settings.error instanceof ApiError ? settings.error.detail : t("settingsPrinterEnabled.loadError")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -43,17 +45,16 @@ export function PrinterEnabledCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Printer integration</CardTitle>
+        <CardTitle>{t("settingsPrinterEnabled.title")}</CardTitle>
         <CardDescription>
-          Connect a Bambu printer over your LAN to send sliced files and see live status. Changes
-          take effect immediately — no restart.
+          {t("settingsPrinterEnabled.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <SwitchRow id="printer-enabled" label="Enable printer integration" checked={current.printer_enabled} disabled={update.isPending} onCheckedChange={toggle} />
+        <SwitchRow id="printer-enabled" label={t("settingsPrinterEnabled.enable")} checked={current.printer_enabled} disabled={update.isPending} onCheckedChange={toggle} />
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not update this setting."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsPrinterEnabled.updateError")}
           </p>
         )}
       </CardContent>

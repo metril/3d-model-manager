@@ -7,6 +7,7 @@ import { useStorageTree } from "@/api/storageTree";
 import { canMoveFolder, useMoveFolder } from "@/api/storageMove";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 /** "Move to…" picker: browse the folders of the source's own revision and pick a destination. */
 export function MoveFolderDialog({ src, onClose }: { src: string | null; onClose: () => void }) {
@@ -18,12 +19,13 @@ export function MoveFolderDialog({ src, onClose }: { src: string | null; onClose
 }
 
 function Body({ src, onClose }: { src: string; onClose: () => void }) {
+  const { t } = useTranslation();
   const root = src.split("/").slice(0, 2).join("/");
   const [dest, setDest] = useState(root);
   const tree = useStorageTree(dest);
   const move = useMoveFolder();
   const name = src.split("/").at(-1);
-  const rel = dest === root ? "(revision root)" : dest.slice(root.length + 1);
+  const rel = dest === root ? t("moveFolder.revisionRoot") : dest.slice(root.length + 1);
   const dirs = (tree.data?.dirs ?? []).filter((d) => d.path !== src && !`${d.path}/`.startsWith(`${src}/`));
 
   function run() {
@@ -31,10 +33,10 @@ function Body({ src, onClose }: { src: string; onClose: () => void }) {
       { src, dest },
       {
         onSuccess: () => {
-          toast.success(`Moved ${name}`);
+          toast.success(t("folderBrowser.moved", { name }));
           onClose();
         },
-        onError: (e) => toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Move failed"),
+        onError: (e) => toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : t("folderBrowser.moveFailed")),
       },
     );
   }
@@ -42,8 +44,8 @@ function Body({ src, onClose }: { src: string; onClose: () => void }) {
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Move “{name}” to…</DialogTitle>
-        <DialogDescription>Folders can move within their own revision. Destination: {rel}</DialogDescription>
+        <DialogTitle>{t("moveFolder.title", { name })}</DialogTitle>
+        <DialogDescription>{t("moveFolder.desc", { rel })}</DialogDescription>
       </DialogHeader>
       <div className="max-h-64 space-y-0.5 overflow-y-auto rounded-md border p-1">
         {dest !== root && (
@@ -52,11 +54,11 @@ function Body({ src, onClose }: { src: string; onClose: () => void }) {
             className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
             onClick={() => setDest(dest.split("/").slice(0, -1).join("/"))}
           >
-            .. (up)
+            {t("moveFolder.up")}
           </button>
         )}
         {dirs.length === 0 ? (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">No subfolders here.</p>
+          <p className="px-2 py-1.5 text-sm text-muted-foreground">{t("moveFolder.none")}</p>
         ) : (
           dirs.map((d) => (
             <button
@@ -74,10 +76,10 @@ function Body({ src, onClose }: { src: string; onClose: () => void }) {
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose} disabled={move.isPending}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button type="button" onClick={run} disabled={move.isPending || !canMoveFolder(src, dest)}>
-          {move.isPending ? "Moving…" : "Move here"}
+          {move.isPending ? t("moveFolder.moving") : t("moveFolder.moveHere")}
         </Button>
       </DialogFooter>
     </>

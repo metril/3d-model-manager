@@ -8,6 +8,7 @@ import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
+import { useTranslation } from "react-i18next";
 
 const POPOUT_URL = "/popout.html";
 const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
@@ -15,13 +16,14 @@ const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
 /** Group header button: pop the group into its own window, or (inside a
  * pop-out) close the window, which docks the panels back. */
 function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps) {
+  const { t } = useTranslation();
   const inPopout = api.location.type === "popout";
   return (
     <button
       type="button"
       className="mx-1 inline-flex size-6 items-center justify-center self-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-      aria-label={inPopout ? "Return to dock" : "Pop out"}
-      title={inPopout ? "Return to dock" : "Pop out to a window"}
+      aria-label={inPopout ? t("printDock.returnToDock") : t("printDock.popOut")}
+      title={inPopout ? t("printDock.returnToDock") : t("printDock.popOutWindow")}
       onClick={() => {
         if (inPopout) api.getWindow().close();
         else void containerApi.addPopoutGroup(group, { popoutUrl: POPOUT_URL });
@@ -35,6 +37,7 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
 /** The print dashboard as a dockable workspace (same mechanics as the model
  * detail dock). The layout persists per browser; pop-outs never survive reload. */
 export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
+  const { t } = useTranslation();
   const emitter = useMemo(() => createRelocateEmitter(), []);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);
@@ -77,10 +80,10 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
         themeSyncs.current.delete(popout.id);
         emitter.emit();
       });
-      api.onDidOpenPopoutWindowFail(() => toast.error("Allow pop-ups to open panels in a window"));
+      api.onDidOpenPopoutWindowFail(() => toast.error(t("printDock.popupBlocked")));
       onApi?.(api);
     },
-    [emitter, onApi],
+    [emitter, onApi, t],
   );
 
   const unmounted = useRef(false);

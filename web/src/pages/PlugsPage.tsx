@@ -2,6 +2,7 @@
  * power draw, accumulated energy, a toggle, and add/edit for `settings:write`. */
 import { PlugIcon } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { usePlugs, usePlugToggle } from "@/api/ops";
@@ -14,6 +15,7 @@ import { PageContainer } from "@/components/ui/page-container";
 import { Switch } from "@/components/ui/switch";
 
 export function PlugsPage() {
+  const { t } = useTranslation();
   const auth = useAuth();
   const canEdit = auth.can("settings:write");
   const canControl = auth.can("printers:control");
@@ -30,14 +32,14 @@ export function PlugsPage() {
     <PageContainer width="default">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Smart plugs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("plugsPage.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            {list.length} plug{list.length === 1 ? "" : "s"} - {totalW.toFixed(0)} W now - {totalKwh.toFixed(2)} kWh total
+            {t("plugsPage.summary", { count: list.length, w: totalW.toFixed(0), kwh: totalKwh.toFixed(2) })}
           </p>
         </div>
         {canEdit && editing === null ? (
           <Button type="button" size="sm" onClick={() => setEditing("new")}>
-            Add plug
+            {t("plugsPage.add")}
           </Button>
         ) : null}
       </div>
@@ -48,10 +50,10 @@ export function PlugsPage() {
           </CardContent>
         </Card>
       ) : null}
-      {list.length === 0 && editing === null ? <p className="text-sm text-muted-foreground">No smart plugs yet.</p> : null}
+      {list.length === 0 && editing === null ? <p className="text-sm text-muted-foreground">{t("plugsPage.empty")}</p> : null}
       {list.map((p) => {
         const on = p.last_state === "on";
-        const label = p.name || `Plug ${p.id}`;
+        const label = p.name || t("plugsPage.fallbackName", { id: p.id });
         return (
           <Card key={p.id} data-testid="plug-card">
             <CardContent className="space-y-3 pt-4">
@@ -64,15 +66,15 @@ export function PlugsPage() {
                   <span className="text-muted-foreground">
                     {p.kind}
                     {p.printer_id != null
-                      ? ` - ${printerName(p.printer_id) ?? `printer ${p.printer_id}`}${p.controls_printer_power ? "" : " (accessory)"}`
-                      : " - standalone"}
+                      ? ` - ${printerName(p.printer_id) ?? t("plugsPage.printerId", { id: p.printer_id })}${p.controls_printer_power ? "" : ` ${t("plugsPage.accessory")}`}`
+                      : ` - ${t("plugsPage.standalone")}`}
                   </span>
                   {p.orphaned ? (
                     <Badge variant="outline" className="border-warning bg-warning/10 text-warning">
-                      orphaned - printer deleted
+                      {t("plugsPage.orphaned")}
                     </Badge>
                   ) : null}
-                  <span className="font-medium">{p.last_state ? (on ? "On" : "Off") : "Unknown"}</span>
+                  <span className="font-medium">{p.last_state ? (on ? t("plugsPage.on") : t("plugsPage.off")) : t("plugsPage.unknown")}</span>
                   <span className="text-muted-foreground">
                     {p.last_power_w != null ? `${p.last_power_w.toFixed(0)} W - ` : ""}
                     {p.energy_kwh.toFixed(2)} kWh
@@ -80,11 +82,11 @@ export function PlugsPage() {
                   <div className="ml-auto flex items-center gap-2">
                     {canEdit ? (
                       <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(p.id)}>
-                        {p.orphaned ? "Re-link" : "Edit"}
+                        {p.orphaned ? t("plugsPage.relink") : t("common.edit")}
                       </Button>
                     ) : null}
                     <Switch
-                      aria-label={`${label} power`}
+                      aria-label={t("plugsPage.power", { label })}
                       checked={on}
                       disabled={!canControl || (p.orphaned && !canEdit) || toggle.isPending}
                       onCheckedChange={(v) => toggle.mutate({ id: p.id, on: v })}

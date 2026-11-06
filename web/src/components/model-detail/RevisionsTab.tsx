@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
@@ -87,6 +88,7 @@ function RevisionSelect({
 
 function NewRevisionDialog({ model }: { model: ModelDetail }) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const createRevision = useCreateRevision(model.slug, model.id);
@@ -118,13 +120,13 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
     createRevision.error instanceof ApiError
       ? createRevision.error.detail
       : createRevision.error
-        ? "Could not create revision"
+        ? t("mdRevisions.couldNotCreate")
         : null;
 
   return (
     <>
       <Button type="button" size="sm" onClick={() => setOpen(true)}>
-        New revision
+        {t("mdRevisions.newRevision")}
       </Button>
       <FormDialog
         open={open}
@@ -134,18 +136,18 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
       >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>New revision</DialogTitle>
+            <DialogTitle>{t("mdRevisions.newRevision")}</DialogTitle>
             <DialogDescription>
-              Snapshots every file on the current revision, then applies future changes on top.
+              {t("mdRevisions.newDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="revision-name">Name</Label>
+              <Label htmlFor="revision-name">{t("mdRevisions.name")}</Label>
               <Input id="revision-name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="revision-note">Note</Label>
+              <Label htmlFor="revision-note">{t("mdRevisions.note")}</Label>
               <Textarea id="revision-note" value={note} onChange={(event) => setNote(event.target.value)} rows={3} />
             </div>
             {errorMessage ? (
@@ -157,11 +159,11 @@ function NewRevisionDialog({ model }: { model: ModelDetail }) {
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t("common.cancel")}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={createRevision.isPending}>
-              {createRevision.isPending ? "Creating..." : "Create"}
+              {createRevision.isPending ? t("mdRevisions.creating") : t("mdRevisions.create")}
             </Button>
           </DialogFooter>
         </form>
@@ -186,13 +188,14 @@ function RevisionNotes({
   onToggle: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const { t } = useTranslation();
   const revisionDetail = useRevisionDetail(revision.id);
   const createNote = useCreateRevisionNote(revision.id);
   const patchNote = usePatchRevisionNote(revision.id);
   const deleteNote = useDeleteRevisionNote(revision.id);
 
   const notes = revisionDetail.data?.notes ?? [];
-  const label = revisionDetail.data ? `Notes (${notes.length})` : "Notes";
+  const label = revisionDetail.data ? t("mdRevisions.notesCount", { n: notes.length }) : t("mdRevisions.notes");
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -219,19 +222,19 @@ function RevisionNotes({
             <Textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Write a note for this revision… (markdown supported)"
+              placeholder={t("mdRevisions.notePh")}
               rows={2}
-              aria-label={`New note for revision ${revision.number}`}
+              aria-label={t("mdRevisions.newNoteAria", { number: revision.number })}
             />
             <Button type="submit" size="sm" disabled={createNote.isPending || draft.trim().length === 0}>
-              Add note
+              {t("mdRevisions.addNote")}
             </Button>
           </form>
 
           {revisionDetail.isLoading ? (
-            <p className="text-xs text-muted-foreground">Loading notes…</p>
+            <p className="text-xs text-muted-foreground">{t("mdRevisions.loadingNotes")}</p>
           ) : notes.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No notes yet.</p>
+            <p className="text-xs text-muted-foreground">{t("mdRevisions.noNotes")}</p>
           ) : (
             <ul className="space-y-3">
               {notes.map((note) => (
@@ -253,6 +256,7 @@ function RevisionNotes({
 
 export function RevisionsTab({ model }: { model: ModelDetail }) {
   const revisionsQuery = useRevisions(model.id);
+  const { t } = useTranslation();
   const revisions = revisionsQuery.data ?? [];
   const [diffA, setDiffA] = useState<number>();
   const [diffB, setDiffB] = useState<number>();
@@ -270,11 +274,11 @@ export function RevisionsTab({ model }: { model: ModelDetail }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">#{revision.number}</span>
             {revision.name ? <span className="text-sm">{revision.name}</span> : null}
-            {model.current_revision?.id === revision.id ? <Badge>Current</Badge> : null}
+            {model.current_revision?.id === revision.id ? <Badge>{t("mdRevisions.current")}</Badge> : null}
           </div>
           {revision.note ? <p className="text-sm text-muted-foreground">{revision.note}</p> : null}
           <p className="text-xs text-muted-foreground">
-            {formatDateTime(revision.created_at)} · {revision.file_count} files
+            {formatDateTime(revision.created_at)} · {t("mdRevisions.files", { count: revision.file_count })}
           </p>
           <RevisionNotes
             revision={revision}
@@ -290,11 +294,11 @@ export function RevisionsTab({ model }: { model: ModelDetail }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">History</h3>
+        <h3 className="text-sm font-semibold">{t("mdRevisions.history")}</h3>
         <div className="flex items-center gap-2">
           {revisions.length > 0 ? (
             <ExpandCollapseAll
-              label="revision notes"
+              label={t("mdRevisions.revisionNotes")}
               allOpen={allOpen}
               allClosed={allClosed}
               onExpandAll={openAll}
@@ -309,13 +313,13 @@ export function RevisionsTab({ model }: { model: ModelDetail }) {
         <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
           {historyList}
           <div className="space-y-3 rounded-lg border border-border p-4">
-            <h4 className="text-sm font-semibold">Compare revisions</h4>
+            <h4 className="text-sm font-semibold">{t("mdRevisions.compare")}</h4>
             <div className="flex items-center gap-2">
               <RevisionThumb key={diffA ?? "none-a"} revisionId={diffA} />
-              <RevisionSelect revisions={revisions} value={diffA} onChange={setDiffA} label="From" />
+              <RevisionSelect revisions={revisions} value={diffA} onChange={setDiffA} label={t("mdRevisions.from")} />
               <span className="text-muted-foreground">→</span>
               <RevisionThumb key={diffB ?? "none-b"} revisionId={diffB} />
-              <RevisionSelect revisions={revisions} value={diffB} onChange={setDiffB} label="To" />
+              <RevisionSelect revisions={revisions} value={diffB} onChange={setDiffB} label={t("mdRevisions.to")} />
             </div>
             {diffQuery.data ? <DiffView diff={diffQuery.data} /> : null}
           </div>

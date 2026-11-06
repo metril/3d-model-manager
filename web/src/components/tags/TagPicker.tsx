@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { CheckIcon, PlusIcon, TagIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useCreateTag, useTags } from "@/api/tags";
 import { TagChip } from "@/components/tags/TagChip";
@@ -38,7 +39,9 @@ interface PickProps extends BaseProps {
 /** Popover to search, toggle and inline-create tags. Creating a tag opens a
  * full form (color swatches/hex, icon grid, description) before it is saved. */
 export function TagPicker(props: MultiProps | PickProps) {
-  const { trigger, align = "start", disabled, options, label = "Tags" } = props;
+  const { trigger, align = "start", disabled, options, label: labelProp } = props;
+  const { t } = useTranslation();
+  const label = labelProp ?? t("tagPicker.tags");
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -73,7 +76,7 @@ export function TagPicker(props: MultiProps | PickProps) {
     <Popover open={open} onOpenChange={close}>
       <PopoverTrigger asChild>
         {trigger ?? (
-          <Button type="button" variant="outline" size="icon-sm" aria-label={`Edit ${label.toLowerCase()}`} disabled={disabled}>
+          <Button type="button" variant="outline" size="icon-sm" aria-label={t("tagPicker.edit", { label: label.toLowerCase() })} disabled={disabled}>
             <PlusIcon className="size-3.5" />
           </Button>
         )}
@@ -82,7 +85,7 @@ export function TagPicker(props: MultiProps | PickProps) {
         {creating ? (
           <TagForm
             initial={{ name: search.trim() }}
-            submitLabel="Create tag"
+            submitLabel={t("tagPicker.createTag")}
             pending={createTag.isPending}
             onCancel={() => setCreating(false)}
             onSubmit={(values) =>
@@ -99,8 +102,8 @@ export function TagPicker(props: MultiProps | PickProps) {
           <div className="space-y-1.5">
             <Input
               autoFocus
-              aria-label="Search tags"
-              placeholder={canCreate || !options ? "Search or create…" : "Search…"}
+              aria-label={t("tagPicker.search")}
+              placeholder={canCreate || !options ? t("tagPicker.searchOrCreate") : t("tagPicker.searchOnly")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
@@ -111,7 +114,7 @@ export function TagPicker(props: MultiProps | PickProps) {
                 }
               }}
             />
-            <ul className="max-h-52 space-y-0.5 overflow-y-auto" aria-label="Tags">
+            <ul className="max-h-52 space-y-0.5 overflow-y-auto" aria-label={t("tagPicker.tags")}>
               {matches.map((tag) => {
                 const selected = selectedIds.has(tag.id);
                 return (
@@ -132,12 +135,12 @@ export function TagPicker(props: MultiProps | PickProps) {
                 );
               })}
               {matches.length === 0 && !canCreate && (
-                <li className="px-2 py-1 text-xs text-muted-foreground">{options ? "No tags" : "No tags yet"}</li>
+                <li className="px-2 py-1 text-xs text-muted-foreground">{options ? t("tagPicker.noTags") : t("tagPicker.noTagsYet")}</li>
               )}
             </ul>
             {canCreate && (
               <Button type="button" variant="ghost" size="sm" className="w-full justify-start" onClick={() => setCreating(true)}>
-                <TagIcon /> Create “{search.trim()}”
+                <TagIcon /> {t("tagPicker.create", { name: search.trim() })}
               </Button>
             )}
           </div>

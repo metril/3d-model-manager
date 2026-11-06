@@ -40,7 +40,7 @@ function RunRow({
   const patch = usePatchRun();
   const { can } = useAuth();
   const grams = totalGrams(run);
-  const name = run.model_name ?? run.subtask_name ?? `Run #${run.id}`;
+  const name = run.model_name ?? run.subtask_name ?? t("runDetail.runId", { id: run.id });
   const canGrade = run.run != null && can("library:write");
 
   return (
@@ -66,14 +66,14 @@ function RunRow({
             className={run.run.quality === "good" ? "border-state-finished text-state-finished" : undefined}
             onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "good" } })}
           >
-            Good
+            {t("runDetail.good")}
           </Button>
           <Button
             size="sm"
             variant={run.run.quality === "reject" ? "destructive" : "outline"}
             onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "reject" } })}
           >
-            Reject
+            {t("runDetail.reject")}
           </Button>
         </div>
       ) : null}
@@ -90,7 +90,7 @@ export function RecentRunsList({ runs, limit = 10 }: { runs: ArchiveOut[]; limit
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent runs</CardTitle>
+        <CardTitle>{t("recentRuns.title")}</CardTitle>
         <CompareBar selection={selection} />
       </CardHeader>
       <CardContent className="flex flex-col gap-2">

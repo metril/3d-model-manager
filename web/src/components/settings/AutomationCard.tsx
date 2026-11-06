@@ -10,8 +10,11 @@
  * all five `AppSettings` fields, not a per-field patch.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
+import type { TFunction } from "i18next";
+
 import { ApiError } from "@/api/client";
 import { useFeatures } from "@/api/features";
 import type { AppSettings } from "@/api/types";
@@ -53,17 +56,18 @@ function seedDraft(settings: AppSettings): Draft {
  * schedule OFF on save with no confirmation; a non-integer typed into an
  * int field became a float that 422s server-side. Both are caught here,
  * client-side, before the request ever goes out. */
-function validateField(key: keyof Draft, raw: string): string | undefined {
+function validateField(t: TFunction, key: keyof Draft, raw: string): string | undefined {
   const trimmed = raw.trim();
-  if (trimmed === "") return "Required -- enter 0 to turn this off.";
+  if (trimmed === "") return t("settingsAutomation.required");
   const n = Number(trimmed);
-  if (Number.isNaN(n)) return "Must be a number.";
-  if (n < 0) return "Must be 0 or greater.";
-  if (INT_FIELDS.includes(key) && !Number.isInteger(n)) return "Must be a whole number of seconds.";
+  if (Number.isNaN(n)) return t("settingsAutomation.nan");
+  if (n < 0) return t("settingsAutomation.negative");
+  if (INT_FIELDS.includes(key) && !Number.isInteger(n)) return t("settingsAutomation.notInt");
   return undefined;
 }
 
 export function AutomationCard() {
+  const { t } = useTranslation();
   const settings = useAppSettings();
   const features = useFeatures();
   const update = useUpdateAppSettings();
@@ -80,9 +84,9 @@ export function AutomationCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Automation &amp; scheduling</CardTitle>
+          <CardTitle>{t("settingsAutomation.title")}</CardTitle>
           <CardDescription>
-            {settings.error instanceof ApiError ? settings.error.detail : "Couldn't load these settings."}
+            {settings.error instanceof ApiError ? settings.error.detail : t("settingsAutomation.loadError")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -97,7 +101,7 @@ export function AutomationCard() {
   function validate(current: Draft): boolean {
     const next: DraftErrors = {};
     (Object.keys(current) as (keyof Draft)[]).forEach((key) => {
-      const message = validateField(key, current[key]);
+      const message = validateField(t, key, current[key]);
       if (message) next[key] = message;
     });
     setErrors(next);
@@ -119,16 +123,15 @@ export function AutomationCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Automation &amp; scheduling</CardTitle>
+        <CardTitle>{t("settingsAutomation.title")}</CardTitle>
         <CardDescription>
-          Background schedules run automatically. Set any interval to 0 to turn it off. Changes
-          apply within about 15 seconds — no restart.
+          {t("settingsAutomation.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="scan-interval">Library scan interval (seconds)</Label>
+            <Label htmlFor="scan-interval">{t("settingsAutomation.scanLabel")}</Label>
             <Input
               id="scan-interval"
               type="number"
@@ -143,12 +146,12 @@ export function AutomationCard() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Automatically rescan and reconcile the library. 0 = off; you can still scan on demand.
+                {t("settingsAutomation.scanHint")}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="collection-sync-interval">Collection sync interval (seconds)</Label>
+            <Label htmlFor="collection-sync-interval">{t("settingsAutomation.syncLabel")}</Label>
             <Input
               id="collection-sync-interval"
               type="number"
@@ -163,12 +166,12 @@ export function AutomationCard() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Refresh followed remote collections. 0 = off; Sync now still works.
+                {t("settingsAutomation.syncHint")}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="watch-interval">Watched folder poll (seconds)</Label>
+            <Label htmlFor="watch-interval">{t("settingsAutomation.watchLabel")}</Label>
             <Input
               id="watch-interval"
               type="number"
@@ -183,12 +186,12 @@ export function AutomationCard() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                How often to import files dropped into the watched folder. 0 = off.
+                {t("settingsAutomation.watchHint")}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="watch-stable">Watched folder stability delay (seconds)</Label>
+            <Label htmlFor="watch-stable">{t("settingsAutomation.stableLabel")}</Label>
             <Input
               id="watch-stable"
               type="number"
@@ -204,8 +207,7 @@ export function AutomationCard() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                A dropped file must sit unchanged this long before import — guards against
-                half-written exports.
+                {t("settingsAutomation.stableHint")}
               </p>
             )}
           </div>
@@ -213,19 +215,19 @@ export function AutomationCard() {
 
         <p className="text-sm text-muted-foreground">
           {features.data?.watch_dir
-            ? `Watched folder: ${features.data.watch_dir} — maps to WATCH_HOST_DIR on the host.`
-            : "No watched folder mounted."}
+            ? t("settingsAutomation.watchDir", { dir: features.data.watch_dir })
+            : t("settingsAutomation.noWatchDir")}
         </p>
 
         <div className="flex items-center gap-3">
           <Button type="button" disabled={update.isPending} onClick={save}>
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("settingsAutomation.saving") : t("common.save")}
           </Button>
-          {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
+          {update.isSuccess && <p className="text-sm text-success">{t("settingsAutomation.saved")}</p>}
         </div>
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save these settings."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsAutomation.saveError")}
           </p>
         )}
       </CardContent>

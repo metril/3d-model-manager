@@ -5,6 +5,7 @@ import { ApiError } from "@/api/client";
 import { useHms, useHmsAction, useHmsClear } from "@/api/printerOps";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 const SEVERITY_CLASS: Record<string, string> = {
   fatal: "text-destructive",
@@ -27,6 +28,7 @@ export function HmsModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { canPrinter } = useAuth();
   const canControl = canPrinter(printerId, "control");
   const hms = useHms(printerId, open);
@@ -39,12 +41,12 @@ export function HmsModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>HMS errors</DialogTitle>
+          <DialogTitle>{t("hms.title")}</DialogTitle>
         </DialogHeader>
         {hms.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">{t("hms.loading")}</p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active errors.</p>
+          <p className="text-sm text-muted-foreground">{t("hms.none")}</p>
         ) : (
           <ul className="max-h-96 space-y-3 overflow-y-auto">
             {items.map((f) => (
@@ -55,7 +57,7 @@ export function HmsModal({
                   </span>
                   <span className="font-mono text-xs text-muted-foreground">{f.code}</span>
                 </div>
-                <p className="text-sm">{f.description ?? "Unknown code"}</p>
+                <p className="text-sm">{f.description ?? t("hms.unknownCode")}</p>
                 <p className="text-xs text-muted-foreground">{f.module}</p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {(canControl ? f.actions : []).map((a) => (
@@ -75,7 +77,7 @@ export function HmsModal({
                     rel="noopener noreferrer"
                     className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
                   >
-                    Wiki <ExternalLinkIcon className="size-3" />
+                    {t("hms.wiki")} <ExternalLinkIcon className="size-3" />
                   </a>
                 </div>
               </li>
@@ -84,7 +86,7 @@ export function HmsModal({
         )}
         {err ? (
           <p role="alert" className="text-sm text-destructive">
-            {err instanceof ApiError ? err.detail : "Request failed"}
+            {err instanceof ApiError ? err.detail : t("hms.requestFailed")}
           </p>
         ) : null}
         {canControl ? (
@@ -94,7 +96,7 @@ export function HmsModal({
               disabled={clear.isPending || items.length === 0}
               onClick={() => clear.mutate()}
             >
-              Clear errors
+              {t("hms.clear")}
             </Button>
           </div>
         ) : null}

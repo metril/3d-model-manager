@@ -10,8 +10,10 @@ import type { QueueEntry } from "@/api/types";
 import { SliceLogDialog } from "@/components/slice/SliceLogDialog";
 import { Button } from "@/components/ui/button";
 import { humanizeDuration } from "@/lib/format";
+import { useTranslation } from "react-i18next";
 
 export function QueueEntryDetail({ entry }: { entry: QueueEntry }) {
+  const { t } = useTranslation();
   const cancel = useCancelQueueSlice();
   const [logOpen, setLogOpen] = useState(false);
   const meta = entry.sliced_meta;
@@ -22,18 +24,18 @@ export function QueueEntryDetail({ entry }: { entry: QueueEntry }) {
       {meta ? (
         <div className="space-y-1">
           <p className="font-medium">
-            {meta.file_name ?? "Sliced file"}
+            {meta.file_name ?? t("queueDetail.slicedFile")}
             <span className="font-normal text-muted-foreground">
               {meta.print_time_s != null ? ` · ${humanizeDuration(meta.print_time_s)}` : ""}
               {meta.filament_g != null ? ` · ${Math.round(meta.filament_g)} g` : ""}
-              {meta.plate_count ? ` · ${meta.plate_count} plate${meta.plate_count === 1 ? "" : "s"}` : ""}
+              {meta.plate_count ? ` · ${t("queueDetail.plates", { count: meta.plate_count })}` : ""}
             </span>
           </p>
           {meta.plates.length > 1 ? (
             <ul className="text-muted-foreground">
               {meta.plates.map((p) => (
                 <li key={p.index}>
-                  Plate {p.index}
+                  {t("queuePage.plate", { plate: p.index })}
                   {p.prediction_s != null ? ` · ${humanizeDuration(p.prediction_s)}` : ""}
                   {p.weight_g != null ? ` · ${Math.round(p.weight_g)} g` : ""}
                 </li>
@@ -43,24 +45,24 @@ export function QueueEntryDetail({ entry }: { entry: QueueEntry }) {
         </div>
       ) : (
         <p className="text-muted-foreground">
-          {entry.sliced_file_id != null ? "Sliced file details are still being extracted." : "Not sliced yet."}
+          {entry.sliced_file_id != null ? t("queueDetail.extracting") : t("queueDetail.notSliced")}
         </p>
       )}
       {entry.last_error ? (
         <p className="text-destructive">
           {entry.last_error}
-          {(entry.attempts ?? 0) > 0 ? ` (${entry.attempts}/3 attempts)` : ""}
+          {(entry.attempts ?? 0) > 0 ? ` (${t("queuePage.attempts", { n: entry.attempts })})` : ""}
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
         {entry.last_log ? (
           <Button type="button" size="sm" variant="outline" onClick={() => setLogOpen(true)}>
-            View log
+            {t("queueDetail.viewLog")}
           </Button>
         ) : null}
         {slicing ? (
           <Button type="button" size="sm" variant="outline" disabled={cancel.isPending} onClick={() => cancel.mutate(entry.id)}>
-            Cancel slicing
+            {t("queueDetail.cancelSlicing")}
           </Button>
         ) : null}
       </div>

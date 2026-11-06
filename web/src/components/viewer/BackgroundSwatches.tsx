@@ -1,12 +1,20 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRovingRadioGroup } from "@/components/viewer/useRovingRadioGroup";
 import {
-  BACKGROUND_PRESET_LABELS,
   BACKGROUND_PRESET_ORDER,
   resolveBackground,
   type BackgroundPreset,
 } from "@/components/viewer/background";
+
+const BACKGROUND_KEYS: Record<BackgroundPreset, string> = {
+  studio: "viewer.bg.studio",
+  white: "viewer.bg.white",
+  dark: "viewer.bg.dark",
+  theme: "viewer.bg.theme",
+  custom: "viewer.bg.custom",
+};
 
 /** A rainbow ring around the custom swatch (Task 6) so it reads as "pick any
  * color" rather than just another fixed preset -- `conic-gradient` sweeps
@@ -70,6 +78,7 @@ export function BackgroundSwatches({
   onPresetChange: (preset: BackgroundPreset) => void;
   onCustomChange: (custom: string) => void;
 }) {
+  const { t } = useTranslation();
   const { itemProps } = useRovingRadioGroup(BACKGROUND_PRESET_ORDER, preset, onPresetChange);
 
   return (
@@ -80,10 +89,10 @@ export function BackgroundSwatches({
     // `ViewerStage`'s provider is harmless -- the nearest one just wins for
     // this subtree.
     <TooltipProvider>
-      <div role="radiogroup" aria-label="Background" className="flex flex-wrap items-center gap-2">
+      <div role="radiogroup" aria-label={t("viewer.bg.label")} className="flex flex-wrap items-center gap-2">
         {BACKGROUND_PRESET_ORDER.map((option) => {
           const selected = preset === option;
-          const label = BACKGROUND_PRESET_LABELS[option];
+          const label = t(BACKGROUND_KEYS[option]);
 
           if (option === "custom") {
             return (

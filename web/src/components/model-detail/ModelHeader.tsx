@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -74,6 +75,7 @@ function RedownloadDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [mode, setMode] = useState<RedownloadMode>("revision");
+  const { t } = useTranslation();
   const redownload = useRedownloadModel(model.slug);
 
   function handleStart() {
@@ -82,7 +84,7 @@ function RedownloadDialog({
       {
         onSuccess: () => {
           onOpenChange(false);
-          toast.success("Re-download started");
+          toast.success(t("mdHeader.redownloadStarted"));
         },
       },
     );
@@ -98,9 +100,9 @@ function RedownloadDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Re-download from source</DialogTitle>
+          <DialogTitle>{t("mdHeader.redownloadTitle")}</DialogTitle>
           <DialogDescription>
-            Re-fetches this model&apos;s files fresh from where it was imported.
+            {t("mdHeader.redownloadDesc")}
           </DialogDescription>
         </DialogHeader>
         <RadioGroup
@@ -111,19 +113,19 @@ function RedownloadDialog({
           <div className="flex items-center gap-2">
             <RadioGroupItem value="revision" id="redownload-mode-revision" />
             <Label htmlFor="redownload-mode-revision" className="font-normal">
-              New revision (keeps current files as history)
+              {t("mdHeader.modeRevision")}
             </Label>
           </div>
           <div className="flex items-center gap-2">
             <RadioGroupItem value="replace" id="redownload-mode-replace" />
             <Label htmlFor="redownload-mode-replace" className="font-normal">
-              Replace current files
+              {t("mdHeader.modeReplace")}
             </Label>
           </div>
         </RadioGroup>
         <DialogFooter>
           <Button type="button" disabled={redownload.isPending} onClick={handleStart}>
-            {redownload.isPending ? "Starting..." : "Start"}
+            {redownload.isPending ? t("mdHeader.starting") : t("mdHeader.start")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -146,6 +148,7 @@ export function ModelHeader({
   panelsMenu?: ReactNode;
 }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { data: me, can } = useAuth();
   const canDelete = can("admin") || (!!me && model.created_by_user_id === me.id);
   const patchModel = usePatchModel(model.slug);
@@ -205,7 +208,7 @@ export function ModelHeader({
             {editMode ? (
               <InlineEdit
                 value={model.name}
-                aria-label="name"
+                aria-label={t("mdHeader.name")}
                 onSave={(name) => {
                   if (name) patchModel.mutate({ name });
                 }}
@@ -231,18 +234,18 @@ export function ModelHeader({
                 {model.category.name}
               </Badge>
             ) : null}
-            {model.is_archived ? <Badge variant="outline">Archived</Badge> : null}
+            {model.is_archived ? <Badge variant="outline">{t("mdHeader.archived")}</Badge> : null}
             {needsReview ? (
               <Badge variant="secondary" className="gap-1 pr-1" data-testid="review-badge">
-                Needs review
+                {t("mdHeader.needsReview")}
                 <ConfirmDialog
                   trigger={
-                    <button type="button" aria-label="Dismiss needs review" className="rounded-full hover:opacity-70">
+                    <button type="button" aria-label={t("mdHeader.dismissNeedsReview")} className="rounded-full hover:opacity-70">
                       <XIcon className="size-3" />
                     </button>
                   }
-                  title='Clear "needs review"?'
-                  confirmLabel="Clear"
+                  title={t("mdHeader.clearReviewTitle")}
+                  confirmLabel={t("mdHeader.clear")}
                   onConfirm={() => patchModel.mutate({ review_state: null })}
                 />
               </Badge>
@@ -250,8 +253,8 @@ export function ModelHeader({
             {/* Not edit-gated -- a print history fact, not editable metadata,
                 same treatment as the favorite star. */}
             {model.print_count > 0 ? (
-              <Badge variant="secondary" title={`Last printed ${formatDateTime(model.last_printed_at)}`}>
-                Printed {model.print_count}×
+              <Badge variant="secondary" title={t("mdHeader.lastPrinted", { date: formatDateTime(model.last_printed_at) })}>
+                {t("mdHeader.printedCount", { n: model.print_count })}
               </Badge>
             ) : null}
           </div>
@@ -263,7 +266,7 @@ export function ModelHeader({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label={model.favorite ? "Remove from favorites" : "Add to favorites"}
+            aria-label={model.favorite ? t("mdHeader.removeFav") : t("mdHeader.addFav")}
             aria-pressed={model.favorite}
             onClick={() => patchModel.mutate({ favorite: !model.favorite })}
           >
@@ -285,7 +288,7 @@ export function ModelHeader({
           {canPrint ? (
             <>
               <Button type="button" onClick={() => setPrintOpen(true)}>
-                Print…
+                {t("mdHeader.print")}
               </Button>
               <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} initialPlate={dialogPlate} initialFileId={dialogPlate ? sliceableFile?.id : null} />
             </>
@@ -297,17 +300,17 @@ export function ModelHeader({
             disabled={enqueueModel.isPending}
             onClick={() =>
               enqueueModel.mutate(model.id, {
-                onSuccess: () => toast.success("Added to queue"),
+                onSuccess: () => toast.success(t("mdHeader.addedToQueue")),
               })
             }
           >
             <ListPlusIcon />
-            Add to queue
+            {t("mdHeader.addToQueue")}
           </Button>
           {panelsMenu}
           <Button type="button" variant="ghost" onClick={onToggleEditMode}>
             <PencilIcon />
-            {editMode ? "Done" : "Edit"}
+            {editMode ? t("mdHeader.done") : t("common.edit")}
           </Button>
           {/* Lifecycle actions (re-download, relocate, archive, delete) live
               behind this overflow menu regardless of edit mode -- edit mode
@@ -318,42 +321,42 @@ export function ModelHeader({
               composition). */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="icon" aria-label="More actions">
+              <Button type="button" variant="outline" size="icon" aria-label={t("mdHeader.moreActions")}>
                 <EllipsisIcon />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled={!canRedownload} onSelect={() => setRedownloadOpen(true)}>
                 <DownloadIcon />
-                Re-download…
+                {t("mdHeader.redownloadItem")}
               </DropdownMenuItem>
               {/* Plain anchor with `download` -- the session cookie carries
                   auth, so no fetch-and-blob dance is needed (R11-A). */}
               <DropdownMenuItem asChild>
                 <a href={`/api/models/${model.slug}/zip`} download>
                   <FileArchiveIcon />
-                  Download ZIP
+                  {t("mdHeader.downloadZip")}
                 </a>
               </DropdownMenuItem>
               {can("library:write") ? (
                 <DropdownMenuItem onSelect={() => setProjectOpen(true)}>
                   <FolderKanbanIcon />
-                  Add to project…
+                  {t("mdHeader.addToProject")}
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuItem onSelect={onOpenRelocate}>
                 <FolderInputIcon />
-                Move / copy…
+                {t("mdHeader.moveCopy")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setArchiveOpen(true)}>
                 <ArchiveIcon />
-                Archive…
+                {t("mdHeader.archiveItem")}
               </DropdownMenuItem>
               {canDelete ? (
                 <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
                   <Trash2Icon />
-                  Move to trash…
+                  {t("mdHeader.trashItem")}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -363,28 +366,28 @@ export function ModelHeader({
           <ConfirmDialog
             open={archiveOpen}
             onOpenChange={setArchiveOpen}
-            title={`Archive "${model.name}"?`}
-            description="Archived models are hidden from the library by default. This does not delete files."
-            confirmLabel="Archive"
+            title={t("mdHeader.archiveTitle", { name: model.name })}
+            description={t("mdHeader.archiveDesc")}
+            confirmLabel={t("mdHeader.archive")}
             destructive
             onConfirm={() => archiveModel.mutate(true)}
           />
           <ConfirmDialog
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
-            title="Move this model to trash?"
-            description="The model is hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
-            confirmLabel="Move to trash"
+            title={t("mdHeader.trashTitle")}
+            description={t("mdHeader.trashDesc")}
+            confirmLabel={t("mdHeader.trash")}
             destructive
             onConfirm={() =>
               deleteModel.mutate(undefined, {
                 onSuccess: () => {
-                  toast.success("Moved to trash", {
+                  toast.success(t("mdHeader.movedToTrash"), {
                     action: {
-                      label: "Undo",
+                      label: t("mdHeader.undo"),
                       onClick: () =>
                         restoreTrash.mutate([model.id], {
-                          onSuccess: () => toast.success("Restored"),
+                          onSuccess: () => toast.success(t("mdHeader.restored")),
                         }),
                     },
                   });

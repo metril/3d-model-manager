@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { FileStackIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,21 +14,22 @@ import type { ModelDetail } from "@/api/types";
  * (moved out of `ModelHeader` in R13a) with the per-file datasheet
  * (`SpecsTab`). */
 export function SpecsCard({ model }: { model: ModelDetail }) {
+  const { t } = useTranslation();
   const filaments = modelFilaments(model);
   const formats = revisionFormats(model);
   const fileCount = model.current_revision?.files.length ?? 0;
   const specItems: Array<SpecItem | null> = [
     fileCount > 0
-      ? { icon: <FileStackIcon />, label: `${fileCount} ${fileCount === 1 ? "file" : "files"}` }
+      ? { icon: <FileStackIcon />, label: t("mdSpecs.files", { count: fileCount }) }
       : null,
     formats.length > 0 ? { label: formats.map((format) => FORMAT_LABELS[format]).join(" / ") } : null,
-    { label: `Updated ${formatDate(model.updated_at)}` },
+    { label: t("mdSpecs.updated", { date: formatDate(model.updated_at) }) },
   ];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Specs</CardTitle>
+        <CardTitle>{t("mdSpecs.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <SpecRow items={specItems} />

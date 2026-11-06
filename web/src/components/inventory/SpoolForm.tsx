@@ -205,26 +205,26 @@ export function SpoolForm({
     <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={mutation.isPending || putSuppliers.isPending} className="sm:max-w-xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? "Edit spool" : "New spool"}</DialogTitle>
+            <DialogTitle>{isEdit ? t("spoolForm.edit") : t("spoolForm.new")}</DialogTitle>
             <DialogDescription>
-              Track a physical filament spool: label weight, used grams, and where it lives.
+              {t("spoolForm.desc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="spool-material">From material (optional)</Label>
+              <Label htmlFor="spool-material">{t("spoolForm.fromMaterialOpt")}</Label>
               <Select
-                aria-label="From material"
+                aria-label={t("spoolForm.fromMaterial")}
                 value={fields.materialId != null ? String(fields.materialId) : "none"}
                 onValueChange={handleMaterialChange}
                 disabled={!canWrite}
               >
-                <SelectTrigger id="spool-material" aria-label="From material" className="w-full">
+                <SelectTrigger id="spool-material" aria-label={t("spoolForm.fromMaterial")} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="none">{t("spoolForm.none")}</SelectItem>
                   {(materials.data ?? []).map((m) => (
                     <SelectItem key={m.id} value={String(m.id)}>
                       {m.name}
@@ -236,14 +236,14 @@ export function SpoolForm({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-type">Type</Label>
+                <Label htmlFor="spool-type">{t("spoolForm.type")}</Label>
                 <Select
-                  aria-label="Type"
+                  aria-label={t("spoolForm.type")}
                   value={fields.materialType}
                   onValueChange={(v) => setFields((f) => ({ ...f, materialType: v }))}
                   disabled={!canWrite}
                 >
-                  <SelectTrigger id="spool-type" aria-label="Type" className="w-full">
+                  <SelectTrigger id="spool-type" aria-label={t("spoolForm.type")} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -256,7 +256,7 @@ export function SpoolForm({
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-brand">Brand</Label>
+                <Label htmlFor="spool-brand">{t("spoolForm.brand")}</Label>
                 <Input
                   id="spool-brand"
                   value={fields.brand}
@@ -267,11 +267,11 @@ export function SpoolForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="spool-color">Colour</Label>
+              <Label htmlFor="spool-color">{t("spoolForm.colour")}</Label>
               <div className="flex items-center gap-2">
                 <ColorField
                   id="spool-color"
-                  label="Colour"
+                  label={t("spoolForm.colour")}
                   value={fields.colorHex}
                   onChange={(hex) => setFields((f) => ({ ...f, colorHex: hex }))}
                   catalog
@@ -280,8 +280,8 @@ export function SpoolForm({
                   className="w-36 shrink-0"
                 />
                 <Input
-                  aria-label="Colour name"
-                  placeholder="Colour name"
+                  aria-label={t("spoolForm.colourName")}
+                  placeholder={t("spoolForm.colourName")}
                   value={fields.colorName}
                   onChange={(e) => setFields((f) => ({ ...f, colorName: e.target.value }))}
                   disabled={!canWrite}
@@ -291,7 +291,7 @@ export function SpoolForm({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-label-weight">Label weight (g)</Label>
+                <Label htmlFor="spool-label-weight">{t("spoolForm.labelWeight")}</Label>
                 <Input
                   id="spool-label-weight"
                   type="number"
@@ -301,7 +301,7 @@ export function SpoolForm({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-empty-weight">Empty spool weight (g)</Label>
+                <Label htmlFor="spool-empty-weight">{t("spoolForm.emptyWeight")}</Label>
                 <Input
                   id="spool-empty-weight"
                   type="number"
@@ -313,7 +313,7 @@ export function SpoolForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="spool-used-weight">Used (g)</Label>
+              <Label htmlFor="spool-used-weight">{t("spoolForm.used")}</Label>
               <Input
                 id="spool-used-weight"
                 type="number"
@@ -324,7 +324,7 @@ export function SpoolForm({
             </div>
 
             <div className="flex flex-col gap-1.5 rounded-[6px] border p-2.5">
-              <Label htmlFor="spool-gross-weight">Weigh spool (gross g, on a scale)</Label>
+              <Label htmlFor="spool-gross-weight">{t("spoolForm.weigh")}</Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="spool-gross-weight"
@@ -333,10 +333,10 @@ export function SpoolForm({
                   onChange={(e) => setGrossWeight(e.target.value)}
                   disabled={!canWrite || empty == null}
                   className="w-32"
-                  placeholder={empty == null ? "Set empty weight first" : "e.g. 650"}
+                  placeholder={empty == null ? t("spoolForm.setEmptyFirst") : t("spoolForm.example")}
                 />
                 <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                  {weighedUsed != null ? `= ${weighedUsed.toFixed(1)} g used` : ""}
+                  {weighedUsed != null ? t("spoolForm.weighedUsed", { g: weighedUsed.toFixed(1) }) : ""}
                 </span>
                 <Button
                   type="button"
@@ -345,14 +345,14 @@ export function SpoolForm({
                   disabled={!canWrite || weighedUsed == null}
                   onClick={applyWeighed}
                 >
-                  Apply
+                  {t("spoolForm.apply")}
                 </Button>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-cost">Cost / kg</Label>
+                <Label htmlFor="spool-cost">{t("spoolForm.cost")}</Label>
                 <Input
                   id="spool-cost"
                   type="number"
@@ -362,7 +362,7 @@ export function SpoolForm({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-low-stock">Low-stock threshold (g)</Label>
+                <Label htmlFor="spool-low-stock">{t("spoolForm.lowStock")}</Label>
                 <Input
                   id="spool-low-stock"
                   type="number"
@@ -375,7 +375,7 @@ export function SpoolForm({
 
             {isEdit ? (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="spool-last-dried">Last dried</Label>
+                <Label htmlFor="spool-last-dried">{t("spoolForm.lastDried")}</Label>
                 <Input
                   id="spool-last-dried"
                   type="datetime-local"
@@ -387,7 +387,7 @@ export function SpoolForm({
             ) : null}
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="spool-location">Location</Label>
+              <Label htmlFor="spool-location">{t("spoolForm.location")}</Label>
               <LocationCombobox
                 initialName={spool?.location}
                 onChange={(locationId) => setFields((f) => ({ ...f, locationId }))}
@@ -401,7 +401,7 @@ export function SpoolForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="spool-tray-uuid">Tray UUID (RFID)</Label>
+              <Label htmlFor="spool-tray-uuid">{t("spoolForm.trayUuid")}</Label>
               <Input
                 id="spool-tray-uuid"
                 value={fields.trayUuid}
@@ -420,7 +420,7 @@ export function SpoolForm({
             ) : null}
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {mutation.error instanceof ApiError ? mutation.error.detail : "Could not save this spool"}
+                {mutation.error instanceof ApiError ? mutation.error.detail : t("spoolForm.saveFailed")}
               </p>
             ) : null}
           </div>
@@ -428,7 +428,7 @@ export function SpoolForm({
           {canWrite ? (
             <DialogFooter>
               <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? "Saving..." : isEdit ? "Save changes" : "Add spool"}
+                {mutation.isPending ? t("spoolForm.saving") : isEdit ? t("spoolForm.saveChanges") : t("spoolForm.add")}
               </Button>
             </DialogFooter>
           ) : null}

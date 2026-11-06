@@ -1,4 +1,5 @@
 /** Settings -> Storage -> how long trashed models are kept before the daily auto-purge. */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
@@ -18,6 +19,7 @@ export function TrashRetentionCard() {
 }
 
 function Form({ initial }: { initial: AppSettings }) {
+  const { t } = useTranslation();
   const update = useUpdateAppSettings();
   const [days, setDays] = useState(String(initial.trash_retention_days));
   const n = Number(days);
@@ -26,15 +28,14 @@ function Form({ initial }: { initial: AppSettings }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Trash retention</CardTitle>
+        <CardTitle>{t("settingsTrash.title")}</CardTitle>
         <CardDescription>
-          Deleted models stay in the trash for this many days, then are permanently removed along
-          with their files. 0 keeps them until you empty the trash yourself.
+          {t("settingsTrash.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="trash-retention">Retention (days)</Label>
+          <Label htmlFor="trash-retention">{t("settingsTrash.label")}</Label>
           <Input
             id="trash-retention"
             type="number"
@@ -47,7 +48,7 @@ function Form({ initial }: { initial: AppSettings }) {
           />
           {invalid ? (
             <p role="alert" className="text-xs text-destructive">
-              Enter a whole number from 0 to 3650.
+              {t("settingsTrash.invalid")}
             </p>
           ) : null}
         </div>
@@ -57,13 +58,13 @@ function Form({ initial }: { initial: AppSettings }) {
             disabled={invalid || update.isPending}
             onClick={() => update.mutate({ ...initial, trash_retention_days: n })}
           >
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("settingsTrash.saving") : t("common.save")}
           </Button>
-          {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
+          {update.isSuccess && <p className="text-sm text-success">{t("settingsTrash.saved")}</p>}
         </div>
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save this setting."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsTrash.saveError")}
           </p>
         )}
       </CardContent>

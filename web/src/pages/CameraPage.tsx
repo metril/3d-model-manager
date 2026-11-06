@@ -3,10 +3,12 @@ import { useParams, useSearch } from "@tanstack/react-router";
 import { usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
 import { formatEta } from "@/lib/formatEta";
+import { useTranslation } from "react-i18next";
 
 /** Standalone camera window body (`window.open('/camera/$id')`): the tile
  * fills the viewport above a one-line status bar. */
 export function CameraView({ id }: { id: number }) {
+  const { t } = useTranslation();
   const overview = usePrintersOverview();
   const item = overview.data?.printers.find((p) => p.printer.id === id);
   const st = item?.status;
@@ -18,15 +20,15 @@ export function CameraView({ id }: { id: number }) {
         <CameraTile printerId={id} online={st?.online ?? false} className="bg-black" />
       </div>
       <div className="flex items-center gap-3 px-3 py-1.5 text-xs" data-testid="camera-status-bar">
-        <span className="font-medium">{item?.printer.name ?? `Printer ${id}`}</span>
-        <span className="text-white/70">{st?.online === false ? "OFFLINE" : (st?.gcode_state ?? "-")}</span>
+        <span className="font-medium">{item?.printer.name ?? t("cameraPage.printerFallback", { id })}</span>
+        <span className="text-white/70">{st?.online === false ? t("cameraPage.offline") : (st?.gcode_state ?? "-")}</span>
         {st?.mc_percent != null ? <span>{st.mc_percent}%</span> : null}
         {st?.layer_num != null && st.total_layer_num ? (
           <span>
-            Layer {st.layer_num}/{st.total_layer_num}
+            {t("activeJob.layer", { num: st.layer_num, total: st.total_layer_num })}
           </span>
         ) : null}
-        {eta ? <span>ETA {eta}</span> : null}
+        {eta ? <span>{t("activeJob.eta", { eta })}</span> : null}
       </div>
     </div>
   );
@@ -40,13 +42,14 @@ export function CameraPage() {
 /** `/camera?printer=ID` (PWA home-screen shortcut): without a printer id,
  * falls back to the first printer once the overview loads. */
 export function CameraShortcutPage() {
+  const { t } = useTranslation();
   const { printer } = useSearch({ strict: false }) as { printer?: number };
   const overview = usePrintersOverview();
   const id = printer ?? overview.data?.printers[0]?.printer.id;
   if (id == null) {
     return (
       <div className="grid h-svh w-svw place-items-center bg-black text-sm text-white/70">
-        {overview.isPending ? "Loading..." : "No printers"}
+        {overview.isPending ? t("cameraPage.loading") : t("cameraPage.noPrinters")}
       </div>
     );
   }

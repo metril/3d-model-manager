@@ -20,6 +20,7 @@ type CameraKind = "" | "mjpeg" | "rtsp" | "snapshot";
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
 export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
+  const { t } = useTranslation();
   const existing = printer.options.camera as { kind?: string; has_url?: boolean } | undefined;
   const [kind, setKind] = useState<CameraKind>((existing?.kind as CameraKind | undefined) ?? "");
   const [url, setUrl] = useState("");
@@ -37,35 +38,35 @@ export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
 
   return (
     <fieldset className="flex flex-col gap-3 rounded-md border p-3">
-      <legend className="px-1 text-sm font-medium">Camera</legend>
+      <legend className="px-1 text-sm font-medium">{t("settingsCamera.title")}</legend>
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-kind`}>External camera</Label>
+          <Label htmlFor={`${id}-kind`}>{t("settingsCamera.external")}</Label>
           <select
             id={`${id}-kind`}
             className={selectClass}
             value={kind}
             onChange={(e) => setKind(e.target.value as CameraKind)}
           >
-            <option value="">Built-in (printer)</option>
-            <option value="mjpeg">MJPEG URL</option>
-            <option value="rtsp">RTSP URL</option>
-            <option value="snapshot">Snapshot URL</option>
+            <option value="">{t("settingsCamera.builtIn")}</option>
+            <option value="mjpeg">{t("settingsCamera.mjpeg")}</option>
+            <option value="rtsp">{t("settingsCamera.rtsp")}</option>
+            <option value="snapshot">{t("settingsCamera.snapshot")}</option>
           </select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor={`${id}-url`}>URL</Label>
+          <Label htmlFor={`${id}-url`}>{t("settingsCamera.url")}</Label>
           <Input
             id={`${id}-url`}
             value={url}
             disabled={!kind}
-            placeholder={existing?.has_url ? "Stored (leave blank to keep)" : "http://..."}
+            placeholder={existing?.has_url ? t("settingsCamera.stored") : "http://..."}
             onChange={(e) => setUrl(e.target.value)}
             autoComplete="off"
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-rotation`}>Rotation</Label>
+          <Label htmlFor={`${id}-rotation`}>{t("settingsCamera.rotation")}</Label>
           <select
             id={`${id}-rotation`}
             className={selectClass}
@@ -87,18 +88,18 @@ export function PrinterCameraSection({ printer }: { printer: PrinterOut }) {
           checked={layerTl}
           onChange={(e) => setLayerTl(e.target.checked)}
         />
-        Layer timelapse (one frame per layer instead of the printer&apos;s own recording)
+        {t("settingsCamera.layerTimelapse")}
       </label>
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" onClick={save} disabled={update.isPending}>
-          {update.isPending ? "Saving..." : "Save camera"}
+          {update.isPending ? t("settingsCamera.saving") : t("settingsCamera.save")}
         </Button>
         {update.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save camera"}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsCamera.saveError")}
           </p>
         ) : null}
-        {update.isSuccess ? <p className="text-sm text-success">Saved.</p> : null}
+        {update.isSuccess ? <p className="text-sm text-success">{t("settingsCamera.saved")}</p> : null}
       </div>
       <OverlayTokensList printerId={printer.id} />
     </fieldset>
@@ -124,41 +125,41 @@ export function OverlayTokensList({ printerId }: { printerId: number }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Overlay tokens</span>
+        <span className="text-sm font-medium">{tr("settingsCamera.overlayTokens")}</span>
         <Button type="button" size="sm" variant="outline" onClick={mint} disabled={create.isPending}>
-          Create overlay token
+          {tr("settingsCamera.createToken")}
         </Button>
       </div>
       {minted ? (
         <div className="flex flex-col gap-1 rounded-md bg-muted p-2 text-xs">
-          <span>Copy this OBS browser-source URL now; it is shown only once.</span>
+          <span>{tr("settingsCamera.copyOnce")}</span>
           <code className="break-all" data-testid="minted-overlay-url">
             {minted}
           </code>
           <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => setMinted(null)}>
-            Done
+            {tr("settingsCamera.done")}
           </Button>
         </div>
       ) : null}
       {active.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No active overlay tokens.</p>
+        <p className="text-xs text-muted-foreground">{tr("settingsCamera.noTokens")}</p>
       ) : (
         <ul className="flex flex-col gap-1">
           {active.map((t) => (
             <li key={t.id} className="flex items-center justify-between text-sm">
               <span>
-                {t.label ?? `Token #${t.id}`}{" "}
+                {t.label ?? tr("settingsCamera.tokenFallback", { id: t.id })}{" "}
                 <span className="text-xs text-muted-foreground">{new Date(t.created_at).toLocaleDateString()}</span>
               </span>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                aria-label={`Revoke token ${t.id}`}
+                aria-label={tr("settingsCamera.revokeAria", { id: t.id })}
                 onClick={() => setRevoking(t.id)}
                 disabled={revoke.isPending}
               >
-                Revoke
+                {tr("common.revoke")}
               </Button>
             </li>
           ))}

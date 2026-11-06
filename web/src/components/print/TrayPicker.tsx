@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useTranslation } from "react-i18next";
 
 export interface TrayChoice {
   slot: number;
@@ -21,8 +22,9 @@ export function TrayPicker({
   onChange: (slot: number) => void;
   ariaLabel: string;
 }) {
+  const { t } = useTranslation();
   const [showAll, setShowAll] = useState(false);
-  const loaded = trays.filter((t) => t.loaded || t.slot === selected);
+  const loaded = trays.filter((tr) => tr.loaded || tr.slot === selected);
   const hidden = trays.length - loaded.length;
   const shown = showAll || loaded.length === 0 ? trays : loaded;
   return (
@@ -33,12 +35,12 @@ export function TrayPicker({
         aria-label={ariaLabel}
       >
         <SelectTrigger className="h-8 w-36">
-          <SelectValue placeholder="Choose tray" />
+          <SelectValue placeholder={t("trayPicker.choose")} />
         </SelectTrigger>
         <SelectContent>
-          {shown.map((t) => (
-            <SelectItem key={t.slot} value={String(t.slot)}>
-              {t.label}
+          {shown.map((tr) => (
+            <SelectItem key={tr.slot} value={String(tr.slot)}>
+              {tr.label}
             </SelectItem>
           ))}
         </SelectContent>
@@ -49,7 +51,7 @@ export function TrayPicker({
           className="mt-1 block text-xs text-muted-foreground underline"
           onClick={() => setShowAll((v) => !v)}
         >
-          {showAll ? "Loaded spools only" : `Show all trays (${hidden} empty)`}
+          {showAll ? t("trayPicker.loadedOnly") : t("trayPicker.showAll", { n: hidden })}
         </button>
       ) : null}
     </>

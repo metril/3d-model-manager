@@ -32,8 +32,8 @@ export function PrintersPanel() {
         <Input
           type="search"
           className="h-8 w-48"
-          placeholder="Search printers"
-          aria-label="Search printers"
+          placeholder={t("printersPanel.search")}
+          aria-label={t("printersPanel.search")}
           defaultValue={search.q ?? ""}
           onChange={(e) => patchSearch({ q: e.target.value || undefined })}
         />
@@ -43,19 +43,19 @@ export function PrintersPanel() {
             checked={search.offline === "hide"}
             onChange={(e) => patchSearch({ offline: e.target.checked ? "hide" : undefined })}
           />
-          Hide offline
+          {t("printersPanel.hideOffline")}
         </label>
         <label className="flex items-center gap-1.5 text-sm">
-          Sort
+          {t("printersPanel.sort")}
           <select
-            aria-label="Sort printers"
+            aria-label={t("printersPanel.sortAria")}
             className="h-8 rounded-md border bg-card px-2 text-sm"
             value={search.sort ?? "name"}
             onChange={(e) => patchSearch({ sort: e.target.value === "name" ? undefined : (e.target.value as PrintDashSearch["sort"]) })}
           >
             {DASH_SORTS.map((s) => (
               <option key={s} value={s}>
-                {s === "eta" ? "ETA" : s[0].toUpperCase() + s.slice(1)}
+                {t(`printersPanel.sortBy.${s}`)}
               </option>
             ))}
           </select>
@@ -70,9 +70,9 @@ export function PrintersPanel() {
             setSelected(new Set());
           }}
         >
-          Select
+          {t("printersPanel.select")}
         </Button>
-        <div role="radiogroup" aria-label="Card size" className="ml-auto inline-flex overflow-hidden rounded-md border">
+        <div role="radiogroup" aria-label={t("printersPanel.cardSize")} className="ml-auto inline-flex overflow-hidden rounded-md border">
           {CARD_SIZES.map((s) => (
             <button
               key={s}

@@ -71,7 +71,7 @@ export function FileActionsMenu({
       { cover_blob_hash: file.blob_hash },
       {
         onSuccess: () => toast.success(successMessage),
-        onError: () => toast.error("Could not update cover"),
+        onError: () => toast.error(t("mdFileActions.couldNotUpdateCover")),
       },
     );
   }
@@ -80,70 +80,70 @@ export function FileActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon-sm" aria-label={`Actions for ${file.rel_path}`}>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={t("mdFileActions.actionsFor", { path: file.rel_path })}>
             <MoreVerticalIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {showViewIn3D ? (
-            <DropdownMenuItem aria-label={`View ${file.rel_path} in 3D`} onSelect={() => onViewIn3D?.(file)}>
+            <DropdownMenuItem aria-label={t("mdFileActions.viewAria", { path: file.rel_path })} onSelect={() => onViewIn3D?.(file)}>
               <EyeIcon className="size-4" />
-              View in 3D
+              {t("mdFileActions.view")}
             </DropdownMenuItem>
           ) : null}
           {!isDoc && onArrange && canArrange(file) ? (
-            <DropdownMenuItem aria-label={`Arrange ${file.rel_path} on plate`} onSelect={() => onArrange(file)}>
+            <DropdownMenuItem aria-label={t("mdFileActions.arrangeAria", { path: file.rel_path })} onSelect={() => onArrange(file)}>
               <LayoutGridIcon className="size-4" />
-              Arrange on plate…
+              {t("mdFileActions.arrange")}
             </DropdownMenuItem>
           ) : null}
           {showOrcaSlicer ? (
-            <DropdownMenuItem aria-label={`Open ${file.rel_path} in OrcaSlicer`} onSelect={() => orcaslicer.launch(file)}>
+            <DropdownMenuItem aria-label={t("mdFileActions.openOrcaAria", { path: file.rel_path })} onSelect={() => orcaslicer.launch(file)}>
               <BoxesIcon className="size-4" />
               {t("orcaslicer.open")}
             </DropdownMenuItem>
           ) : null}
           {file.verified_at ? (
-            <DropdownMenuItem asChild aria-label={`Download ${file.rel_path}`}>
+            <DropdownMenuItem asChild aria-label={t("mdFileActions.downloadAria", { path: file.rel_path })}>
               <a href={`/api/files/${file.id}/download`}>
                 <DownloadIcon className="size-4" />
-                Download
+                {t("mdFileActions.download")}
               </a>
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
               disabled
-              aria-label={`Download ${file.rel_path}`}
-              title="Still processing — download will be available once verified"
+              aria-label={t("mdFileActions.downloadAria", { path: file.rel_path })}
+              title={t("mdFileActions.processing")}
             >
               <DownloadIcon className="size-4" />
-              Download
+              {t("mdFileActions.download")}
             </DropdownMenuItem>
           )}
           {canSetCover || canSetPreview ? <DropdownMenuSeparator /> : null}
           {canSetCover ? (
-            <DropdownMenuItem onSelect={() => setAsCoverOrPreview("Cover updated")}>
+            <DropdownMenuItem onSelect={() => setAsCoverOrPreview(t("mdFileActions.coverUpdated"))}>
               <ImageIcon className="size-4" />
-              Set as cover
+              {t("mdFileActions.setCover")}
             </DropdownMenuItem>
           ) : null}
           {canSetPreview ? (
-            <DropdownMenuItem onSelect={() => setAsCoverOrPreview("Preview updated")}>
+            <DropdownMenuItem onSelect={() => setAsCoverOrPreview(t("mdFileActions.previewUpdated"))}>
               <StarIcon className="size-4" />
-              Set as preview
+              {t("mdFileActions.setPreview")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
-            aria-label={`Delete ${file.rel_path}`}
+            aria-label={t("mdFileActions.deleteAria", { path: file.rel_path })}
             onSelect={(event) => {
               event.preventDefault();
               setConfirmDeleteOpen(true);
             }}
           >
             <Trash2Icon className="size-4" />
-            Delete
+            {t("common.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -151,9 +151,9 @@ export function FileActionsMenu({
       <ConfirmDialog
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}
-        title={`Delete ${file.rel_path}?`}
-        description="This removes the file from the current revision."
-        confirmLabel="Delete"
+        title={t("mdFileActions.deleteTitle", { path: file.rel_path })}
+        description={t("mdFileActions.deleteDesc")}
+        confirmLabel={t("common.delete")}
         destructive
         onConfirm={() => deleteFile.mutate(file.id)}
       />

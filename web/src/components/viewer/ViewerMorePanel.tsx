@@ -12,9 +12,8 @@ import { usePrinterStatus } from "@/api/printers";
 import { BackgroundSwatches } from "@/components/viewer/BackgroundSwatches";
 import { SegmentedControl } from "@/components/viewer/SegmentedControl";
 import type { BackgroundPreset } from "@/components/viewer/background";
-import { explodeControlLabel, type ExplodeMode } from "@/components/viewer/explode";
+import { type ExplodeMode } from "@/components/viewer/explode";
 import {
-  LIGHTING_PRESET_LABELS,
   LIGHTING_PRESET_ORDER,
   type LightingPreset,
 } from "@/components/viewer/lighting";
@@ -54,13 +53,14 @@ function AmsSync({
   partIds: number[];
   onApply: (colors: PartColors) => void;
 }) {
+  const { t } = useTranslation();
   const status = usePrinterStatus(printerId);
   const trays = (status.data?.trays ?? []).filter((tray) => tray.color);
   if (trays.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Loaded filament</span>
+      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("viewer.panel.loadedFilament")}</span>
       <div className="flex flex-wrap gap-1.5">
         {trays.map((tray) => (
           <FilamentChip key={tray.slot} color={tray.color ?? undefined} material={tray.material ?? undefined} />
@@ -74,7 +74,7 @@ function AmsSync({
         onClick={() => onApply(traysToPartColors(partIds, trays))}
         className="w-full"
       >
-        Sync colors from printer
+        {t("viewer.panel.syncColors")}
       </Button>
     </div>
   );
@@ -133,21 +133,25 @@ function MorePanelBody({
     onToolsChange({ ortho: !tools.ortho });
     onFit();
   };
+  const lightingLabels = Object.fromEntries(
+    LIGHTING_PRESET_ORDER.map((o) => [o, t(`viewer.light.${o}`)]),
+  ) as Record<LightingPreset, string>;
+  const explodeLabel = explodeMode === "explode" ? t("viewer.panel.explode") : t("viewer.panel.separate");
   const handleAutoRotateToggle = () => onToolsChange({ autoRotate: !tools.autoRotate });
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Background</span>
+        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("viewer.bg.label")}</span>
         <BackgroundSwatches preset={preset} custom={custom} onPresetChange={onPresetChange} onCustomChange={onCustomChange} />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Lighting</span>
+        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t("viewer.light.label")}</span>
         <SegmentedControl
-          label="Lighting"
+          label={t("viewer.light.label")}
           options={LIGHTING_PRESET_ORDER}
-          labels={LIGHTING_PRESET_LABELS}
+          labels={lightingLabels}
           value={lightingPreset}
           onChange={onLightingChange}
           className="flex-wrap"
@@ -160,14 +164,14 @@ function MorePanelBody({
             checked={tools.section.enabled}
             onCheckedChange={(next) => onToolsChange({ section: { ...tools.section, enabled: next === true } })}
           />
-          Section
+          {t("viewer.panel.section")}
         </Label>
         {tools.section.enabled && (
           <div className="flex flex-col gap-2 pl-6">
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-muted-foreground">Axis</span>
+              <span className="text-xs text-muted-foreground">{t("viewer.panel.axis")}</span>
               <SegmentedControl
-                label="Axis"
+                label={t("viewer.panel.axis")}
                 options={SECTION_AXIS_OPTIONS}
                 labels={SECTION_AXIS_LABELS}
                 value={tools.section.axis}
@@ -179,7 +183,7 @@ function MorePanelBody({
               min={0}
               max={1}
               step={0.01}
-              aria-label="Section position"
+              aria-label={t("viewer.panel.sectionPosition")}
               value={tools.section.t}
               onChange={(event) => onToolsChange({ section: { ...tools.section, t: Number(event.target.value) } })}
               className="w-full"
@@ -191,14 +195,14 @@ function MorePanelBody({
       {explodeMode !== "none" && (
         <div className="flex flex-col gap-3">
           <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {explodeControlLabel(explodeMode)}
+            {explodeLabel}
           </span>
           <input
             type="range"
             min={0}
             max={1}
             step={0.01}
-            aria-label={explodeControlLabel(explodeMode)}
+            aria-label={explodeLabel}
             value={tools.explode}
             onChange={(event) => onToolsChange({ explode: Number(event.target.value) })}
             className="w-full"
@@ -212,29 +216,29 @@ function MorePanelBody({
           variant={tools.ortho ? "secondary" : "outline"}
           size="sm"
           aria-pressed={tools.ortho}
-          aria-label="Orthographic camera"
+          aria-label={t("viewer.panel.orthoCamera")}
           onClick={handleOrthoToggle}
         >
           <BoxIcon />
-          Ortho
+          {t("viewer.panel.ortho")}
         </Button>
-        <Button type="button" variant="outline" size="sm" aria-label="Fit view" onClick={onFit}>
+        <Button type="button" variant="outline" size="sm" aria-label={t("viewer.panel.fitView")} onClick={onFit}>
           <ScanIcon />
-          Fit
+          {t("viewer.panel.fit")}
         </Button>
         <Button
           type="button"
           variant={tools.autoRotate ? "secondary" : "outline"}
           size="sm"
           aria-pressed={tools.autoRotate}
-          aria-label="Auto-rotate"
+          aria-label={t("viewer.autoRotate")}
           onClick={handleAutoRotateToggle}
         >
-          Auto-rotate
+          {t("viewer.autoRotate")}
         </Button>
-        <Button type="button" variant="outline" size="sm" aria-label="Screenshot" onClick={onScreenshot}>
+        <Button type="button" variant="outline" size="sm" aria-label={t("viewer.panel.screenshot")} onClick={onScreenshot}>
           <CameraIcon />
-          Screenshot
+          {t("viewer.panel.screenshot")}
         </Button>
       </div>
 
@@ -243,7 +247,7 @@ function MorePanelBody({
       {hasColors && (
         <Button type="button" variant="ghost" size="sm" className="w-full" onClick={onResetColors}>
           <RotateCcwIcon />
-          Reset colors
+          {t("viewer.panel.resetColors")}
         </Button>
       )}
 
@@ -251,11 +255,11 @@ function MorePanelBody({
         <div className="flex flex-col gap-1.5">
           <Button type="button" variant="outline" size="sm" disabled={checkedList.length === 0} onClick={() => onOpenWindow(checkedList)}>
             <ExternalLinkIcon />
-            New window
+            {t("viewer.panel.newWindow")}
           </Button>
           {checkedList.length > 1 && (
             <Button type="button" variant="outline" size="sm" onClick={() => checkedList.forEach((id) => onOpenWindow([id]))}>
-              Parts in windows
+              {t("viewer.panel.partsInWindows")}
             </Button>
           )}
         </div>
@@ -275,6 +279,7 @@ function MorePanelBody({
  * fullscreen (risk resolution 2). Everything the old right panel had that
  * doesn't live in `ViewerTopOverlay`/`ViewerDock` now lives here. */
 export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
+  const { t } = useTranslation();
   const wide = useIsWide(900);
   const { container, ...bodyProps } = props;
 
@@ -282,7 +287,7 @@ export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
     return (
       <Popover>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="icon-sm" aria-label="More viewer options">
+          <Button type="button" variant="outline" size="icon-sm" aria-label={t("viewer.panel.more")}>
             <MoreHorizontalIcon />
           </Button>
         </PopoverTrigger>
@@ -304,7 +309,7 @@ export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button type="button" variant="outline" size="icon-sm" aria-label="More viewer options">
+        <Button type="button" variant="outline" size="icon-sm" aria-label={t("viewer.panel.more")}>
           <MoreHorizontalIcon />
         </Button>
       </SheetTrigger>
@@ -314,7 +319,7 @@ export function ViewerMorePanel(props: ViewerMorePanelProps): ReactNode {
         className="max-h-[80%] overflow-y-auto"
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <SheetTitle className="sr-only">Viewer options</SheetTitle>
+        <SheetTitle className="sr-only">{t("viewer.panel.options")}</SheetTitle>
         <MorePanelBody {...bodyProps} />
       </SheetContent>
     </Sheet>

@@ -43,8 +43,8 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
   function sendTest() {
     test.mutate(ch.id, {
       onSuccess: (r) =>
-        r.ok ? toast.success(`Test sent to ${ch.name}`) : toast.error(r.error ?? "Test notification failed"),
-      onError: () => toast.error("Test notification failed"),
+        r.ok ? toast.success(t("settingsNotifCard.testSent", { name: ch.name })) : toast.error(r.error ?? t("settingsNotifCard.testFailed")),
+      onError: () => toast.error(t("settingsNotifCard.testFailed")),
     });
   }
 
@@ -54,20 +54,20 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
       <div className="min-w-0">
         <div className="font-medium">{ch.name}</div>
         <div className="text-xs text-muted-foreground">
-          {kindLabel} · {ch.events.length} event{ch.events.length === 1 ? "" : "s"}
+          {kindLabel} · {t("settingsNotifCard.eventCount", { count: ch.events.length })}
         </div>
       </div>
       <div className="ml-auto flex items-center gap-2">
         <Switch
-          aria-label={`Enable ${ch.name}`}
+          aria-label={t("settingsNotifCard.enable", { name: ch.name })}
           checked={ch.enabled}
           disabled={update.isPending}
           onCheckedChange={(enabled) => update.mutate({ id: ch.id, body: { enabled } })}
         />
-        <Button size="sm" variant="outline" disabled={test.isPending} onClick={sendTest} aria-label={`Test ${ch.name}`}>
-          <Send className="size-4" /> Test
+        <Button size="sm" variant="outline" disabled={test.isPending} onClick={sendTest} aria-label={t("settingsNotifCard.testAria", { name: ch.name })}>
+          <Send className="size-4" /> {t("settingsNotifCard.test")}
         </Button>
-        <Button size="sm" variant="outline" onClick={onEdit} aria-label={`Edit ${ch.name}`}>
+        <Button size="sm" variant="outline" onClick={onEdit} aria-label={t("settingsNotifCard.editAria", { name: ch.name })}>
           <Pencil className="size-4" />
         </Button>
         <Button
@@ -75,7 +75,7 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
           variant="outline"
           disabled={del.isPending}
           onClick={() => setConfirming(true)}
-          aria-label={`Delete ${ch.name}`}
+          aria-label={t("settingsNotifCard.deleteAria", { name: ch.name })}
         >
           <Trash2 className="size-4" />
         </Button>
@@ -95,24 +95,24 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
 }
 
 function HmsRenotify({ clearS, afterS }: { clearS: number; afterS: number }) {
+  const { t } = useTranslation();
   const save = useSaveNotifySettings();
   const [clear, setClear] = useState(String(clearS));
   const [after, setAfter] = useState(String(afterS));
   const valid = [clear, after].every((v) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= 0);
   return (
     <div className="space-y-2 rounded-md border p-3">
-      <p className="text-sm font-medium">Fault alert repeats</p>
+      <p className="text-sm font-medium">{t("settingsNotifCard.faultTitle")}</p>
       <p className="text-xs text-muted-foreground">
-        A printer fault notifies once per episode. It notifies again only after it stays clear for the first interval, or
-        the episode lasts longer than the second.
+        {t("settingsNotifCard.faultDesc")}
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hms-clear">Re-notify after clear (s)</Label>
+          <Label htmlFor="hms-clear">{t("settingsNotifCard.renotifyClear")}</Label>
           <Input id="hms-clear" type="number" min={0} value={clear} onChange={(e) => setClear(e.target.value)} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hms-after">Re-notify after episode (s)</Label>
+          <Label htmlFor="hms-after">{t("settingsNotifCard.renotifyEpisode")}</Label>
           <Input id="hms-after" type="number" min={0} value={after} onChange={(e) => setAfter(e.target.value)} />
         </div>
         <Button
@@ -121,11 +121,11 @@ function HmsRenotify({ clearS, afterS }: { clearS: number; afterS: number }) {
           onClick={() =>
             save.mutate(
               { hms_renotify_clear_s: Number(clear), hms_renotify_after_s: Number(after) },
-              { onSuccess: () => toast.success("Saved"), onError: () => toast.error("Couldn't save") },
+              { onSuccess: () => toast.success(t("settingsNotifCard.saved")), onError: () => toast.error(t("settingsNotifCard.saveError")) },
             )
           }
         >
-          Save
+          {t("common.save")}
         </Button>
       </div>
     </div>
@@ -133,6 +133,7 @@ function HmsRenotify({ clearS, afterS }: { clearS: number; afterS: number }) {
 }
 
 export function NotificationsCard() {
+  const { t } = useTranslation();
   const prefs = useNotifySettings();
   const list = useChannels();
   const catalog = useNotificationCatalog();
@@ -144,16 +145,16 @@ export function NotificationsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Channels</CardTitle>
-        <CardDescription>Where print and system notifications are delivered.</CardDescription>
+        <CardTitle>{t("settingsNotifCard.channels")}</CardTitle>
+        <CardDescription>{t("settingsNotifCard.channelsDesc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {list.isError && (
           <p role="alert" className="text-sm text-destructive">
-            Couldn&apos;t load notification channels.
+            {t("settingsNotifCard.loadError")}
           </p>
         )}
-        {(list.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">No channels yet.</p>}
+        {(list.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">{t("settingsNotifCard.none")}</p>}
         <ul className="space-y-3">
           {(list.data ?? []).map((ch) => (
             <Row
@@ -165,7 +166,7 @@ export function NotificationsCard() {
           ))}
         </ul>
         <Button variant="outline" onClick={() => setEditing("new")}>
-          Add channel
+          {t("settingsNotifCard.add")}
         </Button>
         {prefs.data && (
           <HmsRenotify

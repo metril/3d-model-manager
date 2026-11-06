@@ -6,7 +6,8 @@
  * `virtual_printer_enabled` (the `virtual-printer` compose service is opt-in).
  */
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
@@ -38,12 +39,14 @@ const MODELS: Array<[string, string]> = [
   ["O1C", "H2C"],
 ];
 
-const MODES: Array<[VirtualPrinterMode, string, string]> = [
-  ["queue", "Queue", "add to the print queue"],
-  ["review", "Review", "add to the queue, pending approval in the review inbox"],
-  ["archive", "Archive", "store the file in the library only"],
-  ["proxy", "Proxy", "queue it for a real printer (the dispatcher maps the AMS)"],
-];
+function modes(t: TFunction): Array<[VirtualPrinterMode, string, string]> {
+  return [
+    ["queue", t("settingsVirtualPrinter.modeQueue"), t("settingsVirtualPrinter.hintQueue")],
+    ["review", t("settingsVirtualPrinter.modeReview"), t("settingsVirtualPrinter.hintReview")],
+    ["archive", t("settingsVirtualPrinter.modeArchive"), t("settingsVirtualPrinter.hintArchive")],
+    ["proxy", t("settingsVirtualPrinter.modeProxy"), t("settingsVirtualPrinter.hintProxy")],
+  ];
+}
 
 const SELECT_CLASS =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs disabled:opacity-50";
@@ -62,6 +65,7 @@ interface FormProps {
 }
 
 function VirtualPrinterForm({ initial, onDone }: FormProps) {
+  const { t } = useTranslation();
   const create = useCreateVirtualPrinter();
   const update = useUpdateVirtualPrinter();
   const printers = usePrinters();
@@ -88,11 +92,11 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
   return (
     <form onSubmit={submit} className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
       <div className="space-y-1">
-        <Label htmlFor="vp-name">Name</Label>
+        <Label htmlFor="vp-name">{t("settingsVirtualPrinter.name")}</Label>
         <Input id="vp-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={64} />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="vp-model">Model</Label>
+        <Label htmlFor="vp-model">{t("settingsVirtualPrinter.model")}</Label>
         <select id="vp-model" className={SELECT_CLASS} value={model} onChange={(e) => setModel(e.target.value)}>
           {MODELS.map(([code, label]) => (
             <option key={code} value={code}>
@@ -102,14 +106,14 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
         </select>
       </div>
       <div className="space-y-1">
-        <Label htmlFor="vp-mode">When a slicer sends a print</Label>
+        <Label htmlFor="vp-mode">{t("settingsVirtualPrinter.whenSent")}</Label>
         <select
           id="vp-mode"
           className={SELECT_CLASS}
           value={mode}
           onChange={(e) => setMode(e.target.value as VirtualPrinterMode)}
         >
-          {MODES.map(([value, label, hint]) => (
+          {modes(t).map(([value, label, hint]) => (
             <option key={value} value={value}>
               {label} — {hint}
             </option>
@@ -118,7 +122,7 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
       </div>
       {mode === "proxy" && (
         <div className="space-y-1">
-          <Label htmlFor="vp-target">Target printer</Label>
+          <Label htmlFor="vp-target">{t("settingsVirtualPrinter.target")}</Label>
           <select
             id="vp-target"
             className={SELECT_CLASS}
@@ -126,7 +130,7 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
             onChange={(e) => setTarget(e.target.value)}
             required
           >
-            <option value="">Choose a printer…</option>
+            <option value="">{t("settingsVirtualPrinter.choosePrinter")}</option>
             {(printers.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -137,14 +141,14 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
       )}
       <div className="flex items-center gap-2 sm:col-span-2">
         <Button type="submit" disabled={pending || !name.trim() || (mode === "proxy" && !target)}>
-          {initial ? "Save" : "Create virtual printer"}
+          {initial ? t("common.save") : t("settingsVirtualPrinter.create")}
         </Button>
         <Button type="button" variant="ghost" onClick={onDone}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         {error && (
           <p role="alert" className="text-sm text-destructive">
-            {errorText(error, "Could not save the virtual printer.")}
+            {errorText(error, t("settingsVirtualPrinter.saveError"))}
           </p>
         )}
       </div>
@@ -158,7 +162,7 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  const mode = MODES.find(([m]) => m === vp.mode)?.[1] ?? vp.mode;
+  const mode = modes(t).find(([m]) => m === vp.mode)?.[1] ?? vp.mode;
   const err = update.error ?? del.error;
 
   return (
@@ -167,7 +171,7 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
         <span className="font-medium">{vp.name}</span>
         <span className="text-xs text-muted-foreground">
           {modelLabel(vp.model)} · {mode}
-          {!vp.enabled && " · disabled"}
+          {!vp.enabled && ` · ${t("settingsVirtualPrinter.disabled")}`}
         </span>
         <div className="ml-auto flex gap-2">
           <Button
@@ -176,22 +180,22 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
             disabled={update.isPending}
             onClick={() => update.mutate({ id: vp.id, body: { enabled: !vp.enabled } })}
           >
-            {vp.enabled ? "Disable" : "Enable"}
+            {vp.enabled ? t("settingsVirtualPrinter.disable") : t("settingsVirtualPrinter.enable")}
           </Button>
           <Button size="sm" variant="outline" onClick={onEdit}>
-            Edit
+            {t("common.edit")}
           </Button>
           <Button size="sm" variant="outline" disabled={del.isPending} onClick={() => setConfirming(true)}>
-            Delete
+            {t("common.delete")}
           </Button>
         </div>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-muted-foreground">Serial</dt>
+        <dt className="text-muted-foreground">{t("settingsVirtualPrinter.serial")}</dt>
         <dd className="font-mono">{vp.serial}</dd>
-        <dt className="text-muted-foreground">Access code</dt>
+        <dt className="text-muted-foreground">{t("settingsVirtualPrinter.accessCode")}</dt>
         <dd className="flex items-center gap-2">
-          <code className="font-mono" aria-label={`Access code for ${vp.name}`}>
+          <code className="font-mono" aria-label={t("settingsVirtualPrinter.accessCodeFor", { name: vp.name })}>
             {vp.access_code}
           </code>
           <Button
@@ -200,13 +204,13 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
             disabled={update.isPending}
             onClick={() => setRegenerating(true)}
           >
-            Regenerate
+            {t("settingsVirtualPrinter.regenerate")}
           </Button>
         </dd>
       </dl>
       {err && (
         <p role="alert" className="text-sm text-destructive">
-          {errorText(err, "Request failed.")}
+          {errorText(err, t("settingsVirtualPrinter.requestFailed"))}
         </p>
       )}
       <ConfirmDialog
@@ -234,6 +238,7 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
 }
 
 export function VirtualPrinterCard() {
+  const { t } = useTranslation();
   const list = useVirtualPrinters();
   const [editing, setEditing] = useState<number | "new" | null>(null);
 
@@ -242,20 +247,19 @@ export function VirtualPrinterCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Virtual printer</CardTitle>
+        <CardTitle>{t("settingsVirtualPrinter.title")}</CardTitle>
         <CardDescription>
-          A fake LAN printer your slicer can send to. The file lands in the queue, the review inbox or the
-          library, or is proxied to a real printer. Only the first enabled virtual printer is served.
+          {t("settingsVirtualPrinter.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {list.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {errorText(list.error, "Couldn't load virtual printers.")}
+            {errorText(list.error, t("settingsVirtualPrinter.loadError"))}
           </p>
         )}
         {(list.data ?? []).length === 0 && editing !== "new" && (
-          <p className="text-sm text-muted-foreground">No virtual printers yet.</p>
+          <p className="text-sm text-muted-foreground">{t("settingsVirtualPrinter.none")}</p>
         )}
         <ul className="space-y-3">
           {(list.data ?? []).map((vp) =>
@@ -272,15 +276,17 @@ export function VirtualPrinterCard() {
           <VirtualPrinterForm onDone={() => setEditing(null)} />
         ) : (
           <Button variant="outline" onClick={() => setEditing("new")}>
-            Add virtual printer
+            {t("settingsVirtualPrinter.add")}
           </Button>
         )}
         <div className="space-y-1 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">In Bambu Studio / OrcaSlicer</p>
+          <p className="font-medium text-foreground">{t("settingsVirtualPrinter.stepsTitle")}</p>
           <ol className="list-decimal space-y-0.5 pl-5">
-            <li>Start the service: <code>docker compose --profile virtual-printer up -d</code>.</li>
-            <li>Open Device, pick the printer by LAN and choose the virtual printer by name (or add it with the host IP + serial).</li>
-            <li>Enter the access code above when asked, then use Print / Send as usual.</li>
+            <li>
+              <Trans i18nKey="settingsVirtualPrinter.step1" components={{ code: <code /> }} />
+            </li>
+            <li>{t("settingsVirtualPrinter.step2")}</li>
+            <li>{t("settingsVirtualPrinter.step3")}</li>
           </ol>
         </div>
       </CardContent>

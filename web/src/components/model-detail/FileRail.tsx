@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { RotateCcwIcon } from "lucide-react";
 
 import { TagChips } from "@/components/tags/TagChip";
@@ -29,6 +30,7 @@ export function PartRow({
   onSetColor: (hex: string) => void;
   onClearColor: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={cn("flex items-center gap-2", !checked && "opacity-60")}>
       <Checkbox checked={checked} onCheckedChange={(next) => onToggle(next === true)} aria-label={file.rel_path} />
@@ -36,7 +38,7 @@ export function PartRow({
         <FilamentChip color={color ?? "#cccccc"} />
         <input
           type="color"
-          aria-label={`Color for ${file.rel_path}`}
+          aria-label={t("mdRail.colorFor", { path: file.rel_path })}
           value={color ?? "#cccccc"}
           onChange={(event) => onSetColor(event.target.value)}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
@@ -51,14 +53,14 @@ export function PartRow({
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label={`Reset color for ${file.rel_path}`}
+              aria-label={t("mdRail.resetColorFor", { path: file.rel_path })}
               onClick={onClearColor}
               className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <RotateCcwIcon className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Reset color</TooltipContent>
+          <TooltipContent>{t("mdRail.resetColor")}</TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -114,32 +116,33 @@ export function PartsChecklist({
   onClearPartColor,
 }: PartRowListProps & { onSetAllChecked: (checked: boolean) => void }) {
   const checkedCount = glbFiles.filter((file) => checkedIds.has(file.id)).length;
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground tabular-nums">
-          {checkedCount} of {glbFiles.length}
+          {t("mdRail.ofTotal", { checked: checkedCount, total: glbFiles.length })}
         </span>
         <div className="flex items-center gap-1">
           <Button
             type="button"
             variant="ghost"
             size="xs"
-            aria-label="Show all parts"
+            aria-label={t("mdRail.showAll")}
             disabled={checkedCount === glbFiles.length}
             onClick={() => onSetAllChecked(true)}
           >
-            All
+            {t("mdRail.all")}
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="xs"
-            aria-label="None — hide all parts"
+            aria-label={t("mdRail.hideAll")}
             disabled={checkedCount === 0}
             onClick={() => onSetAllChecked(false)}
           >
-            None
+            {t("mdRail.none")}
           </Button>
         </div>
       </div>

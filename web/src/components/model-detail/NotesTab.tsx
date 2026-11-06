@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { useCreateNote, useDeleteNote, usePatchNote } from "@/api/library";
@@ -8,6 +9,7 @@ import type { ModelDetail } from "@/api/types";
 
 export function NotesTab({ model }: { model: ModelDetail }) {
   const [draft, setDraft] = useState("");
+  const { t } = useTranslation();
   const createNote = useCreateNote(model.slug);
   const patchNote = usePatchNote(model.slug);
   const deleteNote = useDeleteNote(model.slug);
@@ -25,17 +27,17 @@ export function NotesTab({ model }: { model: ModelDetail }) {
         <Textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write a note… (markdown supported)"
+          placeholder={t("mdNotes.placeholder")}
           rows={3}
-          aria-label="New note"
+          aria-label={t("mdNotes.newNote")}
         />
         <Button type="submit" size="sm" disabled={createNote.isPending || draft.trim().length === 0}>
-          Add note
+          {t("mdNotes.addNote")}
         </Button>
       </form>
 
       {model.notes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No notes yet.</p>
+        <p className="text-sm text-muted-foreground">{t("mdNotes.empty")}</p>
       ) : (
         <ul className="space-y-3">
           {model.notes.map((note) => (

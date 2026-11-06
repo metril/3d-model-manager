@@ -5,6 +5,7 @@
  * the print (rename and queue are exclusive -- the queue names its own slice).
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useSavePipeline, type PipelineStep, type SlicerPipeline } from "@/api/pipelines";
@@ -59,6 +60,7 @@ export function PipelineForm({
 }) {
   const recipes = useRecipes();
   const printers = usePrinters();
+  const { t } = useTranslation();
   const save = useSavePipeline();
   const [f, setF] = useState(() => fieldsFor(pipeline));
   const [baseline, setBaseline] = useState(() => JSON.stringify(fieldsFor(pipeline)));
@@ -119,19 +121,18 @@ export function PipelineForm({
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={save.isPending}>
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit pipeline" : "New pipeline"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("pipelineForm.edit") : t("pipelineForm.new")}</DialogTitle>
           <DialogDescription>
-            Run a recipe with extra steps in one click: tweak the slice first, then rename the result or send it
-            to the print queue.
+            {t("pipelineForm.desc")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pipeline-name">Name</Label>
+            <Label htmlFor="pipeline-name">{t("pipelineForm.name")}</Label>
             <Input id="pipeline-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pipeline-description">Description (optional)</Label>
+            <Label htmlFor="pipeline-description">{t("pipelineForm.description")}</Label>
             <Input
               id="pipeline-description"
               value={f.description}
@@ -140,14 +141,14 @@ export function PipelineForm({
           </div>
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pipeline-recipe">Slice with recipe</Label>
+              <Label htmlFor="pipeline-recipe">{t("pipelineForm.sliceWith")}</Label>
               <Select
-                aria-label="Recipe"
+                aria-label={t("pipelineForm.recipe")}
                 value={f.recipeId != null ? String(f.recipeId) : ""}
                 onValueChange={(v) => setF({ ...f, recipeId: Number(v) })}
               >
-                <SelectTrigger id="pipeline-recipe" aria-label="Recipe" className="w-full">
-                  <SelectValue placeholder="Choose a recipe" />
+                <SelectTrigger id="pipeline-recipe" aria-label={t("pipelineForm.recipe")} className="w-full">
+                  <SelectValue placeholder={t("pipelineForm.chooseRecipe")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(Array.isArray(recipes.data) ? recipes.data : []).map((r) => (
@@ -159,12 +160,12 @@ export function PipelineForm({
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pipeline-plate">Plate</Label>
+              <Label htmlFor="pipeline-plate">{t("pipelineForm.plate")}</Label>
               <Input
                 id="pipeline-plate"
                 type="number"
                 min={1}
-                placeholder="First"
+                placeholder={t("pipelineForm.first")}
                 className="w-24"
                 value={f.plate}
                 onChange={(e) => setF({ ...f, plate: e.target.value })}
@@ -174,33 +175,33 @@ export function PipelineForm({
           </div>
 
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium">Before slicing</legend>
+            <legend className="mb-1 text-sm font-medium">{t("pipelineForm.before")}</legend>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={f.orient} onCheckedChange={(c) => setF({ ...f, orient: c === true })} />
-              Auto-orient the model
+              {t("pipelineForm.orient")}
             </label>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={f.arrange} onCheckedChange={(c) => setF({ ...f, arrange: c === true })} />
-              Auto-arrange the plate
+              {t("pipelineForm.arrange")}
             </label>
           </fieldset>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="pipeline-final">After slicing</Label>
-            <Select aria-label="After slicing" value={f.final} onValueChange={(v) => setF({ ...f, final: v as Final })}>
-              <SelectTrigger id="pipeline-final" aria-label="After slicing" className="w-full">
+            <Label htmlFor="pipeline-final">{t("pipelineForm.after")}</Label>
+            <Select aria-label={t("pipelineForm.after")} value={f.final} onValueChange={(v) => setF({ ...f, final: v as Final })}>
+              <SelectTrigger id="pipeline-final" aria-label={t("pipelineForm.after")} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Keep the sliced file</SelectItem>
-                <SelectItem value="rename">Rename the sliced file</SelectItem>
-                <SelectItem value="queue">Add to the print queue</SelectItem>
+                <SelectItem value="none">{t("pipelineForm.keep")}</SelectItem>
+                <SelectItem value="rename">{t("pipelineForm.rename")}</SelectItem>
+                <SelectItem value="queue">{t("pipelineForm.queue")}</SelectItem>
               </SelectContent>
             </Select>
 
             {f.final === "rename" ? (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pipeline-template">File name template</Label>
+                <Label htmlFor="pipeline-template">{t("pipelineForm.template")}</Label>
                 <Input
                   id="pipeline-template"
                   value={f.template}
@@ -208,8 +209,7 @@ export function PipelineForm({
                   aria-invalid={!templateValid}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Placeholders: {"{name}"} (source file), {"{recipe}"}, {"{pipeline}"}, {"{plate}"}. The
-                  .gcode.3mf extension is added.
+                  {t("pipelineForm.placeholders")}
                 </p>
               </div>
             ) : null}
@@ -218,17 +218,17 @@ export function PipelineForm({
               <div className="flex flex-col gap-3 rounded-lg border p-3">
                 <div className="grid grid-cols-[1fr_auto] gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="pipeline-printer">Printer</Label>
+                    <Label htmlFor="pipeline-printer">{t("pipelineForm.printer")}</Label>
                     <Select
-                      aria-label="Printer"
+                      aria-label={t("pipelineForm.printer")}
                       value={f.printerId != null ? String(f.printerId) : "any"}
                       onValueChange={(v) => setF({ ...f, printerId: v === "any" ? null : Number(v) })}
                     >
-                      <SelectTrigger id="pipeline-printer" aria-label="Printer" className="w-full">
+                      <SelectTrigger id="pipeline-printer" aria-label={t("pipelineForm.printer")} className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="any">Any eligible printer</SelectItem>
+                        <SelectItem value="any">{t("pipelineForm.anyPrinter")}</SelectItem>
                         {(printers.data ?? []).map((p) => (
                           <SelectItem key={p.id} value={String(p.id)}>
                             {p.name}
@@ -238,7 +238,7 @@ export function PipelineForm({
                     </Select>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="pipeline-copies">Copies</Label>
+                    <Label htmlFor="pipeline-copies">{t("pipelineForm.copies")}</Label>
                     <Input
                       id="pipeline-copies"
                       type="number"
@@ -253,14 +253,14 @@ export function PipelineForm({
                 </div>
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox checked={f.front} onCheckedChange={(c) => setF({ ...f, front: c === true })} />
-                  Put at the front of the queue
+                  {t("pipelineForm.front")}
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={f.manualStart}
                     onCheckedChange={(c) => setF({ ...f, manualStart: c === true })}
                   />
-                  Wait for a manual start
+                  {t("pipelineForm.manual")}
                 </label>
               </div>
             ) : null}
@@ -268,15 +268,15 @@ export function PipelineForm({
 
           {save.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {save.error instanceof ApiError ? save.error.detail : "Could not save this pipeline"}
+              {save.error instanceof ApiError ? save.error.detail : t("pipelineForm.saveFailed")}
             </p>
           ) : null}
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             <Button type="submit" disabled={!valid || save.isPending}>
-              {save.isPending ? "Saving..." : isEdit ? "Save changes" : "Create pipeline"}
+              {save.isPending ? t("pipelineForm.saving") : isEdit ? t("pipelineForm.saveChanges") : t("pipelineForm.create")}
             </Button>
           </DialogFooter>
         </form>

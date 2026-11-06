@@ -2,17 +2,19 @@
 import { CameraOffIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "react-i18next";
 
 export function PlateStallBadge() {
+  const { t } = useTranslation();
   return (
     <Badge
       variant="outline"
-      title="Plate check is waiting for a camera frame; the queued print is held. Check the camera."
-      aria-label="Plate check stalled"
+      title={t("plateStall.title")}
+      aria-label={t("plateStall.label")}
       className="gap-1 border-warning bg-warning/10 text-warning"
     >
       <CameraOffIcon className="size-3.5" />
-      Plate check stalled
+      {t("plateStall.label")}
     </Badge>
   );
 }

@@ -6,6 +6,7 @@
  * (`SpoolsPage` owns that sheet; this component only reports the click).
  */
 import { useMemo, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -37,13 +38,14 @@ const BULK_CAP = 500;
 const LABEL_CAP = 300;
 const MATERIAL_KINDS: MaterialKind[] = ["PLA", "PETG", "ABS", "ASA", "TPU", "Resin", "Other"];
 
-function slotLabel(spool: SpoolOut, printerName: (id: number) => string): string {
+function slotLabel(spool: SpoolOut, printerName: (id: number) => string, t: TFunction): string {
   if (!spool.slot) return "—";
-  if (spool.slot.ams_unit === EXTERNAL_UNIT) return "Ext";
-  return `${printerName(spool.slot.printer_id)} · AMS ${spool.slot.ams_unit + 1}-${spool.slot.slot + 1}`;
+  if (spool.slot.ams_unit === EXTERNAL_UNIT) return t("spoolTable.ext");
+  return `${printerName(spool.slot.printer_id)} · ${t("spoolTable.ams", { unit: spool.slot.ams_unit + 1, slot: spool.slot.slot + 1 })}`;
 }
 
 function RemainingBar({ spool }: { spool: SpoolOut }) {
+  const { t } = useTranslation();
   const remaining = Math.max(0, spool.remaining_g);
   const fraction = spool.label_weight_g > 0 ? Math.min(1, remaining / spool.label_weight_g) : 0;
   return (
@@ -57,7 +59,7 @@ function RemainingBar({ spool }: { spool: SpoolOut }) {
       <span className="font-mono text-xs tabular-nums">{Math.round(remaining)} g</span>
       {spool.low_stock ? (
         <Badge variant="secondary" className="shrink-0">
-          Low
+          {t("spoolTable.low")}
         </Badge>
       ) : null}
     </div>
@@ -145,23 +147,23 @@ export function SpoolTable({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="spool-search">Search</Label>
+          <Label htmlFor="spool-search">{t("spoolTable.search")}</Label>
           <Input
             id="spool-search"
-            placeholder="Brand, color or label #"
+            placeholder={t("spoolTable.searchPlaceholder")}
             value={q}
             onChange={(event) => setQ(event.target.value)}
             className="w-48"
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="spool-material-filter">Material</Label>
-          <Select aria-label="Material" value={materialType} onValueChange={setMaterialType}>
-            <SelectTrigger id="spool-material-filter" aria-label="Material" className="w-32">
+          <Label htmlFor="spool-material-filter">{t("spoolAdmin.f.material")}</Label>
+          <Select aria-label={t("spoolAdmin.f.material")} value={materialType} onValueChange={setMaterialType}>
+            <SelectTrigger id="spool-material-filter" aria-label={t("spoolAdmin.f.material")} className="w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All materials</SelectItem>
+              <SelectItem value={ALL}>{t("spoolTable.allMaterials")}</SelectItem>
               {MATERIAL_KINDS.map((kind) => (
                 <SelectItem key={kind} value={kind}>
                   {kind}
@@ -188,15 +190,15 @@ export function SpoolTable({
         </div>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <Checkbox checked={lowStockOnly} onCheckedChange={(c) => setLowStockOnly(c === true)} />
-          Low stock
+          {t("spoolTable.lowStock")}
         </label>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <Checkbox checked={needsDrying} onCheckedChange={(c) => setNeedsDrying(c === true)} />
-          Needs drying
+          {t("spoolTable.needsDrying")}
         </label>
         <label className="flex items-center gap-2 pb-2 text-sm">
           <Checkbox checked={showArchived} onCheckedChange={(c) => setShowArchived(c === true)} />
-          Show archived
+          {t("spoolTable.showArchived")}
         </label>
         <div className="ml-auto flex items-center gap-2 pb-0.5">
           <Button type="button" size="sm" variant="outline" disabled={exportCsv.isPending} onClick={() => exportCsv.mutate()}>
@@ -250,10 +252,10 @@ export function SpoolTable({
         <Skeleton className="h-32 w-full rounded-lg" />
       ) : spoolsQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {spoolsQuery.error instanceof ApiError ? spoolsQuery.error.detail : "Couldn't load spools."}
+          {spoolsQuery.error instanceof ApiError ? spoolsQuery.error.detail : t("spoolTable.loadFailed")}
         </p>
       ) : spools.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">No spools match these filters.</p>
+        <p className="py-4 text-center text-sm text-muted-foreground">{t("spoolTable.none")}</p>
       ) : (
         <Table className="data-table">
           <TableHeader>
@@ -266,12 +268,12 @@ export function SpoolTable({
                 />
               </TableHead>
               <TableHead />
-              <TableHead>Material</TableHead>
-              <TableHead>Remaining</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead>Slot</TableHead>
-              <TableHead>Last used</TableHead>
-              <TableHead>Last dried</TableHead>
+              <TableHead>{t("spoolAdmin.f.material")}</TableHead>
+              <TableHead>{t("spoolTable.remaining")}</TableHead>
+              <TableHead>{t("spoolAdmin.f.location")}</TableHead>
+              <TableHead>{t("spoolTable.slot")}</TableHead>
+              <TableHead>{t("spoolTable.lastUsed")}</TableHead>
+              <TableHead>{t("spoolTable.lastDried")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -314,14 +316,14 @@ export function SpoolTable({
                   <div className="flex items-center gap-2">
                     <RemainingBar spool={spool} />
                     {spool.spoolman_id != null ? (
-                      <Badge variant="outline" className="shrink-0" title={`Spoolman #${spool.spoolman_id}`}>
-                        Spoolman
+                      <Badge variant="outline" className="shrink-0" title={t("spoolTable.spoolmanId", { id: spool.spoolman_id })}>
+                        {t("spoolTable.spoolman")}
                       </Badge>
                     ) : null}
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{spool.location ?? "—"}</TableCell>
-                <TableCell className="font-mono text-xs">{slotLabel(spool, printerName)}</TableCell>
+                <TableCell className="font-mono text-xs">{slotLabel(spool, printerName, t)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatDateTime(spool.last_used_at)}</TableCell>
                 <TableCell className="text-muted-foreground" title={driedDetail(spool)}>
                   {formatDateTime(spool.last_dried_at)}

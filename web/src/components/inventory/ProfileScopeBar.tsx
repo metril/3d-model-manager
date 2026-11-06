@@ -5,6 +5,7 @@
  * server-resolved (live -> last seen -> assumed) unless the user overrides it.
  */
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { usePrinters } from "@/api/printers";
 import { useProfileList } from "@/api/slicing";
@@ -17,11 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { ProfilesSearch } from "@/pages/profilesSearch";
 
 const NOZZLES = [0.2, 0.4, 0.6, 0.8];
-const SOURCE_LABEL: Record<NozzleSource, string> = {
-  override: "override",
-  live: "live",
-  last_seen: "last seen",
-  assumed: "assumed",
+const SOURCE_KEY: Record<NozzleSource, string> = {
+  override: "profileScope.source.override",
+  live: "profileScope.source.live",
+  last_seen: "profileScope.source.last_seen",
+  assumed: "profileScope.source.assumed",
 };
 
 export function ProfileScopeBar({
@@ -33,6 +34,7 @@ export function ProfileScopeBar({
   onPatch: (patch: Partial<ProfilesSearch>) => void;
   showLayer: boolean;
 }) {
+  const { t } = useTranslation();
   const printers = usePrinters();
   const [qDraft, setQDraft] = useState(search.q ?? "");
 
@@ -80,13 +82,13 @@ export function ProfileScopeBar({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="profile-scope-bar">
       <div className="flex flex-col gap-1">
-        <Label htmlFor="scope-printer">Printer</Label>
+        <Label htmlFor="scope-printer">{t("profileScope.printer")}</Label>
         <Select
           value={search.printer != null ? String(search.printer) : ""}
           onValueChange={(v) => onPatch({ printer: Number(v), nozzle: undefined })}
         >
-          <SelectTrigger id="scope-printer" aria-label="Printer" className="w-48">
-            <SelectValue placeholder="All printers" />
+          <SelectTrigger id="scope-printer" aria-label={t("profileScope.printer")} className="w-48">
+            <SelectValue placeholder={t("profileScope.allPrinters")} />
           </SelectTrigger>
           <SelectContent>
             {(printers.data ?? []).map((p) => (
@@ -99,18 +101,18 @@ export function ProfileScopeBar({
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="scope-nozzle">Nozzle</Label>
+        <Label htmlFor="scope-nozzle">{t("profileScope.nozzle")}</Label>
         <div className="flex items-center gap-2">
           <Select
-            aria-label="Nozzle"
+            aria-label={t("profileScope.nozzle")}
             value={search.nozzle != null ? String(search.nozzle) : "auto"}
             onValueChange={(v) => onPatch({ nozzle: v === "auto" ? undefined : Number(v) })}
           >
-            <SelectTrigger id="scope-nozzle" aria-label="Nozzle" className="w-28">
-              <SelectValue placeholder="Any" />
+            <SelectTrigger id="scope-nozzle" aria-label={t("profileScope.nozzle")} className="w-28">
+              <SelectValue placeholder={t("profileScope.any")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">{nozzle != null ? `Auto (${nozzle} mm)` : "Auto"}</SelectItem>
+              <SelectItem value="auto">{nozzle != null ? t("profileScope.autoMm", { nozzle }) : t("profileScope.auto")}</SelectItem>
               {nozzleOptions.map((n) => (
                 <SelectItem key={n} value={String(n)}>
                   {n} mm
@@ -120,7 +122,7 @@ export function ProfileScopeBar({
           </Select>
           {source ? (
             <Badge variant="outline" data-testid="nozzle-source">
-              {SOURCE_LABEL[source]}
+              {t(SOURCE_KEY[source])}
             </Badge>
           ) : null}
         </div>
@@ -128,16 +130,16 @@ export function ProfileScopeBar({
 
       {showLayer ? (
         <div className="flex flex-col gap-1">
-          <Label htmlFor="scope-layer">Layer height</Label>
+          <Label htmlFor="scope-layer">{t("profileScope.layerHeight")}</Label>
           <Select
             value={search.layer != null ? String(search.layer) : "any"}
             onValueChange={(v) => onPatch({ layer: v === "any" ? undefined : Number(v) })}
           >
-            <SelectTrigger id="scope-layer" aria-label="Layer height" className="w-32">
+            <SelectTrigger id="scope-layer" aria-label={t("profileScope.layerHeight")} className="w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="any">Any</SelectItem>
+              <SelectItem value="any">{t("profileScope.any")}</SelectItem>
               {layers.map((l) => (
                 <SelectItem key={l} value={String(l)}>
                   {l} mm
@@ -149,11 +151,11 @@ export function ProfileScopeBar({
       ) : null}
 
       <div className="flex min-w-40 flex-1 flex-col gap-1">
-        <Label htmlFor="scope-q">Search</Label>
+        <Label htmlFor="scope-q">{t("profileScope.search")}</Label>
         <Input
           id="scope-q"
           type="search"
-          placeholder="Search by name"
+          placeholder={t("profileScope.searchByName")}
           value={qDraft}
           onChange={(e) => setQDraft(e.target.value)}
         />
@@ -178,13 +180,14 @@ export function ScopeHeader({
   onAll?: (all: boolean) => void;
   idPrefix: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
       <span data-testid={`${idPrefix}-count`}>
-        {total != null ? `Showing ${shown} of ${total}` : `Showing ${shown}`}
+        {total != null ? t("profileScope.showingOf", { shown, total }) : t("profileScope.showing", { shown })}
       </span>
       {onAll ? (
-        <SwitchRow id={`${idPrefix}-all`} label="Show incompatible" checked={all ?? false} onCheckedChange={onAll} />
+        <SwitchRow id={`${idPrefix}-all`} label={t("profileScope.showIncompatible")} checked={all ?? false} onCheckedChange={onAll} />
       ) : null}
     </div>
   );
@@ -192,9 +195,10 @@ export function ScopeHeader({
 
 /** Why a row is dimmed, or "Any printer" for universal rows. */
 export function ScopeBadges({ universal, reason }: { universal: boolean; reason?: string | null }) {
+  const { t } = useTranslation();
   return (
     <>
-      {universal ? <Badge variant="secondary">Any printer</Badge> : null}
+      {universal ? <Badge variant="secondary">{t("profileScope.anyPrinter")}</Badge> : null}
       {reason ? <Badge variant="destructive">{reason}</Badge> : null}
     </>
   );

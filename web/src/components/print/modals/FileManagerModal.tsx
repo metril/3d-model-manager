@@ -70,7 +70,7 @@ export function FileManagerModal({
         <DialogHeader>
           <DialogTitle>{t("printerOps.files.title")}</DialogTitle>
         </DialogHeader>
-        <nav aria-label="breadcrumb" className="flex flex-wrap items-center gap-1 text-sm">
+        <nav aria-label={t("fileManager.breadcrumb")} className="flex flex-wrap items-center gap-1 text-sm">
           <Button type="button" variant="ghost" size="xs" onClick={() => goTo("/")}>
             {t("printerOps.files.root")}
           </Button>

@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import type { OverlayOut } from "@/api/types";
 import { CameraTile } from "@/components/print/CameraTile";
 import { formatEta } from "@/lib/formatEta";
+import { useTranslation } from "react-i18next";
 
 const POLL_MS = 5_000;
 
@@ -19,6 +20,7 @@ async function fetchOverlay(id: number, token: string): Promise<OverlayOut> {
 /** OBS browser-source page: transparent background, camera feed (token
  * URLs from the public route) plus a status strip; polls every 5 s. */
 export function OverlayView({ id, token }: { id: number; token: string | undefined }) {
+  const { t } = useTranslation();
   const query = useQuery({
     queryKey: ["overlay", id, token] as const,
     queryFn: () => fetchOverlay(id, token!),
@@ -39,7 +41,7 @@ export function OverlayView({ id, token }: { id: number; token: string | undefin
 
   const d = query.data;
   if (!token || (query.isError && !d)) {
-    return <div className="p-2 text-xs text-white/70">{!token ? "Missing overlay token" : "Overlay unavailable"}</div>;
+    return <div className="p-2 text-xs text-white/70">{!token ? t("overlayPage.missingToken") : t("overlayPage.unavailable")}</div>;
   }
   if (!d) return null;
   const eta = formatEta(d.remaining_min);
@@ -63,10 +65,10 @@ export function OverlayView({ id, token }: { id: number; token: string | undefin
         {d.progress != null ? <span>{d.progress}%</span> : null}
         {d.layer != null && d.total_layers ? (
           <span>
-            Layer {d.layer}/{d.total_layers}
+            {t("activeJob.layer", { num: d.layer, total: d.total_layers })}
           </span>
         ) : null}
-        {eta ? <span>ETA {eta}</span> : null}
+        {eta ? <span>{t("activeJob.eta", { eta })}</span> : null}
       </div>
     </div>
   );

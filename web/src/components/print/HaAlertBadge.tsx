@@ -9,9 +9,11 @@
 import { SirenIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "react-i18next";
 
 export function HaAlertBadge({ reason, held }: { reason: string; held: boolean }) {
-  const label = held ? "Held" : "Alert";
+  const { t } = useTranslation();
+  const label = held ? t("haAlert.held") : t("haAlert.alert");
   return (
     <Badge
       variant="outline"

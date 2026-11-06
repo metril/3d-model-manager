@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewHeaderActionsProps } from "dockview-react";
 import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
@@ -17,13 +18,14 @@ const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
 /** Group header button: pop the group into its own window, or (inside a
  * pop-out) close the window, which docks the panels back. */
 function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps) {
+  const { t } = useTranslation();
   const inPopout = api.location.type === "popout";
   return (
     <button
       type="button"
       className="mx-1 inline-flex size-6 items-center justify-center self-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-      aria-label={inPopout ? "Return to dock" : "Pop out"}
-      title={inPopout ? "Return to dock" : "Pop out to a window"}
+      aria-label={inPopout ? t("mdDock.returnToDock") : t("mdDock.popOut")}
+      title={inPopout ? t("mdDock.returnToDock") : t("mdDock.popOutWindow")}
       onClick={() => {
         if (inPopout) api.getWindow().close();
         else void containerApi.addPopoutGroup(group, { popoutUrl: POPOUT_URL });
@@ -38,6 +40,7 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
  * groups, resized, closed/re-added, and popped out into live windows. The
  * layout persists per browser (`layoutStore`); pop-outs never survive reload. */
 export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
+  const { t } = useTranslation();
   const { model } = useModelDetail();
   // Unsliced print profiles (plated 3MFs) live in the same panel, so they count too.
   const hasSliced = hasProfileContent(model.current_revision?.files ?? []);
@@ -97,10 +100,10 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
         themeSyncs.current.delete(popout.id);
         emitter.emit();
       });
-      api.onDidOpenPopoutWindowFail(() => toast.error("Allow pop-ups to open panels in a window"));
+      api.onDidOpenPopoutWindowFail(() => toast.error(t("mdDock.allowPopups")));
       onApi?.(api);
     },
-    [emitter, onApi, hasSliced],
+    [emitter, onApi, hasSliced, t],
   );
 
   const unmounted = useRef(false);

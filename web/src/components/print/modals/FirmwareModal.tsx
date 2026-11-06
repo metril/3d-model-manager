@@ -3,6 +3,7 @@ import { ApiError } from "@/api/client";
 import { useFirmware, useFirmwareUpload } from "@/api/printerOps";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 export function FirmwareModal({
   printerId,
@@ -13,6 +14,7 @@ export function FirmwareModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { can, canPrinter } = useAuth();
   const canStage = can("settings:write") && canPrinter(printerId, "control");
   const fw = useFirmware(printerId, open);
@@ -23,30 +25,30 @@ export function FirmwareModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Firmware</DialogTitle>
+          <DialogTitle>{t("firmware.title")}</DialogTitle>
         </DialogHeader>
         {fw.isLoading || !d ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">{t("firmware.loading")}</p>
         ) : !d.model_supported ? (
           <p className="text-sm text-muted-foreground">
-            Firmware lookup is not available for this model.
+            {t("firmware.unavailable")}
           </p>
         ) : (
           <div className="space-y-3 text-sm">
             <dl className="grid grid-cols-2 gap-1">
-              <dt className="text-muted-foreground">Installed</dt>
-              <dd>{d.current ?? "unknown"}</dd>
-              <dt className="text-muted-foreground">Latest</dt>
-              <dd>{d.latest ?? "unknown"}</dd>
+              <dt className="text-muted-foreground">{t("firmware.installed")}</dt>
+              <dd>{d.current ?? t("firmware.unknown")}</dd>
+              <dt className="text-muted-foreground">{t("firmware.latest")}</dt>
+              <dd>{d.latest ?? t("firmware.unknown")}</dd>
             </dl>
-            <p>{d.update_available ? "An update is available." : "Up to date."}</p>
+            <p>{d.update_available ? t("firmware.updateAvailable") : t("firmware.upToDate")}</p>
             {d.release_notes ? (
               <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">
                 {d.release_notes}
               </pre>
             ) : null}
             {d.upload?.status ? (
-              <p className="text-xs text-muted-foreground">Last stage: {d.upload.status}</p>
+              <p className="text-xs text-muted-foreground">{t("firmware.lastStage", { status: d.upload.status })}</p>
             ) : null}
             {d.update_available && canStage ? (
               <>
@@ -54,26 +56,25 @@ export function FirmwareModal({
                   disabled={upload.isPending || !d.download_available}
                   onClick={() => upload.mutate()}
                 >
-                  {upload.isPending ? "Staging..." : "Stage to SD card"}
+                  {upload.isPending ? t("firmware.staging") : t("firmware.stage")}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  This copies the firmware to the printer&apos;s SD card only. Confirm and start the
-                  flash on the printer&apos;s own screen.
+                  {t("firmware.stageNote")}
                 </p>
               </>
             ) : null}
             {upload.isSuccess ? (
               <p className="text-sm text-success">
-                Staging started. Confirm the update on the printer screen.
+                {t("firmware.stagingStarted")}
               </p>
             ) : null}
             {upload.isError ? (
               <p role="alert" className="text-sm text-destructive">
                 {upload.error instanceof ApiError && upload.error.status === 409
-                  ? "No firmware download is available to stage right now."
+                  ? t("firmware.noDownload")
                   : upload.error instanceof ApiError
                     ? upload.error.detail
-                    : "Could not stage the firmware."}
+                    : t("firmware.stageFailed")}
               </p>
             ) : null}
           </div>

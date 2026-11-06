@@ -57,6 +57,7 @@ function RoleSelect({
 }
 
 export function UsersCard() {
+  const { t } = useTranslation();
   const users = useAdminUsers();
   const [error, setError] = useState<string | null>(null);
   const patch = usePatchUser();
@@ -70,8 +71,8 @@ export function UsersCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Users</CardTitle>
-        <CardDescription>Accounts, roles, and password resets.</CardDescription>
+        <CardTitle>{t("settingsUsers.title")}</CardTitle>
+        <CardDescription>{t("settingsUsers.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <CreateUserForm />
@@ -84,7 +85,7 @@ export function UsersCard() {
           <Skeleton className="h-16 w-full rounded-lg" />
         ) : users.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(users.error, "Couldn't load users.")}
+            {errText(users.error, t("settingsUsers.loadError"))}
           </p>
         ) : (
           <ul className="divide-y">
@@ -92,11 +93,11 @@ export function UsersCard() {
               <UserRow
                 key={u.id}
                 user={u}
-                onRole={(role) => run(patch.mutateAsync({ id: u.id, body: { role } }), "Could not change the role.")}
+                onRole={(role) => run(patch.mutateAsync({ id: u.id, body: { role } }), t("settingsUsers.roleError"))}
                 onActive={(is_active) =>
-                  run(patch.mutateAsync({ id: u.id, body: { is_active } }), "Could not update the account.")
+                  run(patch.mutateAsync({ id: u.id, body: { is_active } }), t("settingsUsers.updateError"))
                 }
-                onDelete={() => run(del.mutateAsync(u.id), "Could not delete the user.")}
+                onDelete={() => run(del.mutateAsync(u.id), t("settingsUsers.deleteError"))}
                 onError={setError}
               />
             ))}
@@ -138,7 +139,7 @@ function UserRow({
           setPw("");
           setOpen(false);
         },
-        onError: (e) => onError(errText(e, "Could not reset the password.")),
+        onError: (e) => onError(errText(e, t("settingsUsers.resetError"))),
       },
     );
   }
@@ -149,11 +150,11 @@ function UserRow({
         <span className="font-medium">{user.username}</span>
         {user.display_name && <span className="text-sm text-muted-foreground">{user.display_name}</span>}
         {user.oidc_linked && <Badge variant="secondary">SSO</Badge>}
-        {!user.is_active && <Badge variant="outline">Inactive</Badge>}
+        {!user.is_active && <Badge variant="outline">{t("settingsUsers.inactive")}</Badge>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <RoleSelect label={`Role for ${user.username}`} value={user.role} onChange={onRole} />
+          <RoleSelect label={t("settingsUsers.roleFor", { name: user.username })} value={user.role} onChange={onRole} />
           <Button type="button" size="sm" variant="outline" onClick={() => setOpen((o) => !o)}>
-            Reset password
+            {t("settingsUsers.resetPassword")}
           </Button>
           {!isSelf && (
             <Button type="button" size="sm" variant="outline" onClick={() => setConfirm2fa(true)}>
@@ -161,20 +162,20 @@ function UserRow({
             </Button>
           )}
           <Button type="button" size="sm" variant="outline" onClick={() => onActive(!user.is_active)}>
-            {user.is_active ? "Deactivate" : "Activate"}
+            {user.is_active ? t("settingsUsers.deactivate") : t("settingsUsers.activate")}
           </Button>
           {confirmDelete ? (
             <>
               <Button type="button" size="sm" variant="destructive" onClick={onDelete}>
-                Confirm delete
+                {t("settingsUsers.confirmDelete")}
               </Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
-                Cancel
+                {t("common.cancel")}
               </Button>
             </>
           ) : (
             <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
-              Delete
+              {t("common.delete")}
             </Button>
           )}
         </div>
@@ -197,7 +198,7 @@ function UserRow({
       {open && (
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`reset-pw-${user.id}`}>New password for {user.username}</Label>
+            <Label htmlFor={`reset-pw-${user.id}`}>{t("settingsUsers.newPasswordFor", { name: user.username })}</Label>
             <Input
               id={`reset-pw-${user.id}`}
               type="password"
@@ -207,7 +208,7 @@ function UserRow({
             />
           </div>
           <Button type="button" size="sm" disabled={pw.length < 8 || reset.isPending} onClick={submitReset}>
-            Set password
+            {t("settingsUsers.setPassword")}
           </Button>
         </div>
       )}
@@ -216,6 +217,7 @@ function UserRow({
 }
 
 function CreateUserForm() {
+  const { t } = useTranslation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("member");
@@ -238,11 +240,11 @@ function CreateUserForm() {
     <div className="space-y-2">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="new-user-name">Username</Label>
+          <Label htmlFor="new-user-name">{t("settingsUsers.username")}</Label>
           <Input id="new-user-name" value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="new-user-password">Password (blank for SSO-only)</Label>
+          <Label htmlFor="new-user-password">{t("settingsUsers.passwordLabel")}</Label>
           <Input
             id="new-user-password"
             type="password"
@@ -252,16 +254,16 @@ function CreateUserForm() {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="new-user-role">Role</Label>
-          <RoleSelect id="new-user-role" label="Role" value={role} onChange={setRole} />
+          <Label htmlFor="new-user-role">{t("settingsUsers.role")}</Label>
+          <RoleSelect id="new-user-role" label={t("settingsUsers.role")} value={role} onChange={setRole} />
         </div>
         <Button type="button" disabled={create.isPending || !username.trim()} onClick={submit}>
-          Add user
+          {t("settingsUsers.addUser")}
         </Button>
       </div>
       {create.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {errText(create.error, "Could not create the user.")}
+          {errText(create.error, t("settingsUsers.createError"))}
         </p>
       )}
     </div>

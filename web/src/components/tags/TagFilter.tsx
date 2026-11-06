@@ -1,4 +1,5 @@
 import { TagIcon, XIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useTags } from "@/api/tags";
 import { TagChip } from "@/components/tags/TagChip";
@@ -13,7 +14,7 @@ import type { TagCounts } from "@/api/types";
 export function TagFilter({
   value,
   onChange,
-  label = "Tags",
+  label: labelProp,
   countKey = "total",
 }: {
   value: TagFilterValue;
@@ -21,6 +22,8 @@ export function TagFilter({
   label?: string;
   countKey?: keyof TagCounts;
 }) {
+  const { t } = useTranslation();
+  const label = labelProp ?? t("tagFilter.tags");
   const tagsQuery = useTags();
   const tags = tagsQuery.data ?? [];
   const selected = new Set(value.tags);
@@ -39,10 +42,10 @@ export function TagFilter({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-2">
         {tags.length === 0 ? (
-          <p className="px-1 py-0.5 text-xs text-muted-foreground">No tags yet</p>
+          <p className="px-1 py-0.5 text-xs text-muted-foreground">{t("tagFilter.none")}</p>
         ) : (
           <div className="space-y-2">
-            <ul className="max-h-60 space-y-0.5 overflow-y-auto" aria-label={`${label} filter`}>
+            <ul className="max-h-60 space-y-0.5 overflow-y-auto" aria-label={t("tagFilter.filter", { label })}>
               {tags.map((tag) => (
                 <li key={tag.id}>
                   <button
@@ -65,7 +68,7 @@ export function TagFilter({
             {value.tags.length > 0 && (
               <div className="flex items-center justify-between gap-2 border-t pt-2">
                 {value.tags.length > 1 ? (
-                  <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Match mode">
+                  <div className="inline-flex rounded-md border p-0.5" role="group" aria-label={t("tagFilter.matchMode")}>
                     {(["any", "all"] as const).map((mode) => (
                       <Button
                         key={mode}
@@ -75,7 +78,7 @@ export function TagFilter({
                         aria-pressed={value.mode === mode}
                         onClick={() => onChange({ ...value, mode })}
                       >
-                        {mode === "any" ? "Any" : "All"}
+                        {mode === "any" ? t("tagFilter.any") : t("tagFilter.all")}
                       </Button>
                     ))}
                   </div>
@@ -83,7 +86,7 @@ export function TagFilter({
                   <span />
                 )}
                 <Button type="button" size="xs" variant="ghost" onClick={() => onChange(EMPTY_TAG_FILTER)}>
-                  <XIcon /> Clear
+                  <XIcon /> {t("tagFilter.clear")}
                 </Button>
               </div>
             )}

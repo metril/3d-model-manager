@@ -1,4 +1,6 @@
 /** Settings -> Integrations -> default MakerWorld print-profile filter for imports. */
+import { useTranslation } from "react-i18next";
+
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SwitchRow } from "@/components/ui/switch-row";
 
 export function MakerWorldProfilesCard() {
+  const { t } = useTranslation();
   const settings = useAppSettings();
   const update = useUpdateAppSettings();
   if (settings.isLoading) return <Skeleton className="h-32 w-full rounded-xl" />;
@@ -14,17 +17,16 @@ export function MakerWorldProfilesCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>MakerWorld profiles</CardTitle>
+        <CardTitle>{t("settingsMakerworld.title")}</CardTitle>
         <CardDescription>
-          A MakerWorld model can ship many print profiles. Import only those compatible with your
-          enabled printers, or keep them all. You can override this per import on the Add page.
+          {t("settingsMakerworld.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <SwitchRow
           id="makerworld-owned-profiles"
-          label="Only import profiles for my printers"
-          description="If no profile matches any of your printers, every profile is kept."
+          label={t("settingsMakerworld.ownedLabel")}
+          description={t("settingsMakerworld.ownedDesc")}
           checked={initial.makerworld_profiles === "owned"}
           disabled={update.isPending}
           onCheckedChange={(on) =>
@@ -33,7 +35,7 @@ export function MakerWorldProfilesCard() {
         />
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save this setting."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsMakerworld.saveError")}
           </p>
         )}
       </CardContent>

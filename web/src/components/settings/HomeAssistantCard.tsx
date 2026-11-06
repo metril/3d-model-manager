@@ -31,13 +31,13 @@ function errText(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.detail : fallback;
 }
 
-const ROLE_LABELS: Record<HaRole, string> = {
-  energy_kwh: "Energy (kWh)",
-  power_w: "Power (W)",
-  door: "Door",
-  smoke: "Smoke",
-  temp: "Temperature",
-  humidity: "Humidity",
+const ROLE_LABEL_KEYS: Record<HaRole, string> = {
+  energy_kwh: "settingsHa.role.energy_kwh",
+  power_w: "settingsHa.role.power_w",
+  door: "settingsHa.role.door",
+  smoke: "settingsHa.role.smoke",
+  temp: "settingsHa.role.temp",
+  humidity: "settingsHa.role.humidity",
 };
 
 function conditionLabel(cond: HaCondition | null): string {
@@ -100,26 +100,27 @@ function seedRest(s: HaSettings): RestDraft {
  * commands, auto-pause) run as. Saves immediately on change; the bridge
  * reports `actor_ok=false` when it's unset, missing or inactive. */
 function ActorField({ data }: { data: HaSettings }) {
+  const { t } = useTranslation();
   const actors = useHaActors();
   const save = useSaveHaSettings();
   // Computed server-side, so it shows with or without an MQTT bridge.
   const actorBad = !data.actor_ok;
-  const actorMsg = data.actor_error ?? "HA commands are blocked";
+  const actorMsg = data.actor_error ?? t("settingsHa.actorBlocked");
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor="ha-actor">HA acts as</Label>
+      <Label htmlFor="ha-actor">{t("settingsHa.actsAs")}</Label>
       <div className="flex flex-wrap items-center gap-3">
         <Select
-          aria-label="HA acts as"
+          aria-label={t("settingsHa.actsAs")}
           value={data.ha_actor_user_id == null ? NO_ACTOR : String(data.ha_actor_user_id)}
           onValueChange={(v) => save.mutate({ ha_actor_user_id: v === NO_ACTOR ? null : Number(v) })}
         >
-          <SelectTrigger id="ha-actor" aria-label="HA acts as" className="w-64">
+          <SelectTrigger id="ha-actor" aria-label={t("settingsHa.actsAs")} className="w-64">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_ACTOR}>None</SelectItem>
+            <SelectItem value={NO_ACTOR}>{t("settingsHa.none")}</SelectItem>
             {(actors.data ?? []).map((u) => (
               <SelectItem key={u.id} value={String(u.id)}>
                 {u.username}
@@ -137,11 +138,11 @@ function ActorField({ data }: { data: HaSettings }) {
         ) : null}
       </div>
       <p className="text-xs text-muted-foreground">
-        Commands from HA and auto-pause run as this user and need printer control access.
+        {t("settingsHa.actorHint")}
       </p>
       {save.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errText(save.error, "Could not save the service account.")}
+          {errText(save.error, t("settingsHa.actorSaveError"))}
         </p>
       ) : null}
     </div>
@@ -161,6 +162,7 @@ function MqttSection({
   onSave: () => void;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const test = useTestHaMqtt();
   const bridgeLabel =
     data.bridge_status == null ? "unknown" : data.bridge_status.connected ? "online" : "offline";
@@ -179,30 +181,30 @@ function MqttSection({
           data-slot="ha-bridge-dot"
           className={cn("size-2 shrink-0 rounded-full", dotClass)}
         />
-        <h3 className="text-sm font-medium" aria-label={`Bridge ${bridgeLabel}`}>
-          Publish to HA (MQTT)
+        <h3 className="text-sm font-medium" aria-label={t("settingsHa.bridge", { status: t(`settingsHa.bridgeStatus.${bridgeLabel}`) })}>
+          {t("settingsHa.mqttTitle")}
         </h3>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
           id="ha-mqtt-url"
-          label="Broker URL"
+          label={t("settingsHa.brokerUrl")}
           value={draft.ha_mqtt_url}
           onChange={(v) => setField("ha_mqtt_url", v)}
           placeholder="mqtt://host:1883"
         />
-        <Field id="ha-mqtt-user" label="User" value={draft.ha_mqtt_user} onChange={(v) => setField("ha_mqtt_user", v)} />
+        <Field id="ha-mqtt-user" label={t("settingsHa.user")} value={draft.ha_mqtt_user} onChange={(v) => setField("ha_mqtt_user", v)} />
         <Field
           id="ha-mqtt-password"
-          label={<>Password{data.has_mqtt_password ? <span className="text-muted-foreground"> (set)</span> : null}</>}
+          label={<>{t("settingsHa.password")}{data.has_mqtt_password ? <span className="text-muted-foreground">{t("settingsHa.setSuffix")}</span> : null}</>}
           value={draft.ha_mqtt_password}
           onChange={(v) => setField("ha_mqtt_password", v)}
           type="password"
-          placeholder={data.has_mqtt_password ? "Leave blank to keep current password" : ""}
+          placeholder={data.has_mqtt_password ? t("settingsHa.keepPassword") : ""}
         />
         <Field
           id="ha-discovery-prefix"
-          label="Discovery prefix"
+          label={t("settingsHa.discoveryPrefix")}
           value={draft.ha_discovery_prefix}
           onChange={(v) => setField("ha_discovery_prefix", v)}
         />
@@ -220,10 +222,10 @@ function MqttSection({
             })
           }
         >
-          {test.isPending ? "Testing…" : "Test connection"}
+          {test.isPending ? t("settingsHa.testing") : t("settingsHa.testConnection")}
         </Button>
         <Button type="button" disabled={saving} onClick={onSave}>
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("settingsHa.saving") : t("common.save")}
         </Button>
         {test.data ? (
           <span
@@ -251,6 +253,7 @@ function RestSection({
   onSave: () => void;
   saving: boolean;
 }) {
+  const { t } = useTranslation();
   const test = useTestHaRest();
   const pullStatus = data.pull_status as { ok?: boolean; errors?: unknown } | null;
   const unreachable = pullStatus != null && pullStatus.ok === false;
@@ -262,31 +265,31 @@ function RestSection({
 
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-medium">Read from HA (REST)</h3>
+      <h3 className="text-sm font-medium">{t("settingsHa.restTitle")}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
           id="ha-url"
-          label="Home Assistant URL"
+          label={t("settingsHa.haUrl")}
           value={draft.ha_url}
           onChange={(v) => setField("ha_url", v)}
           placeholder="http://homeassistant.local:8123"
         />
         <Field
           id="ha-token"
-          label={<>Token{data.has_token ? <span className="text-muted-foreground"> (set)</span> : null}</>}
+          label={<>{t("settingsHa.token")}{data.has_token ? <span className="text-muted-foreground">{t("settingsHa.setSuffix")}</span> : null}</>}
           value={draft.ha_token}
           onChange={(v) => setField("ha_token", v)}
           type="password"
-          placeholder={data.has_token ? "Leave blank to keep current token" : ""}
+          placeholder={data.has_token ? t("settingsHa.keepToken") : ""}
         />
       </div>
       <ActorField data={data} />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
-          {test.isPending ? "Testing…" : "Test connection"}
+          {test.isPending ? t("settingsHa.testing") : t("settingsHa.testConnection")}
         </Button>
         <Button type="button" disabled={saving} onClick={onSave}>
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("settingsHa.saving") : t("common.save")}
         </Button>
         {test.data ? (
           <span
@@ -302,7 +305,7 @@ function RestSection({
           role="alert"
           className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          Home Assistant unreachable, queue holds are ignored
+          {t("settingsHa.unreachable")}
         </p>
       ) : null}
       {entityErrors.length > 0 ? (
@@ -323,25 +326,25 @@ function LinksSection() {
 
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-medium">Linked entities</h3>
+      <h3 className="text-sm font-medium">{t("settingsHa.linkedEntities")}</h3>
       {links.isLoading ? (
         <Skeleton className="h-16 w-full rounded-lg" />
       ) : links.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errText(links.error, "Couldn't load linked entities.")}
+          {errText(links.error, t("settingsHa.linksLoadError"))}
         </p>
       ) : (links.data ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">No entities linked yet.</p>
+        <p className="text-sm text-muted-foreground">{t("settingsHa.noLinks")}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Entity</TableHead>
-              <TableHead>Printer</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Condition</TableHead>
-              <TableHead>Hold queue</TableHead>
-              <TableHead>Pause print</TableHead>
+              <TableHead>{t("settingsHa.colEntity")}</TableHead>
+              <TableHead>{t("settingsHa.colPrinter")}</TableHead>
+              <TableHead>{t("settingsHa.colRole")}</TableHead>
+              <TableHead>{t("settingsHa.colCondition")}</TableHead>
+              <TableHead>{t("settingsHa.colHold")}</TableHead>
+              <TableHead>{t("settingsHa.colPause")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -349,14 +352,14 @@ function LinksSection() {
             {(links.data ?? []).map((link) => (
               <TableRow key={link.id}>
                 <TableCell className="font-mono text-xs">{link.entity_id}</TableCell>
-                <TableCell>{link.printer_name ?? "All"}</TableCell>
-                <TableCell>{ROLE_LABELS[link.role]}</TableCell>
+                <TableCell>{link.printer_name ?? t("settingsHa.allPrinter")}</TableCell>
+                <TableCell>{t(ROLE_LABEL_KEYS[link.role])}</TableCell>
                 <TableCell>{conditionLabel(link.alert_condition)}</TableCell>
                 <TableCell>
-                  <Switch checked={link.hold_queue} disabled aria-label={`Hold queue for ${link.entity_id}`} />
+                  <Switch checked={link.hold_queue} disabled aria-label={t("settingsHa.holdFor", { entity: link.entity_id })} />
                 </TableCell>
                 <TableCell>
-                  <Switch checked={link.pause_print} disabled aria-label={`Pause print for ${link.entity_id}`} />
+                  <Switch checked={link.pause_print} disabled aria-label={t("settingsHa.pauseFor", { entity: link.entity_id })} />
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1">
@@ -364,20 +367,20 @@ function LinksSection() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      aria-label={`Edit ${link.entity_id}`}
+                      aria-label={t("settingsHaLink.editTitle", { entity: link.entity_id })}
                       onClick={() => setEditing(link)}
                     >
-                      Edit
+                      {t("common.edit")}
                     </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="destructive"
-                      aria-label={`Delete ${link.entity_id}`}
+                      aria-label={t("settingsHa.deleteAria", { entity: link.entity_id })}
                       disabled={del.isPending}
                       onClick={() => setDeleting(link)}
                     >
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 </TableCell>
@@ -387,15 +390,15 @@ function LinksSection() {
         </Table>
       )}
       <p className="text-xs text-muted-foreground">
-        Pause print is off by default — it pauses a running print when the alert fires.
+        {t("settingsHa.pauseDefaultHint")}
       </p>
       {del.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errText(del.error, "Could not delete the link.")}
+          {errText(del.error, t("settingsHa.deleteLinkError"))}
         </p>
       ) : null}
       <Button type="button" variant="outline" onClick={() => setEditing("new")}>
-        Add link
+        {t("settingsHaLink.addLink")}
       </Button>
       <ConfirmDialog
         open={deleting != null}
@@ -419,6 +422,7 @@ function LinksSection() {
 }
 
 export function HomeAssistantCard() {
+  const { t } = useTranslation();
   const settings = useHaSettings();
   const save = useSaveHaSettings();
   const [mqttDraft, setMqttDraft] = useState<MqttDraft | null>(null);
@@ -437,8 +441,8 @@ export function HomeAssistantCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Home Assistant</CardTitle>
-          <CardDescription>{errText(settings.error, "Couldn't load these settings.")}</CardDescription>
+          <CardTitle>{t("settingsHa.title")}</CardTitle>
+          <CardDescription>{errText(settings.error, t("settingsHa.loadError"))}</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -467,10 +471,9 @@ export function HomeAssistantCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Home Assistant</CardTitle>
+        <CardTitle>{t("settingsHa.title")}</CardTitle>
         <CardDescription>
-          Publish printer state to HA over MQTT, and read HA entities (doors, smoke, energy
-          meters) to hold the queue or pause a running print.
+          {t("settingsHa.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -478,7 +481,7 @@ export function HomeAssistantCard() {
         <RestSection data={data} draft={restDraft} setDraft={setRestDraft} onSave={saveRest} saving={save.isPending} />
         {save.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(save.error, "Could not save these settings.")}
+            {errText(save.error, t("settingsHa.saveError"))}
           </p>
         ) : null}
         <LinksSection />

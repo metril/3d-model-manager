@@ -22,8 +22,10 @@ import type { QueueEntry } from "@/api/types";
 import { PrintDialog } from "@/components/print/PrintDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
 
 function UpNextRow({ entry }: { entry: QueueEntry }) {
+  const { t } = useTranslation();
   const moveEntry = useMoveQueueEntry();
   const { canPrinter } = useAuth();
   const printers = usePrinters();
@@ -45,7 +47,7 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
       {entry.printable_file && printable.length > 0 ? (
         <>
           <Button type="button" size="sm" variant="outline" onClick={() => setPrintOpen(true)}>
-            Print…
+            {t("upNext.print")}
           </Button>
           <PrintDialog
             open={printOpen}
@@ -58,7 +60,7 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={`Move ${entry.model.name} up`}
+        aria-label={t("queuePage.moveUp", { name: entry.model.name })}
         disabled={isFirst || moveEntry.isPending}
         onClick={() => moveEntry.mutate({ entryId: entry.id, position: entry.position - 1 })}
       >
@@ -68,7 +70,7 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={`Move ${entry.model.name} down`}
+        aria-label={t("queuePage.moveDown", { name: entry.model.name })}
         disabled={moveEntry.isPending}
         onClick={() => moveEntry.mutate({ entryId: entry.id, position: entry.position + 1 })}
       >
@@ -88,11 +90,12 @@ export function UpNextList({
   /** Render without the Card surface, for placement inside another card. */
   bare?: boolean;
 }) {
+  const { t } = useTranslation();
   const body = (
     <>
       {entries.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {printerId != null ? "Nothing queued for this printer." : "Nothing queued."}
+          {printerId != null ? t("upNext.emptyPrinter") : t("upNext.empty")}
         </p>
       ) : (
         <ul className="divide-y divide-border">
@@ -102,14 +105,14 @@ export function UpNextList({
         </ul>
       )}
       <Link to="/print/queue" className="text-xs text-muted-foreground hover:underline">
-        All queue
+        {t("upNext.allQueue")}
       </Link>
     </>
   );
   if (bare) {
     return (
       <div className="flex flex-col gap-2" data-printer-id={printerId}>
-        <span className="label-caps">Up next</span>
+        <span className="label-caps">{t("upNext.title")}</span>
         {body}
       </div>
     );
@@ -117,7 +120,7 @@ export function UpNextList({
   return (
     <Card data-printer-id={printerId}>
       <CardHeader>
-        <CardTitle>Up next</CardTitle>
+        <CardTitle>{t("upNext.title")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">{body}</CardContent>
     </Card>

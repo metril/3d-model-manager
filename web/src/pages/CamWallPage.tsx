@@ -3,6 +3,7 @@ import { useState } from "react";
 import { usePrintersOverview } from "@/api/printers";
 import { CameraTile } from "@/components/print/CameraTile";
 import { selectLive } from "@/lib/camWall";
+import { useTranslation } from "react-i18next";
 
 const MAX_LIVE_KEY = "camWallMaxLive";
 const SNAP_SEC_KEY = "camWallSnapshotSec";
@@ -29,6 +30,7 @@ function persist(key: string, value: number) {
  * the rest refresh a snapshot every `snapshotSec`; click a still to make it
  * live (the oldest live promotion drops back). Session auth only. */
 export function CamWallPage() {
+  const { t } = useTranslation();
   const overview = usePrintersOverview();
   const [maxLive, setMaxLive] = useState(() => readNumber(MAX_LIVE_KEY, 2, 0, 16));
   const [snapshotSec, setSnapshotSec] = useState(() => readNumber(SNAP_SEC_KEY, 10, 1, 300));
@@ -41,14 +43,14 @@ export function CamWallPage() {
   return (
     <div className="flex min-h-svh flex-col bg-black text-white">
       <div className="flex items-center gap-4 px-3 py-1.5 text-xs text-white/80">
-        <span className="font-medium">Camera wall</span>
+        <span className="font-medium">{t("camWall.title")}</span>
         <label className="flex items-center gap-1">
-          Max live
+          {t("camWall.maxLive")}
           <input
             type="number"
             min={0}
             max={16}
-            aria-label="Max live"
+            aria-label={t("camWall.maxLive")}
             value={maxLive}
             className="w-14 rounded bg-white/10 px-1"
             onChange={(e) => {
@@ -59,12 +61,12 @@ export function CamWallPage() {
           />
         </label>
         <label className="flex items-center gap-1">
-          Snapshot every (s)
+          {t("camWall.snapshotEvery")}
           <input
             type="number"
             min={1}
             max={300}
-            aria-label="Snapshot seconds"
+            aria-label={t("camWall.snapshotAria")}
             value={snapshotSec}
             className="w-14 rounded bg-white/10 px-1"
             onChange={(e) => {

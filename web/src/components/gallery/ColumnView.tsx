@@ -7,6 +7,7 @@ import { FilePreview } from "@/components/gallery/FilePreview";
 import { Skeleton } from "@/components/ui/skeleton";
 import { humanizeBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 function Column({
   path,
@@ -21,12 +22,13 @@ function Column({
   onDir: (path: string) => void;
   onFile: (file: StorageTreeFile) => void;
 }) {
+  const { t } = useTranslation();
   const tree = useStorageTree(path);
   const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted";
   const dirs = tree.data?.dirs ?? [];
   const files = tree.data?.files ?? [];
   return (
-    <div role="listbox" aria-label={path || "Library"} className="w-56 shrink-0 space-y-0.5 overflow-y-auto border-r p-1">
+    <div role="listbox" aria-label={path || t("folderBrowser.library")} className="w-56 shrink-0 space-y-0.5 overflow-y-auto border-r p-1">
       {tree.isLoading ? (
         <Skeleton className="h-8 w-full" />
       ) : (
@@ -58,7 +60,7 @@ function Column({
               <span className="text-xs text-muted-foreground">{humanizeBytes(f.size)}</span>
             </button>
           ))}
-          {dirs.length === 0 && files.length === 0 && <p className="px-2 py-1.5 text-sm text-muted-foreground">Empty</p>}
+          {dirs.length === 0 && files.length === 0 && <p className="px-2 py-1.5 text-sm text-muted-foreground">{t("filePreview.empty")}</p>}
         </>
       )}
     </div>

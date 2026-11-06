@@ -7,6 +7,7 @@
  * "kept"). Shared by the Profiles page and the Slicer integration card.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { RefreshCwIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
@@ -14,6 +15,7 @@ import { useImportProfiles } from "@/api/slicing";
 import { Button } from "@/components/ui/button";
 
 export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string }) {
+  const { t } = useTranslation();
   const sync = useImportProfiles();
   const [all, setAll] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -25,8 +27,8 @@ export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string })
       {
         onSuccess: (r) =>
           setResult(
-            `Synced: ${r.created} new, ${r.updated} updated` +
-              (r.skipped ? `, ${r.skipped} kept (edited or imported).` : "."),
+            t("syncProfiles.result", { created: r.created, updated: r.updated }) +
+              (r.skipped ? t("syncProfiles.kept", { n: r.skipped }) : "."),
           ),
       },
     );
@@ -37,7 +39,7 @@ export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string })
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" size="sm" variant="outline" disabled={sync.isPending} onClick={run}>
           <RefreshCwIcon className={sync.isPending ? "size-4 animate-spin" : "size-4"} />
-          {sync.isPending ? "Syncing…" : "Sync Bambu system profiles"}
+          {sync.isPending ? t("syncProfiles.syncing") : t("syncProfiles.sync")}
         </Button>
         <label htmlFor={`${idPrefix}-all`} className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <input
@@ -46,7 +48,7 @@ export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string })
             checked={all}
             onChange={(e) => setAll(e.target.checked)}
           />
-          All Bambu printers (not just mine)
+          {t("syncProfiles.all")}
         </label>
       </div>
       {result ? <p className="text-xs text-muted-foreground">{result}</p> : null}
@@ -54,7 +56,7 @@ export function SyncProfilesButton({ idPrefix = "sync" }: { idPrefix?: string })
         <p role="alert" className="text-xs text-destructive">
           {sync.error instanceof ApiError
             ? sync.error.detail
-            : (sync.error as Error).message || "Could not sync profiles."}
+            : (sync.error as Error).message || t("syncProfiles.failed")}
         </p>
       ) : null}
     </div>

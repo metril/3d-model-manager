@@ -8,6 +8,7 @@
  * upload maps onto.
  */
 import { useRef, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useImportProfiles } from "@/api/slicing";
@@ -30,6 +31,7 @@ export function ProfileImportDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const importProfiles = useImportProfiles();
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -52,14 +54,14 @@ export function ProfileImportDialog({
     if (!file) return;
     importProfiles.mutate(
       { bundle: file },
-      { onSuccess: (r) => setResult(`Imported ${r.created} new, updated ${r.updated}.`) },
+      { onSuccess: (r) => setResult(t("profileImport.result", { created: r.created, updated: r.updated })) },
     );
   }
 
   function handleFromSidecar() {
     importProfiles.mutate(
       { fromSidecar: true },
-      { onSuccess: (r) => setResult(`Imported ${r.created} new, updated ${r.updated}.`) },
+      { onSuccess: (r) => setResult(t("profileImport.result", { created: r.created, updated: r.updated })) },
     );
   }
 
@@ -67,16 +69,15 @@ export function ProfileImportDialog({
     <FormDialog open={open} onOpenChange={handleOpenChange} dirty={file != null && result == null} busy={importProfiles.isPending}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Import profiles</DialogTitle>
+            <DialogTitle>{t("profileImport.title")}</DialogTitle>
             <DialogDescription>
-              Upload a Bambu Studio bundle zip, or pull whatever profiles the configured slicer
-              sidecar already has.
+              {t("profileImport.desc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="profile-bundle">Bundle (.zip)</Label>
+              <Label htmlFor="profile-bundle">{t("profileImport.bundle")}</Label>
               <Input
                 id="profile-bundle"
                 ref={fileInputRef}
@@ -88,28 +89,28 @@ export function ProfileImportDialog({
 
             <div className="flex items-center gap-2">
               <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">or</span>
+              <span className="text-xs text-muted-foreground">{t("profileImport.or")}</span>
               <div className="h-px flex-1 bg-border" />
             </div>
 
             <Button type="button" variant="outline" disabled={importProfiles.isPending} onClick={handleFromSidecar}>
-              From sidecar
+              {t("profileImport.fromSidecar")}
             </Button>
 
             {result ? <p className="text-sm text-muted-foreground">{result}</p> : null}
             {importProfiles.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {importProfiles.error instanceof ApiError ? importProfiles.error.detail : "Could not import profiles"}
+                {importProfiles.error instanceof ApiError ? importProfiles.error.detail : t("profileImport.failed")}
               </p>
             ) : null}
           </div>
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             <Button type="submit" disabled={!file || importProfiles.isPending}>
-              {importProfiles.isPending ? "Importing..." : "Upload bundle"}
+              {importProfiles.isPending ? t("profileImport.importing") : t("profileImport.upload")}
             </Button>
           </DialogFooter>
         </form>

@@ -733,7 +733,7 @@ export function PlateEditorDialog({
           )}
           <div className="grid min-w-40 flex-1 gap-1">
             <Label htmlFor="plate-name" className="text-xs">{t("plate.name")}</Label>
-            <Input id="plate-name" placeholder="plate" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} className="h-8" />
+            <Input id="plate-name" placeholder={t("plate.namePlaceholder")} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} className="h-8" />
           </div>
           <Button type="button" variant="outline" disabled={!canSave} onClick={() => save(false)}>
             {t("plate.save")}
