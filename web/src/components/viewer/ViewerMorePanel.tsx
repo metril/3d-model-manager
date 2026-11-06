@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { ExternalLinkIcon, MoreHorizontalIcon, RotateCcwIcon, ScanIcon, BoxIcon, CameraIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -127,6 +128,7 @@ function MorePanelBody({
   onOpenWindow,
   showWindowButtons,
 }: Omit<ViewerMorePanelProps, "container">) {
+  const { t } = useTranslation();
   const handleOrthoToggle = () => {
     onToolsChange({ ortho: !tools.ortho });
     onFit();
@@ -260,8 +262,9 @@ function MorePanelBody({
       )}
 
       <div className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground">
-        <span className="font-medium tracking-wide uppercase">Hotkeys</span>
-        <span>F fit · R auto-rotate · W wireframe · G grid · Shift+F fullscreen</span>
+        <span className="font-medium tracking-wide uppercase">{t("viewer.hotkeys")}</span>
+        <span>{t("viewer.hotkeyLegend")}</span>
+        <span data-testid="plate-hotkeys">{t("viewer.hotkeyPlates")}</span>
       </div>
     </div>
   );

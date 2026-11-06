@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
-import { buildDefaultLayout, addPanelAtDefault } from "./defaultLayout";
+import { buildDefaultLayout, addPanelAtDefault, hasProfileContent } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
 import { syncThemeInto } from "./popoutTheme";
@@ -39,7 +39,8 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
  * layout persists per browser (`layoutStore`); pop-outs never survive reload. */
 export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
   const { model } = useModelDetail();
-  const hasSliced = (model.current_revision?.files ?? []).some((file) => file.kind === "sliced");
+  // Unsliced print profiles (plated 3MFs) live in the same panel, so they count too.
+  const hasSliced = hasProfileContent(model.current_revision?.files ?? []);
   const emitter = useMemo(() => createRelocateEmitter(), []);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);

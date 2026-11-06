@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { ProfilesPanel } from "@/components/model-detail/ProfilesPanel";
 import { getSelectedPlate, setActiveViewerBlob, setSelectedPlate } from "@/components/viewer/plates";
@@ -26,7 +26,8 @@ describe("ProfilesPanel", () => {
     expect(screen.getByText("Fancy Profile")).toBeInTheDocument();
     expect(screen.getByText("0.4mm draft")).toBeInTheDocument();
     expect(screen.getByText(/by Ann · 2 plates/)).toBeInTheDocument();
-    expect(screen.getByText(/^1 plate$/)).toBeInTheDocument();
+    // a single-plate profile shows no "1 plate" redundancy
+    expect(screen.queryByText(/^1 plate$/)).toBeNull();
     expect(screen.getByTitle("Long desc")).toBeInTheDocument();
     // a select button per card + the two selectable plates of the 2-plate profile
     expect(screen.getAllByRole("button")).toHaveLength(4);
@@ -58,7 +59,7 @@ describe("ProfilesPanel selection + colour note", () => {
     setActiveViewerBlob("h1");
     render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1), plate(2)]), file(2, "b.3mf", [plate(1, { has_glb: false })])])} />);
     expect(screen.getByRole("group", { name: "a" })).toHaveAttribute("aria-current", "true");
-    fireEvent.click(screen.getByRole("group", { name: "b" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "b" })).getByRole("button"));
     expect(screen.getByRole("group", { name: "b" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("group", { name: "a" })).not.toHaveAttribute("aria-current");
     setActiveViewerBlob(null);
@@ -97,9 +98,49 @@ describe("ProfilesPanel not-ready profiles", () => {
     setActiveViewerBlob("h1");
     const pending = { ...file(2, "b.3mf", [plate(1)]), glb_status: "pending" } as unknown as FileOut;
     render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1)]), pending])} />);
-    fireEvent.click(screen.getByRole("group", { name: "b" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "b" })).getByRole("button"));
     expect(screen.getByRole("group", { name: "b" })).not.toHaveAttribute("aria-current");
     expect(screen.getByText(/3D preview pending/)).toBeInTheDocument();
     setActiveViewerBlob(null);
+  });
+});
+
+describe("ProfilesPanel clicks, grouping, author", () => {
+  it("the card background no longer selects (one handler, on the button)", () => {
+    setActiveViewerBlob("h1");
+    render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1), plate(2)]), file(2, "b.3mf", [plate(1)])])} />);
+    fireEvent.click(screen.getByRole("group", { name: "b" }));
+    expect(screen.getByRole("group", { name: "b" })).not.toHaveAttribute("aria-current");
+    setActiveViewerBlob(null);
+  });
+
+  it("collapses duplicate files of the same blob into one card", () => {
+    const dup = { ...file(2, "copy.3mf", [plate(1), plate(2)]), blob_hash: "h1" } as FileOut;
+    render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1), plate(2)]), dup])} />);
+    expect(screen.getAllByRole("group")).toHaveLength(1);
+  });
+
+  it("decodes an escaped author and shows N plates only from 2", () => {
+    render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1), plate(2), plate(3)], { author: "Ann &amp; Bob" })])} />);
+    expect(screen.getByText(/by Ann & Bob · 3 plates/)).toBeInTheDocument();
+  });
+
+  it("falls back to MakerWorld time/weight when a plate has none", () => {
+    render(<ProfilesPanel model={model([file(1, "a.3mf", [plate(1), plate(2)], { plates: [{ index: 1, name: null, thumb: null, prediction: 3600, weight: 12 }] })])} />);
+    expect(screen.getByText(/Plate 1 · 1h .*12 g/)).toBeInTheDocument();
+  });
+
+  it("returns to the model view when a sliced file is open and a profile is picked", () => {
+    const sliced = { ...file(9, "x.gcode.3mf", null), kind: "sliced" } as FileOut;
+    const onSelectAssembly = vi.fn();
+    render(
+      <ProfilesPanel
+        model={model([file(1, "a.3mf", [plate(1), plate(2)]), sliced])}
+        selection={{ type: "file", id: 9 }}
+        onSelectAssembly={onSelectAssembly}
+      />,
+    );
+    fireEvent.click(within(screen.getByRole("group", { name: "a" })).getAllByRole("button")[0]);
+    expect(onSelectAssembly).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,8 @@
 import type { DockviewApi } from "dockview-react";
 import { describe, expect, it } from "vitest";
 
-import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
+import { addPanelAtDefault, buildDefaultLayout, hasProfileContent } from "./defaultLayout";
+import type { FileOut } from "@/api/types";
 import { PANEL_IDS, type PanelId } from "./panelMeta";
 
 type Call = { id: string; position?: { referencePanel: { id: string }; direction: string }; renderer?: string };
@@ -44,7 +45,7 @@ describe("defaultLayout", () => {
     });
   });
 
-  it("activates Files by default, G-code profiles when the model has sliced files", () => {
+  it("activates Files by default, Profiles when the model has sliced files", () => {
     const plain = fakeApi();
     buildDefaultLayout(plain.api);
     expect(plain.active).toContain("filesDocs");
@@ -53,6 +54,13 @@ describe("defaultLayout", () => {
     buildDefaultLayout(sliced.api, { hasSliced: true });
     expect(sliced.active).toContain("gcodeProfiles");
     expect(sliced.active).not.toContain("filesDocs");
+  });
+
+  it("counts unsliced print profiles as profile content, so the Profiles panel is not hidden", () => {
+    const f = (kind: string, plates: unknown[] | null = null) => ({ format: "3mf", kind, meta: { plates } }) as unknown as FileOut;
+    expect(hasProfileContent([f("sliced")])).toBe(true);
+    expect(hasProfileContent([f("model", [{}, {}])])).toBe(true);
+    expect(hasProfileContent([f("model")])).toBe(false);
   });
 
   it("re-adds a closed right card as a tab of its default group", () => {

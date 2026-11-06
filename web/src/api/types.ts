@@ -157,7 +157,7 @@ export interface PlateFilamentOut {
   color: string | null;
   used_m: number | null;
   used_g: number | null;
-  /** AMS slot (0-based) when known. */
+  /** 1-based extruder / filament slot number (as in the 3MF) when known. */
   slot?: number | null;
 }
 

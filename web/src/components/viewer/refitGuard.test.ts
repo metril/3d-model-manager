@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { boxesKey, fitDistance, canFit, pickFitDirection, isFlatScene, shouldResetView, createInteractionLod, createPoseGuard, createRefitScheduler } from "./refitGuard";
+import { boxesKey, fitDistance, canFit, pickFitDirection, isFlatScene, shouldResetView, createInteractionLod, createPoseGuard, createRefitScheduler, createViewState } from "./refitGuard";
 
 const box = (v: number) => ({ min: { x: 0, y: 0, z: 0 }, max: { x: v, y: v, z: v } });
 
@@ -143,5 +143,39 @@ describe("rescue gating", () => {
     expect(shouldResetView(null, "a")).toBe(true);
     expect(shouldResetView("a", "a")).toBe(false);
     expect(shouldResetView("a", "b")).toBe(true);
+  });
+});
+
+describe("createViewState", () => {
+  it("keeps the iso reset and the user pose pending until a fit is committed", () => {
+    const v = createViewState();
+    v.markInteracted();
+    expect(v.wantReset("S:1", false)).toBe(true);
+    // a fit that bailed (no commit) leaves both pending
+    expect(v.wantReset("S:1", false)).toBe(true);
+    expect(v.interacted).toBe(true);
+    v.commit("S:1");
+    expect(v.wantReset("S:1", false)).toBe(false);
+    expect(v.interacted).toBe(false);
+    expect(v.wantReset("S:2", false)).toBe(true);
+  });
+  it("never forces iso while a camera preset is active", () => {
+    expect(createViewState().wantReset("S:1", true)).toBe(false);
+  });
+});
+
+describe("createRefitScheduler held flush", () => {
+  it("clears a held run once a run executes, so gestureEnd does not repeat it", () => {
+    const run = vi.fn();
+    let active = true;
+    const s = createRefitScheduler({ delay: 100, isGestureActive: () => active, run });
+    s.request("debounced");
+    vi.advanceTimersByTime(100); // timer path fires while gesturing -> held
+    expect(run).not.toHaveBeenCalled();
+    active = false;
+    s.request("now"); // runs immediately
+    expect(run).toHaveBeenCalledTimes(1);
+    s.gestureEnd();
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

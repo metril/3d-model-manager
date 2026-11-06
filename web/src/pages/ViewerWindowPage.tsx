@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import { useParams, useSearch } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { useModel } from "@/api/library";
 import type { BackgroundPreset } from "@/components/viewer/background";
@@ -7,8 +9,9 @@ import { decodePartColors } from "@/components/viewer/partColors";
 import { ViewerStage } from "@/components/viewer/ViewerStage";
 import { useViewerScene } from "@/components/viewer/useViewerScene";
 import { glbFiles } from "@/components/viewer/viewable";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type WindowSearch } from "@/pages/viewerWindowSearch";
+import { parsePlate, type WindowSearch } from "@/pages/viewerWindowSearch";
 import type { FileOut } from "@/api/types";
 import type { SectionAxis, SectionState, ViewerToolsState } from "@/components/viewer/tools";
 
@@ -126,7 +129,7 @@ function ViewerWindow({ slug, files, search }: { slug: string; files: FileOut[];
       lighting: (search.light ?? "studio") as LightingPreset,
       tools: decodeTools(search),
       blob: search.blob,
-      plate: Number.isFinite(Number(search.plate)) && search.plate ? Number(search.plate) : undefined,
+      plate: parsePlate(search.plate, search.blob, files),
     },
   });
 
@@ -146,6 +149,9 @@ export function ViewerWindowPage() {
   const { slug } = useParams({ strict: false });
   const search = useSearch({ strict: false }) as WindowSearch;
   const modelQuery = useModel(slug ?? "");
+  const { t } = useTranslation();
+  const model = modelQuery.data;
+  const glbable = useMemo(() => (model ? glbFiles(model) : []), [model]);
 
   if (modelQuery.isLoading) {
     return (
@@ -155,11 +161,20 @@ export function ViewerWindowPage() {
     );
   }
 
-  const model = modelQuery.data;
-  if (!model) return <Centered>Model not found.</Centered>;
-
-  const glbable = glbFiles(model);
-  if (glbable.length === 0) return <Centered>No renderable parts selected.</Centered>;
+  if (modelQuery.isError && !model) {
+    return (
+      <Centered>
+        <div className="flex flex-col items-center gap-3">
+          <p>{t("viewer.loadError")}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => void modelQuery.refetch()}>
+            {t("viewer.retry")}
+          </Button>
+        </div>
+      </Centered>
+    );
+  }
+  if (!model) return <Centered>{t("viewer.modelNotFound")}</Centered>;
+  if (glbable.length === 0) return <Centered>{t("viewer.noRenderable")}</Centered>;
 
   return <ViewerWindow slug={model.slug} files={glbable} search={search} />;
 }
