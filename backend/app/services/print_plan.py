@@ -464,7 +464,19 @@ async def create_job(
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    send_to_printer.apply_async(args=[job.id, req.model_dump()])
+    try:
+        send_to_printer.apply_async(args=[job.id, req.model_dump()])
+    except Exception as exc:
+        await db.refresh(job)
+        if job.state != PrintJobState.QUEUED:
+            raise  # the task itself ran and recorded its own terminal state
+        job.state = PrintJobState.FAILED
+        job.printer_error = str(exc)
+        job.started_at = None
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "print queue unavailable; try again"
+        ) from exc
     await db.refresh(job)  # eager mode already ran the task through its own sync session
     return job
 

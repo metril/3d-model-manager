@@ -438,11 +438,12 @@ def archive_job(
     run.filament = ", ".join(types) or None
     run.duration_min = round(duration_s / 60) if duration_s is not None else None
     run.printed_at = job.finished_at or datetime.now(UTC)
-    run.filament_cost = cost.filament_cost
-    run.machine_cost = cost.machine_cost
-    run.energy_cost = cost.energy_cost
-    run.wear_cost = cost.wear_cost
-    run.total_cost = cost.total_cost
+    if inserting or run.total_cost is None:
+        run.filament_cost = cost.filament_cost
+        run.machine_cost = cost.machine_cost
+        run.energy_cost = cost.energy_cost
+        run.wear_cost = cost.wear_cost
+        run.total_cost = cost.total_cost
     if inserting and model_id is not None:
         model = session.get(Model, model_id)
         if model is not None:

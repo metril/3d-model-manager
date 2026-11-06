@@ -18,6 +18,7 @@ the scanner (SPEC M3 "Rescan/reconcile") -- not handled here.
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -81,6 +82,8 @@ if TYPE_CHECKING:
     # simplest): only needed for the `store_imported_file_sync` annotation.
     from app.api.deps import AuthContext
     from app.importers.download import StagedFile
+
+log = logging.getLogger(__name__)
 
 
 def _parse_cursor_datetime(raw: str) -> datetime:
@@ -605,9 +608,15 @@ async def hard_delete_model(
             "a file is still processing; retry once stored",
         )
 
+    slug = model.slug  # the commit below expires the ORM row
+
     def _delete_sidecar() -> None:
-        with contextlib.suppress(StorageKeyNotFound):
-            backend.delete(layout.sidecar_key(model.slug))
+        try:
+            backend.delete(layout.sidecar_key(slug))
+        except StorageKeyNotFound:
+            pass
+        except Exception:
+            log.warning("hard-delete: sidecar delete failed for %s", slug, exc_info=True)
 
     if files:
         file_ids = [f.id for f in files]
@@ -632,22 +641,31 @@ async def hard_delete_model(
                     db, settings, loc.backend_id
                 )
 
+        # Snapshot plain values: the commit below expires/deletes the ORM rows.
+        primary_targets = [(primary_backend_by_file_id[f.id], f.storage_path) for f in files]
+        location_targets = [
+            (location_backend_by_id[loc.backend_id], storage_path_by_file_id[loc.file_id])
+            for loc in locations
+        ]
+
         def _delete_all() -> None:
-            for file in files:
-                with contextlib.suppress(StorageKeyNotFound):
-                    primary_backend_by_file_id[file.id].delete(file.storage_path)
-            for loc in locations:
-                storage_path = storage_path_by_file_id[loc.file_id]
-                with contextlib.suppress(StorageKeyNotFound):
-                    location_backend_by_id[loc.backend_id].delete(storage_path)
+            for be, path in [*primary_targets, *location_targets]:
+                try:
+                    be.delete(path)
+                except StorageKeyNotFound:
+                    pass
+                except Exception:
+                    log.warning("hard-delete: storage delete failed for %s", path, exc_info=True)
             _delete_sidecar()
 
+        # DB first: a failed commit must never leave rows pointing at deleted blobs.
+        await db.execute(sa_delete(Model).where(Model.id == model.id))
+        await db.commit()
         await anyio.to_thread.run_sync(_delete_all)
-    else:
-        await anyio.to_thread.run_sync(_delete_sidecar)
-
+        return
     await db.execute(sa_delete(Model).where(Model.id == model.id))
     await db.commit()
+    await anyio.to_thread.run_sync(_delete_sidecar)
 
 
 async def bulk_hard_delete_models(

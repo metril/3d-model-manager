@@ -13,8 +13,7 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import MaintenanceTask, Printer, PrintJob
-from app.models.printing import PrintArchive
+from app.models import MaintenanceTask, Print, Printer
 from app.printers.capabilities import capabilities_for
 
 Status = Literal["ok", "soon", "overdue"]
@@ -76,12 +75,11 @@ async def seed_defaults(db: AsyncSession, printer: Printer) -> int:
 
 
 async def printer_hours(db: AsyncSession, printer_id: int) -> float:
-    secs = await db.scalar(
-        select(func.coalesce(func.sum(PrintArchive.duration_s), 0))
-        .join(PrintJob, PrintJob.id == PrintArchive.print_job_id)
-        .where(PrintJob.printer_id == printer_id)
+    # One Print row per run (PrintArchive rows fold repeats of the same print).
+    mins = await db.scalar(
+        select(func.coalesce(func.sum(Print.duration_min), 0)).where(Print.printer_id == printer_id)
     )
-    return round((secs or 0) / 3600, 1)
+    return round((mins or 0) / 60, 1)
 
 
 @dataclass(frozen=True)

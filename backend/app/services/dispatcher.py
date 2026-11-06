@@ -685,7 +685,7 @@ def _dispatch(
     if item.state != QueueState.DISPATCHED:
         item.copies = original_copies
         session.commit()
-        return True
+        return False  # failed primary send: nothing was sent
 
     for printer_id in selected[1:]:
         clone = _clone_entry(session, item, copies=1, state=QueueState.READY)
@@ -705,7 +705,7 @@ def _dispatch(
             billing.transfer(session, item, rest, unit * rest.copies)
         if fanout == Fanout.SINGLE:
             rest.printer_id = primary
-            session.commit()
+        session.commit()
     return True
 
 

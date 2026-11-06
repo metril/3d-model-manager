@@ -14,7 +14,6 @@ never touched.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -36,20 +35,15 @@ REAP_AFTER = timedelta(minutes=60)
 _TOMBSTONE = ".replaced-"
 
 
-def _latest_jobs(session: SyncSession, cutoff: datetime) -> dict[int, tuple[str, object]]:
-    """file_id -> (state, job_id) of the latest store job, when older than cutoff."""
-    latest = (
-        select(Job.subject_id, func.max(Job.created_at).label("at"))
+def _latest_jobs_subq(cutoff: datetime):
+    """Latest ``store_to_backend`` job per file (DISTINCT ON), older than cutoff."""
+    return (
+        select(Job.subject_id, Job.state, Job.id, Job.created_at)
         .where(Job.subject_type == "file", Job.type == "store_to_backend")
-        .group_by(Job.subject_id)
+        .distinct(Job.subject_id)
+        .order_by(Job.subject_id, Job.created_at.desc(), Job.id.desc())
         .subquery()
     )
-    rows = session.execute(
-        select(Job.subject_id, Job.state, Job.id)
-        .join(latest, (Job.subject_id == latest.c.subject_id) & (Job.created_at == latest.c.at))
-        .where(Job.subject_type == "file", Job.type == "store_to_backend", latest.c.at < cutoff)
-    ).all()
-    return {fid: (state, jid) for fid, state, jid in rows}
 
 
 def _delete(session: SyncSession, settings: Settings, file: File, job_id: object | None) -> None:
@@ -62,15 +56,13 @@ def _delete(session: SyncSession, settings: Settings, file: File, job_id: object
     shared = session.scalar(
         select(func.count()).select_from(File).where(File.storage_path == path, File.id != fid)
     )
+    backends = []
     if not shared:
         backends = [resolve_backend_for_file_sync(session, settings, file)]
         for loc in session.execute(
             select(FileLocation).where(FileLocation.file_id == fid)
         ).scalars():
             backends.append(backend_for_id_sync(session, settings, loc.backend_id))
-        for b in backends:
-            with contextlib.suppress(StorageKeyNotFound):
-                b.delete(path)
     model = session.scalar(
         select(Model)
         .join(Revision, Revision.model_id == Model.id)
@@ -79,7 +71,15 @@ def _delete(session: SyncSession, settings: Settings, file: File, job_id: object
     session.delete(file)
     if model is not None:
         model.updated_at = func.now()
+    # Commit the row delete first; storage cleanup is best-effort afterwards.
     session.commit()
+    for b in backends:
+        try:
+            b.delete(path)
+        except StorageKeyNotFound:
+            pass
+        except Exception:
+            log.warning("file reap: storage delete failed for %s", path, exc_info=True)
     if job_id is not None:
         spool.spool_path(settings, job_id).unlink(missing_ok=True)
     from app.tasks.pipeline import maybe_enqueue_assembly_sync
@@ -91,18 +91,22 @@ def reap_unverified_files_sync(
     session: SyncSession, settings: Settings, now: datetime | None = None
 ) -> int:
     cutoff = (now or datetime.now(UTC)) - REAP_AFTER
-    jobs = _latest_jobs(session, cutoff)
+    latest = _latest_jobs_subq(cutoff)
     reaped = 0
 
     # 1. Unverified files whose store job is dead.
-    orphans = session.execute(
-        select(File).where(File.verified_at.is_(None), File.id.in_(list(jobs)))
-    ).scalars()
-    targets: list[tuple[File, object | None]] = []
-    for f in orphans:
-        state, jid = jobs[f.id]
-        if state in (jobs_service.STATE_FAILED, jobs_service.STATE_DEAD):
-            targets.append((f, jid))
+    targets: list[tuple[File, object | None]] = [
+        (f, jid)
+        for f, jid in session.execute(
+            select(File, latest.c.id)
+            .join(latest, latest.c.subject_id == File.id)
+            .where(
+                File.verified_at.is_(None),
+                latest.c.created_at < cutoff,
+                latest.c.state.in_((jobs_service.STATE_FAILED, jobs_service.STATE_DEAD)),
+            )
+        ).all()
+    ]
 
     # 2. Tombstones whose replacing file's job finished long ago.
     for t in session.execute(select(File).where(File.rel_path.contains(_TOMBSTONE))).scalars():
@@ -110,7 +114,14 @@ def reap_unverified_files_sync(
         new_id = session.scalar(
             select(File.id).where(File.revision_id == t.revision_id, File.rel_path == base_path)
         )
-        if new_id in jobs and jobs[new_id][0] == jobs_service.STATE_DONE:
+        if new_id is None:
+            continue
+        state = session.scalar(
+            select(latest.c.state).where(
+                latest.c.subject_id == new_id, latest.c.created_at < cutoff
+            )
+        )
+        if state == jobs_service.STATE_DONE:
             targets.append((t, None))
 
     for file, jid in targets:
