@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 
 import { useLogin, useOidcProviders, type TwoFactorMethod } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -8,6 +8,7 @@ import { TwoFactorStep } from "@/components/auth/TwoFactorStep";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { safeRedirect } from "@/lib/redirect";
 
 const ERROR_COPY: Record<string, string> = {
   not_provisioned: "Your account isn't set up here yet. Ask an admin to add you.",
@@ -24,11 +25,6 @@ function parseMethods(csv?: string): TwoFactorMethod[] {
   return list;
 }
 
-/** Only same-origin absolute paths; anything else falls back to `/`. */
-function safeReturn(to?: string | null): string {
-  return to && to.startsWith("/") && !to.startsWith("//") ? to : "/";
-}
-
 interface Pending {
   token: string;
   methods: TwoFactorMethod[];
@@ -36,7 +32,7 @@ interface Pending {
 
 export function LoginPage() {
   const { t } = useTranslation();
-  const search = useSearch({ strict: false }) as { error?: string; step?: string; token?: string; methods?: string };
+  const search = useSearch({ strict: false }) as { error?: string; step?: string; token?: string; methods?: string; redirect?: string };
   const errorCode = search.error;
   // The OIDC redirect carries the token in the URL fragment (keeps it out of proxy logs);
   // `?step=2fa` query params are still honoured as a fallback. Read once, strip at once.
@@ -63,7 +59,14 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
+  const router = useRouter();
   const login = useLogin();
+
+  /** Back to where the user was headed (server `return_to` wins, then the
+   * `?redirect=` carried by the guard), same-origin paths only. */
+  function goAfterLogin(returnTo?: string | null) {
+    router.history.push(safeRedirect(returnTo) ?? safeRedirect(search.redirect) ?? "/");
+  }
 
   // Keep the one-time token out of the address bar / history.
   useEffect(() => {
@@ -81,7 +84,7 @@ export function LoginPage() {
           if (res.requires_2fa) {
             setPassword("");
             setPending({ token: res.pre_auth_token, methods: res.methods });
-          } else void navigate({ to: "/" });
+          } else goAfterLogin();
         },
       },
     );
@@ -105,7 +108,7 @@ export function LoginPage() {
             <TwoFactorStep
               token={pending.token}
               methods={pending.methods}
-              onDone={(me) => void navigate({ to: safeReturn(me.return_to) as never })}
+              onDone={(me) => goAfterLogin(me.return_to)}
               onExpired={() => {
                 setPending(null);
                 setNotice(t("twofa.login.expired"));

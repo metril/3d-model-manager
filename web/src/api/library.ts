@@ -187,8 +187,8 @@ export function buildModelsUrl(filters: Partial<GalleryFilters>, cursor?: string
 export function useModelsQuery(filters: GalleryFilters) {
   return useInfiniteQuery({
     queryKey: ["models", "list", filters] as const,
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      api.get<GalleryPage>(buildModelsUrl(filters, pageParam)),
+    queryFn: ({ pageParam, signal }: { pageParam: string | undefined; signal: AbortSignal }) =>
+      api.get<GalleryPage>(buildModelsUrl(filters, pageParam), { signal }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
@@ -198,7 +198,7 @@ export function useModelsQuery(filters: GalleryFilters) {
 export function useModelSearchQuery(q: string) {
   return useQuery({
     queryKey: ["models", "search", q] as const,
-    queryFn: () => api.get<GalleryPage>(buildModelsUrl({ q, sort: "name" }, undefined, 10)),
+    queryFn: ({ signal }) => api.get<GalleryPage>(buildModelsUrl({ q, sort: "name" }, undefined, 10), { signal }),
     enabled: q.trim().length > 0,
     placeholderData: keepPreviousData,
   });

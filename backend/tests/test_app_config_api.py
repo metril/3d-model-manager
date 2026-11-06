@@ -28,6 +28,7 @@ _DEFAULTS = {
     "sensor_history_days": 30,
     "trash_retention_days": 30,
     "makerworld_profiles": "all",
+    "currency": "",
 }
 
 
@@ -72,6 +73,7 @@ async def test_put_persists_all_five_fields_and_get_reflects_them(authenticated_
         "sensor_history_days": 14,
         "trash_retention_days": 7,
         "makerworld_profiles": "owned",
+        "currency": "EUR",
     }
     put = await authenticated_client.put("/api/settings/app", json=payload)
     assert put.status_code == 200
@@ -362,5 +364,18 @@ async def test_makerworld_profiles_round_trips(authenticated_client):
     assert put.json()["makerworld_profiles"] == "owned"
     bad = await authenticated_client.put(
         "/api/settings/app", json={**got, "makerworld_profiles": "x"}
+    )
+    assert bad.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_currency_normalised_and_validated(authenticated_client):
+    r = await authenticated_client.put("/api/settings/app", json={**_DEFAULTS, "currency": "usd"})
+    assert r.status_code == 200
+    assert r.json()["currency"] == "USD"
+    feats = await authenticated_client.get("/api/features")
+    assert feats.json()["currency"] == "USD"
+    bad = await authenticated_client.put(
+        "/api/settings/app", json={**_DEFAULTS, "currency": "dollars"}
     )
     assert bad.status_code == 422

@@ -1,7 +1,15 @@
 import { MutationCache, QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { ApiError } from "@/api/client";
+import { ApiError, setUnauthorizedHandler } from "@/api/client";
+
+/** Retry transient failures only: network errors (fetch TypeError) and 5xx,
+ * never 4xx (auth, validation, not-found are not going to fix themselves). */
+export function shouldRetry(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 2) return false;
+  if (error instanceof ApiError) return error.status >= 500;
+  return error instanceof TypeError;
+}
 
 export const queryClient = new QueryClient({
   // Global fallback so actions without their own inline error UI (archive,
@@ -21,8 +29,13 @@ export const queryClient = new QueryClient({
   }),
   defaultOptions: {
     queries: {
-      retry: false,
+      retry: shouldRetry,
+      staleTime: 15_000,
       refetchOnWindowFocus: false,
     },
   },
 });
+
+// A 401 means the session is gone: drop every cached query so route guards
+// can't pass from stale cache after the redirect.
+setUnauthorizedHandler(() => queryClient.clear());

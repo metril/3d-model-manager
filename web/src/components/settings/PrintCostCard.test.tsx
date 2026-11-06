@@ -96,6 +96,7 @@ describe("PrintCostCard", () => {
         energy_price_ha_entity: "",
         trash_retention_days: 30,
         makerworld_profiles: "all",
+        currency: "",
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
@@ -125,6 +126,7 @@ describe("PrintCostCard", () => {
         energy_price_ha_entity: "",
         trash_retention_days: 30,
         makerworld_profiles: "all",
+        currency: "",
       }),
     );
     expect(await screen.findByText("Saved.")).toBeInTheDocument();

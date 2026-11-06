@@ -34,6 +34,7 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { Badge } from "@/components/ui/badge";
+import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -639,6 +640,16 @@ export function ProjectDetailPage() {
   const project = useProject(Number(id));
 
   if (project.isLoading) return <Skeleton className="h-64 w-full" />;
+  if (project.error && !(project.error instanceof ApiError && project.error.status === 404)) {
+    return (
+      <div role="alert" className="space-y-2 text-sm">
+        <p className="text-destructive">{project.error instanceof ApiError ? project.error.detail : "Couldn't load the project."}</p>
+        <Button size="sm" variant="outline" onClick={() => void project.refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (!project.data) return <p className="text-sm text-muted-foreground">Project not found.</p>;
   const p = project.data;
   const canWrite = auth.can("library:write");
