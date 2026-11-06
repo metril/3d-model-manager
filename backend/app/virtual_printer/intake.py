@@ -16,8 +16,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
-
 from app.config import Settings
 from app.importers.download import stage_local_file
 from app.models.enums import BlobFormat, QueueState, ReviewState, VirtualPrinterMode
@@ -26,6 +24,7 @@ from app.services import billing, slicer_intake
 from app.services.app_config import get_app_config_sync
 from app.services.library import get_live_file_sync
 from app.services.print_plan import estimate_item_sync
+from app.services.queue_position import append_position_sync
 from app.services.server_config import ServerConfig, get_server_config_sync
 from app.services.slicer_naming import _safe_basename
 from app.services.storage_backends import resolve_default_backend_sync
@@ -167,7 +166,7 @@ def _enqueue(
         log.warning("virtual printer %r: proxy target is gone; falling back to review", cfg.name)
         mode = VirtualPrinterMode.REVIEW
     proxy = mode is VirtualPrinterMode.PROXY
-    position = (s.scalar(select(func.max(PrintQueueEntry.position))) or 0) + 1
+    position = append_position_sync(s)
     entry = PrintQueueEntry(
         model_id=model_id,
         file_id=file_id,

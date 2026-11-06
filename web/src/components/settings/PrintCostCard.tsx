@@ -31,7 +31,7 @@ interface Draft {
   energy_cost_per_kwh: string;
 }
 
-type DraftErrors = Partial<Record<keyof Draft, string>>;
+type DraftErrors = Partial<Record<keyof Draft | "currency", string>>;
 
 function seedDraft(settings: AppSettings): Draft {
   return {
@@ -57,6 +57,7 @@ export function PrintCostCard() {
   const [errors, setErrors] = useState<DraftErrors>({});
   const [priceSource, setPriceSource] = useState<"fixed" | "homeassistant" | null>(null);
   const [priceEntity, setPriceEntity] = useState<string | null>(null);
+  const [currency, setCurrencyDraft] = useState<string | null>(null);
   const haEntities = useHaEntities(priceSource === "homeassistant");
   const reprice = useRepriceRuns();
   const [repriceCount, setRepriceCount] = useState<number | null>(null);
@@ -66,6 +67,7 @@ export function PrintCostCard() {
       setDraft(seedDraft(settings.data));
       setPriceSource(settings.data.energy_price_source);
       setPriceEntity(settings.data.energy_price_ha_entity);
+      setCurrencyDraft(settings.data.currency ?? "");
     }
   }, [settings.data, draft]);
 
@@ -102,6 +104,11 @@ export function PrintCostCard() {
   function save() {
     if (!settings.data || !draft) return;
     if (!validate(draft)) return;
+    const code = (currency ?? "").trim().toUpperCase();
+    if (code !== "" && !/^[A-Z]{3}$/.test(code)) {
+      setErrors((prev) => ({ ...prev, currency: "Use a 3-letter ISO code, e.g. USD." }));
+      return;
+    }
     update.mutate({
       ...settings.data,
       filament_cost_per_kg: Number(draft.filament_cost_per_kg),
@@ -109,6 +116,7 @@ export function PrintCostCard() {
       energy_cost_per_kwh: Number(draft.energy_cost_per_kwh),
       energy_price_source: priceSource ?? "fixed",
       energy_price_ha_entity: (priceEntity ?? "").trim(),
+      currency: code,
     });
   }
 
@@ -117,8 +125,8 @@ export function PrintCostCard() {
       <CardHeader>
         <CardTitle>Print cost estimate</CardTitle>
         <CardDescription>
-          Used to estimate a print's cost from its filament weight and duration. No currency symbol
-          -- enter whatever unit you use.
+          Used to estimate a print's cost from its filament weight and duration. Set a currency
+          code to show costs with its symbol, or leave it blank for plain numbers.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -180,6 +188,27 @@ export function PrintCostCard() {
                   ? "Fallback when the Home Assistant price sensor is unavailable."
                   : "0 = don't price Home Assistant energy readings."}
               </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="currency-code">Currency (ISO 4217)</Label>
+            <Input
+              id="currency-code"
+              maxLength={3}
+              placeholder="USD"
+              value={currency ?? ""}
+              onChange={(e) => {
+                setCurrencyDraft(e.target.value);
+                setErrors((prev) => (prev.currency ? { ...prev, currency: undefined } : prev));
+              }}
+              aria-invalid={Boolean(errors.currency)}
+            />
+            {errors.currency ? (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.currency}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Blank = no currency symbol.</p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">

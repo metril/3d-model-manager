@@ -4,9 +4,12 @@
  */
 import { useEffect, useState } from "react";
 
+import i18n from "@/i18n";
+
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** Humanize a byte count, e.g. `1536` -> `"1.5 KB"`. */
+/** Humanize a byte count, e.g. `1536` -> `"1.5 KB"`. Rounds before choosing
+ * the unit, so 1023.99 KB reads "1.0 MB", never "1024 KB". */
 export function humanizeBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
@@ -17,31 +20,40 @@ export function humanizeBytes(bytes: number): string {
     value /= 1024;
     unitIndex += 1;
   }
-  const precision = value < 10 ? 1 : 0;
-  return `${value.toFixed(precision)} ${SIZE_UNITS[unitIndex]}`;
+  let rounded = Number(value.toFixed(value < 10 ? 1 : 0));
+  if (rounded >= 1024 && unitIndex < SIZE_UNITS.length - 1) {
+    rounded = 1;
+    unitIndex += 1;
+  }
+  const precision = rounded < 10 ? 1 : 0;
+  return `${rounded.toFixed(precision)} ${SIZE_UNITS[unitIndex]}`;
 }
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+function cachedDateFormat(key: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const id = `${i18n.language}|${key}`;
+  let f = fmtCache.get(id);
+  if (!f) {
+    f = new Intl.DateTimeFormat(i18n.language, opts);
+    fmtCache.set(id, f);
+  }
+  return f;
+}
 
 /** Format an ISO datetime string for display, e.g. "Jul 5, 2026, 3:04 PM". */
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return dateFormatter.format(date);
+  return cachedDateFormat("dt", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
-
-const dateOnlyFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 /** Format an ISO datetime string as a date only, e.g. "Jul 5, 2026". */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return dateOnlyFormatter.format(date);
+  return cachedDateFormat("d", { dateStyle: "medium" }).format(date);
 }
 
 /** Format a `Date` as the local-time value an `<input type="datetime-local">`
@@ -64,8 +76,6 @@ export function humanizeDuration(seconds: number): string {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-
 /** Format an ISO datetime string as a short relative time, e.g. "5 minutes
  * ago", "yesterday" -- falls back to `formatDate` past 30 days, since a
  * "47 days ago" reads worse than an absolute date at that distance. */
@@ -77,7 +87,8 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
   const abs = Math.abs(diffSeconds);
 
-  if (abs < 60) return "just now";
+  const relativeTimeFormatter = new Intl.RelativeTimeFormat(i18n.language, { numeric: "auto" });
+  if (abs < 60) return i18n.t("format.justNow");
   if (abs < 3600) return relativeTimeFormatter.format(Math.round(diffSeconds / 60), "minute");
   if (abs < 86400) return relativeTimeFormatter.format(Math.round(diffSeconds / 3600), "hour");
   if (abs < 30 * 86400) return relativeTimeFormatter.format(Math.round(diffSeconds / 86400), "day");
@@ -96,7 +107,33 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-/** Run cost, 2 decimals, no currency symbol; `--` when unknown. */
+let currencyCode = "";
+
+/** ISO 4217 code from the server's `currency` setting; empty = no symbol. */
+export function setCurrency(code: string | null | undefined): void {
+  currencyCode = (code ?? "").trim().toUpperCase();
+}
+
+const costFmtCache = new Map<string, Intl.NumberFormat>();
+function costFormat(): Intl.NumberFormat {
+  const key = `${i18n.language}|${currencyCode}`;
+  let f = costFmtCache.get(key);
+  if (!f) {
+    const base = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+    try {
+      f = new Intl.NumberFormat(i18n.language, currencyCode ? { ...base, style: "currency", currency: currencyCode } : base);
+    } catch {
+      f = new Intl.NumberFormat(i18n.language, base); // invalid code -> plain number
+    }
+    costFmtCache.set(key, f);
+  }
+  return f;
+}
+
+/** Run cost, 2 decimals (with a currency symbol when the server's `currency`
+ * is set); `--` when unknown. A negative zero never prints as "-0.00". */
 export function formatCost(value: number | null | undefined): string {
-  return value == null ? "--" : value.toFixed(2);
+  if (value == null || !Number.isFinite(value)) return "--";
+  const rounded = Math.round(value * 100) / 100;
+  return costFormat().format(rounded === 0 ? 0 : rounded);
 }

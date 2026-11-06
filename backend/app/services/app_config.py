@@ -93,6 +93,9 @@ class AppConfig(BaseModel):
     # MakerWorld import: keep every print profile ("all") or only those
     # compatible with an enabled printer ("owned").
     makerworld_profiles: Literal["all", "owned"] = "all"
+    # ISO 4217 code (e.g. "USD") the UI formats costs with; "" = plain
+    # numbers, no currency symbol.
+    currency: str = ""
 
 
 def _env_config(settings: Settings) -> AppConfig:

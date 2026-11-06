@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -41,7 +42,7 @@ from app.services.import_dedup import (
 )
 from app.services.imports import reset_failed_import_sync
 from app.tasks import base
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 from app.tasks.importing import import_from_url
 
 logger = logging.getLogger(__name__)
@@ -50,15 +51,30 @@ logger = logging.getLogger(__name__)
 # upstream rather than trusting it to eventually return a short page.
 MAX_PAGES = 20
 
+# Beyond the task's hard time limit (+ margin) a queued/running sync Job is dead.
+STALE_JOB_AFTER = timedelta(seconds=LONG_TIME_LIMIT_S + 1800)
+
+
+class _Walk:
+    """Iterates a remote list page by page, stopping on the first short (or
+    empty) page; ``truncated`` is set when ``MAX_PAGES`` cut a longer list."""
+
+    def __init__(self, importer, list_id: str) -> None:
+        self._importer = importer
+        self._list_id = list_id
+        self.truncated = False
+
+    def __iter__(self):
+        for page in range(1, MAX_PAGES + 1):
+            items = self._importer.list_list_items(self._list_id, page)
+            yield from items
+            if len(items) < SEARCH_PAGE_SIZE:
+                return
+        self.truncated = True
+
 
 def _walk_list_items(importer, list_id: str):
-    """Yield every item of a remote list, page by page, stopping on the first
-    short (or empty) page."""
-    for page in range(1, MAX_PAGES + 1):
-        items = importer.list_list_items(list_id, page)
-        yield from items
-        if len(items) < SEARCH_PAGE_SIZE:
-            return
+    return iter(_Walk(importer, list_id))
 
 
 def _backfill_provenance_sync(session, imp: Import, collection: FollowedCollection) -> None:
@@ -117,7 +133,8 @@ def _sync_one(session, collection: FollowedCollection) -> None:
         else {}
     )
 
-    for item in _walk_list_items(importer, collection.list_id):
+    walk = _Walk(importer, collection.list_id)
+    for item in walk:
         if item.external_id in owned:
             continue
         live_import = find_live_import_sync(session, item.site, item.external_id)
@@ -168,10 +185,22 @@ def _sync_one(session, collection: FollowedCollection) -> None:
                 thumbnail_url=item.thumbnail_url,
             )
 
-    collections_svc.mark_synced_sync(session, collection, error=None)
+    warning = (
+        f"Warning: list truncated at {MAX_PAGES} pages ({MAX_PAGES * SEARCH_PAGE_SIZE} items); "
+        "later items were not synced."
+        if walk.truncated
+        else None
+    )
+    if warning:
+        logger.warning("collection %s/%s: %s", collection.site.value, collection.list_id, warning)
+    collections_svc.mark_synced_sync(session, collection, error=warning)
 
 
-@celery_app.task(name="app.tasks.sync_collections.sync_all")
+@celery_app.task(
+    name="app.tasks.sync_collections.sync_all",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def sync_all(job_id: str) -> None:
     with base.sync_session() as s:
         jobs.mark_running(s, job_id)
@@ -232,6 +261,18 @@ def schedule_sync_all() -> None:
     regardless, exactly as it did before this guard existed.
     """
     with base.sync_session() as s:
+        # A queued/running row older than the task's own hard limit can't be
+        # live (lost message, killed worker): fail it so it stops blocking
+        # every future scheduled tick.
+        stale_cutoff = datetime.now(UTC).replace(tzinfo=None) - STALE_JOB_AFTER
+        for stale_id in s.scalars(
+            select(Job.id).where(
+                Job.type == "sync_collections",
+                Job.state.in_((jobs.STATE_QUEUED, jobs.STATE_RUNNING)),
+                Job.updated_at < stale_cutoff,
+            )
+        ).all():
+            jobs.mark_failed(s, str(stale_id), "stale: no progress, reclaimed by scheduler")
         in_flight = s.execute(
             select(Job.id).where(
                 Job.type == "sync_collections",

@@ -39,6 +39,7 @@ async def get_features(
     server = await get_server_config(db, settings)
     return {
         "printer_enabled": config.printer_enabled,
+        "currency": config.currency,
         "watch_dir": str(settings.watch_dir) if settings.watch_dir else None,
         "watch_enabled": settings.watch_dir is not None and config.watch_interval_s > 0,
         "virtual_printer_enabled": True,  # always on (compat constant)

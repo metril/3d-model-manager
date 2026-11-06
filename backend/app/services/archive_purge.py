@@ -54,12 +54,12 @@ def run_purge(
     session: Session, settings: Settings, cfg: archive_settings.PurgeConfig
 ) -> tuple[int, int]:
     rows = candidates(session, cfg)
-    n, size = len(rows), _bytes(session, rows)
-    delete_archives(session, settings, [a.id for a in rows])
+    n = len(rows)
+    freed = delete_archives(session, settings, [a.id for a in rows])
     archive_settings.set_purge_stats(
         session,
         archive_settings.PurgeStats(
-            last_run_at=datetime.now(UTC).isoformat(), last_deleted=n, last_bytes=size
+            last_run_at=datetime.now(UTC).isoformat(), last_deleted=n, last_bytes=freed
         ),
     )
-    return n, size
+    return n, freed

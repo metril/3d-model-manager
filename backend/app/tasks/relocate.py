@@ -71,7 +71,7 @@ from app.services.storage_tree import rewrite_folder_path
 from app.storage.base import StorageBackend
 from app.storage.errors import StorageError, StorageKeyNotFound
 from app.tasks import base
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,11 @@ class MoveRejected(Exception):
 MODES = frozenset({"move", "replicate"})
 
 
-@celery_app.task(name="app.tasks.relocate.relocate_model_storage")
+@celery_app.task(
+    name="app.tasks.relocate.relocate_model_storage",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def relocate_model_storage(job_id: str, model_id: int, target_backend_id: int, mode: str) -> None:
     settings = get_settings()
     with base.sync_session() as s:
@@ -132,7 +136,11 @@ def relocate_model_storage(job_id: str, model_id: int, target_backend_id: int, m
         logger.warning("relocate %s: succeeded but marking done failed", job_id, exc_info=True)
 
 
-@celery_app.task(name="app.tasks.relocate.relocate_all_models")
+@celery_app.task(
+    name="app.tasks.relocate.relocate_all_models",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def relocate_all_models(job_id: str, target_backend_id: int, mode: str = "move") -> None:
     """Bulk "move the whole library onto backend X" (M8 F): the correct
     multi-backend replacement for the legacy ``migrate_storage`` -- relocates
@@ -178,10 +186,21 @@ def _relocate_one_file(
     target_backend: StorageBackend,
     mode: str,
 ) -> None:
+    # Read the file's coordinates WITHOUT holding row locks (the copy below can
+    # take a long time and must not block other writers); the locks are taken
+    # only for the cutover re-check, which aborts if anything moved meanwhile.
+    model_id = s.scalar(
+        select(Revision.model_id)
+        .join(File, File.revision_id == Revision.id)
+        .where(File.id == file_id)
+    )
+    if model_id is None:
+        return  # deleted since the job was enqueued -- nothing left to relocate
     file = s.get(File, file_id)
     if file is None:
-        return  # deleted since the job was enqueued -- nothing left to relocate
+        return
 
+    orig_backend_id = file.backend_id
     if file.backend_id is not None:
         current_backend_id = file.backend_id
         source_backend = backend_for_id_sync(s, settings, current_backend_id)
@@ -197,7 +216,9 @@ def _relocate_one_file(
     expected_hash = file.blob_hash
 
     location = s.get(FileLocation, (file.id, target_backend_id))
-    if location is None or location.verified_at is None:
+    needs_copy = location is None or location.verified_at is None
+    s.commit()  # end the read transaction: no locks/snapshot held across the copy
+    if needs_copy:
         # Same streaming-copy shape as `app.tasks.migrate`'s `_chunks`
         # closure: `source_backend.read` is consumed lazily, one generator,
         # fed straight into `dest.write`, which hashes (blake3) as it writes
@@ -223,8 +244,9 @@ def _relocate_one_file(
             # resumes from here.
             raise RuntimeError(f"hash mismatch relocating file {file.id} ({storage_path!r})")
         now = datetime.now(UTC)
+        location = s.get(FileLocation, (file_id, target_backend_id))
         if location is None:
-            s.add(FileLocation(file_id=file.id, backend_id=target_backend_id, verified_at=now))
+            s.add(FileLocation(file_id=file_id, backend_id=target_backend_id, verified_at=now))
         else:
             location.verified_at = now
         s.commit()
@@ -236,6 +258,15 @@ def _relocate_one_file(
         # between the commit and the physical delete just leaves a harmless
         # extra copy sitting on the source backend with no DB row pointing
         # at it -- never a lost file, never a dangling reference.
+        #
+        # Take the locks now (none were held during the copy) and make sure
+        # nothing renamed/re-pointed the file during the copy before cutting
+        # over (else the target copy sits at a stale path; leave the source).
+        lock_model_row_sync(s, model_id)
+        s.refresh(file, with_for_update=True)
+        if file.storage_path != storage_path or file.backend_id != orig_backend_id:
+            s.rollback()
+            return
         file.backend_id = target_backend_id
         source_location = s.get(FileLocation, (file.id, current_backend_id))
         if source_location is not None:
@@ -244,7 +275,11 @@ def _relocate_one_file(
         source_backend.delete(storage_path)
 
 
-@celery_app.task(name="app.tasks.relocate.move_storage_folder")
+@celery_app.task(
+    name="app.tasks.relocate.move_storage_folder",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def move_storage_folder(job_id: str, src: str, new_prefix: str) -> None:
     """Re-root every file under folder ``src`` to ``new_prefix`` (same
     revision; see ``storage_tree.plan_folder_move``). Same verify-before-delete

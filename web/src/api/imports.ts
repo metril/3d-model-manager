@@ -162,9 +162,10 @@ export function useImportSearch(sites: ImportSite[], q: string) {
   const siteParams = selected.map((s) => `&site=${encodeURIComponent(s)}`).join("");
   return useInfiniteQuery({
     queryKey: ["imports", "search", selected, query] as const,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       api.get<SearchResponse>(
         `/imports/search?q=${encodeURIComponent(query)}&page=${pageParam}${siteParams}`,
+        { signal },
       ),
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) =>

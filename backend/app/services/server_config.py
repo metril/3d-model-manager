@@ -136,6 +136,9 @@ class SmtpConfig(BaseModel):
         return bool(self.host and self.from_addr)
 
 
+SLICE_TIMEOUT_MAX_S = 7200  # upper bound of ServerConfig.slice_timeout_s
+
+
 class ServerConfig(BaseModel):
     smtp: SmtpConfig = Field(default_factory=SmtpConfig)
     public_url: str | None = None
@@ -145,7 +148,7 @@ class ServerConfig(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     slicer_enabled: bool = True
     slicer_url: str = "http://slicer:3001"
-    slice_timeout_s: int = Field(default=600, ge=30, le=7200)
+    slice_timeout_s: int = Field(default=600, ge=30, le=SLICE_TIMEOUT_MAX_S)
     orcaslicer_enabled: bool = False
     orcaslicer_url: str = "http://orcaslicer:3000"
     orcaslicer_launcher_url: str = "http://orcaslicer:3010"

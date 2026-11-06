@@ -171,7 +171,18 @@ async def resolve_and_attach(
     job = await jobs_service.create_job(
         db, id=spool_token, type="store_to_backend", subject_type="file", subject_id=file.id
     )
-    store_to_backend.apply_async(args=[str(job.id), file.id, str(spool_path)], task_id=str(job.id))
+    try:
+        store_to_backend.apply_async(
+            args=[str(job.id), file.id, str(spool_path)], task_id=str(job.id)
+        )
+    except Exception as exc:
+        await db.refresh(job)
+        if job.state == jobs_service.STATE_QUEUED:
+            job.state = jobs_service.STATE_FAILED
+            job.error = f"dispatch failed: {exc}"
+            await db.commit()
+        spool_path.unlink(missing_ok=True)
+        raise
 
     return IntakeResult(
         model_id=model.id,

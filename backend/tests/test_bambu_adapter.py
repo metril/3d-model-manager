@@ -137,11 +137,18 @@ def test_request_full_status_emits_snapshot(monkeypatch):
 
 
 def test_upload_and_start_uploads_file(monkeypatch, tmp_path):
-    """``upload_and_start`` still uploads via the lib; the project_file
+    """``upload_and_start`` uploads via the bounded FTPS client; the project_file
     publish itself (and never calling ``start_print``) is covered in
     ``tests/test_bambu_project_file.py`` against a fake ``mqtt_client``
     (this stub has no ``mqtt_client`` attribute)."""
     a, stub = _stub_adapter(monkeypatch)
+    monkeypatch.setattr(
+        bambu,
+        "_build_ftp",
+        lambda conn: type(
+            "F", (), {"upload_file": lambda self, fh, name: stub.uploaded.append(name) or "226"}
+        )(),
+    )
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
     with pytest.raises(AttributeError):

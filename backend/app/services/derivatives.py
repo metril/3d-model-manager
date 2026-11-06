@@ -304,15 +304,25 @@ class _RangedReader(io.RawIOBase):
         return self._pos
 
     def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
-        base = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: self._size}[whence]
-        self._pos = max(0, base + offset)
+        if whence == io.SEEK_SET:
+            base = 0
+        elif whence == io.SEEK_CUR:
+            base = self._pos
+        elif whence == io.SEEK_END:
+            base = self._size
+        else:
+            raise ValueError(f"invalid whence ({whence})")
+        pos = base + offset
+        if pos < 0:
+            raise ValueError(f"negative seek position {pos}")
+        self._pos = pos
         return self._pos
 
     def readinto(self, b) -> int:
         want = min(len(b), self._size - self._pos)
         if want <= 0:
             return 0
-        data = b"".join(self._backend.read(self._key, self._pos, self._pos + want))
+        data = b"".join(self._backend.read(self._key, self._pos, self._pos + want))[:want]
         b[: len(data)] = data
         self._pos += len(data)
         return len(data)

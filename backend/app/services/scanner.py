@@ -105,7 +105,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import Settings
 from app.models import Blob, File, FileLocation, Model, Revision, ScanRun, StorageBackendRow
-from app.services import layout
+from app.services import layout, pending_deletes
 from app.services import prints as prints_service
 from app.services import storage_backends as storage_backends_service
 from app.storage.base import EntryInfo, StorageBackend
@@ -311,9 +311,10 @@ def _reconcile_against_backend(
         if backend_row.is_default:
             scope = or_(scope, File.backend_id.is_(None))
         files_stmt = files_stmt.where(scope)
-    files_by_path: dict[str, File] = {
-        f.storage_path: f for f in session.execute(files_stmt).unique().scalars()
-    }
+    # path -> every row sharing it (two rows may point at one storage key).
+    files_by_path: dict[str, list[File]] = {}
+    for f in session.execute(files_stmt).unique().scalars():
+        files_by_path.setdefault(f.storage_path, []).append(f)
 
     # Replicated copies: a file whose PRIMARY backend is a different one but
     # whose bytes ALSO live here via a `file_locations` row (relocate mode
@@ -333,7 +334,7 @@ def _reconcile_against_backend(
         )
         for f in session.execute(replica_stmt).unique().scalars():
             if f.storage_path not in files_by_path:
-                files_by_path[f.storage_path] = f
+                files_by_path[f.storage_path] = [f]
                 replica_paths.add(f.storage_path)
 
     seen: set[str] = set()
@@ -350,15 +351,16 @@ def _reconcile_against_backend(
 
         counters["files_seen"] += 1
 
-        file = files_by_path.get(entry.key)
-        if file is not None:
-            _reconcile_known(session, backend, file, entry, size_only, now, counters, report)
-            if backend_id is not None:
-                # A replica seen on this backend: confirm its location, but
-                # leave its primary `backend_id` on the OTHER backend untouched.
-                if entry.key not in replica_paths:
-                    file.backend_id = backend_id
-                _touch_location(session, file.id, backend_id, now)
+        known = files_by_path.get(entry.key)
+        if known:
+            for file in known:
+                _reconcile_known(session, backend, file, entry, size_only, now, counters, report)
+                if backend_id is not None:
+                    # A replica seen on this backend: confirm its location, but
+                    # leave its primary `backend_id` on the OTHER backend untouched.
+                    if entry.key not in replica_paths:
+                        file.backend_id = backend_id
+                    _touch_location(session, file.id, backend_id, now)
             seen.add(entry.key)
             continue
 
@@ -370,8 +372,9 @@ def _reconcile_against_backend(
     # never be relinked twice in one scan.
     missing_candidates: dict[int, File] = {
         f.id: f
-        for path, f in files_by_path.items()
+        for path, fs in files_by_path.items()
         if path not in seen and path not in replica_paths
+        for f in fs
     }
 
     adopted_index: dict[tuple[int, int], dict] = {}
@@ -387,10 +390,23 @@ def _reconcile_against_backend(
     # --- full pass-1 walk above has computed `missing_candidates`. --------
     models_by_slug, revisions_by_key, taken = _preload_adopt_targets(session, deferred)
     for i in range(0, len(deferred), _CHUNK):
+        chunk = deferred[i : i + _CHUNK]
+        # Re-check per chunk: a concurrent ingest may have created a row for
+        # one of these keys since the pass-1 snapshot; adopting it would
+        # duplicate the file.
+        taken_now = set(
+            session.execute(
+                select(File.storage_path).where(File.storage_path.in_([e.key for e in chunk]))
+            ).scalars()
+        )
+        taken_now |= pending_deletes.pending_keys(session, [e.key for e in chunk])
+        chunk = [e for e in chunk if e.key not in taken_now]
+        if not chunk:
+            continue
         _reconcile_unknown_chunk(
             session,
             backend,
-            deferred[i : i + _CHUNK],
+            chunk,
             missing_candidates,
             draft_models,
             models_by_slug,
@@ -506,8 +522,19 @@ def _reconcile_known(
     _best_effort_pipeline(session, blob_hash=new_hash, file_id=file.id)
 
 
+def _index_by_hash(missing_candidates: dict[int, File]) -> dict[str, list[File]]:
+    idx: dict[str, list[File]] = {}
+    for f in missing_candidates.values():
+        if f.blob_hash is not None:
+            idx.setdefault(f.blob_hash, []).append(f)
+    return idx
+
+
 def _find_relink_candidate(
-    missing_candidates: dict[int, File], digest: str, key: str
+    missing_candidates: dict[int, File],
+    digest: str,
+    key: str,
+    by_hash: dict[str, list[File]] | None = None,
 ) -> File | None:
     """Pick the confirmed-missing row (see ``run_scan``'s ``missing_candidates``
     -- rows the full first pass never matched on disk) this ``key`` should
@@ -519,8 +546,12 @@ def _find_relink_candidate(
     matches = sorted(
         (
             f
-            for f in missing_candidates.values()
-            if f.blob_hash == digest and (key == f.rel_path or key.endswith("/" + f.rel_path))
+            for f in (
+                by_hash.get(digest, []) if by_hash is not None else missing_candidates.values()
+            )
+            if f.blob_hash == digest
+            and f.id in missing_candidates
+            and (key == f.rel_path or key.endswith("/" + f.rel_path))
         ),
         key=lambda f: f.id,
     )
@@ -751,10 +782,11 @@ def _reconcile_unknown_chunk(
 
     pending_dispatch: list[tuple[File, str]] = []
     pending_locations: list[File] = []
+    by_hash = _index_by_hash(missing_candidates)
 
     for entry, digest in hashed:
         if digest in known_hashes:
-            candidate = _find_relink_candidate(missing_candidates, digest, entry.key)
+            candidate = _find_relink_candidate(missing_candidates, digest, entry.key, by_hash)
             if candidate is not None:
                 old_path = candidate.storage_path
                 candidate.storage_path = entry.key

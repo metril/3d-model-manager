@@ -359,3 +359,28 @@ def test_extensionless_duplicate_member_name_is_renamed_too() -> None:
 
     rel_paths = {r.rel_path for r in result}
     assert rel_paths == {"NoExt/README", "NoExt/README (2)"}
+
+
+def test_unexpected_extraction_error_keeps_zip_and_cleans_staged_members(monkeypatch) -> None:
+    """Encrypted / unsupported-compression / zlib errors aren't BadZipFile or
+    OSError; any extraction failure must fall back to the original zip."""
+    settings = get_settings()
+    zip_bytes = _build_zip({"a.txt": b"one", "b.txt": b"two"})
+    sf = _stage_bytes(settings, "Pack.zip", zip_bytes)
+    real = archives.download.stage_zip_member
+    staged: list[StagedFile] = []
+
+    def flaky(settings_, zf, info, rel):
+        if staged:
+            raise NotImplementedError("compression type 99 is not supported")
+        member = real(settings_, zf, info, rel)
+        staged.append(member)
+        return member
+
+    monkeypatch.setattr(archives.download, "stage_zip_member", flaky)
+
+    result = archives.process_staged_zips(settings, [sf])
+
+    assert result == [sf]
+    assert sf.spool_path.exists()
+    assert staged and not staged[0].spool_path.exists()

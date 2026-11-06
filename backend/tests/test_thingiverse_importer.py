@@ -314,3 +314,22 @@ def test_live_thingiverse_metadata():
         assert meta.cover_url is not None
     finally:
         monkey.undo()
+
+
+def test_search_query_is_fully_percent_encoded(monkeypatch):
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.raw_path.decode().split("?")[0])
+        return httpx.Response(200, json=fx.SEARCH_MARVIN)
+
+    monkeypatch.setattr(thingiverse, "_token", lambda: "tok")
+    monkeypatch.setattr(
+        thingiverse,
+        "_client",
+        lambda token=None: httpx.Client(
+            base_url="https://api.thingiverse.com", transport=httpx.MockTransport(handler)
+        ),
+    )
+    thingiverse.ThingiverseImporter().search("a/b c?d", 1)
+    assert seen == ["/search/a%2Fb%20c%3Fd"]

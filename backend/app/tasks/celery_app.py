@@ -28,7 +28,21 @@ _settings = get_settings()
 
 celery_app = Celery("tdmm", broker=_settings.redis_url, backend=_settings.redis_url)
 
+# Redelivery window for unacked (acks_late) messages: must exceed the longest
+# task or the broker re-queues a still-running task and it runs twice. The
+# longest tasks (library scan, bulk relocate/migrate, collection sync) get
+# LONG_* limits below the window; everything else is capped much lower.
+VISIBILITY_TIMEOUT_S = 6 * 3600
+DEFAULT_SOFT_TIME_LIMIT_S = 3600
+DEFAULT_TIME_LIMIT_S = 3900
+LONG_SOFT_TIME_LIMIT_S = 5 * 3600
+LONG_TIME_LIMIT_S = 5 * 3600 + 900
+
 celery_app.conf.update(
+    broker_transport_options={"visibility_timeout": VISIBILITY_TIMEOUT_S},
+    worker_prefetch_multiplier=1,
+    task_soft_time_limit=DEFAULT_SOFT_TIME_LIMIT_S,
+    task_time_limit=DEFAULT_TIME_LIMIT_S,
     task_acks_late=True,
     task_default_queue="io",
     task_queues=(Queue("io"), Queue("cpu")),
@@ -165,6 +179,13 @@ from app.tasks import stock_forecast as _stock_forecast  # noqa: E402,F401
 celery_app.conf.beat_schedule["stock-forecast"] = {
     "task": "app.tasks.stock_forecast.check_alerts",
     "schedule": 6 * 3600,
+}
+
+from app.tasks import pipeline as _pipeline  # noqa: E402
+
+celery_app.conf.beat_schedule["pipeline-reap-stuck"] = {
+    "task": "app.tasks.pipeline.reap_stuck_jobs",
+    "schedule": _pipeline.PIPELINE_REAP_INTERVAL_S,
 }
 
 # plates / glb-orientation backfills are NOT on beat: they run once per worker
@@ -330,3 +351,11 @@ celery_app.conf.beat_schedule["location-sensors-poll"] = {
     "task": "location_sensors.poll",
     "schedule": _location_sensors.POLL_INTERVAL_S,
 }
+
+# Beat re-fires every interval whether or not a worker is up: without an
+# expiry a backlog of stale ticks floods the queue after an outage. A tick
+# older than its own interval is superseded by the next one, so drop it.
+for _entry in celery_app.conf.beat_schedule.values():
+    _every = _entry.get("schedule")
+    if isinstance(_every, int | float) and not isinstance(_every, bool):
+        _entry.setdefault("options", {})["expires"] = _every

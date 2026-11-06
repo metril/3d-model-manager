@@ -240,9 +240,14 @@ def _run_schedule(
             continue
         if action == "off" and _schedule_off_blocked(r, plug, wanted):
             continue
-        if not r.set(f"plug:sched:{plug.id}:{action}:{local.date()}", "1", nx=True, ex=7200):
+        key = f"plug:sched:{plug.id}:{action}:{local.date()}"
+        if not r.set(key, "1", nx=True, ex=7200):
             continue
-        getattr(drv, action)()
+        try:
+            getattr(drv, action)()
+        except Exception:
+            r.delete(key)  # driver failed: let the next beat retry within the window
+            raise
         plug.last_state = action
         if action == "off":
             mark_offline(r, plug)

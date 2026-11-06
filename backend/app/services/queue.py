@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
@@ -45,6 +46,7 @@ from app.services.app_config import get_app_config
 from app.services.bed_fit import guard_plate_index, guard_recipe_fit
 from app.services.print_plan import estimate_item_sync
 from app.services.queue_filaments import details_for_entries
+from app.services.queue_position import QUEUE_POSITION_LOCK
 from app.services.queue_settings import get_queue_config
 from app.services.server_config import get_server_config
 
@@ -408,6 +410,8 @@ async def list_queue(
 
 
 async def _append_position(db: AsyncSession, *, front: bool) -> int:
+    # Transaction-scoped: released on commit/rollback; serialises concurrent enqueues.
+    await db.execute(select(func.pg_advisory_xact_lock(QUEUE_POSITION_LOCK)))
     if front:
         await db.execute(
             update(PrintQueueEntry).values(position=PrintQueueEntry.position + 1),
@@ -441,7 +445,20 @@ async def enqueue_model(
         model_id=model_id, position=position, created_by_user_id=created_by_user_id
     )
     db.add(entry)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost the race on the partial unique index: return the winner's entry.
+        await db.rollback()
+        existing = await db.scalar(
+            select(PrintQueueEntry).where(
+                PrintQueueEntry.model_id == model_id, PrintQueueEntry.file_id.is_(None)
+            )
+        )
+        if existing is None:
+            raise
+        out = await _to_out(db, settings, [existing])
+        return out[0], False
     await db.refresh(entry)
     out = await _to_out(db, settings, [entry])
     return out[0], True
@@ -649,6 +666,13 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
             print_options=entry.print_options,
             created_by_user_id=entry.created_by_user_id,
             cost_center_id=entry.cost_center_id,
+            scheduled_at=entry.scheduled_at,
+            manual_start=entry.manual_start,
+            require_previous_success=entry.require_previous_success,
+            auto_off_after=entry.auto_off_after,
+            preheat_override=entry.preheat_override,
+            preheat_chamber_target=entry.preheat_chamber_target,
+            batch_id=entry.batch_id,
         )
         db.add(clone)
         entry.state = QueueState.DONE
@@ -685,6 +709,9 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     entry.last_log = None
     entry.assigned_printer_id = None
     entry.print_job_id = None
+    entry.hold_reason = None
+    entry.stage = None
+    entry.released_at = None
     await db.commit()
     await db.refresh(entry)
     out = await _to_out(db, settings, [entry])

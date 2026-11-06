@@ -4,7 +4,6 @@
  * scanning a spool with no active location opens it.
  */
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import jsQR from "jsqr";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -78,6 +77,10 @@ export function ScanPage() {
     const detector = makeDetector();
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    // jsQR (~130 KB) is only needed without native BarcodeDetector; load it
+    // when the camera starts rather than with the page.
+    let jsQR: typeof import("jsqr").default | null = null;
+    if (!detector) void import("jsqr").then((m) => (jsQR = m.default));
     async function tick() {
       const v = videoRef.current;
       if (stopped || !v) return;
@@ -86,7 +89,7 @@ export function ScanPage() {
         try {
           if (detector) {
             text = (await detector.detect(v))[0]?.rawValue ?? null;
-          } else if (ctx) {
+          } else if (ctx && jsQR) {
             canvas.width = v.videoWidth;
             canvas.height = v.videoHeight;
             ctx.drawImage(v, 0, 0);

@@ -21,10 +21,12 @@ without this module importing it.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import and_, case, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -57,8 +59,19 @@ class Figures:
     available: Decimal | None
 
 
+def _local_tz() -> ZoneInfo:
+    """The deployment's configured zone (``TZ`` env; there is no per-app tz setting)."""
+    try:
+        return ZoneInfo(os.environ.get("TZ") or "UTC")
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return ZoneInfo("UTC")
+
+
 def figures(s: Session, cc: CostCenter, *, now: datetime) -> Figures:
-    month_start = now.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Budget months roll over at local midnight, not UTC midnight.
+    month_start = now.astimezone(_local_tz()).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
     amt = LedgerEntry.amount
     bal, res, month = s.execute(
         select(
@@ -271,9 +284,9 @@ def charge(s: Session, item: PrintQueueEntry, run: Print) -> LedgerEntry | None:
     """Post the final charge for a finished print (settlement -- runs even
     with billing off). No-op if the item never carried a cost center.
     """
-    if item.cost_center_id is None:
+    if item.cost_center_id is None or run.total_cost is None:
         return None
-    amount = -q2(run.total_cost or 0)
+    amount = -q2(run.total_cost)
     return append(
         s,
         item.cost_center_id,

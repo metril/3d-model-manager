@@ -165,6 +165,8 @@ export interface PlateColourChange {
   z: number;
   slot: number | null;
   colour: string;
+  /** "colour" = filament swap, "tool" = tool change; absent on old rows. */
+  kind?: "colour" | "tool" | null;
 }
 
 export interface PlateOut {
@@ -627,6 +629,8 @@ export interface Features {
   slicer_configured?: boolean;
   // Bambu Studio sidecar enabled + URL set in Settings -> Server.
   orcaslicer_configured?: boolean;
+  /** ISO 4217 code (`settings/app` currency); "" = no symbol. */
+  currency?: string;
 }
 
 // `GET`/`PUT /settings/app` (backend/app/schemas/settings.py's
@@ -655,6 +659,8 @@ export interface AppSettings {
   trash_retention_days: number;
   // MakerWorld import: keep all print profiles or only those for enabled printers.
   makerworld_profiles: "all" | "owned";
+  /** ISO 4217 code costs are formatted with; "" = plain numbers. */
+  currency?: string;
 }
 
 export interface TrashItem {
@@ -1280,6 +1286,10 @@ export interface ImportPage {
 
 export interface ImportCreate {
   url: string;
+  /** Followed (local) collection to file the model under once imported. */
+  collection_id?: number | null;
+  /** Tag names applied once the import completes. */
+  tags?: string[];
   /** Per-import override of the `makerworld_profiles` setting. */
   profile_filter?: "all" | "owned";
 }
@@ -1454,6 +1464,8 @@ export interface ApiTokenOut {
   label: string;
   created_at: string;
   last_used_at: string | null;
+  user_id: number;
+  username: string;
 }
 
 // -- print history (backend/app/schemas/prints.py, Branch 5 Task 1) --------

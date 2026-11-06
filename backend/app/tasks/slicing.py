@@ -40,7 +40,7 @@ from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
 from app.services.print_plan import estimate_item_sync
-from app.services.server_config import get_server_config_sync
+from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
     SlicerBusy,
@@ -129,7 +129,20 @@ def _discard_new_file(session: Session, settings, outcome: SliceOutcome | None) 
         session.rollback()
 
 
-@celery_app.task(name="app.tasks.slicing.slice_file", bind=True)
+# The slice HTTP call may run up to the admin-configurable timeout maximum
+# (+ the slicer client's grace); the task limits must outlast it or a
+# legitimately long slice is hard-killed. The stuck-job sweep reaps any row a
+# kill still leaves behind.
+SLICE_TASK_SOFT_LIMIT_S = SLICE_TIMEOUT_MAX_S + 600
+SLICE_TASK_HARD_LIMIT_S = SLICE_TASK_SOFT_LIMIT_S + 300
+
+
+@celery_app.task(
+    name="app.tasks.slicing.slice_file",
+    bind=True,
+    soft_time_limit=SLICE_TASK_SOFT_LIMIT_S,
+    time_limit=SLICE_TASK_HARD_LIMIT_S,
+)
 def slice_file(self, queue_entry_id: int) -> None:
     """Claims the row in a short transaction (CAS: still `slicing`, stamp
     `slicing_started_at`), commits to release the row lock, then runs the
@@ -563,7 +576,12 @@ def _finish_slice_job(
     _notify("slice_done" if state == "done" else "slice_failed", payload)
 
 
-@celery_app.task(name="app.tasks.slicing.slice_job", bind=True)
+@celery_app.task(
+    name="app.tasks.slicing.slice_job",
+    bind=True,
+    soft_time_limit=SLICE_TASK_SOFT_LIMIT_S,
+    time_limit=SLICE_TASK_HARD_LIMIT_S,
+)
 def slice_job(self, job_id: str) -> None:
     """Runs one `SliceJob`: the same `slice_source` core as the queue's
     `slice_file`, with no queue entry, billing or printer involved."""

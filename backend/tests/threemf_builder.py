@@ -17,7 +17,7 @@ _NS = (
 _PNG = b"\x89PNG\r\n\x1a\n-plate-thumb-"
 
 
-def _cube(size: float) -> str:
+def _cube(size: float, paint: dict[int, str] | None = None) -> str:
     s = size
     verts = [(0, 0, 0), (s, 0, 0), (s, s, 0), (0, s, 0), (0, 0, s), (s, 0, s), (s, s, s), (0, s, s)]
     tris = [
@@ -25,7 +25,12 @@ def _cube(size: float) -> str:
         (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7),
     ]  # fmt: skip
     v = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in verts)
-    t = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in tris)
+    t = "".join(
+        f'<triangle v1="{a}" v2="{b}" v3="{c}"'
+        + (f' paint_color="{paint[i]}"' if paint and i in paint else "")
+        + "/>"
+        for i, (a, b, c) in enumerate(tris)
+    )
     return f"<mesh><vertices>{v}</vertices><triangles>{t}</triangles></mesh>"
 
 
@@ -136,15 +141,17 @@ def make_coloured_project_3mf(
     *,
     profile_meta: bool = False,
     layers: str = '<layer top_z="10" type="0" extruder="3" color="" extra="" gcode="M600"/>',
-    mode: str = "MultiAsSingle",
+    mode: str = "SingleExtruder",
     plate1_layers: str = "",
     plate1_mode: str = "",
     with_gcodes: bool = True,
+    paint: dict[int, dict[int, str]] | None = None,
 ) -> bytes:
     """Two plates (bed 180). Plate 1: object 1 = parts [A extruder 1, B extruder
     3, M modifier extruder 2] (20 mm cubes in a row). Plate 2: object 2 = one
     20 mm cube on extruder 2 with ``layers`` (default: a type-0 colour change to extruder 3 at top_z=10).
-    ``plate1_layers``/``plate1_mode`` add a custom_gcode plate entry for plate 1."""
+    ``plate1_layers``/``plate1_mode`` add a custom_gcode plate entry for plate 1.
+    ``paint`` = ``{sub-object id: {triangle index: paint_color hex}}`` (ids 11/12/13 = plate 1 parts, 21 = plate 2)."""
     bed = 180.0
     sub = {
         "3D/Objects/object_1.model": [(11, 0.0), (12, 25.0), (13, 50.0)],
@@ -154,7 +161,8 @@ def make_coloured_project_3mf(
     rels = []
     for n, (path, parts) in enumerate(sub.items(), start=1):
         objs = "".join(
-            f'<object id="{oid}" type="model">{_cube(20.0)}</object>' for oid, _ in parts
+            f'<object id="{oid}" type="model">{_cube(20.0, (paint or {}).get(oid))}</object>'
+            for oid, _ in parts
         )
         files[path] = (
             f'<?xml version="1.0"?><model unit="millimeter" {_NS}><resources>{objs}'

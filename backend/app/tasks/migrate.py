@@ -25,12 +25,16 @@ from app.services.storage_config import resolve_backend_sync, set_active_config_
 from app.storage.config import parse_storage_config
 from app.storage.registry import get_backend
 from app.tasks import base
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="app.tasks.migrate.migrate_storage")
+@celery_app.task(
+    name="app.tasks.migrate.migrate_storage",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def migrate_storage(job_id: str, target: dict) -> None:
     settings = get_settings()
     # `target` travels over the internal Celery broker encrypted (M6 A1.5.2

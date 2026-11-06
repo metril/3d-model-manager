@@ -54,6 +54,7 @@ from app.importers.base import (
 )
 from app.importers.registry import register_importer
 from app.models.enums import ImportSite
+from app.pipeline.plates3mf import clean_meta_text
 
 _BASE_URL = "https://makerworld.com/api/v1"
 # `ImportFile.remote_id` for the design's raw "all files" zip (print-profile
@@ -419,7 +420,7 @@ def _profile_meta(inst: dict, title: str) -> dict:
     return {
         "profile_id": inst.get("profileId"),
         "instance_id": inst.get("id"),
-        "title": title,
+        "title": clean_meta_text(title) or title,
         "compat": compat,
         "plates": plates,
     }

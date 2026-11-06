@@ -28,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { groupByDate } from "@/lib/dateGroups";
+import { dateGroupLabel, groupByDate } from "@/lib/dateGroups";
 import { formatRelativeTime } from "@/lib/format";
 
 
@@ -197,9 +197,9 @@ export function ImportsPanel() {
         ) : (
           <div data-testid="imports-list">
             {groups.map((g) => (
-              <section key={g.label} aria-label={g.label} className="mb-3">
+              <section key={g.label} aria-label={dateGroupLabel(g.label)} className="mb-3">
                 <h3 className="sticky top-0 z-10 bg-card py-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  {g.label}
+                  {dateGroupLabel(g.label)}
                 </h3>
                 <ul className="space-y-2">
                   {g.rows.map((imp) => (

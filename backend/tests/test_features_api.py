@@ -22,6 +22,7 @@ async def test_features_disabled_by_default(authenticated_client):
     r = await authenticated_client.get("/api/features")
     assert r.status_code == 200 and r.json() == {
         "printer_enabled": False,
+        "currency": "",
         "watch_dir": None,
         "watch_enabled": False,
         "virtual_printer_enabled": True,
@@ -34,6 +35,7 @@ async def test_features_enabled(authenticated_client, printer_enabled):
     r = await authenticated_client.get("/api/features")
     assert r.json() == {
         "printer_enabled": True,
+        "currency": "",
         "watch_dir": None,
         "watch_enabled": False,
         "virtual_printer_enabled": True,

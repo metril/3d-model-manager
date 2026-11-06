@@ -13,13 +13,14 @@ the bambulabs_api client above -- see that module's docstring."""
 from __future__ import annotations
 
 import contextlib
+import itertools
 import json
 import logging
 import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
 from app.models.enums import PrinterKind, PrintJobState
@@ -214,6 +215,23 @@ def _ams_extruder_map(dump: dict) -> dict[str, int]:
     return out
 
 
+_seq_counter = itertools.count(1)
+_seq_local = threading.local()
+
+
+def _stamp_sequence_id(payload: dict) -> str | None:
+    """Replace a placeholder ``"0"`` sequence_id on a ``print`` command with a
+    unique one, so the daemon can match the printer's reply (which echoes it)
+    to the command that caused it. Explicit non-zero ids (dev-mode probe) and
+    non-``print`` payloads (pushall) are left alone. Returns the stamped id."""
+    inner = payload.get("print")
+    if isinstance(inner, dict) and str(inner.get("sequence_id", "0")) == "0":
+        seq = str(30000000 + next(_seq_counter))
+        inner["sequence_id"] = seq
+        return seq
+    return None
+
+
 def _publish_raw(p, payload: dict) -> None:
     """Publish ``payload`` on the lib's own command topic, bypassing its
     typed helpers (which hardcode ``bed_leveling=True`` and drop
@@ -222,6 +240,9 @@ def _publish_raw(p, payload: dict) -> None:
     client = p.mqtt_client._client
     if not client.is_connected():
         raise OSError("not connected to the MQTT server")
+    seq = _stamp_sequence_id(payload)
+    if seq is not None:
+        _seq_local.last = seq
     result = client.publish(p.mqtt_client.command_topic, json.dumps(payload))
     result.wait_for_publish(timeout=5)
     if not result.is_published():
@@ -1474,17 +1495,51 @@ class BambuLanAdapter(PrinterAdapter):
             _publish_raw(p, item)
         _publish_raw(p, {"pushing": {"command": "pushall", "sequence_id": "0"}})
 
+    def consume_sequence_id(self) -> str | None:
+        """The sequence_id of the last ``print`` command this thread
+        published (cleared on read); the reply echoes it."""
+        seq = getattr(_seq_local, "last", None)
+        _seq_local.last = None
+        return seq
+
+    def _remote_size_matches(self, remote: str, size: int) -> bool:
+        """Did the file land intact? The printer sometimes drops/never sends
+        the final "226" after every byte arrived, so a transfer error is only
+        fatal when the remote size disagrees. Never raises."""
+        try:
+            pure = PurePosixPath(remote)
+            parent = str(pure.parent) if str(pure.parent) not in ("", ".") else "/cache"
+            return any(
+                f.name == pure.name and f.size == size and not f.is_dir
+                for f in self.list_files(parent)
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
     def upload_file(self, remote: str, local: Path) -> None:
-        with local.open("rb") as fh:
-            res = _build_ftp(self.conn).upload_file(fh, remote)
-        if res is None:
+        size = local.stat().st_size
+        try:
+            with local.open("rb") as fh:
+                res = _build_ftp(self.conn).upload_file(fh, remote)
+        except Exception as exc:
+            # Timeout/reset waiting for the final reply after all bytes were
+            # sent: accept it if the remote copy is complete.
+            if self._remote_size_matches(remote, size):
+                log.warning(
+                    "FTPS upload %s errored (%s) but size matches", remote, type(exc).__name__
+                )
+                return
+            raise OSError(f"FTPS upload {remote} failed ({type(exc).__name__})") from exc
+        if res is None and not self._remote_size_matches(remote, size):
             raise OSError(f"FTPS upload {remote} failed")
 
     # -- send ----------------------------------------------------------
     def upload_and_start(self, spec: PrintSpec) -> None:
         p = self._client()
-        with spec.source_path.open("rb") as fh:
-            p.upload_file(fh, spec.remote_name)  # -> /cache/<remote_name> on the SD
+        # Own FTPS client (bounded by FTP_TIMEOUT_S; raises OSError on a falsy
+        # result) instead of the lib's, whose upload has no timeout and
+        # swallows a None result.
+        self.upload_file(spec.remote_name, spec.source_path)  # -> /cache/<remote_name>
         # The lib's start_print/start_print_3mf hardcodes bed_leveling=True
         # and drops timelapse entirely, so we publish the raw project_file
         # command ourselves (project_file_payload) to carry both from spec.

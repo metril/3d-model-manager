@@ -9,15 +9,23 @@ import en from "./locales/en.json";
 export const LANGUAGES: Record<string, string> = { en: "English" };
 export const LANGUAGE_KEY = "tdmm.lang";
 
+function syncHtmlLang(lng: string | undefined) {
+  if (lng && typeof document !== "undefined") document.documentElement.lang = lng;
+}
+
 void i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: { en: { translation: en } },
     fallbackLng: "en",
+    supportedLngs: Object.keys(LANGUAGES),
     nonExplicitSupportedLngs: true,
     interpolation: { escapeValue: false },
     detection: { order: ["localStorage", "navigator"], lookupLocalStorage: LANGUAGE_KEY, caches: ["localStorage"] },
   });
+
+i18n.on("languageChanged", syncHtmlLang);
+syncHtmlLang(i18n.resolvedLanguage ?? i18n.language);
 
 export default i18n;
