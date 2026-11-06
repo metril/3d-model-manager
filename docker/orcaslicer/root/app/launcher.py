@@ -20,6 +20,19 @@ BIN = "/opt/orcaslicer/bin/orca-slicer"
 PATTERN = "^" + BIN
 ROOT = "/exchange"
 TOKEN = os.environ.get("ORCASLICER_LAUNCHER_TOKEN", "")
+TOKEN_FILE = os.path.join(ROOT, ".launcher-token")
+
+
+def current_token() -> str:
+    """Explicit env token wins; otherwise the secret the api generated into the
+    shared exchange dir (re-read per request so a late first start works)."""
+    if TOKEN:
+        return TOKEN
+    try:
+        with open(TOKEN_FILE) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
 ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin", "DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0",
     "HOME": "/config", "XDG_RUNTIME_DIR": "/config/.XDG",
@@ -138,9 +151,15 @@ class H(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if not TOKEN:
+        token = current_token()
+        if not token:
+            print(
+                "launcher: refusing POST: no ORCASLICER_LAUNCHER_TOKEN and no readable "
+                f"{TOKEN_FILE} (the api creates it on first use; is /exchange shared with it?)",
+                flush=True,
+            )
             return self._send(403, {"error": "launcher token not configured"})
-        if not hmac.compare_digest(self.headers.get("X-Launcher-Token") or "", TOKEN):
+        if not hmac.compare_digest(self.headers.get("X-Launcher-Token") or "", token):
             return self._send(401, {"error": "bad token"})
         if self.path == "/stop":
             if not lock.acquire(blocking=False):

@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models.library import File, Model, Revision
+from app.services.launcher_token import launcher_headers
 from app.services.server_config import ServerConfig
 from app.services.slicer_naming import _safe_basename
 from app.services.storage_backends import resolve_backend_for_file
@@ -59,9 +60,7 @@ def _copy_in(backend, storage_path: str, dest: Path) -> None:
 
 
 async def _launcher(cfg: ServerConfig, method: str, path: str, **kw) -> httpx.Response:
-    headers = {}
-    if cfg.orcaslicer_launcher_token is not None:
-        headers["X-Launcher-Token"] = cfg.orcaslicer_launcher_token.get_secret_value()
+    headers = launcher_headers(cfg)
     try:
         async with httpx.AsyncClient(timeout=LAUNCHER_TIMEOUT_S, follow_redirects=False) as c:
             return await c.request(
