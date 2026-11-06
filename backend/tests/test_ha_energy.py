@@ -189,7 +189,7 @@ def test_printerd_redis_failure_never_blocks_transition(worker, monkeypatch):
 @respx.mock
 def test_counter_reset_mid_job(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("sensor.plug_energy", "10.0")
+    _state_route("sensor.plug_energy", "10.0")
     with base.sync_session() as s:
         printer = _seed_printer(s, name="EnergyResetP")
         s.add(

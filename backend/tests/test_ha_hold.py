@@ -266,7 +266,7 @@ def test_alert_ttl_fails_open(redis_url: str, fake_adapter):
 @respx.mock
 def test_pause_on_alert_edge_only(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("binary_sensor.door", "on")
+    _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
         actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="PauseP")
@@ -331,7 +331,7 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
     firing pause condition fires a SECOND pause the moment HA comes back,
     since the edge-triggered NX guard was wiped out from under it."""
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("binary_sensor.door", "on")
+    _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
         actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="UnreachableFired")

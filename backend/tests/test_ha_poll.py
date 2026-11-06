@@ -230,7 +230,7 @@ def test_null_printer_link_applies_to_all(redis_url: str):
 @respx.mock
 def test_clear_deletes_key(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("binary_sensor.door", "on")
+    _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
         printer = _seed_printer(s)
         s.add(
@@ -307,7 +307,7 @@ def test_404_entity_reported(redis_url: str):
 @respx.mock
 def test_energy_counter_reset_tracked_across_polls(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("sensor.plug_energy", "10.0")
+    _state_route("sensor.plug_energy", "10.0")
     with base.sync_session() as s:
         printer = _seed_printer(s)
         s.add(
@@ -338,7 +338,7 @@ def test_energy_update_is_atomic_across_overlapping_polls(redis_url: str):
     `poll_once` itself must still be safe) could both read the same `prev`
     and each add their own delta on top of it, double-counting."""
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("sensor.plug_energy", "10.0")
+    _state_route("sensor.plug_energy", "10.0")
     with base.sync_session() as s:
         printer = _seed_printer(s)
         link = HaLink(
