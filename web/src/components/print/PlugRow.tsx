@@ -1,4 +1,4 @@
-import { PlugIcon, PowerIcon } from "lucide-react";
+import { PlugIcon, PowerIcon, ZapIcon } from "lucide-react";
 
 import { usePlugSummary, usePlugToggle, usePrinterPlugs } from "@/api/ops";
 import type { PlugOut } from "@/api/types";
@@ -18,19 +18,43 @@ export function PlugRow({ printerId, canControl = true }: { printerId: number; c
 /** Card variant: reads the shared summary poll instead of one query per printer. */
 export function SharedPlugRow({ printerId, canControl = true }: { printerId: number; canControl?: boolean }) {
   const summary = usePlugSummary();
-  return <PlugRowView plug={summary.data?.plugs?.[String(printerId)]} canControl={canControl} />;
+  return (
+    <PlugRowView
+      plug={summary.data?.plugs?.[String(printerId)]}
+      linkPowerW={summary.data?.link_power_w?.[String(printerId)]}
+      canControl={canControl}
+    />
+  );
 }
 
-function PlugRowView({ plug: p, canControl }: { plug: PlugOut | null | undefined; canControl: boolean }) {
+function PlugRowView({
+  plug: p,
+  canControl,
+  linkPowerW,
+}: {
+  plug: PlugOut | null | undefined;
+  canControl: boolean;
+  /** Live watts from an HA `power_w` link; shown when the plug reports none. */
+  linkPowerW?: number;
+}) {
   const { t } = useTranslation();
   const toggle = usePlugToggle();
-  if (!p) return null;
+  if (!p) {
+    if (linkPowerW == null) return null;
+    return (
+      <div className="flex items-center gap-2 text-sm" data-testid="link-power-row">
+        <ZapIcon className="size-4 text-muted-foreground" />
+        <span className="text-muted-foreground">{linkPowerW.toFixed(0)} W</span>
+      </div>
+    );
+  }
+  const watts = p.last_power_w ?? linkPowerW ?? null;
   const on = p.last_state === "on";
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="plug-row">
       <PlugIcon className="size-4 text-muted-foreground" />
       <span className="font-medium">{p.last_state ? (on ? t("plugRow.on") : t("plugRow.off")) : t("plugRow.unknown")}</span>
-      {p.last_power_w != null ? <span className="text-muted-foreground">{p.last_power_w.toFixed(0)} W</span> : null}
+      {watts != null ? <span className="text-muted-foreground">{watts.toFixed(0)} W</span> : null}
       {p.auto_off && p.off_delay_mode === "time" && p.auto_off_after_min ? (
         <span className="text-xs text-muted-foreground">{t("plugRow.autoOffTime", { min: p.auto_off_after_min })}</span>
       ) : null}

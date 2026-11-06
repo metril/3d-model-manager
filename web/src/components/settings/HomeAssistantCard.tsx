@@ -318,9 +318,9 @@ function RestSection({
 }
 
 function LinksSection() {
+  const { t } = useTranslation();
   const links = useHaLinks();
   const del = useDeleteHaLink();
-  const { t } = useTranslation();
   const [deleting, setDeleting] = useState<HaLink | null>(null);
   const [editing, setEditing] = useState<HaLink | "new" | null>(null);
 
@@ -353,7 +353,14 @@ function LinksSection() {
               <TableRow key={link.id}>
                 <TableCell className="font-mono text-xs">{link.entity_id}</TableCell>
                 <TableCell>{link.printer_name ?? t("settingsHa.allPrinter")}</TableCell>
-                <TableCell>{t(ROLE_LABEL_KEYS[link.role])}</TableCell>
+                <TableCell>
+                  {t(ROLE_LABEL_KEYS[link.role])}
+                  {!link.active ? (
+                    <span className="mt-0.5 block text-xs text-warning" title={t("haLink.inactiveHint")}>
+                      {t("haLink.inactive", { by: link.shadowed_by ?? "" })}
+                    </span>
+                  ) : null}
+                </TableCell>
                 <TableCell>{conditionLabel(link.alert_condition)}</TableCell>
                 <TableCell>
                   <Switch checked={link.hold_queue} disabled aria-label={t("settingsHa.holdFor", { entity: link.entity_id })} />

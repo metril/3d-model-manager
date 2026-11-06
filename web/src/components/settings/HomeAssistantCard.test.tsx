@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
 import type { HaLink, HaSettings } from "@/api/types";
@@ -47,6 +47,20 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
+// cmdk needs ResizeObserver and scrollIntoView, which jsdom lacks.
+beforeAll(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Element.prototype.scrollIntoView = vi.fn();
+});
+afterAll(() => vi.unstubAllGlobals());
+
 function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
   return {
     ha_mqtt_url: "mqtt://broker:1883",
@@ -65,8 +79,17 @@ function fakeSettings(overrides: Partial<HaSettings> = {}): HaSettings {
   };
 }
 
-function mockGet(settings: HaSettings, links: HaLink[] = []) {
+/** Choose an entity in the combobox by typing it (the "Use ..." free-text path). */
+async function typeEntity(id: string) {
+  fireEvent.click(await screen.findByLabelText("Entity ID"));
+  fireEvent.change(await screen.findByPlaceholderText("Search entities…"), { target: { value: id } });
+  fireEvent.click(await screen.findByText(`Use "${id}"`));
+}
+
+function mockGet(settings: HaSettings, links: HaLink[] = [], plugs: unknown[] = []) {
   getMock.mockImplementation((path: string) => {
+    if (path === "/plugs") return Promise.resolve(plugs);
+    if (path.startsWith("/ha/")) return Promise.resolve([]);
     if (path === "/settings/home-assistant") return Promise.resolve(settings);
     if (path === "/settings/home-assistant/links") return Promise.resolve(links);
     if (path === "/settings/home-assistant/actors")
@@ -224,10 +247,8 @@ describe("HomeAssistantCard", () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
 
-    fireEvent.change(await screen.findByLabelText("Entity ID"), {
-      target: { value: "binary_sensor.front_door" },
-    });
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "door" } });
+    fireEvent.change(await screen.findByLabelText("Role"), { target: { value: "door" } });
+    await typeEntity("binary_sensor.front_door");
     fireEvent.click(screen.getByRole("button", { name: "Add link" }));
 
     await waitFor(() =>
@@ -247,11 +268,62 @@ describe("HomeAssistantCard", () => {
     renderCard();
 
     fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
-    fireEvent.change(await screen.findByLabelText("Entity ID"), { target: { value: "sensor.printer_energy" } });
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "energy_kwh" } });
+    fireEvent.change(await screen.findByLabelText("Role"), { target: { value: "energy_kwh" } });
+    await typeEntity("sensor.printer_energy");
     fireEvent.click(screen.getByRole("button", { name: "Add link" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("requires a specific printer");
     expect(postMock).not.toHaveBeenCalledWith("/settings/home-assistant/links", expect.anything());
+  });
+
+  it("refilters the entity list by role", async () => {
+    mockGet(fakeSettings());
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+    fireEvent.change(await screen.findByLabelText("Role"), { target: { value: "power_w" } });
+    await waitFor(() => expect(getMock).toHaveBeenCalledWith("/ha/entities?domain=sensor&device_class=power"));
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "door" } });
+    await waitFor(() =>
+      expect(getMock).toHaveBeenCalledWith(
+        "/ha/entities?domain=binary_sensor&device_class=door%2Cwindow%2Copening%2Cgarage_door",
+      ),
+    );
+  });
+
+  it("warns when a power link duplicates a plug's power sensor on the same printer", async () => {
+    mockGet(fakeSettings(), [], [
+      { id: 4, name: "Main plug", printer_id: 1, config: { power_entity_id: "sensor.plug_w" } },
+    ]);
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
+    fireEvent.change(await screen.findByLabelText("Role"), { target: { value: "power_w" } });
+    fireEvent.change(screen.getByLabelText("Printer"), { target: { value: "1" } });
+    await typeEntity("sensor.plug_w");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Already provided by plug Main plug");
+  });
+
+  it("marks a shadowed power link as inactive in the table", async () => {
+    const link = {
+      id: 3,
+      printer_id: 1,
+      printer_name: "Bambu A",
+      entity_id: "sensor.w",
+      role: "power_w",
+      alert_condition: null,
+      hold_queue: false,
+      pause_print: false,
+      created_by_user_id: null,
+      created_at: "",
+      updated_at: "",
+      active: false,
+      shadowed_by: "plug Main plug",
+    } as HaLink;
+    mockGet(fakeSettings(), [link]);
+    renderCard();
+
+    expect(await screen.findByText(/Inactive: plug Main plug already supplies/)).toBeInTheDocument();
   });
 });

@@ -17,7 +17,8 @@ import { toast } from "sonner";
 
 import { useRepriceRuns } from "@/api/archives";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { useHaEntities } from "@/api/spoolAdmin";
+import type { HaEntity } from "@/api/types";
+import { EntityCombobox } from "@/components/ui/entity-combobox";
 import { useAppSettings, useUpdateAppSettings } from "@/api/appSettings";
 import { ApiError } from "@/api/client";
 import type { AppSettings } from "@/api/types";
@@ -52,6 +53,10 @@ function validateField(raw: string, t: TFunction): string | undefined {
   return undefined;
 }
 
+/** Monetary sensors, or anything priced per kWh. */
+const isPriceSensor = (e: HaEntity) =>
+  e.device_class === "monetary" || (e.unit ?? "").toLowerCase().includes("/kwh");
+
 export function PrintCostCard() {
   const { t } = useTranslation();
   const settings = useAppSettings();
@@ -61,8 +66,7 @@ export function PrintCostCard() {
   const [priceSource, setPriceSource] = useState<"fixed" | "homeassistant" | null>(null);
   const [priceEntity, setPriceEntity] = useState<string | null>(null);
   const [currency, setCurrencyDraft] = useState<string | null>(null);
-  const haEntities = useHaEntities(priceSource === "homeassistant");
-  const reprice = useRepriceRuns();
+    const reprice = useRepriceRuns();
   const [repriceCount, setRepriceCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -228,24 +232,17 @@ export function PrintCostCard() {
           {priceSource === "homeassistant" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="energy-price-entity">{t("settingsPrintCost.entity")}</Label>
-              <Input
+              <EntityCombobox
                 id="energy-price-entity"
-                list="energy-price-entities"
+                ariaLabel={t("settingsPrintCost.entity")}
+                domain={["sensor"]}
+                filter={isPriceSensor}
                 placeholder="sensor.electricity_price"
                 value={priceEntity ?? ""}
-                onChange={(e) => setPriceEntity(e.target.value)}
+                onChange={setPriceEntity}
               />
-              <datalist id="energy-price-entities">
-                {(haEntities.data ?? []).map((ent) => (
-                  <option key={ent.entity_id} value={ent.entity_id}>
-                    {ent.friendly_name ?? ent.entity_id}
-                  </option>
-                ))}
-              </datalist>
               <p className="text-xs text-muted-foreground">
-                {haEntities.isError
-                  ? t("settingsPrintCost.entitiesError")
-                  : t("settingsPrintCost.entitiesHint")}
+                {t("settingsPrintCost.entitiesHint")}
               </p>
             </div>
           ) : null}

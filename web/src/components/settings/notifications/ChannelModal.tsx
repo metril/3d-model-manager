@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDiscardGuard } from "@/components/ui/use-discard-guard";
+import { ServiceCombobox } from "@/components/ui/entity-combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -127,7 +128,15 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
             return (
               <div key={f.name} className="space-y-1">
                 <Label htmlFor={id}>{f.label}</Label>
-                {f.type === "select" ? (
+                {f.picker === "ha_notify" ? (
+                  <ServiceCombobox
+                    id={id}
+                    domain="notify"
+                    value={value}
+                    placeholder={f.placeholder ?? undefined}
+                    onChange={(v) => setConfig({ ...config, [f.name]: v })}
+                  />
+                ) : f.type === "select" ? (
                   <select
                     id={id}
                     className={SELECT_CLASS}
