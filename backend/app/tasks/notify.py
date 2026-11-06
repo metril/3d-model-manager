@@ -220,7 +220,9 @@ def digest(now: datetime | None = None) -> int:
                 raw = r.get(key)
                 last = datetime.fromisoformat(raw.decode()) if raw else ch.created_at
                 try:
-                    if not cron_due(ch.digest_cron or "", last, now):
+                    if not cron_due(
+                        ch.digest_cron or "", last, now, (ch.quiet_hours or {}).get("tz")
+                    ):
                         continue
                 except Exception:
                     continue

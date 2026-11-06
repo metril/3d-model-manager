@@ -90,19 +90,30 @@ def _cron_sets(expr: str):
     return minute, hour, dom, month, dow
 
 
-def cron_due(expr: str, last: datetime, now: datetime) -> bool:
-    """True when a minute matching ``expr`` (UTC) lies in ``(last, now]``.
-    Lookback is capped at 2 days."""
+def cron_due(expr: str, last: datetime, now: datetime, tz: str | None = None) -> bool:
+    """True when a minute matching ``expr`` lies in ``(last, now]``.
+
+    Fields are evaluated in ``tz`` (an IANA name; UTC when empty/invalid --
+    typically the channel's quiet-hours zone). Standard cron day semantics:
+    when BOTH day-of-month and day-of-week are restricted a day matches if
+    EITHER does; if only one is restricted, that one decides. Lookback is
+    capped at 2 days."""
     minute, hour, dom, month, dow = _cron_sets(expr)
+    parts = expr.split()
+    dom_star, dow_star = parts[2].startswith("*"), parts[4].startswith("*")
+    try:
+        zone = ZoneInfo(tz) if tz else UTC
+    except Exception:  # noqa: BLE001 -- bad zone name: fall back to UTC
+        zone = UTC
     t = max(last, now - timedelta(days=2)).replace(second=0, microsecond=0) + timedelta(minutes=1)
     while t <= now:
-        if (
-            t.minute in minute
-            and t.hour in hour
-            and t.day in dom
-            and t.month in month
-            and (t.weekday() + 1) % 7 in dow
-        ):
+        lt = t.astimezone(zone)
+        dom_ok, dow_ok = lt.day in dom, (lt.weekday() + 1) % 7 in dow
+        if dom_star or dow_star:
+            day_ok = dom_ok and dow_ok
+        else:
+            day_ok = dom_ok or dow_ok
+        if lt.minute in minute and lt.hour in hour and lt.month in month and day_ok:
             return True
         t += timedelta(minutes=1)
     return False

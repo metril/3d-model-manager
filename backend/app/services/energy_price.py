@@ -15,15 +15,14 @@ from app.services.ha_config import get_ha_config_sync
 
 logger = logging.getLogger(__name__)
 
-_warned = False
+_warned: set[str] = set()  # messages already logged
 CACHE_TTL_S = 60.0
 _cache: dict[str, tuple[float, float]] = {}  # entity -> (monotonic ts, price)
 
 
 def _warn_once(msg: str) -> None:
-    global _warned
-    if not _warned:
-        _warned = True
+    if msg not in _warned:
+        _warned.add(msg)
         logger.warning("%s; using the fixed energy price", msg)
 
 

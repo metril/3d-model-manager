@@ -77,3 +77,18 @@ def test_slicer_client_caps_streamed_response_and_closes():
             c._request("GET", "/x", max_bytes=100)
         assert c._request("GET", "/x", max_bytes=10_000).content == b"x" * 5000
     assert http.is_closed
+
+
+def test_cron_due_timezone_and_dom_dow_or():
+    from datetime import UTC, datetime
+
+    from app.services.notify.delivery import cron_due
+
+    # 09:00 America/New_York (EST, UTC-5) == 14:00 UTC
+    last, now = datetime(2026, 12, 1, 13, 59, tzinfo=UTC), datetime(2026, 12, 1, 14, 1, tzinfo=UTC)
+    assert cron_due("0 9 * * *", last, now, "America/New_York")
+    assert not cron_due("0 9 * * *", last, now)  # UTC reading: 09:00 UTC is not in range
+    # dom=15 OR dow=Tue(2): 2026-12-01 is a Tuesday, not the 15th
+    tue = datetime(2026, 12, 1, 8, 59, tzinfo=UTC), datetime(2026, 12, 1, 9, 1, tzinfo=UTC)
+    assert cron_due("0 9 15 * 2", *tue)
+    assert not cron_due("0 9 15 * 3", *tue)  # neither Wed nor the 15th
