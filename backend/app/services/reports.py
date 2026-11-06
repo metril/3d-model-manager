@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -38,6 +38,14 @@ class _Bucket:
 
 
 async def duplicate_files_report(db: AsyncSession) -> DuplicatesReport:
+    dup_hashes = (
+        select(File.blob_hash)
+        .join(Revision, Revision.id == File.revision_id)
+        .join(Model, Model.id == Revision.model_id)
+        .where(File.blob_hash.is_not(None), Model.deleted_at.is_(None))
+        .group_by(File.blob_hash)
+        .having(func.count(func.distinct(Model.id)) > 1)
+    )
     stmt = (
         select(
             File.id,
@@ -55,6 +63,9 @@ async def duplicate_files_report(db: AsyncSession) -> DuplicatesReport:
         .join(Revision, Revision.id == File.revision_id)
         .join(Model, Model.id == Revision.model_id)
         .where(File.blob_hash.is_not(None), Model.deleted_at.is_(None))
+        # Only hashes spread over 2+ live models can be duplicates; filtering
+        # in SQL keeps the (usually huge) unique-file majority out of Python.
+        .where(File.blob_hash.in_(dup_hashes))
     )
     rows = (await db.execute(stmt)).all()
 
