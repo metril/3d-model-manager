@@ -50,7 +50,7 @@ jobs:
     permissions:
       contents: write        # create the tag, the CHANGELOG commit, the Release
       pull-requests: write   # open and keep updating the release PR
-      actions: write         # dispatch ci.yml on the release PR branch
+      actions: write         # approve/dispatch the release PR's CI runs
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
@@ -65,16 +65,30 @@ jobs:
           # Config lives in release-please-config.json +
           # .release-please-manifest.json at the repo root (default locations).
       - name: Run required checks on the release PR
-        # PRs opened with GITHUB_TOKEN never fire pull_request workflows, so the
-        # release PR would sit without the required checks (and need --admin to
-        # merge). workflow_dispatch IS allowed to fire from GITHUB_TOKEN, and the
-        # runs attach to the branch head SHA, satisfying the required contexts.
-        if: steps.rp.outputs.prs_created == 'true'
+        # The release PR is opened by github-actions[bot], so its pull_request
+        # runs (ci.yml, e2e.yml) are created as "action_required" and wait for
+        # approval. Only pull_request runs are linked to the PR's required checks,
+        # so a workflow_dispatch run does not unblock the merge. Approve the
+        # pending runs on the head SHA; fall back to dispatch if none appear.
+        if: steps.rp.outputs.prs_created == 'true' || steps.rp.outputs.pr != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ fromJSON(steps.rp.outputs.pr || '{}').headBranchName }}
         run: |
-          [ -n "$BRANCH" ] && gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          [ -n "$BRANCH" ] || exit 0
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" -q .commit.sha)
+          for _ in $(seq 1 12); do
+            ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&event=pull_request&status=action_required" -q '.workflow_runs[].id')
+            [ -n "$ids" ] && break
+            sleep 10
+          done
+          if [ -z "$ids" ]; then
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+            exit 0
+          fi
+          for id in $ids; do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/approve" && echo "approved run $id"
+          done
 
   # ---- Gates -------------------------------------------------------------
   # Copies of ci.yml's jobs. ci.yml is pull_request-only, so these do not
