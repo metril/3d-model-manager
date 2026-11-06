@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { Loader2Icon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +29,9 @@ interface ConfirmDialogProps {
   onCancel?: () => void;
   destructive?: boolean;
   confirmDisabled?: boolean;
+  /** Opt into async mode: Confirm no longer closes the dialog; while true it
+   * shows a spinner and can't be dismissed. The caller closes it when done. */
+  pending?: boolean;
   onConfirm: () => void;
 }
 
@@ -37,20 +42,35 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirm",
+  confirmLabel,
   cancelLabel,
   onCancel,
   destructive,
   confirmDisabled,
+  pending: pendingProp,
   onConfirm,
 }: ConfirmDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = openProp !== undefined;
   const open = isControlled ? openProp : internalOpen;
-  const setOpen = isControlled ? (onOpenChange ?? (() => {})) : setInternalOpen;
+  const rawSetOpen = isControlled ? (onOpenChange ?? (() => {})) : setInternalOpen;
+  const { t } = useTranslation();
+  const pending = pendingProp === true;
+  // Set when Confirm closes the dialog so the close-focus hook doesn't also
+  // report a cancel.
+  const confirmed = useRef(false);
+  const setOpen = (next: boolean) => {
+    if (pending && !next) return;
+    if (next) confirmed.current = false;
+    rawSetOpen(next);
+  };
   const onCloseAutoFocus = onCancel
     ? (e: Event) => {
         e.preventDefault();
+        if (confirmed.current) {
+          confirmed.current = false;
+          return;
+        }
         onCancel();
       }
     : undefined;
@@ -66,14 +86,20 @@ export function ConfirmDialog({
         <DialogFooter showCloseButton closeLabel={cancelLabel}>
           <Button
             type="button"
-            disabled={confirmDisabled}
+            disabled={confirmDisabled || pending}
             variant={destructive ? "destructive" : "default"}
             onClick={() => {
-              setOpen(false);
+              // Passing `pending` (even false) opts into async mode: the dialog
+              // stays open and the caller closes it when the action ends.
+              if (pendingProp === undefined) {
+                confirmed.current = true;
+                rawSetOpen(false);
+              }
               onConfirm();
             }}
           >
-            {confirmLabel}
+            {pending ? <Loader2Icon className="size-4 animate-spin" aria-hidden /> : null}
+            {confirmLabel ?? t("common.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>

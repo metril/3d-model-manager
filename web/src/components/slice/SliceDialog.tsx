@@ -26,9 +26,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useDebouncedValue } from "@/lib/format";
+import { useMountedWhileOpen } from "@/lib/useMountedWhileOpen";
 import { filterByName, sortPresets } from "@/lib/presetList";
 
-export function SliceDialog({
+function SliceDialogBody({
   open,
   onOpenChange,
   file,
@@ -82,6 +83,13 @@ export function SliceDialog({
     const first = sortPresets(allRecipes).find((r) => r.compatible === true);
     if (first) setRecipeId(first.id);
   }, [printerId, recipeId, allRecipes]);
+  // A printer change can make the chosen recipe incompatible: drop it so the
+  // default above re-picks a compatible one.
+  useEffect(() => {
+    if (printerId == null || recipeId == null) return;
+    const cur = allRecipes.find((r) => r.id === recipeId);
+    if (cur && cur.compatible === false) setRecipeId(null);
+  }, [printerId, recipeId, allRecipes]);
   const pipelineList = Array.isArray(pipelines.data) ? pipelines.data : [];
   const pipelineMode = mode === "pipeline" && pipelineList.length > 0;
   const fitRecipeId = pipelineMode
@@ -104,13 +112,13 @@ export function SliceDialog({
           if (run.kind === "slice" && run.slice_job) {
             trackSlice({ id: run.slice_job.id, fileName: name });
           } else {
-            toast.success(`Queued ${name}; it slices, then prints`);
+            toast.success(t("sliceDialog.queued", { name }));
           }
           onOpenChange(false);
         },
         onError: (e) => {
           if (e instanceof ApiError && e.code === "does_not_fit") setServerRefused(selectionKey);
-          toast.error(e instanceof ApiError ? e.detail : "Could not run the pipeline");
+          toast.error(e instanceof ApiError ? e.detail : t("sliceDialog.pipelineError"));
         },
       },
     );
@@ -128,7 +136,7 @@ export function SliceDialog({
         },
         onError: (e) => {
           if (e instanceof ApiError && e.code === "does_not_fit") setServerRefused(selectionKey);
-          toast.error(e instanceof ApiError ? e.detail : "Could not start the slice");
+          toast.error(e instanceof ApiError ? e.detail : t("sliceDialog.sliceError"));
         },
       },
     );
@@ -154,10 +162,9 @@ export function SliceDialog({
       busy={start.isPending || runPipeline.isPending}
     >
       <DialogHeader>
-        <DialogTitle>Slice {name}</DialogTitle>
+        <DialogTitle>{t("sliceDialog.title", { name })}</DialogTitle>
         <DialogDescription>
-          Slices with the chosen recipe and stores the result next to the source file. Nothing is sent to a printer
-          (unless you run a pipeline with a queue step).
+          {t("sliceDialog.description")}
         </DialogDescription>
       </DialogHeader>
       {pipelineList.length > 0 ? (
@@ -169,7 +176,7 @@ export function SliceDialog({
             aria-pressed={!pipelineMode}
             onClick={() => setMode("recipe")}
           >
-            Recipe
+            {t("sliceDialog.recipe")}
           </Button>
           <Button
             type="button"
@@ -178,7 +185,7 @@ export function SliceDialog({
             aria-pressed={pipelineMode}
             onClick={() => setMode("pipeline")}
           >
-            Pipeline
+            {t("sliceDialog.pipeline")}
           </Button>
         </div>
       ) : null}
@@ -193,7 +200,7 @@ export function SliceDialog({
               <Label htmlFor={`slice-pipeline-${p.id}`} className="flex flex-col items-start gap-0 font-normal">
                 <span>{p.name}</span>
                 <span className="text-xs text-muted-foreground">
-                  {p.recipe_name ?? "recipe"}
+                  {p.recipe_name ?? t("sliceDialog.recipeFallback")}
                   {p.steps.length > 0 ? ` · ${p.steps.map((s) => s.kind).join(" → ")}` : ""}
                 </span>
               </Label>
@@ -201,12 +208,12 @@ export function SliceDialog({
           ))}
         </RadioGroup>
       ) : recipes.isLoading && allRecipes.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Loading recipes…</p>
+        <p className="text-sm text-muted-foreground">{t("sliceDialog.loading")}</p>
       ) : allRecipes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No recipes yet.{" "}
+          {t("sliceDialog.noRecipes")}{" "}
           <Link to="/inventory/profiles" className="underline">
-            Create a recipe to slice
+            {t("sliceDialog.createRecipe")}
           </Link>
           .
         </p>
@@ -214,13 +221,13 @@ export function SliceDialog({
         <div className="grid gap-2">
           <Input
             type="search"
-            aria-label="Search recipes"
-            placeholder="Search recipes"
+            aria-label={t("sliceDialog.search")}
+            placeholder={t("sliceDialog.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           {list.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No recipes match "{debouncedSearch.trim()}".</p>
+            <p className="text-sm text-muted-foreground">{t("sliceDialog.noMatch", { query: debouncedSearch.trim() })}</p>
           ) : (
             <RadioGroup value={recipeId != null ? String(recipeId) : ""} onValueChange={(v) => setRecipeId(Number(v))}>
               {list.map((r) => (
@@ -240,7 +247,7 @@ export function SliceDialog({
       )}
       {printerOptions.length > 0 ? (
         <div className="grid gap-1.5">
-          <Label>Printer (optional, prefers its recipes)</Label>
+          <Label>{t("sliceDialog.printer")}</Label>
           <PrinterPicker printers={printerOptions} value={printerId} onChange={pickPrinter} idPrefix="slice-printer" />
         </div>
       ) : null}
@@ -255,7 +262,7 @@ export function SliceDialog({
       ) : null}
       {plates.length >= 2 ? (
         <div className="grid gap-1.5">
-          <Label>Plate</Label>
+          <Label>{t("sliceDialog.plate")}</Label>
           <PlatePicker
             blobHash={filePlatesQ.data?.blob_hash}
             plates={plates}
@@ -268,7 +275,7 @@ export function SliceDialog({
       ) : null}
       {slicerDown ? (
         <p role="alert" className="text-sm text-destructive">
-          The slicer sidecar is not reachable
+          {t("sliceDialog.slicerDown")}
           {health.data?.error ? `: ${health.data.error}` : ""}.
         </p>
       ) : null}
@@ -284,9 +291,16 @@ export function SliceDialog({
           }
           onClick={submit}
         >
-          {pipelineMode ? "Run pipeline" : "Slice"}
+          {pipelineMode ? t("sliceDialog.runPipeline") : t("sliceDialog.slice")}
         </Button>
       </DialogFooter>
     </FormDialog>
   );
+}
+
+/** Mounts the body only while open (plus the close animation), so closed
+ * per-card instances run no queries and always reopen from a clean state. */
+export function SliceDialog(props: React.ComponentProps<typeof SliceDialogBody>) {
+  const [mounted, session] = useMountedWhileOpen(props.open);
+  return mounted ? <SliceDialogBody key={session} {...props} /> : null;
 }

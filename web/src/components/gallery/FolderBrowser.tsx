@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon, ColumnsIcon, DownloadIcon, EyeIcon, FolderIcon, FolderInputIcon, ListIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 import { TagChip } from "@/components/tags/TagChip";
 import { tagRefsOf } from "@/components/tags/tagRefs";
@@ -34,6 +35,7 @@ function joinPath(segments: string[]): string {
 }
 
 function FileRow({ file }: { file: StorageTreeFile }) {
+  const { t } = useTranslation();
   const Icon = formatIcon(file.format);
   const [preview, setPreview] = useState(false);
   return (
@@ -53,19 +55,19 @@ function FileRow({ file }: { file: StorageTreeFile }) {
         params={{ slug: file.model_slug }}
         className="shrink-0 text-xs text-muted-foreground hover:text-foreground hover:underline"
       >
-        Open model
+        {t("folderBrowser.openModel")}
       </Link>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={`Preview ${file.name}`}
+        aria-label={t("folderBrowser.preview", { name: file.name })}
         aria-pressed={preview}
         onClick={() => setPreview((p) => !p)}
       >
         <EyeIcon className="size-4" />
       </Button>
-      <Button asChild variant="ghost" size="icon-sm" aria-label={`Download ${file.name}`}>
+      <Button asChild variant="ghost" size="icon-sm" aria-label={t("folderBrowser.download", { name: file.name })}>
         <a href={`/api/files/${file.id}/download`}>
           <DownloadIcon className="size-4" />
         </a>
@@ -96,6 +98,7 @@ function loadView(): BrowserView {
  * `model` is non-null -- i.e. the current path is a single model's own
  * directory, not just an arbitrary folder. */
 function ModelHeaderStrip({ model }: { model: ModelSummary }) {
+  const { t } = useTranslation();
   return (
     <Card className="flex-row items-center justify-between gap-3 p-4">
       <div className="min-w-0 space-y-1.5">
@@ -117,7 +120,7 @@ function ModelHeaderStrip({ model }: { model: ModelSummary }) {
       </div>
       <Button asChild variant="outline" size="sm" className="shrink-0">
         <Link to="/models/$slug" params={{ slug: model.slug }}>
-          Open model
+          {t("folderBrowser.openModel")}
         </Link>
       </Button>
     </Card>
@@ -131,10 +134,17 @@ function ModelHeaderStrip({ model }: { model: ModelSummary }) {
  * (`LibraryPage`'s `?path=` search param) so switching view modes or
  * navigating away/back preserves it. */
 export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: (path: string) => void }) {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState("");
+  // A filter typed in one folder shouldn't silently hide entries in the next.
+  const [filterPath, setFilterPath] = useState(path);
+  if (filterPath !== path) {
+    setFilterPath(path);
+    setFilter("");
+  }
   const [view, setView] = useState<BrowserView>(loadView);
   const [moveSrc, setMoveSrc] = useState<string | null>(null);
-  const move = useMoveFolder();
+  const move = useMoveFolder(true);
   const treeQuery = useStorageTree(path);
 
   function changeView(next: BrowserView) {
@@ -151,14 +161,14 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
     if (!src) return;
     event.preventDefault();
     if (!canMoveFolder(src, destPath)) {
-      toast.error("Folders can only move within their own revision");
+      toast.error(t("folderBrowser.moveRevisionOnly"));
       return;
     }
     move.mutate(
       { src, dest: destPath },
       {
-        onSuccess: () => toast.success(`Moved ${src.split("/").at(-1)}`),
-        onError: (e) => toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Move failed"),
+        onSuccess: () => toast.success(t("folderBrowser.moved", { name: src.split("/").at(-1) })),
+        onError: (e) => toast.error(e instanceof ApiError ? e.detail : e instanceof Error ? e.message : t("folderBrowser.moveFailed")),
       },
     );
   }
@@ -197,14 +207,14 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <nav aria-label="Folder path" className="flex flex-wrap items-center gap-1 text-sm">
+        <nav aria-label={t("folderBrowser.folderPath")} className="flex flex-wrap items-center gap-1 text-sm">
           <button
             type="button"
             onClick={goToRoot}
             className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             {...dropProps("")}
           >
-            Library
+            {t("folderBrowser.library")}
           </button>
           {segments.map((segment, index) => (
             <span key={index} className="flex items-center gap-1">
@@ -226,17 +236,17 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter this folder…"
+            placeholder={t("folderBrowser.filterPlaceholder")}
             className="pl-8"
-            aria-label="Filter this folder"
+            aria-label={t("folderBrowser.filterLabel")}
           />
         </div>
-        <div role="group" aria-label="Folder view" className="ml-auto flex gap-1">
+        <div role="group" aria-label={t("folderBrowser.folderView")} className="ml-auto flex gap-1">
           <Button
             type="button"
             size="icon-sm"
             variant={view === "list" ? "secondary" : "ghost"}
-            aria-label="List view"
+            aria-label={t("folderBrowser.listView")}
             aria-pressed={view === "list"}
             onClick={() => changeView("list")}
           >
@@ -246,7 +256,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
             type="button"
             size="icon-sm"
             variant={view === "columns" ? "secondary" : "ghost"}
-            aria-label="Column view"
+            aria-label={t("folderBrowser.columnView")}
             aria-pressed={view === "columns"}
             onClick={() => changeView("columns")}
           >
@@ -267,23 +277,23 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
       ) : treeQuery.isError ? (
         <Card className="mx-auto mt-12 max-w-md">
           <CardHeader className="items-center text-center">
-            <CardTitle>Couldn&apos;t load this folder</CardTitle>
+            <CardTitle>{t("folderBrowser.loadErrorTitle")}</CardTitle>
             <CardDescription>
-              {treeQuery.error instanceof ApiError ? treeQuery.error.detail : "Something went wrong."}
+              {treeQuery.error instanceof ApiError ? treeQuery.error.detail : t("folderBrowser.genericError")}
             </CardDescription>
           </CardHeader>
           <div className="flex justify-center pb-4">
             <Button type="button" onClick={() => void treeQuery.refetch()}>
-              Retry
+              {t("folderBrowser.retry")}
             </Button>
           </div>
         </Card>
       ) : filteredDirs.length === 0 && filteredFiles.length === 0 && !model ? (
         <Card className="mx-auto mt-12 max-w-md">
           <CardHeader className="items-center text-center">
-            <CardTitle>{filter.trim() ? "No matches" : "This folder is empty"}</CardTitle>
+            <CardTitle>{filter.trim() ? t("folderBrowser.noMatches") : t("folderBrowser.emptyTitle")}</CardTitle>
             <CardDescription>
-              {filter.trim() ? "Try a different filter." : "No subfolders or files here."}
+              {filter.trim() ? t("folderBrowser.tryDifferentFilter") : t("folderBrowser.noItems")}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -311,8 +321,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{dir.name}</span>
                         <span className="block text-xs text-muted-foreground">
-                          {dir.file_count} {dir.file_count === 1 ? "file" : "files"}, {dir.model_count}{" "}
-                          {dir.model_count === 1 ? "model" : "models"}
+                          {t("folderBrowser.fileCount", { count: dir.file_count })}, {t("folderBrowser.modelCount", { count: dir.model_count })}
                         </span>
                       </span>
                     </button>
@@ -322,7 +331,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
                         variant="ghost"
                         size="icon-sm"
                         className="mr-2 shrink-0"
-                        aria-label={`Move ${dir.name}`}
+                        aria-label={t("folderBrowser.moveDir", { name: dir.name })}
                         onClick={() => setMoveSrc(dir.path)}
                       >
                         <FolderInputIcon className="size-4" />
@@ -343,10 +352,10 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
           {treeQuery.hasMore && (
             <div className="flex items-center justify-center gap-3 pt-2">
               <span className="text-xs text-muted-foreground">
-                {files.length} of {treeQuery.data?.total_files ?? files.length} files shown
+                {t("folderBrowser.shown", { shown: files.length, total: treeQuery.data?.total_files ?? files.length })}
               </span>
               <Button type="button" variant="outline" size="sm" onClick={treeQuery.loadMore} disabled={treeQuery.loadingMore}>
-                {treeQuery.loadingMore ? "Loading…" : "Load more"}
+                {treeQuery.loadingMore ? t("folderBrowser.loading") : t("folderBrowser.loadMore")}
               </Button>
             </div>
           )}

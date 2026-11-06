@@ -110,7 +110,7 @@ function profileHeight(data: Record<string, unknown> | null | undefined): number
   return null;
 }
 
-function NumField({
+export function NumField({
   label,
   value,
   step,
@@ -123,6 +123,9 @@ function NumField({
   onFocus: () => void;
   onChange: (v: number) => void;
 }) {
+  // Local string draft so partial input ("-", "1.", "") isn't clobbered by
+  // the numeric round-trip; cleared on blur to re-sync with the store.
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <label className="grid gap-0.5 text-[10px] text-muted-foreground">
       {label}
@@ -130,9 +133,11 @@ function NumField({
         type="number"
         step={step}
         aria-label={label}
-        value={Number.isFinite(value) ? value : 0}
+        value={draft ?? (Number.isFinite(value) ? value : 0)}
         onFocus={onFocus}
+        onBlur={() => setDraft(null)}
         onChange={(e) => {
+          setDraft(e.target.value);
           const v = Number(e.target.value);
           if (e.target.value !== "" && Number.isFinite(v)) onChange(v);
         }}
@@ -223,6 +228,7 @@ export function PlateEditorDialog({
     return first;
   };
   const started = useRef(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   useEffect(() => {
     if (!open || started.current || !bedValid || profiles.isLoading || usableFiles.length === 0 || !objects.settled) return;
     started.current = true;
@@ -247,27 +253,40 @@ export function PlateEditorDialog({
     if (capped.truncated) toast.warning(t("plate.seedsTruncated", { max: MAX_ITEMS }));
     // Seeds that could overlap go through the server's auto-arrange with the whole-file parts.
     const arrangeSeeds = capped.items.length > 0 && seedsMayOverlap(splitObjects, wholeCount);
-    const finish = (res: { fits?: boolean; parts: { file_id: number; object_index?: number | null; w_mm: number; d_mm: number; h_mm: number }[]; poses: CombinePose[] } | null) => {
+    const finish = (failed: boolean, res: { fits?: boolean; parts: { file_id: number; object_index?: number | null; w_mm: number; d_mm: number; h_mm: number }[]; poses: CombinePose[] } | null) => {
       setDims(new Map([...objectParts, ...(res?.parts ?? []).map((p): [string, PartDims] => [partKey(p), p])]));
       const saved = usableSaved(loadLayout(slug, fileIds));
       const fresh = (res?.poses ?? []).map((p) => ({ item: poseToItem(p), dims: poseDims(p) }));
       setItemDims(saved ? new Map() : new Map(fresh.map((f) => [f.item.uid, f.dims])));
-      dispatch({ type: "init", items: saved ?? [...fresh.map((f) => f.item), ...(arrangeSeeds ? [] : capped.items)] });
+      dispatch({ type: "init", items: saved ?? [...fresh.map((f) => f.item), ...(arrangeSeeds && !failed ? [] : capped.items)] });
       if (!saved && arrangeSeeds && res && !res.fits) toast.warning(t("plate.autoNoFit"));
       setReady(true);
     };
     const req = autoRequest();
     if (arrangeSeeds) req.items = [...req.items, ...groupItems(capped.items)];
     if (req.items.length === 0) {
-      finish(null);
+      finish(false, null);
       return;
     }
     auto.mutate(req, {
-      onSuccess: finish,
-      onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
+      onSuccess: (res) => finish(false, res),
+      onError: (e) => {
+        // Fall back to the remembered/seed layout so the editor opens, and
+        // offer a retry of the server arrangement.
+        finish(true, null);
+        toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed"), {
+          action: {
+            label: t("common.retry"),
+            onClick: () => {
+              started.current = false;
+              setRetryNonce((n) => n + 1);
+            },
+          },
+        });
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, bedValid, profiles.isLoading, usableFiles.length, objects.settled]);
+  }, [open, bedValid, profiles.isLoading, usableFiles.length, objects.settled, retryNonce]);
 
   useEffect(() => {
     if (open) return;
@@ -277,9 +296,35 @@ export function PlateEditorDialog({
     dispatch({ type: "init", items: [] });
   }, [open]);
 
+  // Debounced layout persistence (300ms); a pending write is flushed when the
+  // editor closes so the last edit isn't lost.
+  const pendingSave = useRef<{ dirty: boolean; slug: string; fileIds: number[]; items: PlateItem[] }>({
+    dirty: false,
+    slug,
+    fileIds,
+    items: [],
+  });
   useEffect(() => {
-    if (ready) saveLayout(slug, fileIds, state.items);
+    if (!ready) return;
+    const p = pendingSave.current;
+    p.dirty = true;
+    p.slug = slug;
+    p.fileIds = fileIds;
+    p.items = state.items;
+    const id = setTimeout(() => {
+      saveLayout(slug, fileIds, state.items);
+      p.dirty = false;
+    }, 300);
+    return () => clearTimeout(id);
   }, [ready, slug, fileIds, state.items]);
+  useEffect(() => {
+    if (!ready) return;
+    const p = pendingSave.current;
+    return () => {
+      if (p.dirty) saveLayout(p.slug, p.fileIds, p.items);
+      p.dirty = false;
+    };
+  }, [ready]);
 
   const colorOf = (fileId: number, objectIndex?: number | null) =>
     COLORS[(Math.max(0, fileIds.indexOf(fileId)) + (objectIndex ?? 0)) % COLORS.length];
@@ -381,11 +426,21 @@ export function PlateEditorDialog({
     else arrangeItems([...state.items, ...capped.items]);
   }
 
-  function onFace(uid: string, normal: [number, number, number]) {
+  const onFace = useCallback((uid: string, normal: [number, number, number]) => {
     dispatch({ type: "layOnFace", uid, normal });
     dispatch({ type: "select", uid });
     setFaceMode(false);
-  }
+  }, []);
+  const onSelect = useCallback((uid: string | null) => dispatch({ type: "select", uid }), []);
+  const onBegin = useCallback(() => {
+    editRecorded.current = false;
+  }, []);
+  const onChange = useCallback(
+    (uid: string, fields: { x_mm: number; y_mm: number; rot_z_deg: number; scale: number }) =>
+      dispatch({ type: "patch", uid, fields, record: recordOnce() }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const onDims = useCallback((uid: string, d: PartDims) => {
     setItemDims((prev) => {
@@ -399,6 +454,7 @@ export function PlateEditorDialog({
   function save(thenSlice: boolean) {
     combine.mutate(buildManualRequest(state.items, { profileId: selectedProfile?.profile.id ?? null, bed: bedSize }, name), {
       onSuccess: (res) => {
+        pendingSave.current.dirty = false;
         clearLayout(slug, fileIds);
         toast.success(t("plate.saved", { name: res.file ? baseName(res.file.rel_path) : "plate" }));
         if (thenSlice && res.file) setSliceFile(res.file);
@@ -481,9 +537,9 @@ export function PlateEditorDialog({
                   faceMode={faceMode}
                   onDims={onDims}
                   onFace={onFace}
-                  onSelect={(uid) => dispatch({ type: "select", uid })}
-                  onBegin={() => (editRecorded.current = false)}
-                  onChange={(uid, fields) => dispatch({ type: "patch", uid, fields, record: recordOnce() })}
+                  onSelect={onSelect}
+                  onBegin={onBegin}
+                  onChange={onChange}
                   onOrbitLock={setOrbitLocked}
                 />
               </Suspense>
@@ -601,7 +657,7 @@ export function PlateEditorDialog({
                       <div className="mb-1 flex items-center justify-between text-xs">
                         <span>#{i.copy_index + 1}</span>
                         <span className="flex gap-1">
-                          <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.duplicate")} disabled={state.items.length >= MAX_ITEMS} onClick={(e) => { e.stopPropagation(); dispatch({ type: "addCopy", file_id: i.file_id }); }}>
+                          <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.duplicate")} disabled={state.items.length >= MAX_ITEMS} onClick={(e) => { e.stopPropagation(); dispatch({ type: "addCopy", file_id: i.file_id, object_index: i.object_index ?? null }); }}>
                             <CopyPlusIcon className="size-3.5" />
                           </Button>
                           <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.deleteCopy")} onClick={(e) => { e.stopPropagation(); dispatch({ type: "removeCopy", uid: i.uid }); }}>

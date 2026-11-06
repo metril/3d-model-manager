@@ -5,9 +5,10 @@ import { api } from "@/api/client";
 import { waitForJob } from "@/api/waitForJob";
 import type { JobOut } from "@/api/types";
 
-export function useMoveFolder() {
+export function useMoveFolder(silentError = false) {
   const qc = useQueryClient();
   return useMutation({
+    meta: silentError ? { silentError: true } : undefined,
     mutationFn: async ({ src, dest }: { src: string; dest: string }) =>
       waitForJob(await api.post<JobOut>("/storage/folders/move", { src, dest })),
     onSettled: () => void qc.invalidateQueries({ queryKey: ["storage"] }),

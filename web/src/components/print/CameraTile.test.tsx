@@ -255,4 +255,31 @@ describe("CameraTile", () => {
     });
     expect(screen.getByRole("img", { name: "Camera feed" })).toBeInTheDocument();
   });
+
+  it("clears the img src when the feed is detached so the socket closes", async () => {
+    renderTile();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    expect(img).toHaveAttribute("src", "/api/printers/1/camera/stream?token=abc");
+    act(() => FakeIntersectionObserver.instances[0]!.trigger(false));
+    expect(img.getAttribute("src")).toBe("");
+  });
+
+  it("zooms on a non-passive wheel listener that prevents page scroll", async () => {
+    renderTile();
+    await screen.findByRole("img", { name: "Camera feed" });
+    const tile = document.querySelector('[data-slot="camera-tile"]')!;
+    const ev = new WheelEvent("wheel", { deltaY: -200, cancelable: true, bubbles: true });
+    act(() => void tile.dispatchEvent(ev));
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("camera-view").style.transform).not.toContain("scale(1)");
+  });
+
+  it("offers a Retry button after a stream error that restarts the feed", async () => {
+    renderTile();
+    const img = await screen.findByRole("img", { name: "Camera feed" });
+    act(() => void fireEvent.error(img));
+    expect(screen.queryByRole("img", { name: "Camera feed" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("img", { name: "Camera feed" })).toBeInTheDocument();
+  });
 });

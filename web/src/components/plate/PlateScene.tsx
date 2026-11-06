@@ -7,7 +7,7 @@
  * item's orient quaternion (applied to the mesh first, so the footprint and
  * bottom are measured on the rotated mesh).
  */
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, TransformControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
@@ -49,6 +49,7 @@ function PartMesh({
   onFace: (worldNormal: Vec3) => void;
 }) {
   const gltf = useGLTF(url);
+  const invalidate = useThree((st) => st.invalidate);
   const [qx, qy, qz, qw] = orient;
   const { object, offset, size } = useMemo(() => {
     const clone = gltf.scene.clone(true);
@@ -87,16 +88,27 @@ function PartMesh({
 
   // Place-on-face hover: highlight the flat region under the pointer.
   const overlay = useRef<{ mesh: THREE.Mesh; host: THREE.Mesh; tris: Set<number> } | null>(null);
-  const clearOverlay = () => {
+  const clearOverlay = useCallback(() => {
     const o = overlay.current;
     if (!o) return;
     o.host.remove(o.mesh);
     o.mesh.geometry.dispose();
     (o.mesh.material as THREE.Material).dispose();
     overlay.current = null;
-  };
-  useEffect(() => (faceMode ? undefined : clearOverlay()), [faceMode]);
-  useEffect(() => clearOverlay, [object]);
+    invalidate();
+  }, [invalidate]);
+  useEffect(() => (faceMode ? undefined : clearOverlay()), [faceMode, clearOverlay]);
+  useEffect(() => clearOverlay, [object, clearOverlay]);
+  // The clone owns its materials (shared geometry stays with the GLTF cache).
+  useEffect(
+    () => () => {
+      object.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) (mesh.material as THREE.Material).dispose();
+      });
+    },
+    [object],
+  );
 
   const hit = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
     const mesh = e.object as THREE.Mesh;
@@ -134,6 +146,7 @@ function PartMesh({
         highlight.raycast = () => {};
         mesh.add(highlight);
         overlay.current = { mesh: highlight, host: mesh, tris: new Set(tris) };
+        invalidate();
       }}
       onPointerOut={() => faceMode && clearOverlay()}
       onClick={(e: ThreeEvent<MouseEvent>) => {
@@ -160,7 +173,7 @@ function FaceCursor({ active }: { active: boolean }) {
   return null;
 }
 
-function PlatePart({
+const PlatePart = memo(function PlatePart({
   item,
   part,
   selected,
@@ -252,10 +265,17 @@ function PlatePart({
       ) : null}
     </>
   );
-}
+});
 
 function BedVolume({ bed }: { bed: Bed }) {
   const h = bed.height ?? 0;
+  const edges = useMemo(() => {
+    const box = new THREE.BoxGeometry(bed.x_mm, bed.y_mm, h || 1);
+    const e = new THREE.EdgesGeometry(box);
+    box.dispose();
+    return e;
+  }, [bed.x_mm, bed.y_mm, h]);
+  useEffect(() => () => edges.dispose(), [edges]);
   return (
     <group>
       <mesh position={[bed.x_mm / 2, bed.y_mm / 2, -0.05]} onClick={(e) => e.stopPropagation()}>
@@ -274,7 +294,7 @@ function BedVolume({ bed }: { bed: Bed }) {
         </mesh>
       ) : null}
       <lineSegments position={[bed.x_mm / 2, bed.y_mm / 2, (h || 1) / 2]}>
-        <edgesGeometry args={[new THREE.BoxGeometry(bed.x_mm, bed.y_mm, h || 1)]} />
+        <primitive object={edges} attach="geometry" />
         <lineBasicMaterial color="#2dd4bf" transparent opacity={0.6} />
       </lineSegments>
     </group>
@@ -319,11 +339,22 @@ export default function PlateScene({
   onOrbitLock: (locked: boolean) => void;
 }) {
   const reach = Math.max(bed.x_mm, bed.y_mm);
-  useEffect(() => {
-    THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
-  }, []);
+  // Z-up comes from the camera's explicit `up` below; the global
+  // Object3D.DEFAULT_UP is deliberately left alone (it leaks into every other
+  // three.js scene in the app).
+  const urls = useMemo(() => [...parts.values()].map((p) => p.url), [parts]);
+  const urlsRef = useRef(urls);
+  urlsRef.current = urls;
+  // Drop the cached GLTFs when the editor closes.
+  useEffect(
+    () => () => {
+      for (const u of urlsRef.current) useGLTF.clear(u);
+    },
+    [],
+  );
   return (
     <Canvas
+      frameloop="demand"
       camera={{ position: [bed.x_mm / 2, -reach * 0.9, reach * 0.9], up: [0, 0, 1], fov: 40, near: 1, far: reach * 20 }}
       onPointerMissed={() => onSelect(null)}
     >

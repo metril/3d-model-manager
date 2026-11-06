@@ -1,5 +1,6 @@
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
  * localStorage persistence, and defaulting to `prefers-color-scheme` (see
  * the `ThemeProvider` in `src/main.tsx`). */
 export function ThemeToggle() {
+  const { t } = useTranslation();
   const { resolvedTheme, setTheme } = useTheme();
 
   return (
@@ -14,7 +16,7 @@ export function ThemeToggle() {
       type="button"
       variant="outline"
       size="icon"
-      aria-label="Toggle theme"
+      aria-label={t("themeToggle.toggle")}
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
     >
       <Sun className="size-4 scale-100 dark:scale-0" />

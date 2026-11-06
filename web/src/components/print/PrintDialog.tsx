@@ -48,6 +48,7 @@ import { useCreateBatch, useDispatchBatch, useEnqueue } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
+import { useMountedWhileOpen } from "@/lib/useMountedWhileOpen";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useFileBedFit, useFilePlates, useRecipes, useSlicerHealth } from "@/api/slicing";
@@ -79,7 +80,7 @@ export type PrintSource =
   | { kind: "archive"; archiveId: number }
   | { kind: "pick" };
 
-const STEPS = ["Source", "Plate", "Profile", "Filament", "Send"] as const;
+const STEPS = ["source", "plate", "profile", "filament", "send"] as const;
 const SOURCE = 0;
 const PLATE = 1;
 const PROFILE = 2;
@@ -127,10 +128,13 @@ function useModelSourceFiles(modelId: number | null, formats: BlobFormat[]) {
 }
 
 function Rail({ step, onStep }: { step: number; onStep: (i: number) => void }) {
+  const { t } = useTranslation();
   return (
     <ol className="flex w-40 shrink-0 flex-col gap-0.5 border-r border-border pr-3">
-      {STEPS.map((label, i) => (
-        <li key={label}>
+      {STEPS.map((stepId, i) => {
+        const label = t(`printDialog.steps.${stepId}`);
+        return (
+        <li key={stepId}>
           <button
             type="button"
             onClick={() => onStep(i)}
@@ -147,7 +151,8 @@ function Rail({ step, onStep }: { step: number; onStep: (i: number) => void }) {
             {label}
           </button>
         </li>
-      ))}
+        );
+      })}
     </ol>
   );
 }
@@ -161,23 +166,24 @@ function FilamentRow({
   trays: TrayChoice[];
   onOverride: (filamentId: number, tray: number) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn("flex flex-wrap items-center gap-3 rounded-[6px] border p-2", STATUS_STYLE[filament.status])}
       data-status={filament.status}
     >
-      <FilamentChip color={filament.color ?? undefined} material={filament.type ?? "Filament"} />
+      <FilamentChip color={filament.color ?? undefined} material={filament.type ?? t("printDialog.filament")} />
       <span className="font-mono text-xs tabular-nums text-muted-foreground">
         {filament.grams != null ? `${Math.round(filament.grams)} g` : "— g"}
       </span>
       {filament.spool ? (
         <span className="text-xs text-muted-foreground">
-          {filament.spool.color_name ?? filament.spool.brand ?? "Spool"} #{filament.spool.id}
+          {filament.spool.color_name ?? filament.spool.brand ?? t("printDialog.spool")} #{filament.spool.id}
         </span>
       ) : null}
       {filament.status !== "ok" ? (
         <span className="text-xs text-destructive">
-          {filament.status === "none" ? "No tray assigned" : filament.status === "type" ? "Type mismatch" : null}
+          {filament.status === "none" ? t("printDialog.noTray") : filament.status === "type" ? t("printDialog.typeMismatch") : null}
         </span>
       ) : null}
       <div className="ml-auto">
@@ -185,14 +191,14 @@ function FilamentRow({
           trays={trays}
           selected={filament.tray ?? null}
           onChange={(tray) => onOverride(filament.filament_id, tray)}
-          ariaLabel={`Tray for ${filament.type ?? "filament"}`}
+          ariaLabel={t("printDialog.trayFor", { type: filament.type ?? t("printDialog.filamentLower") })}
         />
       </div>
     </div>
   );
 }
 
-export function PrintDialog({
+function PrintDialogBody({
   open,
   onOpenChange,
   source,
@@ -315,7 +321,7 @@ export function PrintDialog({
       setSliceOnly(true);
       setProfileMode("recipe");
     }
-  }, [source.kind, modelIdForFiles, gcodeFiles, sourceFiles, slicerConfigured, sliceOnly]);
+  }, [source.kind, modelIdForFiles, gcodeFiles.isLoading, sourceFiles.isLoading, gcodeFiles.files.length, sourceFiles.files.length, slicerConfigured, sliceOnly]);
   const autoFileId = slicedFiles.files.length === 1 ? slicedFiles.files[0].id : null;
 
   const resolvedFileId =
@@ -408,6 +414,16 @@ export function PrintDialog({
   const [refusedFor, setRefusedFor] = useState<number | null>(null);
   // The draft batch a refused dispatch left behind; a retry re-dispatches it.
   const [draftBatchId, setDraftBatchId] = useState<number | null>(null);
+  // Reopen from a clean slate (the effect up top predates these states).
+  const archiveSourceId = source.kind === "archive" ? source.archiveId : null;
+  useEffect(() => {
+    if (!open) return;
+    setArchiveFileId(null);
+    setDraftBatchId(null);
+    setForcedFor(null);
+    setRefusedFor(null);
+    setRecipeSearch("");
+  }, [open, source.kind, archiveSourceId]);
   const enqueueRaw = useEnqueue();
   const createBatch = useCreateBatch();
   const dispatchBatch = useDispatchBatch();
@@ -483,10 +499,10 @@ export function PrintDialog({
     setCostCenterSeeded(true);
   }, [billingOn, costCenterSeeded, costCenterId, costCenters.data, auth.data?.id]);
   const printerStatus = usePrinterStatus(effectivePrinterId ?? -1, { enabled: effectivePrinterId != null });
-  const trays = (printerStatus.data?.trays ?? []).map((t) => ({
-    slot: t.slot,
-    label: t.ams_unit === EXTERNAL_UNIT ? "External" : `AMS ${t.ams_unit}·${t.tray}`,
-    loaded: isLoadedTray(t),
+  const trays = (printerStatus.data?.trays ?? []).map((tr) => ({
+    slot: tr.slot,
+    label: tr.ams_unit === EXTERNAL_UNIT ? t("printDialog.external") : `AMS ${tr.ams_unit}·${tr.tray}`,
+    loaded: isLoadedTray(tr),
   }));
 
   // Recipe mode has no plan to list printers from, so offer every printer
@@ -609,7 +625,7 @@ export function PrintDialog({
       () => {
         close();
         toast.success(
-          needsReview(auth.data, effectivePrinterId) ? "Sent for review" : "Queued next",
+          needsReview(auth.data, effectivePrinterId) ? t("printDialog.sentForReview") : t("printDialog.queuedNext"),
         );
         onSent?.();
       },
@@ -636,7 +652,7 @@ export function PrintDialog({
       {
         onSuccess: () => {
           close();
-          toast.success("Sent to printer");
+          toast.success(t("printDialog.sentToPrinter"));
           onSent?.();
         },
         onError: (e) => {
@@ -669,7 +685,7 @@ export function PrintDialog({
       },
       () => {
         close();
-        toast.success("Added to queue");
+        toast.success(t("printDialog.addedToQueue"));
       },
     );
   }
@@ -690,7 +706,7 @@ export function PrintDialog({
       },
       () => {
         close();
-        toast.success(`Slicing, then sending to ${selectedPrinter?.name ?? "printer"}`);
+        toast.success(t("printDialog.slicingThenSending", { printer: selectedPrinter?.name ?? t("printDialog.printerLower") }));
       },
     );
   }
@@ -710,7 +726,7 @@ export function PrintDialog({
       },
       () => {
         close();
-        toast.success("Added to queue");
+        toast.success(t("printDialog.addedToQueue"));
       },
     );
   }
@@ -722,14 +738,14 @@ export function PrintDialog({
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={submitting} className="flex max-h-[85vh] sm:max-w-3xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-5 py-3">
-          <DialogTitle>{printerIdProp != null ? `Print on ${printerName ?? "printer"}` : "Print"}</DialogTitle>
+          <DialogTitle>{printerIdProp != null ? t("printDialog.printOn", { printer: printerName ?? t("printDialog.printerLower") }) : t("printDialog.print")}</DialogTitle>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-4 overflow-y-auto p-5">
           <Rail step={step} onStep={setStep} />
           <div className="min-w-0 flex-1 space-y-4">
             {planError ? (
               <p role="alert" className="text-sm text-destructive">
-                {planError instanceof Error ? planError.message : "Couldn't build a print plan."}
+                {planError instanceof Error ? planError.message : t("printDialog.planError")}
               </p>
             ) : null}
 
@@ -737,23 +753,23 @@ export function PrintDialog({
               <div className="space-y-3">
                 {source.kind === "pick" && pickedModelId == null ? (
                   <div className="space-y-2">
-                    <Label htmlFor="print-dialog-model-search">Find a model</Label>
+                    <Label htmlFor="print-dialog-model-search">{t("printDialog.findModel")}</Label>
                     <Input
                       id="print-dialog-model-search"
                       value={modelQuery}
                       onChange={(e) => setModelQuery(e.target.value)}
-                      placeholder="Search models…"
+                      placeholder={t("printDialog.searchModels")}
                     />
                     <p className="text-xs text-muted-foreground">
                       {modelQuery.trim().length === 0
-                        ? "Pick a model to print, or search by name. "
+                        ? t("printDialog.pickModelHint")
                         : ""}
                       {slicerConfigured
-                        ? "Sliced .gcode.3mf files send directly; other models are sliced with a recipe first."
-                        : "Only sliced .gcode.3mf files can be printed (slicing needs the slicer sidecar)."}
+                        ? t("printDialog.slicedDirect")
+                        : t("printDialog.onlySliced")}
                     </p>
                     {modelQuery.trim().length === 0 ? (
-                      <p className="label-caps text-muted-foreground">Recent models</p>
+                      <p className="label-caps text-muted-foreground">{t("printDialog.recentModels")}</p>
                     ) : null}
                     <ul className="divide-y divide-border">
                       {(modelQuery.trim().length === 0 ? recent.data?.items ?? [] : searchResults).map((m) => (
@@ -790,10 +806,10 @@ export function PrintDialog({
                     slicedFiles.files.length === 0 ? (
                       <p className="text-sm text-muted-foreground" data-testid="no-printable-files">
                         {profileMode === "recipe"
-                          ? "This model has no sliceable files (3mf, stl, step, obj)."
+                          ? t("printDialog.noSliceable")
                           : slicerConfigured
-                            ? "This model has no sliced .gcode.3mf and no sliceable file (3mf, stl, step, obj). A recipe is needed to slice."
-                            : "This model has no sliced .gcode.3mf file. Only .gcode.3mf can be printed; slicing 3mf/stl/step/obj needs the slicer sidecar (TDMM_SLICER_URL)."}
+                            ? t("printDialog.noSlicedNoSliceable")
+                            : t("printDialog.noSlicedNoSidecar")}
                       </p>
                     ) : null}
                   </>
@@ -811,7 +827,7 @@ export function PrintDialog({
                   onChange={(next) => { setTouched(true); setPlate(next); }}
                 />
               ) : (
-                <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+                <p className="text-sm text-muted-foreground">{t("printDialog.mappedAfterSlicing")}</p>
               )
             ) : step === PLATE ? (
               <PlatePicker
@@ -838,21 +854,21 @@ export function PrintDialog({
               >
                 {sliceOnly ? (
                   <p className="text-sm text-muted-foreground">
-                    This file isn't sliced yet. Choose a recipe: the slicer sidecar slices it, then it is sent to the printer.
+                    {t("printDialog.notSlicedYet")}
                   </p>
                 ) : (
                   <div className="flex items-center gap-2">
                     <RadioGroupItem value="as-sliced" id="print-dialog-profile-as-sliced" />
                     <Label htmlFor="print-dialog-profile-as-sliced" className="font-normal">
-                      As sliced
+                      {t("printDialog.asSliced")}
                     </Label>
                   </div>
                 )}
                 {!effectiveIsSliced && !formatUnknown && recipeList.length > 1 ? (
                   <Input
                     type="search"
-                    aria-label="Search recipes"
-                    placeholder="Search recipes"
+                    aria-label={t("printDialog.searchRecipes")}
+                    placeholder={t("printDialog.searchRecipes")}
                     value={recipeSearch}
                     onChange={(e) => setRecipeSearch(e.target.value)}
                   />
@@ -875,10 +891,10 @@ export function PrintDialog({
                 {profileMode === "recipe" && !effectiveIsSliced && !formatUnknown && (recipeList.length === 0 || allRecipesIncompatible) && !recipes.isLoading ? (
                   <p className="text-sm text-muted-foreground">
                     {recipeList.length === 0
-                      ? "No recipes yet."
-                      : `None of your recipes fit ${selectedPrinterModel ?? "this printer"}.`}{" "}
+                      ? t("printDialog.noRecipes")
+                      : t("printDialog.noRecipesFit", { printer: selectedPrinterModel ?? t("printDialog.thisPrinter") })}{" "}
                     <Link to="/inventory/profiles" className="underline">
-                      Create a recipe to slice
+                      {t("printDialog.createRecipe")}
                     </Link>
                     .
                   </p>
@@ -901,7 +917,7 @@ export function PrintDialog({
             ) : null}
 
             {step === FILAMENT && profileMode === "recipe" ? (
-              <p className="text-sm text-muted-foreground">Mapped after slicing</p>
+              <p className="text-sm text-muted-foreground">{t("printDialog.mappedAfterSlicing")}</p>
             ) : step === FILAMENT ? (
               <div className="space-y-2">
                 {(plan?.filaments ?? []).map((f) => (
@@ -915,7 +931,7 @@ export function PrintDialog({
                   />
                 ))}
                 {(plan?.filaments ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No filament needs on this plate.</p>
+                  <p className="text-sm text-muted-foreground">{t("printDialog.noFilamentNeeds")}</p>
                 ) : null}
               </div>
             ) : null}
@@ -932,33 +948,33 @@ export function PrintDialog({
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={bedLevelling} onCheckedChange={(v) => { setTouched(true); setBedLevelling(v === true); }} />
-                    Bed levelling
+                    {t("printDialog.bedLevelling")}
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={flowCali} onCheckedChange={(v) => { setTouched(true); setFlowCali(v === true); }} />
-                    Flow calibration
+                    {t("printDialog.flowCalibration")}
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <Checkbox checked={timelapse} onCheckedChange={(v) => { setTouched(true); setTimelapse(v === true); }} />
-                    Timelapse
+                    {t("printDialog.timelapse")}
                   </label>
                 </div>
                 {billingOn ? (
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="print-dialog-cost-center">Cost center</Label>
+                    <Label htmlFor="print-dialog-cost-center">{t("printDialog.costCenter")}</Label>
                     <Select
                       value={costCenterId != null ? String(costCenterId) : ""}
                       onValueChange={(v) => { setTouched(true); setCostCenterId(Number(v)); }}
-                      aria-label="Cost center"
+                      aria-label={t("printDialog.costCenter")}
                     >
                       <SelectTrigger id="print-dialog-cost-center" className="w-64">
-                        <SelectValue placeholder="Choose a cost center" />
+                        <SelectValue placeholder={t("printDialog.chooseCostCenter")} />
                       </SelectTrigger>
                       <SelectContent>
                         {(costCenters.data ?? []).map((c) => (
                           <SelectItem key={c.id} value={String(c.id)}>
-                            {c.owner_user_id === auth.data?.id ? "Personal" : c.name}
-                            {c.available != null ? ` — ${formatCost(c.available)} available` : ""}
+                            {c.owner_user_id === auth.data?.id ? t("printDialog.personal") : c.name}
+                            {c.available != null ? ` — ${t("printDialog.available", { amount: formatCost(c.available) })}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -995,13 +1011,13 @@ export function PrintDialog({
                         instead of a generic message. */}
                     {sendPrint.error instanceof ApiError
                       ? sendPrint.error.detail
-                      : "Could not send to printer"}
+                      : t("printDialog.couldNotSend")}
                   </p>
                 ) : null}
                 {profileMode === "recipe" ? (
                   <div className="flex items-center gap-2">
                     <Label htmlFor="print-dialog-copies" className="font-normal">
-                      Copies
+                      {t("printDialog.copies")}
                     </Label>
                     <Input
                       id="print-dialog-copies"
@@ -1023,13 +1039,13 @@ export function PrintDialog({
                         disabled={recipeActionsDisabled || fitBlocked || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                         title={
                           recipeActionsDisabled
-                            ? "Slicer sidecar unavailable. Enable it with the compose `slicer` profile (--profile slicer) and set TDMM_SLICER_URL."
+                            ? t("printDialog.sidecarUnavailable")
                             : selectedRecipeId == null
-                              ? "Choose a recipe on the Profile step"
+                              ? t("printDialog.chooseRecipeHint")
                               : undefined
                         }
                       >
-                        Slice and send
+                        {t("printDialog.sliceAndSend")}
                       </Button>
                       {/* M6: "Add to queue" only queues the recipe for the
                           dispatcher to slice later -- it doesn't call the
@@ -1040,7 +1056,7 @@ export function PrintDialog({
                         onClick={handleQueueRecipe}
                         disabled={fitBlocked || selectedRecipeId == null || effectiveFileId == null || enqueue.isPending}
                       >
-                        Add to queue
+                        {t("printDialog.addToQueue")}
                       </Button>
                     </>
                   ) : (
@@ -1062,27 +1078,28 @@ export function PrintDialog({
                           }
                         >
                           {sendPrint.isPending || enqueue.isPending
-                            ? "Sending..."
+                            ? t("printDialog.sending")
                             : sendNext || schedActive
-                              ? "Send next"
-                              : "Send now"}
+                              ? t("printDialog.sendNext")
+                              : t("printDialog.sendNow")}
                         </Button>
                         {sendNext ? (
                           <span className="text-xs text-muted-foreground">
                             {needsReview(auth.data, effectivePrinterId)
-                              ? "Needs review"
-                              : `Billed to ${
-                                  (costCenters.data ?? []).find((c) => c.id === costCenterId)?.owner_user_id ===
-                                  auth.data?.id
-                                    ? "Personal"
-                                    : (costCenters.data ?? []).find((c) => c.id === costCenterId)?.name ?? "cost center"
-                                }`}
+                              ? t("printDialog.needsReview")
+                              : t("printDialog.billedTo", {
+                                  name:
+                                    (costCenters.data ?? []).find((c) => c.id === costCenterId)?.owner_user_id ===
+                                    auth.data?.id
+                                      ? t("printDialog.personal")
+                                      : (costCenters.data ?? []).find((c) => c.id === costCenterId)?.name ?? t("printDialog.costCenterLower"),
+                                })}
                           </span>
                         ) : null}
                       </div>
                       {effectiveFileId != null ? (
                         <Button type="button" variant="outline" onClick={handleAddToQueue} disabled={enqueue.isPending}>
-                          Add to queue
+                          {t("printDialog.addToQueue")}
                         </Button>
                       ) : null}
                     </>
@@ -1094,7 +1111,7 @@ export function PrintDialog({
         </div>
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
           {profileMode === "recipe" ? (
-            <p className="text-sm text-muted-foreground">{selectedRecipe?.name ?? "Recipe"}</p>
+            <p className="text-sm text-muted-foreground">{selectedRecipe?.name ?? t("printDialog.recipe")}</p>
           ) : (
             <SpecRow
               items={[
@@ -1106,15 +1123,22 @@ export function PrintDialog({
           )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" disabled={step === SOURCE} onClick={() => setStep((s) => Math.max(SOURCE, s - 1))}>
-              Back
+              {t("printDialog.back")}
             </Button>
             {step < SEND ? (
               <Button type="button" disabled={step === PROFILE && fitBlocked} onClick={() => setStep((s) => Math.min(SEND, s + 1))}>
-                Next
+                {t("printDialog.next")}
               </Button>
             ) : null}
           </div>
         </div>
     </FormDialog>
   );
+}
+
+/** Mounts the body only while open (plus the close animation), so closed
+ * per-card instances run no queries and always reopen from a clean state. */
+export function PrintDialog(props: React.ComponentProps<typeof PrintDialogBody>) {
+  const [mounted, session] = useMountedWhileOpen(props.open);
+  return mounted ? <PrintDialogBody key={session} {...props} /> : null;
 }
