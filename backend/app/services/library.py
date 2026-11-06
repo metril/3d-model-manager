@@ -156,7 +156,21 @@ def _raw_plates(meta) -> list[dict] | None:
     """Sliced plates (``raw.plates``) else the unsliced project's plates."""
     if meta is None:
         return None
-    return (meta.raw or {}).get("plates") or meta.plates_json or None
+    sliced = (meta.raw or {}).get("plates")
+    if not sliced:
+        return meta.plates_json or None
+    # A sliced 3MF still carries its project's colour changes / pauses: merge
+    # them in by plate index (the slice info has no such data).
+    project = {p.get("index"): p for p in meta.plates_json or [] if isinstance(p, dict)}
+    out = []
+    for plate in sliced:
+        extra = project.get(plate.get("index")) or {}
+        merged = dict(plate)
+        for key in ("colour_changes", "pauses"):
+            if not merged.get(key) and extra.get(key):
+                merged[key] = extra[key]
+        out.append(merged)
+    return out
 
 
 async def _build_file_enrichments(

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -45,6 +46,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
+from xml.etree import ElementTree as ET
 
 import trimesh
 from celery import Task
@@ -229,29 +231,53 @@ def start_pipeline_sync(session: SyncSession, *, blob_hash: str, file_id: int) -
         enqueue_step_sync(session, step=step, blob_hash=blob_hash, file_id=file_id)
 
 
+# Keys a MakerWorld ``source_meta`` may be missing that the 3MF itself carries.
+_SOURCE_META_FILL_KEYS = ("description", "author", "design_title")
+
+
+def _source_meta_incomplete(current: dict | None) -> bool:
+    return current is None or (
+        isinstance(current, dict) and any(not current.get(k) for k in _SOURCE_META_FILL_KEYS)
+    )
+
+
+def _apply_source_meta(session: SyncSession, where, sm: dict) -> None:
+    """Fill ``source_meta`` of the matching files from the 3MF's own metadata: a
+    NULL value is set, a non-NULL one only gains missing keys (never overwritten)."""
+    for file in session.execute(select(File).where(where)).scalars():
+        cur = file.source_meta
+        if cur is None:
+            file.source_meta = sm
+        elif isinstance(cur, dict):
+            add = {k: sm[k] for k in _SOURCE_META_FILL_KEYS if sm.get(k) and not cur.get(k)}
+            if add:
+                file.source_meta = {**cur, **add}
+
+
 def _fill_file_source_meta(
     session: SyncSession, settings: Settings, blob: Blob, file_id: int
 ) -> None:
     """A File that dedups onto an already-analysed blob never reaches
-    ``_fill_source_meta`` via the pipeline; fill its NULL ``source_meta`` here.
-    Best-effort."""
+    ``_fill_source_meta`` via the pipeline; fill its ``source_meta`` here.
+    Best-effort, inside a SAVEPOINT: the caller's session (e.g. a scanner batch)
+    is never committed or rolled back. Not-yet-analysed blobs are left to the
+    pipeline."""
     try:
-        file = session.get(File, file_id)
-        if file is None or file.source_meta is not None:
+        meta = session.get(BlobMeta, blob.hash)
+        if meta is None or meta.plates_version is None:
             return
-        with tempfile.TemporaryDirectory(prefix="tdmm-sm-") as tmp:
-            src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
-            with zipfile.ZipFile(src) as zf:
-                sm = plates3mf.read_3mf_profile_meta(zf)
+        file = session.get(File, file_id)
+        if file is None or not _source_meta_incomplete(file.source_meta):
+            return
+        with (
+            derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
+            zipfile.ZipFile(fh) as zf,
+        ):
+            sm = plates3mf.read_3mf_profile_meta(zf)
         if sm is not None:
-            session.execute(
-                update(File)
-                .where(File.id == file_id, File.source_meta.is_(None))
-                .values(source_meta=sm)
-            )
-            session.commit()
+            with session.begin_nested():
+                _apply_source_meta(session, File.id == file_id, sm)
     except Exception:
-        session.rollback()
         logger.warning("source_meta fill failed for file %s", file_id, exc_info=True)
 
 
@@ -875,9 +901,12 @@ def _convert_to_glb_step(
             src = derivatives.fetch_blob_to_temp(
                 session, settings, blob.hash, Path(tmp), f".{blob.format.value}"
             )
-            tool = convert.convert_to_glb_file(src, blob.format, tmp_path)
+            project = None
             if blob.format is BlobFormat.THREEMF:
-                _generate_plate_assets(session, settings, blob, src)
+                project = _load_project_best_effort(src, only_if_needed=True)
+            tool = convert.convert_to_glb_file(src, blob.format, tmp_path, project=project)
+            if blob.format is BlobFormat.THREEMF:
+                _generate_plate_assets(session, settings, blob, src, project=project)
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
         derivatives.mark_derivative(session, deriv, status=DerivativeStatus.FAILED, error=str(exc))
@@ -892,12 +921,30 @@ def _convert_to_glb_step(
 
 
 # Bump when ``plates_json`` gains fields so the startup backfill re-analyses old rows.
-PLATES_VERSION = 3
+# v4: colour changes carry ``kind`` and are filtered to live ones; filaments include
+#     modifier / painted / tool-change extruders.
+PLATES_VERSION = 4
 
 
 def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
     meta = session.get(BlobMeta, blob_hash)
     return meta is not None and meta.plates_json is None
+
+
+def _is_parse_error(exc: BaseException) -> bool:
+    """A deterministic failure of the file itself (never fixed by a retry), as
+    opposed to transient storage/DB trouble, which must not poison a row."""
+    return isinstance(exc, zipfile.BadZipFile | ET.ParseError | ValueError) or type(
+        exc
+    ).__module__.startswith("lib3mf")
+
+
+def _load_project_best_effort(src: Path, *, only_if_needed: bool):
+    try:
+        return plates3mf.load_project(src, only_if_needed=only_if_needed)
+    except Exception:  # noqa: BLE001 - colouring/plates are best-effort
+        logger.warning("3mf project parse failed for %s", src.name, exc_info=True)
+        return None
 
 
 def _mark_plates_poisoned(meta: BlobMeta) -> None:
@@ -911,40 +958,61 @@ def _mark_plates_poisoned(meta: BlobMeta) -> None:
 
 
 def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> bool:
+    meta = session.get(BlobMeta, blob.hash)
+    if meta is not None and meta.plates_json and "bed" in meta.plates_json[0]:
+        # Up-to-date GLBs: refresh filament/colour data from the small zip
+        # members only, unless MMU painting needs the geometry (full path).
+        with (
+            derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
+            zipfile.ZipFile(fh) as zf,
+        ):
+            painted = threemf_colour.has_paint(zf)
+            if not painted:
+                _refresh_plate_info(session, blob, meta, zf)
+                return True
     with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
         src = derivatives.fetch_blob_to_temp(session, settings, blob.hash, Path(tmp), ".3mf")
-        meta = session.get(BlobMeta, blob.hash)
-        if meta is not None and meta.plates_json and "bed" in meta.plates_json[0]:
-            _refresh_plate_info(session, blob, meta, src)  # up-to-date GLBs: no regeneration
-            return True
         return _generate_plate_assets(session, settings, blob, src)
 
 
 def _fill_source_meta(session: SyncSession, blob_hash: str, zf: zipfile.ZipFile) -> None:
-    """Fill ``files.source_meta`` from the 3MF's own MakerWorld metadata. Never
-    overwrites a non-NULL value."""
+    """Fill ``files.source_meta`` from the 3MF's own MakerWorld metadata (NULL
+    values set, existing ones only gain missing keys), inside a SAVEPOINT."""
     sm = plates3mf.read_3mf_profile_meta(zf)
     if sm is None:
         return
-    session.execute(
-        update(File)
-        .where(File.blob_hash == blob_hash, File.source_meta.is_(None))
-        .values(source_meta=sm)
-    )
+    with session.begin_nested():
+        _apply_source_meta(session, File.blob_hash == blob_hash, sm)
 
 
-def _refresh_plate_info(session: SyncSession, blob: Blob, meta: BlobMeta, src: Path) -> None:
+def _refresh_plate_info(
+    session: SyncSession, blob: Blob, meta: BlobMeta, zf: zipfile.ZipFile
+) -> None:
     """Add filament/colour-change data (and ``source_meta``) to existing plates
-    without regenerating their GLBs/thumbs."""
-    with zipfile.ZipFile(src) as zf:
-        info = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf))
+    without regenerating their GLBs/thumbs. ``plates_json`` is re-read under a
+    row lock right before merging so a concurrent writer's plates are not clobbered."""
+    info = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf), scan_paint=False)
+    try:
         _fill_source_meta(session, blob.hash, zf)
+    except Exception:
+        logger.warning("source_meta fill failed for %s", blob.hash, exc_info=True)
+    session.refresh(meta, with_for_update=True)
+    if meta.plates_json is None:
+        session.rollback()
+        return
     meta.plates_json = [{**p, **info.get(p.get("index"), {})} for p in meta.plates_json]
     meta.plates_version = PLATES_VERSION
     session.commit()
 
 
-def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob, src: Path) -> bool:
+def _generate_plate_assets(
+    session: SyncSession,
+    settings: Settings,
+    blob: Blob,
+    src: Path,
+    *,
+    project: plates3mf.ParsedProject | None = None,
+) -> bool:
     """Unsliced multi-plate project 3MF: per-plate thumbs + recentred GLBs +
     ``BlobMeta.plates_json``. Best-effort -- a failure here never fails the
     main conversion (``plates_json`` stays NULL so the backfill retries).
@@ -973,7 +1041,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
             return True
         meshes: dict[int, trimesh.Trimesh] = {}
         if 1 < len(plates) <= plates3mf.MAX_PLATE_GLBS:
-            meshes = plates3mf.plate_meshes(src, plates, bed)
+            meshes = plates3mf.plate_meshes(src, plates, bed, project=project)
         out: list[dict] = []
         plate_bed = bed or plates3mf.DEFAULT_BED
         n_grid = max(max(p["index"] for p in plates), len(plates))
@@ -1010,9 +1078,11 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
         meta.plates_version = PLATES_VERSION
         meta.plate_count = len(plates)
         session.commit()
-    except Exception:
+    except Exception as exc:
         session.rollback()
         logger.warning("plate assets failed for %s", blob.hash, exc_info=True)
+        if not _is_parse_error(exc):
+            return False  # transient: leave ``plates_json`` NULL so a backfill retries
         # Mark analysed-with-nothing so the backfill never re-picks a poisoned blob.
         meta = session.get(BlobMeta, blob.hash)
         if meta is not None:
@@ -1058,52 +1128,112 @@ def _plates_missing_bed():
     )
 
 
+def _plates_stale():
+    return or_(
+        BlobMeta.plates_json.is_(None),
+        _plates_missing_bed(),
+        BlobMeta.plates_version.is_(None),
+        BlobMeta.plates_version < PLATES_VERSION,
+    )
+
+
 @celery_app.task(name="app.tasks.pipeline.backfill_plates")
-def backfill_plates() -> int:
+def backfill_plates(after: str = "") -> int:
     """Self-draining task (run at worker start): analyse existing 3MFs that were never plate-
-    analysed (``plates_json IS NULL``), ``BACKFILL_BATCH`` per run."""
+    analysed (``plates_json IS NULL``) or at an older ``PLATES_VERSION``, ``BACKFILL_BATCH``
+    per run, walking blob hashes after ``after`` (a transient failure is skipped, not
+    re-picked by the same drain). Each row is claimed with ``FOR UPDATE SKIP LOCKED`` so
+    concurrent chains never double-process; only parse errors mark a row as poisoned."""
     settings = get_settings()
     done = 0
+    last = after
     with base.sync_session() as session:
         rows = (
             session.execute(
-                select(Blob)
+                select(Blob.hash)
                 .join(BlobMeta, BlobMeta.blob_hash == Blob.hash)
-                .where(
-                    Blob.format == BlobFormat.THREEMF,
-                    or_(
-                        BlobMeta.plates_json.is_(None),
-                        _plates_missing_bed(),
-                        BlobMeta.plates_version.is_(None),
-                        BlobMeta.plates_version < PLATES_VERSION,
-                    ),
-                )
+                .where(Blob.format == BlobFormat.THREEMF, _plates_stale(), Blob.hash > after)
                 .order_by(Blob.hash)
                 .limit(BACKFILL_BATCH)
             )
             .scalars()
             .all()
         )
-        for blob in rows:
+        for blob_hash in rows:
+            last = blob_hash
+            claimed = session.execute(
+                select(BlobMeta.blob_hash)
+                .where(BlobMeta.blob_hash == blob_hash, _plates_stale())
+                .with_for_update(skip_locked=True)
+            ).scalar_one_or_none()
+            if claimed is None:
+                session.rollback()  # another worker has it, or it is already fresh
+                continue
+            blob = session.get(Blob, blob_hash)
             try:
                 if _plates_for_blob(session, settings, blob):
                     done += 1
-            except Exception:
+            except Exception as exc:
                 session.rollback()
-                logger.warning("plate backfill failed for %s", blob.hash, exc_info=True)
-                meta = session.get(BlobMeta, blob.hash)
+                logger.warning("plate backfill failed for %s", blob_hash, exc_info=True)
+                if not _is_parse_error(exc):
+                    continue  # transient storage / lookup trouble: retry on a later drain
+                meta = session.get(BlobMeta, blob_hash)
                 if meta is not None:  # don't retry a poisoned blob forever
                     _mark_plates_poisoned(meta)
                     session.commit()
+            else:
+                session.commit()
         full_batch = len(rows) >= BACKFILL_BATCH
     if full_batch:  # more may remain: chain instead of waiting
-        backfill_plates.apply_async(countdown=5)
+        backfill_plates.apply_async(kwargs={"after": last}, countdown=5)
     return done
 
 
+def _glb_affected_since(zf: zipfile.ZipFile, version: int) -> bool:
+    """Whether a 3MF's GLB output differs between GLB ``version`` and now. One
+    predicate per version step (each cumulative with the later ones)."""
+    return any(pred(zf) for v, pred in _GLB_AFFECTED.items() if v > version)
+
+
+def _affected_v3(zf: zipfile.ZipFile) -> bool:
+    """v3: layer-type fix -- only files whose custom-gcode XML has a pause or a
+    multi-filament mode change."""
+    data = slicedmeta.read_zip_member(zf, threemf_colour.GCODE_PER_LAYER)
+    if data is None:
+        return False
+    text = data.decode("utf-8", "replace")
+    return (
+        'type="1"' in text
+        or threemf_colour.MODE_MULTI_EXTRUDER in text
+        or threemf_colour.MODE_MULTI_AS_SINGLE in text
+    )
+
+
+_NON_DISPLAY_SUBTYPE = re.compile(rb'subtype\s*=\s*"(?!normal_part")')
+
+
+def _affected_v4(zf: zipfile.ZipFile) -> bool:
+    """v4: any layer events (face splitting, per-extruder colour changes),
+    non-display parts, or ``paint_color``."""
+    data = slicedmeta.read_zip_member(zf, threemf_colour.GCODE_PER_LAYER)
+    if data is not None and b"<layer" in data:
+        return True
+    if _affected_v3(zf):
+        return True
+    settings = slicedmeta.read_zip_member(zf, threemf_colour.MODEL_SETTINGS)
+    if settings is not None and _NON_DISPLAY_SUBTYPE.search(settings):
+        return True
+    return threemf_colour.has_paint(zf)
+
+
+_GLB_AFFECTED = {3: _affected_v3, 4: _affected_v4}
+
+
 def _glb_needs_only_stamp(session: SyncSession, settings: Settings, blob: Blob) -> bool:
-    """Already-Y-up GLB that the layer-type fix cannot change: any non-3MF, or a
-    3MF with no ``custom_gcode_per_layer.xml``. Only the version stamp is bumped."""
+    """Already-Y-up GLB whose output no version step since its own can change:
+    non-3MF (bulk-stamped up front, so only seen here defensively) or a 3MF the
+    per-version predicates leave alone. Only the version stamp is bumped."""
     deriv = _glb_derivative(session, blob.hash)
     if deriv is None or deriv.version < convert.GLB_YUP_VERSION:
         return False
@@ -1113,7 +1243,7 @@ def _glb_needs_only_stamp(session: SyncSession, settings: Settings, blob: Blob) 
         derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
         zipfile.ZipFile(fh) as zf,
     ):
-        return threemf_colour.GCODE_PER_LAYER not in zf.namelist()
+        return not _glb_affected_since(zf, deriv.version)
 
 
 def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> None:
@@ -1130,9 +1260,12 @@ def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> Non
             src = derivatives.fetch_blob_to_temp(
                 session, settings, blob.hash, Path(tmp), f".{blob.format.value}"
             )
-            convert.convert_to_glb_file(src, blob.format, tmp_path)
+            project = None
             if blob.format is BlobFormat.THREEMF:
-                _generate_plate_assets(session, settings, blob, src)
+                project = _load_project_best_effort(src, only_if_needed=True)
+            convert.convert_to_glb_file(src, blob.format, tmp_path, project=project)
+            if blob.format is BlobFormat.THREEMF:
+                _generate_plate_assets(session, settings, blob, src, project=project)
         derivatives.publish_file(tmp_path, dest)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
@@ -1168,49 +1301,84 @@ def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> Non
             logger.warning("thumb re-render failed for %s", blob.hash, exc_info=True)
 
 
+def _glb_stale():
+    return and_(
+        Derivative.kind == DerivativeKind.GLB,
+        Derivative.status == DerivativeStatus.OK,
+        Derivative.version >= 0,
+        Derivative.version < convert.GLB_VERSION,
+    )
+
+
 @celery_app.task(name="app.tasks.pipeline.backfill_glb_orientation")
-def backfill_glb_orientation() -> int:
-    """Self-draining task (run at worker start): rewrite GLBs written before ``GLB_VERSION``
-    (Z-up) as glTF Y-up, ``BACKFILL_BATCH`` per run. Failures are stamped
-    ``version = -1`` so a poisoned blob never loops."""
+def backfill_glb_orientation(after: str = "") -> int:
+    """Self-draining task (run at worker start): bring GLBs written before ``GLB_VERSION``
+    up to date, ``BACKFILL_BATCH`` per run. Already-Y-up non-3MF GLBs are stamped in one
+    UPDATE up front; 3MFs are regenerated only when a version step actually changes their
+    output. Parse failures are stamped ``version = -1`` so a poisoned blob never loops;
+    transient failures are skipped unstamped (the next drain retries). Rows are claimed with
+    ``FOR UPDATE SKIP LOCKED`` so concurrent chains never double-process."""
     settings = get_settings()
     done = 0
+    last = after
     with base.sync_session() as session:
+        if not after:
+            stamped = session.execute(
+                update(Derivative)
+                .where(
+                    _glb_stale(),
+                    Derivative.version >= convert.GLB_YUP_VERSION,
+                    Derivative.blob_hash.in_(
+                        select(Blob.hash).where(Blob.format != BlobFormat.THREEMF)
+                    ),
+                )
+                .values(version=convert.GLB_VERSION)
+            )
+            done += stamped.rowcount or 0
+            session.commit()
         rows = (
             session.execute(
-                select(Blob)
+                select(Blob.hash)
                 .join(Derivative, Derivative.blob_hash == Blob.hash)
-                .where(
-                    Derivative.kind == DerivativeKind.GLB,
-                    Derivative.status == DerivativeStatus.OK,
-                    Derivative.version >= 0,
-                    Derivative.version < convert.GLB_VERSION,
-                )
+                .where(_glb_stale(), Blob.hash > after)
                 .order_by(Blob.hash)
                 .limit(BACKFILL_BATCH)
             )
             .scalars()
             .all()
         )
-        for blob in rows:
+        for blob_hash in rows:
+            last = blob_hash
+            claimed = session.execute(
+                select(Derivative.id)
+                .where(Derivative.blob_hash == blob_hash, Derivative.kind == DerivativeKind.GLB)
+                .where(_glb_stale())
+                .with_for_update(skip_locked=True)
+            ).scalar_one_or_none()
+            if claimed is None:
+                session.rollback()
+                continue
+            blob = session.get(Blob, blob_hash)
             try:
                 if _glb_needs_only_stamp(session, settings, blob):
-                    deriv = _glb_derivative(session, blob.hash)
+                    deriv = _glb_derivative(session, blob_hash)
                     deriv.version = convert.GLB_VERSION
                     session.commit()
                 else:
                     _regenerate_glb(session, settings, blob)
                 done += 1
-            except Exception:
+            except Exception as exc:
                 session.rollback()
-                logger.warning("glb orientation backfill failed for %s", blob.hash, exc_info=True)
-                deriv = _glb_derivative(session, blob.hash)
+                logger.warning("glb backfill failed for %s", blob_hash, exc_info=True)
+                if not _is_parse_error(exc):
+                    continue
+                deriv = _glb_derivative(session, blob_hash)
                 if deriv is not None:
                     deriv.version = -1
                     session.commit()
         full_batch = len(rows) >= BACKFILL_BATCH
     if full_batch:
-        backfill_glb_orientation.apply_async(countdown=5)
+        backfill_glb_orientation.apply_async(kwargs={"after": last}, countdown=5)
     return done
 
 

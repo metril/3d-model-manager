@@ -42,7 +42,10 @@ _CASCADIO_METERS_TO_MM = 1000.0
 # v2: Bambu/Orca multi-filament 3MFs carry per-vertex filament colours.
 # v3: layer type fix -- pauses no longer paint; MultiExtruder colour changes
 #     only repaint that extruder's parts.
-GLB_VERSION = 3
+# v4: colour changes aimed at one extruder in every multi-filament mode, faces
+#     split at change heights, modifier/negative/blocker parts always dropped,
+#     per-triangle ``paint_color`` (MMU painting).
+GLB_VERSION = 4
 GLB_YUP_VERSION = 2  # first version with Y-up GLBs (older ones need a full rewrite)
 
 # Z-up (print/CAD space) -> Y-up (glTF): (x, y, z) -> (x, z, -y).
@@ -66,7 +69,9 @@ def to_z_up(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return out
 
 
-def convert_to_glb_file(src: Path, fmt: BlobFormat, dst: Path) -> str:
+def convert_to_glb_file(
+    src: Path, fmt: BlobFormat, dst: Path, *, project: plates3mf.ParsedProject | None = None
+) -> str:
     """Convert ``src`` (a temp file carrying its real extension) to a GLB at
     ``dst``, returning the name of the tool that did the conversion.
 
@@ -78,15 +83,16 @@ def convert_to_glb_file(src: Path, fmt: BlobFormat, dst: Path) -> str:
     "Failure semantics").
     """
     if fmt in _MESH_FORMATS:
-        mesh, tool = meshload.load_mesh(src, fmt)
+        coloured = None
         if fmt is BlobFormat.THREEMF:
             try:
-                coloured = plates3mf.whole_file_mesh(src)
+                coloured = plates3mf.whole_file_mesh(src, project=project)
             except Exception:  # noqa: BLE001 - colour is best-effort; keep the plain mesh
                 logger.warning("3mf colouring failed for %s", src.name, exc_info=True)
-                coloured = None
-            if coloured is not None:
-                mesh, tool = coloured, "lib3mf"
+        if coloured is not None:
+            mesh, tool = coloured, "lib3mf"
+        else:
+            mesh, tool = meshload.load_mesh(src, fmt)
         to_y_up(mesh).export(dst, file_type="glb")
         return tool
     if fmt is BlobFormat.STEP:

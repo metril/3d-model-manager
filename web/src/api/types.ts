@@ -165,6 +165,8 @@ export interface PlateColourChange {
   z: number;
   slot: number | null;
   colour: string;
+  /** "colour" = filament swap, "tool" = tool change; absent on old rows. */
+  kind?: "colour" | "tool" | null;
 }
 
 export interface PlateOut {

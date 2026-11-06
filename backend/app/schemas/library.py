@@ -224,10 +224,23 @@ class PlateColourChangeOut(BaseModel):
     z: float
     slot: int | None = None
     colour: str
+    # "colour" = filament swap, "tool" = tool change (MultiAsSingle); absent on old rows.
+    kind: Literal["colour", "tool"] | None = None
 
 
 class PlatePauseOut(BaseModel):
     z: float
+
+
+def _lenient(build, rows) -> list:
+    """Build one model per raw row, skipping malformed rows instead of raising."""
+    out = []
+    for row in rows or []:
+        try:
+            out.append(build(row))
+        except (TypeError, ValueError, KeyError, AttributeError):  # incl. ValidationError
+            continue
+    return out
 
 
 class PlateOut(BaseModel):
@@ -259,9 +272,9 @@ class PlateOut(BaseModel):
             weight_g=raw.get("weight_g"),
             thumbnail_available=thumbnail_available,
             est_cost=price_run(raw.get("weight_g"), raw.get("prediction_s"), rates).total_cost,
-            filaments=[PlateFilamentOut.from_raw(f) for f in raw.get("filaments") or []],
-            colour_changes=[PlateColourChangeOut(**c) for c in raw.get("colour_changes") or []],
-            pauses=[PlatePauseOut(**c) for c in raw.get("pauses") or []],
+            filaments=_lenient(PlateFilamentOut.from_raw, raw.get("filaments")),
+            colour_changes=_lenient(lambda c: PlateColourChangeOut(**c), raw.get("colour_changes")),
+            pauses=_lenient(lambda c: PlatePauseOut(**c), raw.get("pauses")),
             name=raw.get("name") or "",
             has_glb=bool(raw.get("has_glb")),
             bbox=raw.get("bbox"),

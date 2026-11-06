@@ -188,9 +188,10 @@ async def test_backfill_chains_only_on_full_batch(
     for i in range(pipeline.BACKFILL_BATCH + 1):
         await _seed(db_session, seed_file, b"not a zip %d" % i, f"chain{i}")
     pipeline.backfill_plates()
-    assert chained == [{"countdown": 5}]
+    assert [c["countdown"] for c in chained] == [5]
+    assert chained[0]["kwargs"]["after"]  # keyset cursor: skipped rows are not re-picked
     pipeline.backfill_plates()  # one left: partial batch, no re-enqueue
-    assert chained == [{"countdown": 5}]
+    assert len(chained) == 1
 
 
 def test_plate_glb_is_y_up(tmp_path) -> None:
@@ -249,7 +250,7 @@ async def test_glb_orientation_backfill(
         s.commit()
     monkeypatch.setattr(pipeline, "BACKFILL_BATCH", 1)
     monkeypatch.setattr(
-        pipeline, "_regenerate_glb", lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+        pipeline, "_regenerate_glb", lambda *a: (_ for _ in ()).throw(ValueError("boom"))
     )
     assert pipeline.backfill_glb_orientation() == 0
     assert await version() == -1
@@ -264,11 +265,17 @@ async def test_filament_backfill_keeps_glbs_and_fills_source_meta(
     assert pipeline.backfill_plates() == 1
     meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
     assert [p["filaments"] for p in meta.plates_json] == [
-        [{"slot": 1, "colour": "#FF0000"}, {"slot": 3, "colour": "#0000FF"}],
+        [
+            {"slot": 1, "colour": "#FF0000"},
+            {"slot": 2, "colour": "#00FF00"},  # modifier part prints with its own extruder
+            {"slot": 3, "colour": "#0000FF"},
+        ],
         [{"slot": 2, "colour": "#00FF00"}],
     ]
     assert meta.plates_json[0]["colour_changes"] == []
-    assert meta.plates_json[1]["colour_changes"] == [{"z": 10.0, "slot": 3, "colour": "#0000FF"}]
+    assert meta.plates_json[1]["colour_changes"] == [
+        {"z": 10.0, "slot": 3, "colour": "#0000FF", "kind": "colour"}
+    ]
     sm = (await db_session.get(File, f.id, populate_existing=True)).source_meta
     assert sm["profile_id"] == 777 and sm["title"] == "Fast profile" and sm["author"] == "alice"
     # simulate a pre-feature row: no filament keys, stale version, NULL source_meta
@@ -285,8 +292,12 @@ async def test_filament_backfill_keeps_glbs_and_fills_source_meta(
     meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
     assert meta.plates_json[1]["filaments"] == [{"slot": 2, "colour": "#00FF00"}]
     assert glb.stat().st_mtime_ns == mtime  # GLB not regenerated
+    # existing values are never overwritten; only the missing keys are filled in
     assert (await db_session.get(File, f.id, populate_existing=True)).source_meta == {
-        "profile_id": 1
+        "profile_id": 1,
+        "description": "0.2 layers",
+        "author": "alice",
+        "design_title": "Benchy",
     }
     assert pipeline.backfill_plates() == 0
 
@@ -298,18 +309,57 @@ async def test_start_pipeline_fills_source_meta_for_deduped_file(
         db_session, seed_file, make_coloured_project_3mf(profile_meta=True), "dedup"
     )
     monkeypatch.setattr(pipeline, "enqueue_step_sync", lambda *a, **k: None)
-    with sync_session() as session:
+    with sync_session() as session:  # blob not analysed yet: left to the pipeline
         pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)
-    sm = (await db_session.get(File, f.id, populate_existing=True)).source_meta
-    assert sm["profile_id"] == 777
-    # non-NULL is never overwritten
-    (await db_session.get(File, f.id)).source_meta = {"profile_id": 1}
+    assert (await db_session.get(File, f.id, populate_existing=True)).source_meta is None
+    meta = await db_session.get(BlobMeta, f.blob_hash)
+    meta.plates_version = pipeline.PLATES_VERSION
     await db_session.commit()
     with sync_session() as session:
         pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)
-    assert (await db_session.get(File, f.id, populate_existing=True)).source_meta == {
-        "profile_id": 1
-    }
+        session.commit()  # the caller owns the transaction
+    sm = (await db_session.get(File, f.id, populate_existing=True)).source_meta
+    assert sm["profile_id"] == 777
+    # non-NULL is never overwritten
+    (await db_session.get(File, f.id)).source_meta = {"profile_id": 1, "author": "carol"}
+    await db_session.commit()
+    with sync_session() as session:
+        pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)
+        session.commit()
+    got = (await db_session.get(File, f.id, populate_existing=True)).source_meta
+    assert got["profile_id"] == 1 and got["author"] == "carol" and got["design_title"] == "Benchy"
+
+
+async def test_fill_file_source_meta_leaves_scanner_session_uncommitted(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    """The caller's pending work is neither committed nor rolled back."""
+    _, f = await _seed(
+        db_session, seed_file, make_coloured_project_3mf(profile_meta=True), "uncommitted"
+    )
+    meta = await db_session.get(BlobMeta, f.blob_hash)
+    meta.plates_version = pipeline.PLATES_VERSION
+    await db_session.commit()
+    from app.services.storage_backends import resolve_default_backend_sync
+
+    with sync_session() as session:  # the default backend row self-heals with a commit: do it first
+        resolve_default_backend_sync(session, get_settings())
+    with sync_session() as session:
+        pending = Model(slug="pending-scan", name="pending-scan")
+        session.add(pending)
+        session.flush()
+        pipeline._fill_file_source_meta(
+            session, get_settings(), session.get(Blob, f.blob_hash), f.id
+        )
+        assert pending in session and session.get(Model, pending.id) is not None
+        assert session.get(File, f.id).source_meta["profile_id"] == 777
+        session.rollback()  # the scanner aborts its batch: nothing may have been committed
+    assert (await db_session.get(File, f.id, populate_existing=True)).source_meta is None
+    from sqlalchemy import select as sa_select
+
+    assert (
+        await db_session.execute(sa_select(Model).where(Model.slug == "pending-scan"))
+    ).first() is None
 
 
 async def test_glb_backfill_regenerates_plate_glbs_only_for_gcode_files(
@@ -321,9 +371,7 @@ async def test_glb_backfill_regenerates_plate_glbs_only_for_gcode_files(
         pipeline.backfill_glb_orientation, "apply_async", lambda *a, **k: None, raising=False
     )
     _, with_g = await _seed(db_session, seed_file, make_coloured_project_3mf(), "withg")
-    _, no_g = await _seed(
-        db_session, seed_file, make_coloured_project_3mf(with_gcodes=False), "nog"
-    )
+    _, no_g = await _seed(db_session, seed_file, make_project_3mf(2), "nog")
     for f in (with_g, no_g):
         _convert(backend, f.blob_hash)
     s = get_settings()
