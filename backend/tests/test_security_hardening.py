@@ -272,3 +272,11 @@ async def test_obico_test_blocks_loopback_override(authenticated_client: httpx.A
         "/api/settings/obico/test", json={"url": "http://127.0.0.1:1"}
     )
     assert r.status_code == 422
+
+
+async def test_admin_self_reset_keeps_current_session(authenticated_client, admin_user) -> None:
+    r = await authenticated_client.post(
+        f"/api/admin/users/{admin_user.id}/password", json={"new_password": "another long password"}
+    )
+    assert r.status_code == 204
+    assert (await authenticated_client.get("/api/auth/me")).status_code == 200

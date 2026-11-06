@@ -150,11 +150,17 @@ async def patch_user(
 
 @router.post("/users/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_password(
-    user_id: int, payload: PasswordResetIn, db: AsyncSession = Depends(get_db)
+    user_id: int,
+    payload: PasswordResetIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> None:
     user = await _get(db, user_id)
     user.password_hash = await anyio.to_thread.run_sync(hash_password, payload.new_password)
-    await db.execute(delete(SessionModel).where(SessionModel.user_id == user.id))
+    stmt = delete(SessionModel).where(SessionModel.user_id == user.id)
+    if user.id == ctx.user.id:
+        stmt = stmt.where(SessionModel.id != ctx.session.id)  # keep the caller's own session
+    await db.execute(stmt)
     await db.execute(delete(ApiToken).where(ApiToken.user_id == user.id))
     await db.execute(delete(AuthEphemeralToken).where(AuthEphemeralToken.user_id == user.id))
     await db.commit()

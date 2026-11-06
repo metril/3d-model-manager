@@ -29,6 +29,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from app.api.deps import SESSION_COOKIE_NAME, AuthContext, require_perm, require_session
 from app.db import get_db, get_sessionmaker
+from app.security_headers import slicer_headers
 from app.services.server_config import ServerConfig, get_server_config
 
 log = logging.getLogger(__name__)
@@ -84,15 +85,6 @@ def _upstream_url(cfg: ServerConfig, path: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
-def _html_csp(request: Request) -> str:
-    host = request.headers.get("host", "")
-    connect = " ".join(f"{scheme}://{host}/slicer/" for scheme in ("http", "https", "ws", "wss"))
-    return (
-        f"frame-ancestors 'self'; connect-src {connect}; object-src 'none'; "
-        "base-uri 'self'; form-action 'self'"
-    )
-
-
 async def _body(request: Request) -> AsyncIterator[bytes]:
     async for chunk in request.stream():
         yield chunk
@@ -124,21 +116,9 @@ async def proxy_http(
         log.warning("orcaslicer upstream error: %s", type(exc).__name__)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "orcaslicer unreachable") from None
     raw = [(k, v) for k, v in upstream.headers.multi_items() if k.lower() not in _HOP_BY_HOP]
-    if upstream.headers.get("content-type", "").lower().startswith("text/html"):
-        raw = [
-            (k, v)
-            for k, v in raw
-            if k.lower() not in ("content-security-policy", "x-frame-options")
-        ]
-        raw += [
-            # Always 'self': there is no server-config field for frame-ancestors.
-            # A sandbox CSP is NOT usable here: the sidecar UI's websocket needs
-            # a same-origin Origin header + the Lax session cookie, both lost in
-            # an opaque origin. Instead pin connect-src to the proxy path so
-            # sidecar-served script can't fetch/XHR/WebSocket to /api/*.
-            ("Content-Security-Policy", _html_csp(request)),
-            ("X-Frame-Options", "SAMEORIGIN"),
-        ]
+    own = slicer_headers(request.headers.get("host", ""))
+    drop = {k.lower() for k, _ in own} | {"x-frame-options"}
+    raw = [(k, v) for k, v in raw if k.lower() not in drop] + own
     response = StreamingResponse(
         upstream.aiter_raw(),
         status_code=upstream.status_code,

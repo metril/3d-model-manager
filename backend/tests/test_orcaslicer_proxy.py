@@ -94,7 +94,8 @@ async def test_http_passthrough(authenticated_client: httpx.AsyncClient, db_sess
 
     r = await authenticated_client.get("/slicer/app.js", headers={"Authorization": "Bearer x"})
     assert r.content == b"x" * 100_000
-    assert "content-security-policy" not in r.headers
+    assert "frame-src 'none'" in r.headers["content-security-policy"]  # every content-type
+    assert r.headers["x-content-type-options"] == "nosniff"
     assert "authorization" not in js.calls.last.request.headers
 
     r = await authenticated_client.post("/slicer/api/thing?a=1", json={"k": "v"})
@@ -210,3 +211,38 @@ def test_upstream_url_rejects_dotdot() -> None:
             orcaslicer_proxy._upstream_url(cfg, bad, "")
         assert exc.value.status_code == 400
     assert orcaslicer_proxy._upstream_url(cfg, "a..b/c", "").endswith("/slicer/a..b/c")
+
+
+@respx.mock
+async def test_svg_and_frame_ancestors_env(
+    authenticated_client: httpx.AsyncClient, db_session, monkeypatch
+) -> None:
+    from app.config import get_settings
+
+    await _enable(db_session)
+    respx.get(f"{UPSTREAM}/slicer/x.svg").respond(
+        200,
+        content=b"<svg/>",
+        headers={"Content-Type": "image/svg+xml", "Content-Security-Policy": "default-src *"},
+    )
+    r = await authenticated_client.get("/slicer/x.svg")
+    csp = r.headers["content-security-policy"]
+    assert "default-src" not in csp and "worker-src 'self' blob:" in csp
+    assert r.headers["x-frame-options"] == "SAMEORIGIN"
+
+    monkeypatch.setenv("TDMM_FRAME_ANCESTORS", "https://ha.example.com")
+    get_settings.cache_clear()
+    try:
+        r = await authenticated_client.get("/slicer/x.svg")
+        assert (
+            "frame-ancestors 'self' https://ha.example.com;" in r.headers["content-security-policy"]
+        )
+        assert "x-frame-options" not in r.headers
+        api = await authenticated_client.get("/api/auth/me")
+        assert api.headers["content-security-policy"] == (
+            "frame-ancestors 'self' https://ha.example.com"
+        )
+        assert "x-frame-options" not in api.headers
+    finally:
+        monkeypatch.delenv("TDMM_FRAME_ANCESTORS")
+        get_settings.cache_clear()
