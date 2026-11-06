@@ -13,7 +13,7 @@ import { renderGrantAccess } from "./access.js";
 import { createClient } from "./api.js";
 import { getConfig, hashResetPatch, setConfig, setState } from "./config.js";
 import { clearCaches, meCacheKey } from "./saveOptions.js";
-import { describeMe, describePrinterKey, normalizeBaseUrl, settingsTokensUrl } from "./optionsLogic.js";
+import { describeMe, describePrinterKey, normalizeBaseUrl, settingsTokensUrl, staleOriginPattern } from "./optionsLogic.js";
 
 const baseUrlInput = document.getElementById("app-base-url");
 const tokenInput = document.getElementById("api-token");
@@ -166,6 +166,16 @@ saveButton.addEventListener("click", async () => {
     });
     if (prev.appBaseUrl !== parsed.url || prev.apiToken !== token) {
       await clearCaches();
+    }
+    // Moved to a different server: drop the optional host permission for the
+    // old origin so the extension doesn't keep access it no longer needs.
+    const stale = staleOriginPattern(prev.appBaseUrl, parsed.url);
+    if (stale) {
+      try {
+        await chrome.permissions.remove({ origins: [stale] });
+      } catch {
+        // Required (manifest) origins can't be removed; best-effort.
+      }
     }
     const reset = hashResetPatch(prev, { appBaseUrl: parsed.url, apiToken: token });
     if (Object.keys(reset).length > 0) {

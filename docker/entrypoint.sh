@@ -3,28 +3,55 @@
 # shared image, two entrypoints in M1; `printerd` is M4).
 set -euo pipefail
 
-# Optional privilege drop (linuxserver.io convention). Root is still the
-# default: set PUID/PGID to run the api/worker as a specific host uid/gid
-# so bind-mounted ./library files aren't root-owned. Re-exec guard avoids
-# an infinite loop.
-if [[ -z "${PRIVDROP_DONE:-}" && ( -n "${PUID:-}" || -n "${PGID:-}" ) ]]; then
+# Privilege drop (linuxserver.io convention). NON-ROOT BY DEFAULT: when started
+# as root the entrypoint remaps the `tdmm` user to PUID:PGID (default
+# 1000:1000), fixes ownership of the volumes, and re-execs through gosu.
+# PUID=0 opts out and stays root. VP_BIND_CAP=1 (virtual-printer) drops to
+# PUID:PGID but keeps CAP_NET_BIND_SERVICE for ports < 1024. Re-exec guard avoids an infinite loop.
+if [[ -z "${PRIVDROP_DONE:-}" && "$(id -u)" == "0" ]]; then
   PUID="${PUID:-1000}"; PGID="${PGID:-1000}"
-  groupmod -o -g "$PGID" tdmm 2>/dev/null || groupadd -o -g "$PGID" tdmm
-  usermod  -o -u "$PUID" -g "$PGID" tdmm 2>/dev/null || useradd -o -u "$PUID" -g "$PGID" -M -s /usr/sbin/nologin tdmm
-  chown -R tdmm:tdmm /data /library 2>/dev/null || true
-  # OrcaSlicer exchange folder (shared with the orcaslicer sidecar; same PUID/PGID).
-  mkdir -p /exchange 2>/dev/null && chown tdmm:tdmm /exchange 2>/dev/null || true
-  mkdir -p "${XDG_CACHE_HOME:-/var/cache/tdmm}" /home/tdmm 2>/dev/null || true
-  chmod 1777 "${XDG_CACHE_HOME:-/var/cache/tdmm}" 2>/dev/null || true
-  chown tdmm:tdmm /home/tdmm 2>/dev/null || true
-  export PRIVDROP_DONE=1
-  exec gosu tdmm:tdmm "$0" "$@"
+  if [[ "$PUID" != "0" ]]; then
+    groupmod -o -g "$PGID" tdmm 2>/dev/null || groupadd -o -g "$PGID" tdmm
+    usermod  -o -u "$PUID" -g "$PGID" tdmm 2>/dev/null || useradd -o -u "$PUID" -g "$PGID" -M -s /usr/sbin/nologin tdmm
+    # Volumes written by an older (root) release are root-owned: take them over.
+    # The recursive chown only runs when the top-level owner is wrong, so a
+    # healthy multi-GB /library is not re-walked on every restart. /data is
+    # small, so any stray root-owned files inside it are always fixed.
+    fix_owner() {
+      [[ -e "$1" ]] || return 0
+      if [[ "$(stat -c %u:%g "$1")" != "$PUID:$PGID" ]]; then
+        echo "[entrypoint] chown -R $PUID:$PGID $1 (first start after a root-owned release)"
+        chown -R "$PUID:$PGID" "$1" || echo "[entrypoint] WARNING: chown of $1 failed; writes may fail" >&2
+      fi
+    }
+    fix_owner /library
+    fix_owner /watch
+    # OrcaSlicer exchange folder (shared with the orcaslicer sidecar; same PUID/PGID).
+    mkdir -p /exchange 2>/dev/null || true
+    fix_owner /exchange
+    if [[ -d /data ]]; then
+      find /data -xdev \( ! -user "$PUID" -o ! -group "$PGID" \) -exec chown "$PUID:$PGID" {} + 2>/dev/null || true
+    fi
+    mkdir -p "${XDG_CACHE_HOME:-/var/cache/tdmm}" /home/tdmm 2>/dev/null || true
+    chmod 1777 "${XDG_CACHE_HOME:-/var/cache/tdmm}" 2>/dev/null || true
+    chown tdmm:tdmm /home/tdmm 2>/dev/null || true
+    export PRIVDROP_DONE=1
+    if [[ "${VP_BIND_CAP:-}" == "1" ]]; then
+      # Run as PUID:PGID but keep ONLY the bind-privileged-ports capability
+      # (virtual-printer FTPS on 990). Needs NET_BIND_SERVICE in the bounding
+      # set (Docker's default; compose also cap_adds it explicitly).
+      export HOME=/home/tdmm USER=tdmm LOGNAME=tdmm
+      exec setpriv --reuid="$PUID" --regid="$PGID" --init-groups \
+        --inh-caps=+net_bind_service --ambient-caps=+net_bind_service "$0" "$@"
+    fi
+    exec gosu tdmm:tdmm "$0" "$@"
+  fi
 fi
 
 # Explicit command override (e.g. `celery ... beat` for the optional
 # scheduled-scan service, or the PUID/PGID smoke check in the README) --
 # skips the ROLE routing below and runs the given command directly,
-# as whichever user the privilege drop above landed on (root by default).
+# as whichever user the privilege drop above landed on (tdmm by default).
 if [[ $# -gt 0 ]]; then
   exec "$@"
 fi

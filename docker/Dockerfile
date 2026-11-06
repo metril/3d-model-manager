@@ -3,30 +3,33 @@
 # exactly this reason -- the image needs both backend/ and web/.)
 
 # ---- Stage 1: build the frontend SPA ---------------------------------
-FROM node:24-slim AS web-build
+FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS web-build
 
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/ ./
 RUN npm run build
 
 # ---- Stage 2: build gltfpack from source -------------------------------
 # Source build, not the prebuilt gltfpack-ubuntu.zip release asset: that zip
-# targets Ubuntu 24.04's glibc, which is newer than this image's bookworm
+# targets Ubuntu 24.04's glibc, which is newer than this image's trixie
 # base -- copying it in would fail to run at all. Building from source on
 # the SAME base image as the runtime stage guarantees glibc compatibility
 # and, as a bonus, covers arm64 too (the prebuilt zip is amd64-only).
-FROM python:3.12-slim AS gltfpack-build
+FROM python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS gltfpack-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake g++ make
 
-RUN git clone --depth 1 --branch v1.2 https://github.com/zeux/meshoptimizer /src
+# Pinned to the commit v1.2 resolves to (a tag can be moved; a SHA cannot).
+ARG MESHOPT_SHA=9d9890c73011d75920af614485296d1e03e95448
+RUN git init /src && git -C /src fetch --depth 1 https://github.com/zeux/meshoptimizer "$MESHOPT_SHA" \
+    && git -C /src checkout --detach FETCH_HEAD
 RUN cmake -S /src -B /build -DMESHOPT_BUILD_GLTFPACK=ON -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build /build --target gltfpack -j
+    && cmake --build /build --target gltfpack -j"$(nproc)"
 
 # ---- Stage 3: python runtime -------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS runtime
 
 # uv is copied in as a static binary from its own distroless image (SPEC
 # Task 9), not pip-installed.
@@ -34,8 +37,8 @@ FROM python:3.12-slim AS runtime
 # Pinned, not `:latest`: a floating tag means the resolver that produced
 # backend/uv.lock can silently differ from the one consuming it, and makes
 # a rebuild of an old release tag non-reproducible. Bump deliberately, and
-# keep in step with the `pip install uv==` in .github/workflows/*.yml.
-COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
+# keep in step with UV_VERSION in .github/workflows/*.yml.
+COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /usr/local/bin/uv
 
 # GL runtime libs (RESEARCH §4 / Global Constraints "Local prerequisites"):
 # - libosmesa6 + libgl1-mesa-dri: f3d software rendering -- this container
@@ -63,10 +66,7 @@ RUN apt-get update \
     && ldconfig
 
 # Base non-root user the entrypoint's privilege drop remaps to the
-# configured PUID/PGID at container start (Task 9) -- uid/gid 1000 here are
-# just placeholders, immediately overwritten by `usermod -o -u "$PUID" ...`
-# when PUID/PGID are set. Root stays the default (see the ENTRYPOINT note
-# below) when neither is set.
+# configured PUID/PGID at container start (default 1000:1000; PUID=0 keeps root).
 RUN groupadd -g 1000 tdmm && useradd -u 1000 -g tdmm -M -s /usr/sbin/nologin tdmm \
     && mkdir -p /home/tdmm /var/cache/tdmm \
     && chown tdmm:tdmm /home/tdmm && chmod 1777 /var/cache/tdmm
@@ -79,6 +79,8 @@ COPY --from=gltfpack-build /build/gltfpack /usr/local/bin/gltfpack
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:${PATH}" \
     STATIC_DIR=/app/static
@@ -88,7 +90,7 @@ WORKDIR /app
 # Dependencies first, in their own layer, so editing app code doesn't
 # invalidate the (slow) dependency install.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 # Now the rest of the backend (app/, alembic/, alembic.ini, ...).
 # backend/tests and backend/tests_e2e are excluded from the build context
@@ -116,12 +118,11 @@ RUN chmod +x /entrypoint.sh
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
-# Root is still the default (unchanged M1 choice: the `local` storage
-# backend writes into a bind-mounted host directory (./library), and root
-# sidesteps a UID-mapping story for arbitrary host setups out of the box).
-# Set PUID/PGID (compose env) to opt into the entrypoint's privilege drop
-# instead -- see docker/entrypoint.sh -- so bind-mounted files come out
-# owned by a real host uid/gid rather than root (Task 9).
+# The entrypoint drops privileges to PUID:PGID (default 1000:1000) via gosu
+# and chowns the /data, /library and /exchange volumes on first start so
+# volumes created by an older root-running release keep working. Set PUID=0
+# to stay root (the virtual-printer service does: it binds ports < 1024).
+# See docker/entrypoint.sh.
 
 EXPOSE 8080
 

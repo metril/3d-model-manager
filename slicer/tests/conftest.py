@@ -13,8 +13,13 @@ out = pathlib.Path(args[args.index("--outputdir") + 1])
 model = pathlib.Path(args[-1])
 mode = model.read_text() if model.suffix == ".stl" else "ok"
 (out.parent / "argv.json").write_text(json.dumps(args))
+import os
+(out.parent / "home.txt").write_text(os.environ.get("HOME", ""))
 if mode == "hang":
     (out.parent / "pid").write_text("x")
+    time.sleep(60)
+elif mode == "hangout":
+    print("partial output before hang", flush=True)
     time.sleep(60)
 elif mode == "fail":
     print("boom on stderr", file=sys.stderr); sys.exit(3)

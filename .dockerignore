@@ -48,3 +48,19 @@ compose*.yaml
 .idea/
 .vscode/
 .DS_Store
+
+# Added: more upload-cost / cache-busting paths no build stage COPYs.
+# (slicer/ and docker/orcaslicer/ are built from their OWN contexts, so
+# ignoring them here is safe; docker/ itself is NOT ignored: the Dockerfile
+# COPYs docker/entrypoint.sh.)
+**/node_modules/
+.playwright-mcp/
+.claude/
+slicer/
+slicer-watch/
+*-exchange/
+docker/orcaslicer/
+/*.md
+backend/.tools/
+backend/data/
+backend/library/
