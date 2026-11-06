@@ -8,7 +8,7 @@ const plate = (index: number, over: Partial<PlateOut> = {}): PlateOut => ({
   name: `P${index}`, has_glb: true, ...over,
 });
 const file = (plates: PlateOut[] | null): FileOut =>
-  ({ id: 1, blob_hash: "h1", glb_preview_ready: false, meta: plates ? { plates, triangle_count: 10 } : null }) as unknown as FileOut;
+  ({ id: 1, blob_hash: "h1", glb_preview_ready: false, meta: plates ? { plates, triangle_count: 10 } : null }) as unknown as unknown as FileOut;
 
 describe("plates", () => {
   it("needs two plates to be selectable", () => {
@@ -17,10 +17,11 @@ describe("plates", () => {
     expect(selectablePlates([plate(1), plate(2)])).toHaveLength(2);
   });
 
-  it("finds the viewer plates only for multi-plate files with a GLB", () => {
-    expect(viewerPlates([file([plate(1)])])).toEqual([]);
-    expect(viewerPlates([file([plate(1, { has_glb: false }), plate(2, { has_glb: false })])])).toEqual([]);
-    expect(viewerPlates([file([plate(1), plate(2)])])[0]?.blobHash).toBe("h1");
+  it("lists every profile 3MF, single-plate included", () => {
+    const f3 = (over: object) => ({ ...file([plate(1)]), format: "3mf", kind: "model", ...over }) as unknown as unknown as FileOut;
+    expect(viewerPlates([f3({})]).map((e) => e.blobHash)).toEqual(["h1"]);
+    expect(viewerPlates([f3({ meta: { plates: null } })])).toEqual([]);
+    expect(viewerPlates([f3({ id: 2, blob_hash: "h2", format: "stl" })])).toEqual([]);
   });
 
   it("swaps the part url to the plate endpoint", () => {
@@ -43,8 +44,8 @@ describe("plates", () => {
   });
 
   it("follows the checked file and clears a stale selection", () => {
-    const a = { ...file([plate(1), plate(2)]), id: 1, blob_hash: "ha" } as FileOut;
-    const b = { ...file([plate(1), plate(2)]), id: 2, blob_hash: "hb" } as FileOut;
+    const a = { ...file([plate(1), plate(2)]), id: 1, blob_hash: "ha", format: "3mf", kind: "model" } as unknown as FileOut;
+    const b = { ...file([plate(1), plate(2)]), id: 2, blob_hash: "hb", format: "3mf", kind: "model" } as unknown as FileOut;
     expect(viewerPlates([a, b], new Set([2]))[0]?.blobHash).toBe("hb");
     expect(viewerPlates([a, b], new Set())[0]?.blobHash).toBe("ha");
     setSelectedPlate("ha", 2);
@@ -55,24 +56,24 @@ describe("plates", () => {
 
 describe("multi-file plates + isolation", () => {
   const f = (id: number, hash: string, rel: string, n = 2): FileOut =>
-    ({ id, blob_hash: hash, rel_path: rel, meta: { plates: Array.from({ length: n }, (_, i) => plate(i + 1)) } }) as unknown as FileOut;
+    ({ id, blob_hash: hash, rel_path: rel, format: "3mf", kind: "model", meta: { plates: Array.from({ length: n }, (_, i) => plate(i + 1)) } }) as unknown as unknown as FileOut;
   const a = f(1, "ha", "x/Alpha-123456.3mf");
   const b = f(2, "hb", "Beta.3mf");
   const c = f(3, "hc", "Single.3mf", 1);
 
   it("lists every plated file, checked first, with clean labels", () => {
     const out = viewerPlates([a, b, c], new Set([2]));
-    expect(out.map((e) => [e.blobHash, e.label])).toEqual([["hb", "Beta"], ["ha", "Alpha"]]);
+    expect(out.map((e) => [e.blobHash, e.label])).toEqual([["hb", "Beta"], ["ha", "Alpha"], ["hc", "Single"]]);
     expect(resolveActive(out, "ha")?.blobHash).toBe("ha");
     expect(resolveActive(out, "gone")?.blobHash).toBe("hb");
     expect(resolveActive([], null)).toBeNull();
   });
 
-  it("isolates the active file once a plate is selected", () => {
+  it("isolates the active profile; no active blob keeps the checked set", () => {
     const checked = new Set([1, 2, 3]);
-    expect([...visibleParts([a, b, c], checked, "ha", null)]).toEqual([1, 2, 3]);
-    expect([...visibleParts([a, b, c], checked, "ha", 2)]).toEqual([1]);
-    expect([...visibleParts([a, b, c], new Set([2]), "ha", 1)]).toEqual([1]);
+    expect([...visibleParts([a, b, c], checked, null)]).toEqual([1, 2, 3]);
+    expect([...visibleParts([a, b, c], checked, "ha")]).toEqual([1]);
+    expect([...visibleParts([a, b, c], new Set([2]), "ha")]).toEqual([1]);
   });
 });
 

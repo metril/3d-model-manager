@@ -4,6 +4,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -244,6 +245,8 @@ export interface ViewerStageProps {
   slug: string;
   files: FileOut[];
   checkedIds: ReadonlySet<number>;
+  /** A print profile is isolated: Parts toggles would be dead, so the menu is hidden. */
+  profileActive?: boolean;
   onToggleFile: (fileId: number, checked: boolean) => void;
   /** Parts popover All/None buttons -- flips every file's `visible` flag in
    * one step, the same way a single checkbox click flips one (see
@@ -341,6 +344,8 @@ export interface ViewerStageProps {
     blobHash: string;
     plates: PlateOut[];
     files?: ViewerPlateFile[];
+    /** Offer the combined "All files" option (non-profile meshes exist). */
+    hasAllFiles?: boolean;
     value: number | null;
     onChange: (plate: number | null) => void;
     onFileChange?: (blobHash: string) => void;
@@ -368,6 +373,7 @@ export function ViewerStage({
   slug,
   files,
   checkedIds,
+  profileActive = false,
   onToggleFile,
   onSetAllChecked,
   colors,
@@ -407,6 +413,12 @@ export function ViewerStage({
   active = true,
   plateInfo = null,
 }: ViewerStageProps) {
+  // Footer lists only the files actually on screen (plate parts carry a
+  // synthetic negative id -(fileId*1000+plate)).
+  const shownIds = useMemo(
+    () => new Set(parts.filter((p) => p.visible).map((p) => (p.id < 0 ? Math.floor(-p.id / 1000) : p.id))),
+    [parts],
+  );
   const handleAutoRotateToggle = useCallback(() => {
     onToolsChange({ autoRotate: !tools.autoRotate });
   }, [onToolsChange, tools.autoRotate]);
@@ -613,7 +625,7 @@ export function ViewerStage({
             cover. */}
         <ViewerTopOverlay
           stats={stats}
-          files={files}
+          files={profileActive ? [] : files}
           checkedIds={checkedIds}
           onToggleFile={onToggleFile}
           onSetAllChecked={onSetAllChecked}
@@ -666,7 +678,7 @@ export function ViewerStage({
           />
         </div>
       </div>
-      <div className="shrink-0"><ViewerFooterStrip files={files} checkedIds={checkedIds} /></div>
+      <div className="shrink-0"><ViewerFooterStrip files={files} checkedIds={shownIds} /></div>
     </TooltipProvider>
   );
 }

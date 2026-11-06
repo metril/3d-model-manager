@@ -1,8 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { PlateOut } from "@/api/types";
+
+beforeAll(() => {
+  // Radix Select needs these in jsdom.
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.releasePointerCapture ??= () => {};
+  Element.prototype.scrollIntoView ??= () => {};
+});
 
 const plate = (index: number): PlateOut => ({
   index, prediction_s: null, weight_g: null, est_cost: null, thumbnail_available: false, filaments: [],
@@ -10,7 +17,7 @@ const plate = (index: number): PlateOut => ({
 });
 
 describe("PlateSelector", () => {
-  it("renders nothing for fewer than two plates", () => {
+  it("renders nothing for fewer than two plates and no profiles", () => {
     const { container, rerender } = render(<PlateSelector blobHash="h" plates={[plate(1)]} value={null} onChange={() => {}} />);
     expect(container).toBeEmptyDOMElement();
     rerender(<PlateSelector blobHash="h" plates={null} value={null} onChange={() => {}} />);
@@ -26,19 +33,37 @@ describe("PlateSelector", () => {
   });
 });
 
-describe("PlateSelector file label", () => {
-  it("names the file even when only one file is plated", () => {
-    render(
-      <PlateSelector
-        blobHash="h"
-        plates={[plate(1), plate(2)]}
-        value={null}
-        onChange={() => {}}
-        files={[{ fileId: 1, blobHash: "h", label: "0.2mm layer", plates: [plate(1), plate(2)] }]}
-        onFileChange={() => {}}
-      />,
-    );
-    expect(screen.getByText(/0\.2mm layer ·/)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Plate 1\/2/ })).toBeInTheDocument();
+describe("PlateSelector profiles", () => {
+  const profiles = [
+    { fileId: 1, blobHash: "a", label: "100% infill", plates: [plate(1)] },
+    { fileId: 2, blobHash: "b", label: "Canada dollar", plates: [plate(1)] },
+    { fileId: 3, blobHash: "c", label: "No AMS", plates: [plate(1)] },
+    { fileId: 4, blobHash: "d", label: "15% infill", plates: [plate(1), plate(2)] },
+  ];
+  const open = () => fireEvent.click(screen.getByRole("combobox", { name: "Print profile" }));
+
+  it("lists all profiles incl. single-plate ones, no All files without other meshes", () => {
+    render(<PlateSelector blobHash="a" plates={profiles[0].plates} value={null} onChange={() => {}} files={profiles} onFileChange={() => {}} />);
+    open();
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "100% infill · 1 plate", "Canada dollar · 1 plate", "No AMS · 1 plate", "15% infill · 2 plates",
+    ]);
+  });
+
+  it("offers All files only with other meshes, and reports the pick", () => {
+    const onFileChange = vi.fn();
+    render(<PlateSelector blobHash="a" plates={profiles[0].plates} value={null} onChange={() => {}} files={profiles} hasAllFiles onFileChange={onFileChange} />);
+    open();
+    fireEvent.click(screen.getByRole("option", { name: "All files" }));
+    expect(onFileChange).toHaveBeenCalledWith("*");
+  });
+
+  it("shows no chips for a 1-plate profile, chips for a 2-plate one", () => {
+    const { rerender } = render(<PlateSelector blobHash="a" plates={profiles[0].plates} value={null} onChange={() => {}} files={profiles} onFileChange={() => {}} />);
+    expect(screen.queryByRole("radio")).toBeNull();
+    rerender(<PlateSelector blobHash="d" plates={profiles[3].plates} value={null} onChange={() => {}} files={profiles} onFileChange={() => {}} />);
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByRole("combobox")).toHaveTextContent("15% infill · 2 plates");
+    expect(screen.getByRole("combobox").parentElement?.textContent).not.toMatch(/·\s*$/);
   });
 });
