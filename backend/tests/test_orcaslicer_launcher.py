@@ -61,3 +61,13 @@ def test_stale_child_exit_is_ignored(launcher) -> None:
     launcher.child_pid = 5000
     launcher.watch(FakeProc(1, pid=4242))
     assert launcher.health()["last_exit"] is None
+
+
+def test_current_token_env_wins_then_file_then_empty(launcher, tmp_path) -> None:
+    launcher.TOKEN_FILE = str(tmp_path / ".launcher-token")
+    launcher.TOKEN = ""
+    assert launcher.current_token() == ""  # nothing anywhere -> POSTs are refused
+    (tmp_path / ".launcher-token").write_text("from-file\n")
+    assert launcher.current_token() == "from-file"
+    launcher.TOKEN = "from-env"
+    assert launcher.current_token() == "from-env"

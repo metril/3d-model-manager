@@ -27,6 +27,7 @@ from app.db import get_sessionmaker
 from app.services import obico, spoolman
 from app.services.app_config import get_app_config
 from app.services.ha_config import get_ha_config, parse_mqtt_url
+from app.services.launcher_token import launcher_headers
 from app.services.mqtt_relay_config import STATUS_KEY as RELAY_STATUS_KEY
 from app.services.mqtt_relay_config import get_relay_config
 from app.services.server_config import ServerConfig, get_server_config
@@ -192,9 +193,7 @@ async def _orcaslicer(cfg: ServerConfig) -> dict[str, ServiceStatus]:
         return {"orcaslicer": _st("off", "disabled")}
     if not cfg.orcaslicer_launcher_url:
         return {"orcaslicer": _st("down", "not configured")}
-    headers = {}
-    if cfg.orcaslicer_launcher_token is not None:
-        headers["X-Launcher-Token"] = cfg.orcaslicer_launcher_token.get_secret_value()
+    headers = launcher_headers(cfg)
     try:
         async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as client:
             resp = await client.get(

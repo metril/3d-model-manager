@@ -1,13 +1,16 @@
 # Slicer sidecar: FastAPI wrapper around the OrcaSlicer CLI (AppImage,
 # extracted -- no FUSE needed). Build: `docker build slicer/`.
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+
+# uv installs the pinned deps from uv.lock (same uv as docker/Dockerfile).
+COPY --from=ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc /uv /usr/local/bin/uv
 
 ARG ORCA_VERSION=v2.4.2
 ARG ORCA_SHA256=d12fb8c8eac1aecd2dfb6377acd48f994f8fa439ed5292fa532dd82880f029fd
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl xvfb xauth python3 python3-venv \
+        ca-certificates curl xvfb xauth python3 \
         libgtk-3-0t64 libwebkit2gtk-4.1-0 libgl1 libglu1-mesa libegl1 libosmesa6 libopengl0 libgl1-mesa-dri \
         libdbus-1-3 libsecret-1-0 libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
         libsoup-3.0-0 libmspack0t64 libnotify4 libsm6 fonts-dejavu-core locales \
@@ -19,8 +22,9 @@ RUN curl -fsSL -o /tmp/orca.AppImage \
     && chmod +x /tmp/orca.AppImage && cd /opt && /tmp/orca.AppImage --appimage-extract >/dev/null \
     && mv squashfs-root orca && rm /tmp/orca.AppImage
 
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir \
-        fastapi==0.115.* "uvicorn[standard]==0.34.*" python-multipart==0.0.20
+COPY pyproject.toml uv.lock /srv/
+RUN cd /srv && UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON=/usr/bin/python3 UV_LINK_MODE=copy \
+        UV_COMPILE_BYTECODE=1 uv sync --frozen --no-dev --no-install-project
 
 COPY app /srv/app
 RUN useradd -u 10001 -m slicer && mkdir -p /home/slicer/.config && chown -R slicer /home/slicer

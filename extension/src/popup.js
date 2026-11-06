@@ -308,7 +308,7 @@ async function handleSave(button, url, config) {
     button.disabled = false;
     return;
   }
-  setStatus("", null);
+  setStatus(response.importId !== undefined ? "Import started." : "", null);
   button.disabled = false;
   if (response.importId !== undefined) {
     await watchImport(response.importId, config);

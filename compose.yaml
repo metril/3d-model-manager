@@ -58,12 +58,20 @@ include:
   - compose.orcaslicer.yaml
   - compose.obico.yaml
 
+# Log rotation for every service (json-file otherwise grows without bound).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile
     image: tdmm:local
+    mem_limit: ${API_MEM_LIMIT:-3g}
     ports:
       - "${TDMM_API_HOST_PORT:-8080}:8080"
     environment:
@@ -98,6 +106,7 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
+    logging: *default-logging
 
   worker-io:
     build:
@@ -135,15 +144,23 @@ services:
       start_period: 30s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
 
   worker-cpu:
     build:
       context: .
       dockerfile: docker/Dockerfile
     image: tdmm:local
+    # Memory budget ~= CONCURRENCY x per-child RSS ceiling (MAX_MEMORY_PER_CHILD
+    # 1.5 GiB recycles a child, OCCT/f3d jobs can peak well above typical use).
+    # Default 8 children in 16g. Without CONCURRENCY celery starts one child per
+    # host core, which on a big host blows through any sane limit. Raise both
+    # together: WORKER_CPU_CONCURRENCY and WORKER_CPU_MEM_LIMIT.
+    mem_limit: ${WORKER_CPU_MEM_LIMIT:-16g}
     environment:
       ROLE: worker
       QUEUES: cpu
+      CONCURRENCY: ${WORKER_CPU_CONCURRENCY:-8}
       # No CONCURRENCY override here -- Celery defaults to one process
       # per CPU core, which is what CPU-bound extraction/convert/render work
       # wants. Recycled per-child (task count AND RSS) to contain OCCT/f3d
@@ -171,6 +188,7 @@ services:
       start_period: 30s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
 
   # Celery beat (SPEC "optional scheduled scan"; Task 9; Round 10 Task 3:
   # always-on now, no compose profile). Ticks the single unconditional
@@ -189,6 +207,13 @@ services:
       dockerfile: docker/Dockerfile
     image: tdmm:local
     command: ["celery", "-A", "app.tasks.celery_app", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    # beat syncs its schedule file every <=3 min once a task has run (archive-sweep
+    # fires every 5 min), so a stale mtime means the scheduler loop is wedged.
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp -maxdepth 1 -name 'celerybeat-schedule*' -mmin -15 | grep -q ."]
+      interval: 60s
+      start_period: 90s
+      retries: 3
     environment:
       # Round 8: `dispatch_scheduled` (ticking in THIS container) checks
       # `settings.watch_dir` before ever dispatching the watched-folder scan
@@ -204,6 +229,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
 
   # printerd (M4; Round 10 Task 3: always-on now, no compose profile). The
   # long-lived Bambu MQTT supervisor (SPEC "Architecture") always starts and
@@ -222,6 +248,14 @@ services:
       dockerfile: docker/Dockerfile
     image: tdmm:local
     command: ["python", "-m", "app.printerd"]
+    # printerd keeps no heartbeat key of its own; this verifies the process
+    # environment can still reach Redis (its only hard dependency besides the DB).
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=3).ping()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     environment:
       PUID: ${PUID:-}
       PGID: ${PGID:-}
@@ -237,6 +271,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
 
   # Q11 virtual printer: a fake LAN Bambu printer (SSDP UDP 2021, MQTT/TLS
   # 8883, FTPS 990) that turns a slicer "print" into a queue entry. Always
@@ -256,11 +291,18 @@ services:
     image: tdmm:local
     network_mode: host
     command: ["python", "-m", "app.virtual_printer"]
-    # No PUID/PGID: runs as root on purpose (privileged ports 990/8883 need it).
     env_file:
       - .env
     # Overrides env_file: host networking can't resolve `db`/`redis`.
+    cap_add:
+      - NET_BIND_SERVICE
     environment:
+      # Runs as PUID:PGID like everything else (so files it writes under
+      # /library and /data stay manageable), keeping only the capability to
+      # bind the privileged FTPS port 990 -- see docker/entrypoint.sh.
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+      VP_BIND_CAP: "1"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tdmm}:${POSTGRES_PASSWORD:-tdmm}@127.0.0.1:${TDMM_DB_HOST_PORT:-15432}/${POSTGRES_DB:-tdmm}
       REDIS_URL: redis://127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}/0
     depends_on:
@@ -274,6 +316,7 @@ services:
       - tdmm_data:/data
       - ./library:/library
     restart: unless-stopped
+    logging: *default-logging
 
   db:
     image: postgres:16-alpine
@@ -299,9 +342,12 @@ services:
     # `restart: unless-stopped`) and then crash-loop against a Postgres/Redis
     # that's simply never there.
     restart: unless-stopped
+    logging: *default-logging
 
   redis:
     image: redis:7-alpine
+    volumes:
+      - redisdata:/data
     # Loopback-only host port, for the host-networked virtual-printer.
     ports:
       - "127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}:6379"
@@ -311,6 +357,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    logging: *default-logging
 
 # Private network shared only by api and the orcaslicer sidecar, so a desktop user
 # in OrcaSlicer cannot reach db/redis/broker.
@@ -319,4 +366,5 @@ networks:
 
 volumes:
   pgdata:
+  redisdata:
   tdmm_data:

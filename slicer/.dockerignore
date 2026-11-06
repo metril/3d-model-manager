@@ -1,3 +1,6 @@
-__pycache__
-.pytest_cache
-tests
+**/__pycache__
+**/*.py[cod]
+.pytest_cache/
+tests/
+smoke.py
+.venv/

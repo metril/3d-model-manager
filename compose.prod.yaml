@@ -6,7 +6,7 @@
 # Pin a specific release for anything you care about; the default `latest`
 # follows the newest stable release and will move under you:
 #
-#   IMAGE_TAG=v0.1.0 docker compose -f compose.yaml -f compose.prod.yaml up -d
+#   IMAGE_TAG=0.1.0 (no leading "v") docker compose -f compose.yaml -f compose.prod.yaml up -d
 #
 # `edge` also exists (every push to main) and is NOT a supported deployment
 # target -- it ships unreleased migrations. Check what you're actually running

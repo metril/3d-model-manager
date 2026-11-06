@@ -8,6 +8,12 @@
 # compose.prod.yaml pulls it. Standalone, set SLICER_IMAGE to use a published
 # tag instead of the local build. The OrcaSlicer AppImage is pinned
 # (version + sha256) in slicer/Dockerfile.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   slicer:
     build: ./slicer
@@ -32,3 +38,4 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+    logging: *default-logging
