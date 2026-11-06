@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { boxesKey, fitDistance, canFit, createInteractionLod, createPoseGuard, createRefitScheduler } from "./refitGuard";
+import { boxesKey, fitDistance, canFit, pickFitDirection, isFlatScene, shouldResetView, createInteractionLod, createPoseGuard, createRefitScheduler } from "./refitGuard";
 
 const box = (v: number) => ({ min: { x: 0, y: 0, z: 0 }, max: { x: v, y: v, z: v } });
 
@@ -108,5 +108,40 @@ describe("fitDistance", () => {
   });
   it("uses the narrower horizontal fov on tall panels", () => {
     expect(fitDistance({ x: 1, y: 1, z: 1 }, 50, 0.5)).toBeGreaterThan(fitDistance({ x: 1, y: 1, z: 1 }, 50, 2));
+  });
+});
+
+
+describe("pickFitDirection", () => {
+  const flat = { x: 353, y: 4, z: 256 };
+  const cube = { x: 47, y: 40, z: 47 };
+  it("detects flat scenes", () => {
+    expect(isFlatScene(flat)).toBe(true);
+    expect(isFlatScene(cube)).toBe(false);
+  });
+  it("reset picks iso for solid, top-biased for flat", () => {
+    expect(pickFitDirection({ current: { x: 0, y: 0, z: 5 }, size: cube, reset: true })).toEqual({ x: 1, y: 1, z: 1 });
+    const d = pickFitDirection({ current: { x: 0, y: 0, z: 5 }, size: flat, reset: true })!;
+    expect(d.y).toBeGreaterThan(d.x);
+    expect(d.y).toBeGreaterThan(d.z);
+  });
+  it("keeps a solid scene's direction when not reset", () => {
+    expect(pickFitDirection({ current: { x: 0, y: 0, z: 5 }, size: cube, reset: false })).toBeNull();
+  });
+  it("rescues flat edge-on, leaves flat elevated views", () => {
+    expect(pickFitDirection({ current: { x: 0, y: 0.2, z: 5 }, size: flat, reset: false })).not.toBeNull();
+    expect(pickFitDirection({ current: { x: 1, y: 1, z: 1 }, size: flat, reset: false })).toBeNull();
+  });
+});
+
+describe("rescue gating", () => {
+  const flat = { x: 353, y: 4, z: 256 };
+  it("rescue:false leaves a flat edge-on view alone (presets, resize)", () => {
+    expect(pickFitDirection({ current: { x: 0, y: 0, z: 5 }, size: flat, reset: false, rescue: false })).toBeNull();
+  });
+  it("shouldResetView only on key change", () => {
+    expect(shouldResetView(null, "a")).toBe(true);
+    expect(shouldResetView("a", "a")).toBe(false);
+    expect(shouldResetView("a", "b")).toBe(true);
   });
 });
