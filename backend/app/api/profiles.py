@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +44,7 @@ from app.schemas.slicing import (
 )
 from app.services.print_plan import recipe_compatibility_reason, recipe_scope_reason
 from app.services.profile_scope import scope_for_printer
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import get_server_config
 from app.services.slicer_client import (
     SlicerError,
@@ -133,7 +133,7 @@ async def resolve_scope(
     visible = visible_printer_ids(ctx)
     if visible is not None and printer_id not in visible:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await scope_for_printer(db, client, printer_id, nozzle_mm)
     except LookupError:

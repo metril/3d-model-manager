@@ -9,7 +9,6 @@ import re
 import time
 from decimal import Decimal
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import delete, select, update
@@ -38,6 +37,7 @@ from app.schemas.kprofiles import (
     SpoolKProfileIO,
 )
 from app.services import kprofiles
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/printers",
@@ -97,7 +97,7 @@ async def list_kprofiles(
     printer = await _get_enabled_or_404(db, printer_id)
     _require_cap(printer)
     nozzle = _nozzle_or_422(nozzle)
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     lock = f"printer:{printer_id}:kprofiles_lock:{nozzle}"
     held = False
     try:
@@ -149,7 +149,7 @@ async def list_kprofiles(
 
 
 async def _cached(settings: Settings, printer_id: int, nozzle: str) -> dict | None:
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await kprofiles.read_cache_async(client, printer_id, nozzle)
     finally:
@@ -403,7 +403,7 @@ async def put_spool_kprofiles(
             )
         )
     await db.commit()
-    flags = aioredis.Redis.from_url(get_settings().redis_url)
+    flags = get_async_redis(get_settings().redis_url)
     try:
         for pid in {i.printer_id for i in body}:
             await kprofiles.clear_printer_skips_async(flags, pid)

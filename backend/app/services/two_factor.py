@@ -19,7 +19,6 @@ import anyio
 import pyotp
 from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
-from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +28,7 @@ from app.crypto import decrypt_secret
 from app.models import AuthEphemeralToken, Setting, User, UserOtpCode, UserTotp
 from app.security import hash_password, verify_password
 from app.services import mailer
+from app.services.redis_pool import get_async_redis
 
 PRE_AUTH = "pre_auth"
 TOTP_SETUP = "totp_setup"
@@ -64,7 +64,7 @@ async def guard(user_id: int) -> None:
     """429 ``2fa_locked`` while the user has >= FAIL_LIMIT recent failed second-factor
     attempts (across every token / re-auth route). Locked checks add no failures,
     so the lock ends FAIL_WINDOW_S after the last real failure."""
-    r = Redis.from_url(get_settings().redis_url)
+    r = get_async_redis(get_settings().redis_url)
     try:
         n = int(await r.get(_fail_key(user_id)) or 0)
     except (RedisError, OSError):
@@ -76,7 +76,7 @@ async def guard(user_id: int) -> None:
 
 
 async def note_failure(user_id: int) -> None:
-    r = Redis.from_url(get_settings().redis_url)
+    r = get_async_redis(get_settings().redis_url)
     try:
         key = _fail_key(user_id)
         await r.incr(key)

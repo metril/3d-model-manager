@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 
-import redis.asyncio as aioredis
+from app.services.redis_pool import get_async_redis
 
 WINDOW_S = 60
 
@@ -15,7 +15,7 @@ async def hit(redis_url: str, key_id: int, limit: int) -> tuple[bool, int, int]:
     now = int(time.time())
     window = now // WINDOW_S
     retry = WINDOW_S - now % WINDOW_S
-    client = aioredis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+    client = get_async_redis(redis_url, socket_timeout=2, socket_connect_timeout=2)
     try:
         k = f"apikey:rl:{key_id}:{window}"
         count = await client.incr(k)

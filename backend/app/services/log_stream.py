@@ -25,6 +25,8 @@ import sys
 import threading
 import time
 
+from app.services.redis_pool import get_sync_redis
+
 LOG_LIST_KEY = "tdmm:logs"
 LOG_SEQ_KEY = "tdmm:logs:seq"
 MAX_ENTRIES = 5000
@@ -78,9 +80,7 @@ class RedisLogHandler(logging.Handler):
 
     def _redis(self):
         if self._client is None or self._pid != os.getpid():  # fork-safe (celery prefork)
-            import redis
-
-            self._client = redis.Redis.from_url(
+            self._client = get_sync_redis(
                 self.redis_url, socket_timeout=1.0, socket_connect_timeout=1.0
             )
             self._pid = os.getpid()

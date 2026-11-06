@@ -25,6 +25,7 @@ from app.models.printing import PrintArchive
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_lookup import archive_for_job
 from app.services.derivatives import publish_bytes
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -116,13 +117,12 @@ def transcode_timelapse(archive_id: int) -> str:
 def assemble_layer_timelapse(print_job_id: int) -> str:
     """Stitch a job's per-layer frames into its archive timelapse; if that
     fails, fall back to fetching the printer's own timelapse from SD."""
-    import redis
 
     from app.models import PrintJob
     from app.services import layer_timelapse
 
     settings = get_settings()
-    r = redis.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         with base.sync_session() as session:
             ok = layer_timelapse.assemble_for(session, settings, r, print_job_id)
@@ -148,9 +148,7 @@ def assemble_layer_timelapse(print_job_id: int) -> str:
 def _set_job(job_id: str, **fields: object) -> None:
     import json
 
-    import redis
-
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     try:
         key = f"tl:job:{job_id}"
         raw = r.get(key)

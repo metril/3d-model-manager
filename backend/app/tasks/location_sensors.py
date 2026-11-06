@@ -8,11 +8,11 @@ POLL_LOCK_KEY = "location_sensors:poll:lock"
 POLL_INTERVAL_S = 120.0
 _LOCK_TIMEOUT_S = 100
 
-from redis import Redis  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services.ha_config import get_ha_config_sync  # noqa: E402
 from app.services.location_sensors import poll_once  # noqa: E402
+from app.services.redis_pool import get_sync_redis  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
 
@@ -20,7 +20,7 @@ from app.tasks.celery_app import celery_app  # noqa: E402
 @celery_app.task(name="location_sensors.poll", soft_time_limit=90, time_limit=100)
 def poll() -> dict | None:
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         lock = client.lock(POLL_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
         if not lock.acquire(blocking=False):

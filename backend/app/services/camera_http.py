@@ -10,13 +10,13 @@ import uuid
 from collections.abc import AsyncIterator
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 
 from app.config import Settings
 from app.printers.camera_select import DEFAULT_FPS, camera_kind, rotation_of
 from app.services import camera_state as cs
+from app.services.redis_pool import get_async_redis
 
 # How often ``mjpeg_parts`` re-registers its viewer (refreshes the Redis
 # ZSET TTL) while streaming, and how long it waits with no new frame before
@@ -111,7 +111,7 @@ async def stream_response(
     worker; 404 when the camera is unsupported."""
     if fps is None and camera_kind(None, None, options) == "external":
         fps = DEFAULT_FPS
-    redis = aioredis.Redis.from_url(settings.redis_url)
+    redis = get_async_redis(settings.redis_url)
     try:
         if await cs.aget_status(redis, printer_id) == "unsupported":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "camera not supported")
@@ -137,7 +137,7 @@ async def stream_response(
 async def snapshot_response(settings: Settings, printer_id: int, options: dict) -> Response:
     """Current JPEG frame (rotated per ``options``); 503 + ``Retry-After``
     while the camera warms up, 404 when unsupported."""
-    redis = aioredis.Redis.from_url(settings.redis_url)
+    redis = get_async_redis(settings.redis_url)
     try:
         if await cs.aget_status(redis, printer_id) == "unsupported":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "camera not supported")

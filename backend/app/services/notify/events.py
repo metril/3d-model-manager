@@ -10,9 +10,8 @@ import logging
 import threading
 import time
 
-import redis
-
 from app.config import get_settings
+from app.services.redis_pool import get_sync_redis
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +33,7 @@ def _warn_dropping() -> None:
 
 def emit(event: str, printer_id: int | None = None, payload: dict | None = None) -> bool:
     try:
-        r = redis.Redis.from_url(
-            get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2
-        )
+        r = get_sync_redis(get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2)
         try:
             item = json.dumps(
                 {"event": event, "printer_id": printer_id, "payload": payload or {}}, default=str

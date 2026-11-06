@@ -15,7 +15,6 @@ import json  # noqa: E402
 import time  # noqa: E402
 
 from celery.signals import before_task_publish  # noqa: E402
-from redis import Redis  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services import backup as backup_svc  # noqa: E402
@@ -24,6 +23,7 @@ from app.services import (  # noqa: E402
     service_status,  # noqa: E402
     updates,
 )
+from app.services.redis_pool import get_sync_redis  # noqa: E402
 from app.services.smart_plugs import manager  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
@@ -40,7 +40,7 @@ def _beat_heartbeat(sender: str | None = None, **_: object) -> None:
     if sender != BEAT_TICK_TASK:
         return
     try:
-        r = Redis.from_url(get_settings().redis_url)
+        r = get_sync_redis(get_settings().redis_url)
         try:
             r.set(service_status.BEAT_KEY, json.dumps({"ts": time.time()}), ex=300)
         finally:
@@ -52,7 +52,7 @@ def _beat_heartbeat(sender: str | None = None, **_: object) -> None:
 @celery_app.task(name="app.tasks.plugs.tick", soft_time_limit=50, time_limit=55)
 def plugs_tick() -> dict:
     settings = get_settings()
-    r = Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         with base.sync_session() as s:
             return manager.tick(s, r, settings)
@@ -67,7 +67,7 @@ _DRYING_LOCK_TIMEOUT_S = 60
 @celery_app.task(name="app.tasks.drying.tick", soft_time_limit=50, time_limit=55)
 def drying_tick_task() -> dict:
     settings = get_settings()
-    r = Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         lock = r.lock(DRYING_LOCK_KEY, timeout=_DRYING_LOCK_TIMEOUT_S, blocking=False)
         if not lock.acquire(blocking=False):

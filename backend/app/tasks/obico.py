@@ -6,12 +6,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import redis
 from sqlalchemy import delete, select, update
 
 from app.config import get_settings
 from app.models import FailureDetection
 from app.models.printing import Printer
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -28,7 +28,7 @@ def record_event(
     action: str,
     frame_key: str | None,
 ) -> int | None:
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     try:
         with base.sync_session() as s:
             if s.get(Printer, printer_id) is None:
@@ -72,7 +72,7 @@ def record_event(
 @celery_app.task(name="app.tasks.obico.prune")
 def prune() -> int:
     cutoff = datetime.now(UTC) - timedelta(days=RETENTION_DAYS)
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     try:
         with base.sync_session() as s:
             keys = s.execute(

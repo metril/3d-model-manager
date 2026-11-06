@@ -66,6 +66,7 @@ _LOCK_TIMEOUT_S = 60
 
 from app.config import get_settings  # noqa: E402
 from app.services.app_config import get_app_config_sync  # noqa: E402
+from app.services.redis_pool import get_sync_redis  # noqa: E402
 from app.services.server_config import get_server_config_sync  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
@@ -108,7 +109,7 @@ def dispatch_scheduled() -> None:
     from app.tasks.sync_collections import schedule_sync_all
 
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         lock = client.lock(DISPATCH_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
         if not lock.acquire(blocking=False):

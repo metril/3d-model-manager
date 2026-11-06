@@ -6,13 +6,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
 
 from app.api.deps import require_perm
 from app.config import Settings, get_settings
 from app.services import log_stream as ls
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/admin/logs", tags=["admin-logs"], dependencies=[Depends(require_perm("admin"))]
@@ -45,7 +45,7 @@ async def _load(
     q: str | None,
     after: int | None,
 ) -> list[dict]:
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         raw = await r.lrange(ls.LOG_LIST_KEY, 0, ls.MAX_ENTRIES - 1)
     finally:

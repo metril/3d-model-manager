@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 
-import redis as redis_sync
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -16,6 +15,7 @@ from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.services import firmware
 from app.services.printer_state import read_state_sync
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -38,7 +38,7 @@ def _set_status(r, printer_id: int, **fields) -> None:
 @celery_app.task(name="app.tasks.firmware.upload_firmware", soft_time_limit=1800, time_limit=1900)
 def upload_firmware(printer_id: int, actor: str | None = None) -> dict:
     settings = get_settings()
-    r = redis_sync.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         with base.sync_session() as s:
             printer = s.get(Printer, printer_id)

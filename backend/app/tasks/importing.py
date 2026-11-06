@@ -67,7 +67,6 @@ from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
 import httpx
-from redis import Redis
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 
@@ -82,6 +81,7 @@ from app.models.enums import ImportSite, ImportState
 from app.models.system import Import, Job
 from app.services import events, layout, library
 from app.services import jobs as jobs_service
+from app.services.redis_pool import get_sync_redis
 from app.services.storage_backends import (
     resolve_backend_for_file_sync,
     resolve_default_backend_sync,
@@ -392,7 +392,7 @@ def import_from_url(import_id: int) -> None:
     from app.models.library import Model, Revision
 
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     lock = client.lock(import_lock_key(import_id), timeout=IMPORT_LOCK_TIMEOUT_S, blocking=False)
     if not lock.acquire(blocking=False):
         # Another attempt (a genuinely concurrent redelivery) is already
@@ -752,7 +752,7 @@ def redownload_model(job_id: str, model_id: int, mode: str) -> None:
     still allowed through: after a worker crash the lock has expired and the
     acks_late redelivery is the only thing that can finish the job."""
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         lock = client.lock(
             redownload_lock_key(model_id), timeout=IMPORT_LOCK_TIMEOUT_S, blocking=False

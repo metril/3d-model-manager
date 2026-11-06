@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-import redis
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
 
@@ -22,6 +21,7 @@ from app.services import layer_timelapse
 from app.services.archive import ArchiveFetchError, archive_job, mark_archive_error
 from app.services.archive_lookup import archive_for_job
 from app.services.archive_media import attach_snapshot, fetch_timelapse_for
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -56,7 +56,7 @@ def _claim_media_schedule(settings: Settings, print_job_id: int) -> bool:
     redelivery (real broker retry, or a test driving ``.apply()`` directly)
     doesn't reliably carry a monotonically increasing retry count, so
     retries==0 can't be trusted to fire exactly once across attempts."""
-    r = redis.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         return bool(
             r.set(
@@ -97,7 +97,7 @@ def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> N
             arc = archive_for_job(session, print_job_id)
             # A folded (older) run's snapshot would clobber the latest run's.
             if job is not None and arc is not None and arc.print_job_id == print_job_id:
-                r = redis.Redis.from_url(settings.redis_url)
+                r = get_sync_redis(settings.redis_url)
                 try:
                     attach_snapshot(session, settings, r, job, arc)
                 finally:

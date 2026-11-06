@@ -51,13 +51,12 @@ import shutil
 import time
 from pathlib import Path
 
-from redis import Redis
-
 from app.config import Settings, get_settings
 from app.importers.download import stage_local_file
 from app.models.enums import BlobFormat, BlobKind
 from app.services import slicer_intake
 from app.services.layout import infer_blob_kind_format
+from app.services.redis_pool import get_sync_redis
 from app.services.slicer_naming import _safe_basename
 from app.services.storage_backends import resolve_default_backend_sync
 from app.tasks import base
@@ -184,7 +183,7 @@ def scan_slicer_watch() -> None:
     if watch_dir is None or not watch_dir.is_dir():
         return  # feature off, or the configured directory doesn't exist (yet)
 
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     lock = client.lock(SLICER_WATCH_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
     if not lock.acquire(blocking=False):
         return  # another poll is still in flight; picked back up next tick

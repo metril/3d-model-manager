@@ -18,13 +18,14 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.services import events, library, orcaslicer_sessions
 from app.services.launcher_token import launcher_headers
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import ServerConfig, get_server_config
 
 router = APIRouter(tags=["orcaslicer"])
 
 
 async def _redis(settings: Settings = Depends(get_settings)) -> AsyncIterator[aioredis.Redis]:
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         yield r
     finally:

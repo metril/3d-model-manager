@@ -11,6 +11,7 @@ import logging
 from redis import Redis
 
 from app.config import get_settings
+from app.services.redis_pool import get_sync_redis
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def enqueue_startup_backfills(client: Redis | None = None, prefix: str = LOCK_PR
 
     enqueued: list[str] = []
     try:
-        client = client or Redis.from_url(get_settings().redis_url)
+        client = client or get_sync_redis(get_settings().redis_url)
         for name, queue in BACKFILLS:
             if client.set(f"{prefix}{name}", "1", nx=True, ex=LOCK_TTL_S):
                 celery_app.send_task(name, queue=queue)

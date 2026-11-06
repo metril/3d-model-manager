@@ -46,6 +46,7 @@ from app.services.ha_config import (
     set_ha_config,
 )
 from app.services.permissions import load_grants
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/settings/home-assistant",
@@ -58,7 +59,7 @@ _MQTT_TEST_TIMEOUT_S = 5.0
 
 
 def _redis(settings: Settings) -> aioredis.Redis:
-    return aioredis.Redis.from_url(settings.redis_url)
+    return get_async_redis(settings.redis_url)
 
 
 def _apply_overrides(config: HaConfig, patch: dict) -> HaConfig:

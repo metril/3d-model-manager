@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.redis_pool import get_async_redis
 
 if TYPE_CHECKING:
     # Deferred to a function-local import at its one runtime call site
@@ -442,7 +443,7 @@ async def create_job(
         _check_sendable(blob)
     except NotSendableError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:

@@ -13,7 +13,6 @@ from functools import lru_cache
 
 import anyio
 import httpx
-import redis as redis_sync
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, model_validator
@@ -34,6 +33,7 @@ from app.models import FailureDetection, Printer, Setting
 from app.services import camera_state, obico
 from app.services.obico import ObicoConfig, PrinterDetection
 from app.services.obico_ml import MlError, score_frame
+from app.services.redis_pool import get_async_redis, get_sync_redis
 from app.services.url_safety import is_safe_url
 
 settings_router = APIRouter(
@@ -123,7 +123,7 @@ class TestScoreOut(BaseModel):
 
 
 async def _redis(settings: Settings) -> aioredis.Redis:
-    return aioredis.Redis.from_url(settings.redis_url)
+    return get_async_redis(settings.redis_url)
 
 
 async def _status(settings: Settings, printer_id: int, enabled: bool = False) -> DetectionStatusOut:
@@ -440,7 +440,7 @@ async def detection_frame(
 
 
 def _test_once(settings: Settings, cfg: ObicoConfig, printer_id: int) -> float:
-    r = redis_sync.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         jpeg = camera_state.wait_for_frame(
             r, printer_id, timeout=12.0, viewer_id=f"obico-test-{printer_id}"

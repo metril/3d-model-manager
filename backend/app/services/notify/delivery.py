@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
-import redis
 from celery.schedules import crontab_parser
 
 from app.config import Settings, get_settings
@@ -16,6 +15,7 @@ from app.crypto import decrypt_secret, encrypt_secret
 from app.models.notify import NotificationChannel
 from app.services import camera_state
 from app.services.notify import MASK, PROVIDERS, Message, ProviderError
+from app.services.redis_pool import get_sync_redis
 
 
 def load_config(settings: Settings, channel: NotificationChannel) -> dict:
@@ -119,7 +119,7 @@ def fetch_photo(
     if printer_id is None:
         return None
     settings = settings or get_settings()
-    r = redis.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         frame = None
         job_id = payload.get("job_id")

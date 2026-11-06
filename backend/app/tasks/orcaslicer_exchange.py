@@ -34,6 +34,7 @@ from app.models.library import File, Model, Revision
 from app.services import events, library
 from app.services.layout import infer_blob_kind_format
 from app.services.orcaslicer_sessions import ACTIVE_KEY, SESSION_TTL_S, session_key
+from app.services.redis_pool import get_sync_redis
 from app.services.server_config import current_sync
 from app.services.slicer_naming import _safe_basename
 from app.tasks import base
@@ -225,7 +226,7 @@ def scan_orcaslicer_exchange() -> None:
     root = settings.orcaslicer_exchange_dir
     if not current_sync(settings).orcaslicer_enabled or not root.is_dir():
         return
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         lock = client.lock(ORCASLICER_SCAN_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
         if not lock.acquire(blocking=False):
