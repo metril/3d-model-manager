@@ -4,7 +4,7 @@ Existing sessions stay valid: their hash is backfilled from the old plaintext
 id, then the id is rotated so the stored value is no longer a usable cookie.
 
 Revision ID: c7d3a91e5b48
-Revises: b8e4c2d6f0a1
+Revises: 382e2280c91a
 Create Date: 2026-11-06 09:00:00.000000
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c7d3a91e5b48"
-down_revision: str | Sequence[str] | None = "b8e4c2d6f0a1"
+down_revision: str | Sequence[str] | None = "382e2280c91a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
