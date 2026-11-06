@@ -39,7 +39,7 @@ def test_read_colour_info(tmp_path: Path) -> None:
     with zipfile.ZipFile(path) as zf:
         info = threemf_colour.read_colour_info(zf)
     assert info is not None and info.is_multicolour
-    assert info.changes == {2: [(10.0, BLUE)]}
+    assert [(e.z, e.rgba) for e in info.events[2]] == [(10.0, BLUE)]
     assert info.part_rgba(1, 0) == RED
     assert info.part_rgba(1, 1) == BLUE
     assert info.part_rgba(1, 2) is None  # modifier
@@ -114,6 +114,7 @@ def test_plate_filaments_and_colour_changes(tmp_path: Path) -> None:
     assert got[1] == {
         "filaments": [{"slot": 1, "colour": "#FF0000"}, {"slot": 3, "colour": "#0000FF"}],
         "colour_changes": [],
+        "pauses": [],
     }
     assert got[2]["filaments"] == [{"slot": 2, "colour": "#00FF00"}]
     assert got[2]["colour_changes"] == [{"z": 10.0, "slot": 3, "colour": "#0000FF"}]
@@ -124,7 +125,7 @@ def test_plain_project_has_no_filament_data(tmp_path: Path) -> None:
     p.write_bytes(make_project_3mf(2))
     with zipfile.ZipFile(p) as zf:
         got = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf))
-    assert got[1] == {"filaments": [], "colour_changes": []}
+    assert got[1] == {"filaments": [], "colour_changes": [], "pauses": []}
 
 
 def test_read_3mf_profile_meta(tmp_path: Path) -> None:
@@ -154,3 +155,56 @@ def test_clean_meta_text() -> None:
         == "a & b c"
     )
     assert plates3mf.clean_meta_text("  ") is None
+
+
+def _plate_cols(tmp_path: Path, plate: int = 2, **kw) -> dict[tuple, np.ndarray]:
+    path = tmp_path / "x.3mf"
+    path.write_bytes(make_coloured_project_3mf(**kw))
+    with zipfile.ZipFile(path) as zf:
+        plates = plates3mf.parse_unsliced_plates(zf)
+        bed = plates3mf.read_bed(zf)
+    return _by_colour(plates3mf.plate_meshes(path, plates, bed)[plate])
+
+
+def test_pause_does_not_repaint_and_is_listed(tmp_path: Path) -> None:
+    layers = '<layer top_z="10" type="1" extruder="3" color="" extra="" gcode="M400 U1"/>'
+    cols = _plate_cols(tmp_path, layers=layers)
+    assert set(cols) == {GREEN}  # single colour all the way up
+    p = tmp_path / "x.3mf"
+    with zipfile.ZipFile(p) as zf:
+        info = threemf_colour.read_colour_info(zf)
+        got = plates3mf.plate_filament_info(zf, plates3mf.parse_unsliced_plates(zf))
+    assert info is not None and not info.events[2]
+    assert got[2]["colour_changes"] == []
+    assert got[2]["pauses"] == [{"z": 10.0}]
+
+
+def test_colour_change_with_explicit_color(tmp_path: Path) -> None:
+    layers = '<layer top_z="10" type="0" extruder="1" color="#FFFF00" extra="" gcode="M600"/>'
+    cols = _plate_cols(tmp_path, layers=layers)
+    assert set(cols) == {GREEN, (255, 255, 0, 255)}
+
+
+def test_colour_change_without_color_uses_extruder(tmp_path: Path) -> None:
+    layers = '<layer top_z="10" type="0" extruder="1" color="" extra="" gcode="M600"/>'
+    assert set(_plate_cols(tmp_path, layers=layers)) == {GREEN, RED}
+
+
+def test_multi_extruder_only_repaints_that_extruders_parts(tmp_path: Path) -> None:
+    # plate 1 has parts on extruders 1 and 3; change on extruder 3 -> only B repaints
+    layers = '<layer top_z="10" type="0" extruder="3" color="#FFFF00" extra="" gcode="M600"/>'
+    cols = _plate_cols(tmp_path, plate=1, plate1_layers=layers, plate1_mode="MultiExtruder")
+    yellow = (255, 255, 0, 255)
+    assert set(cols) == {RED, BLUE, yellow}
+    assert cols[RED][:, 2].max() > 10  # extruder 1 part untouched up to the top
+    assert cols[BLUE][:, 2].max() <= 10 < cols[yellow][:, 2].min()
+    # the same change in MultiAsSingle repaints both parts
+    cols = _plate_cols(tmp_path, plate=1, plate1_layers=layers, plate1_mode="MultiAsSingle")
+    assert cols[RED][:, 2].max() <= 10
+
+
+def test_tool_change_only_in_multi_as_single(tmp_path: Path) -> None:
+    layers = '<layer top_z="10" type="2" extruder="1" color="" extra="" gcode="T1"/>'
+    assert set(_plate_cols(tmp_path, layers=layers, mode="MultiAsSingle")) == {GREEN, RED}
+    assert set(_plate_cols(tmp_path, layers=layers, mode="SingleExtruder")) == {GREEN}
+    assert set(_plate_cols(tmp_path, layers=layers, mode="MultiExtruder")) == {GREEN}

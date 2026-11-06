@@ -132,10 +132,19 @@ def make_project_3mf(
     return buf.getvalue()
 
 
-def make_coloured_project_3mf(*, profile_meta: bool = False) -> bytes:
+def make_coloured_project_3mf(
+    *,
+    profile_meta: bool = False,
+    layers: str = '<layer top_z="10" type="0" extruder="3" color="" extra="" gcode="M600"/>',
+    mode: str = "MultiAsSingle",
+    plate1_layers: str = "",
+    plate1_mode: str = "",
+    with_gcodes: bool = True,
+) -> bytes:
     """Two plates (bed 180). Plate 1: object 1 = parts [A extruder 1, B extruder
     3, M modifier extruder 2] (20 mm cubes in a row). Plate 2: object 2 = one
-    20 mm cube on extruder 2 with a colour change to extruder 3 at top_z=10."""
+    20 mm cube on extruder 2 with ``layers`` (default: a type-0 colour change to extruder 3 at top_z=10).
+    ``plate1_layers``/``plate1_mode`` add a custom_gcode plate entry for plate 1."""
     bed = 180.0
     sub = {
         "3D/Objects/object_1.model": [(11, 0.0), (12, 25.0), (13, 50.0)],
@@ -219,10 +228,14 @@ def make_coloured_project_3mf(*, profile_meta: bool = False) -> bytes:
         "printable_area": ["0x0", f"{bed}x0", f"{bed}x{bed}", f"0x{bed}"],
         "filament_colour": ["#FF0000", "#00FF00", "#0000FF"],
     }
+    p1 = (
+        f'<plate><plate_info id="1"/>{plate1_layers}<mode value="{plate1_mode}"/></plate>'
+        if plate1_layers
+        else ""
+    )
     gcodes = (
-        '<?xml version="1.0"?><custom_gcodes_per_layer><plate><plate_info id="2"/>'
-        '<layer top_z="10" type="1" extruder="3" color="" extra="" gcode="M400 U1"/>'
-        '<mode value="MultiAsSingle"/></plate></custom_gcodes_per_layer>'
+        f'<?xml version="1.0"?><custom_gcodes_per_layer>{p1}<plate><plate_info id="2"/>'
+        f'{layers}<mode value="{mode}"/></plate></custom_gcodes_per_layer>'
     )
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -249,5 +262,6 @@ def make_coloured_project_3mf(*, profile_meta: bool = False) -> bytes:
             zf.writestr(name, body)
         zf.writestr("Metadata/model_settings.config", model_settings)
         zf.writestr("Metadata/project_settings.config", json.dumps(settings))
-        zf.writestr("Metadata/custom_gcode_per_layer.xml", gcodes)
+        if with_gcodes:
+            zf.writestr("Metadata/custom_gcode_per_layer.xml", gcodes)
     return buf.getvalue()

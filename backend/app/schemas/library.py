@@ -226,6 +226,10 @@ class PlateColourChangeOut(BaseModel):
     colour: str
 
 
+class PlatePauseOut(BaseModel):
+    z: float
+
+
 class PlateOut(BaseModel):
     index: int
     prediction_s: int | None
@@ -235,6 +239,8 @@ class PlateOut(BaseModel):
     filaments: list[PlateFilamentOut]
     # Unsliced project layer colour changes (custom_gcode_per_layer.xml).
     colour_changes: list[PlateColourChangeOut] = []
+    # Unsliced project print pauses (manual filament swap); never repainted.
+    pauses: list[PlatePauseOut] = []
     # Unsliced multi-plate projects: plate name + whether a per-plate GLB
     # exists (``GET /blobs/{hash}/plates/{n}/glb``); bbox = extents mm.
     name: str = ""
@@ -255,6 +261,7 @@ class PlateOut(BaseModel):
             est_cost=price_run(raw.get("weight_g"), raw.get("prediction_s"), rates).total_cost,
             filaments=[PlateFilamentOut.from_raw(f) for f in raw.get("filaments") or []],
             colour_changes=[PlateColourChangeOut(**c) for c in raw.get("colour_changes") or []],
+            pauses=[PlatePauseOut(**c) for c in raw.get("pauses") or []],
             name=raw.get("name") or "",
             has_glb=bool(raw.get("has_glb")),
             bbox=raw.get("bbox"),

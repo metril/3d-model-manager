@@ -40,7 +40,10 @@ _CASCADIO_METERS_TO_MM = 1000.0
 # Bump to regenerate every stored GLB derivative (``Derivative.version``).
 # v1: GLBs are glTF Y-up (print-space Z-up meshes rotated -90 deg about X).
 # v2: Bambu/Orca multi-filament 3MFs carry per-vertex filament colours.
-GLB_VERSION = 2
+# v3: layer type fix -- pauses no longer paint; MultiExtruder colour changes
+#     only repaint that extruder's parts.
+GLB_VERSION = 3
+GLB_YUP_VERSION = 2  # first version with Y-up GLBs (older ones need a full rewrite)
 
 # Z-up (print/CAD space) -> Y-up (glTF): (x, y, z) -> (x, z, -y).
 _Z_UP_TO_Y_UP = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])

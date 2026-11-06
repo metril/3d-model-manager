@@ -310,3 +310,68 @@ async def test_start_pipeline_fills_source_meta_for_deduped_file(
     assert (await db_session.get(File, f.id, populate_existing=True)).source_meta == {
         "profile_id": 1
     }
+
+
+async def test_glb_backfill_regenerates_plate_glbs_only_for_gcode_files(
+    db_session: AsyncSession, backend, seed_file, chained, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.pipeline import convert
+
+    monkeypatch.setattr(
+        pipeline.backfill_glb_orientation, "apply_async", lambda *a, **k: None, raising=False
+    )
+    _, with_g = await _seed(db_session, seed_file, make_coloured_project_3mf(), "withg")
+    _, no_g = await _seed(
+        db_session, seed_file, make_coloured_project_3mf(with_gcodes=False), "nog"
+    )
+    for f in (with_g, no_g):
+        _convert(backend, f.blob_hash)
+    s = get_settings()
+    p_with = derivatives.plate_glb_path(s, with_g.blob_hash, 2)
+    p_no = derivatives.plate_glb_path(s, no_g.blob_hash, 2)
+    p_with.write_bytes(b"stale")
+    p_no.write_bytes(b"stale")
+    with sync_session() as sess:
+        for f in (with_g, no_g):
+            pipeline._glb_derivative(sess, f.blob_hash).version = convert.GLB_VERSION - 1
+        sess.commit()
+    assert pipeline.backfill_glb_orientation() == 2
+    assert trimesh.load(p_with, force="mesh").faces.shape[0] > 0  # regenerated
+    assert p_no.read_bytes() == b"stale"  # stamp only
+    with sync_session() as sess:
+        for f in (with_g, no_g):
+            assert pipeline._glb_derivative(sess, f.blob_hash).version == convert.GLB_VERSION
+
+
+async def test_glb_backfill_only_stamps_stl_at_yup_version(
+    db_session: AsyncSession, backend, seed_file, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.models.enums import DerivativeKind
+    from app.pipeline import convert
+
+    monkeypatch.setattr(
+        pipeline.backfill_glb_orientation, "apply_async", lambda *a, **k: None, raising=False
+    )
+    model = Model(slug="stl", name="stl")
+    db_session.add(model)
+    await db_session.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001")
+    db_session.add(rev)
+    await db_session.flush()
+    model.current_revision_id = rev.id
+    stl = trimesh.creation.box((10, 10, 10)).export(file_type="stl")
+    f = await seed_file(
+        model, rev, "a.stl", stl, blob_format=BlobFormat.STL, blob_kind=BlobKind.MESH
+    )
+    db_session.add(BlobMeta(blob_hash=f.blob_hash))
+    await db_session.commit()
+    _convert(backend, f.blob_hash)
+    glb = derivatives.derivative_path(get_settings(), f.blob_hash, DerivativeKind.GLB)
+    glb.write_bytes(b"marker")  # a regeneration would overwrite this
+    with sync_session() as sess:
+        pipeline._glb_derivative(sess, f.blob_hash).version = convert.GLB_YUP_VERSION
+        sess.commit()
+    assert pipeline.backfill_glb_orientation() == 1
+    assert glb.read_bytes() == b"marker"
+    with sync_session() as sess:
+        assert pipeline._glb_derivative(sess, f.blob_hash).version == convert.GLB_VERSION

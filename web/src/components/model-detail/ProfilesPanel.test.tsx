@@ -39,7 +39,7 @@ describe("ProfilesPanel", () => {
 
   it("shows the colour-change note", () => {
     render(<ProfilesPanel model={model([file(1, "x.3mf", [plate(1, { colour_changes: [{ z: 3, slot: 1, colour: "#00ff00" }] })])])} />);
-    expect(screen.getByText(/Colour change at 3\.0 mm/)).toBeInTheDocument();
+    expect(screen.getByTestId("colour-change")).toHaveTextContent("Colour change at 3.0 mm");
   });
 
   it("renders nothing for a lone 3MF without plates", () => {
@@ -74,12 +74,21 @@ describe("ProfilesPanel selection + colour note", () => {
     setSelectedPlate("h1", null);
   });
 
-  it("keeps the colour swatch inside the same nowrap element as the text", () => {
+  it("keeps the swatch in the DOM, glued to the arrow in a nowrap span", () => {
     render(<ProfilesPanel model={model([file(1, "x.3mf", [plate(1, { colour_changes: [{ z: 2.2, slot: 1, colour: "#00ff00" }] })])])} />);
-    const note = screen.getByTestId("colour-change");
-    expect(note).toHaveClass("whitespace-nowrap");
-    expect(note).toHaveTextContent("Colour change at 2.2 mm →");
-    expect(note.querySelector("span[style]")).not.toBeNull();
+    const z = screen.getByTestId("colour-change-z");
+    expect(z).toHaveClass("whitespace-nowrap");
+    expect(z).toHaveTextContent("2.2 mm →");
+    expect(z.querySelector("span[style]")).not.toBeNull();
+    expect(screen.getByTestId("colour-change")).toHaveTextContent("Colour change at 2.2 mm →");
+  });
+
+  it("shows a pause note with an explanatory tooltip", () => {
+    render(<ProfilesPanel model={model([file(1, "x.3mf", [plate(1, { pauses: [{ z: 2.2 }] })])])} />);
+    const note = screen.getByTestId("pause-note");
+    expect(note).toHaveTextContent("Pause at 2.2 mm");
+    expect(note).toHaveAttribute("title", "Printer pauses here so you can swap filament manually");
+    expect(note.querySelector("svg")).not.toBeNull();
   });
 });
 

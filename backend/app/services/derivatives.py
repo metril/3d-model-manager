@@ -23,6 +23,7 @@ dependency at all and are usable from either world.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import tempfile
@@ -270,6 +271,60 @@ def mark_assembly_thumb(
     session.commit()
 
 
+def _verified_copy(session: Session, settings: Settings, blob_hash: str):
+    file = (
+        session.execute(
+            select(File)
+            .where(File.blob_hash == blob_hash, File.verified_at.is_not(None))
+            .order_by(File.id)
+        )
+        .scalars()
+        .first()
+    )
+    if file is None:
+        raise LookupError("no stored copy of blob")
+    return file, resolve_backend_for_file_sync(session, settings, file)
+
+
+class _RangedReader(io.RawIOBase):
+    """Seekable read-only view over ``backend.read`` range requests."""
+
+    def __init__(self, backend, key: str) -> None:
+        self._backend, self._key = backend, key
+        self._size = backend.stat(key).size
+        self._pos = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: self._size}[whence]
+        self._pos = max(0, base + offset)
+        return self._pos
+
+    def readinto(self, b) -> int:
+        want = min(len(b), self._size - self._pos)
+        if want <= 0:
+            return 0
+        data = b"".join(self._backend.read(self._key, self._pos, self._pos + want))
+        b[: len(data)] = data
+        self._pos += len(data)
+        return len(data)
+
+
+def open_blob_ranged(session: Session, settings: Settings, blob_hash: str):
+    """Seekable binary file over the stored blob without copying it locally
+    (e.g. ``zipfile.ZipFile`` reads only the central directory)."""
+    file, backend = _verified_copy(session, settings, blob_hash)
+    return io.BufferedReader(_RangedReader(backend, file.storage_path), buffer_size=1 << 16)
+
+
 def fetch_blob_to_temp(
     session: Session,
     settings: Settings,
@@ -293,19 +348,7 @@ def fetch_blob_to_temp(
     live on two different backends). Raises ``LookupError`` if no verified
     copy exists (e.g. every file pointing at this blob is still mid-upload).
     """
-    file = (
-        session.execute(
-            select(File)
-            .where(File.blob_hash == blob_hash, File.verified_at.is_not(None))
-            .order_by(File.id)
-        )
-        .scalars()
-        .first()
-    )
-    if file is None:
-        raise LookupError("no stored copy of blob")
-
-    backend = resolve_backend_for_file_sync(session, settings, file)
+    file, backend = _verified_copy(session, settings, blob_hash)
     dest = dest_dir / f"blob{suffix}"
     with dest.open("wb") as fh:
         for chunk in backend.read(file.storage_path):

@@ -67,3 +67,22 @@ describe("PlateSelector profiles", () => {
     expect(screen.getByRole("combobox").parentElement?.textContent).not.toMatch(/·\s*$/);
   });
 });
+
+describe("PlateSelector trigger + pause marker", () => {
+  it("keeps the plate-count suffix as its own non-shrinking span and exposes the full label", () => {
+    const files = [{ fileId: 1, blobHash: "a", label: "A very long profile title 15% infill no AM", plates: [plate(1), plate(2)] }];
+    render(<PlateSelector blobHash="a" plates={files[0].plates} value={null} onChange={() => {}} files={files} onFileChange={() => {}} />);
+    const trigger = screen.getByRole("combobox", { name: "Print profile" });
+    expect(trigger).toHaveAttribute("title", "A very long profile title 15% infill no AM · 2 plates");
+    const suffix = screen.getByText("· 2 plates");
+    expect(suffix).toHaveClass("shrink-0", "whitespace-nowrap");
+    expect(screen.getByText("A very long profile title 15% infill no AM")).toHaveClass("truncate");
+  });
+
+  it("marks plates that pause", () => {
+    render(<PlateSelector blobHash="h" plates={[{ ...plate(1), pauses: [{ z: 2 }] }, plate(2)]} value={null} onChange={() => {}} />);
+    const chips = screen.getAllByRole("radio");
+    expect(chips[1].querySelector("[data-testid=plate-pause]")).not.toBeNull();
+    expect(chips[2].querySelector("[data-testid=plate-pause]")).toBeNull();
+  });
+});

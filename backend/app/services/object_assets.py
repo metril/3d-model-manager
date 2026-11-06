@@ -15,7 +15,7 @@ from app.config import Settings
 from app.pipeline import convert, plates3mf
 from app.services import derivatives
 
-OBJECTS_V = 1
+OBJECTS_V = 2
 
 
 def _describe(piece: plates3mf.ObjectPiece) -> dict:

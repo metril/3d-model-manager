@@ -88,17 +88,17 @@ function fakeModel(files: FileOut[]): ModelDetail {
 describe("glbUrl", () => {
   it("points at the plain glb endpoint when the preview LOD isn't ready", () => {
     const file = fakeFile({ blob_hash: "hash1", glb_preview_ready: false, meta: fakeMeta({ triangle_count: 5_000_000 }) });
-    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=3");
+    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=4");
   });
 
   it("points at the plain glb endpoint when triangle count is at or under the threshold", () => {
     const file = fakeFile({ blob_hash: "hash1", glb_preview_ready: true, meta: fakeMeta({ triangle_count: 1_500_000 }) });
-    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=3");
+    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=4");
   });
 
   it("points at the plain glb endpoint when there is no metadata at all", () => {
     const file = fakeFile({ blob_hash: "hash1", glb_preview_ready: true, meta: null });
-    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=3");
+    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?v=4");
   });
 
   it("requests the preview LOD once it's ready and the mesh exceeds the triangle threshold", () => {
@@ -107,7 +107,7 @@ describe("glbUrl", () => {
       glb_preview_ready: true,
       meta: fakeMeta({ triangle_count: 1_500_001 }),
     });
-    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?preview=true&v=3");
+    expect(glbUrl(file)).toBe("/api/blobs/hash1/glb?preview=true&v=4");
   });
 });
 
