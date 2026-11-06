@@ -13,6 +13,7 @@ touches it, so a misbehaving/huge response can't blow up memory.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 
 import httpx
 
@@ -57,6 +58,17 @@ class HaClient:
         """GET /api/states -- every entity (T5 location sensor picker)."""
         data = self._json(self._get("/api/states", _MAX_STATES_BYTES), limit=_MAX_STATES_BYTES)
         return data if isinstance(data, list) else []
+
+    def states_for(self, entity_ids: Iterable[str]) -> dict[str, dict | None]:
+        """One ``GET /api/states`` filtered locally: ``{entity_id: state|None}``
+        (``None`` = HA doesn't know the entity), instead of one request per
+        entity every poll tick."""
+        by_id = {
+            e["entity_id"]: e
+            for e in self.states()
+            if isinstance(e, dict) and isinstance(e.get("entity_id"), str)
+        }
+        return {eid: by_id.get(eid) for eid in entity_ids}
 
     def call_service(self, domain: str, service: str, data: dict) -> None:
         """POST /api/services/<domain>/<service> (Q7 smart plugs)."""

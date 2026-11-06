@@ -215,14 +215,10 @@ def poll_once(
     client = client or HaClient(cfg.ha_url, cfg.ha_token)
     try:
         entity_ids = sorted({link.entity_id for link in links})
-        states: dict[str, dict | None] = {}
         entity_errors: list[str] = []
         try:
-            for entity_id in entity_ids:
-                value = client.state(entity_id)
-                if value is None:
-                    entity_errors.append(entity_id)
-                states[entity_id] = value
+            states = client.states_for(entity_ids)  # one /api/states, filtered locally
+            entity_errors = [eid for eid, value in states.items() if value is None]
         except HaUnreachable:
             checked_at = now if now is not None else datetime.now(UTC)
             status = {"ok": False, "error": "unreachable", "checked_at": checked_at.isoformat()}

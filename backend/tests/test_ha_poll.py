@@ -60,10 +60,28 @@ def _seed_printer(session, *, name="P1") -> Printer:
     return p
 
 
-def _state_route(entity_id: str, state: str):
-    return respx.get(f"{BASE_URL}/api/states/{entity_id}").mock(
-        return_value=httpx.Response(200, json={"state": state, "attributes": {}})
+_STATES: dict[str, dict] = {}
+
+
+@pytest.fixture(autouse=True)
+def _reset_states():
+    _STATES.clear()
+    yield
+    _STATES.clear()
+
+
+def _states_route(status: int = 200):
+    """The ONE ``/api/states`` route the poller reads (filtered locally)."""
+    if status != 200:
+        return respx.get(f"{BASE_URL}/api/states").mock(return_value=httpx.Response(status))
+    return respx.get(f"{BASE_URL}/api/states").mock(
+        side_effect=lambda request: httpx.Response(200, json=list(_STATES.values()))
     )
+
+
+def _state_route(entity_id: str, state: str):
+    _STATES[entity_id] = {"entity_id": entity_id, "state": state, "attributes": {}}
+    return _states_route()
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +246,7 @@ def test_clear_deletes_key(redis_url: str):
         poll_once(s, r, _cfg())
         assert read_alert(r, printer.id) is not None
 
-        route.respond(200, json={"state": "off", "attributes": {}})
+        _STATES["binary_sensor.door"]["state"] = "off"
         poll_once(s, r, _cfg())
 
     assert read_alert(r, printer.id) is None
@@ -251,9 +269,7 @@ def test_unreachable_fails_open(redis_url: str):
         s.commit()
         r.set(alert_key(printer.id), json.dumps({"reason": "stale", "entities": [], "hold": True}))
 
-        respx.get(f"{BASE_URL}/api/states/binary_sensor.door").mock(
-            return_value=httpx.Response(503)
-        )
+        _states_route(503)
         result = poll_once(s, r, _cfg())
 
     assert result["ok"] is False
@@ -265,7 +281,7 @@ def test_unreachable_fails_open(redis_url: str):
 @respx.mock
 def test_404_entity_reported(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    respx.get(f"{BASE_URL}/api/states/binary_sensor.missing").mock(return_value=httpx.Response(404))
+    _states_route()  # HA knows no such entity
     with base.sync_session() as s:
         printer = _seed_printer(s)
         s.add(
@@ -304,10 +320,10 @@ def test_energy_counter_reset_tracked_across_polls(redis_url: str):
         s.commit()
         poll_once(s, r, _cfg())  # baseline
 
-        route.respond(200, json={"state": "10.4", "attributes": {}})
+        _STATES["sensor.plug_energy"]["state"] = "10.4"
         poll_once(s, r, _cfg())
 
-        route.respond(200, json={"state": "0.1", "attributes": {}})  # reset
+        _STATES["sensor.plug_energy"]["state"] = "0.1"  # reset
         poll_once(s, r, _cfg())
 
     assert energy_acc(r, printer.id) == pytest.approx(0.5)
@@ -343,7 +359,7 @@ def test_energy_update_is_atomic_across_overlapping_polls(redis_url: str):
             r.delete(key)
         poll_once(s, r, _cfg())  # baseline: 10.0
 
-        route.respond(200, json={"state": "11.0", "attributes": {}})
+        _STATES["sensor.plug_energy"]["state"] = "11.0"
         # Two "overlapping" ticks reading the same new state -- each must
         # see the OTHER's raw-key write, not stale data, so the total
         # delta is 1.0 once, not 1.0 counted twice.
@@ -368,7 +384,7 @@ def test_energy_null_printer_link_ignored(redis_url: str):
 @respx.mock
 def test_ha_token_never_logged(redis_url: str, caplog: pytest.LogCaptureFixture):
     r = redis_lib.Redis.from_url(redis_url)
-    respx.get(f"{BASE_URL}/api/states/binary_sensor.door").mock(return_value=httpx.Response(500))
+    _states_route(500)
     with base.sync_session() as s:
         printer = _seed_printer(s)
         s.add(
