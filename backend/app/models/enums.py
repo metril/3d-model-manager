@@ -9,6 +9,8 @@ values below are a judgment call grounded in the "Gallery importers" and
 
 from enum import StrEnum
 
+TRASH_HOLD = "model_in_trash"  # PrintQueueEntry.hold_reason for entries of trashed models
+
 
 class BlobKind(StrEnum):
     """Coarse content category of a blob (SPEC ``blobs.kind``)."""

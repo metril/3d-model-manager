@@ -18,6 +18,7 @@ the scanner (SPEC M3 "Rescan/reconcile") -- not handled here.
 from __future__ import annotations
 
 import contextlib
+import logging
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -61,7 +62,7 @@ from app.schemas.library import (
     RevisionSummary,
     TagOut,
 )
-from app.services import derivatives, layout
+from app.services import derivatives, layout, pending_deletes
 from app.services import jobs as jobs_service
 from app.services import tags as tags_svc
 from app.services.app_config import get_app_config
@@ -81,6 +82,8 @@ if TYPE_CHECKING:
     # simplest): only needed for the `store_imported_file_sync` annotation.
     from app.api.deps import AuthContext
     from app.importers.download import StagedFile
+
+log = logging.getLogger(__name__)
 
 
 def _parse_cursor_datetime(raw: str) -> datetime:
@@ -619,9 +622,8 @@ async def hard_delete_model(
             "a file is still processing; retry once stored",
         )
 
-    def _delete_sidecar() -> None:
-        with contextlib.suppress(StorageKeyNotFound):
-            backend.delete(layout.sidecar_key(model.slug))
+    sidecar_key = layout.sidecar_key(model.slug)  # the commit below expires the ORM row
+    sidecar_target = [(backend, None, sidecar_key)]
 
     if files:
         file_ids = [f.id for f in files]
@@ -646,22 +648,26 @@ async def hard_delete_model(
                     db, settings, loc.backend_id
                 )
 
-        def _delete_all() -> None:
-            for file in files:
-                with contextlib.suppress(StorageKeyNotFound):
-                    primary_backend_by_file_id[file.id].delete(file.storage_path)
-            for loc in locations:
-                storage_path = storage_path_by_file_id[loc.file_id]
-                with contextlib.suppress(StorageKeyNotFound):
-                    location_backend_by_id[loc.backend_id].delete(storage_path)
-            _delete_sidecar()
-
-        await anyio.to_thread.run_sync(_delete_all)
+        # Snapshot plain values: the commit below expires/deletes the ORM rows.
+        targets = [
+            (primary_backend_by_file_id[f.id], f.backend_id, f.storage_path) for f in files
+        ] + [
+            (
+                location_backend_by_id[loc.backend_id],
+                loc.backend_id,
+                storage_path_by_file_id[loc.file_id],
+            )
+            for loc in locations
+        ]
+        targets += sidecar_target
     else:
-        await anyio.to_thread.run_sync(_delete_sidecar)
+        targets = sidecar_target
 
+    # DB first: a failed commit must never leave rows pointing at deleted blobs.
     await db.execute(sa_delete(Model).where(Model.id == model.id))
     await db.commit()
+    failed = await anyio.to_thread.run_sync(pending_deletes.delete_collecting, targets)
+    await pending_deletes.record_async(db, failed)
 
 
 async def bulk_hard_delete_models(

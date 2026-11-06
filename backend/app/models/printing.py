@@ -11,6 +11,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -124,7 +125,9 @@ class PrintJob(Base):
     )
     printer_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("printers.id"), nullable=False)
     # NULL for an `external` job (a print the printer started on its own).
-    file_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("files.id"), nullable=True)
+    file_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("files.id", ondelete="SET NULL"), nullable=True
+    )
     origin: Mapped[PrintJobOrigin] = mapped_column(
         str_enum(PrintJobOrigin, "print_job_origin"),
         nullable=False,
@@ -147,6 +150,7 @@ class PrintJob(Base):
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
+    __table_args__ = (Index("ix_print_jobs_printer_state", "printer_id", "state"),)
     # Slicer filament index -> AMS tray, as sent (app-origin jobs only).
     ams_mapping: Mapped[list | None] = mapped_column(JSONB)
     # P5 spool tray plan: `{"start": [tray...], "end": [tray...]}` AMS tray

@@ -5,7 +5,7 @@ apply), ungroup, cancel. Status ``done`` is derived from the entries."""
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext
@@ -214,13 +214,37 @@ async def dispatch_batch(
     batch = await get_or_404(db, batch_id)
     if batch.status != "draft":
         raise HTTPException(status.HTTP_409_CONFLICT, "batch already dispatched")
-    file_id = await _resolve_file_id(db, settings, batch)
-    opts = batch.options or {}
-    if batch.recipe_id is not None and not force:
-        recipe = await db.get(PrintRecipe, batch.recipe_id)
-        file = await library.get_live_file(db, file_id)
-        if recipe is not None and file is not None:
-            await guard_files_fit(db, recipe, [file], None, settings)
+    # Atomic claim: only one concurrent dispatcher wins the draft -> dispatching flip.
+    claimed = await db.execute(
+        update(PrintBatch)
+        .where(PrintBatch.id == batch_id, PrintBatch.status == "draft")
+        .values(status="dispatching")
+    )
+    if claimed.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "batch already dispatched")
+    await db.commit()
+
+    async def _unclaim() -> None:
+        await db.rollback()
+        await db.execute(
+            update(PrintBatch)
+            .where(PrintBatch.id == batch_id, PrintBatch.status == "dispatching")
+            .values(status="draft")
+        )
+        await db.commit()
+
+    try:
+        file_id = await _resolve_file_id(db, settings, batch)
+        opts = batch.options or {}
+        if batch.recipe_id is not None and not force:
+            recipe = await db.get(PrintRecipe, batch.recipe_id)
+            file = await library.get_live_file(db, file_id)
+            if recipe is not None and file is not None:
+                await guard_files_fit(db, recipe, [file], None, settings)
+    except HTTPException:
+        await _unclaim()
+        raise
     created: list[int] = []
     try:
         for plate in _plate_sequence(batch):
@@ -247,6 +271,7 @@ async def dispatch_batch(
         await db.rollback()
         for entry_id in created:
             await queue_service.remove_entry(db, entry_id)
+        await _unclaim()
         raise
     batch = await get_or_404(db, batch_id)
     batch.status = "active"

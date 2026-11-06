@@ -42,6 +42,8 @@ _TIMELAPSE_EXTS = (".mp4", ".avi")
 # own clock can disagree by a bit, so candidates up to 2 minutes BEFORE the
 # job started still count (SD card finalization lag, not a stale leftover).
 _START_GRACE_S = 120
+# Videos finalised after the print ends by more than this belong to a later print.
+_END_GRACE_S = 600
 
 
 def _is_safe_name(name: str) -> bool:
@@ -59,7 +61,9 @@ def _is_safe_name(name: str) -> bool:
 
 
 def pick_timelapse(
-    entries: list[tuple[str, RemoteFile]], started_at: datetime
+    entries: list[tuple[str, RemoteFile]],
+    started_at: datetime,
+    finished_at: datetime | None = None,
 ) -> tuple[str, RemoteFile] | None:
     """The newest ``(dir, file)`` among ``entries`` that looks like a video
     and wasn't finalized before this print started (within the grace
@@ -73,10 +77,14 @@ def pick_timelapse(
         and Path(f.name).suffix.lower() in _TIMELAPSE_EXTS
         and f.mtime is not None
         and f.mtime >= cutoff
+        and (finished_at is None or f.mtime <= finished_at + timedelta(seconds=_END_GRACE_S))
     ]
     if not candidates:
         return None
-    return max(candidates, key=lambda df: df[1].mtime)
+    if finished_at is None:
+        return max(candidates, key=lambda df: df[1].mtime)
+    # Closest to the print's end: a later print's video must not win.
+    return min(candidates, key=lambda df: abs(df[1].mtime - finished_at))
 
 
 def attach_snapshot(
@@ -148,7 +156,7 @@ def fetch_timelapse_for(
             entries.extend((d, f) for f in files)
         if not any_listed:
             return "none"
-        picked = pick_timelapse(entries, job.started_at)
+        picked = pick_timelapse(entries, job.started_at, job.finished_at)
         if picked is None:
             return "retry"
         d, rf = picked

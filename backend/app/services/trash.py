@@ -8,7 +8,6 @@ files from every storage backend.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -21,11 +20,11 @@ from sqlalchemy.orm import Session as SyncSession
 from app.api.deps import AuthContext, require_owner_or_admin
 from app.config import Settings
 from app.models import AuditLog, User
-from app.models.enums import QueueState
+from app.models.enums import TRASH_HOLD, QueueState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.models.storage import FileLocation
 from app.schemas.trash import TrashItemOut, TrashListOut
-from app.services import layout, library
+from app.services import layout, library, pending_deletes
 from app.services.app_config import get_app_config, get_app_config_sync
 from app.services.storage_backends import (
     backend_for_id_sync,
@@ -33,7 +32,6 @@ from app.services.storage_backends import (
     resolve_default_backend_sync,
 )
 from app.storage.base import StorageBackend
-from app.storage.errors import StorageKeyNotFound
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +82,11 @@ async def _release_queue_entries(db: AsyncSession, model_ids: list[int]) -> None
         needs_slice = e.file_id is None or (e.recipe_id is not None and e.sliced_file_id is None)
         e.state = QueueState.WAITING if needs_slice else QueueState.READY
         e.last_error = None
+        if e.hold_reason in (TRASH_HOLD, MODEL_IN_TRASH):
+            e.hold_reason = None
+        e.print_job_id = None
+        e.assigned_printer_id = None
+        e.attempts = 0
 
 
 async def move_to_trash(db: AsyncSession, ctx: AuthContext, ids: list[int]) -> int:
@@ -232,17 +235,15 @@ def purge_model_sync(session: SyncSession, settings: Settings, model: Model) -> 
     for loc in locs:
         if loc.backend_id not in loc_backends:
             loc_backends[loc.backend_id] = backend_for_id_sync(session, settings, loc.backend_id)
-    for f in files:
-        with contextlib.suppress(StorageKeyNotFound):
-            primary[f.id].delete(paths[f.id])
-    for loc in locs:
-        with contextlib.suppress(StorageKeyNotFound):
-            loc_backends[loc.backend_id].delete(paths[loc.file_id])
     default_backend, _ = resolve_default_backend_sync(session, settings)
-    with contextlib.suppress(StorageKeyNotFound):
-        default_backend.delete(layout.sidecar_key(model.slug))
+    fbid = {f.id: f.backend_id for f in files}
+    targets = [(primary[f.id], fbid[f.id], paths[f.id]) for f in files]
+    targets += [(loc_backends[loc.backend_id], loc.backend_id, paths[loc.file_id]) for loc in locs]
+    targets.append((default_backend, None, layout.sidecar_key(model.slug)))
+    # Commit the DB delete first; storage cleanup is best-effort afterwards.
     session.execute(sa_delete(Model).where(Model.id == model.id))
     session.commit()
+    pending_deletes.record_sync(session, pending_deletes.delete_collecting(targets))
     return True
 
 

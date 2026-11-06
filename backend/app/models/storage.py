@@ -15,7 +15,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Identity, Index, Text, false, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Text,
+    false,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +59,23 @@ class StorageBackendRow(Base):
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PendingStorageDelete(Base):
+    """A storage object whose delete failed after its DB row was removed.
+
+    Retried by the file reaper; the scanner skips these keys so the leftover
+    bytes are not re-adopted as a new draft model. ``backend_id`` NULL means
+    the default backend.
+    """
+
+    __tablename__ = "pending_storage_deletes"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    backend_id: Mapped[int | None] = mapped_column(BigInteger)
+    key: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
 class FileLocation(Base):
