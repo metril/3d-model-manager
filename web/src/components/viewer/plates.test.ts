@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import i18n from "@/i18n";
 
-import { bedsBounds, buildPlateLayout, layoutPartId, clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts, handlePlateKey, withSourceFallback, nextProfile, plateTotal, safeColour } from "@/components/viewer/plates";
+import { bedsBounds, buildPlateLayout, layoutPartId, clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts, handlePlateKey, withSourceFallback, nextProfile, plateTotal, safeColour, plateForFile } from "@/components/viewer/plates";
 import type { FileOut, PlateOut } from "@/api/types";
 
 const T = i18n.t.bind(i18n);
@@ -187,5 +187,15 @@ describe("plate helpers", () => {
     const fs = [{ id: 1, blob_hash: "h" }, { id: 2, blob_hash: "h" }];
     expect([...visibleParts(fs, new Set(), "h", 2)]).toEqual([2]);
     expect([...visibleParts(fs, new Set(), "h")]).toEqual([1, 2]);
+  });
+});
+
+describe("plateForFile", () => {
+  it("applies the seed only to the file it was picked on", () => {
+    expect(plateForFile(2, 7, 7)).toBe(2);
+    expect(plateForFile(2, 7, 8)).toBeNull();
+    expect(plateForFile(2, 7, null)).toBe(2); // not resolved yet; the file effect re-checks on resolution
+    expect(plateForFile(2, null, 8)).toBe(2);
+    expect(plateForFile(null, 7, 7)).toBeNull();
   });
 });

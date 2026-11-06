@@ -53,7 +53,7 @@ import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useFileBedFit, useFilePlates, useRecipes, useSlicerHealth } from "@/api/slicing";
 import { PauseWarning } from "@/components/print/PauseWarning";
 import { PlatePicker } from "@/components/print/PlatePicker";
-import { selectablePlates } from "@/components/viewer/plates";
+import { plateForFile, selectablePlates } from "@/components/viewer/plates";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
@@ -200,6 +200,7 @@ export function PrintDialog({
   printerId: printerIdProp,
   sliceOnly: sliceOnlyProp = false,
   initialPlate,
+  initialFileId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -211,6 +212,8 @@ export function PrintDialog({
   sliceOnly?: boolean;
   /** Seeds the plate selection (e.g. the plate a just-finished slice produced). */
   initialPlate?: number | null;
+  /** The file `initialPlate` was picked on; the seed applies only while that file is the effective one. */
+  initialFileId?: number | null;
 }) {
   // A file source's format: passed by the caller, else fetched.
   const passedFormat = source.kind === "file" ? source.format : undefined;
@@ -256,7 +259,7 @@ export function PrintDialog({
     setAutoAdvanced(false);
     setPickedModelId(null);
     setPickedFileId(null);
-    setPlate(initialPlate || null);
+    setPlate(plateForFile(initialPlate, initialFileId, effectiveFileId));
     setPrinterId(printerIdProp ?? null);
     setSliceOnly(sliceOnlyProp);
     setOverrides({});
@@ -272,7 +275,7 @@ export function PrintDialog({
     setBatchChoice(NO_BATCH);
     setTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, printerIdProp, sliceOnlyProp, initialPlate, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
+  }, [open, printerIdProp, sliceOnlyProp, initialPlate, initialFileId, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   // Once a file source's format is known it decides the mode: sliced ->
   // as-sliced (never a recipe), anything else -> recipe. Runs after the
@@ -339,6 +342,8 @@ export function PrintDialog({
   useEffect(() => {
     const prev = prevFileId.current;
     prevFileId.current = effectiveFileId;
+    // First resolution included: a seed from another file must not stick.
+    if (initialPlate && initialFileId != null && effectiveFileId != null && effectiveFileId !== initialFileId) setPlate(null);
     if (prev == null || prev === effectiveFileId || source.kind === "archive") return;
     setPlate(null);
     setAutoAdvanced(false);

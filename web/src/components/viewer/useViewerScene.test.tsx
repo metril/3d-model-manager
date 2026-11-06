@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ALL_FILES, getSelectedPlate, setActiveViewerBlob, setSelectedPlate, useActiveViewerBlob } from "@/components/viewer/plates";
@@ -17,6 +17,9 @@ const FILE = {
   id: 1, blob_hash: "vs1", format: "3mf", kind: "model", glb_preview_ready: false,
   meta: { triangle_count: 10, plates: [plate(1), plate(2)] },
 } as unknown as FileOut;
+
+// Unmount clears the plate pick on a deferred tick (StrictMode-safe).
+const flush = () => new Promise((r) => setTimeout(r, 5));
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
@@ -66,7 +69,7 @@ describe("useViewerScene plate layout", () => {
 });
 
 describe("useViewerScene plates", () => {
-  it("swaps the part GLB to the plate endpoint, refits and clears on unmount", () => {
+  it("swaps the part GLB to the plate endpoint, refits and clears on unmount", async () => {
     const { result, unmount } = renderHook(
       () => useViewerScene({ slug: "m", files: [FILE], persist: false, defaultAllChecked: true }),
       { wrapper },
@@ -80,6 +83,7 @@ describe("useViewerScene plates", () => {
     expect(result.current.stageProps.fitSignal).toBe(fit0 + 1);
 
     unmount();
+    await flush();
     expect(getSelectedPlate("vs1")).toBeNull();
   });
 
@@ -156,7 +160,10 @@ describe("useViewerScene profile isolation", () => {
 });
 
 describe("useViewerScene pop-out seed + session memory", () => {
-  beforeEach(() => sessionStorage.clear());
+  beforeEach(async () => {
+    sessionStorage.clear();
+    await flush();
+  });
 
   it("seeds the pop-out plate before the first read and keeps ?ex= explode", () => {
     const seen: (number | null | undefined)[] = [];
@@ -174,14 +181,16 @@ describe("useViewerScene pop-out seed + session memory", () => {
     unmount();
   });
 
-  it("remembers profile + plate per model slug across a remount", () => {
+  it("remembers profile + plate per model slug across a remount", async () => {
     const first = renderHook(() => useViewerScene({ slug: "mem", files: [FILE] }), { wrapper });
     act(() => first.result.current.stageProps.plateInfo!.onChange(2));
     expect(JSON.parse(sessionStorage.getItem("viewer-profile:mem")!)).toEqual({ blob: "vs1", plate: 2 });
     first.unmount();
+    await flush();
     const second = renderHook(() => useViewerScene({ slug: "mem", files: [FILE] }), { wrapper });
     expect(second.result.current.stageProps.plateInfo!.value).toBe(2);
     second.unmount();
+    await flush();
     // a different model starts clean
     const other = renderHook(() => useViewerScene({ slug: "other", files: [FILE] }), { wrapper });
     expect(other.result.current.stageProps.plateInfo!.value).toBeNull();
@@ -207,5 +216,23 @@ describe("useViewerScene pop-out seed + session memory", () => {
     );
     expect(result.current.active).toBeNull();
     unmount();
+  });
+});
+
+describe("useViewerScene StrictMode", () => {
+  it("keeps the selected plate through the dev double-effect, clears it on real unmount", async () => {
+    await flush();
+    setSelectedPlate("vs1", 2);
+    const strict = ({ children }: { children: ReactNode }) => <StrictMode>{wrapper({ children })}</StrictMode>;
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "sm", files: [FILE], persist: false, initial: { blob: "vs1", plate: 2 } }),
+      { wrapper: strict },
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getSelectedPlate("vs1")).toBe(2);
+    expect(result.current.stageProps.plateInfo!.value).toBe(2);
+    unmount();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getSelectedPlate("vs1")).toBeNull();
   });
 });

@@ -30,6 +30,14 @@ export function plateLabel(plate: Pick<PlateOut, "index" | "name">, t: TFn, tota
   return name && name.toLowerCase() !== `plate ${plate.index}` ? `${base} · ${name}` : base;
 }
 
+/** A seeded plate only applies to the file it was picked on; once the dialog
+ * resolves a different file (or none yet matches), it must not leak across. */
+export function plateForFile(plate: number | null | undefined, plateFileId: number | null | undefined, fileId: number | null): number | null {
+  if (!plate) return null;
+  if (plateFileId == null) return plate;
+  return fileId == null || fileId === plateFileId ? plate : null;
+}
+
 /** Highest plate index (chips say "2/4" even when plate numbers have gaps). */
 export const plateTotal = (plates: PlateOut[]): number => plates.reduce((m, p) => Math.max(m, p.index), 0);
 

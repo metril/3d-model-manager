@@ -245,10 +245,32 @@ export function useViewerScene({
     else setActiveViewerBlob(target);
   }, [storeBlob, plateFiles, hasAllFiles, target]);
   // Forget the blob's plate pick when the profile changes or the viewer goes away.
+  // Profile change: clear the OLD blob in the effect body. On unmount, clear
+  // through a deferred "still not shown" check so a StrictMode remount (which
+  // re-runs effects) doesn't wipe the plate it just rendered with.
+  const prevBlob = useRef<string | null>(null);
   useEffect(() => {
-    if (!plateBlob) return;
-    return () => clearSelectedPlate(plateBlob);
+    if (prevBlob.current && prevBlob.current !== plateBlob) clearSelectedPlate(prevBlob.current);
+    prevBlob.current = plateBlob;
   }, [plateBlob]);
+  const shownBlob = useRef<string | null>(null);
+  shownBlob.current = plateBlob;
+  useEffect(() => {
+    return () => {
+      const blob = prevBlob.current;
+      if (!blob) return;
+      setTimeout(() => {
+        if (shownBlob.current !== blob || !mounted.current) clearSelectedPlate(blob);
+      }, 0);
+    };
+  }, []);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => () => setActiveViewerBlob(null), []);
   const selectedPlate = useSelectedPlate(plateBlob);
   // A profile isolates its file; "All files" restores the checked set.

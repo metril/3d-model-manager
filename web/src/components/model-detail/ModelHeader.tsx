@@ -287,7 +287,7 @@ export function ModelHeader({
               <Button type="button" onClick={() => setPrintOpen(true)}>
                 Print…
               </Button>
-              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} initialPlate={dialogPlate} />
+              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} initialPlate={dialogPlate} initialFileId={dialogPlate ? sliceableFile?.id : null} />
             </>
           ) : null}
           {/* Queueing a model to print is a normal action too, not an edit. */}
