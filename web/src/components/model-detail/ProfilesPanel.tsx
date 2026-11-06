@@ -16,6 +16,7 @@ import {
   useSelectedPlate,
 } from "@/components/viewer/plates";
 import { humanizeDuration } from "@/lib/format";
+import { plainText } from "@/lib/plainText";
 import { cn } from "@/lib/utils";
 import type { FileOut, ModelDetail, PlateOut } from "@/api/types";
 
@@ -72,10 +73,10 @@ export function ProfilesPanel({ model }: { model: ModelDetail }) {
       <CardContent className="space-y-4">
         {files.map((file) => {
           const sm = file.source_meta;
-          const title = sm?.title?.trim() || fileLabel(file.rel_path);
+          const title = plainText(sm?.title) || fileLabel(file.rel_path);
           const plates = file.meta?.plates ?? [];
           const glbPlates = new Set(selectablePlates(plates).filter((p) => p.has_glb).map((p) => p.index));
-          const desc = sm?.description?.trim();
+          const desc = plainText(sm?.description);
           return (
             <div key={file.id} className="space-y-2">
               <div className="min-w-0">

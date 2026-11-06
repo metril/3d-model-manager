@@ -143,3 +143,14 @@ def test_read_3mf_profile_meta(tmp_path: Path) -> None:
     p.write_bytes(make_coloured_project_3mf())
     with zipfile.ZipFile(p) as zf:
         assert plates3mf.read_3mf_profile_meta(zf) is None
+
+
+def test_clean_meta_text() -> None:
+    assert plates3mf.clean_meta_text("&lt;p&gt;no ams.&lt;/p&gt;") == "no ams."
+    assert (
+        plates3mf.clean_meta_text(
+            "&amp;lt;p&amp;gt;a  &amp;amp; b&amp;lt;br/&amp;gt;c&amp;lt;/p&amp;gt;"
+        )
+        == "a & b c"
+    )
+    assert plates3mf.clean_meta_text("  ") is None

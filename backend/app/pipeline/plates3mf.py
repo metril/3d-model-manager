@@ -16,9 +16,11 @@ toward -Y.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import math
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,6 +99,22 @@ def plate_filament_info(zf: zipfile.ZipFile, plates: list[dict]) -> dict[int, di
     }
 
 
+_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def clean_meta_text(text: str | None) -> str | None:
+    """Decode (possibly double) entity-escaped HTML to plain text."""
+    if not text:
+        return None
+    for _ in range(3):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = _TAG_RE.sub(" ", text)
+    return " ".join(text.split()) or None
+
+
 def read_3mf_profile_meta(zf: zipfile.ZipFile) -> dict | None:
     """MakerWorld provenance from ``3D/3dmodel.model`` ``<metadata>``, in the
     shape the MakerWorld importer stores in ``files.source_meta``; ``None``
@@ -119,10 +137,10 @@ def read_3mf_profile_meta(zf: zipfile.ZipFile) -> dict | None:
         return None
     out = {
         "profile_id": profile_id,
-        "title": md.get("ProfileTitle") or md.get("Title") or None,
+        "title": clean_meta_text(md.get("ProfileTitle") or md.get("Title")),
         "design_id": design_id,
-        "design_title": md.get("Title") or None,
-        "description": md.get("ProfileDescription") or None,
+        "design_title": clean_meta_text(md.get("Title")),
+        "description": clean_meta_text(md.get("ProfileDescription")),
         "author": md.get("ProfileUserName") or md.get("Designer") or None,
         "origin": "3mf",
     }
