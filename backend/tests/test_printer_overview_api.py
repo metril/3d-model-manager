@@ -184,6 +184,7 @@ async def test_overview_constant_query_count(
     await _finished_archive(db_session, p1, n=1)
 
     engine = get_engine()
+    await authenticated_client.get("/api/printers/overview")  # warm per-process caches
     one_count = await _count_statements(engine, authenticated_client.get("/api/printers/overview"))
 
     for i in range(2):
