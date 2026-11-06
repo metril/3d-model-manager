@@ -3094,7 +3094,8 @@
     "remove": "Remove {{name}}",
     "removed": "Removed {{name}} from the queue",
     "undoHint": "Undo re-adds it at the end of the queue.",
-    "undo": "Undo"
+    "undo": "Undo",
+    "entryNotFound": "Entry #{{id}} not found."
   },
   "projectDetail": {
     "addPart": "Add part",

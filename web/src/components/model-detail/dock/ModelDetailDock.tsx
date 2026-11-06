@@ -8,7 +8,17 @@ import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
 import { buildDefaultLayout, addPanelAtDefault, hasProfileContent } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
-import { DOCK_COMPONENTS } from "./panels";
+import { DOCK_COMPONENTS, PANEL_TITLE_KEYS } from "./panels";
+import i18n from "i18next";
+
+/** Dockview captures titles at add time; re-apply them from the current language. */
+function retitlePanels(api: DockviewApi) {
+  for (const p of api.panels) {
+    const key = (PANEL_TITLE_KEYS as Record<string, string>)[p.id];
+    if (key) p.api.setTitle(i18n.t(key));
+  }
+}
+
 import { syncThemeInto } from "./popoutTheme";
 
 const POPOUT_URL = "/popout.html";
@@ -73,6 +83,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
   }, []);
   const themeSyncs = useRef(new Map<string, () => void>());
 
+  const langOff = useRef<(() => void) | null>(null);
   const handleReady = useCallback(
     ({ api }: DockviewReadyEvent) => {
       const saved = loadLayout();
@@ -86,6 +97,11 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
           restored = false;
         }
       }
+      retitlePanels(api);
+      langOff.current?.();
+      const onLang = () => retitlePanels(api);
+      i18n.on("languageChanged", onLang);
+      langOff.current = () => i18n.off("languageChanged", onLang);
       if (!restored) buildDefaultLayout(api, { hasSliced });
 
       // Disposed with the dockview api when the component unmounts.
@@ -111,6 +127,8 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
     const syncs = themeSyncs.current;
     unmounted.current = false;
     return () => {
+      langOff.current?.();
+      langOff.current = null;
       flushLayout();
       syncs.forEach((dispose) => dispose());
       syncs.clear();

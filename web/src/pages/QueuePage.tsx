@@ -211,6 +211,17 @@ function QueueLanes({ highlightId }: { highlightId: number | null }) {
   const printers = usePrinters();
   const entries = queueQuery.data ?? [];
   const lanes = groupByLane(entries, printers.data ?? []);
+  useEffect(() => {
+    if (highlightId != null) setIncludeDone(true);
+  }, [highlightId]);
+  // Scroll to the deep-linked row once per highlightId (not on every refetch/remount).
+  const scrolledFor = useRef<number | null>(null);
+  const found = highlightId != null && entries.some((e) => e.id === highlightId);
+  useEffect(() => {
+    if (!found || scrolledFor.current === highlightId) return;
+    scrolledFor.current = highlightId;
+    document.getElementById(`queue-entry-${highlightId}`)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [found, highlightId]);
 
   const columns: { key: number | typeof ANY_PRINTER; title: string }[] = [
     ...(printers.data ?? []).map((p) => ({ key: p.id, title: p.name })),
@@ -231,6 +242,12 @@ function QueueLanes({ highlightId }: { highlightId: number | null }) {
           {t("queuePage.showFinished")}
         </label>
       </div>
+
+      {highlightId != null && queueQuery.isSuccess && !found ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t("queuePage.entryNotFound", { id: highlightId })}
+        </p>
+      ) : null}
 
       {queueQuery.isLoading ? (
         <Skeleton className="h-64 w-full rounded-lg" />
@@ -327,10 +344,6 @@ function QueueRow({
   highlighted?: boolean;
 }) {
   const { t } = useTranslation();
-  const rowRef = useRef<HTMLLIElement>(null);
-  useEffect(() => {
-    if (highlighted) rowRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-  }, [highlighted]);
   const moveEntry = useMoveQueueEntry();
   const removeEntry = useRemoveQueueEntry();
   const reEnqueue = useEnqueue();
@@ -346,7 +359,6 @@ function QueueRow({
 
   return (
     <li
-      ref={rowRef}
       id={`queue-entry-${entry.id}`}
       data-highlighted={highlighted || undefined}
       className={highlighted ? "-mx-2 rounded-md bg-primary/10 px-2 py-2.5 ring-2 ring-primary" : "py-2.5"}

@@ -8,6 +8,17 @@ import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
+import { PANEL_TITLE_KEYS } from "./panelMeta";
+import i18n from "i18next";
+
+/** Dockview captures titles at add time; re-apply them from the current language. */
+function retitlePanels(api: DockviewApi) {
+  for (const p of api.panels) {
+    const key = (PANEL_TITLE_KEYS as Record<string, string>)[p.id];
+    if (key) p.api.setTitle(i18n.t(key));
+  }
+}
+
 import { useTranslation } from "react-i18next";
 
 const POPOUT_URL = "/popout.html";
@@ -54,6 +65,7 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
   }, []);
   const themeSyncs = useRef(new Map<string, () => void>());
 
+  const langOff = useRef<(() => void) | null>(null);
   const handleReady = useCallback(
     ({ api }: DockviewReadyEvent) => {
       const saved = loadLayout();
@@ -67,6 +79,11 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
           restored = false;
         }
       }
+      retitlePanels(api);
+      langOff.current?.();
+      const onLang = () => retitlePanels(api);
+      i18n.on("languageChanged", onLang);
+      langOff.current = () => i18n.off("languageChanged", onLang);
       if (!restored) buildDefaultLayout(api);
 
       api.onDidLayoutChange(() => saveLayout(api.toJSON()));
@@ -91,6 +108,8 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
     const syncs = themeSyncs.current;
     unmounted.current = false;
     return () => {
+      langOff.current?.();
+      langOff.current = null;
       flushLayout();
       syncs.forEach((dispose) => dispose());
       syncs.clear();
