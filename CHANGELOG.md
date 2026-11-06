@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/metril/3d-model-manager/compare/v0.16.1...v0.16.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **viewer:** frame plates and flat scenes from iso instead of edge-on ([#231](https://github.com/metril/3d-model-manager/issues/231)) ([bc73716](https://github.com/metril/3d-model-manager/commit/bc73716f3d113ec034e53484a51389c2f28453e5))
+
 ## [0.16.1](https://github.com/metril/3d-model-manager/compare/v0.16.0...v0.16.1) (2026-11-06)
 
 
