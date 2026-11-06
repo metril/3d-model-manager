@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { useAuth } from "@/api/auth";
@@ -11,6 +12,7 @@ import { SwitchRow } from "@/components/ui/switch-row";
  * queue drains" switch. Needs `settings:write`; hidden otherwise. Plugs are
  * standalone records -- this section is a filtered view with an "add" shortcut. */
 export function PlugConfig({ printerId }: { printerId: number }) {
+  const { t } = useTranslation();
   const auth = useAuth();
   const allowed = auth.can("settings:write");
   const plugs = usePrinterPlugs(printerId, false);
@@ -25,28 +27,28 @@ export function PlugConfig({ printerId }: { printerId: number }) {
   return (
     <div className="space-y-3 border-t pt-3" data-testid={`plug-config-${printerId}`}>
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">Smart plugs</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t("settingsPlug.title")}</h3>
         {editing === null ? (
           <Button type="button" size="sm" variant="outline" onClick={() => setEditing("new")}>
-            Add plug
+            {t("settingsPlug.add")}
           </Button>
         ) : null}
       </div>
       {list.length === 0 && editing === null ? (
-        <p className="text-sm text-muted-foreground">No plugs linked to this printer.</p>
+        <p className="text-sm text-muted-foreground">{t("settingsPlug.none")}</p>
       ) : null}
       {list.map((p) =>
         editing === p.id ? (
           <PlugForm key={p.id} plug={p} onDone={() => setEditing(null)} />
         ) : (
           <div key={p.id} className="flex items-center gap-3 text-sm">
-            <span className="font-medium">{p.name || `Plug ${p.id}`}</span>
+            <span className="font-medium">{p.name || t("settingsPlug.fallbackName", { id: p.id })}</span>
             <span className="text-muted-foreground">
               {p.kind}
-              {p.controls_printer_power ? " - printer power" : " - accessory"}
+              {p.controls_printer_power ? t("settingsPlug.printerPower") : t("settingsPlug.accessory")}
             </span>
             <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={() => setEditing(p.id)}>
-              Edit
+              {t("common.edit")}
             </Button>
           </div>
         ),
@@ -55,7 +57,7 @@ export function PlugConfig({ printerId }: { printerId: number }) {
       {list.some((p) => p.controls_printer_power) && printer ? (
         <SwitchRow
           id={`drain-off-${printerId}`}
-          label="Power off the printer when the queue drains"
+          label={t("settingsPlug.powerOffDrained")}
           checked={Boolean(printer.power_off_when_drained)}
           disabled={update.isPending}
           onCheckedChange={(v) => update.mutate({ power_off_when_drained: v })}

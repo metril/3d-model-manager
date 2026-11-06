@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,13 +11,14 @@ import type { FileOut } from "@/api/types";
 type StageProps = Omit<ViewerStageProps, "variant" | "showWindowButtons">;
 
 function FileState({ file, fill = false }: { file: FileOut; fill?: boolean }) {
+  const { t } = useTranslation();
   if (file.kind === "sliced") return <PlatePanel file={file} fill={fill} autoPreview />;
 
   if (file.format === "gcode") {
     return (
       <PlaceholderCard
-        title="Plain G-code — no 3D preview"
-        description="This file has no mesh geometry to render."
+        title={t("mdStudio.gcodeTitle")}
+        description={t("mdStudio.gcodeDesc")}
       />
     );
   }
@@ -27,7 +29,7 @@ function FileState({ file, fill = false }: { file: FileOut; fill?: boolean }) {
         <Card className="mx-auto mt-8 max-w-md">
           <CardHeader className="items-center text-center">
             <LoaderCircleIcon className="mx-auto mb-2 size-6 animate-spin text-muted-foreground" />
-            <CardTitle>Preparing preview…</CardTitle>
+            <CardTitle>{t("mdStudio.preparing")}</CardTitle>
             {/* The app-wide SSE connection (`EventsProvider`) invalidates the
                 `["models"]` query when the conversion job finishes, which
                 refetches this model with the new `glb_status` — no polling
@@ -39,16 +41,16 @@ function FileState({ file, fill = false }: { file: FileOut; fill?: boolean }) {
       return (
         <PlaceholderCard
           destructive
-          title="Preview failed"
-          description="Couldn't generate a 3D preview for this file."
+          title={t("mdStudio.failedTitle")}
+          description={t("mdStudio.failedDesc")}
         />
       );
     case "unsupported":
     default:
       return (
         <PlaceholderCard
-          title="No 3D preview"
-          description="This file format doesn't support in-browser previewing."
+          title={t("mdStudio.noPreviewTitle")}
+          description={t("mdStudio.noPreviewDesc")}
         />
       );
   }
@@ -82,20 +84,21 @@ export function StudioSurface({
   onSelectAssembly: () => void;
   onSelectFile?: (file: FileOut) => void;
 }) {
+  const { t } = useTranslation();
   const sliced = otherFiles.filter((f) => f.kind === "sliced");
   const canToggle = hasGlb && sliced.length > 0 && onSelectFile !== undefined;
   const toggle = canToggle ? (
     <div className="flex shrink-0 flex-wrap items-center gap-2">
       <SegmentedControl
-        label="Viewer mode"
+        label={t("mdStudio.viewerMode")}
         options={["model", "sliced"] as const}
-        labels={{ model: "Model", sliced: "Sliced" }}
+        labels={{ model: t("mdStudio.model"), sliced: t("mdStudio.sliced") }}
         value={selection?.type === "assembly" ? "model" : selection?.type === "file" && sliced.some((f) => f.id === selection.id) ? "sliced" : null}
         onChange={(next) => (next === "model" ? onSelectAssembly() : onSelectFile(sliced.find((f) => selection?.type === "file" && f.id === selection.id) ?? sliced[0]))}
       />
       {selection?.type === "file" && sliced.length > 1 && (
         <select
-          aria-label="Sliced file"
+          aria-label={t("mdStudio.slicedFile")}
           className="h-7 max-w-48 rounded-md border border-border bg-card px-1 text-xs"
           value={selection.id}
           onChange={(e) => {
@@ -115,8 +118,8 @@ export function StudioSurface({
   if (!selection) {
     return (
       <PlaceholderCard
-        title="No previewable files"
-        description="Upload a mesh, CAD, or sliced file to preview it here."
+        title={t("mdStudio.noFilesTitle")}
+        description={t("mdStudio.noFilesDesc")}
       />
     );
   }
@@ -136,8 +139,8 @@ export function StudioSurface({
   if (!file) {
     return (
       <PlaceholderCard
-        title="No previewable files"
-        description="Upload a mesh, CAD, or sliced file to preview it here."
+        title={t("mdStudio.noFilesTitle")}
+        description={t("mdStudio.noFilesDesc")}
       />
     );
   }
@@ -152,7 +155,7 @@ export function StudioSurface({
           className="inline-flex w-fit items-center gap-1 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <ArrowLeftIcon className="size-3.5" />
-          Back to assembly
+          {t("mdStudio.back")}
         </button>
       )}
       <div className={fill ? "h-full min-h-0 flex-1" : undefined}>

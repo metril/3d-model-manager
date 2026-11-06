@@ -4,6 +4,7 @@
  * Purges are count-confirm gated; the count only includes items the caller
  * may actually purge (owner or admin), so it never over-promises.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { RotateCcwIcon, Trash2Icon } from "lucide-react";
@@ -21,9 +22,9 @@ import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, humanizeBytes } from "@/lib/format";
 
-const plural = (n: number) => `${n} model${n === 1 ? "" : "s"}`;
-
 export function TrashPage() {
+  const { t } = useTranslation();
+  const plural = (n: number) => t("trashPage.models", { count: n });
   const query = useTrash();
   const { data: me, can } = useAuth();
   const restore = useRestoreTrash();
@@ -51,7 +52,7 @@ export function TrashPage() {
     // Failures are toasted by the global MutationCache.onError.
     restore.mutate(ids, {
       onSuccess: (r) => {
-        toast.success(`Restored ${plural(r.count)}`);
+        toast.success(t("trashPage.restored", { models: plural(r.count) }));
         setSelected(new Set());
       },
     });
@@ -60,7 +61,7 @@ export function TrashPage() {
   function doPurge(ids: number[]) {
     purge.mutate(ids, {
       onSuccess: (r) => {
-        toast.success(`Permanently deleted ${plural(r.count)}`);
+        toast.success(t("trashPage.purged", { models: plural(r.count) }));
         setSelected(new Set());
       },
     });
@@ -70,11 +71,9 @@ export function TrashPage() {
     <PageContainer width="default">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Trash</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("trashPage.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            {retention > 0
-              ? `Deleted models are kept for ${retention} day${retention === 1 ? "" : "s"}, then permanently removed.`
-              : "Deleted models are kept until you purge them."}
+            {retention > 0 ? t("trashPage.retention", { count: retention }) : t("trashPage.retentionForever")}
           </p>
         </div>
         {canWrite && actionable.length > 0 && (
@@ -85,29 +84,29 @@ export function TrashPage() {
               disabled={busy || chosen.length === 0}
               onClick={() => doRestore(chosen.map((i) => i.id))}
             >
-              <RotateCcwIcon /> Restore{chosen.length > 0 ? ` (${chosen.length})` : ""}
+              <RotateCcwIcon /> {t("trashPage.restore")}{chosen.length > 0 ? ` (${chosen.length})` : ""}
             </Button>
             <ConfirmDialog
               trigger={
                 <Button type="button" variant="destructive" disabled={busy || chosen.length === 0}>
-                  <Trash2Icon /> Delete permanently{chosen.length > 0 ? ` (${chosen.length})` : ""}
+                  <Trash2Icon /> {t("trashPage.deletePermanently")}{chosen.length > 0 ? ` (${chosen.length})` : ""}
                 </Button>
               }
-              title={`Permanently delete ${plural(chosen.length)}?`}
-              description="Removes the selected models and every file they store from storage. This cannot be undone."
-              confirmLabel="Delete permanently"
+              title={t("trashPage.purgeTitle", { models: plural(chosen.length) })}
+              description={t("trashPage.purgeDesc")}
+              confirmLabel={t("trashPage.deletePermanently")}
               destructive
               onConfirm={() => doPurge(chosen.map((i) => i.id))}
             />
             <ConfirmDialog
               trigger={
                 <Button type="button" variant="destructive" disabled={busy}>
-                  Empty trash
+                  {t("trashPage.empty")}
                 </Button>
               }
-              title={`Permanently delete ${plural(actionable.length)}?`}
-              description="Empties the trash: removes these models and every file they store from storage. This cannot be undone."
-              confirmLabel="Empty trash"
+              title={t("trashPage.purgeTitle", { models: plural(actionable.length) })}
+              description={t("trashPage.emptyDesc")}
+              confirmLabel={t("trashPage.empty")}
               destructive
               onConfirm={() => doPurge(actionable.map((i) => i.id))}
             />
@@ -119,25 +118,25 @@ export function TrashPage() {
         <Skeleton className="h-32 w-full rounded-lg" />
       ) : query.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Couldn't load the trash."}
+          {query.error instanceof ApiError ? query.error.detail : t("trashPage.loadError")}
         </p>
       ) : items.length === 0 ? (
         <EmptyState
           icon={Trash2Icon}
-          title="The trash is empty."
+          title={t("trashPage.isEmpty")}
         />
       ) : (
         <div className="space-y-2">
           {canWrite && actionable.length > 0 && (
             <label className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
               <Checkbox
-                aria-label="Select all"
+                aria-label={t("trashPage.selectAll")}
                 checked={chosen.length === actionable.length}
                 onCheckedChange={(v) =>
                   setSelected(v === true ? new Set(actionable.map((i) => i.id)) : new Set())
                 }
               />
-              Select all
+              {t("trashPage.selectAll")}
             </label>
           )}
           {items.map((item) => {
@@ -147,7 +146,7 @@ export function TrashPage() {
                 <CardContent className="flex items-center gap-3 py-3">
                   {may ? (
                     <Checkbox
-                      aria-label={`Select ${item.name}`}
+                      aria-label={t("trashPage.selectItem", { name: item.name })}
                       checked={selected.has(item.id)}
                       onCheckedChange={() => toggle(item.id)}
                     />
@@ -155,10 +154,9 @@ export function TrashPage() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{item.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      Deleted {formatDateTime(item.deleted_at)}
-                      {item.deleted_by ? ` by ${item.deleted_by}` : ""} · {item.file_count} file
-                      {item.file_count === 1 ? "" : "s"} · {humanizeBytes(item.size_bytes)}
-                      {item.purge_at ? ` · purged ${formatDateTime(item.purge_at)}` : ""}
+                      {t("trashPage.deleted", { date: formatDateTime(item.deleted_at) })}
+                      {item.deleted_by ? ` ${t("trashPage.by", { name: item.deleted_by })}` : ""} · {t("trashPage.files", { count: item.file_count })} · {humanizeBytes(item.size_bytes)}
+                      {item.purge_at ? ` · ${t("trashPage.purgedOn", { date: formatDateTime(item.purge_at) })}` : ""}
                     </div>
                   </div>
                   {may ? (
@@ -169,7 +167,7 @@ export function TrashPage() {
                       disabled={busy}
                       onClick={() => doRestore([item.id])}
                     >
-                      <RotateCcwIcon /> Restore
+                      <RotateCcwIcon /> {t("trashPage.restore")}
                     </Button>
                   ) : null}
                 </CardContent>
@@ -180,7 +178,7 @@ export function TrashPage() {
       )}
       <p className="text-xs text-muted-foreground">
         <Link to="/library" className="underline">
-          Back to library
+          {t("trashPage.back")}
         </Link>
       </p>
     </PageContainer>

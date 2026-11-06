@@ -15,6 +15,7 @@
  * metadata object (not a diff) since the API takes the full map. Deleting a
  * row patches immediately rather than waiting for a blur elsewhere.
  */
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ function objectFromRows(rows: Row[]): Record<string, string> {
 
 export function MetadataEditor({ model }: { model: ModelDetail }) {
   const patchModel = usePatchModel(model.slug);
+  const { t } = useTranslation();
   const [rows, setRows] = useState<Row[]>(() => rowsFromMetadata(model.metadata));
   // Per-row id counter, stable across renders -- avoids index-based keys so
   // deleting a row in the middle doesn't shift focus onto the row that
@@ -70,7 +72,7 @@ export function MetadataEditor({ model }: { model: ModelDetail }) {
   function patch(nextRows: Row[]) {
     patchModel.mutate(
       { metadata: objectFromRows(nextRows) },
-      { onError: () => toast.error("Couldn't save custom fields") },
+      { onError: () => toast.error(t("mdMeta.saveFailed")) },
     );
   }
 
@@ -95,28 +97,28 @@ export function MetadataEditor({ model }: { model: ModelDetail }) {
   return (
     <div className="space-y-3" data-testid="metadata-editor">
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No custom fields yet.</p>
+        <p className="text-sm text-muted-foreground">{t("mdMeta.empty")}</p>
       ) : (
         <div className="space-y-2">
           {rows.map((row) => (
             <div key={row.id} className="flex items-end gap-2">
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor={`metadata-key-${row.id}`}>Field</Label>
+                <Label htmlFor={`metadata-key-${row.id}`}>{t("mdMeta.field")}</Label>
                 <Input
                   id={`metadata-key-${row.id}`}
                   value={row.key}
-                  placeholder="Field name"
+                  placeholder={t("mdMeta.fieldName")}
                   maxLength={64}
                   onChange={(event) => updateRow(row.id, "key", event.target.value)}
                   onBlur={() => patch(rows)}
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor={`metadata-value-${row.id}`}>Value</Label>
+                <Label htmlFor={`metadata-value-${row.id}`}>{t("mdMeta.value")}</Label>
                 <Input
                   id={`metadata-value-${row.id}`}
                   value={row.value}
-                  placeholder="Value"
+                  placeholder={t("mdMeta.value")}
                   maxLength={2000}
                   onChange={(event) => updateRow(row.id, "value", event.target.value)}
                   onBlur={() => patch(rows)}
@@ -126,7 +128,7 @@ export function MetadataEditor({ model }: { model: ModelDetail }) {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Remove ${row.key || "field"}`}
+                aria-label={t("mdMeta.removeAria", { name: row.key || t("mdMeta.fieldFallback") })}
                 onClick={() => removeRow(row.id)}
               >
                 <Trash2Icon />
@@ -137,9 +139,9 @@ export function MetadataEditor({ model }: { model: ModelDetail }) {
       )}
       <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={atCap}>
         <PlusIcon />
-        Add field
+        {t("mdMeta.addField")}
       </Button>
-      {atCap && <p className="text-xs text-muted-foreground">Up to 50 custom fields.</p>}
+      {atCap && <p className="text-xs text-muted-foreground">{t("mdMeta.cap")}</p>}
     </div>
   );
 }

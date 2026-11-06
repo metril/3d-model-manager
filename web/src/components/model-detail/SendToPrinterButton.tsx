@@ -10,6 +10,7 @@
  * -- every launcher (Files tab, queue, up-next, model header, run detail's
  * Reprint, command palette) opens the same component now.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { PrinterIcon } from "lucide-react";
 
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { PrintDialog } from "@/components/print/PrintDialog";
 
 export function SendToPrinterButton({ file }: { file: FileOut }) {
+  const { t } = useTranslation();
   const features = useFeatures();
   const enabled = !!features.data?.printer_enabled;
   const printers = usePrinters({ enabled });
@@ -37,7 +39,7 @@ export function SendToPrinterButton({ file }: { file: FileOut }) {
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={sliced ? `Print ${file.rel_path}` : `Slice and print ${file.rel_path}`}
+        aria-label={sliced ? t("mdSend.print", { path: file.rel_path }) : t("mdSend.slicePrint", { path: file.rel_path })}
         onClick={() => setOpen(true)}
       >
         <PrinterIcon className="size-4" />

@@ -4,6 +4,7 @@
  * one multi-object 3MF on the current revision. The fit preview is the
  * server's own dry-run plan, so it matches what gets written.
  */
+import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -38,6 +39,7 @@ export function CombineDialog({
   const profiles = useProfiles("printer");
   const combine = useCombine(slug);
   const [copies, setCopies] = useState<Record<number, number>>({});
+  const { t } = useTranslation();
   const [spacing, setSpacing] = useState("5");
   const [layout, setLayout] = useState<"grid" | "auto">("auto");
   const [profileId, setProfileId] = useState<string>("");
@@ -70,7 +72,7 @@ export function CombineDialog({
 
   const plan = useCombinePlan(slug, request);
   const planData = plan.data;
-  const planError = plan.error instanceof ApiError ? plan.error.detail : plan.error ? "Could not plan the layout" : null;
+  const planError = plan.error instanceof ApiError ? plan.error.detail : plan.error ? t("mdCombine.couldNotPlan") : null;
   const canSubmit = request !== null && planData?.fits === true && !combine.isPending;
 
   function reset() {
@@ -84,11 +86,11 @@ export function CombineDialog({
       { ...request, name: name.trim() || null },
       {
         onSuccess: (res) => {
-          toast.success(`Created ${res.file ? baseName(res.file.rel_path) : "combined plate"} (${total} objects)`);
+          toast.success(t("mdCombine.created", { name: res.file ? baseName(res.file.rel_path) : t("mdCombine.combinedPlate"), n: total }));
           onOpenChange(false);
           reset();
         },
-        onError: (e) => toast.error(e instanceof ApiError ? e.detail : "Could not combine the files"),
+        onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("mdCombine.couldNotCombine")),
       },
     );
   }
@@ -108,9 +110,9 @@ export function CombineDialog({
       busy={combine.isPending}
     >
       <DialogHeader>
-        <DialogTitle>Combine onto one plate</DialogTitle>
+        <DialogTitle>{t("mdCombine.title")}</DialogTitle>
         <DialogDescription>
-          Arranges copies of the selected files on one bed and saves them as a single multi-object 3MF you can slice.
+          {t("mdCombine.desc")}
         </DialogDescription>
       </DialogHeader>
 
@@ -126,7 +128,7 @@ export function CombineDialog({
               type="number"
               min={1}
               max={MAX_OBJECTS}
-              aria-label={`Copies of ${baseName(f.rel_path)}`}
+              aria-label={t("mdCombine.copiesOf", { name: baseName(f.rel_path) })}
               value={copies[f.id] ?? 1}
               onChange={(e) => setCopies((prev) => ({ ...prev, [f.id]: Number(e.target.value) }))}
               className="w-20"
@@ -135,21 +137,21 @@ export function CombineDialog({
         ))}
         {total > MAX_OBJECTS ? (
           <p role="alert" className="text-xs text-destructive">
-            At most {MAX_OBJECTS} objects per plate.
+            {t("mdCombine.atMost", { max: MAX_OBJECTS })}
           </p>
         ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2 grid gap-1.5">
-          <Label htmlFor="combine-printer">Printer / bed</Label>
+          <Label htmlFor="combine-printer">{t("mdCombine.printerBed")}</Label>
           <select
             id="combine-printer"
             value={profileId}
             onChange={(e) => setProfileId(e.target.value)}
             className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
           >
-            <option value="">Custom bed size</option>
+            <option value="">{t("mdCombine.customBed")}</option>
             {usable.map(({ profile, bed: b }) => (
               <option key={profile.id} value={String(profile.id)}>
                 {profile.name} ({b!.x_mm} × {b!.y_mm} mm)
@@ -160,41 +162,41 @@ export function CombineDialog({
         {selected ? null : (
           <>
             <div className="grid gap-1.5">
-              <Label htmlFor="combine-bed-x">Bed X (mm)</Label>
+              <Label htmlFor="combine-bed-x">{t("mdCombine.bedX")}</Label>
               <Input id="combine-bed-x" type="number" min={1} value={bedX} onChange={(e) => setBedX(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="combine-bed-y">Bed Y (mm)</Label>
+              <Label htmlFor="combine-bed-y">{t("mdCombine.bedY")}</Label>
               <Input id="combine-bed-y" type="number" min={1} value={bedY} onChange={(e) => setBedY(e.target.value)} />
             </div>
           </>
         )}
         <div className="grid gap-1.5">
-          <Label htmlFor="combine-spacing">Spacing (mm)</Label>
+          <Label htmlFor="combine-spacing">{t("mdCombine.spacing")}</Label>
           <Input id="combine-spacing" type="number" min={0} value={spacing} onChange={(e) => setSpacing(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="combine-layout">Layout</Label>
+          <Label htmlFor="combine-layout">{t("mdCombine.layout")}</Label>
           <select
             id="combine-layout"
             value={layout}
             onChange={(e) => setLayout(e.target.value as "grid" | "auto")}
             className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
           >
-            <option value="auto">Auto (packed)</option>
-            <option value="grid">Grid</option>
+            <option value="auto">{t("mdCombine.layoutAuto")}</option>
+            <option value="grid">{t("mdCombine.layoutGrid")}</option>
           </select>
         </div>
         <div className="col-span-2 grid gap-1.5">
-          <Label htmlFor="combine-name">File name (optional)</Label>
-          <Input id="combine-name" placeholder="combined" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+          <Label htmlFor="combine-name">{t("mdCombine.fileName")}</Label>
+          <Input id="combine-name" placeholder={t("mdCombine.fileNamePh")} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
         </div>
       </div>
 
       <div className="grid gap-1.5">
         <svg
           role="img"
-          aria-label="Fit preview"
+          aria-label={t("mdCombine.fitPreview")}
           viewBox={`0 0 ${viewW} ${viewH}`}
           preserveAspectRatio="xMidYMid meet"
           className="max-h-56 w-full rounded border bg-muted/30"
@@ -222,22 +224,21 @@ export function CombineDialog({
         ) : planData ? (
           planData.fits ? (
             <p className="text-xs text-muted-foreground">
-              Fits: {total} object{total === 1 ? "" : "s"} on {bed.x_mm} × {bed.y_mm} mm.
+              {t("mdCombine.fits", { count: total, x: bed.x_mm, y: bed.y_mm })}
             </p>
           ) : (
             <p role="alert" className="text-xs text-destructive">
-              Does not fit a {bed.x_mm} × {bed.y_mm} mm bed; needs about {planData.required_bed.x_mm} ×{" "}
-              {planData.required_bed.y_mm} mm. Reduce copies or spacing.
+              {t("mdCombine.noFit", { x: bed.x_mm, y: bed.y_mm, rx: planData.required_bed.x_mm, ry: planData.required_bed.y_mm })}
             </p>
           )
         ) : plan.isFetching ? (
-          <p className="text-xs text-muted-foreground">Planning…</p>
+          <p className="text-xs text-muted-foreground">{t("mdCombine.planning")}</p>
         ) : null}
       </div>
 
       <DialogFooter showCloseButton>
         <Button type="button" disabled={!canSubmit} onClick={submit}>
-          Combine
+          {t("mdCombine.combine")}
         </Button>
       </DialogFooter>
     </FormDialog>

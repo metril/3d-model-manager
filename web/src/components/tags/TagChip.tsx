@@ -1,4 +1,5 @@
 import { XIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { tagIconFor } from "@/components/tags/tagIcons";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ export function TagChip({
   onRemove?: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const Icon = tagIconFor(tag.icon);
   return (
     <Badge
@@ -31,7 +33,7 @@ export function TagChip({
       {onRemove && (
         <button
           type="button"
-          aria-label={`Remove tag ${tag.name}`}
+          aria-label={t("tagChip.remove", { name: tag.name })}
           onClick={(event) => {
             event.stopPropagation();
             onRemove();

@@ -6,6 +6,8 @@
  * overview's badges/sparklines/tiles share one palette instead of each
  * picking colors ad hoc.
  */
+import i18n from "i18next";
+
 import type { ArchiveResult } from "@/api/types";
 
 export type StateTone = "printing" | "finished" | "failed" | "paused" | "idle" | "offline";
@@ -18,27 +20,27 @@ const FINISHED_GCODE = ["FINISH"];
 const FAILED_GCODE = ["FAILED"];
 
 const GCODE_LABELS: Record<string, string> = {
-  RUNNING: "Printing",
-  PREPARE: "Preparing",
-  PAUSE: "Paused",
-  FINISH: "Finished",
-  FAILED: "Failed",
-  IDLE: "Idle",
+  RUNNING: "printState.printing",
+  PREPARE: "printState.preparing",
+  PAUSE: "printState.paused",
+  FINISH: "printState.finished",
+  FAILED: "printState.failed",
+  IDLE: "printState.idle",
 };
 
 /** Tone + human label for a printer's current `gcode_state`, folding in
  * `online` first -- an offline printer's last-known `gcode_state` is stale
  * and shouldn't read as "printing". */
 export function toneForGcode(online: boolean, gcode: string | null): { tone: StateTone; label: string } {
-  if (!online) return { tone: "offline", label: "Offline" };
+  if (!online) return { tone: "offline", label: i18n.t("printState.offline") };
   const state = gcode ?? "";
   // No report yet / unrecognised state is "no data", never a made-up "Idle".
-  if (!state || state === "UNKNOWN") return { tone: "offline", label: "No data" };
-  if (PRINTING_GCODE.includes(state)) return { tone: "printing", label: GCODE_LABELS[state] };
-  if (PAUSED_GCODE.includes(state)) return { tone: "paused", label: GCODE_LABELS[state] };
-  if (FINISHED_GCODE.includes(state)) return { tone: "finished", label: GCODE_LABELS[state] };
-  if (FAILED_GCODE.includes(state)) return { tone: "failed", label: GCODE_LABELS[state] };
-  return { tone: "idle", label: GCODE_LABELS[state] ?? "No data" };
+  if (!state || state === "UNKNOWN") return { tone: "offline", label: i18n.t("printState.noData") };
+  if (PRINTING_GCODE.includes(state)) return { tone: "printing", label: i18n.t(GCODE_LABELS[state]) };
+  if (PAUSED_GCODE.includes(state)) return { tone: "paused", label: i18n.t(GCODE_LABELS[state]) };
+  if (FINISHED_GCODE.includes(state)) return { tone: "finished", label: i18n.t(GCODE_LABELS[state]) };
+  if (FAILED_GCODE.includes(state)) return { tone: "failed", label: i18n.t(GCODE_LABELS[state]) };
+  return { tone: "idle", label: GCODE_LABELS[state] ? i18n.t(GCODE_LABELS[state]) : i18n.t("printState.noData") };
 }
 
 /** Tone for an archive's terminal `result` (P2's `ArchiveResult`) -- only

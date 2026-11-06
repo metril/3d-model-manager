@@ -5,6 +5,7 @@
  * endpoint (reusing `useDeleteFile`, same as `FilesTab`) rather than a new
  * resolution state machine -- the Task 8 brief's explicit call.
  */
+import { useTranslation } from "react-i18next";
 import type { ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -42,15 +43,16 @@ function Counter({ label, value }: { label: string; value: number }) {
 }
 
 function CountersRow({ run }: { run: ScanRunOut }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-lg bg-muted/40 p-3">
       <Badge variant={STATE_VARIANT[run.state]}>{run.state}</Badge>
       <span className="text-xs text-muted-foreground">{formatDateTime(run.created_at)}</span>
-      <Counter label="Seen" value={run.files_seen} />
-      <Counter label="Hashed" value={run.files_hashed} />
-      <Counter label="Relinked" value={run.relinked} />
-      <Counter label="Adopted" value={run.adopted} />
-      <Counter label="Missing" value={run.missing} />
+      <Counter label={t("settingsScan.seen")} value={run.files_seen} />
+      <Counter label={t("settingsScan.hashed")} value={run.files_hashed} />
+      <Counter label={t("settingsScan.relinked")} value={run.relinked} />
+      <Counter label={t("settingsScan.adopted")} value={run.adopted} />
+      <Counter label={t("settingsScan.missing")} value={run.missing} />
     </div>
   );
 }
@@ -113,13 +115,14 @@ function Section({
 // schema change outside this frontend task's file list (Task 8 brief's
 // documented fallback: "else just link").
 function AdoptedRow({ entry }: { entry: ScanAdopted }) {
+  const { t } = useTranslation();
   return (
     <li className="text-sm">
       <Link to="/models/$slug" params={{ slug: entry.slug }} className="underline">
         {entry.slug}
       </Link>
       <span className="ml-2 text-xs text-muted-foreground">
-        {entry.files.length} file{entry.files.length === 1 ? "" : "s"}
+        {t("settingsScan.fileCount", { count: entry.files.length })}
       </span>
     </li>
   );
@@ -158,6 +161,7 @@ function ErrorRow({ entry }: { entry: ScanError }) {
 }
 
 function MissingRow({ missing }: { missing: ScanMissing }) {
+  const { t } = useTranslation();
   const deleteFile = useDeleteFile(missing.model_slug);
 
   return (
@@ -175,22 +179,22 @@ function MissingRow({ missing }: { missing: ScanMissing }) {
           trigger={
             <Button type="button" variant="outline" size="sm" disabled={deleteFile.isPending}>
               <Trash2Icon className="size-3.5" />
-              Remove file record
+              {t("settingsScan.removeRecord")}
             </Button>
           }
-          title="Remove file record?"
-          description={`Deletes the database record for "${missing.storage_path}". This doesn't touch the storage backend -- use it once you've confirmed the file is really gone.`}
-          confirmLabel="Remove"
+          title={t("settingsScan.removeTitle")}
+          description={t("settingsScan.removeDesc", { path: missing.storage_path })}
+          confirmLabel={t("common.remove")}
           destructive
           onConfirm={() => deleteFile.mutate(missing.file_id)}
         />
       </div>
       {deleteFile.isError ? (
         <p role="alert" className="text-xs text-destructive">
-          {deleteFile.error instanceof ApiError ? deleteFile.error.detail : "Could not remove file record"}
+          {deleteFile.error instanceof ApiError ? deleteFile.error.detail : t("settingsScan.removeError")}
         </p>
       ) : null}
-      {deleteFile.isSuccess ? <p className="text-xs text-success">Removed.</p> : null}
+      {deleteFile.isSuccess ? <p className="text-xs text-success">{t("settingsScan.removed")}</p> : null}
     </li>
   );
 }
@@ -199,6 +203,7 @@ const SECTION_IDS = ["adopted", "relinked", "changed", "missing", "errors"] as c
 type SectionId = (typeof SECTION_IDS)[number];
 
 function LatestRun({ run }: { run: ScanRunOut }) {
+  const { t } = useTranslation();
   const adopted = run.report?.adopted ?? [];
   const relinked = run.report?.relinked ?? [];
   const changed = run.report?.changed ?? [];
@@ -226,7 +231,7 @@ function LatestRun({ run }: { run: ScanRunOut }) {
       <CountersRow run={run} />
       <div className="flex justify-end">
         <ExpandCollapseAll
-          label="scan sections"
+          label={t("settingsScan.sections")}
           allOpen={allOpen}
           allClosed={allClosed}
           onExpandAll={openAll}
@@ -235,9 +240,9 @@ function LatestRun({ run }: { run: ScanRunOut }) {
       </div>
       <div className="space-y-2">
         <Section
-          label="Adopted"
+          label={t("settingsScan.adopted")}
           count={adopted.length}
-          empty="No new models were adopted."
+          empty={t("settingsScan.emptyAdopted")}
           open={isOpen("adopted")}
           onToggle={() => toggle("adopted")}
         >
@@ -246,9 +251,9 @@ function LatestRun({ run }: { run: ScanRunOut }) {
           ))}
         </Section>
         <Section
-          label="Relinked"
+          label={t("settingsScan.relinked")}
           count={relinked.length}
-          empty="No files were relinked."
+          empty={t("settingsScan.emptyRelinked")}
           open={isOpen("relinked")}
           onToggle={() => toggle("relinked")}
         >
@@ -257,9 +262,9 @@ function LatestRun({ run }: { run: ScanRunOut }) {
           ))}
         </Section>
         <Section
-          label="Changed"
+          label={t("settingsScan.changed")}
           count={changed.length}
-          empty="No files changed on disk."
+          empty={t("settingsScan.emptyChanged")}
           open={isOpen("changed")}
           onToggle={() => toggle("changed")}
         >
@@ -268,9 +273,9 @@ function LatestRun({ run }: { run: ScanRunOut }) {
           ))}
         </Section>
         <Section
-          label="Missing"
+          label={t("settingsScan.missing")}
           count={missing.length}
-          empty="No files are missing."
+          empty={t("settingsScan.emptyMissing")}
           open={isOpen("missing")}
           onToggle={() => toggle("missing")}
         >
@@ -279,9 +284,9 @@ function LatestRun({ run }: { run: ScanRunOut }) {
           ))}
         </Section>
         <Section
-          label="Errors"
+          label={t("settingsScan.errors")}
           count={errors.length}
-          empty="No errors during the last scan."
+          empty={t("settingsScan.emptyErrors")}
           open={isOpen("errors")}
           onToggle={() => toggle("errors")}
         >
@@ -295,6 +300,7 @@ function LatestRun({ run }: { run: ScanRunOut }) {
 }
 
 export function ScanReport() {
+  const { t } = useTranslation();
   const scanRunsQuery = useScanRuns();
   const triggerScan = useTriggerScan();
 
@@ -304,18 +310,18 @@ export function ScanReport() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Storage scan</CardTitle>
-        <CardDescription>Reconcile the library&apos;s records against files on the active backend.</CardDescription>
+        <CardTitle>{t("settingsScan.title")}</CardTitle>
+        <CardDescription>{t("settingsScan.description")}</CardDescription>
         <CardAction>
           <Button type="button" onClick={() => triggerScan.mutate()} disabled={triggerScan.isPending || isBusy}>
-            {triggerScan.isPending || isBusy ? "Scanning..." : "Run scan"}
+            {triggerScan.isPending || isBusy ? t("settingsScan.scanning") : t("settingsScan.run")}
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {triggerScan.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {triggerScan.error instanceof ApiError ? triggerScan.error.detail : "Could not start scan"}
+            {triggerScan.error instanceof ApiError ? triggerScan.error.detail : t("settingsScan.startError")}
           </p>
         ) : null}
 
@@ -324,15 +330,15 @@ export function ScanReport() {
         ) : scanRunsQuery.isError ? (
           <div className="space-y-2 text-center">
             <p role="alert" className="text-sm text-destructive">
-              {scanRunsQuery.error instanceof ApiError ? scanRunsQuery.error.detail : "Couldn't load scan history."}
+              {scanRunsQuery.error instanceof ApiError ? scanRunsQuery.error.detail : t("settingsScan.historyError")}
             </p>
             <Button type="button" variant="outline" onClick={() => void scanRunsQuery.refetch()}>
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         ) : !latestRun ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No scans yet. Run a scan to reconcile the library against its storage backend.
+            {t("settingsScan.none")}
           </p>
         ) : (
           <LatestRun run={latestRun} />

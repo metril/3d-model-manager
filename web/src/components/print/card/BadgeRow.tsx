@@ -30,7 +30,7 @@ export function BadgeRow({
       {status.online ? (
         <Badge variant="outline" title={t("card.badge.network")}>
           {status.wifi_signal != null ? <WifiIcon /> : <CableIcon />}
-          {status.wifi_signal != null ? `${status.wifi_signal}dBm` : t("card.badge.ethernet")}
+          {status.wifi_signal != null ? t("badgeRow.dbm", { n: status.wifi_signal }) : t("card.badge.ethernet")}
         </Badge>
       ) : null}
       {hms > 0 ? (

@@ -6,6 +6,7 @@
  * list+dialog shape; writes (import, create/edit/delete recipe, delete
  * profile) are hidden without `inventory:write`.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { CloudIcon, PlusIcon, Trash2Icon, UploadIcon, WrenchIcon } from "lucide-react";
@@ -33,19 +34,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const PROFILE_KINDS: { value: ProfileKind | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "printer", label: "Printer" },
-  { value: "process", label: "Process" },
-  { value: "filament", label: "Filament" },
+  { value: "all", label: "profilesPage.kind.all" },
+  { value: "printer", label: "profilesPage.kind.printer" },
+  { value: "process", label: "profilesPage.kind.process" },
+  { value: "filament", label: "profilesPage.kind.filament" },
 ];
 
 function SidecarHealthChip() {
+  const { t } = useTranslation();
   const health = useSlicerHealth();
   if (health.isLoading) return <Skeleton className="h-5 w-24 rounded-full" />;
-  if (!health.data?.configured) return <Badge variant="secondary">Sidecar not configured</Badge>;
+  if (!health.data?.configured) return <Badge variant="secondary">{t("profilesPage.sidecarOff")}</Badge>;
   return (
     <Badge variant={health.data.ok ? "outline" : "destructive"}>
-      Sidecar {health.data.ok ? `v${health.data.version ?? "?"}` : "unreachable"}
+      {health.data.ok ? t("profilesPage.sidecarOk", { version: health.data.version ?? "?" }) : t("profilesPage.sidecarDown")}
     </Badge>
   );
 }
@@ -61,6 +63,7 @@ function ProfilesTab({
   setKindFilter: (k: ProfileKind | "all") => void;
   onAll: (all: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canWrite = can("inventory:write");
   const [importOpen, setImportOpen] = useState(false);
@@ -86,7 +89,7 @@ function ProfilesTab({
               aria-pressed={kindFilter === k.value}
               onClick={() => setKindFilter(k.value)}
             >
-              {k.label}
+              {t(k.label)}
             </Button>
           ))}
         </div>
@@ -94,12 +97,12 @@ function ProfilesTab({
           <SidecarHealthChip />
           <Button type="button" size="sm" variant="outline" onClick={() => setCloudOpen(true)}>
             <CloudIcon className="size-4" />
-            Cloud presets
+            {t("profilesPage.cloud")}
           </Button>
           {canWrite ? (
             <Button type="button" size="sm" variant="outline" onClick={() => setImportOpen(true)}>
               <UploadIcon className="size-4" />
-              Import
+              {t("profilesPage.import")}
             </Button>
           ) : null}
         </div>
@@ -121,19 +124,19 @@ function ProfilesTab({
             <Skeleton className="h-32 w-full rounded-lg" />
           ) : profiles.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {profiles.error instanceof ApiError ? profiles.error.detail : "Couldn't load profiles."}
+              {profiles.error instanceof ApiError ? profiles.error.detail : t("profilesPage.loadProfiles")}
             </p>
           ) : (profiles.data ?? []).length === 0 ? (
-            <EmptyState icon={WrenchIcon} title="No profiles yet." />
+            <EmptyState icon={WrenchIcon} title={t("profilesPage.noProfiles")} />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Printer model</TableHead>
-                  <TableHead>Nozzle</TableHead>
-                  {kindFilter === "process" ? <TableHead>Layer height</TableHead> : null}
-                  <TableHead>Source</TableHead>
+                  <TableHead>{t("profilesPage.col.name")}</TableHead>
+                  <TableHead>{t("profilesPage.col.printerModel")}</TableHead>
+                  <TableHead>{t("profilesPage.col.nozzle")}</TableHead>
+                  {kindFilter === "process" ? <TableHead>{t("profilesPage.col.layer")}</TableHead> : null}
+                  <TableHead>{t("profilesPage.col.source")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -146,7 +149,7 @@ function ProfilesTab({
                       </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {profileModelText(p) ?? <Badge variant="outline">Any printer</Badge>}
+                      {profileModelText(p) ?? <Badge variant="outline">{t("profilesPage.anyPrinter")}</Badge>}
                     </TableCell>
                     <TableCell className="font-mono text-muted-foreground">{profileNozzleText(p) ?? "—"}</TableCell>
                     {kindFilter === "process" ? (
@@ -155,7 +158,7 @@ function ProfilesTab({
                       </TableCell>
                     ) : null}
                     <TableCell>
-                      <Badge variant="outline">{p.cloud_source ? `${p.cloud_source} cloud` : p.source}</Badge>
+                      <Badge variant="outline">{p.cloud_source ? t("profilesPage.cloudSource", { source: p.cloud_source }) : p.source}</Badge>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -177,6 +180,7 @@ function ProfilesTab({
 }
 
 function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolean) => void }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canWrite = can("inventory:write");
   const recipes = useRecipes({ ...scope, compatibleOnly: !scope.all });
@@ -201,7 +205,7 @@ function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolea
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={openCreate}>
             <PlusIcon className="size-4" />
-            New recipe
+            {t("profilesPage.newRecipe")}
           </Button>
         </div>
       ) : null}
@@ -220,17 +224,17 @@ function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolea
             <Skeleton className="h-32 w-full rounded-lg" />
           ) : recipes.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {recipes.error instanceof ApiError ? recipes.error.detail : "Couldn't load recipes."}
+              {recipes.error instanceof ApiError ? recipes.error.detail : t("profilesPage.loadRecipes")}
             </p>
           ) : (recipes.data ?? []).length === 0 ? (
-            <EmptyState icon={WrenchIcon} title="No recipes yet." />
+            <EmptyState icon={WrenchIcon} title={t("profilesPage.noRecipes")} />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Bed type</TableHead>
-                  <TableHead>Fanout</TableHead>
+                  <TableHead>{t("profilesPage.col.name")}</TableHead>
+                  <TableHead>{t("profilesPage.col.bedType")}</TableHead>
+                  <TableHead>{t("profilesPage.col.fanout")}</TableHead>
                   {canWrite ? <TableHead /> : null}
                 </TableRow>
               </TableHeader>
@@ -259,7 +263,7 @@ function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolea
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Delete ${r.name}`}
+                          aria-label={t("profilesPage.deleteNamed", { name: r.name })}
                           onClick={() => deleteRecipe.mutate(r.id)}
                         >
                           <Trash2Icon className="size-4" />
@@ -279,9 +283,9 @@ function RecipesTab({ scope, onAll }: { scope: ProfileScope; onAll: (all: boolea
   );
 }
 
-const STEP_LABEL: Record<string, string> = { orient: "Orient", arrange: "Arrange", rename: "Rename", queue: "Queue" };
 
 function PipelinesTab({ scope }: { scope: ProfileScope }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canWrite = can("inventory:write");
   const pipelines = usePipelines({ printerId: scope.printerId, nozzle: scope.nozzle, q: scope.q });
@@ -302,7 +306,7 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
             }}
           >
             <PlusIcon className="size-4" />
-            New pipeline
+            {t("profilesPage.newPipeline")}
           </Button>
         </div>
       ) : null}
@@ -315,20 +319,19 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
             <Skeleton className="h-32 w-full rounded-lg" />
           ) : pipelines.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {pipelines.error instanceof ApiError ? pipelines.error.detail : "Couldn't load pipelines."}
+              {pipelines.error instanceof ApiError ? pipelines.error.detail : t("profilesPage.loadPipelines")}
             </p>
           ) : (pipelines.data ?? []).length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              No pipelines yet. A pipeline runs a recipe with extra steps (orient, arrange, rename, queue) in one
-              click from a file&apos;s Slice dialog.
+              {t("profilesPage.noPipelines")}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Recipe</TableHead>
-                  <TableHead>Steps</TableHead>
+                  <TableHead>{t("profilesPage.col.name")}</TableHead>
+                  <TableHead>{t("profilesPage.col.recipe")}</TableHead>
+                  <TableHead>{t("profilesPage.col.steps")}</TableHead>
                   {canWrite ? <TableHead /> : null}
                 </TableRow>
               </TableHeader>
@@ -355,11 +358,11 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {p.steps.length === 0 ? (
-                          <span className="text-muted-foreground">slice only</span>
+                          <span className="text-muted-foreground">{t("profilesPage.sliceOnly")}</span>
                         ) : (
                           p.steps.map((s) => (
                             <Badge key={s.kind} variant="outline">
-                              {STEP_LABEL[s.kind]}
+                              {t(`profilesPage.step.${s.kind}`)}
                             </Badge>
                           ))
                         )}
@@ -371,7 +374,7 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Delete ${p.name}`}
+                          aria-label={t("profilesPage.deleteNamed", { name: p.name })}
                           onClick={() => remove.mutate(p.id)}
                         >
                           <Trash2Icon className="size-4" />
@@ -385,7 +388,7 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
           )}
           {remove.isError ? (
             <p role="alert" className="mt-2 text-sm text-destructive">
-              {remove.error instanceof ApiError ? remove.error.detail : "Couldn't delete the pipeline."}
+              {remove.error instanceof ApiError ? remove.error.detail : t("profilesPage.deletePipeline")}
             </p>
           ) : null}
         </CardContent>
@@ -397,6 +400,7 @@ function PipelinesTab({ scope }: { scope: ProfileScope }) {
 }
 
 export function ProfilesPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const search = parseProfilesSearch(useSearch({ strict: false }) as Record<string, unknown>);
   const tab = search.tab ?? "profiles";
@@ -421,9 +425,9 @@ export function ProfilesPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Profiles & recipes</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("profilesPage.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Slicer profiles imported from a bundle, the sidecar or your cloud accounts, the recipes that combine them, and the pipelines that run them.
+          {t("profilesPage.subtitle")}
         </p>
       </div>
 
@@ -434,9 +438,9 @@ export function ProfilesPage() {
         onValueChange={(v) => patchSearch({ tab: v === "profiles" ? undefined : (v as "recipes" | "pipelines") })}
       >
         <TabsList>
-          <TabsTrigger value="profiles">Profiles</TabsTrigger>
-          <TabsTrigger value="recipes">Recipes</TabsTrigger>
-          <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
+          <TabsTrigger value="profiles">{t("profilesPage.tab.profiles")}</TabsTrigger>
+          <TabsTrigger value="recipes">{t("profilesPage.tab.recipes")}</TabsTrigger>
+          <TabsTrigger value="pipelines">{t("profilesPage.tab.pipelines")}</TabsTrigger>
         </TabsList>
         <TabsContent value="profiles">
           <ProfilesTab scope={scope} kindFilter={kindFilter} setKindFilter={setKindFilter} onAll={onAll} />

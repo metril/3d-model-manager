@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewHeaderActionsProps } from "dockview-react";
 import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
@@ -7,7 +8,17 @@ import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
 import { buildDefaultLayout, addPanelAtDefault, hasProfileContent } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
-import { DOCK_COMPONENTS } from "./panels";
+import { DOCK_COMPONENTS, PANEL_TITLE_KEYS } from "./panels";
+import i18n from "i18next";
+
+/** Dockview captures titles at add time; re-apply them from the current language. */
+function retitlePanels(api: DockviewApi) {
+  for (const p of api.panels) {
+    const key = (PANEL_TITLE_KEYS as Record<string, string>)[p.id];
+    if (key) p.api.setTitle(i18n.t(key));
+  }
+}
+
 import { syncThemeInto } from "./popoutTheme";
 
 const POPOUT_URL = "/popout.html";
@@ -17,13 +28,14 @@ const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
 /** Group header button: pop the group into its own window, or (inside a
  * pop-out) close the window, which docks the panels back. */
 function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps) {
+  const { t } = useTranslation();
   const inPopout = api.location.type === "popout";
   return (
     <button
       type="button"
       className="mx-1 inline-flex size-6 items-center justify-center self-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-      aria-label={inPopout ? "Return to dock" : "Pop out"}
-      title={inPopout ? "Return to dock" : "Pop out to a window"}
+      aria-label={inPopout ? t("mdDock.returnToDock") : t("mdDock.popOut")}
+      title={inPopout ? t("mdDock.returnToDock") : t("mdDock.popOutWindow")}
       onClick={() => {
         if (inPopout) api.getWindow().close();
         else void containerApi.addPopoutGroup(group, { popoutUrl: POPOUT_URL });
@@ -38,6 +50,7 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
  * groups, resized, closed/re-added, and popped out into live windows. The
  * layout persists per browser (`layoutStore`); pop-outs never survive reload. */
 export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
+  const { t } = useTranslation();
   const { model } = useModelDetail();
   // Unsliced print profiles (plated 3MFs) live in the same panel, so they count too.
   const hasSliced = hasProfileContent(model.current_revision?.files ?? []);
@@ -70,6 +83,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
   }, []);
   const themeSyncs = useRef(new Map<string, () => void>());
 
+  const langOff = useRef<(() => void) | null>(null);
   const handleReady = useCallback(
     ({ api }: DockviewReadyEvent) => {
       const saved = loadLayout();
@@ -83,6 +97,11 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
           restored = false;
         }
       }
+      retitlePanels(api);
+      langOff.current?.();
+      const onLang = () => retitlePanels(api);
+      i18n.on("languageChanged", onLang);
+      langOff.current = () => i18n.off("languageChanged", onLang);
       if (!restored) buildDefaultLayout(api, { hasSliced });
 
       // Disposed with the dockview api when the component unmounts.
@@ -97,10 +116,10 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
         themeSyncs.current.delete(popout.id);
         emitter.emit();
       });
-      api.onDidOpenPopoutWindowFail(() => toast.error("Allow pop-ups to open panels in a window"));
+      api.onDidOpenPopoutWindowFail(() => toast.error(t("mdDock.allowPopups")));
       onApi?.(api);
     },
-    [emitter, onApi, hasSliced],
+    [emitter, onApi, hasSliced, t],
   );
 
   const unmounted = useRef(false);
@@ -108,6 +127,8 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
     const syncs = themeSyncs.current;
     unmounted.current = false;
     return () => {
+      langOff.current?.();
+      langOff.current = null;
       flushLayout();
       syncs.forEach((dispose) => dispose());
       syncs.clear();

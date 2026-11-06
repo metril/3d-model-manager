@@ -13,6 +13,7 @@ import type { FileOut } from "@/api/types";
 import { SliceDialog } from "@/components/slice/SliceDialog";
 import { isSliceable } from "@/components/slice/sliceable";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 
 export function SliceFileButton({
   file,
@@ -25,6 +26,7 @@ export function SliceFileButton({
   modelSlug?: string;
   initialPlate?: number | null;
 }) {
+  const { t } = useTranslation();
   const features = useFeatures();
   const { can } = useAuth();
   const [open, setOpen] = useState(false);
@@ -34,10 +36,10 @@ export function SliceFileButton({
       {size === "default" ? (
         <Button type="button" variant="outline" onClick={() => setOpen(true)}>
           <ScissorsIcon className="size-4" />
-          Slice…
+          {t("sliceFile.slice")}
         </Button>
       ) : (
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Slice ${file.rel_path}`} onClick={() => setOpen(true)}>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={t("sliceFile.sliceFile", { path: file.rel_path })} onClick={() => setOpen(true)}>
           <ScissorsIcon className="size-4" />
         </Button>
       )}

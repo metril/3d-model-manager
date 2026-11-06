@@ -17,8 +17,10 @@ import { FilamentChip } from "@/components/ui/filament-chip";
 import { SpecRow } from "@/components/ui/spec-row";
 import { StateBadge } from "@/components/ui/state-badge";
 import { toneForGcode } from "@/lib/printerState";
+import { useTranslation } from "react-i18next";
 
 export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
+  const { t } = useTranslation();
   const status = usePrinterStatus(printer.id);
   const command = usePrinterCommand(printer.id);
   const { canPrinter } = useAuth();
@@ -41,7 +43,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
       </CardHeader>
       <CardContent className="space-y-3">
         {!s?.online ? (
-          <p className="text-sm text-muted-foreground">Printer offline or printerd not running.</p>
+          <p className="text-sm text-muted-foreground">{t("statusPanel.offline")}</p>
         ) : (
           <>
             <div className="h-2 w-full overflow-hidden rounded bg-muted">
@@ -50,10 +52,10 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
             <SpecRow
               items={[
                 { label: `${s.mc_percent ?? 0}%` },
-                { label: `layer ${s.layer_num ?? 0}/${s.total_layer_num ?? 0}` },
-                { label: s.mc_remaining_time != null ? `${s.mc_remaining_time} min left` : "--" },
-                { label: `nozzle ${s.nozzle_temper ?? "--"}°` },
-                { label: `bed ${s.bed_temper ?? "--"}°` },
+                { label: t("statusPanel.layer", { num: s.layer_num ?? 0, total: s.total_layer_num ?? 0 }) },
+                { label: s.mc_remaining_time != null ? t("statusPanel.minLeft", { min: s.mc_remaining_time }) : "--" },
+                { label: t("statusPanel.nozzle", { temp: s.nozzle_temper ?? "--" }) },
+                { label: t("statusPanel.bed", { temp: s.bed_temper ?? "--" }) },
               ]}
             />
             {s.subtask_name ? <p className="text-sm">{s.subtask_name}</p> : null}
@@ -75,7 +77,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
             ) : null}
             {s.print_error ? (
               <p role="alert" className="text-sm text-destructive">
-                Printer error {s.print_error}
+                {t("statusPanel.error", { code: s.print_error })}
               </p>
             ) : null}
             {canPrinter(printer.id, "control") ? (
@@ -86,7 +88,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 disabled={!printing || command.isPending}
                 onClick={() => command.mutate("pause")}
               >
-                Pause
+                {t("statusPanel.pause")}
               </Button>
               <Button
                 size="sm"
@@ -94,7 +96,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 disabled={!paused || command.isPending}
                 onClick={() => command.mutate("resume")}
               >
-                Resume
+                {t("statusPanel.resume")}
               </Button>
               <Button
                 size="sm"
@@ -102,7 +104,7 @@ export function PrinterStatusPanel({ printer }: { printer: PrinterOut }) {
                 disabled={!(printing || paused) || command.isPending}
                 onClick={() => command.mutate("stop")}
               >
-                Stop
+                {t("statusPanel.stop")}
               </Button>
             </div>
             ) : null}

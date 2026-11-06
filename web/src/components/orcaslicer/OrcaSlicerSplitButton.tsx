@@ -46,7 +46,7 @@ export function OrcaSlicerSplitButton({
             variant="outline"
             size={showLabel ? "default" : "icon-sm"}
             className="rounded-r-none"
-            aria-label={`Open ${file.rel_path} in OrcaSlicer`}
+            aria-label={t("orcaslicer.openFile", { path: file.rel_path })}
             onClick={() => open(mode)}
           >
             <BoxesIcon className="size-4" />
@@ -62,7 +62,7 @@ export function OrcaSlicerSplitButton({
             variant="outline"
             size={showLabel ? "default" : "icon-sm"}
             className="rounded-l-none border-l-0 px-1.5"
-            aria-label="OrcaSlicer options"
+            aria-label={t("orcaslicer.options")}
           >
             <ChevronDownIcon className="size-3.5" />
           </Button>

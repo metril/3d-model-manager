@@ -1,6 +1,8 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { useTranslation } from "react-i18next"
+
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 
@@ -52,8 +54,9 @@ function FilamentChip({
      * doesn't report it, or the slot is empty) renders nothing. */
     remainPct?: number | null
   }) {
+  const { t } = useTranslation()
   const hex = normalizeHex(color)
-  const description = [label, material, hex ?? "no color", lowStock ? "low stock" : null]
+  const description = [label, material, hex ?? t("filamentChip.noColor"), lowStock ? t("filamentChip.lowStock") : null]
     .filter(Boolean)
     .join(" · ")
   const swatchClass = SWATCH_SIZE[size ?? "sm"]
@@ -95,7 +98,7 @@ function FilamentChip({
       ) : null}
       {lowStock ? (
         <Badge data-slot="filament-chip-low-badge" variant="secondary" className="h-4 px-1 text-[10px]">
-          Low
+          {t("filamentChip.low")}
         </Badge>
       ) : null}
       <span className="sr-only">{description}</span>

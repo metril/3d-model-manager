@@ -107,7 +107,7 @@ function PlateCard({ blobHash, plate }: { blobHash: string; plate: PlateOut }) {
                   style={{ backgroundColor: safeColour(filament.color) }}
                 />
               ) : null}
-              {filament.type ?? "Filament"}
+              {filament.type ?? t("mdPlate.filament")}
               {filament.used_g !== null ? ` ${Math.round(filament.used_g)} g` : ""}
             </span>
           ))}
@@ -178,7 +178,7 @@ export function PlatePanel({
               fallback={
                 <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                   <LoaderCircleIcon className="size-4 animate-spin" />
-                  Loading g-code preview…
+                  {t("mdPlate.loadingGcode")}
                 </div>
               }
             >
@@ -188,7 +188,7 @@ export function PlatePanel({
         ) : (
           <Button variant="outline" size="sm" className="shrink-0 self-start" onClick={() => setPreviewOpen(true)}>
             <LayersIcon className="size-4" />
-            Preview layers
+            {t("mdPlate.previewLayers")}
           </Button>
         ))}
       {fill ? (
@@ -214,7 +214,7 @@ export function PlatePanel({
         )
       ) : plates.length === 0 ? (
         !compact && (
-          <p className="py-8 text-center text-sm text-muted-foreground">No plate details available yet.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{t("mdPlate.noDetails")}</p>
         )
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-2">

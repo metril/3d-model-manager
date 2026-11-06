@@ -9,8 +9,10 @@ import { useReviewEntry } from "@/api/queue";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "react-i18next";
 
 export function ReviewActions({ entryId }: { entryId: number }) {
+  const { t } = useTranslation();
   const review = useReviewEntry();
   const [note, setNote] = useState("");
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -29,12 +31,12 @@ export function ReviewActions({ entryId }: { entryId: number }) {
   return (
     <div className="flex items-center gap-1.5">
       <Button type="button" size="sm" disabled={review.isPending} onClick={approve}>
-        Approve
+        {t("reviewActions.approve")}
       </Button>
       <Popover open={rejectOpen} onOpenChange={setRejectOpen}>
         <PopoverTrigger asChild>
           <Button type="button" size="sm" variant="outline" disabled={review.isPending}>
-            Reject
+            {t("reviewActions.reject")}
           </Button>
         </PopoverTrigger>
         <PopoverContent>
@@ -42,11 +44,11 @@ export function ReviewActions({ entryId }: { entryId: number }) {
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Reason (optional)"
-              aria-label="Rejection note"
+              placeholder={t("reviewActions.reason")}
+              aria-label={t("reviewActions.noteAria")}
             />
             <Button type="button" size="sm" variant="destructive" disabled={review.isPending} onClick={reject}>
-              Confirm reject
+              {t("reviewActions.confirmReject")}
             </Button>
           </div>
         </PopoverContent>

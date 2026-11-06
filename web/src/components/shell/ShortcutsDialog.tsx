@@ -5,42 +5,44 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 // R9-C item 5: the full set of keyboard shortcuts across the app, kept here
 // as the single source of truth for the help dialog. Each binding is
 // registered independently, next to the state/mutation it acts on -- this
 // list is documentation, not the wiring.
 const SHORTCUTS: Array<{ keys: string; description: string }> = [
-  { keys: "/", description: "Focus the library search" },
-  { keys: "Esc", description: "Clear selection / leave select mode" },
-  { keys: "A", description: "Select all loaded models (in select mode)" },
-  { keys: "Ctrl/Cmd + A", description: "Select all loaded models" },
-  { keys: "Delete", description: "Move the selected models to trash" },
-  { keys: "F", description: "Toggle favorite (model page)" },
-  { keys: "Shift + F", description: "Toggle fullscreen (3D viewer)" },
-  { keys: "Shift + C", description: "Toggle the floating camera" },
-  { keys: "Esc", description: "Close the floating camera (when focused)" },
-  { keys: "Ctrl/Cmd + K", description: "Open the command palette" },
-  { keys: "Ctrl/Cmd + B", description: "Collapse/expand the sidebar" },
-  { keys: "1 – 9", description: "Jump to the first nine sidebar items" },
-  { keys: "?", description: "Show this dialog" },
+  { keys: "/", description: "shortcuts.search" },
+  { keys: "Esc", description: "shortcuts.clearSelection" },
+  { keys: "A", description: "shortcuts.selectAllMode" },
+  { keys: "Ctrl/Cmd + A", description: "shortcuts.selectAll" },
+  { keys: "Delete", description: "shortcuts.trash" },
+  { keys: "F", description: "shortcuts.favorite" },
+  { keys: "Shift + F", description: "shortcuts.fullscreen" },
+  { keys: "Shift + C", description: "shortcuts.camera" },
+  { keys: "Esc", description: "shortcuts.closeCamera" },
+  { keys: "Ctrl/Cmd + K", description: "shortcuts.palette" },
+  { keys: "Ctrl/Cmd + B", description: "shortcuts.sidebar" },
+  { keys: "1 – 9", description: "shortcuts.jump" },
+  { keys: "?", description: "shortcuts.help" },
 ];
 
 /** R9-C item 5: lists every keyboard shortcut in the app. Opened by the `?`
  * hotkey or the sidebar's "Keyboard shortcuts" button. Moved out of
  * `AppShell` in R12 alongside the rest of the studio shell breakout. */
 export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>Available anywhere they apply.</DialogDescription>
+          <DialogTitle>{t("shell.shortcuts")}</DialogTitle>
+          <DialogDescription>{t("shortcuts.desc")}</DialogDescription>
         </DialogHeader>
         <dl className="space-y-1.5">
           {SHORTCUTS.map((shortcut) => (
             <div key={shortcut.keys} className="flex items-center justify-between gap-4 text-sm">
-              <dt className="text-muted-foreground">{shortcut.description}</dt>
+              <dt className="text-muted-foreground">{t(shortcut.description)}</dt>
               <dd>
                 <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">
                   {shortcut.keys}

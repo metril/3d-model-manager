@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { EyeIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,13 +20,14 @@ export function GcodeProfilesCard({
   selection?: StudioSelection;
   onView?: (file: FileOut) => void;
 }) {
+  const { t } = useTranslation();
   const slicedFiles = (model.current_revision?.files ?? []).filter((file) => file.kind === "sliced");
   if (slicedFiles.length === 0) return null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Profiles</CardTitle>
+        <CardTitle>{t("mdProfilesCard.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {slicedFiles.map((file) => {
@@ -44,7 +46,7 @@ export function GcodeProfilesCard({
                     onClick={() => onView(file)}
                   >
                     <EyeIcon className="size-4" />
-                    {active ? "Viewing" : "View"}
+                    {active ? t("mdProfilesCard.viewing") : t("mdProfilesCard.view")}
                   </Button>
                 )}
               </div>

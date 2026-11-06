@@ -6,6 +6,7 @@ import { SearchIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useTranslation } from "react-i18next";
 
 function Command({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) {
   return (
@@ -21,8 +22,8 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 }
 
 function CommandDialog({
-  title = "Command palette",
-  description = "Search pages, collections, and models",
+  title,
+  description,
   children,
   className,
   showCloseButton = true,
@@ -33,11 +34,12 @@ function CommandDialog({
   className?: string
   showCloseButton?: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <Dialog {...props}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
+        <DialogTitle>{title ?? t("ui.commandTitle")}</DialogTitle>
+        <DialogDescription>{description ?? t("ui.commandDesc")}</DialogDescription>
       </DialogHeader>
       <DialogContent
         showCloseButton={showCloseButton}

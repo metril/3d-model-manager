@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useArchiveModel } from "@/api/library";
 import { Button } from "@/components/ui/button";
 import type { ModelDetail } from "@/api/types";
@@ -10,14 +11,15 @@ import type { ModelDetail } from "@/api/types";
  * for a non-archived model. */
 export function ArchivedBanner({ model }: { model: ModelDetail }) {
   const archiveModel = useArchiveModel(model.slug);
+  const { t } = useTranslation();
 
   if (!model.is_archived) return null;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground">
-      <span>This model is archived.</span>
+      <span>{t("mdArchived.banner")}</span>
       <Button type="button" variant="outline" size="sm" onClick={() => archiveModel.mutate(false)}>
-        Unarchive
+        {t("mdArchived.unarchive")}
       </Button>
     </div>
   );

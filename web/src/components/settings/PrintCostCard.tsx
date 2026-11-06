@@ -9,6 +9,8 @@
  * the OTHER four `AppSettings` fields through unchanged on every `PUT`
  * (full replace, not a per-field patch).
  */
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useEffect, useState } from "react";
 
 import { toast } from "sonner";
@@ -41,16 +43,17 @@ function seedDraft(settings: AppSettings): Draft {
   };
 }
 
-function validateField(raw: string): string | undefined {
+function validateField(raw: string, t: TFunction): string | undefined {
   const trimmed = raw.trim();
-  if (trimmed === "") return "Required -- enter 0 to ignore this cost.";
+  if (trimmed === "") return t("settingsPrintCost.required");
   const n = Number(trimmed);
-  if (Number.isNaN(n)) return "Must be a number.";
-  if (n < 0) return "Must be 0 or greater.";
+  if (Number.isNaN(n)) return t("settingsPrintCost.mustBeNumber");
+  if (n < 0) return t("settingsPrintCost.mustBePositive");
   return undefined;
 }
 
 export function PrintCostCard() {
+  const { t } = useTranslation();
   const settings = useAppSettings();
   const update = useUpdateAppSettings();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -77,9 +80,9 @@ export function PrintCostCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Print cost estimate</CardTitle>
+          <CardTitle>{t("settingsPrintCost.title")}</CardTitle>
           <CardDescription>
-            {settings.error instanceof ApiError ? settings.error.detail : "Couldn't load these settings."}
+            {settings.error instanceof ApiError ? settings.error.detail : t("settingsPrintCost.loadError")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -94,7 +97,7 @@ export function PrintCostCard() {
   function validate(current: Draft): boolean {
     const next: DraftErrors = {};
     (Object.keys(current) as (keyof Draft)[]).forEach((key) => {
-      const message = validateField(current[key]);
+      const message = validateField(current[key], t);
       if (message) next[key] = message;
     });
     setErrors(next);
@@ -106,7 +109,7 @@ export function PrintCostCard() {
     if (!validate(draft)) return;
     const code = (currency ?? "").trim().toUpperCase();
     if (code !== "" && !/^[A-Z]{3}$/.test(code)) {
-      setErrors((prev) => ({ ...prev, currency: "Use a 3-letter ISO code, e.g. USD." }));
+      setErrors((prev) => ({ ...prev, currency: t("settingsPrintCost.currencyInvalid") }));
       return;
     }
     update.mutate({
@@ -123,16 +126,15 @@ export function PrintCostCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Print cost estimate</CardTitle>
+        <CardTitle>{t("settingsPrintCost.title")}</CardTitle>
         <CardDescription>
-          Used to estimate a print's cost from its filament weight and duration. Set a currency
-          code to show costs with its symbol, or leave it blank for plain numbers.
+          {t("settingsPrintCost.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="filament-cost">Filament cost (per kg)</Label>
+            <Label htmlFor="filament-cost">{t("settingsPrintCost.filament")}</Label>
             <Input
               id="filament-cost"
               type="number"
@@ -149,7 +151,7 @@ export function PrintCostCard() {
             ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="machine-cost">Machine cost (per hour)</Label>
+            <Label htmlFor="machine-cost">{t("settingsPrintCost.machine")}</Label>
             <Input
               id="machine-cost"
               type="number"
@@ -164,11 +166,11 @@ export function PrintCostCard() {
                 {errors.machine_cost_per_hour}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">0 = don&apos;t factor in machine time.</p>
+              <p className="text-xs text-muted-foreground">{t("settingsPrintCost.machineHint")}</p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="energy-cost">Energy cost (per kWh)</Label>
+            <Label htmlFor="energy-cost">{t("settingsPrintCost.energy")}</Label>
             <Input
               id="energy-cost"
               type="number"
@@ -185,13 +187,13 @@ export function PrintCostCard() {
             ) : (
               <p className="text-xs text-muted-foreground">
                 {priceSource === "homeassistant"
-                  ? "Fallback when the Home Assistant price sensor is unavailable."
-                  : "0 = don't price Home Assistant energy readings."}
+                  ? t("settingsPrintCost.energyFallback")
+                  : t("settingsPrintCost.energyZero")}
               </p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="currency-code">Currency (ISO 4217)</Label>
+            <Label htmlFor="currency-code">{t("settingsPrintCost.currency")}</Label>
             <Input
               id="currency-code"
               maxLength={3}
@@ -208,24 +210,24 @@ export function PrintCostCard() {
                 {errors.currency}
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground">Blank = no currency symbol.</p>
+              <p className="text-xs text-muted-foreground">{t("settingsPrintCost.currencyHint")}</p>
             )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="energy-price-source">Energy price source</Label>
+            <Label htmlFor="energy-price-source">{t("settingsPrintCost.priceSource")}</Label>
             <select
               id="energy-price-source"
               className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               value={priceSource ?? "fixed"}
               onChange={(e) => setPriceSource(e.target.value as "fixed" | "homeassistant")}
             >
-              <option value="fixed">Fixed price</option>
-              <option value="homeassistant">Home Assistant sensor</option>
+              <option value="fixed">{t("settingsPrintCost.fixed")}</option>
+              <option value="homeassistant">{t("settingsPrintCost.haSensor")}</option>
             </select>
           </div>
           {priceSource === "homeassistant" ? (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="energy-price-entity">Price sensor entity</Label>
+              <Label htmlFor="energy-price-entity">{t("settingsPrintCost.entity")}</Label>
               <Input
                 id="energy-price-entity"
                 list="energy-price-entities"
@@ -242,8 +244,8 @@ export function PrintCostCard() {
               </datalist>
               <p className="text-xs text-muted-foreground">
                 {haEntities.isError
-                  ? "Couldn't list Home Assistant entities -- type the entity id."
-                  : "Sampled at print start and end; the average prices the run."}
+                  ? t("settingsPrintCost.entitiesError")
+                  : t("settingsPrintCost.entitiesHint")}
               </p>
             </div>
           ) : null}
@@ -251,9 +253,9 @@ export function PrintCostCard() {
 
         <div className="flex items-center gap-3">
           <Button type="button" disabled={update.isPending} onClick={save}>
-            {update.isPending ? "Saving…" : "Save"}
+            {update.isPending ? t("settingsPrintCost.saving") : t("common.save")}
           </Button>
-          {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
+          {update.isSuccess && <p className="text-sm text-success">{t("settingsPrintCost.saved")}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3 border-t pt-4">
           <Button
@@ -264,38 +266,40 @@ export function PrintCostCard() {
               reprice.mutate(true, {
                 onSuccess: (res) =>
                   res.repriced === 0
-                    ? toast("No past runs need repricing.")
+                    ? toast(t("settingsPrintCost.noneToReprice"))
                     : setRepriceCount(res.repriced),
-                onError: () => toast.error("Could not check past runs."),
+                onError: () => toast.error(t("settingsPrintCost.checkError")),
               })
             }
           >
-            Reprice past runs
+            {t("settingsPrintCost.reprice")}
           </Button>
           <p className="text-xs text-muted-foreground">
-            Recompute past runs&apos; filament cost from each spool&apos;s current price. Machine,
-            wear and energy costs are kept.
+            {t("settingsPrintCost.repriceHint")}
           </p>
         </div>
         <ConfirmDialog
           open={repriceCount !== null}
           onOpenChange={(o) => !o && setRepriceCount(null)}
-          title={`Reprice ${repriceCount ?? 0} past run${repriceCount === 1 ? "" : "s"}?`}
-          description="Their filament cost is replaced using the spools' current price per kg. This can't be undone."
-          confirmLabel={`Reprice ${repriceCount ?? 0}`}
+          title={t("settingsPrintCost.repriceTitle", { count: repriceCount ?? 0 })}
+          description={t("settingsPrintCost.repriceDesc")}
+          confirmLabel={t("settingsPrintCost.repriceConfirm", { n: repriceCount ?? 0 })}
           onConfirm={() =>
             reprice.mutate(false, {
               onSuccess: (res) =>
                 toast.success(
-                  `Repriced ${res.repriced} run${res.repriced === 1 ? "" : "s"} (${res.delta >= 0 ? "+" : ""}${res.delta.toFixed(2)})`,
+                  t("settingsPrintCost.repriced", {
+                    count: res.repriced,
+                    delta: `${res.delta >= 0 ? "+" : ""}${res.delta.toFixed(2)}`,
+                  }),
                 ),
-              onError: () => toast.error("Repricing failed."),
+              onError: () => toast.error(t("settingsPrintCost.repriceFailed")),
             })
           }
         />
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save these settings."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsPrintCost.saveError")}
           </p>
         )}
       </CardContent>

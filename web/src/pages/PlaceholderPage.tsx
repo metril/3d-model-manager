@@ -1,4 +1,5 @@
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTranslation } from "react-i18next";
 
 /**
  * Honest "not built yet" stub (P3 Task 5), replacing `ComingSoonPage`.
@@ -15,12 +16,13 @@ export function PlaceholderPage({
   phase: string;
   blurb: string;
 }) {
+  const { t } = useTranslation();
   return (
     <Card className="mx-auto mt-12 max-w-md">
       <CardHeader className="text-center">
         <CardTitle>{title}</CardTitle>
         <CardDescription>
-          Coming in a later phase ({phase}). {blurb}
+          {t("placeholder.soon", { phase, blurb })}
         </CardDescription>
       </CardHeader>
     </Card>

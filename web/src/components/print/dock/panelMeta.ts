@@ -2,13 +2,13 @@
 export const PANEL_IDS = ["printers", "queue", "archives", "camera", "stats", "forecast"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
-export const PANEL_TITLES: Record<PanelId, string> = {
-  printers: "Printers",
-  queue: "Up next",
-  archives: "Recent archives",
-  camera: "Cameras",
-  stats: "Stats",
-  forecast: "Stock forecast",
+export const PANEL_TITLE_KEYS: Record<PanelId, string> = {
+  printers: "printPanels.printers",
+  queue: "printPanels.queue",
+  archives: "printPanels.archives",
+  camera: "printPanels.camera",
+  stats: "printPanels.stats",
+  forecast: "printPanels.forecast",
 };
 
 /** Default dock groups: printers on the left (today's main column); the rail

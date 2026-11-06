@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { formatCost } from "@/lib/format";
 import { formatEta } from "@/lib/formatEta";
 import { toneForGcode } from "@/lib/printerState";
+import { useTranslation } from "react-i18next";
 
 export function ActiveJobStrip({
   job,
@@ -33,11 +34,12 @@ export function ActiveJobStrip({
   printerId: number;
   canControl: boolean;
 }) {
+  const { t } = useTranslation();
   const command = usePrinterCommand(printerId);
   const paused = status.gcode_state === "PAUSE";
   const percent = status.mc_percent ?? 0;
   const eta = formatEta(status.mc_remaining_time);
-  const name = job.model_name ?? job.subtask_name ?? `Job #${job.id}`;
+  const name = job.model_name ?? job.subtask_name ?? t("activeJob.jobId", { id: job.id });
   // Fix-review finding 5: Pause/Stop sent a printer command even once it
   // went offline or finished -- gate on the same printing/paused tone
   // `PrinterCard`'s badge uses, plus `status.online` directly (belt and
@@ -54,9 +56,9 @@ export function ActiveJobStrip({
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{name}</p>
-          {job.plate != null ? <p className="text-xs text-muted-foreground">Plate {job.plate}</p> : null}
+          {job.plate != null ? <p className="text-xs text-muted-foreground">{t("queuePage.plate", { plate: job.plate })}</p> : null}
           {job.estimated_cost != null ? (
-            <p className="text-xs text-muted-foreground">Est. cost {formatCost(job.estimated_cost)}</p>
+            <p className="text-xs text-muted-foreground">{t("activeJob.estCost", { cost: formatCost(job.estimated_cost) })}</p>
           ) : null}
         </div>
       </div>
@@ -72,30 +74,30 @@ export function ActiveJobStrip({
       </div>
 
       <div className="flex items-center justify-between font-mono text-xs tabular-nums text-muted-foreground">
-        <span>Layer {status.layer_num ?? 0}/{status.total_layer_num ?? 0}</span>
-        {eta ? <span>ETA {eta}</span> : null}
+        <span>{t("activeJob.layer", { num: status.layer_num ?? 0, total: status.total_layer_num ?? 0 })}</span>
+        {eta ? <span>{t("activeJob.eta", { eta })}</span> : null}
       </div>
 
       {showControls ? (
         <div className="flex gap-2">
           {paused ? (
             <Button size="sm" variant="outline" disabled={command.isPending} onClick={() => command.mutate("resume")}>
-              Resume
+              {t("activeJob.resume")}
             </Button>
           ) : (
             <Button size="sm" variant="outline" disabled={command.isPending} onClick={() => command.mutate("pause")}>
-              Pause
+              {t("activeJob.pause")}
             </Button>
           )}
           <ConfirmDialog
             trigger={
               <Button size="sm" variant="destructive" disabled={command.isPending}>
-                Stop
+                {t("activeJob.stop")}
               </Button>
             }
-            title="Stop this print?"
-            description="The printer will cancel the job in progress. This can't be undone."
-            confirmLabel="Confirm"
+            title={t("activeJob.stopTitle")}
+            description={t("activeJob.stopDesc")}
+            confirmLabel={t("activeJob.confirm")}
             destructive
             onConfirm={() => command.mutate("stop")}
           />

@@ -10,6 +10,7 @@
  * (`app.services.spool_inventory`).
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAssignSlot, useSpools } from "@/api/spools";
 import type { AmsTray, SpoolOut } from "@/api/types";
@@ -52,6 +53,7 @@ export function SlotAssignPopover({
   tray: AmsTray;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [newSpoolOpen, setNewSpoolOpen] = useState(false);
   const spoolsQuery = useSpools({ archived: false });
@@ -82,26 +84,26 @@ export function SlotAssignPopover({
         <PopoverContent>
           <PopoverHeader>
             <PopoverTitle>
-              {tray.tray_type ?? tray.material ?? "Empty slot"}
+              {tray.tray_type ?? tray.material ?? t("slotAssign.empty")}
               {tray.color ? ` · ${tray.color}` : ""}
             </PopoverTitle>
             <PopoverDescription>
-              {tray.remain_pct != null ? `${tray.remain_pct}% remaining` : "No remaining estimate"}
-              {tray.tray_uuid ? ` · RFID ${tray.tray_uuid}` : ""}
+              {tray.remain_pct != null ? t("slotAssign.remaining", { pct: tray.remain_pct }) : t("slotAssign.noEstimate")}
+              {tray.tray_uuid ? ` · ${t("slotAssign.rfid", { uuid: tray.tray_uuid })}` : ""}
             </PopoverDescription>
           </PopoverHeader>
 
           <div className="flex flex-col gap-1.5">
             <Select
-              aria-label="Assign spool"
+              aria-label={t("slotAssign.assign")}
               value={tray.spool ? String(tray.spool.id) : "none"}
               onValueChange={(v) => assign(v === "none" ? null : Number(v))}
             >
-              <SelectTrigger aria-label="Assign spool" className="w-full">
-                <SelectValue placeholder="Assign a spool" />
+              <SelectTrigger aria-label={t("slotAssign.assign")} className="w-full">
+                <SelectValue placeholder={t("slotAssign.placeholder")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">— Unassigned —</SelectItem>
+                <SelectItem value="none">{t("slotAssign.unassigned")}</SelectItem>
                 {candidates.map((spool) => (
                   <SelectItem key={spool.id} value={String(spool.id)}>
                     {spool.material_type}
@@ -115,10 +117,10 @@ export function SlotAssignPopover({
 
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" variant="outline" disabled={assignSlot.isPending} onClick={() => assign(null)}>
-              Clear
+              {t("slotAssign.clear")}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setNewSpoolOpen(true)}>
-              New spool from this tray
+              {t("slotAssign.newFromTray")}
             </Button>
           </div>
         </PopoverContent>

@@ -82,21 +82,20 @@ export function ExternalLinksCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sidebar links</CardTitle>
+        <CardTitle>{t("extLinks.title")}</CardTitle>
         <CardDescription>
-          Add links to other tools (Grafana, Home Assistant, …) under &ldquo;Links&rdquo; in the sidebar. Embedding
-          only works for sites that allow being framed; otherwise use &ldquo;New tab&rdquo;.
+          {t("extLinks.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {items.length === 0 && !links.isLoading && <p className="text-sm text-muted-foreground">No links yet.</p>}
+        {items.length === 0 && !links.isLoading && <p className="text-sm text-muted-foreground">{t("extLinks.empty")}</p>}
         <ul className="space-y-1.5">
           {items.map((link, index) => (
             <li key={link.id} className="flex items-center gap-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{link.name}</div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {link.url} · {link.open_mode === "iframe" ? "embedded" : "new tab"}
+                  {link.url} · {link.open_mode === "iframe" ? t("extLinks.embedded") : t("extLinks.newTabLower")}
                 </div>
               </div>
               <Button type="button" variant="ghost" size="icon-sm" aria-label={t("extLinks.moveUp", { name: link.name })} disabled={moving || index === 0} onClick={() => move(index, -1)}>
@@ -113,32 +112,32 @@ export function ExternalLinksCard() {
         </ul>
         <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_2fr_auto_auto] sm:items-end">
           <div className="space-y-1.5">
-            <Label htmlFor="ext-name">Name</Label>
+            <Label htmlFor="ext-name">{t("extLinks.name")}</Label>
             <Input id="ext-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ext-url">URL</Label>
+            <Label htmlFor="ext-url">{t("extLinks.url")}</Label>
             <Input id="ext-url" type="url" placeholder="https://" value={url} onChange={(e) => setUrl(e.target.value)} required />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ext-mode">Open in</Label>
+            <Label htmlFor="ext-mode">{t("extLinks.openIn")}</Label>
             <select
               id="ext-mode"
               value={openMode}
               onChange={(e) => setOpenMode(e.target.value as ExternalLink["open_mode"])}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             >
-              <option value="iframe">Embedded</option>
-              <option value="newtab">New tab</option>
+              <option value="iframe">{t("extLinks.optEmbedded")}</option>
+              <option value="newtab">{t("extLinks.optNewTab")}</option>
             </select>
           </div>
           <Button type="submit" disabled={create.isPending}>
-            Add link
+            {t("extLinks.addLink")}
           </Button>
         </form>
         {error && (
           <p role="alert" className="text-sm text-destructive">
-            {error instanceof ApiError ? error.detail : "Could not save the link."}
+            {error instanceof ApiError ? error.detail : t("extLinks.saveError")}
           </p>
         )}
       </CardContent>

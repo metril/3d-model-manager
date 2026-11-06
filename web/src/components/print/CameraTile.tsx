@@ -422,7 +422,7 @@ export function CameraTile({
 
       {status.data?.beta ? (
         <span className="absolute left-1.5 top-1.5 rounded bg-warning/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-black">
-          beta
+          {t("cameraTile.beta")}
         </span>
       ) : null}
 
@@ -454,10 +454,10 @@ export function CameraTile({
               }}
               className="h-6 rounded bg-black/50 px-1 text-xs text-white"
             >
-              {fps === undefined ? <option value="">fps</option> : null}
+              {fps === undefined ? <option value="">{t("cameraTile.fps")}</option> : null}
               {FPS_CHOICES.map((f) => (
                 <option key={f} value={f}>
-                  {f} fps
+                  {t("cameraTile.fpsN", { n: f })}
                 </option>
               ))}
             </select>

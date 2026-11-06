@@ -14,8 +14,10 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "react-i18next";
 
 export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -55,7 +57,7 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
               // rather than swallowing it -- the user can still set the
               // category from the detail page, but shouldn't be left
               // thinking it was already applied.
-              toast.warning("Model created, but the category couldn't be set");
+              toast.warning(t("newModel.categoryFailed"));
             }
           }
           setOpen(false);
@@ -70,7 +72,7 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
     createModel.error instanceof ApiError
       ? createModel.error.detail
       : createModel.error
-        ? "Could not create model"
+        ? t("newModel.createFailed")
         : null;
 
   return (
@@ -87,12 +89,12 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
       >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>New model</DialogTitle>
-            <DialogDescription>Creates an empty model with an initial revision.</DialogDescription>
+            <DialogTitle>{t("newModel.title")}</DialogTitle>
+            <DialogDescription>{t("newModel.desc")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-model-name">Name</Label>
+              <Label htmlFor="new-model-name">{t("newModel.name")}</Label>
               <Input
                 id="new-model-name"
                 value={name}
@@ -102,7 +104,7 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-model-description">Description</Label>
+              <Label htmlFor="new-model-description">{t("newModel.description")}</Label>
               <Textarea
                 id="new-model-description"
                 value={description}
@@ -111,7 +113,7 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Category</Label>
+              <Label>{t("newModel.category")}</Label>
               <CategoryPicker value={categoryId} onChange={setCategoryId} />
             </div>
             {errorMessage ? (
@@ -123,11 +125,11 @@ export function NewModelDialog({ trigger }: { trigger: React.ReactNode }) {
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="outline">
-                Cancel
+                {t("common.cancel")}
               </Button>
             </DialogClose>
             <Button type="submit" disabled={createModel.isPending || name.trim().length === 0}>
-              {createModel.isPending ? "Creating..." : "Create"}
+              {createModel.isPending ? t("newModel.creating") : t("newModel.create")}
             </Button>
           </DialogFooter>
         </form>

@@ -32,6 +32,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const routeApi = getRouteApi("/authenticated/inventory/spools");
 
 function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; onOpenChange: (open: boolean) => void }) {
+  const { t } = useTranslation();
   const spool = useSpool(spoolId);
   const [editing, setEditing] = useState(false);
   const { can } = useAuth();
@@ -42,9 +43,9 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
         <SheetContent side="right" className="sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>
-              {spool.data ? `${spool.data.material_type}${spool.data.color_name ? ` · ${spool.data.color_name}` : ""}` : "Spool"}
+              {spool.data ? `${spool.data.material_type}${spool.data.color_name ? ` · ${spool.data.color_name}` : ""}` : t("spoolsPage.spool")}
             </SheetTitle>
-            <SheetDescription>{spool.data?.brand ?? "Spool details and usage history"}</SheetDescription>
+            <SheetDescription>{spool.data?.brand ?? t("spoolsPage.details")}</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4">
             {spool.isLoading || !spool.data ? (
@@ -53,11 +54,11 @@ function SpoolDetailSheet({ spoolId, onOpenChange }: { spoolId: number | null; o
               <>
                 {can("inventory:write") ? (
                   <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-                    Edit
+                    {t("common.edit")}
                   </Button>
                 ) : null}
                 <p className="text-sm text-muted-foreground">
-                  Last dried: {formatDateTime(spool.data.last_dried_at)}
+                  {t("spoolsPage.lastDried", { date: formatDateTime(spool.data.last_dried_at) })}
                   {driedDetail(spool.data) ? ` (${driedDetail(spool.data)})` : ""}
                 </p>
                 <SpoolmanLink spool={spool.data} />
@@ -88,16 +89,16 @@ export function SpoolsPage() {
     <PageContainer width="default">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Spools</h1>
-          <p className="text-sm text-muted-foreground">Physical filament spools, their AMS slot, and usage.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("spoolsPage.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("spoolsPage.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Link to="/inventory/materials" className="text-sm text-muted-foreground hover:underline">
-            Materials
+            {t("spoolsPage.materials")}
           </Link>
           {tab === "spools" && can("inventory:write") ? (
             <Button type="button" onClick={() => setAddOpen(true)}>
-              Add spool
+              {t("spoolsPage.add")}
             </Button>
           ) : null}
         </div>

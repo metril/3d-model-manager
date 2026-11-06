@@ -6,21 +6,26 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { QUICK_COLORS } from "@/components/viewer/quickColors";
 import { SegmentedControl } from "@/components/viewer/SegmentedControl";
 import type { CameraPreset, Shading, ViewerToolsState } from "@/components/viewer/tools";
+import { useTranslation } from "react-i18next";
 
 // R10 camera presets, moved here from `ViewerStage`'s right panel -- see that
 // file's prior comment for why `null` (no preset active) is excluded from
 // the segmented control's own OPTIONS.
 type CameraPresetOption = Exclude<CameraPreset, null>;
 const CAMERA_PRESET_OPTIONS: readonly CameraPresetOption[] = ["iso", "top", "front", "side"];
-const CAMERA_PRESET_LABELS: Record<CameraPresetOption, string> = {
-  iso: "Iso",
-  top: "Top",
-  front: "Front",
-  side: "Side",
+const CAMERA_PRESET_KEYS: Record<CameraPresetOption, string> = {
+  iso: "viewer.cam.iso",
+  top: "viewer.cam.top",
+  front: "viewer.cam.front",
+  side: "viewer.cam.side",
 };
 
 const SHADING_OPTIONS: readonly Shading[] = ["solid", "wireframe", "xray"];
-const SHADING_LABELS: Record<Shading, string> = { solid: "Solid", wireframe: "Wire", xray: "X-Ray" };
+const SHADING_KEYS: Record<Shading, string> = {
+  solid: "viewer.shade.solid",
+  wireframe: "viewer.shade.wireframe",
+  xray: "viewer.shade.xray",
+};
 
 /** Bottom-center floating dock (R13a GyroidVault re-chrome): camera preset,
  * shading (replaces the old separate Wireframe/X-ray toggle buttons with one
@@ -43,6 +48,14 @@ export function ViewerDock({
   onQuickColor: (hex: string) => void;
   morePanel: ReactNode;
 }) {
+  const { t } = useTranslation();
+  const cameraLabels = Object.fromEntries(
+    CAMERA_PRESET_OPTIONS.map((o) => [o, t(CAMERA_PRESET_KEYS[o])]),
+  ) as Record<CameraPresetOption, string>;
+  const shadingLabels = Object.fromEntries(SHADING_OPTIONS.map((o) => [o, t(SHADING_KEYS[o])])) as Record<
+    Shading,
+    string
+  >;
   const handleGridToggle = () => onToolsChange({ grid: !tools.grid });
 
   return (
@@ -56,25 +69,25 @@ export function ViewerDock({
       onKeyDown={(event) => event.stopPropagation()}
     >
       <SegmentedControl
-        label="Camera preset"
+        label={t("viewer.cam.label")}
         options={CAMERA_PRESET_OPTIONS}
-        labels={CAMERA_PRESET_LABELS}
+        labels={cameraLabels}
         value={tools.cameraPreset}
         onChange={(preset) => onToolsChange({ cameraPreset: preset })}
       />
       <SegmentedControl
-        label="Shading"
+        label={t("viewer.shade.label")}
         options={SHADING_OPTIONS}
-        labels={SHADING_LABELS}
+        labels={shadingLabels}
         value={tools.shading}
         onChange={(shading) => onToolsChange({ shading })}
       />
-      <div role="group" aria-label="Quick colors" className="flex shrink-0 items-center gap-1 px-1">
+      <div role="group" aria-label={t("viewer.dock.quickColors")} className="flex shrink-0 items-center gap-1 px-1">
         {QUICK_COLORS.map((hex) => (
           <button
             key={hex}
             type="button"
-            aria-label={`Paint checked parts ${hex}`}
+            aria-label={t("viewer.dock.paint", { hex })}
             disabled={checkedList.length === 0}
             onClick={() => onQuickColor(hex)}
             style={{ background: hex }}
@@ -89,13 +102,13 @@ export function ViewerDock({
             variant={tools.grid ? "secondary" : "outline"}
             size="icon-sm"
             aria-pressed={tools.grid}
-            aria-label="Grid"
+            aria-label={t("viewer.dock.grid")}
             onClick={handleGridToggle}
           >
             <Grid3x3Icon />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Grid (G)</TooltipContent>
+        <TooltipContent>{t("viewer.dock.gridTip")}</TooltipContent>
       </Tooltip>
       {morePanel}
     </div>

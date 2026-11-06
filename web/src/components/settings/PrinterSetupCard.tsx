@@ -16,6 +16,7 @@
  * straight off the printer's TLS cert (`POST /printers/detect-serial`) so
  * the user doesn't have to hunt for it on the printer's screen.
  */
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Trash2Icon } from "lucide-react";
 
@@ -96,6 +97,7 @@ function seedDraft(printer: PrinterOut): PrinterDraft {
 }
 
 export function PrinterSetupCard() {
+  const { t } = useTranslation();
   const features = useFeatures();
 
   if (features.isLoading) return <Skeleton className="h-48 w-full rounded-xl" />;
@@ -104,8 +106,8 @@ export function PrinterSetupCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Printer setup</CardTitle>
-          <CardDescription>Printer integration is off. Enable it above to add and manage printers.</CardDescription>
+          <CardTitle>{t("settingsPrinterSetup.title")}</CardTitle>
+          <CardDescription>{t("settingsPrinterSetup.off")}</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -129,17 +131,18 @@ function DiscoverSection({
   defaultValue: string;
   onPick: (d: DiscoveredPrinter) => void;
 }) {
+  const { t } = useTranslation();
   const [cidr, setCidr] = useState<string | null>(null);
   const discover = useDiscover();
   const value = cidr ?? defaultValue;
   return (
     <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-      <h2 className="text-sm font-semibold text-foreground">Discover printers</h2>
+      <h2 className="text-sm font-semibold text-foreground">{t("settingsPrinterSetup.discover")}</h2>
       <div className="flex gap-1.5">
         <Input
-          aria-label="Subnet"
+          aria-label={t("settingsPrinterSetup.subnet")}
           value={value}
-          placeholder="192.168.1.0/24 (auto)"
+          placeholder={t("settingsPrinterSetup.subnetPlaceholder")}
           onChange={(e) => setCidr(e.target.value)}
         />
         <Button
@@ -148,16 +151,16 @@ function DiscoverSection({
           disabled={discover.isPending}
           onClick={() => discover.mutate(value.trim() || null)}
         >
-          {discover.isPending ? "Scanning..." : "Scan"}
+          {discover.isPending ? t("settingsPrinterSetup.scanning") : t("settingsPrinterSetup.scan")}
         </Button>
       </div>
       {discover.isError ? (
         <p role="alert" className="text-xs text-destructive">
-          {discover.error instanceof ApiError ? discover.error.detail : "Scan failed"}
+          {discover.error instanceof ApiError ? discover.error.detail : t("settingsPrinterSetup.scanFailed")}
         </p>
       ) : null}
       {discover.data && discover.data.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No printers found.</p>
+        <p className="text-xs text-muted-foreground">{t("settingsPrinterSetup.noneFound")}</p>
       ) : null}
       <ul className="space-y-1">
         {(discover.data ?? []).map((d) => (
@@ -167,7 +170,7 @@ function DiscoverSection({
               className="w-full rounded-md border px-2 py-1 text-left text-sm hover:bg-muted"
               onClick={() => onPick(d)}
             >
-              {d.model_hint ?? "Bambu printer"} · {d.host} · {d.serial}
+              {d.model_hint ?? t("settingsPrinterSetup.bambuPrinter")} · {d.host} · {d.serial}
             </button>
           </li>
         ))}
@@ -177,33 +180,34 @@ function DiscoverSection({
 }
 
 function EnabledPrinterSetupCard() {
+  const { t } = useTranslation();
   const printers = usePrinters();
   const [fill, setFill] = useState<Fill | null>(null);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Printer setup</CardTitle>
-        <CardDescription>Add and manage the printers this app can send sliced files to.</CardDescription>
+        <CardTitle>{t("settingsPrinterSetup.title")}</CardTitle>
+        <CardDescription>{t("settingsPrinterSetup.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {printers.isLoading ? (
           <Skeleton className="h-24 w-full rounded-lg" />
         ) : printers.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {printers.error instanceof ApiError ? printers.error.detail : "Couldn't load printers."}
+            {printers.error instanceof ApiError ? printers.error.detail : t("settingsPrinterSetup.loadError")}
           </p>
         ) : (
           (printers.data ?? []).map((printer) => <PrinterEditor key={printer.id} printer={printer} />)
         )}
         <div className="space-y-3 border-t pt-4">
-          <h2 className="text-sm font-semibold text-foreground">Add a printer</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t("settingsPrinterSetup.addPrinter")}</h2>
           <DiscoverSection
             defaultValue={defaultCidr(printers.data ?? [])}
             onPick={(d) =>
               setFill((f) => ({
                 seq: (f?.seq ?? 0) + 1,
-                values: { name: d.model_hint ?? "Bambu printer", host: d.host, serial: d.serial, model: d.model_hint ?? "" },
+                values: { name: d.model_hint ?? t("settingsPrinterSetup.bambuPrinter"), host: d.host, serial: d.serial, model: d.model_hint ?? "" },
               }))
             }
           />
@@ -215,6 +219,7 @@ function EnabledPrinterSetupCard() {
 }
 
 function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | null }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<PrinterDraft>(() => (printer ? seedDraft(printer) : emptyDraft()));
   const [errors, setErrors] = useState<DraftErrors>({});
   const [diagOpen, setDiagOpen] = useState(false);
@@ -250,20 +255,20 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
    * can't be turned into a valid `{x,y,z}` body. */
   function validate(): boolean {
     const next: DraftErrors = {};
-    if (draft.serial.trim() === "") next.serial = "Serial is required.";
+    if (draft.serial.trim() === "") next.serial = t("settingsPrinterSetup.serialRequired");
     if (!printer) {
-      if (draft.name.trim() === "") next.name = "Name is required.";
-      if (draft.host.trim() === "") next.host = "Host is required.";
-      if (draft.access_code.trim() === "") next.access_code = "Access code is required.";
+      if (draft.name.trim() === "") next.name = t("settingsPrinterSetup.nameRequired");
+      if (draft.host.trim() === "") next.host = t("settingsPrinterSetup.hostRequired");
+      if (draft.access_code.trim() === "") next.access_code = t("settingsPrinterSetup.codeRequired");
     }
     if (draft.wearCost.trim() !== "" && !(Number(draft.wearCost) >= 0)) {
-      next.wearCost = "Must be a number 0 or greater.";
+      next.wearCost = t("settingsPrinterSetup.wearInvalid");
     }
     const volumeFilled = [draft.buildVolumeX, draft.buildVolumeY, draft.buildVolumeZ].filter(
       (v) => v.trim() !== "",
     ).length;
     if (volumeFilled > 0 && volumeFilled < 3) {
-      next.buildVolume = "Enter all three dimensions, or leave all blank.";
+      next.buildVolume = t("settingsPrinterSetup.volumeInvalid");
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -351,7 +356,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
     <div className="space-y-3 rounded-lg border border-border p-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${idPrefix}-name`}>Name</Label>
+          <Label htmlFor={`${idPrefix}-name`}>{t("settingsPrinterSetup.name")}</Label>
           <Input
             id={`${idPrefix}-name`}
             value={draft.name}
@@ -366,7 +371,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           ) : null}
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${idPrefix}-host`}>Host</Label>
+          <Label htmlFor={`${idPrefix}-host`}>{t("settingsPrinterSetup.host")}</Label>
           <Input
             id={`${idPrefix}-host`}
             value={draft.host}
@@ -382,7 +387,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           ) : null}
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${idPrefix}-serial`}>Serial</Label>
+          <Label htmlFor={`${idPrefix}-serial`}>{t("settingsPrinterSetup.serial")}</Label>
           <div className="flex gap-1.5">
             <Input
               id={`${idPrefix}-serial`}
@@ -398,7 +403,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               disabled={busy || detectSerial.isPending || draft.host.trim() === ""}
               onClick={detect}
             >
-              {detectSerial.isPending ? "Detecting..." : "Detect"}
+              {detectSerial.isPending ? t("settingsPrinterSetup.detecting") : t("settingsPrinterSetup.detect")}
             </Button>
           </div>
           {errors.serial ? (
@@ -408,7 +413,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           ) : null}
           {detectSerial.isError ? (
             <p role="alert" className="text-xs text-destructive">
-              {detectSerial.error instanceof ApiError ? detectSerial.error.detail : "Could not detect the serial"}
+              {detectSerial.error instanceof ApiError ? detectSerial.error.detail : t("settingsPrinterSetup.detectError")}
             </p>
           ) : null}
           {detectSerial.data ? (
@@ -423,7 +428,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           ) : null}
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${idPrefix}-model`}>Model</Label>
+          <Label htmlFor={`${idPrefix}-model`}>{t("settingsPrinterSetup.model")}</Label>
           <select
             id={`${idPrefix}-model`}
             value={draft.model}
@@ -431,7 +436,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             disabled={busy}
             className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
           >
-            <option value="">Select a model</option>
+            <option value="">{t("settingsPrinterSetup.selectModel")}</option>
             {draft.model !== "" && !PRINTER_MODELS.some((g) => g.models.some((o) => o.value === draft.model)) ? (
               <option value={draft.model}>{draft.model}</option>
             ) : null}
@@ -447,12 +452,12 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           </select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor={`${idPrefix}-access-code`}>Access code</Label>
+          <Label htmlFor={`${idPrefix}-access-code`}>{t("settingsPrinterSetup.accessCode")}</Label>
           <Input
             id={`${idPrefix}-access-code`}
             type="password"
             value={draft.access_code}
-            placeholder={printer?.access_code_set ? "•• (unchanged)" : "LAN access code"}
+            placeholder={printer?.access_code_set ? t("settingsPrinterSetup.unchanged") : t("settingsPrinterSetup.lanCode")}
             onChange={(e) => setField("access_code", e.target.value)}
             disabled={busy}
             autoComplete="new-password"
@@ -466,7 +471,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
         </div>
         {printer ? (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${idPrefix}-wear`}>Wear cost (per hour)</Label>
+            <Label htmlFor={`${idPrefix}-wear`}>{t("settingsPrinterSetup.wear")}</Label>
             <Input
               id={`${idPrefix}-wear`}
               type="number"
@@ -483,16 +488,16 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Added to the machine rate for this printer. Blank = no extra wear charge.
+                {t("settingsPrinterSetup.wearHint")}
               </p>
             )}
           </div>
         ) : null}
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <span className="text-sm font-medium text-foreground">Build volume (mm)</span>
+          <span className="text-sm font-medium text-foreground">{t("settingsPrinterSetup.volume")}</span>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`${idPrefix}-volume-x`}>Build volume X (mm)</Label>
+              <Label htmlFor={`${idPrefix}-volume-x`}>{t("settingsPrinterSetup.volumeX")}</Label>
               <Input
                 id={`${idPrefix}-volume-x`}
                 type="number"
@@ -503,7 +508,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`${idPrefix}-volume-y`}>Y (mm)</Label>
+              <Label htmlFor={`${idPrefix}-volume-y`}>{t("settingsPrinterSetup.volumeY")}</Label>
               <Input
                 id={`${idPrefix}-volume-y`}
                 type="number"
@@ -514,7 +519,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`${idPrefix}-volume-z`}>Z (mm)</Label>
+              <Label htmlFor={`${idPrefix}-volume-z`}>{t("settingsPrinterSetup.volumeZ")}</Label>
               <Input
                 id={`${idPrefix}-volume-z`}
                 type="number"
@@ -539,7 +544,13 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" onClick={save} disabled={busy || preflight.isPending || failures !== null}>
-          {saveMutation.isPending ? "Saving..." : preflight.isPending ? "Checking..." : printer ? "Save changes" : "Add printer"}
+          {saveMutation.isPending
+            ? t("settingsPrinterSetup.saving")
+            : preflight.isPending
+              ? t("settingsPrinterSetup.checking")
+              : printer
+                ? t("settingsPrinterSetup.saveChanges")
+                : t("settingsPrinterSetup.add")}
         </Button>
         <Button
           type="button"
@@ -547,7 +558,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
           disabled={busy || (printer ? false : !draft.host.trim() || !draft.serial.trim() || !draft.access_code.trim())}
           onClick={() => setDiagOpen(true)}
         >
-          Run diagnostic
+          {t("settingsPrinterSetup.diagnostic")}
         </Button>
         {printer ? (
           <>
@@ -557,12 +568,12 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               disabled={busy || testPrinter.isPending}
               onClick={() => testPrinter.mutate()}
             >
-              {testPrinter.isPending ? "Testing..." : "Test connection"}
+              {testPrinter.isPending ? t("settingsPrinterSetup.testing") : t("settingsPrinterSetup.test")}
             </Button>
             {isAdmin ? (
               <>
                 <Button type="button" variant="outline" disabled={busy} onClick={() => setMqttOpen(true)}>
-                  MQTT debug
+                  {t("settingsPrinterSetup.mqttDebug")}
                 </Button>
                 <MqttDebugModal printerId={printer.id} printerName={printer.name} open={mqttOpen} onOpenChange={setMqttOpen} />
               </>
@@ -571,12 +582,12 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
               trigger={
                 <Button type="button" variant="destructive" size="sm" disabled={busy}>
                   <Trash2Icon className="size-3.5" />
-                  Delete
+                  {t("common.delete")}
                 </Button>
               }
-              title={`Delete ${printer.name}?`}
-              description="This also removes its print job history. This cannot be undone."
-              confirmLabel="Delete"
+              title={t("settingsPrinterSetup.deleteTitle", { name: printer.name })}
+              description={t("settingsPrinterSetup.deleteDesc")}
+              confirmLabel={t("common.delete")}
               destructive
               onConfirm={() => deletePrinter.mutate(printer.id)}
             />
@@ -586,14 +597,14 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
 
       {failures ? (
         <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3">
-          <p className="text-sm font-medium text-destructive">Connection checks failed</p>
+          <p className="text-sm font-medium text-destructive">{t("settingsPrinterSetup.checksFailed")}</p>
           <DiagnosticChecks checks={failures} />
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => setFailures(null)}>
-              Back
+              {t("settingsPrinterSetup.back")}
             </Button>
             <Button type="button" size="sm" onClick={doSave}>
-              Save anyway
+              {t("settingsPrinterSetup.saveAnyway")}
             </Button>
           </div>
         </div>
@@ -607,27 +618,27 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
 
       {saveMutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {saveMutation.error instanceof ApiError ? saveMutation.error.detail : "Could not save printer"}
+          {saveMutation.error instanceof ApiError ? saveMutation.error.detail : t("settingsPrinterSetup.saveError")}
         </p>
       ) : null}
-      {saveMutation.isSuccess ? <p className="text-sm text-success">Saved.</p> : null}
+      {saveMutation.isSuccess ? <p className="text-sm text-success">{t("settingsPrinterSetup.saved")}</p> : null}
 
       {deletePrinter.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {deletePrinter.error instanceof ApiError ? deletePrinter.error.detail : "Could not delete printer"}
+          {deletePrinter.error instanceof ApiError ? deletePrinter.error.detail : t("settingsPrinterSetup.deleteError")}
         </p>
       ) : null}
 
       {testPrinter.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {testPrinter.error instanceof ApiError ? testPrinter.error.detail : "Could not test connection"}
+          {testPrinter.error instanceof ApiError ? testPrinter.error.detail : t("settingsPrinterSetup.testError")}
         </p>
       ) : null}
       {printer ? <PlugConfig printerId={printer.id} /> : null}
       {testPrinter.data ? (
         <p role={testPrinter.data.ok ? undefined : "alert"} className={testPrinter.data.ok ? "text-sm text-success" : "text-sm text-destructive"}>
           {testPrinter.data.detail}
-          {testPrinter.data.gcode_state ? ` (state: ${testPrinter.data.gcode_state})` : ""}
+          {testPrinter.data.gcode_state ? ` (${t("settingsPrinterSetup.state", { state: testPrinter.data.gcode_state })})` : ""}
         </p>
       ) : null}
     </div>

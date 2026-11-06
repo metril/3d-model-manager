@@ -7,6 +7,7 @@
  */
 import { useIsMutating } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CloudDownloadIcon, RefreshCwIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
@@ -39,19 +40,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const STATUS_LABEL: Record<CloudPresetStatus, string> = {
-  new: "New",
-  up_to_date: "Up to date",
-  remote_changed: "Changed in cloud",
-  local_modified: "Edited locally",
-  conflict: "Changed on both sides",
-  removed: "Removed from cloud",
+const STATUS_KEY: Record<CloudPresetStatus, string> = {
+  new: "cloudPresets.status.new",
+  up_to_date: "cloudPresets.status.up_to_date",
+  remote_changed: "cloudPresets.status.remote_changed",
+  local_modified: "cloudPresets.status.local_modified",
+  conflict: "cloudPresets.status.conflict",
+  removed: "cloudPresets.status.removed",
 };
 
 function StatusBadge({ status }: { status: CloudPresetStatus }) {
+  const { t } = useTranslation();
   const variant =
     status === "up_to_date" ? "outline" : status === "conflict" || status === "removed" ? "destructive" : "secondary";
-  return <Badge variant={variant}>{STATUS_LABEL[status]}</Badge>;
+  return <Badge variant={variant}>{t(STATUS_KEY[status])}</Badge>;
 }
 
 function show(value: unknown): string {
@@ -65,24 +67,25 @@ function errorText(e: unknown, fallback: string): string {
 }
 
 function DiffRow({ source, presetId }: { source: CloudSource; presetId: string }) {
+  const { t } = useTranslation();
   const diff = useCloudDiff(source, presetId);
   if (diff.isLoading) return <Skeleton className="h-8 w-full" />;
   if (diff.isError) {
     return (
       <p role="alert" className="text-xs text-destructive">
-        {errorText(diff.error, "Couldn't load the diff.")}
+        {errorText(diff.error, t("cloudPresets.diffFailed"))}
       </p>
     );
   }
   const changes = diff.data?.changes ?? [];
-  if (changes.length === 0) return <p className="text-xs text-muted-foreground">No differences.</p>;
+  if (changes.length === 0) return <p className="text-xs text-muted-foreground">{t("cloudPresets.noDiff")}</p>;
   return (
     <table className="w-full text-xs">
       <thead>
         <tr className="text-left text-muted-foreground">
-          <th className="pr-2 font-medium">Setting</th>
-          <th className="pr-2 font-medium">Local</th>
-          <th className="font-medium">Cloud</th>
+          <th className="pr-2 font-medium">{t("cloudPresets.setting")}</th>
+          <th className="pr-2 font-medium">{t("cloudPresets.local")}</th>
+          <th className="font-medium">{t("cloudPresets.cloud")}</th>
         </tr>
       </thead>
       <tbody>
@@ -99,6 +102,7 @@ function DiffRow({ source, presetId }: { source: CloudSource; presetId: string }
 }
 
 function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
+  const { t } = useTranslation();
   const start = useOrcaDeviceStart();
   const poll = useOrcaDevicePoll();
   const [device, setDevice] = useState<DeviceStart | null>(null);
@@ -123,13 +127,13 @@ function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
             return;
           }
           setDevice(null);
-          if (r.status === "denied") setMessage("Pairing was denied in Orca Cloud.");
-          if (r.status === "expired") setMessage("The pairing code expired. Start again.");
+          if (r.status === "denied") setMessage(t("cloudPresets.denied"));
+          if (r.status === "expired") setMessage(t("cloudPresets.expired"));
         },
         onError: (e) => {
           if (stopped) return;
           setDevice(null);
-          setMessage(errorText(e, "Pairing failed."));
+          setMessage(errorText(e, t("cloudPresets.pairFailed")));
         },
       });
     };
@@ -144,13 +148,12 @@ function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Pair this server with your Orca Cloud account (read-only). You approve a short code in your Orca Cloud
-        settings; no password is shared.
+        {t("cloudPresets.pairIntro")}
       </p>
       {device ? (
         <div className="rounded-lg border p-3 text-sm">
           <p>
-            Enter this code in Orca Cloud:{" "}
+            {t("cloudPresets.enterCode")}{" "}
             <span className="font-mono text-base font-semibold">{device.user_code}</span>
           </p>
           <p className="mt-1">
@@ -160,10 +163,10 @@ function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
               target="_blank"
               rel="noreferrer"
             >
-              Open the approval page
+              {t("cloudPresets.openApproval")}
             </a>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Waiting for approval…</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("cloudPresets.waiting")}</p>
         </div>
       ) : (
         <div>
@@ -175,11 +178,11 @@ function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
               setMessage(null);
               start.mutate(undefined, {
                 onSuccess: setDevice,
-                onError: (e) => setMessage(errorText(e, "Couldn't start pairing.")),
+                onError: (e) => setMessage(errorText(e, t("cloudPresets.startFailed"))),
               });
             }}
           >
-            {start.isPending ? "Starting…" : "Connect Orca Cloud"}
+            {start.isPending ? t("cloudPresets.starting") : t("cloudPresets.connect")}
           </Button>
         </div>
       )}
@@ -203,6 +206,7 @@ function SourcePanel({
   canAdmin: boolean;
   onActive: (key: string, active: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const status = useCloudStatus();
   const connected = status.data?.[source].connected ?? false;
   const needsReconnect = status.data?.[source].needs_reconnect ?? false;
@@ -220,18 +224,18 @@ function SourcePanel({
     setSyncError(null);
     sync.mutate(
       { preset_ids: presetIds, overwrite_local: overwrite },
-      { onSuccess: setResult, onError: (e) => setSyncError(errorText(e, "Sync failed.")) },
+      { onSuccess: setResult, onError: (e) => setSyncError(errorText(e, t("cloudPresets.syncFailed"))) },
     );
   }
 
   if (status.isLoading) return <Skeleton className="h-24 w-full" />;
   if (!connected || needsReconnect) {
-    if (source === "orca") return canAdmin ? <OrcaConnect onActive={(a) => onActive(`${source}-login`, a)} /> : <p className="text-sm text-muted-foreground">Orca Cloud isn&apos;t connected. Ask an admin to connect it.</p>;
+    if (source === "orca") return canAdmin ? <OrcaConnect onActive={(a) => onActive(`${source}-login`, a)} /> : <p className="text-sm text-muted-foreground">{t("cloudPresets.orcaDisconnected")}</p>;
     return (
       <p className="text-sm text-muted-foreground">
         {needsReconnect
-          ? "Your Bambu sign-in expired. Sign in again under Settings → Accounts."
-          : "Connect your Bambu Lab account under Settings → Accounts to import your cloud presets."}
+          ? t("cloudPresets.bambuExpired")
+          : t("cloudPresets.bambuConnect")}
       </p>
     );
   }
@@ -243,23 +247,23 @@ function SourcePanel({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {source === "bambu" ? `Bambu account ${status.data?.bambu.account ?? ""}. ` : "Orca Cloud connected. "}
-          {list.isSuccess ? `${presets.length} preset${presets.length === 1 ? "" : "s"}, ${pending} to import.` : null}
+          {source === "bambu" ? t("cloudPresets.bambuAccount", { account: status.data?.bambu.account ?? "" }) : t("cloudPresets.orcaConnected")}
+          {list.isSuccess ? t("cloudPresets.summary", { count: presets.length, pending }) : null}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant="ghost" onClick={() => void list.refetch()}>
             <RefreshCwIcon className="size-4" />
-            Refresh
+            {t("cloudPresets.refresh")}
           </Button>
           {canWrite ? (
             <Button type="button" size="sm" disabled={sync.isPending || pending === 0} onClick={() => run()}>
               <CloudDownloadIcon className="size-4" />
-              {sync.isPending ? "Importing…" : `Import new & changed (${pending})`}
+              {sync.isPending ? t("cloudPresets.importing") : t("cloudPresets.importAll", { pending })}
             </Button>
           ) : null}
           {source === "orca" && canAdmin ? (
             <Button type="button" size="sm" variant="outline" onClick={() => disconnect.mutate()}>
-              Disconnect
+              {t("cloudPresets.disconnect")}
             </Button>
           ) : null}
         </div>
@@ -268,17 +272,17 @@ function SourcePanel({
       {canWrite ? (
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-          Overwrite local edits
+          {t("cloudPresets.overwrite")}
         </label>
       ) : null}
 
       {result ? (
         <div role="status" className="text-sm">
-          Imported: {result.created} new, {result.updated} updated
+          {t("cloudPresets.imported", { created: result.created, updated: result.updated })}
           {result.skipped.length > 0
-            ? `, ${result.skipped.length} kept (${result.skipped.map((s) => s.name).join(", ")} — edited locally)`
+            ? t("cloudPresets.keptPart", { n: result.skipped.length, names: result.skipped.map((s) => s.name).join(", ") })
             : ""}
-          {result.failed.length > 0 ? `, ${result.failed.length} failed` : ""}.
+          {result.failed.length > 0 ? t("cloudPresets.failedPart", { n: result.failed.length }) : ""}.
         </div>
       ) : null}
       {syncError ? (
@@ -291,17 +295,17 @@ function SourcePanel({
         <Skeleton className="h-32 w-full" />
       ) : list.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errorText(list.error, "Couldn't load cloud presets.")}
+          {errorText(list.error, t("cloudPresets.loadFailed"))}
         </p>
       ) : presets.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">No cloud presets found.</p>
+        <p className="py-4 text-center text-sm text-muted-foreground">{t("cloudPresets.none")}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t("cloudPresets.name")}</TableHead>
+              <TableHead>{t("cloudPresets.kind")}</TableHead>
+              <TableHead>{t("cloudPresets.statusHead")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -323,7 +327,7 @@ function SourcePanel({
       )}
       {(list.data?.removed ?? []).length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          No longer in the cloud (local copies kept): {(list.data?.removed ?? []).map((r) => r.name).join(", ")}
+          {t("cloudPresets.removed")} {(list.data?.removed ?? []).map((r) => r.name).join(", ")}
         </p>
       ) : null}
     </div>
@@ -347,6 +351,7 @@ function PresetRow({
   onDiff: () => void;
   onImport: () => void;
 }) {
+  const { t } = useTranslation();
   const imported = preset.profile_id != null;
   return (
     <>
@@ -358,19 +363,19 @@ function PresetRow({
         </TableCell>
         <TableCell className="text-right">
           <div className="flex justify-end gap-1">
-            <Button type="button" size="xs" variant="ghost" aria-label={`Diff ${preset.name}`} onClick={onDiff}>
-              {diffOpen ? "Hide diff" : "Diff"}
+            <Button type="button" size="xs" variant="ghost" aria-label={t("cloudPresets.diffName", { name: preset.name })} onClick={onDiff}>
+              {diffOpen ? t("cloudPresets.hideDiff") : t("cloudPresets.diff")}
             </Button>
             {canWrite && preset.status !== "up_to_date" ? (
               <Button
                 type="button"
                 size="xs"
                 variant="outline"
-                aria-label={`${imported ? "Resync" : "Import"} ${preset.name}`}
+                aria-label={t(imported ? "cloudPresets.resyncName" : "cloudPresets.importName", { name: preset.name })}
                 disabled={busy}
                 onClick={onImport}
               >
-                {imported ? "Resync" : "Import"}
+                {imported ? t("cloudPresets.resync") : t("cloudPresets.import")}
               </Button>
             ) : null}
           </div>
@@ -398,6 +403,7 @@ export function CloudPresetsDialog({
   canWrite: boolean;
   canAdmin: boolean;
 }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<CloudSource>("orca");
   // Any in-flight sync / pairing mutation blocks closing; nothing is "dirty" (each preset imports immediately).
   const busy = useIsMutating({ mutationKey: CLOUD_MUTATION_KEY }) > 0;
@@ -411,16 +417,15 @@ export function CloudPresetsDialog({
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={busy} className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Cloud presets</DialogTitle>
+          <DialogTitle>{t("cloudPresets.title")}</DialogTitle>
           <DialogDescription>
-            Import your own printer, process and filament presets from Orca Cloud or Bambu Cloud. Resync later to
-            pick up changes; presets you edited here are kept unless you overwrite them.
+            {t("cloudPresets.desc")}
           </DialogDescription>
         </DialogHeader>
         <Tabs value={tab} onValueChange={(v) => setTab(v as CloudSource)}>
           <TabsList>
-            <TabsTrigger value="orca">Orca Cloud</TabsTrigger>
-            <TabsTrigger value="bambu">Bambu Cloud</TabsTrigger>
+            <TabsTrigger value="orca">{t("cloudPresets.orcaTab")}</TabsTrigger>
+            <TabsTrigger value="bambu">{t("cloudPresets.bambuTab")}</TabsTrigger>
           </TabsList>
           <TabsContent value="orca">
             <SourcePanel source="orca" canWrite={canWrite} canAdmin={canAdmin} onActive={onActive} />
@@ -431,7 +436,7 @@ export function CloudPresetsDialog({
         </Tabs>
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="outline">Close</Button>
+            <Button type="button" variant="outline">{t("common.close")}</Button>
           </DialogClose>
         </DialogFooter>
     </FormDialog>

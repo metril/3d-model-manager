@@ -16,18 +16,18 @@ export const PANEL_IDS = [
 
 export type PanelId = (typeof PANEL_IDS)[number];
 
-export const PANEL_TITLES: Record<PanelId, string> = {
-  viewer: "3D viewer",
-  description: "Description",
-  tagsLinks: "Tags & links",
-  related: "Related",
-  gcodeProfiles: "Profiles",
-  printHistory: "Print history",
-  filesDocs: "Files",
-  revisions: "Revisions",
-  notes: "Notes",
-  printTips: "Print tips",
-  specs: "Specs",
+export const PANEL_TITLE_KEYS: Record<PanelId, string> = {
+  viewer: "mdPanels.viewer",
+  description: "mdPanels.description",
+  tagsLinks: "mdPanels.tagsLinks",
+  related: "mdPanels.related",
+  gcodeProfiles: "mdPanels.gcodeProfiles",
+  printHistory: "mdPanels.printHistory",
+  filesDocs: "mdPanels.filesDocs",
+  revisions: "mdPanels.revisions",
+  notes: "mdPanels.notes",
+  printTips: "mdPanels.printTips",
+  specs: "mdPanels.specs",
 };
 
 /** Panels whose DOM must survive tab switches (a WebGL canvas would lose its context). */

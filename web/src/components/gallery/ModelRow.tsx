@@ -16,6 +16,7 @@ import { tagColorClass } from "@/lib/tagColors";
 import { LIST_ROW_HEIGHT_PX } from "@/lib/grid";
 import { cn } from "@/lib/utils";
 import type { ModelSummary } from "@/api/types";
+import { useTranslation } from "react-i18next";
 
 const VISIBLE_TAGS = 2;
 
@@ -39,6 +40,7 @@ export function ModelRow({
   onSelectChange?: (id: number, next: boolean) => void;
   onModifiedClick?: (event: React.MouseEvent, index: number) => void;
 }) {
+  const { t } = useTranslation();
   const [coverErrored, setCoverErrored] = useState(false);
   const patchModel = usePatchModel(model.slug);
   const queryClient = useQueryClient();
@@ -83,7 +85,7 @@ export function ModelRow({
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onSelectChange?.(model.id, checked === true)}
-          aria-label={`Select ${model.name}`}
+          aria-label={t("modelCard.select", { name: model.name })}
           className={cn(
             "shrink-0 transition-opacity",
             selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
@@ -139,17 +141,17 @@ export function ModelRow({
 
       <div className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex" data-testid="model-row-meta">
         <FileStackIcon className="size-3" />
-        {model.file_count} {model.file_count === 1 ? "file" : "files"}
+        {t("modelCard.files", { count: model.file_count })}
       </div>
 
       <p className="hidden shrink-0 font-mono text-xs text-muted-foreground md:block">
-        Updated {formatDate(model.updated_at)}
+        {t("modelCard.updated", { date: formatDate(model.updated_at) })}
       </p>
 
       <span className="contents" onClick={stopRowNavigation}>
         <button
           type="button"
-          aria-label={model.favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={model.favorite ? t("modelCard.unfavorite") : t("modelCard.favorite")}
           aria-pressed={model.favorite}
           onClick={() => patchModel.mutate({ favorite: !model.favorite })}
           className="shrink-0 rounded-full p-1 text-foreground transition-colors hover:text-warning"

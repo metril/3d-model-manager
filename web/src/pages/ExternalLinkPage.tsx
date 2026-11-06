@@ -5,6 +5,7 @@ import { useExternalLinks } from "@/api/externalLinks";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "react-i18next";
 
 const routeApi = getRouteApi("/authenticated/external/$id");
 
@@ -12,6 +13,7 @@ const routeApi = getRouteApi("/authenticated/external/$id");
  * "open in new tab" prompt for `newtab` (also the fallback when the target
  * site refuses to be framed -- the toolbar button is always available). */
 export function ExternalLinkPage() {
+  const { t } = useTranslation();
   const { id } = routeApi.useParams();
   const links = useExternalLinks();
 
@@ -21,8 +23,8 @@ export function ExternalLinkPage() {
     return (
       <Card className="mx-auto mt-12 max-w-md">
         <CardHeader className="items-center text-center">
-          <CardTitle>Link not found</CardTitle>
-          <CardDescription>This external link was removed or never existed.</CardDescription>
+          <CardTitle>{t("extLinkPage.notFound")}</CardTitle>
+          <CardDescription>{t("extLinkPage.notFoundDesc")}</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -32,7 +34,7 @@ export function ExternalLinkPage() {
     <Button asChild variant="outline" size="sm">
       <a href={link.url} target="_blank" rel="noopener noreferrer">
         <ExternalLinkIcon className="size-4" />
-        Open in new tab
+        {t("extLinkPage.openNewTab")}
       </a>
     </Button>
   );
@@ -42,7 +44,7 @@ export function ExternalLinkPage() {
       <Card className="mx-auto mt-12 max-w-md">
         <CardHeader className="items-center text-center">
           <CardTitle>{link.name}</CardTitle>
-          <CardDescription>This link opens in a new tab.</CardDescription>
+          <CardDescription>{t("extLinkPage.opensNewTab")}</CardDescription>
           {openButton}
         </CardHeader>
       </Card>

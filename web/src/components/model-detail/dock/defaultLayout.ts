@@ -1,8 +1,9 @@
+import i18n from "i18next";
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 import { profileFiles } from "@/components/viewer/plates";
 import type { FileOut } from "@/api/types";
 
-import { ALWAYS_RENDERED_PANELS, DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
+import { ALWAYS_RENDERED_PANELS, DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLE_KEYS, type DefaultGroup, type PanelId } from "./panelMeta";
 
 const LEFT_WIDTH = 0.66;
 const LEFT_TOP_HEIGHT = 0.78;
@@ -15,7 +16,7 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
   return api.addPanel({
     id,
     component: id,
-    title: PANEL_TITLES[id],
+    title: i18n.t(PANEL_TITLE_KEYS[id]),
     // The 3D viewer keeps its DOM (and GL context) alive when its tab is
     // hidden or the group is re-parented.
     renderer: ALWAYS_RENDERED_PANELS.includes(id) ? "always" : undefined,

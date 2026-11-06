@@ -68,7 +68,7 @@ function Compared({ data }: { data: CompareOut }) {
               <th className={th}>{t("archiveX.compare.result")}</th>
               {cols.map((a) => (
                 <td key={a.id} className="px-2 py-1.5">
-                  <Badge variant={a.result === "completed" ? "default" : "destructive"}>{a.result}</Badge>
+                  <Badge variant={a.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${a.result}`, { defaultValue: a.result })}</Badge>
                 </td>
               ))}
             </tr>

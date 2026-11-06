@@ -10,7 +10,7 @@
  * means revoking it and minting a fresh one.
  */
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
@@ -25,16 +25,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/format";
 
 export function BrowserExtensionCard() {
+  const { t } = useTranslation();
   const tokens = useApiTokens();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Browser extension</CardTitle>
+        <CardTitle>{t("settingsBrowserExt.title")}</CardTitle>
         <CardDescription>
-          A token here lets the &quot;Send to my library&quot; browser extension save models and
-          keep your MakerWorld collections synced, without pasting cookies into DevTools. See{" "}
-          <code>extension/README.md</code> for how to install and configure the extension.
+          <Trans i18nKey="settingsBrowserExt.desc" components={{ code: <code /> }} />
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -43,7 +42,7 @@ export function BrowserExtensionCard() {
           <Skeleton className="h-16 w-full rounded-lg" />
         ) : tokens.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {tokens.error instanceof ApiError ? tokens.error.detail : "Couldn't load API tokens."}
+            {tokens.error instanceof ApiError ? tokens.error.detail : t("settingsBrowserExt.loadError")}
           </p>
         ) : (
           <TokenList tokens={tokens.data ?? []} />
@@ -54,6 +53,7 @@ export function BrowserExtensionCard() {
 }
 
 function MintForm() {
+  const { t } = useTranslation();
   const [label, setLabel] = useState("");
   const [minted, setMinted] = useState<{ label: string; token: string } | null>(null);
   const createToken = useCreateApiToken();
@@ -79,22 +79,22 @@ function MintForm() {
     <div className="space-y-2">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="api-token-label">Token label</Label>
+          <Label htmlFor="api-token-label">{t("settingsBrowserExt.tokenLabel")}</Label>
           <Input
             id="api-token-label"
-            placeholder="e.g. Chrome on my laptop"
+            placeholder={t("settingsBrowserExt.labelPlaceholder")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             disabled={createToken.isPending}
           />
         </div>
         <Button type="button" disabled={createToken.isPending || !label.trim()} onClick={submit}>
-          {createToken.isPending ? "Creating…" : "Create token"}
+          {createToken.isPending ? t("settingsBrowserExt.creating") : t("settingsBrowserExt.create")}
         </Button>
       </div>
       {createToken.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {createToken.error instanceof ApiError ? createToken.error.detail : "Could not create the token."}
+          {createToken.error instanceof ApiError ? createToken.error.detail : t("settingsBrowserExt.createError")}
         </p>
       )}
     </div>
@@ -110,6 +110,7 @@ function MintedTokenReveal({
   token: string;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -121,36 +122,37 @@ function MintedTokenReveal({
 
   return (
     <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="text-sm font-medium text-foreground">Token created for &quot;{label}&quot;</p>
+      <p className="text-sm font-medium text-foreground">{t("settingsBrowserExt.created", { label })}</p>
       <p className="text-xs text-warning">
-        Copy it now — it won&apos;t be shown again. Paste it into the extension&apos;s options page.
+        {t("settingsBrowserExt.copyNow")}
       </p>
       <div className="flex items-center gap-2">
-        <code aria-label="New API token" className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
+        <code aria-label={t("settingsBrowserExt.newToken")} className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
           {token}
         </code>
         <Button type="button" size="sm" variant="outline" onClick={handleCopy}>
           {copied ? (
             <>
-              <CheckIcon /> Copied
+              <CheckIcon /> {t("settingsBrowserExt.copied")}
             </>
           ) : (
             <>
-              <CopyIcon /> Copy
+              <CopyIcon /> {t("settingsBrowserExt.copy")}
             </>
           )}
         </Button>
       </div>
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
-        Done — I&apos;ve saved it
+        {t("settingsBrowserExt.done")}
       </Button>
     </div>
   );
 }
 
 function TokenList({ tokens }: { tokens: ApiTokenOut[] }) {
+  const { t } = useTranslation();
   if (tokens.length === 0) {
-    return <p className="text-sm text-muted-foreground">No tokens yet.</p>;
+    return <p className="text-sm text-muted-foreground">{t("settingsBrowserExt.none")}</p>;
   }
 
   return (
@@ -174,12 +176,12 @@ function TokenRow({ token }: { token: ApiTokenOut }) {
       <div>
         <p className="text-sm font-medium text-foreground">{token.label}</p>
         <p className="text-xs text-muted-foreground">
-          Created {formatDate(token.created_at)} ·{" "}
-          {token.last_used_at ? `Last used ${formatDate(token.last_used_at)}` : "Never used"}
+          {t("settingsBrowserExt.createdAt", { date: formatDate(token.created_at) })} ·{" "}
+          {token.last_used_at ? t("settingsBrowserExt.lastUsed", { date: formatDate(token.last_used_at) }) : t("settingsBrowserExt.neverUsed")}
         </p>
         {errorForThis && (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {revokeToken.error instanceof ApiError ? revokeToken.error.detail : "Could not revoke this token."}
+            {revokeToken.error instanceof ApiError ? revokeToken.error.detail : t("settingsBrowserExt.revokeError")}
           </p>
         )}
       </div>
@@ -190,7 +192,7 @@ function TokenRow({ token }: { token: ApiTokenOut }) {
         disabled={revokingThis}
         onClick={() => setConfirming(true)}
       >
-        {revokingThis ? "Revoking…" : "Revoke"}
+        {revokingThis ? t("settingsBrowserExt.revoking") : t("common.revoke")}
       </Button>
       <ConfirmDialog
         open={confirming}

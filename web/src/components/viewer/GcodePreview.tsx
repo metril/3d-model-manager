@@ -20,6 +20,7 @@ import type { WebGLPreview } from "gcode-preview";
 
 import { usePrinters, usePrinterStatus } from "@/api/printers";
 import { isTooLarge, TOO_LARGE_TO_PREVIEW_BYTES } from "@/lib/gcodeLimits";
+import { useTranslation } from "react-i18next";
 
 const DEFAULT_BUILD_VOLUME = { x: 256, y: 256, z: 256 };
 
@@ -45,6 +46,7 @@ export function GcodePreview({
   buildVolume?: { x: number; y: number; z: number };
   extrusionColor?: string;
 }) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewRef = useRef<WebGLPreview | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "too-large">("loading");
@@ -166,13 +168,13 @@ export function GcodePreview({
   const currentHeight = previewRef.current?.layers[layer - 1]?.height ?? null;
 
   if (status === "error") {
-    return <p className="py-8 text-center text-sm text-muted-foreground">Couldn't load the g-code preview.</p>;
+    return <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.gcode.error")}</p>;
   }
 
   if (status === "too-large") {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        Too large to preview in the browser.
+        {t("viewer.gcode.tooLarge")}
       </p>
     );
   }
@@ -183,7 +185,7 @@ export function GcodePreview({
         <canvas ref={canvasRef} className="h-full w-full" />
       </div>
       {status === "loading" ? (
-        <p className="text-center text-sm text-muted-foreground">Loading preview…</p>
+        <p className="text-center text-sm text-muted-foreground">{t("viewer.gcode.loading")}</p>
       ) : (
         <div className="flex items-center gap-3">
           <input
@@ -194,10 +196,10 @@ export function GcodePreview({
             step={1}
             value={layer}
             onChange={(event) => setLayer(Number(event.target.value))}
-            aria-label="Layer"
+            aria-label={t("viewer.gcode.layer")}
           />
           <p className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-            Layer {layer} / {layerCount}
+            {t("viewer.gcode.layerOf", { layer, total: layerCount })}
             {currentHeight !== null ? ` · Z ${currentHeight.toFixed(2)} mm` : ""}
           </p>
         </div>

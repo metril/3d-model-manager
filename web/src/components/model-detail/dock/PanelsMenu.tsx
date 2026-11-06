@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import type { DockviewApi } from "dockview-react";
 import { LayoutPanelLeftIcon } from "lucide-react";
@@ -13,10 +14,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
-import { PANEL_IDS, PANEL_TITLES } from "./panelMeta";
+import { PANEL_IDS, PANEL_TITLE_KEYS } from "./panelMeta";
 
 /** Header dropdown: show/hide each registry panel, or reset to the default layout. */
 export function PanelsMenu({ api }: { api: DockviewApi }) {
+  const { t } = useTranslation();
   const [present, setPresent] = useState(() => new Set(api.panels.map((p) => p.id)));
 
   useEffect(() => {
@@ -31,7 +33,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="ghost">
           <LayoutPanelLeftIcon />
-          Panels
+          {t("mdPanels.panels")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -45,7 +47,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
               else api.getPanel(id)?.api.close();
             }}
           >
-            {PANEL_TITLES[id]}
+            {t(PANEL_TITLE_KEYS[id])}
           </DropdownMenuCheckboxItem>
         ))}
         <DropdownMenuSeparator />
@@ -55,7 +57,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
             buildDefaultLayout(api);
           }}
         >
-          Reset layout
+          {t("mdPanels.reset")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

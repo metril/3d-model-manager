@@ -13,6 +13,7 @@
  * Remembers the last-picked slicer in localStorage and promotes it to the
  * button's primary (non-dropdown) action next time.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { ChevronDownIcon, ExternalLinkIcon, ScissorsIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ export function OpenInSlicerButton({
 }) {
   const [lastSlicer, setLastSlicer] = useState<SlicerOption>(readLastSlicer);
   const [pending, setPending] = useState(false);
+  const { t } = useTranslation();
 
   async function openIn(slicer: SlicerOption) {
     setLastSlicer(slicer);
@@ -59,12 +61,12 @@ export function OpenInSlicerButton({
     setPending(true);
     try {
       const { url } = await api.post<SlicerLinkResponse>(`/files/${file.id}/slicer-link`);
-      toast(`Opening in ${slicer.label}…`, {
-        description: `If nothing happens, install ${slicer.label} or check its URL-handler setting.`,
+      toast(t("mdSlicer.opening", { slicer: slicer.label }), {
+        description: t("mdSlicer.hint", { slicer: slicer.label }),
       });
       window.location.assign(`${slicer.scheme}://open?file=${encodeURIComponent(url)}`);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.detail : `Could not open ${file.rel_path} in a slicer`);
+      toast.error(error instanceof ApiError ? error.detail : t("mdSlicer.couldNotOpen", { path: file.rel_path }));
     } finally {
       setPending(false);
     }
@@ -78,18 +80,18 @@ export function OpenInSlicerButton({
         size={size}
         className="rounded-r-none"
         disabled={pending}
-        aria-label={onSlice ? "Slice" : `Open ${file.rel_path} in ${lastSlicer.label}`}
+        aria-label={onSlice ? t("mdSlicer.slice") : t("mdSlicer.openAria", { path: file.rel_path, slicer: lastSlicer.label })}
         onClick={() => (onSlice ? onSlice() : void openIn(lastSlicer))}
       >
         {onSlice ? (
           <>
             <ScissorsIcon className="size-4" />
-            Slice…
+            {t("mdSlicer.sliceEllipsis")}
           </>
         ) : size === "icon-sm" ? (
           <ExternalLinkIcon className="size-4" />
         ) : (
-          `Open in ${lastSlicer.label}`
+          t("mdSlicer.openIn", { slicer: lastSlicer.label })
         )}
       </Button>
       <DropdownMenu>
@@ -100,7 +102,7 @@ export function OpenInSlicerButton({
             size={size}
             className="rounded-l-none border-l-0 px-1.5"
             disabled={pending}
-            aria-label="Choose slicer"
+            aria-label={t("mdSlicer.choose")}
           >
             <ChevronDownIcon className="size-3.5" />
           </Button>
@@ -108,7 +110,7 @@ export function OpenInSlicerButton({
         <DropdownMenuContent align="end">
           {SLICER_OPTIONS.map((slicer) => (
             <DropdownMenuItem key={slicer.id} onSelect={() => void openIn(slicer)}>
-              {onSlice ? `Open in ${slicer.label}` : slicer.label}
+              {onSlice ? t("mdSlicer.openIn", { slicer: slicer.label }) : slicer.label}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

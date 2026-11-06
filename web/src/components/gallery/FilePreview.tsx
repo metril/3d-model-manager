@@ -4,6 +4,7 @@ import { Maximize2Icon, MinusIcon, PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { StorageTreeFile } from "@/api/types";
+import { useTranslation } from "react-i18next";
 
 const IMAGE_FORMATS = new Set(["png", "jpg", "webp"]);
 
@@ -17,26 +18,27 @@ const MAX = 6;
 
 /** Zoomable preview of a file's image/thumbnail, with a fullscreen lightbox. */
 export function FilePreview({ file }: { file: StorageTreeFile }) {
+  const { t } = useTranslation();
   const [full, setFull] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [failed, setFailed] = useState(false);
   const src = previewSrc(file);
   const clamp = (z: number) => Math.min(MAX, Math.max(MIN, z));
 
-  if (failed) return <p className="p-4 text-sm text-muted-foreground">No preview available.</p>;
+  if (failed) return <p className="p-4 text-sm text-muted-foreground">{t("filePreview.none")}</p>;
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1">
-        <Button type="button" size="icon-sm" variant="outline" aria-label="Zoom out" onClick={() => setZoom((z) => clamp(z / 1.25))}>
+        <Button type="button" size="icon-sm" variant="outline" aria-label={t("filePreview.zoomOut")} onClick={() => setZoom((z) => clamp(z / 1.25))}>
           <MinusIcon className="size-4" />
         </Button>
-        <Button type="button" size="sm" variant="ghost" aria-label="Reset zoom" onClick={() => setZoom(1)}>
+        <Button type="button" size="sm" variant="ghost" aria-label={t("filePreview.resetZoom")} onClick={() => setZoom(1)}>
           {Math.round(zoom * 100)}%
         </Button>
-        <Button type="button" size="icon-sm" variant="outline" aria-label="Zoom in" onClick={() => setZoom((z) => clamp(z * 1.25))}>
+        <Button type="button" size="icon-sm" variant="outline" aria-label={t("filePreview.zoomIn")} onClick={() => setZoom((z) => clamp(z * 1.25))}>
           <PlusIcon className="size-4" />
         </Button>
-        <Button type="button" size="icon-sm" variant="outline" aria-label="Fullscreen" onClick={() => setFull(true)}>
+        <Button type="button" size="icon-sm" variant="outline" aria-label={t("filePreview.fullscreen")} onClick={() => setFull(true)}>
           <Maximize2Icon className="size-4" />
         </Button>
       </div>
@@ -52,8 +54,8 @@ export function FilePreview({ file }: { file: StorageTreeFile }) {
       <Dialog open={full} onOpenChange={setFull}>
         <DialogContent className="h-[92vh] w-[96vw] max-w-none overflow-auto sm:max-w-none">
           <DialogTitle className="truncate">{file.name}</DialogTitle>
-          <DialogDescription className="sr-only">Fullscreen preview</DialogDescription>
-          <img src={src} alt={`${file.name} (fullscreen)`} className="mx-auto max-h-full max-w-full object-contain" />
+          <DialogDescription className="sr-only">{t("filePreview.fullscreenPreview")}</DialogDescription>
+          <img src={src} alt={t("filePreview.fullscreenAlt", { name: file.name })} className="mx-auto max-h-full max-w-full object-contain" />
         </DialogContent>
       </Dialog>
     </div>

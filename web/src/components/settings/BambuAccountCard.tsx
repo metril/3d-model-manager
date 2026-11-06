@@ -12,6 +12,7 @@
  * an access/refresh token.
  */
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 
 import { useBambuDisconnect, useBambuLogin, useBambuStatus, useBambuVerify } from "@/api/bambu";
 import { ApiError } from "@/api/client";
@@ -23,12 +24,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const REGIONS: ReadonlyArray<{ value: BambuRegion; label: string }> = [
-  { value: "global", label: "Global" },
-  { value: "china", label: "China" },
+const REGIONS: ReadonlyArray<{ value: BambuRegion; labelKey: string }> = [
+  { value: "global", labelKey: "settingsBambu.regionGlobal" },
+  { value: "china", labelKey: "settingsBambu.regionChina" },
 ];
 
 export function BambuAccountCard({ className }: { className?: string }) {
+  const { t } = useTranslation();
   const status = useBambuStatus();
   // `connected` stays true across a session expiry (the refresh token row is
   // still on file -- only the refresh ATTEMPT failed), so `needs_reconnect`
@@ -39,10 +41,9 @@ export function BambuAccountCard({ className }: { className?: string }) {
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>Bambu Lab account</CardTitle>
+        <CardTitle>{t("settingsBambu.title")}</CardTitle>
         <CardDescription>
-          Connect a Bambu account so MakerWorld search returns accurate results and file downloads
-          aren&apos;t gated. Anonymous MakerWorld access only sees trending models.
+          {t("settingsBambu.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -50,14 +51,14 @@ export function BambuAccountCard({ className }: { className?: string }) {
           <Skeleton className="h-32 w-full rounded-lg" />
         ) : status.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {status.error instanceof ApiError ? status.error.detail : "Couldn't load Bambu account status."}
+            {status.error instanceof ApiError ? status.error.detail : t("settingsBambu.statusError")}
           </p>
         ) : (
           <>
             {needsReconnect ? (
               <div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-3">
-                <p className="text-sm font-medium text-destructive">Bambu sign-in expired</p>
-                <p className="text-sm text-destructive">Sign in again to resume MakerWorld imports.</p>
+                <p className="text-sm font-medium text-destructive">{t("settingsBambu.expired")}</p>
+                <p className="text-sm text-destructive">{t("settingsBambu.expiredHint")}</p>
               </div>
             ) : null}
             {status.data?.connected && !needsReconnect ? (
@@ -73,19 +74,24 @@ export function BambuAccountCard({ className }: { className?: string }) {
 }
 
 function ConnectedView({ account }: { account: string | null }) {
+  const { t } = useTranslation();
   const disconnect = useBambuDisconnect();
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-foreground">
-        Connected as <span className="font-medium">{account ?? "unknown account"}</span>
+        <Trans
+          i18nKey="settingsBambu.connectedAs"
+          values={{ account: account ?? t("settingsBambu.unknownAccount") }}
+          components={{ acct: <span className="font-medium" /> }}
+        />
       </p>
       <Button type="button" variant="outline" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
-        {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        {disconnect.isPending ? t("settingsBambu.disconnecting") : t("settingsBambu.disconnect")}
       </Button>
       {disconnect.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {disconnect.error instanceof ApiError ? disconnect.error.detail : "Could not disconnect."}
+          {disconnect.error instanceof ApiError ? disconnect.error.detail : t("settingsBambu.disconnectError")}
         </p>
       )}
     </div>
@@ -93,6 +99,7 @@ function ConnectedView({ account }: { account: string | null }) {
 }
 
 function LoginForm({ initialAccount = null }: { initialAccount?: string | null } = {}) {
+  const { t } = useTranslation();
   const [account, setAccount] = useState(initialAccount ?? "");
   const [password, setPassword] = useState("");
   const [region, setRegion] = useState<BambuRegion>("global");
@@ -138,7 +145,7 @@ function LoginForm({ initialAccount = null }: { initialAccount?: string | null }
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bambu-account">Email</Label>
+          <Label htmlFor="bambu-account">{t("settingsBambu.email")}</Label>
           <Input
             id="bambu-account"
             type="email"
@@ -149,7 +156,7 @@ function LoginForm({ initialAccount = null }: { initialAccount?: string | null }
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bambu-region">Region</Label>
+          <Label htmlFor="bambu-region">{t("settingsBambu.region")}</Label>
           <Select
             value={region}
             onValueChange={(value) => setRegion(value as BambuRegion)}
@@ -161,14 +168,14 @@ function LoginForm({ initialAccount = null }: { initialAccount?: string | null }
             <SelectContent>
               {REGIONS.map((r) => (
                 <SelectItem key={r.value} value={r.value}>
-                  {r.label}
+                  {t(r.labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label htmlFor="bambu-password">Password</Label>
+          <Label htmlFor="bambu-password">{t("settingsBambu.password")}</Label>
           <Input
             id="bambu-password"
             type="password"
@@ -182,30 +189,30 @@ function LoginForm({ initialAccount = null }: { initialAccount?: string | null }
 
       {!mfaRequired ? (
         <Button type="button" disabled={busy || !account.trim() || !password} onClick={submitLogin}>
-          {login.isPending ? "Connecting…" : "Connect"}
+          {login.isPending ? t("settingsBambu.connecting") : t("settingsBambu.connect")}
         </Button>
       ) : (
         <div className="space-y-3 border-t pt-4">
           <p className="text-sm text-muted-foreground">
-            Bambu sent a verification code to {account}. Enter it below to finish connecting.
+            {t("settingsBambu.mfaSent", { account })}
           </p>
           <div className="flex max-w-xs flex-col gap-1.5">
-            <Label htmlFor="bambu-code">Verification code</Label>
+            <Label htmlFor="bambu-code">{t("settingsBambu.code")}</Label>
             <Input
               id="bambu-code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               disabled={verify.isPending}
-              placeholder="Code from email/SMS"
+              placeholder={t("settingsBambu.codePlaceholder")}
               autoComplete="one-time-code"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" disabled={verify.isPending || !code.trim()} onClick={submitVerify}>
-              {verify.isPending ? "Verifying…" : "Verify"}
+              {verify.isPending ? t("settingsBambu.verifying") : t("settingsBambu.verify")}
             </Button>
             <Button type="button" variant="ghost" disabled={verify.isPending} onClick={startOver}>
-              Start over
+              {t("settingsBambu.startOver")}
             </Button>
           </div>
         </div>
@@ -213,12 +220,12 @@ function LoginForm({ initialAccount = null }: { initialAccount?: string | null }
 
       {login.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {login.error instanceof ApiError ? login.error.detail : "Could not connect."}
+          {login.error instanceof ApiError ? login.error.detail : t("settingsBambu.connectError")}
         </p>
       )}
       {verify.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {verify.error instanceof ApiError ? verify.error.detail : "Could not verify the code."}
+          {verify.error instanceof ApiError ? verify.error.detail : t("settingsBambu.verifyError")}
         </p>
       )}
     </div>

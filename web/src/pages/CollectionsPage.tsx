@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
@@ -36,6 +37,7 @@ const routeApi = getRouteApi("/authenticated/collections");
  * flipping. An explicit tab click always writes `?tab=`, which wins over
  * the pinned default regardless of its value. */
 export function CollectionsPage() {
+  const { t } = useTranslation();
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
   const pending = usePendingImports();
@@ -59,25 +61,24 @@ export function CollectionsPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Collections</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("collectionsPage.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Follow saved lists from MakerWorld, Thingiverse, and Printables, and keep them synced with
-          your library.
+          {t("collectionsPage.subtitle")}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="review" className="gap-1.5">
-            Review queue
+            {t("collectionsPage.review")}
             {pendingCount > 0 && (
               <Badge variant="secondary" className="font-mono">
                 {pendingCount}
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="collections">Collections</TabsTrigger>
-          <TabsTrigger value="imports">Recent imports</TabsTrigger>
+          <TabsTrigger value="collections">{t("collectionsPage.title")}</TabsTrigger>
+          <TabsTrigger value="imports">{t("collectionsPage.imports")}</TabsTrigger>
         </TabsList>
         <TabsContent value="review" className="space-y-6">
           <ReviewQueueCard />
