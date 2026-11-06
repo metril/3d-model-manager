@@ -25,18 +25,18 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
 from redis import Redis
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.models import ScanRun
 from app.services import scanner
 from app.services.events import publish_scan_event_sync
 from app.tasks import base
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 
 SCAN_LOCK_KEY = "tdmm:scan:lock"
 _LOCK_TIMEOUT_S = 3600
@@ -76,14 +76,47 @@ async def is_scan_lock_held(redis_url: str) -> bool:
         await client.aclose()
 
 
-@celery_app.task(name="app.tasks.scan.scan_library")
+# A ``queued`` row this old never got picked up (broker purge, worker lost
+# before ack) -- reclaim it so it can't block scheduled ticks forever.
+STALE_QUEUED_AFTER = timedelta(minutes=30)
+_TERMINAL_STATES = ("done", "failed", "skipped")
+
+
+def _skip_if_queued(scan_run_id: int) -> None:
+    """Mark the run ``skipped`` only while it is still ``queued`` -- a
+    redelivered duplicate must not clobber a run that is running or done."""
+    with base.sync_session() as s:
+        s.execute(
+            update(ScanRun)
+            .where(ScanRun.id == scan_run_id, ScanRun.state == "queued")
+            .values(state="skipped", finished_at=datetime.now(UTC))
+        )
+        s.commit()
+
+
+def _already_terminal(scan_run_id: int) -> bool:
+    with base.sync_session() as s:
+        run = s.get(ScanRun, scan_run_id)
+        return run is not None and run.state in _TERMINAL_STATES
+
+
+@celery_app.task(
+    name="app.tasks.scan.scan_library",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def scan_library(scan_run_id: int) -> None:
     settings = get_settings()
     client = Redis.from_url(settings.redis_url)
     lock = client.lock(SCAN_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
     if not lock.acquire(blocking=False):
-        with base.sync_session() as s:
-            scanner.mark_scan_state(s, scan_run_id, "skipped")  # another run holds the lock
+        _skip_if_queued(scan_run_id)  # another run holds the lock
+        client.close()
+        return
+    if _already_terminal(scan_run_id):
+        # Redelivery of a run that already finished -- don't scan again.
+        with contextlib.suppress(Exception):
+            lock.release()
         client.close()
         return
     stop = threading.Event()
@@ -134,8 +167,13 @@ def schedule_scan_library() -> None:
         )
 
         blocked = False
+        stale_cutoff = datetime.now(UTC).replace(tzinfo=None) - STALE_QUEUED_AFTER
         for run in in_flight:
-            if run.state == "running" and not is_scan_lock_held_sync(settings.redis_url):
+            created = run.created_at.replace(tzinfo=None) if run.created_at else None
+            stale_queued = run.state == "queued" and created is not None and created < stale_cutoff
+            if stale_queued or (
+                run.state == "running" and not is_scan_lock_held_sync(settings.redis_url)
+            ):
                 run.state = "failed"
                 run.finished_at = datetime.now(UTC)
                 run.report = {"error": STALE_SCAN_NOTE}

@@ -7,7 +7,9 @@ cloudscraper fallback hook (documented later escalation, not a v1 dep)."""
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from typing import ClassVar
 from urllib.parse import urlparse
 
@@ -219,12 +221,46 @@ def _fetch_page(client: httpx.Client, query: str, variables: dict) -> tuple[list
     return list(models.get("items") or []), models.get("cursor") or ""
 
 
+# Per-list cursor memo so walking pages 1..N costs N requests of one page each
+# instead of re-fetching 1..page items every time (quadratic). Keyed by the
+# query + variables + the page the cursor FOLLOWS; entries are short-lived
+# because cursors are opaque server state.
+_CURSOR_TTL_S = 300.0
+_CURSOR_MAX = 256
+_cursors: dict[tuple[str, str, int], tuple[str, float]] = {}
+
+
+def _remember_cursor(key: tuple[str, str], page: int, cursor: str) -> None:
+    if len(_cursors) >= _CURSOR_MAX:
+        _cursors.clear()
+    _cursors[(*key, page)] = (cursor, time.monotonic())
+
+
 def _paged_items(client: httpx.Client, query: str, base_variables: dict, page: int) -> list[dict]:
     """Printables pages by opaque cursor, the importer Protocol by number.
-    Ask for `page * _SEARCH_PAGE_SIZE` in one request and return the last
-    window of it. If the server caps `limit` -- it hands back fewer items
-    than asked WITH a non-empty cursor -- keep following the cursor until
-    the window is filled or the list ends (`cursor == ""`)."""
+    When the cursor that follows page ``page - 1`` is still memoised (a
+    sequential walk), fetch just this page from it. Otherwise ask for
+    `page * _SEARCH_PAGE_SIZE` in one request and return the last window of
+    it. If the server caps `limit` -- it hands back fewer items than asked
+    WITH a non-empty cursor -- keep following the cursor until the window is
+    filled or the list ends (`cursor == ""`)."""
+    key = (query, json.dumps(base_variables, sort_keys=True, default=str))
+    prev = _cursors.get((*key, page - 1)) if page > 1 else None
+    if prev is not None and time.monotonic() - prev[1] < _CURSOR_TTL_S:
+        items: list[dict] = []
+        cursor = prev[0]
+        while len(items) < _SEARCH_PAGE_SIZE and cursor:
+            more, cursor = _fetch_page(
+                client,
+                query,
+                {**base_variables, "limit": _SEARCH_PAGE_SIZE - len(items), "cursor": cursor},
+            )
+            if not more:
+                break
+            items.extend(more)
+        if cursor and len(items) >= _SEARCH_PAGE_SIZE:
+            _remember_cursor(key, page, cursor)
+        return items
     want = page * _SEARCH_PAGE_SIZE
     items, cursor = _fetch_page(client, query, {**base_variables, "limit": want, "cursor": None})
     while len(items) < want and cursor:
@@ -234,6 +270,8 @@ def _paged_items(client: httpx.Client, query: str, base_variables: dict, page: i
         if not more:
             break  # server contradicted itself; don't spin
         items.extend(more)
+    if cursor and len(items) >= want:
+        _remember_cursor(key, page, cursor)
     return items[(page - 1) * _SEARCH_PAGE_SIZE :]
 
 

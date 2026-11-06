@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from typing import ClassVar
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -153,7 +153,7 @@ class ThingiverseImporter:
             return []
         with _client(token) as c:
             r = c.get(
-                f"/search/{query}",
+                f"/search/{quote(query, safe='')}",
                 params={"type": "things", "per_page": _SEARCH_PAGE_SIZE, "page": page},
             )
             r.raise_for_status()

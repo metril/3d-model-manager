@@ -30,6 +30,7 @@ returned by the directory enumeration) -- no per-entry ``stat`` call.
 from __future__ import annotations
 
 import contextlib
+import errno
 import uuid
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
@@ -88,6 +89,13 @@ def _filetime_to_utc(value: datetime) -> datetime:
     case of a naive value by assuming local time before converting.
     """
     return value.astimezone(UTC)
+
+
+def _is_not_found(e: SMBOSError) -> bool:
+    """Only a genuine missing object (ENOENT, i.e. STATUS_OBJECT_NAME_NOT_FOUND
+    / PATH_NOT_FOUND) means "no such key"; access-denied, sharing violations,
+    network errors etc. must surface, not read as absent."""
+    return e.errno == errno.ENOENT
 
 
 class SmbStorageBackend:
@@ -170,6 +178,8 @@ class SmbStorageBackend:
         try:
             fh = smbclient.open_file(self._path(key), mode="rb", **self._kwargs)
         except SMBOSError as e:
+            if not _is_not_found(e):
+                raise
             raise StorageKeyNotFound(key) from e
         return self._read_range(fh, start, end)
 
@@ -198,6 +208,8 @@ class SmbStorageBackend:
         try:
             info = smbclient.stat(self._path(key), **self._kwargs)
         except SMBOSError as e:
+            if not _is_not_found(e):
+                raise
             raise StorageKeyNotFound(key) from e
         return StatResult(
             size=info.st_size, mtime=_filetime_to_utc(datetime.fromtimestamp(info.st_mtime, tz=UTC))
@@ -208,7 +220,9 @@ class SmbStorageBackend:
         self._ensure_session()
         try:
             smbclient.stat(self._path(key), **self._kwargs)
-        except SMBOSError:
+        except SMBOSError as e:
+            if not _is_not_found(e):
+                raise
             return False
         return True
 
@@ -218,6 +232,8 @@ class SmbStorageBackend:
         try:
             smbclient.remove(self._path(key), **self._kwargs)
         except SMBOSError as e:
+            if not _is_not_found(e):
+                raise
             raise StorageKeyNotFound(key) from e
 
     # -- move / copy -------------------------------------------------------
@@ -232,6 +248,8 @@ class SmbStorageBackend:
         try:
             smbclient.replace(self._path(src), self._path(dst), **self._kwargs)
         except SMBOSError as e:
+            if not _is_not_found(e):
+                raise
             raise StorageKeyNotFound(src) from e
 
     def copy(self, src: str, dst: str) -> None:
@@ -261,8 +279,10 @@ class SmbStorageBackend:
         unc = _UNC(self._c.host, self._c.share, full_dir)
         try:
             entries = sorted(smbclient.scandir(unc, **self._kwargs), key=lambda e: e.name)
-        except SMBOSError:
-            return
+        except SMBOSError as e:
+            if _is_not_found(e):
+                return  # missing prefix (or dir removed mid-walk): nothing to list
+            raise  # permission/network errors must not look like an empty tree
         for entry in entries:
             if entry.name.startswith(_TMP_PREFIX):
                 continue

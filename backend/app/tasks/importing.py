@@ -60,6 +60,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
+import uuid
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from urllib.parse import urlparse
@@ -77,7 +79,7 @@ from app.importers.profile_filter import filter_profiles
 from app.importers.registry import IMPORTER_REGISTRY
 from app.models.collections import FollowedCollection
 from app.models.enums import ImportSite, ImportState
-from app.models.system import Import
+from app.models.system import Import, Job
 from app.services import events, layout, library
 from app.services import jobs as jobs_service
 from app.services.storage_backends import (
@@ -86,7 +88,7 @@ from app.services.storage_backends import (
 )
 from app.storage.errors import StorageKeyNotFound
 from app.tasks import base
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +359,35 @@ def _set_state(session, imp: Import, state: ImportState, *, error: str | None = 
         logger.warning("import event publish failed: %s", type(exc).__name__)
 
 
-@celery_app.task(name="app.tasks.importing.import_from_url")
+_LOCK_EXTEND_EVERY_S = 300
+
+
+def _extend_lock_until(lock, stop: threading.Event, every_s: float = _LOCK_EXTEND_EVERY_S) -> None:
+    """Heartbeat (as ``scan`` does): keep the lock alive for as long as the
+    task runs, so a big download on a slow link isn't cut off by a lock TTL.
+    A dead worker stops extending and the lock expires on its own."""
+    while not stop.wait(every_s):
+        with contextlib.suppress(Exception):
+            lock.reacquire()
+
+
+@contextlib.contextmanager
+def _lock_heartbeat(lock):
+    stop = threading.Event()
+    t = threading.Thread(target=_extend_lock_until, args=(lock, stop), daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
+
+
+@celery_app.task(
+    name="app.tasks.importing.import_from_url",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def import_from_url(import_id: int) -> None:
     from app.models.library import Model, Revision
 
@@ -369,8 +399,17 @@ def import_from_url(import_id: int) -> None:
         # inside this import -- no-op rather than racing its fetch/
         # download/store phases (mirrors scan.py's singleton lock).
         logger.info("import %s already being processed (lock held); redelivery ignored", import_id)
+        with contextlib.suppress(Exception):
+            client.close()
         return
 
+    hb_stop = threading.Event()
+    threading.Thread(
+        target=_extend_lock_until,
+        args=(lock, hb_stop),
+        daemon=True,
+        name=f"import-lock-{import_id}",
+    ).start()
     staged: list[download.StagedFile] = []
     staged_images: list[download.StagedFile] = []
     created_model_id: int | None = None
@@ -543,8 +582,11 @@ def import_from_url(import_id: int) -> None:
                 imp.model_id = None
                 _set_state(s, imp, ImportState.FAILED, error=message)
     finally:
+        hb_stop.set()
         with contextlib.suppress(Exception):
             lock.release()
+        with contextlib.suppress(Exception):
+            client.close()
 
 
 # ---------------------------------------------------------------------------
@@ -693,8 +735,58 @@ def _store_redownload_in_place(
     s.commit()
 
 
-@celery_app.task(name="app.tasks.importing.redownload_model")
+def redownload_lock_key(model_id: int) -> str:
+    return f"tdmm:redownload:{model_id}:lock"
+
+
+@celery_app.task(
+    name="app.tasks.importing.redownload_model",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def redownload_model(job_id: str, model_id: int, mode: str) -> None:
+    """Idempotency gate around ``_redownload_model``: a per-model Redis lock
+    (short TTL, heartbeat-extended while the task runs) stops a
+    concurrent duplicate/redelivery from racing the same model's rewrite, and
+    a job already ``done``/``failed``/``dead`` is not re-run. ``running`` is
+    still allowed through: after a worker crash the lock has expired and the
+    acks_late redelivery is the only thing that can finish the job."""
+    settings = get_settings()
+    client = Redis.from_url(settings.redis_url)
+    try:
+        lock = client.lock(
+            redownload_lock_key(model_id), timeout=IMPORT_LOCK_TIMEOUT_S, blocking=False
+        )
+        if not lock.acquire(blocking=False):
+            logger.info("redownload of model %s already in progress; ignored", model_id)
+            # A still-queued job is a DIFFERENT job (the running one already
+            # moved to ``running``): close it out so it doesn't sit queued.
+            with base.sync_session() as s:
+                dup = s.get(Job, uuid.UUID(job_id))
+                if dup is not None and dup.state == jobs_service.STATE_QUEUED:
+                    jobs_service.mark_failed(
+                        s, job_id, "another re-download of this model is already in progress"
+                    )
+            return
+        try:
+            with base.sync_session() as s:
+                job = s.get(Job, uuid.UUID(job_id))
+                if job is None or job.state not in (
+                    jobs_service.STATE_QUEUED,
+                    jobs_service.STATE_RUNNING,
+                ):
+                    return
+            with _lock_heartbeat(lock):
+                _redownload_model(job_id, model_id, mode)
+        finally:
+            with contextlib.suppress(Exception):
+                lock.release()
+    finally:
+        with contextlib.suppress(Exception):
+            client.close()
+
+
+def _redownload_model(job_id: str, model_id: int, mode: str) -> None:
     """T3: re-fetches ``model``'s files fresh from its original import
     source. ``mode="revision"`` lands the fresh download as a brand-new
     revision (the OLD revision is left completely untouched -- see

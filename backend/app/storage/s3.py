@@ -268,10 +268,13 @@ class S3StorageBackend:
         _safe_key(src)
         _safe_key(dst)
         try:
-            self._s3.copy_object(
+            # Managed copy: HEADs the source, then CopyObject for small
+            # objects or a multipart UploadPartCopy above the threshold
+            # (plain copy_object fails for sources over 5 GiB).
+            self._s3.copy(
+                CopySource={"Bucket": self._c.bucket, "Key": self._obj(src)},
                 Bucket=self._c.bucket,
                 Key=self._obj(dst),
-                CopySource={"Bucket": self._c.bucket, "Key": self._obj(src)},
             )
         except ClientError as e:
             if _is_not_found(e):

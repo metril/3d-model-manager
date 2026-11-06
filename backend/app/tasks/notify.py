@@ -5,6 +5,7 @@ Redis list ``notify:queue`` and fans each event out to subscribed channels as
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -66,6 +67,8 @@ def _log(session, channel_id, event, printer_id, status, error=None, payload=Non
 
 
 PROCESSING_KEY = "notify:processing"
+DELIVER_LOCK_KEY = "notify:deliver:lock"
+DELIVER_LOCK_TTL_S = 300
 
 # event -> user_email_preferences column
 EMAIL_PREF_BY_EVENT = {
@@ -115,6 +118,12 @@ def deliver_pending() -> int:
     fan-out was handed to Celery, so a crash/DB error never loses them: the
     next run first moves any leftover processing items back to the queue."""
     r = redis.Redis.from_url(get_settings().redis_url)
+    # Singleton: a second overlapping run would move the first's in-flight
+    # items from PROCESSING back to the queue and deliver them twice.
+    lock = r.lock(DELIVER_LOCK_KEY, timeout=DELIVER_LOCK_TTL_S, blocking=False)
+    if not lock.acquire(blocking=False):
+        r.close()
+        return 0
     try:
         while r.lmove(PROCESSING_KEY, QUEUE_KEY, "RIGHT", "LEFT") is not None:
             pass  # recover leftovers, order preserved
@@ -145,6 +154,8 @@ def deliver_pending() -> int:
             r.lrem(PROCESSING_KEY, 1, raw)
         return dispatched
     finally:
+        with contextlib.suppress(Exception):
+            lock.release()
         r.close()
 
 

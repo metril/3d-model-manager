@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -44,12 +45,15 @@ def preflight(net: VpNetwork) -> list[str]:
     return problems
 
 
+_MAX_RESULTS = 100  # only a recent-history tail; unbounded growth leaks over weeks
+
+
 class VirtualPrinterService:
     def __init__(self, settings: Settings, cfg: VpConfig, net: VpNetwork):
         self.settings, self.cfg, self.net = settings, cfg, net
         base = settings.data_dir / "virtual-printer"
         self.upload_dir = base / "uploads"
-        self.results: list[IngestResult] = []
+        self.results: deque[IngestResult] = deque(maxlen=_MAX_RESULTS)
         self._uploads: dict[str, Path] = {}
         self._commands: dict[str, dict[str, Any]] = {}
         self._timers: dict[str, asyncio.TimerHandle] = {}

@@ -362,3 +362,28 @@ def test_live_printables_metadata():
         pytest.skip("set LIVE_PRINTABLES=1 to run the live smoke")
     meta = PrintablesImporter().fetch_metadata(fx.MODEL_ID)
     assert meta.title and meta.external_id == fx.MODEL_ID
+
+
+def test_paged_items_follows_the_memoised_cursor_instead_of_refetching(monkeypatch):
+    from app.importers import printables
+
+    size = printables._SEARCH_PAGE_SIZE
+    printables._cursors.clear()
+    calls: list[dict] = []
+
+    def fake_fetch(client, query, variables):
+        calls.append(variables)
+        start = int(variables["cursor"] or 0)
+        n = variables["limit"]
+        return [{"id": i} for i in range(start, start + n)], str(start + n)
+
+    monkeypatch.setattr(printables, "_fetch_page", fake_fetch)
+    p1 = printables._paged_items(None, "q", {"id": "7"}, 1)
+    p2 = printables._paged_items(None, "q", {"id": "7"}, 2)
+    p3 = printables._paged_items(None, "q", {"id": "7"}, 3)
+    assert [i["id"] for i in p2] == list(range(size, 2 * size))
+    assert [i["id"] for i in p3] == list(range(2 * size, 3 * size))
+    assert len(p1) == size
+    # Each page costs one page-sized request, not page * size.
+    assert [c["limit"] for c in calls] == [size, size, size]
+    printables._cursors.clear()

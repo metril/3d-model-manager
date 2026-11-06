@@ -101,7 +101,7 @@ def _set_job_state(
     return True
 
 
-@celery_app.task(name="app.tasks.printing.send_to_printer")
+@celery_app.task(name="app.tasks.printing.send_to_printer", soft_time_limit=900, time_limit=960)
 def send_to_printer(print_job_id: int, options: dict) -> None:
     settings = get_settings()
     client = redis.Redis.from_url(settings.redis_url)

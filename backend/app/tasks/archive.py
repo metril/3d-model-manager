@@ -156,6 +156,18 @@ def archive_print(self, print_job_id: int, result: str) -> None:
         # branch below won't schedule a second time for the same job.
         _snapshot_and_schedule_timelapse(settings, print_job_id)
         raise
+    except Exception as exc:  # noqa: BLE001 -- unexpected; must not be re-swept forever
+        # Without an archive row the 5-minute sweep re-enqueues this job
+        # forever. An ERROR row is the tombstone the sweep's outer join sees.
+        logger.exception("archive_print %s failed: %s", print_job_id, type(exc).__name__)
+        with base.sync_session() as session:
+            mark_archive_error(
+                session,
+                print_job_id,
+                ArchiveResult(result),
+                f"archive failed: {type(exc).__name__}",
+            )
+        _snapshot_and_schedule_timelapse(settings, print_job_id)
     else:
         _snapshot_and_schedule_timelapse(settings, print_job_id)
 
