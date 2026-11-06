@@ -13,6 +13,31 @@ MAX_DEPTH = 16
 _HELPER_STEMS = {"filament_name_map", "filaments_color_codes", "filament_id_map"}
 
 
+# Orca/Prusa-family keys that make the slicer run external commands or contact
+# hosts. Client-supplied profiles are untrusted, so these are always dropped:
+# `post_process` executes arbitrary scripts on the exported G-code.
+UNSAFE_KEYS = frozenset(
+    {
+        "post_process",
+        "print_host",
+        "print_host_webui",
+        "printhost_apikey",
+        "printhost_authorization_type",
+        "printhost_cafile",
+        "printhost_password",
+        "printhost_port",
+        "printhost_ssl_ignore_revoke",
+        "printhost_user",
+        "host_type",
+    }
+)
+
+
+def strip_unsafe(profile: dict) -> dict:
+    """Copy of `profile` without script/command/host keys (see UNSAFE_KEYS)."""
+    return {k: v for k, v in profile.items() if k not in UNSAFE_KEYS}
+
+
 class ProfileError(ValueError):
     """Unknown parent, inherits cycle, or chain too deep."""
 
@@ -79,7 +104,7 @@ class ProfileIndex:
         for item in reversed(chain):
             merged.update(item)
         merged.pop("inherits", None)
-        return merged
+        return strip_unsafe(merged)
 
     def flatten(self, kind: str, name: str) -> dict:
         raw = self.by_kind[kind].get(name)

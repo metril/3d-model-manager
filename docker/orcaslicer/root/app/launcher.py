@@ -7,6 +7,7 @@ POST /stop -> kill OrcaSlicer
 We do not rely on native single-instance handoff, so every open
 kills the running instance (unsaved work is lost) and starts a fresh one.
 """
+import hmac
 import json
 import os
 import subprocess
@@ -61,9 +62,13 @@ def prepare_session(path: str) -> None:
     """Chown the session dir (parent of in/) to abc; point OrcaSlicer's last dirs at it."""
     d = os.path.dirname(path)
     sess = os.path.dirname(d) if os.path.basename(d) == "in" else d
-    if sess == ROOT:
+    if sess == ROOT or not sess.startswith(ROOT + "/"):
+        # The file sits directly in the exchange root: never chown -R the whole
+        # (shared, possibly huge) exchange tree -- just the file itself.
         sess = d
-    subprocess.run(["chown", "-R", "abc:abc", sess])
+        subprocess.run(["chown", "abc:abc", path])
+    else:
+        subprocess.run(["chown", "-R", "abc:abc", sess])
     try:
         with open(CONF) as f:
             c = json.load(f)
@@ -133,7 +138,9 @@ class H(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if TOKEN and self.headers.get("X-Launcher-Token") != TOKEN:
+        if not TOKEN:
+            return self._send(403, {"error": "launcher token not configured"})
+        if not hmac.compare_digest(self.headers.get("X-Launcher-Token") or "", TOKEN):
             return self._send(401, {"error": "bad token"})
         if self.path == "/stop":
             if not lock.acquire(blocking=False):

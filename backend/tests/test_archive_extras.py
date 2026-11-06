@@ -843,7 +843,21 @@ async def test_confirm_rate_limit_fails_closed(client, monkeypatch):
     assert (await client.get("/api/archives/confirm/x/good")).status_code == 429
 
 
-async def test_rate_limit_keyed_per_token(client, redis_client):
+async def test_rate_limit_keyed_per_token(client, redis_client, monkeypatch):
+    # The limiter buckets per wall-clock minute; freeze it so the 31 requests
+    # can never straddle a minute boundary (that made this test flaky).
+    import time as _time
+
+    from app.api import archives_extras as ax
+
+    class _FrozenTime:
+        def time(self) -> float:
+            return 1_700_000_040.0  # mid-minute
+
+        def __getattr__(self, name):
+            return getattr(_time, name)
+
+    monkeypatch.setattr(ax, "time", _FrozenTime())
     await redis_client.flushdb()
     for _ in range(30):
         await client.get("/api/archives/confirm/aaa/good")

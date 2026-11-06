@@ -1,6 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "bootstrap-sha": "e63267a5cfc585eb784fa22358473bb54fab5981",
   "packages": {
     ".": {
       "release-type": "simple",
@@ -11,6 +10,9 @@
       "bump-patch-for-minor-pre-major": false,
       "extra-files": [
         { "type": "json", "path": "web/package.json",         "jsonpath": "$.version" },
+        { "type": "json", "path": "web/package-lock.json",    "jsonpath": "$.version" },
+        { "type": "json", "path": "web/package-lock.json",    "jsonpath": "$.packages[''].version" },
+        { "type": "toml", "path": "slicer/pyproject.toml",    "jsonpath": "$.project.version" },
         { "type": "json", "path": "extension/manifest.json",  "jsonpath": "$.version" }
       ]
     }

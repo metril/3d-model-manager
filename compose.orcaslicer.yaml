@@ -6,6 +6,12 @@
 # GPU: add -f compose.orcaslicer.dri.yaml (Intel/AMD dev host) or
 # -f compose.orcaslicer.gpu.yaml (NVIDIA host). Without either, OrcaSlicer renders in
 # software (slow).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   orcaslicer:
     build: ./docker/orcaslicer
@@ -39,6 +45,7 @@ services:
     networks:
       - orcaslicer_net
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   orcaslicer_config:
