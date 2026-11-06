@@ -14,9 +14,11 @@ import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useSaveHaLink } from "@/api/homeAssistant";
+import { usePlugs } from "@/api/ops";
 import { usePrinters } from "@/api/printers";
 import type { HaCondition, HaConditionOp, HaLink, HaRole } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { EntityCombobox } from "@/components/ui/entity-combobox";
 import { FormDialog } from "@/components/ui/form-dialog";
 import {
   DialogClose,
@@ -26,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { HA_ROLE_FILTERS } from "@/lib/haRoleFilters";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -68,6 +71,7 @@ export function HaLinkDialog({
   const { t } = useTranslation();
   const printers = usePrinters();
   const save = useSaveHaLink();
+  const plugs = usePlugs({ enabled: open, poll: false });
   const isEdit = link !== null;
 
   const [entityId, setEntityId] = useState("");
@@ -108,6 +112,15 @@ export function HaLinkDialog({
     link?.pause_print ?? false,
   ]);
   const dirty = JSON.stringify([entityId, printerId, role, hasCondition, op, value, holdQueue, pausePrint]) !== initialSnap;
+
+  // A power_w link whose entity is already a plug's power sensor on the same
+  // printer feeds nothing extra (the plug's reading wins).
+  const duplicatePlug =
+    role === "power_w" && printerId !== ALL_PRINTERS && entityId.trim()
+      ? (plugs.data ?? []).find(
+          (p) => p.printer_id === Number(printerId) && p.config?.power_entity_id === entityId.trim(),
+        )
+      : undefined;
 
   function selectRole(next: HaRole) {
     setRole(next);
@@ -164,12 +177,19 @@ export function HaLinkDialog({
         <div className="space-y-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ha-link-entity">{t("settingsHaLink.entityId")}</Label>
-            <Input
+            <EntityCombobox
               id="ha-link-entity"
+              ariaLabel={t("settingsHaLink.entityId")}
               value={entityId}
-              onChange={(e) => setEntityId(e.target.value)}
+              onChange={setEntityId}
               placeholder="binary_sensor.front_door"
+              {...HA_ROLE_FILTERS[role]}
             />
+            {duplicatePlug ? (
+              <p role="status" className="text-xs text-warning">
+                {t("haLink.duplicatePlug", { plug: duplicatePlug.name || `#${duplicatePlug.id}` })}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">

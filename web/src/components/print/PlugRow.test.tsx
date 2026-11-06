@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlugOut } from "@/api/types";
-import { PlugRow } from "@/components/print/PlugRow";
+import { PlugRow, SharedPlugRow } from "@/components/print/PlugRow";
 
 const { getMock, postMock } = vi.hoisted(() => ({ getMock: vi.fn(), postMock: vi.fn() }));
 vi.mock("@/api/client", async (importOriginal) => {
@@ -65,5 +65,17 @@ describe("PlugRow", () => {
     const { container } = wrap(<PlugRow printerId={1} />);
     await waitFor(() => expect(getMock).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows an HA power_w link's watts when the printer has no plug", async () => {
+    getMock.mockResolvedValue({ plugs: {}, link_power_w: { "1": 212.6 } });
+    wrap(<SharedPlugRow printerId={1} />);
+    expect(await screen.findByText("213 W")).toBeInTheDocument();
+  });
+
+  it("falls back to the link's watts when the plug reports none", async () => {
+    getMock.mockResolvedValue({ plugs: { "1": plug({ last_power_w: null }) }, link_power_w: { "1": 40 } });
+    wrap(<SharedPlugRow printerId={1} />);
+    expect(await screen.findByText("40 W")).toBeInTheDocument();
   });
 });

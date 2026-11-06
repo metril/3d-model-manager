@@ -40,6 +40,7 @@ def field(
     options: list[str] | None = None,
     multiline: bool = False,
     help: str | None = None,
+    picker: str | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
@@ -52,6 +53,7 @@ def field(
         "options": options,
         "multiline": multiline,
         "help": help,
+        "picker": picker,
     }
 
 

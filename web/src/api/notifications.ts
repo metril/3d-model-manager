@@ -16,6 +16,8 @@ export interface NotificationField {
   options: string[] | null;
   multiline?: boolean;
   help?: string | null;
+  /** Server-hinted rich input; `ha_notify` = Home Assistant notify service picker. */
+  picker?: "ha_notify" | null;
 }
 export interface NotificationKind {
   kind: string;

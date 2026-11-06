@@ -113,7 +113,7 @@ export function usePrinterPlugs(pid: number, poll = true) {
 export function usePlugSummary() {
   return useQuery({
     queryKey: plugSummaryKey,
-    queryFn: () => api.get<{ plugs: Record<string, PlugOut> }>("/printers/plugs/summary"),
+    queryFn: () => api.get<{ plugs: Record<string, PlugOut>; link_power_w?: Record<string, number> }>("/printers/plugs/summary"),
     refetchInterval: 15_000,
   });
 }

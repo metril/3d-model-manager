@@ -12,7 +12,15 @@ class HomeAssistant:
     kind = "homeassistant"
     label = "Home Assistant"
     supports_photo = False
-    fields = [field("service", "Notify service", required=True, placeholder="mobile_app_phone")]
+    fields = [
+        field(
+            "service",
+            "Notify service",
+            required=True,
+            placeholder="mobile_app_phone",
+            picker="ha_notify",
+        )
+    ]
 
     def send(self, config: dict, msg: Message, client: httpx.Client | None = None) -> None:
         (service,) = need(config, "service")

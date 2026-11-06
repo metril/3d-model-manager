@@ -30,6 +30,7 @@ from redis import Redis
 STATUS_KEY = "ha:status"
 ALERT_TTL_S = 60
 STATUS_TTL_S = 120
+POWER_TTL_S = 60
 
 
 def alert_key(pid: int) -> str:
@@ -42,6 +43,16 @@ def energy_key(pid: int) -> str:
 
 def energy_acc_key(pid: int) -> str:
     return f"ha:energy:acc:{pid}"
+
+
+def power_key(pid: int) -> str:
+    """Live watts (sum of the printer's ``power_w`` links), short TTL."""
+    return f"ha:power:{pid}"
+
+
+def power_last_key(link_id: int) -> str:
+    """Timestamp of the last integrated sample of a ``power_w`` link."""
+    return f"ha:power:last:{link_id}"
 
 
 def fired_key(link_id: int, pid: int) -> str:

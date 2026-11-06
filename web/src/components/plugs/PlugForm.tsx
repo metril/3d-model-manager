@@ -7,8 +7,10 @@ import { useDeletePlug, useSavePlug } from "@/api/ops";
 import type { PlugDelayMode, PlugIn, PlugKind, PlugOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { EntityCombobox } from "@/components/ui/entity-combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { HA_POWER_SENSOR_FILTER, HA_SWITCH_FILTER } from "@/lib/haRoleFilters";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
@@ -172,12 +174,23 @@ export function PlugForm({
         </Field>
         {fields.map((f) => (
           <Field key={f.key} id={`${key}-${f.key}`} label={t(`plugForm.field.${f.key}`)}>
-            <Input
-              id={`${key}-${f.key}`}
-              type={f.secret && f.key === "password" ? "password" : "text"}
-              value={cfg[f.key] ?? ""}
-              onChange={(e) => setCfg((c) => ({ ...c, [f.key]: e.target.value }))}
-            />
+            {kind === "ha" && (f.key === "entity_id" || f.key === "power_entity_id") ? (
+              <EntityCombobox
+                id={`${key}-${f.key}`}
+                ariaLabel={t(`plugForm.field.${f.key}`)}
+                value={cfg[f.key] ?? ""}
+                onChange={(v) => setCfg((c) => ({ ...c, [f.key]: v }))}
+                placeholder={f.key === "entity_id" ? "switch.printer" : "sensor.printer_power"}
+                {...(f.key === "entity_id" ? HA_SWITCH_FILTER : HA_POWER_SENSOR_FILTER)}
+              />
+            ) : (
+              <Input
+                id={`${key}-${f.key}`}
+                type={f.secret && f.key === "password" ? "password" : "text"}
+                value={cfg[f.key] ?? ""}
+                onChange={(e) => setCfg((c) => ({ ...c, [f.key]: e.target.value }))}
+              />
+            )}
           </Field>
         ))}
         <Field id={`${key}-printer`} label={t("plugForm.linkedPrinterOptional")}>

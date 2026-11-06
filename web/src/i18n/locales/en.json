@@ -4512,7 +4512,6 @@
     "fixed": "Fixed price",
     "haSensor": "Home Assistant sensor",
     "entity": "Price sensor entity",
-    "entitiesError": "Couldn't list Home Assistant entities -- type the entity id.",
     "entitiesHint": "Sampled at print start and end; the average prices the run.",
     "saving": "Saving…",
     "saved": "Saved.",
@@ -4922,5 +4921,21 @@
     "failed": "failed",
     "canceled": "canceled",
     "stopped": "stopped"
+  },
+  "haPicker": {
+    "choose": "Choose…",
+    "search": "Search entities…",
+    "loading": "Loading…",
+    "unavailable": "Couldn't list Home Assistant entities. Type the id to use it anyway.",
+    "none": "No match.",
+    "use": "Use \"{{value}}\"",
+    "clear": "Clear"
+  },
+  "haLink": {
+    "duplicatePlug": "Already provided by plug {{plug}} for this printer; this link adds nothing.",
+    "inactiveHint": "Only one source feeds a printer's energy: an energy link, then the plug's power sensor, then a power link.",
+    "inactiveEnergy": "Inactive: energy link {{name}} already supplies this printer's power",
+    "inactivePlug": "Inactive: plug {{name}} already supplies this printer's power",
+    "inactivePlugAnon": "Inactive: a smart plug already supplies this printer's power"
   }
 }

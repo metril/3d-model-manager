@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import HaRole
 from app.models.home_assistant import HaLink
+from app.models.ops import SmartPlug
 from app.models.printing import Printer
 from app.printers.base import command_channel
 from app.services.ha_client import HaClient, HaUnreachable
@@ -24,6 +25,7 @@ from app.services.ha_config import HaConfig
 from app.services.ha_discovery import PRINTING_STATES
 from app.services.ha_state import (
     ALERT_TTL_S,
+    POWER_TTL_S,
     STATUS_KEY,
     STATUS_TTL_S,
     _raw_key,
@@ -32,8 +34,11 @@ from app.services.ha_state import (
     energy_acc_key,
     energy_key,
     fired_key,
+    power_key,
+    power_last_key,
 )
 from app.services.permissions import can_control_sync
+from app.services.power_source import power_link_shadow, state_watts
 from app.services.printer_state import read_state_sync
 
 logger = logging.getLogger(__name__)
@@ -108,6 +113,8 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
 
 
 _RESET_FACTOR = 0.9
+# cap one tick's dt (2x the poll interval) so a stalled poller can't invent energy
+_MAX_INTEGRATE_S = 30  # beat runs `poll_ha` every 15s (tasks.home_assistant.POLL_INTERVAL_S)
 _DENIED_LOG_TTL_S = 600
 
 
@@ -190,6 +197,47 @@ def _handle_pause_edge(
             r.delete(fired_key(link.id, pid))
 
 
+def _poll_power_links(
+    s: Session,
+    r: Redis,
+    links: list[HaLink],
+    states: dict[str, dict | None],
+    now_ts: float,
+) -> None:
+    """``power_w`` links: publish live watts (``ha:power:{pid}``, summed per
+    printer) and -- only while no higher-priority source exists (see
+    ``app.services.power_source``) -- integrate watts into the energy
+    accumulator, the same way the plug manager does."""
+    power_links = [
+        link for link in links if link.role == HaRole.POWER_W and link.printer_id is not None
+    ]
+    if not power_links:
+        return
+    plugs = list(s.scalars(select(SmartPlug).where(SmartPlug.printer_id.is_not(None))))
+    watts_by_pid: dict[int, float] = {}
+    for link in power_links:
+        pid = link.printer_id
+        watts = state_watts(states.get(link.entity_id))
+        if watts is None:
+            r.delete(power_last_key(link.id))
+            continue
+        watts_by_pid[pid] = watts_by_pid.get(pid, 0.0) + watts
+        if power_link_shadow(link, links, plugs) is not None:
+            r.delete(power_last_key(link.id))
+            continue
+        last = r.getset(power_last_key(link.id), repr(now_ts))
+        r.expire(power_last_key(link.id), 3600)
+        if last is None:
+            continue
+        dt = min(max(now_ts - float(last), 0.0), _MAX_INTEGRATE_S)
+        if dt <= 0:
+            continue
+        total = r.incrbyfloat(energy_acc_key(pid), watts * dt / 3_600_000)
+        r.set(energy_key(pid), total)
+    for pid, watts in watts_by_pid.items():
+        r.set(power_key(pid), repr(watts), ex=POWER_TTL_S)
+
+
 def poll_once(
     s: Session,
     r: Redis,
@@ -207,6 +255,7 @@ def poll_once(
     if not cfg.ha_url or not cfg.ha_token:
         return {"ok": True, "skipped": True}
 
+    now_ts = (now if now is not None else datetime.now(UTC)).timestamp()
     links = list(s.scalars(select(HaLink)))
     if not links:
         return {"ok": True, "skipped": True}
@@ -231,6 +280,9 @@ def poll_once(
             # HA comes back, since the edge-triggered NX guard would have
             # been wiped out from under it.
             for key in r.scan_iter("ha:alert:[0-9]*"):
+                r.delete(key)
+            # No integration across an outage: the next good sample restarts it.
+            for key in r.scan_iter("ha:power:last:*"):
                 r.delete(key)
             return status
 
@@ -281,6 +333,8 @@ def poll_once(
                 repr(_RESET_FACTOR),
             )
             r.set(energy_key(pid), total)
+
+        _poll_power_links(s, r, links, states, now_ts)
 
         checked_at = now if now is not None else datetime.now(UTC)
         status: dict = {"ok": True, "checked_at": checked_at.isoformat()}
