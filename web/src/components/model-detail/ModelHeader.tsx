@@ -53,6 +53,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { formatDateTime } from "@/lib/format";
 import { pickBestSlicerFile } from "@/lib/slicers";
+import { useActiveViewerBlob, useSelectedPlate } from "@/components/viewer/plates";
 import type { ModelDetail } from "@/api/types";
 
 type RedownloadMode = "revision" | "replace";
@@ -186,6 +187,10 @@ export function ModelHeader({
       ? slicerFile
       : (model.current_revision?.files ?? []).find((f) => f.verified_at && isOrcaSlicerOpenable(f));
   const sliceableFile = pickSliceableFile(model.current_revision?.files ?? []);
+  // The plate picked in the model viewer seeds the dialogs (only when it is this file's profile).
+  const viewerBlob = useActiveViewerBlob();
+  const viewerPlate = useSelectedPlate(viewerBlob);
+  const dialogPlate = sliceableFile && viewerBlob === sliceableFile.blob_hash ? viewerPlate : null;
   const canSlice = !!sliceableFile && !!features.data?.slicer_configured && can("printers:print");
 
   return (
@@ -269,11 +274,11 @@ export function ModelHeader({
           {canSlice && slicerFile ? (
             <>
               <OpenInSlicerButton file={slicerFile} size="default" onSlice={() => setSliceOpen(true)} />
-              <SliceDialog open={sliceOpen} onOpenChange={setSliceOpen} file={sliceableFile!} modelSlug={model.slug} />
+              <SliceDialog open={sliceOpen} onOpenChange={setSliceOpen} file={sliceableFile!} modelSlug={model.slug} initialPlate={dialogPlate} />
             </>
           ) : (
             <>
-              {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" modelSlug={model.slug} /> : null}
+              {sliceableFile ? <SliceFileButton file={sliceableFile} size="default" modelSlug={model.slug} initialPlate={dialogPlate} /> : null}
               {slicerFile ? <OpenInSlicerButton file={slicerFile} size="default" /> : null}
             </>
           )}
@@ -282,7 +287,7 @@ export function ModelHeader({
               <Button type="button" onClick={() => setPrintOpen(true)}>
                 Print…
               </Button>
-              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} />
+              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} initialPlate={dialogPlate} initialFileId={dialogPlate ? sliceableFile?.id : null} />
             </>
           ) : null}
           {/* Queueing a model to print is a normal action too, not an edit. */}

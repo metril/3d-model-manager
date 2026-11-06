@@ -1,11 +1,12 @@
 import { Pause } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { safeColour } from "@/components/viewer/plates";
 import type { PlateOut } from "@/api/types";
 
 /** Filament colour swatches for a plate (deduped by colour, order kept). */
-export function PlateSwatches({ plate, className = "size-2.5" }: { plate: PlateOut; className?: string }) {
-  const colours = [...new Set(plate.filaments.map((f) => f.color).filter((c): c is string => !!c))];
+export function PlateSwatches({ plate, className = "size-2.5" }: { plate: Pick<PlateOut, "filaments">; className?: string }) {
+  const colours = [...new Set(plate.filaments.map((f) => safeColour(f.color)).filter((c): c is string => !!c))];
   if (colours.length === 0) return null;
   return (
     <span className="inline-flex items-center gap-0.5" aria-hidden>
@@ -27,11 +28,11 @@ export function ColourChangeNote({ plate }: { plate: PlateOut }) {
   return (
     <div className="w-full space-y-0.5 text-[10px] leading-tight text-muted-foreground">
       {changes.map((c, i) => (
-        <p key={`c${i}`} data-testid="colour-change" className="w-full" title={`${t("profiles.colourChange", { z: c.z.toFixed(1) })} → ${c.colour}`}>
+        <p key={`c${i}`} data-testid="colour-change" className="w-full" title={t("profiles.colourChangeTo", { z: c.z.toFixed(1), colour: c.colour })}>
           {t("profiles.colourChangeAt")}{" "}
           <span data-testid="colour-change-z" className="inline-flex items-center gap-1 whitespace-nowrap align-middle">
-            {t("profiles.zMm", { z: c.z.toFixed(1) })} →
-            <span className="size-2.5 shrink-0 rounded-full border border-border/60" style={{ backgroundColor: c.colour }} />
+            {t("profiles.zMmTo", { z: c.z.toFixed(1) })}
+            <span className="size-2.5 shrink-0 rounded-full border border-border/60" style={{ backgroundColor: safeColour(c.colour) }} />
           </span>
         </p>
       ))}

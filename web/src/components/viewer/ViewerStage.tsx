@@ -4,18 +4,19 @@ import {
   lazy,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { LoaderCircleIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useStageFullscreen } from "@/components/viewer/useStageFullscreen";
+import { PortalContainerContext } from "@/lib/portalContainer";
 import { cn } from "@/lib/utils";
 import type { BackgroundPreset } from "@/components/viewer/background";
 import type { ExplodeMode } from "@/components/viewer/explode";
@@ -33,7 +34,7 @@ import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { FileOut, PlateOut } from "@/api/types";
-import type { PlateLayout, ViewerPlateFile } from "@/components/viewer/plates";
+import { handlePlateKey, type PlateLayout, type ViewerPlateFile } from "@/components/viewer/plates";
 
 // three.js/@react-three/fiber/drei are heavy (Global Constraints "BUNDLE
 // RULE") — load them only once a GLB actually needs rendering, so the main
@@ -44,6 +45,11 @@ const ModelViewer = lazy(() => import("@/components/viewer/ModelViewer"));
  * this stage's empty-selection case and `ViewerTab`'s file-status cards
  * (pending / failed / unsupported / plain gcode), so it's exported rather
  * than duplicated. */
+function PreviewFailed() {
+  const { t } = useTranslation();
+  return <PlaceholderCard destructive title={t("viewer.previewFailedTitle")} description={t("viewer.previewFailedBody")} />;
+}
+
 export function PlaceholderCard({
   title,
   description,
@@ -122,11 +128,7 @@ class ViewerErrorBoundary extends Component<ViewerErrorBoundaryProps, ViewerErro
   render() {
     if (this.state.hasError) {
       return (
-        <PlaceholderCard
-          destructive
-          title="Preview failed to load"
-          description="The 3D preview crashed while loading this file. It may be corrupt or in an unsupported format."
-        />
+        <PreviewFailed />
       );
     }
     return this.props.children;
@@ -197,11 +199,12 @@ function MeshCanvas({
    * image). */
   hasCoverThumbnail: boolean;
 }) {
+  const { t } = useTranslation();
   if (parts.length === 0) {
     return (
       <PlaceholderCard
-        title="Select a part to preview"
-        description="Select a part in the panel to render it."
+        title={t("viewer.selectPartTitle")}
+        description={t("viewer.selectPartBody")}
       />
     );
   }
@@ -230,7 +233,7 @@ function MeshCanvas({
       </ViewerErrorBoundary>
       {visibleParts.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/50 text-sm text-muted-foreground">
-          No parts selected
+          {t("viewer.noPartsSelected")}
         </div>
       )}
       {/* "How big is this print?" chip is now `ViewerTopOverlay`'s dims pill
@@ -413,12 +416,7 @@ export function ViewerStage({
   active = true,
   plateInfo = null,
 }: ViewerStageProps) {
-  // Footer lists only the files actually on screen (plate parts carry a
-  // synthetic negative id -(fileId*1000+plate)).
-  const shownIds = useMemo(
-    () => new Set(parts.filter((p) => p.visible).map((p) => (p.id < 0 ? Math.floor(-p.id / 1000) : p.id))),
-    [parts],
-  );
+  const { t } = useTranslation();
   const handleAutoRotateToggle = useCallback(() => {
     onToolsChange({ autoRotate: !tools.autoRotate });
   }, [onToolsChange, tools.autoRotate]);
@@ -455,13 +453,33 @@ export function ViewerStage({
   // part to load ends the "still loading" state the thumbnail covers.
   const firstLoadRef = useRef(false);
   const [modelReady, setModelReady] = useState(false);
+  const [swapping, setSwapping] = useState(false);
+  const loadsRef = useRef(0);
+  const initialPartsRef = useRef(parts.length);
   const handlePartLoaded = useCallback(() => {
+    setSwapping(false);
     if (!firstLoadRef.current) {
       firstLoadRef.current = true;
       setModelReady(true);
     }
+    // The initial burst of loads keeps a seeded explode (pop-out `?ex=`); only
+    // parts that arrive later (plate swap, late check) reset it.
+    loadsRef.current += 1;
+    if (loadsRef.current <= initialPartsRef.current) return;
     if (tools.explode !== 0) onToolsChange({ explode: 0 });
   }, [tools.explode, onToolsChange]);
+
+  // Plate / profile swap: show the spinner until the next part reports loaded
+  // (or a safety timeout, e.g. when the swap reuses an already-mounted GLB).
+  const swapKey = plateInfo ? `${plateInfo.blobHash}:${plateInfo.value}` : "";
+  const lastSwapKey = useRef(swapKey);
+  useEffect(() => {
+    if (lastSwapKey.current === swapKey) return;
+    lastSwapKey.current = swapKey;
+    setSwapping(true);
+    const id = window.setTimeout(() => setSwapping(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [swapKey]);
 
   // R9-D item 8: keeps the thumbnail `<img>` mounted for the ~250ms fade
   // (Tailwind `transition-opacity`) after `modelReady` flips, then unmounts
@@ -533,7 +551,13 @@ export function ViewerStage({
   const handleCanvasKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-      if (event.key === "f" || event.key === "F") {
+      // Keys typed inside the profile/plate comboboxes (typeahead) -- and any
+      // portalled listbox, whose events bubble through React -- are not stage hotkeys.
+      if ((event.target as HTMLElement).closest?.('[role="combobox"],[role="listbox"],input,textarea,select,[contenteditable="true"]')) return;
+      if (handlePlateKey(event.key, plateInfo)) {
+        event.stopPropagation();
+        event.preventDefault();
+      } else if (event.key === "f" || event.key === "F") {
         event.stopPropagation();
         onFit();
       } else if (event.key === "r" || event.key === "R") {
@@ -547,7 +571,7 @@ export function ViewerStage({
         handleGridToggle();
       }
     },
-    [onFit, handleAutoRotateToggle, handleWireframeToggle, handleGridToggle],
+    [onFit, handleAutoRotateToggle, handleWireframeToggle, handleGridToggle, plateInfo],
   );
 
   // R9-C item 5: `Shift+F` fullscreens the stage container via the
@@ -572,6 +596,7 @@ export function ViewerStage({
 
   return (
     <TooltipProvider>
+      <PortalContainerContext.Provider value={portalContainer ?? undefined}>
       <div
         ref={stageRef}
         className={cn(
@@ -609,6 +634,16 @@ export function ViewerStage({
               modelReady ? "opacity-0" : "opacity-100",
             )}
           />
+        )}
+        {swapping && modelReady && (
+          <div
+            role="status"
+            aria-label={t("viewer.loadingPlate")}
+            data-testid="viewer-swap-indicator"
+            className="pointer-events-none absolute top-2 right-2 rounded-full bg-background/70 p-1.5 backdrop-blur-sm"
+          >
+            <LoaderCircleIcon className="size-4 animate-spin text-muted-foreground" />
+          </div>
         )}
         {coverUrl && parts.length > 0 && !modelReady && (
           <div
@@ -678,7 +713,8 @@ export function ViewerStage({
           />
         </div>
       </div>
-      <div className="shrink-0"><ViewerFooterStrip files={files} checkedIds={shownIds} /></div>
+      </PortalContainerContext.Provider>
+      <div className="shrink-0"><ViewerFooterStrip files={files} checkedIds={checkedIds} /></div>
     </TooltipProvider>
   );
 }

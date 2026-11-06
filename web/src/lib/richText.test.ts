@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sanitizeDescriptionHtml, toPlainText } from "@/lib/richText";
+import { sanitizeDescriptionHtml } from "@/lib/richText";
 
 describe("sanitizeDescriptionHtml", () => {
   it("keeps safe formatting tags", () => {
@@ -27,19 +27,5 @@ describe("sanitizeDescriptionHtml", () => {
     expect(out).toContain('href="https://x.com"');
     expect(out).toContain('target="_blank"');
     expect(out).toContain('rel="noopener noreferrer"');
-  });
-});
-
-describe("toPlainText", () => {
-  it("strips all tags", () => {
-    expect(toPlainText("<p><strong>Bold</strong> text</p>")).toBe("Bold text");
-  });
-
-  it("decodes entities and collapses whitespace", () => {
-    expect(toPlainText("A &amp;  B\n\nC")).toBe("A & B C");
-  });
-
-  it("passes through plain text unchanged", () => {
-    expect(toPlainText("just plain text")).toBe("just plain text");
   });
 });

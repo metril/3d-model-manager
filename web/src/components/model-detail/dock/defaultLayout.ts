@@ -1,4 +1,6 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
+import { profileFiles } from "@/components/viewer/plates";
+import type { FileOut } from "@/api/types";
 
 import { ALWAYS_RENDERED_PANELS, DEFAULT_ACTIVE, DEFAULT_GROUPS, PANEL_TITLES, type DefaultGroup, type PanelId } from "./panelMeta";
 
@@ -24,6 +26,11 @@ function addPanel(api: DockviewApi, id: PanelId, position?: Position) {
 /** Today's two-column arrangement as dock groups: the viewer over a tabbed
  * Description / Tags / Related group on the left (~66%); the seven cards in
  * two tabbed groups (kept in today's order) on the right. */
+/** Whether the Profiles panel has anything to show first: sliced files or unsliced print profiles. */
+export function hasProfileContent(files: FileOut[]): boolean {
+  return files.some((f) => f.kind === "sliced") || profileFiles(files).length > 0;
+}
+
 export function buildDefaultLayout(api: DockviewApi, opts: { hasSliced?: boolean } = {}): void {
   api.clear();
   const { leftTop, leftBottom, rightTop } = DEFAULT_GROUPS;

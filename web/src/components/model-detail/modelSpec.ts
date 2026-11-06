@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import type { BlobFormat, BlobMetaOut, ModelDetail } from "@/api/types";
 import type { SpecItem } from "@/components/ui/spec-row";
 
@@ -11,19 +12,24 @@ export interface ModelFilament {
  * with neither a color nor a material are ignored. */
 export function modelFilaments(model: ModelDetail): ModelFilament[] {
   const files = model.current_revision?.files ?? [];
-  const seen = new Map<string, ModelFilament>();
-  for (const file of files) {
-    for (const plate of file.meta?.plates ?? []) {
-      // Unsliced plates carry colour-only filaments (type null): keep chips sliced-only.
-      if (plate.filaments.every((f) => f.type == null)) continue;
-      for (const filament of plate.filaments) {
-        if (!filament.color && !filament.type) continue;
-        const key = `${filament.color ?? ""}|${filament.type ?? ""}`;
-        if (!seen.has(key)) seen.set(key, { color: filament.color, material: filament.type });
+  const collect = (colourOnly: boolean) => {
+    const seen = new Map<string, ModelFilament>();
+    for (const file of files) {
+      for (const plate of file.meta?.plates ?? []) {
+        // Unsliced plates carry colour-only filaments (type null): sliced-only unless nothing is sliced.
+        if (!colourOnly && plate.filaments.every((f) => f.type == null)) continue;
+        for (const filament of plate.filaments) {
+          if (!filament.color && !filament.type) continue;
+          const key = `${filament.color ?? ""}|${filament.type ?? ""}`;
+          if (!seen.has(key)) seen.set(key, { color: filament.color, material: filament.type });
+        }
       }
     }
-  }
-  return [...seen.values()];
+    return [...seen.values()];
+  };
+  const sliced = collect(false);
+  // A model with no sliced files falls back to colour-only chips from its unsliced plates.
+  return sliced.length > 0 || files.some((f) => f.kind === "sliced") ? sliced : collect(true);
 }
 
 /** Distinct blob formats present in the current revision, in first-seen order. */
@@ -53,6 +59,6 @@ export function slicedSpecItems(meta: BlobMetaOut): SpecItem[] {
   if (meta.printer_model) items.push({ label: meta.printer_model });
   if (meta.layer_height !== null) items.push({ label: `${meta.layer_height} mm layers` });
   if (meta.infill_pct !== null) items.push({ label: `${meta.infill_pct}% infill` });
-  if (meta.plate_count !== null) items.push({ label: `${meta.plate_count} plates` });
+  if (meta.plate_count !== null) items.push({ label: i18n.t("profiles.plateCount", { count: meta.plate_count }) });
   return items;
 }
