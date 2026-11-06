@@ -538,7 +538,7 @@ class PrinterWorker:
             self._kp_evt.clear()
         return {"ok": True, "payload": self._kp_results[nozzle]}
 
-    def _kprofile_post(self, command: str, clean: dict) -> dict | None:
+    def _kprofile_post(self, command: str, clean: dict, reply: dict | None = None) -> dict | None:
         """After a K-profile write: surface a printer-side rejection, drop the
         stale table cache, and hand the (minted) ``setting_id`` back."""
         if command == "kprofile_select":
@@ -555,7 +555,7 @@ class PrinterWorker:
             return None
         if command not in ("kprofile_set", "kprofile_delete"):
             return None
-        reply = self._last_reply or {}
+        reply = reply or {}
         if reply.get("result") == "fail":
             return {
                 "ok": False,
@@ -770,21 +770,23 @@ class PrinterWorker:
         fn = getattr(self.adapter, "consume_sequence_id", None)
         return fn() if callable(fn) else None
 
-    def _wait_reply(self, expected: str | None) -> None:
-        """Wait up to ``REPLY_WAIT_S`` for the reply to THIS command. Replies
-        echo the command's ``sequence_id``; one that doesn't match (a late
-        reply to an earlier command, or the dev-mode probe) is ignored. With
-        no id to match (non-stamped adapters) any reply wakes us."""
+    def _wait_reply(self, expected: str | None) -> dict | None:
+        """Wait up to ``REPLY_WAIT_S`` for the reply to THIS command and
+        return it (callers use the returned value, not ``_last_reply``, which
+        the paho thread may overwrite). Replies echo the command's
+        ``sequence_id``; one that doesn't match is ignored. With no id to
+        match (non-stamped adapters) any reply wakes us. ``None`` on timeout."""
         deadline = time.monotonic() + REPLY_WAIT_S
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not self._reply_evt.wait(remaining):
-                if expected is not None:
-                    self._last_reply = None
-                return
+                self._last_reply = None
+                return None
             reply = self._last_reply
-            if expected is None or str((reply or {}).get("sequence_id")) == expected:
-                return
+            if reply is not None and (
+                expected is None or str(reply.get("sequence_id")) == expected
+            ):
+                return reply
             self._reply_evt.clear()
 
     def _execute(self, command: str, args: dict) -> dict:
@@ -819,15 +821,15 @@ class PrinterWorker:
             expected = self._consume_seq()
             if command == "kprofile_list":
                 return self._finish_kprofile_list(clean)
-            if self.adapter.emits_replies:
-                self._wait_reply(expected)
-            if is_verify_failed_reply(self._last_reply):
+            # Adapters that don't emit async replies may still answer synchronously.
+            reply = self._wait_reply(expected) if self.adapter.emits_replies else self._last_reply
+            if is_verify_failed_reply(reply):
                 return {
                     "ok": False,
                     "code": "dev_mode_off",
-                    "message": str((self._last_reply or {}).get("reason", "")),
+                    "message": str((reply or {}).get("reason", "")),
                 }
-            if (post := self._kprofile_post(command, clean)) is not None:
+            if (post := self._kprofile_post(command, clean, reply)) is not None:
                 return post
             return {"ok": True}
         except cmds.CommandError as e:

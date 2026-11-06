@@ -181,6 +181,13 @@ celery_app.conf.beat_schedule["stock-forecast"] = {
     "schedule": 6 * 3600,
 }
 
+from app.tasks import pipeline as _pipeline  # noqa: E402
+
+celery_app.conf.beat_schedule["pipeline-reap-stuck"] = {
+    "task": "app.tasks.pipeline.reap_stuck_jobs",
+    "schedule": _pipeline.PIPELINE_REAP_INTERVAL_S,
+}
+
 # plates / glb-orientation backfills are NOT on beat: they run once per worker
 # start (see `app.tasks.startup_backfills`) and self-chain until drained.
 

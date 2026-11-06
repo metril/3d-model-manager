@@ -38,9 +38,16 @@ def test_celery_reliability_config():
     ):
         assert t.time_limit < VISIBILITY_TIMEOUT_S
         assert t.soft_time_limit > c.task_soft_time_limit
-    from app.tasks import importing
+    from app.tasks import importing, pipeline, slicing
 
-    assert importing.import_from_url.soft_time_limit < importing.IMPORT_LOCK_TIMEOUT_S
+    assert importing.import_from_url.soft_time_limit == scan.scan_library.soft_time_limit
+    assert importing.redownload_model.soft_time_limit == scan.scan_library.soft_time_limit
+    assert relocate.relocate_model_storage.soft_time_limit == scan.scan_library.soft_time_limit
+    for t in (slicing.slice_file, slicing.slice_job):
+        assert t.soft_time_limit >= 7200 + 600 and t.time_limit > t.soft_time_limit
+    step = pipeline.STEP_TASKS[next(iter(pipeline.STEP_TASKS))]
+    assert step.soft_time_limit == pipeline.PIPELINE_SOFT_TIME_LIMIT_S
+    assert "pipeline-reap-stuck" in c.beat_schedule
 
 
 def test_numeric_beat_entries_expire():
@@ -82,8 +89,8 @@ def test_wait_reply_ignores_replies_to_other_commands(monkeypatch):
         w._reply_evt.set()
 
     threading.Thread(target=deliver, daemon=True).start()
-    w._wait_reply("42")
-    assert w._last_reply["sequence_id"] == "42"
+    reply = w._wait_reply("42")
+    assert reply["sequence_id"] == "42"
 
 
 def test_wait_reply_discards_stale_reply_on_timeout(monkeypatch):
@@ -91,7 +98,7 @@ def test_wait_reply_discards_stale_reply_on_timeout(monkeypatch):
     w = _bare_worker()
     w._last_reply = {"sequence_id": "1"}
     w._reply_evt.set()
-    w._wait_reply("2")
+    assert w._wait_reply("2") is None
     assert w._last_reply is None
 
 
@@ -323,5 +330,92 @@ def test_redownload_skips_terminal_job_and_locked_model(migrated_db, redis_url, 
         assert ran == []  # model locked
     finally:
         r.delete(importing.redownload_lock_key(9001))
+    with base.sync_session() as s:  # the locked duplicate closed its own job
+        assert s.get(Job, jid).state != jobs.STATE_QUEUED
+        s.get(Job, jid).state = jobs.STATE_QUEUED
+        s.commit()
     importing.redownload_model.apply(args=[str(jid), 9001, "revision"])
     assert len(ran) == 1
+
+
+def test_redownload_duplicate_closes_its_own_queued_job(migrated_db, redis_url, monkeypatch):
+    from app.models.system import Job
+    from app.services import jobs
+    from app.tasks import importing
+
+    monkeypatch.setattr(importing, "_redownload_model", lambda *a: pytest.fail("ran"))
+    r = redis_lib.Redis.from_url(redis_url)
+    jid = uuid.uuid4()
+    with base.sync_session() as s:
+        s.add(Job(id=jid, type="redownload_model", state=jobs.STATE_QUEUED))
+        s.commit()
+    r.set(importing.redownload_lock_key(9002), "other", ex=60)
+    try:
+        importing.redownload_model.apply(args=[str(jid), 9002, "revision"])
+    finally:
+        r.delete(importing.redownload_lock_key(9002))
+    with base.sync_session() as s:
+        assert s.get(Job, jid).state in (jobs.STATE_FAILED, jobs.STATE_DEAD)
+
+
+def test_reap_stuck_pipeline_jobs(migrated_db):
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.system import Job
+    from app.services import jobs
+    from app.tasks import pipeline
+
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        seconds=pipeline.PIPELINE_STALE_AFTER_S + 60
+    )
+    stale, fresh = uuid.uuid4(), uuid.uuid4()
+    step = next(iter(pipeline.STEP_TASKS))
+    with base.sync_session() as s:
+        s.add(Job(id=stale, type=step, state=jobs.STATE_RUNNING))
+        s.add(Job(id=fresh, type=step, state=jobs.STATE_RUNNING))
+        s.commit()
+        s.query(Job).filter(Job.id == stale).update({"updated_at": old})
+        s.commit()
+    assert pipeline.reap_stuck_jobs() == 1
+    with base.sync_session() as s:
+        assert s.get(Job, stale).state != jobs.STATE_RUNNING
+        assert s.get(Job, fresh).state == jobs.STATE_RUNNING
+
+
+def test_relocate_holds_no_locks_during_copy(migrated_db, monkeypatch):
+    """The model/file row locks are taken only for the cutover re-check."""
+    from app.tasks import relocate
+
+    calls: list[str] = []
+    monkeypatch.setattr(relocate, "lock_model_row_sync", lambda s, m: calls.append("lock"))
+
+    class _S:
+        def scalar(self, *_):
+            return 1
+
+        def get(self, model, key):
+            if model is relocate.File:
+                return SimpleNamespace(
+                    id=1, backend_id=1, storage_path="a/b", blob_hash="h", revision_id=1
+                )
+            return None
+
+        def commit(self):
+            calls.append("commit")
+
+        def add(self, *_):
+            pass
+
+    class _Tgt:
+        def write(self, path, chunks):
+            calls.append("write")
+            list(chunks)
+            return SimpleNamespace(hash="h")
+
+    class _Src:
+        def read(self, path):
+            yield b"x"
+
+    monkeypatch.setattr(relocate, "backend_for_id_sync", lambda s, st, i: _Src())
+    relocate._relocate_one_file(_S(), None, 1, 2, _Tgt(), "replicate")
+    assert calls.index("write") < len(calls) and "lock" not in calls[: calls.index("write")]

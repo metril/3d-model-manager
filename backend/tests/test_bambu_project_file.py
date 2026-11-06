@@ -100,18 +100,25 @@ class _FakePrinter:
 
 
 class _FakeFtp:
-    def __init__(self, printer, result="226 ok") -> None:
+    def __init__(self, printer, result="226 ok", raises=None, listing=()) -> None:
         self._printer = printer
         self._result = result
+        self._raises = raises
+        self._listing = list(listing)
 
     def upload_file(self, fh, remote):
         self._printer.uploaded.append(remote)
+        if self._raises:
+            raise self._raises
         return self._result
 
+    def list_directory(self, path):
+        return "226", self._listing
 
-def _adapter_with(monkeypatch, printer, ftp_result="226 ok") -> BambuLanAdapter:
+
+def _adapter_with(monkeypatch, printer, ftp_result="226 ok", **ftp_kw) -> BambuLanAdapter:
     monkeypatch.setattr(bambu, "_build_printer", lambda conn: printer)
-    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _FakeFtp(printer, ftp_result))
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _FakeFtp(printer, ftp_result, **ftp_kw))
     return BambuLanAdapter(CONN)
 
 
@@ -162,6 +169,31 @@ def test_upload_and_start_raises_when_ftp_upload_fails(monkeypatch, tmp_path):
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
 
+    with pytest.raises(OSError):
+        a.upload_and_start(_spec(source_path=src))
+    assert mqtt.published_calls == []
+
+
+def _listing(size):
+    return [f"-rw-r--r-- 1 root root {size} Jan 01 00:00 tdmm-7.gcode.3mf"]
+
+
+def test_upload_timeout_after_all_bytes_sent_proceeds_when_size_matches(monkeypatch, tmp_path):
+    mqtt = _FakeMqttClient(connected=True, published=True)
+    printer = _FakePrinter(mqtt)
+    a = _adapter_with(monkeypatch, printer, raises=TimeoutError("no 226"), listing=_listing(3))
+    src = tmp_path / "job.gcode.3mf"
+    src.write_bytes(b"zip")
+    a.upload_and_start(_spec(source_path=src))
+    assert len(mqtt.published_calls) == 1
+
+
+def test_upload_error_with_size_mismatch_raises(monkeypatch, tmp_path):
+    mqtt = _FakeMqttClient(connected=True, published=True)
+    printer = _FakePrinter(mqtt)
+    a = _adapter_with(monkeypatch, printer, raises=TimeoutError("no 226"), listing=_listing(1))
+    src = tmp_path / "job.gcode.3mf"
+    src.write_bytes(b"zip")
     with pytest.raises(OSError):
         a.upload_and_start(_spec(source_path=src))
     assert mqtt.published_calls == []

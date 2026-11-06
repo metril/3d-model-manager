@@ -20,7 +20,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
 from app.models.enums import PrinterKind, PrintJobState
@@ -1502,10 +1502,35 @@ class BambuLanAdapter(PrinterAdapter):
         _seq_local.last = None
         return seq
 
+    def _remote_size_matches(self, remote: str, size: int) -> bool:
+        """Did the file land intact? The printer sometimes drops/never sends
+        the final "226" after every byte arrived, so a transfer error is only
+        fatal when the remote size disagrees. Never raises."""
+        try:
+            pure = PurePosixPath(remote)
+            parent = str(pure.parent) if str(pure.parent) not in ("", ".") else "/cache"
+            return any(
+                f.name == pure.name and f.size == size and not f.is_dir
+                for f in self.list_files(parent)
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
     def upload_file(self, remote: str, local: Path) -> None:
-        with local.open("rb") as fh:
-            res = _build_ftp(self.conn).upload_file(fh, remote)
-        if res is None:
+        size = local.stat().st_size
+        try:
+            with local.open("rb") as fh:
+                res = _build_ftp(self.conn).upload_file(fh, remote)
+        except Exception as exc:
+            # Timeout/reset waiting for the final reply after all bytes were
+            # sent: accept it if the remote copy is complete.
+            if self._remote_size_matches(remote, size):
+                log.warning(
+                    "FTPS upload %s errored (%s) but size matches", remote, type(exc).__name__
+                )
+                return
+            raise OSError(f"FTPS upload {remote} failed ({type(exc).__name__})") from exc
+        if res is None and not self._remote_size_matches(remote, size):
             raise OSError(f"FTPS upload {remote} failed")
 
     # -- send ----------------------------------------------------------

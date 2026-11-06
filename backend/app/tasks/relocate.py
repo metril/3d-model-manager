@@ -83,7 +83,11 @@ class MoveRejected(Exception):
 MODES = frozenset({"move", "replicate"})
 
 
-@celery_app.task(name="app.tasks.relocate.relocate_model_storage")
+@celery_app.task(
+    name="app.tasks.relocate.relocate_model_storage",
+    soft_time_limit=LONG_SOFT_TIME_LIMIT_S,
+    time_limit=LONG_TIME_LIMIT_S,
+)
 def relocate_model_storage(job_id: str, model_id: int, target_backend_id: int, mode: str) -> None:
     settings = get_settings()
     with base.sync_session() as s:
@@ -182,9 +186,9 @@ def _relocate_one_file(
     target_backend: StorageBackend,
     mode: str,
 ) -> None:
-    # Same lock order as every other mover (model row, then file row) so a
-    # concurrent folder/file move can't rename storage_path under the copy;
-    # the path is read only AFTER the lock is held.
+    # Read the file's coordinates WITHOUT holding row locks (the copy below can
+    # take a long time and must not block other writers); the locks are taken
+    # only for the cutover re-check, which aborts if anything moved meanwhile.
     model_id = s.scalar(
         select(Revision.model_id)
         .join(File, File.revision_id == Revision.id)
@@ -192,8 +196,7 @@ def _relocate_one_file(
     )
     if model_id is None:
         return  # deleted since the job was enqueued -- nothing left to relocate
-    lock_model_row_sync(s, model_id)
-    file = s.execute(select(File).where(File.id == file_id).with_for_update()).scalar_one_or_none()
+    file = s.get(File, file_id)
     if file is None:
         return
 
@@ -213,7 +216,9 @@ def _relocate_one_file(
     expected_hash = file.blob_hash
 
     location = s.get(FileLocation, (file.id, target_backend_id))
-    if location is None or location.verified_at is None:
+    needs_copy = location is None or location.verified_at is None
+    s.commit()  # end the read transaction: no locks/snapshot held across the copy
+    if needs_copy:
         # Same streaming-copy shape as `app.tasks.migrate`'s `_chunks`
         # closure: `source_backend.read` is consumed lazily, one generator,
         # fed straight into `dest.write`, which hashes (blake3) as it writes
@@ -239,8 +244,9 @@ def _relocate_one_file(
             # resumes from here.
             raise RuntimeError(f"hash mismatch relocating file {file.id} ({storage_path!r})")
         now = datetime.now(UTC)
+        location = s.get(FileLocation, (file_id, target_backend_id))
         if location is None:
-            s.add(FileLocation(file_id=file.id, backend_id=target_backend_id, verified_at=now))
+            s.add(FileLocation(file_id=file_id, backend_id=target_backend_id, verified_at=now))
         else:
             location.verified_at = now
         s.commit()
@@ -253,7 +259,7 @@ def _relocate_one_file(
         # extra copy sitting on the source backend with no DB row pointing
         # at it -- never a lost file, never a dangling reference.
         #
-        # The commit above released the locks: re-take them and make sure
+        # Take the locks now (none were held during the copy) and make sure
         # nothing renamed/re-pointed the file during the copy before cutting
         # over (else the target copy sits at a stale path; leave the source).
         lock_model_row_sync(s, model_id)

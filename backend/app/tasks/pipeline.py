@@ -43,6 +43,7 @@ import time
 import uuid
 import zipfile
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -130,6 +131,14 @@ StepOutcome = Literal["done", "skipped", "unsupported"]
 StepFn = Callable[[SyncSession, Settings, StorageBackend, Blob], StepOutcome]
 
 
+# CPU steps (STEP conversion, renders, extraction) can legitimately run for
+# hours on big models; the default 1h task limit would hard-kill them.
+PIPELINE_SOFT_TIME_LIMIT_S = 3 * 3600
+PIPELINE_TIME_LIMIT_S = PIPELINE_SOFT_TIME_LIMIT_S + 900
+PIPELINE_STALE_AFTER_S = PIPELINE_TIME_LIMIT_S + 900
+PIPELINE_REAP_INTERVAL_S = 600
+
+
 def pipeline_step(name: str) -> Callable[[Callable[[str, str], None]], Task]:
     """Decorator registering a Celery task body under
     ``app.tasks.pipeline.<name>`` (Celery's dotted task name) and, keyed by
@@ -141,7 +150,11 @@ def pipeline_step(name: str) -> Callable[[Callable[[str, str], None]], Task]:
     """
 
     def decorator(fn: Callable[[str, str], None]) -> Task:
-        task = celery_app.task(name=f"app.tasks.pipeline.{name}")(fn)
+        task = celery_app.task(
+            name=f"app.tasks.pipeline.{name}",
+            soft_time_limit=PIPELINE_SOFT_TIME_LIMIT_S,
+            time_limit=PIPELINE_TIME_LIMIT_S,
+        )(fn)
         STEP_TASKS[name] = task
         return task
 
@@ -1526,3 +1539,22 @@ def render_assembly_thumb(job_id: str, revision_id: int) -> None:
             )
             jobs.mark_failed(session, job_id, str(exc))
         raise
+
+
+@celery_app.task(name="app.tasks.pipeline.reap_stuck_jobs")
+def reap_stuck_jobs() -> int:
+    """Fail pipeline-step jobs left ``running`` past the hard time limit (+
+    grace): a hard-killed step never reaches its own failure handler, so
+    without this the row (and the UI) shows it running forever."""
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=PIPELINE_STALE_AFTER_S)
+    with base.sync_session() as session:
+        ids = session.scalars(
+            select(Job.id).where(
+                Job.type.in_([*STEP_TASKS, "render_assembly_thumb"]),
+                Job.state == jobs.STATE_RUNNING,
+                Job.updated_at < cutoff,
+            )
+        ).all()
+        for jid in ids:
+            jobs.mark_failed(session, str(jid), "step exceeded its time limit (worker killed)")
+    return len(ids)
