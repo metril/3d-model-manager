@@ -69,7 +69,8 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useOnRelocate } from "@/lib/windowRelocate";
 import { createInvalidateInstaller, createRafScheduler } from "@/components/viewer/rafDriver";
-import { FIT_MARGIN, pickFitDirection, shouldResetView, boxesKey, canFit, fitDistance, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
+import { acquireGlb, releaseGlb } from "@/components/viewer/glbRefs";
+import { FIT_MARGIN, pickFitDirection, createViewState, boxesKey, canFit, fitDistance, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
 import {
   Bounds,
   Center,
@@ -211,6 +212,11 @@ function GltfPart({
   registerGroup: (id: number, group: THREE.Group | null) => void;
 }) {
   const { scene } = useGLTF(url);
+  // Refcounted: the last part using this url evicts + disposes the cached glTF.
+  useEffect(() => {
+    acquireGlb(url);
+    return () => releaseGlb(url, scene);
+  }, [url, scene]);
 
   const handleGroupRef = useCallback(
     (group: THREE.Group | null) => registerGroup(id, group),
@@ -453,13 +459,12 @@ function BoundsRefitter({
   const runRef = useRef<(kind: "now" | "debounced") => void>(() => {});
   // Once the user orbits/zooms, a plain resize keeps their pose (r3f updates
   // the aspect itself); only load / selection / explicit Fit refit.
-  const interacted = useRef(false);
-  const lastViewKey = useRef<string | null>(null);
+  const viewState = useRef(createViewState());
   const presetRef = useRef(cameraPreset);
   presetRef.current = cameraPreset;
   runRef.current = (kind) => {
     const { size: sz, camera, controls: ctl, invalidate } = get();
-    if (kind === "debounced" && interacted.current) {
+    if (kind === "debounced" && viewState.current.interacted) {
       invalidate();
       return;
     }
@@ -471,9 +476,8 @@ function BoundsRefitter({
     // Consumed only by a run that actually fits (not the empty mount/swap runs).
     // New selection (or first fit): reset to iso. Same selection: keep the
     // direction (user orbit / presets), except flat edge-on rescue.
-    const reset = shouldResetView(lastViewKey.current, viewKey);
-    interacted.current = false;
-    lastViewKey.current = viewKey;
+    // An active camera preset owns the direction: a plate/profile change must not force iso.
+    const reset = viewState.current.wantReset(viewKey, !!presetRef.current);
     let measured = api.getSize();
     // drei sizes the distance from the box's longest edge and ignores depth, so
     // a cube-ish box (a single plate) overflows at a wide FOV. Inflate the box
@@ -490,6 +494,8 @@ function BoundsRefitter({
       }
     }
     if (!canFit(sz, measured.box) || !Number.isFinite(measured.distance)) return;
+    // Consume the reset/interaction state only now that the fit really goes ahead.
+    viewState.current.commit(viewKey);
     api.clip();
     const orbit = ctl as unknown as OrbitLike | null;
     // drei's fit keeps the current view direction; r3f's default camera sits on
@@ -539,7 +545,7 @@ function BoundsRefitter({
   );
   useEffect(() => {
     const off = bus.subscribe((active) => {
-      if (active) interacted.current = true;
+      if (active) viewState.current.markInteracted();
       if (!active) scheduler.gestureEnd();
     });
     return () => {
@@ -1210,7 +1216,7 @@ export default function ModelViewer({
             subtree in WORLD space, so a stale `Resize` scale from the previous
             geometry (e.g. 1/236 after "All plates", then a 20 mm plate GLB)
             would skew its centring. A fresh mount measures at scale 1. */}
-        <Resize key={`${geometryKey}:${layoutKey}`} box3={scaleBox ?? UNIT_BOX}>
+        <Resize key={layout ? `L:${layoutKey}` : `G:${geometryKey}`} box3={scaleBox ?? UNIT_BOX}>
           {layout ? (
             partNodes
           ) : (

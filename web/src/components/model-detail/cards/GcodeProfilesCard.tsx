@@ -25,7 +25,7 @@ export function GcodeProfilesCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>G-code profiles</CardTitle>
+        <CardTitle>Profiles</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {slicedFiles.map((file) => {

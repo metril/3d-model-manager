@@ -56,7 +56,7 @@ function GcodeProfilesContent() {
   const { model, studio } = useModelDetail();
   return (
     <div className="space-y-4">
-      <ProfilesPanel model={model} />
+      <ProfilesPanel model={model} selection={studio.selection} onSelectAssembly={studio.onSelectAssembly} />
       <GcodeProfilesCard model={model} selection={studio.selection} onView={studio.onSelectFile} />
     </div>
   );
