@@ -41,7 +41,6 @@ export function ArchiveToolpath({ archiveId, archivePlate }: { archiveId: number
               </label>
             ) : null}
             <LazyGcodeToolpathViewer
-              key={current}
               gcodeUrl={archiveGcodeUrl(archiveId, current)}
               className="h-72 w-full"
             />

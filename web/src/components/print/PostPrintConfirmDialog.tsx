@@ -27,7 +27,7 @@ export function PostPrintConfirmDialog() {
   const { t } = useTranslation();
   const { data: me } = useAuth();
   const features = useFeatures();
-  const verdict = useArchiveVerdict();
+  const verdict = useArchiveVerdict(true);
   const [snoozed, setSnoozed] = useState<number[]>(readSnoozed);
   const q = useQuery({
     queryKey: ["archives", "pending-confirm"] as const,

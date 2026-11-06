@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { ClockIcon, FileStackIcon, StarIcon, XIcon } from "lucide-react";
 
 import { modelQueryOptions, usePatchModel } from "@/api/library";
@@ -50,6 +51,7 @@ export function ModelCard({
    * of navigating when the card's `<Link>` is clicked with a modifier held. */
   onModifiedClick?: (event: React.MouseEvent, index: number) => void;
 }) {
+  const { t } = useTranslation();
   const [coverErrored, setCoverErrored] = useState(false);
   const [renderErrored, setRenderErrored] = useState(false);
   // R9-A item 1: the hover-render `<img>` only gets a `src` once the card's
@@ -99,18 +101,10 @@ export function ModelCard({
     model.file_count > 0
       ? {
           icon: <FileStackIcon />,
-          label: `${model.file_count} ${model.file_count === 1 ? "file" : "files"}`,
+          label: t("modelCard.files", { count: model.file_count }),
         }
       : null,
   ];
-
-  // The card body is a `<Link>` (whole-card navigation); the review-dismiss
-  // confirm dialog must not also trigger that navigation, so stop every
-  // click inside it before it reaches the anchor's handler.
-  function stopCardNavigation(event: React.MouseEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
 
   // R9-A item 6: a modified click selects instead of navigating. Any
   // modified click auto-enters select mode via the parent's handler.
@@ -121,16 +115,11 @@ export function ModelCard({
     }
   }
 
+  // Whole-card navigation via a stretched link: the title is the only anchor
+  // and its ::after covers the card; interactive controls are positioned
+  // siblings above it (z-10), so none of them nest inside the `<a>`.
   return (
-    <Link
-      to="/models/$slug"
-      params={{ slug: model.slug }}
-      className="group block"
-      preload="intent"
-      onClick={onLinkClick}
-      onPointerEnter={onIntent}
-      onFocus={onIntent}
-    >
+    <div className="group relative h-full" onPointerEnter={onIntent} onFocus={onIntent}>
       <Card className="h-full gap-3 overflow-hidden py-0 pb-4 transition-shadow hover:shadow-md">
         <div className="relative aspect-[4/3] overflow-hidden bg-muted">
           {showCover ? (
@@ -169,7 +158,7 @@ export function ModelCard({
               </span>
             </div>
           )}
-          <div className="absolute top-2 left-2 flex flex-col items-start gap-1.5">
+          <div className="pointer-events-none absolute top-2 left-2 z-10 flex flex-col items-start gap-1.5 [&>*]:pointer-events-auto">
             {/* Selection is implicit (no select-mode toggle): the checkbox
                 is always mounted, just hidden until hover/focus or until
                 the card is actually selected. Same `display: contents` +
@@ -177,73 +166,58 @@ export function ModelCard({
                 the card body is a whole-surface `<Link>`, and Radix's
                 checkbox click would otherwise bubble up and navigate away
                 instead of toggling selection. */}
-            <span className="contents" onClick={stopCardNavigation}>
-              <Checkbox
-                checked={selected}
-                onCheckedChange={(checked) => onSelectChange?.(model.id, checked === true)}
-                aria-label={`Select ${model.name}`}
-                className={cn(
-                  "bg-background/80 backdrop-blur-sm transition-opacity",
-                  selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-                )}
-              />
-            </span>
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onSelectChange?.(model.id, checked === true)}
+              aria-label={t("modelCard.select", { name: model.name })}
+              className={cn(
+                "bg-background/80 backdrop-blur-sm transition-opacity",
+                selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+              )}
+            />
             {model.source_site && (
               <Badge variant="secondary" className="capitalize backdrop-blur-sm" data-testid="source-badge">
                 {model.source_site}
               </Badge>
             )}
           </div>
-          <div className="absolute top-2 right-2 flex flex-col items-end gap-1.5">
+          <div className="pointer-events-none absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5 [&>*]:pointer-events-auto">
             {needsReview && (
               <Badge variant="secondary" className="gap-1 pr-1 backdrop-blur-sm" data-testid="review-badge">
-                Needs review
-                {/* `display: contents` keeps this out of the Badge's flex
-                    layout (so the trigger button still sizes/aligns exactly
-                    as before) while still giving us a click handler that sees
-                    every click inside -- including the dialog's confirm
-                    button, which portals to `document.body` and would
-                    otherwise bubble up through the *React* tree (portals
-                    bubble via the component tree, not the DOM tree) into this
-                    card's wrapping `<Link>` and navigate away. */}
-                <span className="contents" onClick={stopCardNavigation}>
-                  <ConfirmDialog
-                    trigger={
-                      <button
-                        type="button"
-                        aria-label="Dismiss needs review"
-                        className="rounded-full hover:opacity-70"
-                      >
-                        <XIcon className="size-3" />
-                      </button>
-                    }
-                    title='Clear "needs review"?'
-                    confirmLabel="Clear"
-                    onConfirm={() => patchModel.mutate({ review_state: null })}
-                  />
-                </span>
+                {t("modelCard.needsReview")}
+                <ConfirmDialog
+                  trigger={
+                    <button
+                      type="button"
+                      aria-label={t("modelCard.dismissReview")}
+                      className="rounded-full hover:opacity-70"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  }
+                  title={t("modelCard.clearReviewTitle")}
+                  confirmLabel={t("modelCard.clear")}
+                  onConfirm={() => patchModel.mutate({ review_state: null })}
+                />
               </Badge>
             )}
             {/* A star is a deliberate, always-live action -- not gated
-                behind edit mode like name/description/tags. Same
-                stop-navigation wrapper as the dismiss control above; a
-                favorited star stays visible even when the card isn't
-                hovered (it's state, not a hover affordance). */}
-            <span className="contents" onClick={stopCardNavigation}>
-              <button
-                type="button"
-                aria-label={model.favorite ? "Remove from favorites" : "Add to favorites"}
-                aria-pressed={model.favorite}
-                onClick={() => patchModel.mutate({ favorite: !model.favorite })}
-                className="rounded-full bg-background/80 p-1 text-foreground backdrop-blur-sm transition-colors hover:text-warning"
-              >
-                <StarIcon className={model.favorite ? "size-4 fill-warning text-warning" : "size-4"} />
-              </button>
-            </span>
+                behind edit mode like name/description/tags; a favorited star
+                stays visible even when the card isn't hovered (it's state,
+                not a hover affordance). */}
+            <button
+              type="button"
+              aria-label={model.favorite ? t("modelCard.unfavorite") : t("modelCard.favorite")}
+              aria-pressed={model.favorite}
+              onClick={() => patchModel.mutate({ favorite: !model.favorite })}
+              className="rounded-full bg-background/80 p-1 text-foreground backdrop-blur-sm transition-colors hover:text-warning"
+            >
+              <StarIcon className={model.favorite ? "size-4 fill-warning text-warning" : "size-4"} />
+            </button>
           </div>
           {(dimsLabel !== null || hasQuickActions) && (
             <div
-              className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
               data-testid="hover-overlay"
             >
               {dimsLabel !== null ? (
@@ -252,24 +226,30 @@ export function ModelCard({
                 <span />
               )}
               {hasQuickActions && (
-                <span className="contents" onClick={stopCardNavigation}>
-                  <div className="flex items-center gap-1">
-                    {model.best_slicer_file && (
-                      <OpenInSlicerButton file={model.best_slicer_file} size="icon-sm" />
-                    )}
-                    {(model.printable_file ?? model.best_slicer_file) && (
-              <SendToPrinterButton file={(model.printable_file ?? model.best_slicer_file)!} />
-            )}
-                  </div>
-                </span>
+                <div className="pointer-events-auto flex items-center gap-1">
+                  {model.best_slicer_file && (
+                    <OpenInSlicerButton file={model.best_slicer_file} size="icon-sm" />
+                  )}
+                  {(model.printable_file ?? model.best_slicer_file) && (
+                    <SendToPrinterButton file={(model.printable_file ?? model.best_slicer_file)!} />
+                  )}
+                </div>
               )}
             </div>
           )}
         </div>
         <CardContent className="flex flex-col gap-2 px-4">
           <div className="flex items-center gap-1.5">
-            <h3 className="truncate text-sm font-medium" title={model.name}>
-              {model.name}
+            <h3 className="min-w-0 truncate text-sm font-medium" title={model.name}>
+              <Link
+                to="/models/$slug"
+                params={{ slug: model.slug }}
+                preload="intent"
+                onClick={onLinkClick}
+                className="outline-none after:absolute after:inset-0 after:z-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+              >
+                {model.name}
+              </Link>
             </h3>
             {model.category && (
               <Badge variant="outline" className="shrink-0 gap-1">
@@ -307,10 +287,10 @@ export function ModelCard({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Updated {formatDate(model.updated_at)}
+            {t("modelCard.updated", { date: formatDate(model.updated_at) })}
           </p>
         </CardContent>
       </Card>
-    </Link>
+    </div>
   );
 }

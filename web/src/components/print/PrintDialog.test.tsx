@@ -946,3 +946,32 @@ describe("PrintDialog plate before slicing", () => {
     expect(body.plate).toBeUndefined();
   });
 });
+
+describe("PrintDialog mount-on-open", () => {
+  function host(open: boolean) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return (
+      <QueryClientProvider client={queryClient}>
+        <PrintDialog open={open} onOpenChange={() => {}} source={{ kind: "pick" }} />
+      </QueryClientProvider>
+    );
+  }
+
+  it("renders nothing and fires no queries while closed", () => {
+    render(host(false));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(getMock).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it("reopens from a clean slate (typed search is not carried over)", async () => {
+    const { rerender } = render(host(true));
+    const input = await screen.findByPlaceholderText(/search models/i);
+    fireEvent.change(input, { target: { value: "benchy" } });
+    expect(input).toHaveValue("benchy");
+    rerender(host(false));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    rerender(host(true));
+    expect(await screen.findByPlaceholderText(/search models/i)).toHaveValue("");
+  });
+});

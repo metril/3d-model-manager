@@ -109,6 +109,7 @@ export function useCombinePlan(slug: string, request: CombineRequest | null) {
 export function useCombine(slug: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: { silentError: true },
     mutationFn: (request: CombineRequest) =>
       api.post<CombineResult>(`/models/${encodeURIComponent(slug)}/combine`, { ...request, dry_run: false }),
     onSuccess: () => {
@@ -120,6 +121,7 @@ export function useCombine(slug: string) {
 /** `?auto=1`: the server's grid/auto layout as poses (plus each file's AABB), nothing written. */
 export function useAutoArrange(slug: string) {
   return useMutation({
+    meta: { silentError: true },
     mutationFn: (request: CombineRequest) =>
       api.post<CombineResult>(`/models/${encodeURIComponent(slug)}/combine?auto=1`, request),
   });
@@ -137,6 +139,7 @@ export interface OrientResult {
 /** Best print orientation (quaternion + resulting dims) per file. */
 export function useAutoOrient(slug: string) {
   return useMutation({
+    meta: { silentError: true },
     mutationFn: (targets: { file_id: number; object_index: number | null }[]) =>
       api.post<{ files: OrientResult[] }>(`/models/${encodeURIComponent(slug)}/orient`, { targets }),
   });

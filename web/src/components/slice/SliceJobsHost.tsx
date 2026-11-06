@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useCancelSliceJob, useSliceJob } from "@/api/slicing";
@@ -37,6 +38,7 @@ export function SliceToast({
   onLog: () => void;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const state = job?.state ?? "queued";
   const meta = job?.meta;
   return (
@@ -46,14 +48,14 @@ export function SliceToast({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 break-words font-medium">
-          {state === "queued" ? `Slicing ${fileName}: waiting for the slicer…` : null}
-          {state === "running" ? `Slicing ${fileName}…` : null}
-          {state === "done" ? `Sliced ${fileName}${job?.plate ? ` · plate ${job.plate}` : ""}` : null}
-          {state === "failed" ? `Slicing ${fileName} failed` : null}
-          {state === "cancelled" ? `Slicing ${fileName} cancelled` : null}
+          {state === "queued" ? t("sliceJobs.queued", { fileName }) : null}
+          {state === "running" ? t("sliceJobs.running", { fileName }) : null}
+          {state === "done" ? `${t("sliceJobs.done", { fileName })}${job?.plate ? ` · ${t("sliceJobs.plate", { plate: job.plate })}` : ""}` : null}
+          {state === "failed" ? t("sliceJobs.failed", { fileName }) : null}
+          {state === "cancelled" ? t("sliceJobs.cancelled", { fileName }) : null}
         </p>
         {!ACTIVE.includes(state) ? (
-          <button type="button" aria-label="Dismiss" className="text-muted-foreground hover:text-foreground" onClick={onDismiss}>
+          <button type="button" aria-label={t("sliceJobs.dismiss")} className="text-muted-foreground hover:text-foreground" onClick={onDismiss}>
             ×
           </button>
         ) : null}
@@ -62,32 +64,32 @@ export function SliceToast({
         <p className="text-xs text-muted-foreground">
           {meta.print_time_s != null ? humanizeDuration(meta.print_time_s) : null}
           {meta.filament_g != null ? ` · ${Math.round(meta.filament_g)} g` : null}
-          {meta.plate_count ? ` · ${meta.plate_count} plate${meta.plate_count === 1 ? "" : "s"}` : null}
+          {meta.plate_count ? ` · ${t("sliceJobs.plates", { count: meta.plate_count })}` : null}
         </p>
       ) : null}
       {state === "failed" && job?.error ? <p className="text-xs text-destructive">{job.error}</p> : null}
       <div className="flex flex-wrap gap-2">
         {ACTIVE.includes(state) ? (
           <Button type="button" size="sm" variant="outline" onClick={onCancel}>
-            Cancel
+            {t("sliceJobs.cancel")}
           </Button>
         ) : null}
         {state === "done" && job?.sliced_file_id != null ? (
           <>
             <Button type="button" size="sm" variant="outline" onClick={onOpen}>
-              Open file
+              {t("sliceJobs.open")}
             </Button>
             <Button type="button" size="sm" variant="outline" asChild>
-              <a href={`/api/files/${job.sliced_file_id}/download`}>Download</a>
+              <a href={`/api/files/${job.sliced_file_id}/download`}>{t("sliceJobs.download")}</a>
             </Button>
             <Button type="button" size="sm" onClick={onSend}>
-              Send to printer
+              {t("sliceJobs.send")}
             </Button>
           </>
         ) : null}
         {state === "failed" || state === "done" ? (
           <Button type="button" size="sm" variant="outline" onClick={onLog}>
-            View log
+            {t("sliceJobs.log")}
           </Button>
         ) : null}
       </div>
@@ -104,6 +106,7 @@ function SliceWatcher({
   onLog: (job: SliceJob) => void;
   onSend: (job: SliceJob) => void;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const query = useSliceJob(item.id);
   const job = query.data;
@@ -122,9 +125,14 @@ function SliceWatcher({
   useEffect(() => {
     if (!loadError) return;
     toast.dismiss(toastId);
-    toast.error(`Slicing ${item.fileName}: ${loadError instanceof Error ? loadError.message : "job not found"}`);
+    toast.error(
+      t("sliceJobs.loadError", {
+        fileName: item.fileName,
+        message: loadError instanceof Error ? loadError.message : t("sliceJobs.notFound"),
+      }),
+    );
     untrackSlice(item.id);
-  }, [loadError, item.id, item.fileName, toastId]);
+  }, [loadError, item.id, item.fileName, toastId, t]);
 
   useEffect(() => {
     if (loadError) return;
@@ -162,8 +170,8 @@ export function SliceJobsHost() {
   const [printJob, setPrintJob] = useState<SliceJob | null>(null);
   return (
     <>
-      {tracked.map((t) => (
-        <SliceWatcher key={t.id} item={t} onLog={setLogJob} onSend={setPrintJob} />
+      {tracked.map((it) => (
+        <SliceWatcher key={it.id} item={it} onLog={setLogJob} onSend={setPrintJob} />
       ))}
       <SliceLogDialog
         open={logJob != null}

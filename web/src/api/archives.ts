@@ -146,9 +146,10 @@ export function useArchiveCalendar(from: string, to: string) {
   });
 }
 
-export function useArchiveVerdict() {
+export function useArchiveVerdict(silentError = false) {
   const qc = useQueryClient();
   return useMutation({
+    meta: silentError ? { silentError: true } : undefined,
     mutationFn: ({ id, verdict, source }: { id: number; verdict: ArchiveVerdict; source: "dialog" | "card" | "api" }) =>
       api.post<ArchiveOut>(`/archives/${id}/verdict`, { verdict, source }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["archives"] }),
