@@ -23,9 +23,11 @@ dependency at all and are usable from either world.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -133,6 +135,29 @@ def publish_bytes(data: bytes, dest: Path) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    publish_file(tmp_path, dest)
+
+
+def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while buf := fh.read(chunk):
+            h.update(buf)
+    return h.hexdigest()
+
+
+def publish_path(src: Path, dest: Path) -> None:
+    """Copy ``src`` (streamed, never read whole) next to ``dest`` and publish
+    it atomically -- the file-backed twin of ``publish_bytes``."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=".tdmm-pub-", suffix=dest.suffix)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh, src.open("rb") as inp:
+            shutil.copyfileobj(inp, fh, 1 << 20)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise

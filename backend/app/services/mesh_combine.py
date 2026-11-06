@@ -417,6 +417,25 @@ def write_3mf(
 ) -> bytes:
     """Zip bytes of a 3MF: one ``<object>`` per source, one build item per copy
     (from ``plan`` placements, or the 3x4 transform of each manual ``pose``)."""
+    buf = io.BytesIO()
+    _write_3mf_to(buf, loaded, plan, poses)
+    return buf.getvalue()
+
+
+def write_3mf_file(
+    dest: Path,
+    loaded: list[LoadedPart],
+    plan: LayoutPlan | None = None,
+    *,
+    poses: list[Pose] | None = None,
+) -> None:
+    """Like ``write_3mf`` but streams the zip straight to ``dest`` (a large
+    combine never sits in memory twice)."""
+    with dest.open("wb") as fh:
+        _write_3mf_to(fh, loaded, plan, poses)
+
+
+def _write_3mf_to(buf, loaded: list[LoadedPart], plan: LayoutPlan | None, poses) -> None:
     if poses is not None:
         build_items = [(p.owner, pose_transform(loaded[p.owner], p)) for p in poses]
     else:
@@ -424,7 +443,6 @@ def write_3mf(
         build_items = [
             (p.owner, f"1 0 0 0 1 0 0 0 1 {_fmt(p.x)} {_fmt(p.y)} 0") for p in plan.placements
         ]
-    buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("[Content_Types].xml", _CONTENT_TYPES)
         zf.writestr("_rels/.rels", _RELS)
@@ -457,4 +475,3 @@ def write_3mf(
                 ).encode("utf-8")
             )
             out.write(b"</build></model>")
-    return buf.getvalue()

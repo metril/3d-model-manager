@@ -834,12 +834,12 @@ async def test_calendar_buckets_by_tz(authenticated_client, db_session):
 
 
 async def test_confirm_rate_limit_fails_closed(client, monkeypatch):
-    import redis.asyncio as aioredis
+    from app.api import archives_extras as ax
 
     def boom(*_a, **_k):
         raise ConnectionError("redis down")
 
-    monkeypatch.setattr(aioredis.Redis, "from_url", boom)
+    monkeypatch.setattr(ax, "get_async_redis", boom)
     assert (await client.get("/api/archives/confirm/x/good")).status_code == 429
 
 

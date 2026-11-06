@@ -172,9 +172,8 @@ def _send_to_printer(
             # than one backend) rather than a caller-supplied default.
             path = derivatives.fetch_blob_to_temp(s2, settings, blob_hash, Path(tmp), ".gcode.3mf")
             try:
-                data = path.read_bytes()
-                gcode3mf.assert_plate_available(data, options["plate"])
-                pause_points = pause_eta.pause_points_from_3mf(data, options["plate"])
+                gcode3mf.assert_plate_available(path, options["plate"])
+                pause_points = pause_eta.pause_points_from_3mf(path, options["plate"])
             except gcode3mf.NotSendableError as e:
                 raise SendError(str(e)) from e
             spec = PrintSpec(

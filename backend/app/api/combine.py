@@ -50,7 +50,7 @@ from app.services.mesh_combine import (
     plan_parts,
     pose_too_tall,
     read_mesh,
-    write_3mf,
+    write_3mf_file,
 )
 from app.services.orient import (
     IDENTITY,
@@ -237,9 +237,12 @@ async def combine_files(
             all_fit, required = all(f.fits for f in fits), plan.required_bed
         if dry_run or not all_fit:
             return loaded, poses, fits, required, "", 0
-        data = write_3mf(loaded, poses=poses)
-        out_path.write_bytes(data)
-        return loaded, poses, fits, required, blake3.blake3(data).hexdigest(), len(data)
+        write_3mf_file(out_path, loaded, poses=poses)
+        hasher = blake3.blake3()
+        with out_path.open("rb") as fh:
+            while chunk := fh.read(1 << 20):
+                hasher.update(chunk)
+        return loaded, poses, fits, required, hasher.hexdigest(), out_path.stat().st_size
 
     try:
         try:
