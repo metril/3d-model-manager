@@ -88,6 +88,10 @@ CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
 # How long a command waits for the printer's MQTT reply (adapters that emit
 # replies only). Must stay well under the API's 3 s wait.
 REPLY_WAIT_S = 1.5
+START_BACKOFF_BASE_S = 5.0  # per-printer start retry: 5s, 10s, ... capped
+START_BACKOFF_MAX_S = 300.0
+CMD_RECONNECT_BASE_S = 1.0
+CMD_RECONNECT_MAX_S = 30.0
 # T2: how long ``kprofile_list`` waits for the ``extrusion_cali_get`` table.
 KPROFILE_WAIT_S = 5.0
 # ...and when it re-sends the request once (firmware sometimes ignores the first).
@@ -218,6 +222,7 @@ class PrinterWorker:
         self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
         self._reply_evt = threading.Event()
+        self._write_lock = threading.RLock()  # report + reply threads both write state
         self._last_reply: dict | None = None
         self._kp_evt = threading.Event()
         self._kp_results: dict[str, dict] = {}
@@ -271,6 +276,10 @@ class PrinterWorker:
         return (self._merged or {}).get("gcode_state") == "RUNNING"
 
     def _write_public(self, public: PrinterPublicState) -> None:
+        with self._write_lock:
+            self._write_public_locked(public)
+
+    def _write_public_locked(self, public: PrinterPublicState) -> None:
         public.dev_mode = self.devmode.state
         public.dev_mode_reason = self.devmode.reason
         public.connected = bool(public.connected) and not _is_stale(public.last_report_at)
@@ -757,6 +766,27 @@ class PrinterWorker:
                 )
         return result
 
+    def _consume_seq(self) -> str | None:
+        fn = getattr(self.adapter, "consume_sequence_id", None)
+        return fn() if callable(fn) else None
+
+    def _wait_reply(self, expected: str | None) -> None:
+        """Wait up to ``REPLY_WAIT_S`` for the reply to THIS command. Replies
+        echo the command's ``sequence_id``; one that doesn't match (a late
+        reply to an earlier command, or the dev-mode probe) is ignored. With
+        no id to match (non-stamped adapters) any reply wakes us."""
+        deadline = time.monotonic() + REPLY_WAIT_S
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self._reply_evt.wait(remaining):
+                if expected is not None:
+                    self._last_reply = None
+                return
+            reply = self._last_reply
+            if expected is None or str((reply or {}).get("sequence_id")) == expected:
+                return
+            self._reply_evt.clear()
+
     def _execute(self, command: str, args: dict) -> dict:
         if command == "kprofile_reapply":
             return self._reapply_command()
@@ -784,11 +814,13 @@ class PrinterWorker:
             self._last_reply = None
             self._kp_results.clear()
             self._kp_evt.clear()
+            self._consume_seq()  # drop a stale id from an earlier command
             spec.run(self.adapter, clean)
+            expected = self._consume_seq()
             if command == "kprofile_list":
                 return self._finish_kprofile_list(clean)
             if self.adapter.emits_replies:
-                self._reply_evt.wait(REPLY_WAIT_S)
+                self._wait_reply(expected)
             if is_verify_failed_reply(self._last_reply):
                 return {
                     "ok": False,
@@ -817,6 +849,8 @@ class PrinterDaemon:
         self._pubsubs: dict[int, redis.client.PubSub] = {}
         self._threads: dict[int, threading.Thread] = {}
         self._cmd_stops: dict[int, threading.Event] = {}
+        self._start_failures: dict[int, int] = {}
+        self._start_retry_at: dict[int, float] = {}
         # The connection signature (host/serial/access_code_enc) each running
         # worker was started with (Round 8 T2) -- reconcile() diffs this
         # against the printer row's current signature every tick to catch a
@@ -846,17 +880,24 @@ class PrinterDaemon:
     def start_printer(self, printer: Printer) -> PrinterWorker:
         conn = connection_from_printer(self.settings, printer)
         adapter = build_adapter(printer.kind, conn)
-        worker = PrinterWorker(self.settings, printer.id, adapter, self.redis)
-        adapter.set_report_handler(worker.handle_report)
-        adapter.connect()
-        adapter.request_full_status()
-        # Publish to ``_workers`` only once the cmd thread is running, so
-        # observers (and stop_printer) never see a worker without its thread.
-        self._subscribe_commands(printer.id, worker)
-        self._workers[printer.id] = worker
-        self._signatures[printer.id] = _signature(printer)
-        self.camera.add(printer.id, adapter)
-        self.obico.add(printer.id, worker.is_running)
+        try:
+            worker = PrinterWorker(self.settings, printer.id, adapter, self.redis)
+            adapter.set_report_handler(worker.handle_report)
+            adapter.connect()
+            adapter.request_full_status()
+            # Publish to ``_workers`` only once the cmd thread is running, so
+            # observers (and stop_printer) never see a worker without its thread.
+            self._subscribe_commands(printer.id, worker)
+            self._workers[printer.id] = worker
+            self._signatures[printer.id] = _signature(printer)
+            self.camera.add(printer.id, adapter)
+            self.obico.add(printer.id, worker.is_running)
+        except Exception:
+            # Don't leak the half-built adapter's MQTT/threads on every retry.
+            self.stop_printer(printer.id)
+            with contextlib.suppress(Exception):
+                adapter.close()
+            raise
         return worker
 
     def _safe_start(self, printer: Printer) -> None:
@@ -864,10 +905,40 @@ class PrinterDaemon:
         stall ``reconcile()`` for the rest. Exception TEXT could echo the
         plaintext access code (e.g. an MQTT/FTPS auth-failure string) -- log
         only the type, never the full exception body."""
+        now = time.monotonic()
+        if now < self._start_retry_at.get(printer.id, 0.0):
+            return
         try:
             self.start_printer(printer)
+            self._start_failures.pop(printer.id, None)
+            self._start_retry_at.pop(printer.id, None)
         except Exception as exc:
-            log.error("printerd: failed to start printer %s: %s", printer.id, type(exc).__name__)
+            n = self._start_failures.get(printer.id, 0) + 1
+            self._start_failures[printer.id] = n
+            delay = min(START_BACKOFF_MAX_S, START_BACKOFF_BASE_S * 2 ** (n - 1))
+            self._start_retry_at[printer.id] = now + delay
+            log.error(
+                "printerd: failed to start printer %s: %s (retry in %.0fs)",
+                printer.id,
+                type(exc).__name__,
+                delay,
+            )
+
+    def _handle_cmd_message(self, worker: PrinterWorker, msg: dict) -> None:
+        if msg["type"] != "message":
+            return
+        try:
+            body = json.loads(msg["data"])
+            command = body.get("command")
+            args = body.get("args")
+            request_id = body.get("request_id")
+        except (ValueError, TypeError, AttributeError):
+            return
+        if command:
+            try:
+                worker.handle_command(command, args if isinstance(args, dict) else None, request_id)
+            except Exception:
+                log.exception("printerd: command %r failed", command)
 
     def _subscribe_commands(self, printer_id: int, worker: PrinterWorker) -> None:
         pubsub = self.redis.pubsub()
@@ -875,33 +946,35 @@ class PrinterDaemon:
         stop = threading.Event()
 
         def _loop() -> None:
-            try:
-                for msg in pubsub.listen():
-                    if self._stop.is_set() or stop.is_set():
-                        break
-                    if msg["type"] != "message":
-                        continue
-                    try:
-                        body = json.loads(msg["data"])
-                        command = body.get("command")
-                        args = body.get("args")
-                        request_id = body.get("request_id")
-                    except (ValueError, TypeError, AttributeError):
-                        continue
-                    if command:
-                        try:
-                            worker.handle_command(
-                                command, args if isinstance(args, dict) else None, request_id
-                            )
-                        except Exception:
-                            log.exception("printerd: command %r failed", command)
-            except Exception:
-                # pubsub.close() from stop_printer/stop() unblocks listen() by
-                # dropping the connection -> exit the thread instead of leaking it.
-                pass
-            finally:
+            ps = pubsub
+            failures = 0
+            while not (self._stop.is_set() or stop.is_set()):
+                try:
+                    for msg in ps.listen():
+                        if self._stop.is_set() or stop.is_set():
+                            break
+                        failures = 0
+                        self._handle_cmd_message(worker, msg)
+                except Exception:
+                    pass  # dropped connection (or stop_printer closed it)
                 with contextlib.suppress(Exception):
-                    pubsub.close()
+                    ps.close()
+                if self._stop.is_set() or stop.is_set():
+                    break
+                # Redis blip: back off, then resubscribe on a fresh pubsub
+                # instead of leaving the printer deaf to commands forever.
+                failures += 1
+                delay = min(CMD_RECONNECT_MAX_S, CMD_RECONNECT_BASE_S * 2 ** (failures - 1))
+                if stop.wait(delay):
+                    break
+                try:
+                    ps = self.redis.pubsub()
+                    ps.subscribe(command_channel(printer_id))
+                    self._pubsubs[printer_id] = ps
+                except Exception:
+                    log.error("printerd: command resubscribe failed for printer %s", printer_id)
+            with contextlib.suppress(Exception):
+                ps.close()
 
         t = threading.Thread(target=_loop, daemon=True, name=f"cmd-{printer_id}")
         t.start()
@@ -934,6 +1007,9 @@ class PrinterDaemon:
         for printer_id in list(self._workers):
             if printer_id not in enabled:
                 self.stop_printer(printer_id)
+        for gone in [i for i in self._start_retry_at if i not in enabled]:
+            self._start_failures.pop(gone, None)
+            self._start_retry_at.pop(gone, None)
         for printer_id, printer in enabled.items():
             if printer_id not in self._workers:
                 self._safe_start(printer)

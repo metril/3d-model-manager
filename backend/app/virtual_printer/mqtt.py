@@ -295,7 +295,7 @@ class MqttBroker:
             s = self._serial_of(topic)
             if s and s != "+":
                 self._clients[w] = s
-        w.write(bytes([0x90, 2 + len(granted)]) + pid + bytes(granted))
+        w.write(b"\x90" + _varint(2 + len(granted)) + pid + bytes(granted))
         await w.drain()
         await self._send_status(w, self._clients.get(w, self.serial))
 

@@ -99,8 +99,19 @@ class _FakePrinter:
         return True
 
 
-def _adapter_with(monkeypatch, printer) -> BambuLanAdapter:
+class _FakeFtp:
+    def __init__(self, printer, result="226 ok") -> None:
+        self._printer = printer
+        self._result = result
+
+    def upload_file(self, fh, remote):
+        self._printer.uploaded.append(remote)
+        return self._result
+
+
+def _adapter_with(monkeypatch, printer, ftp_result="226 ok") -> BambuLanAdapter:
     monkeypatch.setattr(bambu, "_build_printer", lambda conn: printer)
+    monkeypatch.setattr(bambu, "_build_ftp", lambda conn: _FakeFtp(printer, ftp_result))
     return BambuLanAdapter(CONN)
 
 
@@ -142,3 +153,15 @@ def test_upload_and_start_raises_when_publish_not_confirmed(monkeypatch, tmp_pat
 
     with pytest.raises(OSError):
         a.upload_and_start(_spec(source_path=src))
+
+
+def test_upload_and_start_raises_when_ftp_upload_fails(monkeypatch, tmp_path):
+    mqtt = _FakeMqttClient(connected=True, published=True)
+    printer = _FakePrinter(mqtt)
+    a = _adapter_with(monkeypatch, printer, ftp_result=None)
+    src = tmp_path / "job.gcode.3mf"
+    src.write_bytes(b"zip")
+
+    with pytest.raises(OSError):
+        a.upload_and_start(_spec(source_path=src))
+    assert mqtt.published_calls == []

@@ -198,8 +198,12 @@ def _extract(settings: Settings, zf: zipfile.ZipFile, sf: StagedFile) -> list[St
             staged_members.append(
                 download.stage_zip_member(settings, zf, info, f"{zip_stem}/{member_name}")
             )
-    except (zipfile.BadZipFile, OSError):
-        logger.warning("staged zip %r is corrupt mid-extraction; keeping as-is", sf.rel_path)
+    except Exception as exc:  # noqa: BLE001 -- encrypted/unsupported-compression/zlib errors too
+        logger.warning(
+            "staged zip %r failed mid-extraction (%s); keeping as-is",
+            sf.rel_path,
+            type(exc).__name__,
+        )
         for member in staged_members:
             member.spool_path.unlink(missing_ok=True)
         return None
