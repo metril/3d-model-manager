@@ -149,11 +149,13 @@ def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
 
 
 PLATE_NO_FRAME = "plate check: waiting for camera frame"
+PLATE_NEEDS_CALIBRATION = "plate check: capture empty-plate references first"
 # The dispatcher ticks every 10 s while a camera viewer registration lasts
 # VIEWER_TTL_S (10 s) and a frame 5 s, so the plate-check viewer is renewed
 # with extra lifetime to keep the stream (and a cached frame) alive between ticks.
 PLATE_VIEWER_EXTRA_S = 20.0
 _NO_FRAME = object()
+_NEEDS_CAL = object()
 # A fail-closed hold with no camera frame for this long is a stuck printer, not
 # a warm-up: notify once per entry and flag the printer (key lives 60 s, so it
 # lapses on its own once the hold clears).
@@ -220,7 +222,9 @@ def plate_gate(
                 )
             )
         )
-        if refs:
+        if not refs:
+            cache[printer.id] = _NEEDS_CAL  # enabled but uncalibrated: hold, never print blind
+        else:
             try:
                 cs.add_viewer(
                     client,
@@ -239,10 +243,15 @@ def plate_gate(
             session.commit()
         _plate_stall_check(session, client, item, printer)
         return False
+    if res is _NEEDS_CAL:
+        if item.last_error != PLATE_NEEDS_CALIBRATION:
+            item.last_error = PLATE_NEEDS_CALIBRATION
+            session.commit()
+        return False
     client.delete(plate_stall_key(item.id), f"plate:stall:notified:{item.id}")
     res = cache[printer.id]
     if res is None or res.needs_calibration or res.empty:
-        if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME):
+        if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME, PLATE_NEEDS_CALIBRATION):
             item.last_error = None
             session.commit()
         return True

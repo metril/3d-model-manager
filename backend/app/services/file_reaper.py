@@ -4,7 +4,8 @@
   more than an hour ago will never be settled by anything;
 * ``*.replaced-<hex>`` tombstones left by an upload-replace that crashed
   between enqueue and deleting the old row, once the replacing file's job has
-  finished and is an hour old.
+  finished and is an hour old (or restored to its original name when the
+  replacing file no longer exists).
 
 Each is deleted like ``library._hard_delete_file_row`` (object only when no
 other file row shares the storage key, model ``updated_at`` bump, assembly
@@ -111,6 +112,16 @@ def reap_unverified_files_sync(
             select(File.id).where(File.revision_id == t.revision_id, File.rel_path == base_path)
         )
         if new_id is None:
+            # The replacing file is gone (reaped/deleted) and nothing took its
+            # place: the old file would be stranded under its tombstone name.
+            # Put it back where the user left it.
+            t.rel_path = base_path
+            try:
+                session.commit()
+                reaped += 1
+            except Exception:
+                session.rollback()
+                log.exception("tombstone restore failed for file %s", t.id)
             continue
         state = session.scalar(
             select(latest.c.state).where(
