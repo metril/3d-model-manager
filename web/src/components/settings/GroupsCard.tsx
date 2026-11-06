@@ -1,5 +1,6 @@
 /** Admin: groups with permissions, members and the per-printer access matrix. */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   useAdminGroups,
@@ -13,6 +14,7 @@ import {
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import type { GroupOut, PrinterAccessIO } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,17 +34,15 @@ const PERMS = [
 ];
 
 type Flag = "can_print" | "can_control" | "requires_review";
-const FLAGS: { key: Flag; label: string }[] = [
-  { key: "can_print", label: "Print" },
-  { key: "can_control", label: "Control" },
-  { key: "requires_review", label: "Requires review" },
-];
+const FLAGS: Flag[] = ["can_print", "can_control", "requires_review"];
 
 function errText(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.detail : fallback;
 }
 
 export function GroupsCard() {
+  const { t } = useTranslation();
+  const [deleting, setDeleting] = useState<GroupOut | null>(null);
   const groups = useAdminGroups();
   const [editing, setEditing] = useState<number | null>(null);
   const del = useDeleteGroup();
@@ -51,8 +51,8 @@ export function GroupsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Groups</CardTitle>
-        <CardDescription>Grant permissions and printer access to sets of users.</CardDescription>
+        <CardTitle>{t("groups.title")}</CardTitle>
+        <CardDescription>{t("groups.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <CreateGroupForm />
@@ -65,38 +65,35 @@ export function GroupsCard() {
           <Skeleton className="h-16 w-full rounded-lg" />
         ) : groups.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(groups.error, "Couldn't load groups.")}
+            {errText(groups.error, t("groups.loadError"))}
           </p>
         ) : (groups.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No groups yet.</p>
+          <p className="text-sm text-muted-foreground">{t("groups.none")}</p>
         ) : (
           <ul className="divide-y">
             {(groups.data ?? []).map((g) => (
               <li key={g.id} className="space-y-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{g.name}</span>
-                  <span className="text-sm text-muted-foreground">{g.members.length} members</span>
+                  <span className="text-sm text-muted-foreground">{t("groups.members", { count: g.members.length })}</span>
                   <div className="ml-auto flex gap-2">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      aria-label={`Edit ${g.name}`}
+                      aria-label={t("groups.editG", { name: g.name })}
                       onClick={() => setEditing(editing === g.id ? null : g.id)}
                     >
-                      {editing === g.id ? "Close" : "Edit"}
+                      {editing === g.id ? t("common.close") : t("common.edit")}
                     </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="destructive"
-                      aria-label={`Delete ${g.name}`}
-                      onClick={() => {
-                        setError(null);
-                        del.mutate(g.id, { onError: (e) => setError(errText(e, "Could not delete the group.")) });
-                      }}
+                      aria-label={t("groups.deleteG", { name: g.name })}
+                      onClick={() => setDeleting(g)}
                     >
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 </div>
@@ -106,18 +103,33 @@ export function GroupsCard() {
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={deleting != null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("groups.deleteTitle", { name: deleting?.name ?? "" })}
+        description={t("groups.deleteDesc")}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => {
+          if (!deleting) return;
+          setError(null);
+          del.mutate(deleting.id, { onError: (e) => setError(errText(e, t("groups.deleteError"))) });
+        }}
+      />
     </Card>
   );
 }
 
 function CreateGroupForm() {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const create = useCreateGroup();
   return (
     <div className="space-y-2">
       <div className="flex items-end gap-3">
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="new-group-name">Group name</Label>
+          <Label htmlFor="new-group-name">{t("groups.name")}</Label>
           <Input id="new-group-name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <Button
@@ -125,12 +137,12 @@ function CreateGroupForm() {
           disabled={create.isPending || !name.trim()}
           onClick={() => create.mutate({ name: name.trim() }, { onSuccess: () => setName("") })}
         >
-          Add group
+          {t("groups.add")}
         </Button>
       </div>
       {create.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {errText(create.error, "Could not create the group.")}
+          {errText(create.error, t("groups.createError"))}
         </p>
       )}
     </div>
@@ -142,6 +154,7 @@ function toggle<T>(list: T[], item: T, on: boolean): T[] {
 }
 
 function GroupEditor({ group }: { group: GroupOut }) {
+  const { t } = useTranslation();
   const users = useAdminUsers();
   const printers = usePrinters();
   const patch = usePatchGroup();
@@ -174,13 +187,13 @@ function GroupEditor({ group }: { group: GroupOut }) {
   return (
     <div className="space-y-5 rounded-lg border p-3">
       <section className="space-y-2">
-        <Label htmlFor={`group-name-${group.id}`}>Name</Label>
+        <Label htmlFor={`group-name-${group.id}`}>{t("groups.nameShort")}</Label>
         <Input id={`group-name-${group.id}`} value={name} onChange={(e) => setName(e.target.value)} />
         <div className="grid gap-2 sm:grid-cols-2">
           {PERMS.map((p) => (
             <label key={p} className="flex items-center gap-2 text-sm">
               <Checkbox checked={perms.includes(p)} onCheckedChange={(c) => setPerms(toggle(perms, p, c === true))} />
-              {p}
+              {t(`groups.perm.${p.replace(":", "_")}`)}
             </label>
           ))}
         </div>
@@ -190,13 +203,13 @@ function GroupEditor({ group }: { group: GroupOut }) {
           disabled={patch.isPending || !name.trim()}
           onClick={() => patch.mutate({ id: group.id, body: { name: name.trim(), permissions: perms } })}
         >
-          Save details
+          {t("groups.saveDetails")}
         </Button>
-        {err(patch, "Could not save the group.")}
+        {err(patch, t("groups.saveError"))}
       </section>
 
       <section className="space-y-2">
-        <h4 className="text-sm font-medium">Members</h4>
+        <h4 className="text-sm font-medium">{t("groups.membersTitle")}</h4>
         <div className="grid gap-2 sm:grid-cols-2">
           {(users.data ?? []).map((u) => (
             <label key={u.id} className="flex items-center gap-2 text-sm">
@@ -214,23 +227,23 @@ function GroupEditor({ group }: { group: GroupOut }) {
           disabled={setMembers.isPending}
           onClick={() => setMembers.mutate({ id: group.id, user_ids: memberIds })}
         >
-          Save members
+          {t("groups.saveMembers")}
         </Button>
-        {err(setMembers, "Could not save the members.")}
+        {err(setMembers, t("groups.membersError"))}
       </section>
 
       <section className="space-y-2">
-        <h4 className="text-sm font-medium">Printer access</h4>
+        <h4 className="text-sm font-medium">{t("groups.printerAccess")}</h4>
         {(printers.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No printers configured.</p>
+          <p className="text-sm text-muted-foreground">{t("groups.noPrinters")}</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-muted-foreground">
-                <th className="py-1 font-medium">Printer</th>
+                <th className="py-1 font-medium">{t("groups.printer")}</th>
                 {FLAGS.map((f) => (
-                  <th key={f.key} className="py-1 font-medium">
-                    {f.label}
+                  <th key={f} className="py-1 font-medium">
+                    {t(`groups.flag.${f}`)}
                   </th>
                 ))}
               </tr>
@@ -240,12 +253,12 @@ function GroupEditor({ group }: { group: GroupOut }) {
                 <tr key={pr.id}>
                   <td className="py-1">{pr.name}</td>
                   {FLAGS.map((f) => (
-                    <td key={f.key} className="py-1">
+                    <td key={f} className="py-1">
                       <Checkbox
-                        aria-label={`${f.label} on ${pr.name}`}
-                        checked={rowFor(pr.id)[f.key]}
+                        aria-label={t("groups.flagOn", { flag: t(`groups.flag.${f}`), printer: pr.name })}
+                        checked={rowFor(pr.id)[f]}
                         onCheckedChange={(c) =>
-                          setAccess_({ ...access, [pr.id]: { ...rowFor(pr.id), [f.key]: c === true } })
+                          setAccess_({ ...access, [pr.id]: { ...rowFor(pr.id), [f]: c === true } })
                         }
                       />
                     </td>
@@ -256,9 +269,9 @@ function GroupEditor({ group }: { group: GroupOut }) {
           </table>
         )}
         <Button type="button" size="sm" disabled={setAccess.isPending} onClick={saveAccess}>
-          Save printer access
+          {t("groups.saveAccess")}
         </Button>
-        {err(setAccess, "Could not save printer access.")}
+        {err(setAccess, t("groups.accessError"))}
       </section>
     </div>
   );

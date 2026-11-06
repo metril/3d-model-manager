@@ -15,6 +15,8 @@ import { NAV_LABELS } from "@/components/shell/navItems";
  * and a search affordance that opens the command palette. Below `lg` it
  * also carries the hamburger that opens the off-canvas sidebar drawer
  * (see `AppSidebar`). */
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+
 export function TopBar({
   onOpenPalette,
   onOpenMobileNav,
@@ -34,9 +36,9 @@ export function TopBar({
   const isHome = pathname === "/";
   const printerName = id ? printers.data?.find((p) => String(p.id) === id)?.name ?? id : undefined;
   const crumb = slug
-    ? `Library / ${slug}`
+    ? t("shell.crumbLibrary", { name: slug })
     : printerName
-      ? `Print / ${printerName}`
+      ? t("shell.crumbPrint", { name: printerName })
       : (NAV_LABELS[pathname] ? navLabel(NAV_LABELS[pathname]) : "");
 
   return (
@@ -74,7 +76,7 @@ export function TopBar({
       >
         <SearchIcon className="size-3.5" />
         {t("shell.search")}
-        <kbd className="rounded border border-border bg-muted px-1 text-[10px] tabular-mono">⌘K</kbd>
+        <kbd className="rounded border border-border bg-muted px-1 text-[10px] tabular-mono">{isMac ? "⌘K" : "Ctrl K"}</kbd>
       </Button>
     </div>
   );

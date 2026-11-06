@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
 import { useDeletePlug, useSavePlug } from "@/api/ops";
 import type { PlugDelayMode, PlugIn, PlugKind, PlugOut } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,30 +13,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 
 const NO_PRINTER = "none";
-const FIELDS: Record<PlugKind, { key: string; label: string; secret?: boolean }[]> = {
+const FIELDS: Record<PlugKind, { key: string; secret?: boolean }[]> = {
   tasmota: [
-    { key: "host", label: "Host" },
-    { key: "user", label: "User" },
-    { key: "password", label: "Password", secret: true },
+    { key: "host" },
+    { key: "user" },
+    { key: "password", secret: true },
   ],
   ha: [
-    { key: "entity_id", label: "Switch entity ID" },
-    { key: "power_entity_id", label: "Power sensor entity ID" },
+    { key: "entity_id" },
+    { key: "power_entity_id" },
   ],
   mqtt: [
-    { key: "command_topic", label: "Command topic" },
-    { key: "on_payload", label: "On payload" },
-    { key: "off_payload", label: "Off payload" },
+    { key: "command_topic" },
+    { key: "on_payload" },
+    { key: "off_payload" },
   ],
   rest: [
-    { key: "on_url", label: "On URL" },
-    { key: "off_url", label: "Off URL" },
-    { key: "status_url", label: "Status URL" },
-    { key: "state_path", label: "State path" },
-    { key: "power_path", label: "Power path" },
-    { key: "headers", label: "Headers (JSON)", secret: true },
+    { key: "on_url" },
+    { key: "off_url" },
+    { key: "status_url" },
+    { key: "state_path" },
+    { key: "power_path" },
+    { key: "headers", secret: true },
   ],
 };
+
+/** The viewer's IANA zone: the sensible default for a new daily schedule. */
+function browserTz(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 const numOrNull = (v: string) => (v.trim() ? Number(v) : null);
 
@@ -67,6 +78,8 @@ export function PlugForm({
   printerId?: number | null;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const save = useSavePlug();
   const del = useDeletePlug();
   const printers = usePrinters();
@@ -94,7 +107,7 @@ export function PlugForm({
   const [schedOn, setSchedOn] = useState(plug?.schedule_enabled ?? false);
   const [onTime, setOnTime] = useState(plug?.schedule_on_time ?? "");
   const [offTime, setOffTime] = useState(plug?.schedule_off_time ?? "");
-  const [tz, setTz] = useState(plug?.schedule_tz ?? "UTC");
+  const [tz, setTz] = useState(plug?.schedule_tz ?? browserTz());
   const [bar, setBar] = useState(plug?.show_in_switchbar ?? false);
 
   const fields = FIELDS[kind];
@@ -141,12 +154,12 @@ export function PlugForm({
   return (
     <div className="space-y-4" data-testid={`${key}-form`}>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field id={`${key}-name`} label="Name">
+        <Field id={`${key}-name`} label={t("plugForm.name")}>
           <Input id={`${key}-name`} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field id={`${key}-kind`} label="Plug type">
+        <Field id={`${key}-kind`} label={t("plugForm.plugType")}>
           <Select value={kind} onValueChange={(v) => setKind(v as PlugKind)}>
-            <SelectTrigger id={`${key}-kind`} aria-label="Plug type">
+            <SelectTrigger id={`${key}-kind`} aria-label={t("plugForm.plugType")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -158,7 +171,7 @@ export function PlugForm({
           </Select>
         </Field>
         {fields.map((f) => (
-          <Field key={f.key} id={`${key}-${f.key}`} label={f.label}>
+          <Field key={f.key} id={`${key}-${f.key}`} label={t(`plugForm.field.${f.key}`)}>
             <Input
               id={`${key}-${f.key}`}
               type={f.secret && f.key === "password" ? "password" : "text"}
@@ -167,13 +180,13 @@ export function PlugForm({
             />
           </Field>
         ))}
-        <Field id={`${key}-printer`} label="Linked printer (optional)">
+        <Field id={`${key}-printer`} label={t("plugForm.linkedPrinterOptional")}>
           <Select value={linked} onValueChange={setLinked}>
-            <SelectTrigger id={`${key}-printer`} aria-label="Linked printer">
+            <SelectTrigger id={`${key}-printer`} aria-label={t("plugForm.linkedPrinter")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_PRINTER}>None (standalone)</SelectItem>
+              <SelectItem value={NO_PRINTER}>{t("plugForm.noneStandalone")}</SelectItem>
               {(printers.data ?? []).map((p) => (
                 <SelectItem key={p.id} value={String(p.id)}>
                   {p.name}
@@ -185,67 +198,67 @@ export function PlugForm({
       </div>
 
       <div className="space-y-3">
-        <Toggle id={`${key}-bar`} label="Show in the quick-toggle switchbar" checked={bar} onChange={setBar} />
+        <Toggle id={`${key}-bar`} label={t("plugForm.showInTheQuickToggle")} checked={bar} onChange={setBar} />
         {hasPrinter ? (
           <>
-            <Toggle id={`${key}-controls`} label="Cuts the printer's own power" checked={controls} onChange={setControls} />
-            <Toggle id={`${key}-autoon`} label="Power on before a queued print" checked={autoOn} onChange={setAutoOn} />
-            <Toggle id={`${key}-autooff`} label="Auto-off after print" checked={autoOff} onChange={setAutoOff} />
+            <Toggle id={`${key}-controls`} label={t("plugForm.cutsThePrinterSOwn")} checked={controls} onChange={setControls} />
+            <Toggle id={`${key}-autoon`} label={t("plugForm.powerOnBeforeAQueued")} checked={autoOn} onChange={setAutoOn} />
+            <Toggle id={`${key}-autooff`} label={t("plugForm.autoOffAfterPrint")} checked={autoOff} onChange={setAutoOff} />
             {autoOff ? (
               <div className="grid gap-3 pl-12 sm:grid-cols-3">
-                <Field id={`${key}-mode`} label="Wait for">
+                <Field id={`${key}-mode`} label={t("plugForm.waitFor")}>
                   <Select value={mode} onValueChange={(v) => setMode(v as PlugDelayMode)}>
-                    <SelectTrigger id={`${key}-mode`} aria-label="Auto-off mode">
+                    <SelectTrigger id={`${key}-mode`} aria-label={t("plugForm.autoOffMode")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="time">A delay</SelectItem>
-                      <SelectItem value="temperature">Nozzle and bed to cool</SelectItem>
+                      <SelectItem value="time">{t("plugForm.aDelay")}</SelectItem>
+                      <SelectItem value="temperature">{t("plugForm.nozzleAndBedToCool")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
                 {mode === "time" ? (
-                  <Field id={`${key}-minutes`} label="Auto-off after print (minutes)">
+                  <Field id={`${key}-minutes`} label={t("plugForm.autoOffAfterPrintMinutes")}>
                     <Input id={`${key}-minutes`} type="number" min="1" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
                   </Field>
                 ) : (
-                  <Field id={`${key}-threshold`} label="Cool-down threshold (C)">
+                  <Field id={`${key}-threshold`} label={t("plugForm.coolDownThresholdC")}>
                     <Input id={`${key}-threshold`} type="number" min="20" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
                   </Field>
                 )}
               </div>
             ) : null}
-            <Toggle id={`${key}-dry`} label="Auto-off after AMS drying" checked={dryOff} onChange={setDryOff} />
+            <Toggle id={`${key}-dry`} label={t("plugForm.autoOffAfterAmsDrying")} checked={dryOff} onChange={setDryOff} />
             {dryOff ? (
               <div className="pl-12">
-                <Field id={`${key}-drydelay`} label="Drying cool-down (minutes)">
+                <Field id={`${key}-drydelay`} label={t("plugForm.dryingCoolDownMinutes")}>
                   <Input id={`${key}-drydelay`} type="number" min="0" className="max-w-40" value={dryDelay} onChange={(e) => setDryDelay(e.target.value)} />
                 </Field>
               </div>
             ) : null}
           </>
         ) : null}
-        <Toggle id={`${key}-alert`} label="Power alerts" checked={alertOn} onChange={setAlertOn} />
+        <Toggle id={`${key}-alert`} label={t("plugForm.powerAlerts")} checked={alertOn} onChange={setAlertOn} />
         {alertOn ? (
           <div className="grid gap-3 pl-12 sm:grid-cols-2">
-            <Field id={`${key}-high`} label="Alert above (W)">
+            <Field id={`${key}-high`} label={t("plugForm.alertAboveW")}>
               <Input id={`${key}-high`} type="number" min="0" value={alertHigh} onChange={(e) => setAlertHigh(e.target.value)} />
             </Field>
-            <Field id={`${key}-low`} label="Alert below (W, while on)">
+            <Field id={`${key}-low`} label={t("plugForm.alertBelowWWhileOn")}>
               <Input id={`${key}-low`} type="number" min="0" value={alertLow} onChange={(e) => setAlertLow(e.target.value)} />
             </Field>
           </div>
         ) : null}
-        <Toggle id={`${key}-sched`} label="Daily schedule" checked={schedOn} onChange={setSchedOn} />
+        <Toggle id={`${key}-sched`} label={t("plugForm.dailySchedule")} checked={schedOn} onChange={setSchedOn} />
         {schedOn ? (
           <div className="grid gap-3 pl-12 sm:grid-cols-3">
-            <Field id={`${key}-ontime`} label="Turn on at">
+            <Field id={`${key}-ontime`} label={t("plugForm.turnOnAt")}>
               <Input id={`${key}-ontime`} type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} />
             </Field>
-            <Field id={`${key}-offtime`} label="Turn off at">
+            <Field id={`${key}-offtime`} label={t("plugForm.turnOffAt")}>
               <Input id={`${key}-offtime`} type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} />
             </Field>
-            <Field id={`${key}-tz`} label="Timezone">
+            <Field id={`${key}-tz`} label={t("plugForm.timezone")}>
               <Input id={`${key}-tz`} value={tz} onChange={(e) => setTz(e.target.value)} />
             </Field>
           </div>
@@ -254,7 +267,7 @@ export function PlugForm({
 
       <div className="flex gap-2">
         <Button type="button" size="sm" onClick={onSave} disabled={save.isPending}>
-          {save.isPending ? "Saving..." : "Save plug"}
+          {save.isPending ? t("plugForm.saving") : t("plugForm.savePlug")}
         </Button>
         {plug ? (
           <Button
@@ -262,18 +275,28 @@ export function PlugForm({
             size="sm"
             variant="destructive"
             disabled={del.isPending}
-            onClick={() => del.mutate(plug.id, { onSuccess: onDone })}
+            onClick={() => setConfirmRemove(true)}
           >
-            Remove plug
+            {t("plugForm.removePlug")}
           </Button>
         ) : null}
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title={t("plugForm.removeTitle", { name: plug?.name ?? "" })}
+        description={t("plugForm.removeDesc")}
+        confirmLabel={t("plugForm.removePlug")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => plug && del.mutate(plug.id, { onSuccess: onDone })}
+      />
       {save.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {save.error instanceof ApiError ? save.error.detail : "Could not save plug"}
+          {save.error instanceof ApiError ? save.error.detail : t("plugForm.couldNotSavePlug")}
         </p>
       ) : null}
     </div>

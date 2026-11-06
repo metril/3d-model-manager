@@ -71,15 +71,19 @@ export function BackupsCard() {
   const [token, setToken] = useState("");
 
   const d = ops.data;
+  // Seed the draft once from the first server snapshot; later refetches
+  // (focus, the save invalidation, polling) must not clobber in-progress edits.
+  const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (!d) return;
+    if (!d || seeded) return;
+    setSeeded(true);
     setEnabled(d.backup_enabled);
     setIntervalH(String(d.backup_interval_hours));
     setProvider(d.git_provider ?? NONE);
     setBaseUrl(d.git_base_url ?? "");
     setRepo(d.git_repo ?? "");
     setBranch(d.git_branch);
-  }, [d]);
+  }, [d, seeded]);
 
   function onSave() {
     save.mutate(

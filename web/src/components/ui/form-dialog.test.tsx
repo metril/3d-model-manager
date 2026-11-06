@@ -21,9 +21,27 @@ function Harness({ dirty = false, busy = false }: { dirty?: boolean; busy?: bool
 const isOpen = () => screen.queryByText("Edit thing") !== null;
 
 describe("FormDialog", () => {
-  it("ignores outside pointer-down and Escape", () => {
+  it("ignores outside pointer-down", () => {
     render(<Harness />);
     fireEvent.pointerDown(document.body);
+    expect(isOpen()).toBe(true);
+  });
+
+  it("Escape closes a clean form", () => {
+    render(<Harness />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(isOpen()).toBe(false);
+  });
+
+  it("Escape on a dirty form asks to discard", () => {
+    render(<Harness dirty />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.getByText("Discard changes?")).toBeInTheDocument();
+    expect(isOpen()).toBe(true);
+  });
+
+  it("Escape is ignored while busy", () => {
+    render(<Harness busy />);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(isOpen()).toBe(true);
   });

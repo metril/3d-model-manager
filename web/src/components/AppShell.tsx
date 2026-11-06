@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useNavigate } from "@tanstack/react-router";
 
@@ -9,7 +9,6 @@ import { ENROLL_2FA_EVENT } from "@/api/client";
 import { EnrollTwoFactorPage } from "@/pages/EnrollTwoFactorPage";
 import { DevModeBanner } from "@/components/shell/DevModeBanner";
 import { AppSidebar } from "@/components/shell/AppSidebar";
-import { CommandPalette } from "@/components/shell/CommandPalette";
 import { ShortcutsDialog } from "@/components/shell/ShortcutsDialog";
 import { useVisibleNav } from "@/components/shell/useVisibleNav";
 import { TopBar } from "@/components/shell/TopBar";
@@ -17,6 +16,11 @@ import { SliceJobsHost } from "@/components/slice/SliceJobsHost";
 import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { EventsProvider } from "@/hooks/useEvents";
 import { useHotkeys } from "@/hooks/useHotkeys";
+
+// Loaded on first open: cmdk + the search hooks stay out of the initial bundle.
+const CommandPalette = lazy(() =>
+  import("@/components/shell/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+);
 
 /** App-wide layout (R12 studio shell): the SSE provider, the sidebar +
  * topbar chrome, and the routed page in between. Each piece of behavior
@@ -51,6 +55,10 @@ export function AppShell() {
   // AppShell is mounted on every authenticated route.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteLoaded, setPaletteLoaded] = useState(false);
+  useEffect(() => {
+    if (paletteOpen) setPaletteLoaded(true);
+  }, [paletteOpen]);
   // Below `lg` the sidebar is an off-canvas drawer (see `AppSidebar`) --
   // this is the only state it needs from outside itself, opened by the
   // topbar's hamburger button.
@@ -70,6 +78,7 @@ export function AppShell() {
   });
   useHotkeys({
     ...digitBindings,
+    "mod+k": () => setPaletteOpen((o) => !o),
     "?": () => setShortcutsOpen(true),
     // Focus the page's global search, when it exposes one (LibraryPage keeps
     // its own `/` for the library search input).
@@ -103,7 +112,11 @@ export function AppShell() {
       <SliceJobsHost />
       <FloatingCamera />
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {(paletteOpen || paletteLoaded) && (
+        <Suspense fallback={null}>
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        </Suspense>
+      )}
     </EventsProvider>
   );
 }

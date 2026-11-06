@@ -98,6 +98,7 @@ export function useVerify2fa() {
   const queryClient = useQueryClient();
   return useMutation({
     gcTime: 0,
+    meta: { silentError: true }, // TwoFactorStep renders the error inline
     mutationFn: (payload: Verify2faPayload) => api.post<Verify2faResult>("/auth/2fa/verify", payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: authQueryOptions.queryKey }),
   });
@@ -106,6 +107,7 @@ export function useVerify2fa() {
 /** `POST /auth/2fa/email/send`: emails a login code (409 rate_limited / smtp_not_configured). */
 export function useSend2faEmail() {
   return useMutation({
+    meta: { silentError: true }, // TwoFactorStep renders the error inline
     mutationFn: (pre_auth_token: string) =>
       api.post<{ sent: boolean }>("/auth/2fa/email/send", { pre_auth_token }),
   });
@@ -134,6 +136,7 @@ function useTwoFactorMutation<TVars, TOut>(fn: (v: TVars) => Promise<TOut>) {
   const queryClient = useQueryClient();
   return useMutation({
     gcTime: 0,
+    meta: { silentError: true }, // every caller shows the error inline (CodePromptDialog / setup dialog)
     mutationFn: fn,
     onSuccess: () =>
       Promise.all([
@@ -150,7 +153,11 @@ export interface TotpSetup {
 }
 
 export function useTotpSetup() {
-  return useMutation({ gcTime: 0, mutationFn: () => api.post<TotpSetup>("/auth/2fa/totp/setup") });
+  return useMutation({
+    gcTime: 0,
+    meta: { silentError: true }, // TotpSetupDialog renders the error inline
+    mutationFn: () => api.post<TotpSetup>("/auth/2fa/totp/setup"),
+  });
 }
 
 export function useTotpEnable() {
@@ -178,7 +185,10 @@ export function useEmailOtpRequest() {
 
 /** Step 1 of enabling email codes: emails a confirm code. */
 export function useEmailOtpEnable() {
-  return useMutation({ mutationFn: () => api.post<{ sent: boolean }>("/auth/2fa/email/enable") });
+  return useMutation({
+    meta: { silentError: true }, // TwoFactorManager renders the error inline
+    mutationFn: () => api.post<{ sent: boolean }>("/auth/2fa/email/enable"),
+  });
 }
 
 export function useEmailOtpConfirm() {

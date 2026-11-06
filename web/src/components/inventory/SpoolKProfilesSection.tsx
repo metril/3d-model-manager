@@ -11,6 +11,8 @@ import {
   useSpoolKProfiles,
 } from "@/api/kprofiles";
 import { usePrinters } from "@/api/printers";
+import type { SpoolKProfile } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -89,6 +91,7 @@ export function SpoolKProfilesSection({ spoolId, canWrite }: { spoolId: number; 
   const printers = usePrinters();
   const del = useDeleteSpoolKProfile(spoolId);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<SpoolKProfile | null>(null);
   const name = (id: number) => printers.data?.find((p) => p.id === id)?.name ?? `#${id}`;
   return (
     <div className="flex flex-col gap-1.5" data-testid="spool-kprofiles">
@@ -102,7 +105,7 @@ export function SpoolKProfilesSection({ spoolId, canWrite }: { spoolId: number; 
                 <span className="font-mono text-xs text-muted-foreground">K {l.k_value}</span>
               </span>
               {canWrite ? (
-                <Button type="button" size="xs" variant="outline" disabled={del.isPending} onClick={() => del.mutate(l)}>
+                <Button type="button" size="xs" variant="outline" disabled={del.isPending} onClick={() => setRemoving(l)}>
                   {t("kprofile.remove")}
                 </Button>
               ) : null}
@@ -118,6 +121,16 @@ export function SpoolKProfilesSection({ spoolId, canWrite }: { spoolId: number; 
         </Button>
       ) : null}
       {adding ? <AddFromPrinter spoolId={spoolId} onDone={() => setAdding(false)} /> : null}
+      <ConfirmDialog
+        open={removing != null}
+        onOpenChange={(o) => !o && setRemoving(null)}
+        title={t("kprofile.removeTitle")}
+        description={t("kprofile.removeDesc")}
+        confirmLabel={t("kprofile.remove")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => removing && del.mutate(removing)}
+      />
     </div>
   );
 }

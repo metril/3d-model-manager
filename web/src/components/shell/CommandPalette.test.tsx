@@ -130,4 +130,25 @@ describe("CommandPalette", () => {
 
     expect(await screen.findByText("Find a model")).toBeInTheDocument();
   });
+
+  it("mounts the print wizard only after Print… is picked", async () => {
+    renderPalette(true);
+    await screen.findByText("Pages");
+    expect(screen.queryByText("Find a model")).toBeNull();
+    fireEvent.click(screen.getByText("Print…"));
+    expect(await screen.findByText("Find a model")).toBeInTheDocument();
+  });
+
+  it("does not register its own Mod+K hotkey (AppShell owns it)", async () => {
+    const onOpenChange = vi.fn();
+    const rootRoute = createRootRoute({ component: () => <CommandPalette open={false} onOpenChange={onOpenChange} /> });
+    const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ["/"] }) });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+    fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });

@@ -65,6 +65,7 @@ class LedgerEntryOut(BaseModel):
     print_queue_id: int | None
     print_id: int | None
     created_by_user_id: int | None
+    created_by_username: str | None = None
     note: str | None
     created_at: datetime
 

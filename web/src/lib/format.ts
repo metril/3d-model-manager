@@ -121,7 +121,8 @@ function costFormat(): Intl.NumberFormat {
   if (!f) {
     const base = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
     try {
-      f = new Intl.NumberFormat(i18n.language, currencyCode ? { ...base, style: "currency", currency: currencyCode } : base);
+      // Currency mode: let Intl pick the currency's own fraction digits (JPY 0, KWD 3).
+      f = new Intl.NumberFormat(i18n.language, currencyCode ? { style: "currency", currency: currencyCode } : base);
     } catch {
       f = new Intl.NumberFormat(i18n.language, base); // invalid code -> plain number
     }
@@ -134,6 +135,9 @@ function costFormat(): Intl.NumberFormat {
  * is set); `--` when unknown. A negative zero never prints as "-0.00". */
 export function formatCost(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
-  const rounded = Math.round(value * 100) / 100;
-  return costFormat().format(rounded === 0 ? 0 : rounded);
+  const fmt = costFormat();
+  const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
+  const m = 10 ** digits;
+  const rounded = Math.round(value * m) / m;
+  return fmt.format(rounded === 0 ? 0 : rounded);
 }

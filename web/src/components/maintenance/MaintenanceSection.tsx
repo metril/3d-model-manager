@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PencilIcon, Trash2Icon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import {
@@ -18,17 +19,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-function remaining(t: MaintenanceTask): string {
+function remaining(task: MaintenanceTask, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const parts: string[] = [];
-  if (t.hours_remaining != null) {
-    const h = Math.abs(t.hours_remaining).toFixed(1);
-    parts.push(t.hours_remaining < 0 ? `${h} h overdue` : `${h} h left`);
+  if (task.hours_remaining != null) {
+    const h = Math.abs(task.hours_remaining).toFixed(1);
+    parts.push(task.hours_remaining < 0 ? t("maintenance.hOverdue", { n: h }) : t("maintenance.hLeft", { n: h }));
   }
-  if (t.days_remaining != null) {
-    const d = Math.abs(t.days_remaining);
-    parts.push(t.days_remaining < 0 ? `${d} d overdue` : `${d} d left`);
+  if (task.days_remaining != null) {
+    const d = Math.abs(task.days_remaining);
+    parts.push(task.days_remaining < 0 ? t("maintenance.dOverdue", { n: d }) : t("maintenance.dLeft", { n: d }));
   }
-  return parts.length ? parts.join(" / ") : "No interval";
+  return parts.length ? parts.join(" / ") : t("maintenance.noInterval");
 }
 
 const errText = (e: unknown, fb: string) => (e instanceof ApiError ? e.detail : fb);
@@ -42,6 +43,7 @@ function TaskForm({
   printerId: number;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const save = useSaveMaintenanceTask(printerId);
   const [name, setName] = useState(task?.name ?? "");
   const [hours, setHours] = useState(task?.interval_hours != null ? String(task.interval_hours) : "");
@@ -51,8 +53,8 @@ function TaskForm({
   const id = task ? `mt-${task.id}` : "mt-new";
 
   function submit() {
-    if (!name.trim()) return setErr("Name is required.");
-    if (!hours.trim() && !days.trim()) return setErr("Set an interval in hours or days.");
+    if (!name.trim()) return setErr(t("maintenance.nameRequired"));
+    if (!hours.trim() && !days.trim()) return setErr(t("maintenance.intervalRequired"));
     setErr(null);
     save.mutate(
       {
@@ -64,26 +66,26 @@ function TaskForm({
           notes: notes.trim() || null,
         },
       },
-      { onSuccess: onDone, onError: (e) => setErr(errText(e, "Could not save task")) },
+      { onSuccess: onDone, onError: (e) => setErr(errText(e, t("maintenance.saveError"))) },
     );
   }
 
   return (
     <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
       <div className="space-y-1.5 sm:col-span-3">
-        <Label htmlFor={`${id}-name`}>Task name</Label>
+        <Label htmlFor={`${id}-name`}>{t("maintenance.taskName")}</Label>
         <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor={`${id}-hours`}>Every (print hours)</Label>
+        <Label htmlFor={`${id}-hours`}>{t("maintenance.everyPrintHours")}</Label>
         <Input id={`${id}-hours`} type="number" min="0" value={hours} onChange={(e) => setHours(e.target.value)} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor={`${id}-days`}>Every (days)</Label>
+        <Label htmlFor={`${id}-days`}>{t("maintenance.everyDays")}</Label>
         <Input id={`${id}-days`} type="number" min="0" value={days} onChange={(e) => setDays(e.target.value)} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor={`${id}-notes`}>Notes</Label>
+        <Label htmlFor={`${id}-notes`}>{t("maintenance.notes")}</Label>
         <Input id={`${id}-notes`} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
       {err ? (
@@ -93,10 +95,10 @@ function TaskForm({
       ) : null}
       <div className="flex gap-2 sm:col-span-3">
         <Button type="button" size="sm" onClick={submit} disabled={save.isPending}>
-          {task ? "Save task" : "Add task"}
+          {task ? t("maintenance.saveTask") : t("maintenance.addTask")}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
     </div>
@@ -104,15 +106,16 @@ function TaskForm({
 }
 
 function LogList({ printerId, taskId }: { printerId: number; taskId: number }) {
+  const { t } = useTranslation();
   const logs = useMaintenanceLogs(printerId, taskId);
-  if (logs.isLoading) return <p className="text-xs text-muted-foreground">Loading history...</p>;
-  if (!logs.data?.length) return <p className="text-xs text-muted-foreground">No history yet.</p>;
+  if (logs.isLoading) return <p className="text-xs text-muted-foreground">{t("maintenance.loadingHistory")}</p>;
+  if (!logs.data?.length) return <p className="text-xs text-muted-foreground">{t("maintenance.noHistory")}</p>;
   return (
     <ul className="space-y-1 text-xs text-muted-foreground">
       {logs.data.map((l) => (
         <li key={l.id}>
           {new Date(l.done_at).toLocaleDateString()}
-          {l.hours_at != null ? ` at ${l.hours_at.toFixed(1)} h` : ""}
+          {l.hours_at != null ? ` ${t("maintenance.atHours", { n: l.hours_at.toFixed(1) })}` : ""}
           {l.note ? ` — ${l.note}` : ""}
         </li>
       ))}
@@ -121,6 +124,7 @@ function LogList({ printerId, taskId }: { printerId: number; taskId: number }) {
 }
 
 function TaskRow({ task, printerId, canControl }: { task: MaintenanceTask; printerId: number; canControl: boolean }) {
+  const { t } = useTranslation();
   const done = useMarkMaintenanceDone(printerId);
   const del = useDeleteMaintenanceTask(printerId);
   const [editing, setEditing] = useState(false);
@@ -142,38 +146,39 @@ function TaskRow({ task, printerId, canControl }: { task: MaintenanceTask; print
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">{task.name}</p>
           <p className={`text-xs ${task.status === "overdue" ? "font-medium text-destructive" : "text-muted-foreground"}`}>
-            {remaining(task)}
+            {remaining(task, t)}
           </p>
         </div>
         {canControl ? (
           <>
             <Button type="button" size="sm" onClick={() => setNoting(true)}>
-              Mark done
+              {t("maintenance.markDone")}
             </Button>
-            <Button type="button" size="icon-sm" variant="ghost" aria-label={`Edit ${task.name}`} onClick={() => setEditing(true)}>
+            <Button type="button" size="icon-sm" variant="ghost" aria-label={t("maintenance.editTask", { name: task.name })} onClick={() => setEditing(true)}>
               <PencilIcon className="size-3.5" />
             </Button>
             <ConfirmDialog
               trigger={
-                <Button type="button" size="icon-sm" variant="ghost" aria-label={`Delete ${task.name}`}>
+                <Button type="button" size="icon-sm" variant="ghost" aria-label={t("maintenance.deleteTask", { name: task.name })}>
                   <Trash2Icon className="size-3.5" />
                 </Button>
               }
-              title={`Delete ${task.name}?`}
-              description="Its history is removed too."
-              confirmLabel="Delete"
+              title={t("maintenance.deleteTitle", { name: task.name })}
+              description={t("maintenance.deleteDesc")}
+              confirmLabel={t("common.delete")}
+              cancelLabel={t("common.cancel")}
               destructive
               onConfirm={() => del.mutate(task.id)}
             />
           </>
         ) : null}
         <Button type="button" size="sm" variant="ghost" onClick={() => setShowLog((v) => !v)}>
-          {showLog ? "Hide history" : "History"}
+          {showLog ? t("maintenance.hideHistory") : t("maintenance.history")}
         </Button>
       </div>
       {noting ? (
         <div className="flex gap-2">
-          <Input aria-label="Note" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <Input aria-label={t("maintenance.note")} placeholder={t("maintenance.notePh")} value={note} onChange={(e) => setNote(e.target.value)} />
           <Button
             type="button"
             size="sm"
@@ -190,13 +195,13 @@ function TaskRow({ task, printerId, canControl }: { task: MaintenanceTask; print
               )
             }
           >
-            Confirm
+            {t("common.confirm")}
           </Button>
         </div>
       ) : null}
       {done.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errText(done.error, "Could not mark done")}
+          {errText(done.error, t("maintenance.doneError"))}
         </p>
       ) : null}
       {showLog ? <LogList printerId={printerId} taskId={task.id} /> : null}
@@ -213,6 +218,7 @@ export function MaintenanceSection({
   maintenanceMode: boolean;
   canControl: boolean;
 }) {
+  const { t } = useTranslation();
   const tasks = useMaintenanceTasks(printerId);
   const mode = useSetMaintenanceMode(printerId);
   const [adding, setAdding] = useState(false);
@@ -226,8 +232,8 @@ export function MaintenanceSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Maintenance</CardTitle>
-        <CardDescription>Service tasks, due by print hours or days.</CardDescription>
+        <CardTitle>{t("maintenance.title")}</CardTitle>
+        <CardDescription>{t("maintenance.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-start gap-3">
@@ -240,44 +246,45 @@ export function MaintenanceSection({
           <ConfirmDialog
             open={confirmOn}
             onOpenChange={setConfirmOn}
-            title="Enable maintenance mode?"
-            description="The dispatcher will skip this printer and won't start queued prints on it."
-            confirmLabel="Enable"
+            title={t("maintenance.modeTitle")}
+            description={t("maintenance.modeConfirmDesc")}
+            confirmLabel={t("maintenance.enable")}
+            cancelLabel={t("common.cancel")}
             onConfirm={() => applyMode(true)}
           />
           <div>
-            <Label htmlFor="maint-mode">Maintenance mode</Label>
+            <Label htmlFor="maint-mode">{t("maintenance.mode")}</Label>
             <p className="text-xs text-muted-foreground">
-              While on, the dispatcher skips this printer and won&apos;t start queued prints on it.
+              {t("maintenance.modeDesc")}
             </p>
           </div>
         </div>
         {mode.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(mode.error, "Could not change maintenance mode")}
+            {errText(mode.error, t("maintenance.modeError"))}
           </p>
         ) : null}
         {tasks.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">{t("maintenance.loading")}</p>
         ) : tasks.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(tasks.error, "Couldn't load maintenance tasks")}
+            {errText(tasks.error, t("maintenance.loadError"))}
           </p>
         ) : tasks.data?.length ? (
           <ul className="space-y-2">
-            {tasks.data.map((t) => (
-              <TaskRow key={t.id} task={t} printerId={printerId} canControl={canControl} />
+            {tasks.data.map((task) => (
+              <TaskRow key={task.id} task={task} printerId={printerId} canControl={canControl} />
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No maintenance tasks yet.</p>
+          <p className="text-sm text-muted-foreground">{t("maintenance.none")}</p>
         )}
         {canControl ? (
           adding ? (
             <TaskForm printerId={printerId} onDone={() => setAdding(false)} />
           ) : (
             <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
-              Add task
+              {t("maintenance.addTask")}
             </Button>
           )
         ) : null}

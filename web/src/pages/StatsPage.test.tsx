@@ -48,14 +48,14 @@ describe("StatsPage", () => {
       expect(screen.getAllByText(name).length).toBeGreaterThan(0);
     }
     expect(screen.getByText("A1 Mini")).toBeInTheDocument();
-    expect(get).toHaveBeenCalledWith("/stats/dashboard?days=30");
+    expect(get).toHaveBeenCalledWith(expect.stringMatching(/^\/stats\/dashboard\?days=30(&tz=.+)?$/));
   });
 
   it("changes the range, refetches and persists it per user", async () => {
     renderPage();
     await screen.findByText("Benchy", { exact: false });
     fireEvent.click(screen.getByRole("button", { name: "90 days" }));
-    await waitFor(() => expect(get).toHaveBeenCalledWith("/stats/dashboard?days=90"));
+    await waitFor(() => expect(get).toHaveBeenCalledWith(expect.stringMatching(/^\/stats\/dashboard\?days=90(&tz=.+)?$/)));
     expect(loadPrefs(7).days).toBe(90);
   });
 

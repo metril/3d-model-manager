@@ -8,8 +8,9 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import ArchiveResult, PrintResult
@@ -79,6 +80,14 @@ async def load_rows(db: AsyncSession, *, days: int, visible: set[int] | None) ->
     result = case(
         (Print.result == PrintResult.SUCCESS, ArchiveResult.COMPLETED.value),
         (Print.result == PrintResult.FAIL, ArchiveResult.FAILED.value),
+        # Only the run the archive points at: a folded reprint shares the archive.
+        (
+            and_(
+                PrintArchive.result == ArchiveResult.STOPPED,
+                PrintArchive.print_job_id == PrintJob.id,
+            ),
+            ArchiveResult.STOPPED.value,
+        ),
         else_=ArchiveResult.CANCELED.value,
     )
     stmt = (
@@ -236,10 +245,12 @@ def failure_analysis(rows: list[Row]) -> FailureAnalysisOut:
     )
 
 
-def heatmap(rows: list[Row]) -> HeatmapOut:
+def heatmap(rows: list[Row], tz: ZoneInfo | None = None) -> HeatmapOut:
+    """Weekday x hour start counts, bucketed in ``tz`` (default UTC)."""
+    zone = tz or UTC
     grid = [[0] * 24 for _ in range(7)]
     for r in rows:
-        t = (r.started_at or r.when).astimezone(UTC)
+        t = (r.started_at or r.when).astimezone(zone)
         grid[t.weekday()][t.hour] += 1
     return HeatmapOut(counts=grid, max=max(max(line) for line in grid))
 
@@ -315,14 +326,16 @@ async def filament_trends(
     ]
 
 
-async def dashboard(db: AsyncSession, *, days: int, visible: set[int] | None) -> StatsDashboardOut:
+async def dashboard(
+    db: AsyncSession, *, days: int, visible: set[int] | None, tz: ZoneInfo | None = None
+) -> StatsDashboardOut:
     rows = await load_rows(db, days=days, visible=visible)
     return StatsDashboardOut(
         days=days,
         success_rate=success_rate(rows),
         time_accuracy=time_accuracy(rows),
         failures=failure_analysis(rows),
-        heatmap=heatmap(rows),
+        heatmap=heatmap(rows, tz),
         records=records(rows),
         printers=printer_stats(rows),
         filament_trends=await filament_trends(db, days=days, visible=visible),

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useAddModelsToProject, useCreateProject, useProjects } from "@/api/projects";
@@ -19,11 +20,15 @@ export function AddToProjectDialog({
   modelIds: number[];
   onDone?: () => void;
 }) {
+  const { t } = useTranslation();
   const projects = useProjects();
   const add = useAddModelsToProject();
   const create = useCreateProject();
   const [choice, setChoice] = useState("");
   const [newName, setNewName] = useState("");
+  // A project made by a first attempt whose "add" step then failed: a retry
+  // must reuse it instead of creating a duplicate.
+  const [createdId, setCreatedId] = useState<number | null>(null);
   const list = (projects.data ?? []).filter((p) => p.status !== "archived");
   const creating = choice === "new";
   const busy = add.isPending || create.isPending;
@@ -32,66 +37,76 @@ export function AddToProjectDialog({
   async function submit() {
     try {
       let projectId = Number(choice);
-      if (creating) projectId = (await create.mutateAsync({ name: newName.trim() })).id;
+      if (creating) {
+        if (createdId == null) {
+          projectId = (await create.mutateAsync({ name: newName.trim() })).id;
+          setCreatedId(projectId);
+        } else projectId = createdId;
+      }
       await add.mutateAsync({ projectId, modelIds });
-      toast.success(`Added ${modelIds.length} model${modelIds.length === 1 ? "" : "s"} to project`);
-      onOpenChange(false);
+      toast.success(t("projects.added", { count: modelIds.length }));
+      handleOpenChange(false);
       onDone?.();
     } catch {
       // global mutation error toast
     }
   }
 
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
+    if (!next) {
+      setChoice("");
+      setNewName("");
+      setCreatedId(null);
+    }
+  }
+
   return (
     <FormDialog
       open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next);
-        if (!next) {
-          setChoice("");
-          setNewName("");
-        }
-      }}
+      onOpenChange={handleOpenChange}
       dirty={choice !== "" || newName !== ""}
       busy={busy}
     >
       <DialogHeader>
-        <DialogTitle>Add to project</DialogTitle>
+        <DialogTitle>{t("projects.addTitle")}</DialogTitle>
         <DialogDescription>
-          Adds {modelIds.length} model{modelIds.length === 1 ? "" : "s"} to a project&apos;s bill of materials.
+          {t("projects.addDesc", { count: modelIds.length })}
         </DialogDescription>
       </DialogHeader>
       <select
-        aria-label="Project"
+        aria-label={t("projects.project")}
         className="h-9 w-full rounded-md border bg-background px-2 text-sm"
         value={choice}
+        disabled={createdId != null} // the project exists now: its name/choice is locked for the retry
         onChange={(e) => setChoice(e.target.value)}
       >
-        <option value="">Choose a project…</option>
+        <option value="">{t("projects.choose")}</option>
         {list.map((p) => (
           <option key={p.id} value={String(p.id)}>
             {p.name}
           </option>
         ))}
-        <option value="new">+ New project…</option>
+        <option value="new">{t("projects.newOption")}</option>
       </select>
       {creating && (
         <Input
           autoFocus
-          aria-label="New project name"
-          placeholder="Project name"
+          aria-label={t("projects.newName")}
+          placeholder={t("projects.namePlaceholder")}
           value={newName}
+          disabled={createdId != null}
           onChange={(e) => setNewName(e.target.value)}
         />
       )}
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
-            Cancel
+            {t("common.cancel")}
           </Button>
         </DialogClose>
         <Button type="button" disabled={!canSubmit} onClick={() => void submit()}>
-          Add
+          {t("common.add")}
         </Button>
       </DialogFooter>
     </FormDialog>

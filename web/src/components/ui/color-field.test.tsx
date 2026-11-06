@@ -6,14 +6,19 @@ import { ColorField } from "@/components/ui/color-field";
 function setup(value = "") {
   const onChange = vi.fn();
   render(<ColorField label="Colour" value={value} onChange={onChange} swatches={["#ef4444"]} />);
-  fireEvent.click(screen.getByLabelText("Colour"));
+  fireEvent.click(screen.getByLabelText(/^Colour/));
   return onChange;
 }
 
 describe("ColorField", () => {
   it("shows the current colour on the trigger", () => {
     render(<ColorField label="Colour" value="#AABBCC" onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Colour")).toHaveTextContent("#aabbcc");
+    expect(screen.getByLabelText(/^Colour/)).toHaveTextContent("#aabbcc");
+  });
+
+  it("puts the current value in the trigger's accessible name", () => {
+    render(<ColorField label="Colour" value="#AABBCC" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Colour: #aabbcc")).toBeInTheDocument();
   });
 
   it("typing a valid hex updates the value", () => {

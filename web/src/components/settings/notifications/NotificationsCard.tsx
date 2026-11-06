@@ -1,6 +1,7 @@
 /** Notification channels list (Q6): kind icon, enabled switch, edit/delete/test. */
 import { Bell, Mail, Megaphone, MessageSquare, Pencil, Send, Trash2, Webhook, type LucideIcon } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -13,6 +14,7 @@ import {
   useUpdateChannel,
   type NotificationChannel,
 } from "@/api/notifications";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ChannelModal } from "@/components/settings/notifications/ChannelModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +36,7 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
   const update = useUpdateChannel();
   const del = useDeleteChannel();
   const test = useTestChannel();
+  const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const Icon = kindIcon(ch.kind);
 
@@ -67,16 +70,26 @@ function Row({ ch, kindLabel, onEdit }: { ch: NotificationChannel; kindLabel: st
         <Button size="sm" variant="outline" onClick={onEdit} aria-label={`Edit ${ch.name}`}>
           <Pencil className="size-4" />
         </Button>
-        {confirming ? (
-          <Button size="sm" variant="destructive" disabled={del.isPending} onClick={() => del.mutate(ch.id)}>
-            Confirm delete
-          </Button>
-        ) : (
-          <Button size="sm" variant="outline" onClick={() => setConfirming(true)} aria-label={`Delete ${ch.name}`}>
-            <Trash2 className="size-4" />
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={del.isPending}
+          onClick={() => setConfirming(true)}
+          aria-label={`Delete ${ch.name}`}
+        >
+          <Trash2 className="size-4" />
+        </Button>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("notifications.deleteTitle", { name: ch.name })}
+        description={t("notifications.deleteDesc")}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => del.mutate(ch.id)}
+      />
     </li>
   );
 }

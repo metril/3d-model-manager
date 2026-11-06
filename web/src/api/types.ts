@@ -1859,6 +1859,7 @@ export interface LedgerEntry {
   print_queue_id: number | null;
   print_id: number | null;
   created_by_user_id: number | null;
+  created_by_username?: string | null;
   note: string | null;
   created_at: string;
 }

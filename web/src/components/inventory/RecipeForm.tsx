@@ -12,6 +12,7 @@
  * profile doesn't carry one. `n` only applies (and is required >=1) for
  * fanout "first_n".
  */
+import { useTranslation } from "react-i18next";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
@@ -36,11 +37,6 @@ import { DEFAULT_NOZZLE, modelKey, scopeMismatchReason } from "@/lib/profileScop
 const FALLBACK_BED_TYPES = ["Textured PEI Plate"];
 const FILAMENT_SLOTS = 4;
 const FANOUTS: Fanout[] = ["single", "spread", "first_n"];
-const FANOUT_LABELS: Record<Fanout, string> = {
-  single: "Single (one printer)",
-  spread: "Spread (across eligible printers)",
-  first_n: "First N (the first N eligible printers)",
-};
 
 function bedTypesFor(printerProfile: SlicerProfile | undefined): string[] {
   const raw = printerProfile?.data?.curr_bed_type;
@@ -112,6 +108,7 @@ export function RecipeForm({
   recipe?: PrintRecipe;
   onSaved?: (recipe: PrintRecipe) => void;
 }) {
+  const { t } = useTranslation();
   const isEdit = recipe !== undefined;
   const printerProfiles = useProfiles("printer");
   const processProfiles = useProfiles("process");
@@ -201,15 +198,15 @@ export function RecipeForm({
     <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={saveRecipe.isPending}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? "Edit recipe" : "New recipe"}</DialogTitle>
+            <DialogTitle>{isEdit ? t("recipeForm.editTitle") : t("recipeForm.newTitle")}</DialogTitle>
             <DialogDescription>
-              A named bundle of profiles, bed type and dispatch options for the print queue.
+              {t("recipeForm.desc")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="recipe-name">Name</Label>
+              <Label htmlFor="recipe-name">{t("recipeForm.name")}</Label>
               <Input
                 id="recipe-name"
                 value={fields.name}
@@ -219,16 +216,16 @@ export function RecipeForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="recipe-printer-profile">Printer profile</Label>
+              <Label htmlFor="recipe-printer-profile">{t("recipeForm.printerProfile")}</Label>
               <Select
-                aria-label="Printer profile"
+                aria-label={t("recipeForm.printerProfile")}
                 value={fields.printerProfileId != null ? String(fields.printerProfileId) : ""}
                 onValueChange={(v) =>
                   setFields((f) => ({ ...f, printerProfileId: Number(v), processProfileId: null, filamentProfileIds: Array(FILAMENT_SLOTS).fill(null) }))
                 }
               >
-                <SelectTrigger id="recipe-printer-profile" aria-label="Printer profile" className="w-full">
-                  <SelectValue placeholder="Choose a printer profile" />
+                <SelectTrigger id="recipe-printer-profile" aria-label={t("recipeForm.printerProfile")} className="w-full">
+                  <SelectValue placeholder={t("recipeForm.chooseAPrinterProfile")} />
                 </SelectTrigger>
                 <SelectContent>
                   {scopedPrinter.options.map((o) => (
@@ -241,15 +238,15 @@ export function RecipeForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="recipe-process-profile">Process profile</Label>
+              <Label htmlFor="recipe-process-profile">{t("recipeForm.processProfile")}</Label>
               <Select
-                aria-label="Process profile"
+                aria-label={t("recipeForm.processProfile")}
                 value={fields.processProfileId != null ? String(fields.processProfileId) : ""}
                 onValueChange={(v) => setFields((f) => ({ ...f, processProfileId: Number(v) }))}
                 disabled={fields.printerProfileId == null}
               >
-                <SelectTrigger id="recipe-process-profile" aria-label="Process profile" className="w-full">
-                  <SelectValue placeholder="Choose a process profile" />
+                <SelectTrigger id="recipe-process-profile" aria-label={t("recipeForm.processProfile")} className="w-full">
+                  <SelectValue placeholder={t("recipeForm.chooseAProcessProfile")} />
                 </SelectTrigger>
                 <SelectContent>
                   {scopedProcess.options.map((o) => (
@@ -262,21 +259,21 @@ export function RecipeForm({
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Filaments (AMS slots)</Label>
+              <Label>{t("recipeForm.filamentsAmsSlots")}</Label>
               <div className="grid grid-cols-2 gap-2">
                 {fields.filamentProfileIds.map((value, index) => (
                   <Select
                     key={index}
-                    aria-label={`Filament slot ${index + 1}`}
+                    aria-label={t("recipeForm.filamentSlot", { n: index + 1 })}
                     value={value != null ? String(value) : "none"}
                     onValueChange={(v) => setFilamentSlot(index, v === "none" ? null : Number(v))}
                     disabled={fields.printerProfileId == null}
                   >
                     <SelectTrigger aria-label={`Filament slot ${index + 1}`} className="w-full">
-                      <SelectValue placeholder={`Slot ${index + 1}`} />
+                      <SelectValue placeholder={t("recipeForm.slot", { n: index + 1 })} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Empty</SelectItem>
+                      <SelectItem value="none">{t("recipeForm.empty")}</SelectItem>
                       {scopedFilament.options.map((o) => (
                         <SelectItem key={o.profile.id} value={String(o.profile.id)}>
                           {optionLabel(o)}
@@ -289,13 +286,13 @@ export function RecipeForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="recipe-bed-type">Bed type</Label>
+              <Label htmlFor="recipe-bed-type">{t("recipeForm.bedType")}</Label>
               <Select
-                aria-label="Bed type"
+                aria-label={t("recipeForm.bedType")}
                 value={fields.bedType || bedTypes[0] || ""}
                 onValueChange={(v) => setFields((f) => ({ ...f, bedType: v }))}
               >
-                <SelectTrigger id="recipe-bed-type" aria-label="Bed type" className="w-full">
+                <SelectTrigger id="recipe-bed-type" aria-label={t("recipeForm.bedType")} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -311,7 +308,7 @@ export function RecipeForm({
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox checked={showAll} onCheckedChange={(c) => setShowAll(c === true)} />
-                Show all profiles
+                {t("recipeForm.showAllProfiles")}
               </label>
               <p className="text-xs text-muted-foreground">
                 By default only profiles for the {targetPrinter ? "target printer" : "chosen printer profile"}&apos;s model
@@ -325,43 +322,43 @@ export function RecipeForm({
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Options</Label>
+              <Label>{t("recipeForm.options")}</Label>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={fields.options.bed_levelling}
                   onCheckedChange={(c) => setFields((f) => ({ ...f, options: { ...f.options, bed_levelling: c === true } }))}
                 />
-                Bed levelling
+                {t("recipeForm.bedLevelling")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={fields.options.flow_cali}
                   onCheckedChange={(c) => setFields((f) => ({ ...f, options: { ...f.options, flow_cali: c === true } }))}
                 />
-                Flow calibration
+                {t("recipeForm.flowCalibration")}
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={fields.options.timelapse}
                   onCheckedChange={(c) => setFields((f) => ({ ...f, options: { ...f.options, timelapse: c === true } }))}
                 />
-                Timelapse
+                {t("recipeForm.timelapse")}
               </label>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="recipe-target-printer">Target printer (optional)</Label>
+                <Label htmlFor="recipe-target-printer">{t("recipeForm.targetPrinterOptional")}</Label>
                 <Select
-                  aria-label="Target printer"
+                  aria-label={t("recipeForm.targetPrinter")}
                   value={fields.targetPrinterId != null ? String(fields.targetPrinterId) : "any"}
                   onValueChange={(v) => setFields((f) => ({ ...f, targetPrinterId: v === "any" ? null : Number(v) }))}
                 >
-                  <SelectTrigger id="recipe-target-printer" aria-label="Target printer" className="w-full">
+                  <SelectTrigger id="recipe-target-printer" aria-label={t("recipeForm.targetPrinter")} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="any">Any printer</SelectItem>
+                    <SelectItem value="any">{t("recipeForm.anyPrinter")}</SelectItem>
                     {(printers.data ?? []).map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
                         {p.name}
@@ -371,10 +368,10 @@ export function RecipeForm({
                 </Select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="recipe-target-model">Target model (optional)</Label>
+                <Label htmlFor="recipe-target-model">{t("recipeForm.targetModelOptional")}</Label>
                 <Input
                   id="recipe-target-model"
-                  placeholder="e.g. A1 mini"
+                  placeholder={t("recipeForm.eGA1Mini")}
                   value={fields.targetPrinterModel}
                   onChange={(e) => setFields((f) => ({ ...f, targetPrinterModel: e.target.value }))}
                 />
@@ -383,15 +380,15 @@ export function RecipeForm({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="recipe-fanout">Fanout</Label>
-                <Select aria-label="Fanout" value={fields.fanout} onValueChange={(v) => setFields((f) => ({ ...f, fanout: v as Fanout }))}>
-                  <SelectTrigger id="recipe-fanout" aria-label="Fanout" className="w-full">
+                <Label htmlFor="recipe-fanout">{t("recipeForm.fanout")}</Label>
+                <Select aria-label={t("recipeForm.fanout")} value={fields.fanout} onValueChange={(v) => setFields((f) => ({ ...f, fanout: v as Fanout }))}>
+                  <SelectTrigger id="recipe-fanout" aria-label={t("recipeForm.fanout")} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {FANOUTS.map((fo) => (
                       <SelectItem key={fo} value={fo}>
-                        {FANOUT_LABELS[fo]}
+                        {t(`recipeForm.fanoutOpt.${fo}`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -411,7 +408,7 @@ export function RecipeForm({
                   />
                   {touchedN && nInvalid ? (
                     <p role="alert" className="text-xs text-destructive">
-                      N is required and must be at least 1 for "first_n".
+                      {t("recipeForm.nInvalid")}
                     </p>
                   ) : null}
                 </div>
@@ -420,17 +417,17 @@ export function RecipeForm({
 
             {saveRecipe.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {saveRecipe.error instanceof ApiError ? saveRecipe.error.detail : "Could not save this recipe"}
+                {saveRecipe.error instanceof ApiError ? saveRecipe.error.detail : t("recipeForm.couldNotSaveThisRecipe")}
               </p>
             ) : null}
           </div>
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
+              <Button type="button" variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             <Button type="submit" disabled={saveRecipe.isPending || fields.printerProfileId == null || fields.processProfileId == null}>
-              {saveRecipe.isPending ? "Saving..." : isEdit ? "Save changes" : "Create recipe"}
+              {saveRecipe.isPending ? t("recipeForm.saving") : isEdit ? t("recipeForm.saveChanges") : t("recipeForm.create")}
             </Button>
           </DialogFooter>
         </form>

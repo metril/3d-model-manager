@@ -5,10 +5,12 @@
  * `{kind, has_url}`), so leaving the URL blank keeps the stored one.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useCreateOverlayToken, useOverlayTokens, useRevokeOverlayToken, useUpdatePrinter } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,6 +110,8 @@ export function OverlayTokensList({ printerId }: { printerId: number }) {
   const create = useCreateOverlayToken(printerId);
   const revoke = useRevokeOverlayToken(printerId);
   const [minted, setMinted] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<number | null>(null);
+  const { t: tr } = useTranslation();
 
   function mint() {
     create.mutate(undefined, {
@@ -151,7 +155,7 @@ export function OverlayTokensList({ printerId }: { printerId: number }) {
                 size="sm"
                 variant="ghost"
                 aria-label={`Revoke token ${t.id}`}
-                onClick={() => revoke.mutate(t.id)}
+                onClick={() => setRevoking(t.id)}
                 disabled={revoke.isPending}
               >
                 Revoke
@@ -160,6 +164,16 @@ export function OverlayTokensList({ printerId }: { printerId: number }) {
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={revoking != null}
+        onOpenChange={(open) => !open && setRevoking(null)}
+        title={tr("overlayTokens.revokeTitle")}
+        description={tr("overlayTokens.revokeDesc")}
+        confirmLabel={tr("tokens.revoke")}
+        cancelLabel={tr("common.cancel")}
+        destructive
+        onConfirm={() => revoking != null && revoke.mutate(revoking)}
+      />
     </div>
   );
 }

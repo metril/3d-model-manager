@@ -13,9 +13,9 @@ type FormDialogProps = Omit<ComponentProps<typeof DialogContent>, "dismissable">
 };
 
 /**
- * Dialog for edit forms: outside click and Escape never dismiss it
- * (dismissable=false), and the explicit close paths (X, Cancel) are blocked
- * while `busy` and confirmed while `dirty`. A programmatic `onOpenChange(false)` by the caller (e.g. after a
+ * Dialog for edit forms: outside click never dismisses it (dismissable=false)
+ * and Escape goes through the same guard as the explicit close paths (X,
+ * Cancel): blocked while `busy`, confirmed while `dirty`, instant when clean. A programmatic `onOpenChange(false)` by the caller (e.g. after a
  * successful save) bypasses the guard.
  */
 export function FormDialog({ open, onOpenChange, dirty, busy, children, ...contentProps }: FormDialogProps) {
@@ -23,7 +23,14 @@ export function FormDialog({ open, onOpenChange, dirty, busy, children, ...conte
   return (
     <>
       <Dialog open={open} onOpenChange={requestChange}>
-        <DialogContent dismissable={false} {...contentProps}>
+        <DialogContent
+          dismissable={false}
+          {...contentProps}
+          onEscapeKeyDown={(e) => {
+            contentProps.onEscapeKeyDown?.(e);
+            requestChange(false);
+          }}
+        >
           {children}
         </DialogContent>
       </Dialog>
