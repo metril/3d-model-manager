@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/metril/3d-model-manager/compare/v0.15.0...v0.16.0) (2026-11-06)
+
+
+### Features
+
+* **plates:** print-profile cards with per-plate filaments and colour changes ([#226](https://github.com/metril/3d-model-manager/issues/226)) ([82ee5bc](https://github.com/metril/3d-model-manager/commit/82ee5bc30a428fd1bc76851d87c30e80b7e33cac))
+
 ## [0.15.0](https://github.com/metril/3d-model-manager/compare/v0.14.0...v0.15.0) (2026-11-05)
 
 
