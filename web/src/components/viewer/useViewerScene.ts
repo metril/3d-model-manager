@@ -36,7 +36,9 @@ import {
   layoutPartId,
   partUrl,
   plateGlbUrl,
+  ALL_FILES,
   resolveActive,
+  selectProfile,
   setActiveViewerBlob,
   setSelectedPlate,
   useActiveViewerBlob,
@@ -62,6 +64,9 @@ export interface ViewerSceneInitial {
   background?: { preset: BackgroundPreset; custom?: string };
   lighting?: LightingPreset;
   tools?: Partial<ViewerToolsState>;
+  /** Pop-out: the profile blob (or ALL_FILES) and plate the opener was showing. */
+  blob?: string;
+  plate?: number;
 }
 
 type StagePropsBundle = Omit<
@@ -182,28 +187,57 @@ export function useViewerScene({
   // force the whole canvas to remount on every checkbox click). `checkedIds`
   // still drives `visible`, `checkedList`, and the "N of M" header below.
   const plateFiles = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
-  const preferredBlob = useActiveViewerBlob();
-  const plateInfo = useMemo(() => resolveActive(plateFiles, preferredBlob), [plateFiles, preferredBlob]);
+  // The selection is hook-local (so "All files" from another model can't leak
+  // in); the module store is only the channel the profile cards share. Store
+  // values already present at mount are stale and ignored.
+  const storeBlob = useActiveViewerBlob();
+  const [preferredBlob, setPreferred] = useState<string | null>(initial?.blob ?? null);
+  const seenStore = useRef(storeBlob);
+  useEffect(() => {
+    if (initial?.blob && initial.plate) setSelectedPlate(initial.blob, initial.plate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // "All files" (combined view) only exists when non-profile meshes do too.
+  const hasAllFiles = useMemo(
+    () => plateFiles.length > 0 && files.some((f) => !plateFiles.some((p) => p.blobHash === f.blob_hash)),
+    [files, plateFiles],
+  );
+  const allFiles = hasAllFiles && preferredBlob === ALL_FILES;
+  const plateInfo = useMemo(
+    () => (allFiles ? null : resolveActive(plateFiles, preferredBlob)),
+    [allFiles, plateFiles, preferredBlob],
+  );
   const plateBlob = plateInfo?.blobHash ?? null;
-  // Publish which blob this viewer drives (plate cards act only on it) and
-  // forget its selection when the viewer goes away, the model changes or the
-  // file picker moves on.
+  const target = allFiles ? ALL_FILES : plateBlob;
+  // Publish which blob this viewer drives (profile cards act only on it).
+  useEffect(() => {
+    if (plateFiles.length === 0) return;
+    setActiveViewerBlob(target);
+  }, [target, plateFiles.length]);
+  // Adopt a profile picked elsewhere (cards); an unknown one is overwritten
+  // with the resolved selection so the cards never highlight a ghost.
+  useEffect(() => {
+    if (seenStore.current === storeBlob) return;
+    seenStore.current = storeBlob;
+    if (!storeBlob || plateFiles.length === 0) return;
+    const valid = storeBlob === ALL_FILES ? hasAllFiles : plateFiles.some((p) => p.blobHash === storeBlob);
+    if (valid) setPreferred(storeBlob);
+    else setActiveViewerBlob(target);
+  }, [storeBlob, plateFiles, hasAllFiles, target]);
+  // Forget the blob's plate pick when the profile changes or the viewer goes away.
   useEffect(() => {
     if (!plateBlob) return;
-    setActiveViewerBlob(plateBlob);
-    return () => {
-      setActiveViewerBlob(null);
-      clearSelectedPlate(plateBlob);
-    };
+    return () => clearSelectedPlate(plateBlob);
   }, [plateBlob]);
+  useEffect(() => () => setActiveViewerBlob(null), []);
   const selectedPlate = useSelectedPlate(plateBlob);
-  // A selected plate isolates that file; "All plates" restores the checked set.
-  const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob, selectedPlate), [files, checkedIds, plateBlob, selectedPlate]);
+  // A profile isolates its file; "All files" restores the checked set.
+  const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob), [files, checkedIds, plateBlob]);
   // Isolation DROPS the other files from the tree rather than hiding them:
   // `Resize`/`Center` measure hidden parts too (so checkbox toggles never
-  // shift the layout), which would ground and centre the lone plate against
+  // shift the layout), which would ground and centre the lone profile against
   // the whole multi-file pile.
-  const isolating = selectedPlate != null && plateBlob != null;
+  const isolating = plateBlob != null;
   // Real-bed layout (plates carry `bed`/`origin`): the active blob's file(s)
   // become one part per plate (All plates) or the lone plate, placed on its
   // bed. Other files are dropped in BOTH modes -- they have no place on a
@@ -285,10 +319,12 @@ export function useViewerScene({
   // writes one key of -- same `setColors`/persistence path, just applied to
   // `checkedIds` instead of a single file id.
   function setAllColors(hex: string) {
-    setColors((prev) => applyToParts(prev, [...checkedIds], hex));
+    setColors((prev) => applyToParts(prev, [...shown], hex));
   }
 
-  const checkedList = [...checkedIds];
+  // What is actually on screen: the profile's files while one is active,
+  // else the checked set. Colours, AMS sync and pop-outs act on this.
+  const checkedList = [...shown];
   const hasColors = Object.keys(colors).length > 0;
 
   // Open the current selection (or a single part) in its OWN browser window
@@ -313,6 +349,11 @@ export function useViewerScene({
   // chance.
   function openInWindow(ids: number[]) {
     const params = new URLSearchParams({ ids: ids.join(","), bg: preset, light: lightingPreset });
+    if (allFiles) params.set("blob", ALL_FILES);
+    else if (plateBlob) {
+      params.set("blob", plateBlob);
+      if (selectedPlate != null) params.set("plate", String(selectedPlate));
+    }
     if (preset === "custom") params.set("bgc", custom);
     const subset: PartColors = {};
     for (const id of ids) if (colors[id]) subset[id] = colors[id];
@@ -335,7 +376,8 @@ export function useViewerScene({
   const stageProps: StagePropsBundle = {
     slug,
     files,
-    checkedIds,
+    checkedIds: shown,
+    profileActive: isolating,
     onToggleFile: toggleFile,
     onSetAllChecked: setAllChecked,
     colors,
@@ -370,19 +412,18 @@ export function useViewerScene({
     onCaptureCover: captureCover,
     capturingCover,
     canCaptureCover: persist,
-    plateInfo: plateInfo
-      ? {
-          blobHash: plateInfo.blobHash,
-          plates: plateInfo.plates,
-          files: plateFiles,
-          value: selectedPlate,
-          onChange: (plate) => setSelectedPlate(plateInfo.blobHash, plate),
-          onFileChange: (blobHash) => {
-            clearSelectedPlate(plateInfo.blobHash);
-            setActiveViewerBlob(blobHash);
-          },
-        }
-      : null,
+    plateInfo:
+      plateFiles.length > 0
+        ? {
+            blobHash: plateBlob ?? ALL_FILES,
+            plates: plateInfo?.plates ?? [],
+            files: plateFiles,
+            hasAllFiles,
+            value: selectedPlate,
+            onChange: (plate) => plateInfo && setSelectedPlate(plateInfo.blobHash, plate),
+            onFileChange: selectProfile,
+          }
+        : null,
   };
 
   return { stageProps };

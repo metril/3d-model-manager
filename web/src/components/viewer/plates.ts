@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 
 import { GLB_CACHE_V, glbUrl } from "@/components/viewer/viewable";
+import { plainText } from "@/lib/plainText";
 import type { FileOut, PlateOut } from "@/api/types";
 
 /** Plates worth offering a choice between: a selector needs at least two. */
@@ -39,16 +40,23 @@ export function fileLabel(relPath: string): string {
   return stem.replace(/-\d+$/, "") || stem || base;
 }
 
-/** Every file the viewer's selector can drive: 2+ plates with some GLB.
- * CHECKED (shown) files first, then the rest; one entry per blob. */
+/** Sentinel "active blob": the combined view of every file (profiles + other meshes). */
+export const ALL_FILES = "*";
+
+/** Profile display title: the plain-text source title, else the file label. */
+export function profileTitle(file: Pick<FileOut, "rel_path" | "source_meta">): string {
+  return plainText(file.source_meta?.title) || fileLabel(file.rel_path ?? "");
+}
+
+/** Every print profile (unsliced 3MF) the viewer can show, single-plate ones
+ * included. CHECKED (shown) files first, then the rest; one entry per blob. */
 export function viewerPlates(files: FileOut[], checkedIds?: ReadonlySet<number>): ViewerPlateFile[] {
-  const ordered = checkedIds ? [...files.filter((f) => checkedIds.has(f.id)), ...files.filter((f) => !checkedIds.has(f.id))] : files;
+  const profiles = profileFiles(files);
+  const ordered = checkedIds ? [...profiles.filter((f) => checkedIds.has(f.id)), ...profiles.filter((f) => !checkedIds.has(f.id))] : profiles;
   const out: ViewerPlateFile[] = [];
   for (const file of ordered) {
-    const plates = selectablePlates(file.meta?.plates);
-    if (plates.length > 0 && plates.some((p) => p.has_glb) && !out.some((o) => o.blobHash === file.blob_hash)) {
-      out.push({ fileId: file.id, blobHash: file.blob_hash, label: fileLabel(file.rel_path ?? ""), plates });
-    }
+    if (out.some((o) => o.blobHash === file.blob_hash)) continue;
+    out.push({ fileId: file.id, blobHash: file.blob_hash, label: profileTitle(file), plates: file.meta?.plates ?? [] });
   }
   return out;
 }
@@ -58,15 +66,14 @@ export function resolveActive(entries: ViewerPlateFile[], preferred: string | nu
   return entries.find((e) => e.blobHash === preferred) ?? entries[0] ?? null;
 }
 
-/** File ids to render. A selected plate isolates the active blob's file(s);
- * no plate ("All plates") keeps the normal multi-file checked view. */
+/** File ids to render. A profile (active blob) always isolates its file(s);
+ * no active blob ("All files") keeps the normal multi-file checked view. */
 export function visibleParts(
   files: Pick<FileOut, "id" | "blob_hash">[],
   checkedIds: ReadonlySet<number>,
   activeBlob: string | null,
-  selectedPlate: number | null,
 ): Set<number> {
-  if (selectedPlate == null || !activeBlob) return new Set(checkedIds);
+  if (!activeBlob) return new Set(checkedIds);
   return new Set(files.filter((f) => f.blob_hash === activeBlob).map((f) => f.id));
 }
 
@@ -158,6 +165,15 @@ export function setActiveViewerBlob(blobHash: string | null) {
   if (activeBlob === blobHash) return;
   activeBlob = blobHash;
   for (const l of listeners) l();
+}
+
+export const getActiveViewerBlob = () => activeBlob;
+
+/** Switch the viewer to a profile (or ALL_FILES), dropping the previous profile's plate pick. */
+export function selectProfile(blobHash: string) {
+  if (activeBlob === blobHash) return;
+  if (activeBlob && activeBlob !== ALL_FILES) clearSelectedPlate(activeBlob);
+  setActiveViewerBlob(blobHash);
 }
 
 export function useActiveViewerBlob(): string | null {

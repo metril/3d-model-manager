@@ -125,6 +125,8 @@ function ViewerWindow({ slug, files, search }: { slug: string; files: FileOut[];
       background: decodeBackground(search.bg, search.bgc),
       lighting: (search.light ?? "studio") as LightingPreset,
       tools: decodeTools(search),
+      blob: search.blob,
+      plate: Number.isFinite(Number(search.plate)) && search.plate ? Number(search.plate) : undefined,
     },
   });
 

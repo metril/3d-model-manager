@@ -15,19 +15,24 @@ export function PlateSwatches({ plate, className = "size-2.5" }: { plate: PlateO
   );
 }
 
-/** "Colour change at 3.0 mm → ●" lines; nothing when the plate has none. */
+/** "Colour change at 3.0 mm → ●" lines; nothing when the plate has none.
+ * One non-wrapping row per change: the swatch stays glued to the arrow and
+ * the text truncates (tooltip carries the full note) when space is tight. */
 export function ColourChangeNote({ plate }: { plate: PlateOut }) {
   const { t } = useTranslation();
   const changes = plate.colour_changes ?? [];
   if (changes.length === 0) return null;
   return (
     <div className="space-y-0.5 text-[10px] text-muted-foreground">
-      {changes.map((c, i) => (
-        <p key={i} className="flex items-center gap-1">
-          {t("profiles.colourChange", { z: c.z.toFixed(1) })} →
-          <span className="size-2.5 rounded-full border border-border/60" style={{ backgroundColor: c.colour }} />
-        </p>
-      ))}
+      {changes.map((c, i) => {
+        const text = `${t("profiles.colourChange", { z: c.z.toFixed(1) })} →`;
+        return (
+          <p key={i} data-testid="colour-change" className="inline-flex max-w-full items-center gap-1 whitespace-nowrap" title={`${text} ${c.colour}`}>
+            <span className="min-w-0 truncate">{text}</span>
+            <span className="size-2.5 shrink-0 rounded-full border border-border/60" style={{ backgroundColor: c.colour }} />
+          </p>
+        );
+      })}
     </div>
   );
 }

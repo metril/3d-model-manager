@@ -1836,6 +1836,11 @@
     "showPlate": "Show this plate in the viewer",
     "plateOf": "Plate {{index}}/{{total}}",
     "tooFar": "Too large",
-    "plateFile": "Plate file"
+    "plateFile": "Print profile",
+    "allFiles": "All files",
+    "notReady": "3D preview {{status}}",
+    "allPlates": "All plates",
+    "profileOption": "{{title}} · {{plates}}",
+    "showProfile": "Show this profile in the viewer"
   }
 }

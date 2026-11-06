@@ -30,6 +30,10 @@ export interface WindowSearch {
   /** 2-decimal `tools.explode`, e.g. `"0.40"` (Task 6; omitted at the `0`
    * default). */
   ex?: string;
+  /** Profile blob hash (or `*` = all files) the opener showed. */
+  blob?: string;
+  /** Selected plate index within that profile. */
+  plate?: string;
 }
 
 /** Validate + normalize the window's search params. TanStack's default parser
@@ -58,5 +62,7 @@ export function parseViewerWindowSearch(search: Record<string, unknown>): Window
     cam: asString(search.cam),
     sec: asString(search.sec),
     ex: asString(search.ex),
+    blob: asString(search.blob),
+    plate: asString(search.plate),
   };
 }

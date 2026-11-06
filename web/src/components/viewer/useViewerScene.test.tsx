@@ -3,7 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { getSelectedPlate, setSelectedPlate } from "@/components/viewer/plates";
+import { ALL_FILES, getSelectedPlate, getActiveViewerBlob, setActiveViewerBlob, setSelectedPlate } from "@/components/viewer/plates";
 import { useViewerScene } from "@/components/viewer/useViewerScene";
 import type { FileOut, PlateOut } from "@/api/types";
 
@@ -14,7 +14,7 @@ const plate = (index: number): PlateOut => ({
   name: `P${index}`, has_glb: true,
 });
 const FILE = {
-  id: 1, blob_hash: "vs1", glb_preview_ready: false,
+  id: 1, blob_hash: "vs1", format: "3mf", kind: "model", glb_preview_ready: false,
   meta: { triangle_count: 10, plates: [plate(1), plate(2)] },
 } as unknown as FileOut;
 
@@ -35,7 +35,7 @@ const BED_FILE = {
 
 describe("useViewerScene plate layout", () => {
   it("All plates: one offset part per plate, other files dropped; plate: bed-local", () => {
-    const other = { ...FILE, id: 2, blob_hash: "vs2", meta: { triangle_count: 5 } } as unknown as FileOut;
+    const other = { ...FILE, id: 2, blob_hash: "vs2", format: "stl", meta: { triangle_count: 5 } } as unknown as FileOut;
     const { result, unmount } = renderHook(
       () => useViewerScene({ slug: "m", files: [BED_FILE, other], persist: false, defaultAllChecked: true }),
       { wrapper },
@@ -84,23 +84,73 @@ describe("useViewerScene plates", () => {
   });
 
   it("drops the other files from the tree while a plate is isolated", () => {
-    const other = { ...FILE, id: 2, blob_hash: "vs2", meta: { triangle_count: 5 } } as unknown as FileOut;
+    const other = { ...FILE, id: 2, blob_hash: "vs2", format: "stl", meta: { triangle_count: 5 } } as unknown as FileOut;
     const { result, unmount } = renderHook(
       () => useViewerScene({ slug: "m", files: [FILE, other], persist: false, defaultAllChecked: true }),
       { wrapper },
     );
-    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1, 2]);
+    // default: the profile is isolated, "All files" restores the combined view
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1]);
+    expect(result.current.stageProps.plateInfo!.hasAllFiles).toBe(true);
     act(() => result.current.stageProps.plateInfo!.onChange(2));
     expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1]);
-    act(() => result.current.stageProps.plateInfo!.onChange(null));
+    act(() => result.current.stageProps.plateInfo!.onFileChange!("*"));
     expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1, 2]);
+    act(() => result.current.stageProps.plateInfo!.onFileChange!("vs1"));
     unmount();
   });
 
-  it("has no plate info for a single-plate file", () => {
+  it("a single-plate profile is offered and isolated on its whole-file GLB, no All files", () => {
     const single = { ...FILE, meta: { ...FILE.meta, plates: [plate(1)] } } as unknown as FileOut;
-    const { result } = renderHook(() => useViewerScene({ slug: "m", files: [single], persist: false }), { wrapper });
-    expect(result.current.stageProps.plateInfo).toBeNull();
+    const two = { ...single, id: 2, blob_hash: "vs2" } as unknown as FileOut;
+    const { result, unmount } = renderHook(() => useViewerScene({ slug: "m", files: [single, two], persist: false, defaultAllChecked: true }), { wrapper });
+    const info = result.current.stageProps.plateInfo!;
+    expect(info.files).toHaveLength(2);
+    expect(info.hasAllFiles).toBe(false);
+    act(() => info.onFileChange!("vs2"));
+    expect(result.current.stageProps.parts.map((p) => [p.id, p.url])).toEqual([[2, "/api/blobs/vs2/glb?v=3"]]);
+    unmount();
     setSelectedPlate("vs1", null);
+  });
+});
+
+describe("useViewerScene profile isolation", () => {
+  const stl = { ...FILE, id: 2, blob_hash: "vs2", format: "stl", meta: { triangle_count: 5 } } as unknown as FileOut;
+
+  it("colours, AMS sync and pop-outs act on the shown ids, and Parts is hidden", () => {
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [FILE, stl], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    expect(result.current.stageProps.profileActive).toBe(true);
+    expect(result.current.stageProps.checkedList).toEqual([1]);
+    expect([...result.current.stageProps.checkedIds]).toEqual([1]);
+    act(() => result.current.stageProps.onSetAllColors("#112233"));
+    expect(Object.keys(result.current.stageProps.colors)).toEqual(["1"]);
+    act(() => result.current.stageProps.plateInfo!.onFileChange!(ALL_FILES));
+    expect(result.current.stageProps.profileActive).toBe(false);
+    expect(result.current.stageProps.checkedList).toEqual([1, 2]);
+    unmount();
+  });
+
+  it("does not inherit All files left in the store by another model", () => {
+    setActiveViewerBlob(ALL_FILES);
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [FILE, stl], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    expect(result.current.stageProps.parts.map((p) => p.id)).toEqual([1]);
+    unmount();
+  });
+
+  it("re-publishes the resolved profile when the store holds an unknown blob", () => {
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "m", files: [FILE, stl], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    act(() => setActiveViewerBlob("gone"));
+    expect(result.current.stageProps.plateInfo!.blobHash).toBe("vs1");
+    expect(getActiveViewerBlob()).toBe("vs1");
+    unmount();
   });
 });
