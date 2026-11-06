@@ -195,3 +195,19 @@ function subscribe(l: () => void) {
 export function useSelectedPlate(blobHash: string | null | undefined): number | null {
   return useSyncExternalStore(subscribe, () => getSelectedPlate(blobHash));
 }
+
+/** Plain-text tooltip for a plate chip. */
+export function plateTitle(plate: PlateOut, t: (k: string, o?: Record<string, unknown>) => string): string | undefined {
+  const parts: string[] = [];
+  if (plate.fits === false) parts.push(t("profiles.tooFar"));
+  const f = plate.filaments.map((x) => x.type ?? "").filter(Boolean);
+  if (f.length) parts.push(f.join(" / "));
+  for (const c of plate.colour_changes ?? []) parts.push(t("profiles.colourChange", { z: c.z.toFixed(1) }) + ` → ${c.colour}`);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+/** Unsliced 3MF files shown as print profiles: only when at least one has plates. */
+export function profileFiles(files: FileOut[]): FileOut[] {
+  const list = files.filter((f) => f.format === "3mf" && f.kind !== "sliced");
+  return list.some((f) => (f.meta?.plates?.length ?? 0) > 0) ? list : [];
+}

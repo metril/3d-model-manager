@@ -84,6 +84,51 @@ def parse_unsliced_plates(zf: zipfile.ZipFile) -> list[dict]:
     return plates
 
 
+def plate_filament_info(zf: zipfile.ZipFile, plates: list[dict]) -> dict[int, dict]:
+    """``{plate index: {"filaments": [...], "colour_changes": [...]}}``; empty
+    lists when the file has no Bambu/Orca filament data."""
+    info = threemf_colour.read_colour_info(zf)
+    return {
+        p["index"]: {
+            "filaments": info.plate_filaments(p["object_ids"]) if info else [],
+            "colour_changes": info.plate_colour_changes(p["index"]) if info else [],
+        }
+        for p in plates
+    }
+
+
+def read_3mf_profile_meta(zf: zipfile.ZipFile) -> dict | None:
+    """MakerWorld provenance from ``3D/3dmodel.model`` ``<metadata>``, in the
+    shape the MakerWorld importer stores in ``files.source_meta``; ``None``
+    when the file carries no profile/design id."""
+    data = slicedmeta.read_zip_member(zf, ROOT_MODEL)
+    if data is None:
+        return None
+    try:
+        root = ET.fromstring(data)  # noqa: S314 - same trust level as slicedmeta
+    except ET.ParseError:
+        return None
+    md = {
+        el.get("name"): (el.text or "").strip()
+        for el in root.iter()
+        if _local(el.tag) == "metadata" and el.get("name")
+    }
+    profile_id = slicedmeta._parse_int(md.get("DesignProfileId") or md.get("ProfileId"))
+    design_id = md.get("DesignModelId") or None
+    if profile_id is None and not design_id:
+        return None
+    out = {
+        "profile_id": profile_id,
+        "title": md.get("ProfileTitle") or md.get("Title") or None,
+        "design_id": design_id,
+        "design_title": md.get("Title") or None,
+        "description": md.get("ProfileDescription") or None,
+        "author": md.get("ProfileUserName") or md.get("Designer") or None,
+        "origin": "3mf",
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def read_bed(zf: zipfile.ZipFile) -> tuple[float, float] | None:
     """Bed (x, y) mm from ``project_settings.config`` ``printable_area``."""
     from app.services.bed_fit import parse_printable_area

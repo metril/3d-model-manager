@@ -10,13 +10,13 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Blob, BlobMeta, Model, Revision
+from app.models import Blob, BlobMeta, File, Model, Revision
 from app.models.enums import BlobFormat, BlobKind
 from app.services import derivatives
 from app.tasks import pipeline
 from app.tasks.base import sync_session
 from tests.conftest import BACKEND_DIR
-from tests.threemf_builder import make_project_3mf
+from tests.threemf_builder import make_coloured_project_3mf, make_project_3mf
 
 pytestmark = pytest.mark.usefixtures("library_root", "data_dir")
 
@@ -77,13 +77,15 @@ async def test_convert_writes_plate_glbs_thumbs_and_meta(
         assert derivatives.plate_thumb_path(s, f.blob_hash, i).read_bytes().startswith(b"\x89PNG")
 
 
-async def test_single_plate_gets_empty_plates_json(
+async def test_single_plate_gets_one_entry_plates_json(
     db_session: AsyncSession, backend, seed_file
 ) -> None:
     _, f = await _seed(db_session, seed_file, make_project_3mf(1), "single")
     _convert(backend, f.blob_hash)
     meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
-    assert meta.plates_json == []
+    assert len(meta.plates_json) == 1
+    assert meta.plates_json[0]["has_glb"] is False and meta.plates_json[0]["filaments"] == []
+    assert meta.plates_version == pipeline.PLATES_VERSION
     assert not derivatives.plate_glb_path(get_settings(), f.blob_hash, 1).exists()
 
 
@@ -253,3 +255,58 @@ async def test_glb_orientation_backfill(
     assert await version() == -1
     assert len(chained) == 1 and chained[0]["countdown"] == 5
     assert pipeline.backfill_glb_orientation() == 0
+
+
+async def test_filament_backfill_keeps_glbs_and_fills_source_meta(
+    db_session: AsyncSession, backend, seed_file
+) -> None:
+    _, f = await _seed(db_session, seed_file, make_coloured_project_3mf(profile_meta=True), "fil")
+    assert pipeline.backfill_plates() == 1
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert [p["filaments"] for p in meta.plates_json] == [
+        [{"slot": 1, "colour": "#FF0000"}, {"slot": 3, "colour": "#0000FF"}],
+        [{"slot": 2, "colour": "#00FF00"}],
+    ]
+    assert meta.plates_json[0]["colour_changes"] == []
+    assert meta.plates_json[1]["colour_changes"] == [{"z": 10.0, "slot": 3, "colour": "#0000FF"}]
+    sm = (await db_session.get(File, f.id, populate_existing=True)).source_meta
+    assert sm["profile_id"] == 777 and sm["title"] == "Fast profile" and sm["author"] == "alice"
+    # simulate a pre-feature row: no filament keys, stale version, NULL source_meta
+    glb = derivatives.plate_glb_path(get_settings(), f.blob_hash, 1)
+    mtime = glb.stat().st_mtime_ns
+    meta.plates_json = [
+        {k: v for k, v in p.items() if k not in ("filaments", "colour_changes")}
+        for p in meta.plates_json
+    ]
+    meta.plates_version = None
+    (await db_session.get(File, f.id)).source_meta = {"profile_id": 1}  # non-NULL: untouched
+    await db_session.commit()
+    assert pipeline.backfill_plates() == 1
+    meta = await db_session.get(BlobMeta, f.blob_hash, populate_existing=True)
+    assert meta.plates_json[1]["filaments"] == [{"slot": 2, "colour": "#00FF00"}]
+    assert glb.stat().st_mtime_ns == mtime  # GLB not regenerated
+    assert (await db_session.get(File, f.id, populate_existing=True)).source_meta == {
+        "profile_id": 1
+    }
+    assert pipeline.backfill_plates() == 0
+
+
+async def test_start_pipeline_fills_source_meta_for_deduped_file(
+    db_session: AsyncSession, backend, seed_file, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model, f = await _seed(
+        db_session, seed_file, make_coloured_project_3mf(profile_meta=True), "dedup"
+    )
+    monkeypatch.setattr(pipeline, "enqueue_step_sync", lambda *a, **k: None)
+    with sync_session() as session:
+        pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)
+    sm = (await db_session.get(File, f.id, populate_existing=True)).source_meta
+    assert sm["profile_id"] == 777
+    # non-NULL is never overwritten
+    (await db_session.get(File, f.id)).source_meta = {"profile_id": 1}
+    await db_session.commit()
+    with sync_session() as session:
+        pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)
+    assert (await db_session.get(File, f.id, populate_existing=True)).source_meta == {
+        "profile_id": 1
+    }

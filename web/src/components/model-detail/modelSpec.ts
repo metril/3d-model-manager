@@ -14,6 +14,8 @@ export function modelFilaments(model: ModelDetail): ModelFilament[] {
   const seen = new Map<string, ModelFilament>();
   for (const file of files) {
     for (const plate of file.meta?.plates ?? []) {
+      // Unsliced plates carry colour-only filaments (type null): keep chips sliced-only.
+      if (plate.filaments.every((f) => f.type == null)) continue;
       for (const filament of plate.filaments) {
         if (!filament.color && !filament.type) continue;
         const key = `${filament.color ?? ""}|${filament.type ?? ""}`;

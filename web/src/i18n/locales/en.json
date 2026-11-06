@@ -1826,5 +1826,16 @@
       "moveSlow": "The move is still running in the background. Check the Jobs page for progress.",
       "moveSlowPartial": "A move is still running and the remaining files were not submitted yet. Retry once it finishes."
     }
+  },
+  "profiles": {
+    "title": "Print profiles",
+    "plateCount_one": "{{count}} plate",
+    "plateCount_other": "{{count}} plates",
+    "by": "by {{author}}",
+    "colourChange": "Colour change at {{z}} mm",
+    "showPlate": "Show this plate in the viewer",
+    "plateOf": "Plate {{index}}/{{total}}",
+    "tooFar": "Too large",
+    "plateFile": "Plate file"
   }
 }

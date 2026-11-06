@@ -21,7 +21,24 @@ describe("PlateSelector", () => {
     const onChange = vi.fn();
     render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={null} onChange={onChange} />);
     expect(screen.getByRole("radio", { name: "All plates" })).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("radio", { name: /Plate 2 · P2/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Plate 2\/2 · P2/ }));
     expect(onChange).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("PlateSelector file label", () => {
+  it("names the file even when only one file is plated", () => {
+    render(
+      <PlateSelector
+        blobHash="h"
+        plates={[plate(1), plate(2)]}
+        value={null}
+        onChange={() => {}}
+        files={[{ fileId: 1, blobHash: "h", label: "0.2mm layer", plates: [plate(1), plate(2)] }]}
+        onFileChange={() => {}}
+      />,
+    );
+    expect(screen.getByText(/0\.2mm layer ·/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Plate 1\/2/ })).toBeInTheDocument();
   });
 });

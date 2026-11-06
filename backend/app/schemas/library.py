@@ -206,15 +206,24 @@ class PlateFilamentOut(BaseModel):
     color: str | None
     used_m: float | None
     used_g: float | None
+    # Unsliced projects: 1-based extruder slot (type/used_* are null there).
+    slot: int | None = None
 
     @classmethod
     def from_raw(cls, raw: dict) -> PlateFilamentOut:
         return cls(
+            slot=raw.get("slot"),
             type=raw.get("type"),
-            color=raw.get("color"),
+            color=raw.get("color") or raw.get("colour"),
             used_m=raw.get("used_m"),
             used_g=raw.get("used_g"),
         )
+
+
+class PlateColourChangeOut(BaseModel):
+    z: float
+    slot: int | None = None
+    colour: str
 
 
 class PlateOut(BaseModel):
@@ -224,6 +233,8 @@ class PlateOut(BaseModel):
     thumbnail_available: bool
     est_cost: float | None
     filaments: list[PlateFilamentOut]
+    # Unsliced project layer colour changes (custom_gcode_per_layer.xml).
+    colour_changes: list[PlateColourChangeOut] = []
     # Unsliced multi-plate projects: plate name + whether a per-plate GLB
     # exists (``GET /blobs/{hash}/plates/{n}/glb``); bbox = extents mm.
     name: str = ""
@@ -243,6 +254,7 @@ class PlateOut(BaseModel):
             thumbnail_available=thumbnail_available,
             est_cost=price_run(raw.get("weight_g"), raw.get("prediction_s"), rates).total_cost,
             filaments=[PlateFilamentOut.from_raw(f) for f in raw.get("filaments") or []],
+            colour_changes=[PlateColourChangeOut(**c) for c in raw.get("colour_changes") or []],
             name=raw.get("name") or "",
             has_glb=bool(raw.get("has_glb")),
             bbox=raw.get("bbox"),

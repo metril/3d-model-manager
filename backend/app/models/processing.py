@@ -68,6 +68,8 @@ class BlobMeta(Base):
     # Unsliced multi-plate 3MF plates: [{index,name,object_count,has_glb,bbox,fits}].
     # NULL = never analysed; [] = analysed, fewer than two plates.
     plates_json: Mapped[list | None] = mapped_column(JSONB)
+    # Analysis-output version of ``plates_json`` (``tasks.pipeline.PLATES_VERSION``); NULL = stale.
+    plates_version: Mapped[int | None] = mapped_column(Integer)
 
 
 class Derivative(Base):

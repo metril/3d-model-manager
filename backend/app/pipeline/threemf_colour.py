@@ -38,6 +38,10 @@ def parse_hex(value: str | None) -> tuple[int, int, int, int] | None:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255
 
 
+def hex_rgb(rgba: tuple[int, int, int, int]) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*rgba[:3])
+
+
 @dataclass
 class PartInfo:
     extruder: int
@@ -56,6 +60,8 @@ class ColourInfo:
     objects: dict[int, ObjectInfo]
     # plate index -> [(top_z, rgba)] sorted by top_z
     changes: dict[int, list[tuple[float, tuple[int, int, int, int]]]]
+    # plate index -> extruder slot per change (parallel to ``changes``; None when unknown)
+    change_slots: dict[int, list[int | None]] = field(default_factory=dict)
 
     def extruder_rgba(self, extruder: int) -> tuple[int, int, int, int] | None:
         return self.palette[extruder - 1] if 1 <= extruder <= len(self.palette) else None
@@ -75,6 +81,34 @@ class ColourInfo:
                 return None
             extruder = part.extruder
         return self.extruder_rgba(extruder) or DEFAULT_RGBA
+
+    def used_extruders(self, object_ids) -> list[int]:
+        """Sorted unique extruder slots of the display parts of ``object_ids``
+        (modifier/negative/blocker parts excluded, as in ``part_rgba``)."""
+        used: set[int] = set()
+        for oid in object_ids:
+            obj = self.objects.get(oid)
+            if obj is None:
+                continue
+            if obj.parts:
+                used.update(p.extruder for p in obj.parts if p.subtype == NORMAL_PART)
+            else:
+                used.add(obj.extruder)
+        return sorted(used)
+
+    def plate_filaments(self, object_ids) -> list[dict]:
+        return [
+            {"slot": e, "colour": hex_rgb(self.extruder_rgba(e) or DEFAULT_RGBA)}
+            for e in self.used_extruders(object_ids)
+        ]
+
+    def plate_colour_changes(self, plate_index: int) -> list[dict]:
+        rows = self.changes.get(plate_index, [])
+        slots = self.change_slots.get(plate_index, [None] * len(rows))
+        return [
+            {"z": z, "slot": slot, "colour": hex_rgb(rgba)}
+            for (z, rgba), slot in zip(rows, slots, strict=False)
+        ]
 
     @property
     def is_multicolour(self) -> bool:
@@ -141,7 +175,7 @@ def read_colour_info(zf: zipfile.ZipFile) -> ColourInfo | None:
             idx = slicedmeta._parse_int(info_el.get("id")) if info_el is not None else None
             if idx is None:
                 continue
-            rows: list[tuple[float, tuple[int, int, int, int]]] = []
+            rows: list[tuple[float, tuple[int, int, int, int], int | None]] = []
             for layer in plate_el.findall("layer"):
                 if slicedmeta._parse_int(layer.get("type")) != COLOUR_CHANGE:
                     continue
@@ -152,8 +186,10 @@ def read_colour_info(zf: zipfile.ZipFile) -> ColourInfo | None:
                 ext = slicedmeta._parse_int(layer.get("extruder"))
                 rgba = parse_hex(layer.get("color")) or (out.extruder_rgba(ext) if ext else None)
                 if rgba is not None:
-                    rows.append((top_z, rgba))
-            out.changes[idx] = sorted(rows)
+                    rows.append((top_z, rgba, ext))
+            rows.sort(key=lambda r: r[0])
+            out.changes[idx] = [(z, c) for z, c, _ in rows]
+            out.change_slots[idx] = [e for _, _, e in rows]
     return out
 
 

@@ -132,7 +132,7 @@ def make_project_3mf(
     return buf.getvalue()
 
 
-def make_coloured_project_3mf() -> bytes:
+def make_coloured_project_3mf(*, profile_meta: bool = False) -> bytes:
     """Two plates (bed 180). Plate 1: object 1 = parts [A extruder 1, B extruder
     3, M modifier extruder 2] (20 mm cubes in a row). Plate 2: object 2 = one
     20 mm cube on extruder 2 with a colour change to extruder 3 at top_z=10."""
@@ -165,8 +165,24 @@ def make_coloured_project_3mf() -> bytes:
         'transform="1 0 0 0 1 0 0 0 1 0 0 0"/>'
     )
     ox2, oy2 = grid_origin(1, 2, bed)
+    meta_xml = (
+        "".join(
+            f'<metadata name="{k}">{v}</metadata>'
+            for k, v in {
+                "DesignModelId": "555",
+                "DesignProfileId": "777",
+                "ProfileTitle": "Fast profile",
+                "ProfileDescription": "0.2 layers",
+                "ProfileUserName": "alice",
+                "Title": "Benchy",
+                "Designer": "bob",
+            }.items()
+        )
+        if profile_meta
+        else ""
+    )
     root = (
-        f'<?xml version="1.0"?><model unit="millimeter" {_NS}><resources>'
+        f'<?xml version="1.0"?><model unit="millimeter" {_NS}>{meta_xml}<resources>'
         f'<object id="1" type="model"><components>{comps1}</components></object>'
         f'<object id="2" type="model"><components>{comps2}</components></object>'
         "</resources><build>"
