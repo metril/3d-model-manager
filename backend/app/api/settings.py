@@ -56,6 +56,7 @@ from app.services import (
     storage_config,
 )
 from app.services import jobs as jobs_service
+from app.services import settings_store as store
 from app.services import storage_backends as storage_backends_service
 from app.services.storage_probe import probe_backend
 from app.storage.config import SECRET_FIELD_BY_BACKEND, StorageConfig, parse_storage_config
@@ -77,7 +78,7 @@ api_tokens_router = APIRouter(prefix="/settings", tags=["settings"])
 # Redaction sentinel GET emits for a set secret (app.storage.config.redacted)
 # -- an incoming request carrying this literal value is read back verbatim
 # from a form the client seeded off a redacted GET, never a real secret.
-_REDACTED_SENTINEL = "***"
+_REDACTED_SENTINEL = store.KEEP
 
 # Storage backend config decides where the server reads/writes files and where
 # stored credentials are sent: admin only (not just settings:write).

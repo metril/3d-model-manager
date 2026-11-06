@@ -17,7 +17,7 @@ from app.models.processing import BlobMeta
 from app.schemas.queue import QueueFilamentOut
 from app.services.ams_match import DE_OK, delta_e_ok
 from app.services.app_config import get_app_config
-from app.services.costing import CostRates, filament_cost, price_run
+from app.services.costing import CostRates, estimate_cost
 from app.services.spool_inventory import UNMAPPED, global_tray
 
 
@@ -100,23 +100,6 @@ def build_details(
         colour_mismatch=any(r.colour_mismatch for r in rows),
         estimated_cost=None if est is None else est * copies,
     )
-
-
-def estimate_cost(
-    plate: dict,
-    usages: list[tuple[Spool | None, float]],
-    rates: CostRates,
-    wear_per_hour: float | None,
-) -> float | None:
-    """Per-copy cost: per-spool filament pricing (global rate for a spool-less
-    slot, or the plate's own ``weight_g`` when no per-slot grams exist), plus
-    machine and wear rates x the predicted time."""
-    fc = filament_cost(usages, rates.filament_per_kg)
-    if fc is None and plate.get("weight_g") is not None:
-        fc = plate["weight_g"] / 1000 * rates.filament_per_kg
-    cost = price_run(None, plate.get("prediction_s"), rates, wear_per_hour=wear_per_hour)
-    parts = [c for c in (fc, cost.machine_cost, cost.wear_cost) if c is not None]
-    return sum(parts) if parts else None
 
 
 async def details_for_entries(

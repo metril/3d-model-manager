@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Setting
 from app.printers.pause_eta import heads_up_minutes
+from app.services import settings_store as store
 
 QUEUE_KEY = "queue"
 
@@ -27,13 +28,11 @@ def _cfg(value: dict | None) -> QueueConfig:
 
 
 async def get_queue_config(db: AsyncSession) -> QueueConfig:
-    row = await db.get(Setting, QUEUE_KEY)
-    return _cfg(row.value if row else None)
+    return _cfg(await store.get_value(db, QUEUE_KEY))
 
 
 def get_queue_config_sync(session: Session) -> QueueConfig:
-    row = session.get(Setting, QUEUE_KEY)
-    return _cfg(row.value if row else None)
+    return _cfg(store.get_value_sync(session, QUEUE_KEY))
 
 
 async def set_queue_config(db: AsyncSession, patch: dict) -> QueueConfig:

@@ -37,6 +37,7 @@ from app.schemas.home_assistant import (
     validate_alert_condition,
 )
 from app.services import ha_state
+from app.services import settings_store as store
 from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import (
     HaConfig,
@@ -54,7 +55,7 @@ router = APIRouter(
     dependencies=[Depends(require_perm("settings:write"))],
 )
 
-_KEEP_SENTINEL = "***"
+_KEEP_SENTINEL = store.KEEP
 _MQTT_TEST_TIMEOUT_S = 5.0
 
 

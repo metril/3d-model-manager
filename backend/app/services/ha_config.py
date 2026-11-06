@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.crypto import decrypt_secret, encrypt_secret
 from app.models import Setting, User
+from app.services import settings_store as store
 from app.services.permissions import can_control_sync, load_grants
 
 SETTINGS_KEY = "home_assistant"
@@ -40,7 +41,7 @@ NO_CONTROL_ERROR = "HA service account lacks printer control"
 # Sentinel the API layer echoes back for an unchanged secret (same
 # convention as storage/import-token secrets) -- `set_ha_config` treats an
 # omitted key, `None`, or this literal all as "keep the stored value".
-_KEEP_SENTINEL = "***"
+_KEEP_SENTINEL = store.KEEP
 
 _SECRET_FIELDS = (
     ("ha_mqtt_password", "ha_mqtt_password_enc"),

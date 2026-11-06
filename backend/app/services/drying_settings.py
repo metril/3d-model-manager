@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.models import Setting
+from app.services import settings_store as store
 from app.services.drying import DEFAULT_PRESETS, DRY_HOURS_RANGE, DRY_TEMP_RANGE
 
 DRYING_KEY = "drying"
@@ -67,21 +67,14 @@ def _cfg(value: dict | None) -> DryingConfig:
 
 
 async def get_drying_config(db: AsyncSession) -> DryingConfig:
-    row = await db.get(Setting, DRYING_KEY)
-    return _cfg(row.value if row else None)
+    return _cfg(await store.get_value(db, DRYING_KEY))
 
 
 def get_drying_config_sync(session: Session) -> DryingConfig:
-    row = session.get(Setting, DRYING_KEY)
-    return _cfg(row.value if row else None)
+    return _cfg(store.get_value_sync(session, DRYING_KEY))
 
 
 async def set_drying_config(db: AsyncSession, patch: dict) -> DryingConfig:
-    row = await db.get(Setting, DRYING_KEY)
-    value = {**(row.value if row else {}), **patch}
-    if row is None:
-        db.add(Setting(key=DRYING_KEY, value=value))
-    else:
-        row.value = value
+    value = await store.merge_value(db, DRYING_KEY, patch)
     await db.commit()
     return _cfg(value)

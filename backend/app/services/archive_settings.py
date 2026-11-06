@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.models import Setting
+from app.services import settings_store as store
 
 PURGE_KEY = "archive_purge"
 CONFIRM_KEY = "confirm"
@@ -51,65 +51,41 @@ def _confirm(value: dict | None) -> ConfirmConfig:
 
 
 async def get_purge_async(db: AsyncSession) -> PurgeConfig:
-    row = await db.get(Setting, PURGE_KEY)
-    return _purge(row.value if row else None)
+    return _purge(await store.get_value(db, PURGE_KEY))
 
 
 def get_purge(session: Session) -> PurgeConfig:
-    row = session.get(Setting, PURGE_KEY)
-    return _purge(row.value if row else None)
+    return _purge(store.get_value_sync(session, PURGE_KEY))
 
 
 async def set_purge_async(db: AsyncSession, cfg: PurgeConfig) -> PurgeConfig:
-    row = await db.get(Setting, PURGE_KEY)
-    old = dict(row.value) if row else {}
+    old = await store.get_value(db, PURGE_KEY) or {}
     value = {**{k: v for k, v in old.items() if k in _STAT_FIELDS}, **cfg.model_dump()}
-    if row is None:
-        db.add(Setting(key=PURGE_KEY, value=value))
-    else:
-        row.value = value
+    await store.put_value(db, PURGE_KEY, value)
     await db.commit()
     return cfg
 
 
-def get_purge_stats(session: Session) -> PurgeStats:
-    row = session.get(Setting, PURGE_KEY)
-    v = row.value if row else {}
-    return PurgeStats(**{k: v[k] for k in _STAT_FIELDS if k in v})
-
-
 async def get_purge_stats_async(db: AsyncSession) -> PurgeStats:
-    row = await db.get(Setting, PURGE_KEY)
-    v = row.value if row else {}
+    v = await store.get_value(db, PURGE_KEY) or {}
     return PurgeStats(**{k: v[k] for k in _STAT_FIELDS if k in v})
 
 
 def set_purge_stats(session: Session, stats: PurgeStats) -> None:
-    row = session.get(Setting, PURGE_KEY)
-    old = dict(row.value) if row else {}
-    value = {**old, **stats.model_dump()}
-    if row is None:
-        session.add(Setting(key=PURGE_KEY, value=value))
-    else:
-        row.value = value
+    old = store.get_value_sync(session, PURGE_KEY) or {}
+    store.put_value_sync(session, PURGE_KEY, {**old, **stats.model_dump()})
     session.commit()
 
 
 async def get_confirm_async(db: AsyncSession) -> ConfirmConfig:
-    row = await db.get(Setting, CONFIRM_KEY)
-    return _confirm(row.value if row else None)
+    return _confirm(await store.get_value(db, CONFIRM_KEY))
 
 
 def get_confirm(session: Session) -> ConfirmConfig:
-    row = session.get(Setting, CONFIRM_KEY)
-    return _confirm(row.value if row else None)
+    return _confirm(store.get_value_sync(session, CONFIRM_KEY))
 
 
 async def set_confirm_async(db: AsyncSession, cfg: ConfirmConfig) -> ConfirmConfig:
-    row = await db.get(Setting, CONFIRM_KEY)
-    if row is None:
-        db.add(Setting(key=CONFIRM_KEY, value=cfg.model_dump()))
-    else:
-        row.value = cfg.model_dump()
+    await store.put_value(db, CONFIRM_KEY, cfg.model_dump())
     await db.commit()
     return cfg
