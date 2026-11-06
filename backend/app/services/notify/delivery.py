@@ -109,10 +109,7 @@ def cron_due(expr: str, last: datetime, now: datetime, tz: str | None = None) ->
     while t <= now:
         lt = t.astimezone(zone)
         dom_ok, dow_ok = lt.day in dom, (lt.weekday() + 1) % 7 in dow
-        if dom_star or dow_star:
-            day_ok = dom_ok and dow_ok
-        else:
-            day_ok = dom_ok or dow_ok
+        day_ok = (dom_ok and dow_ok) if (dom_star or dow_star) else (dom_ok or dow_ok)
         if lt.minute in minute and lt.hour in hour and lt.month in month and day_ok:
             return True
         t += timedelta(minutes=1)

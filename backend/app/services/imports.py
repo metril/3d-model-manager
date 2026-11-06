@@ -9,8 +9,10 @@ between the two call sites.
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi import HTTPException, status
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.importers.registry import build_importer_for_url, deferred_site_for_url
@@ -66,6 +68,13 @@ async def start_import(
         )
 
     external_id = importer.canonicalize(url)
+    # Serialise concurrent starts for the same model (double-click, extension
+    # + UI, collection approve): the loser blocks here, then sees the winner's
+    # row below instead of creating a duplicate. Released at commit.
+    digest = hashlib.sha1(f"import:{importer.site}:{external_id}".encode()).digest()
+    await db.execute(
+        select(func.pg_advisory_xact_lock(int.from_bytes(digest[:8], "big", signed=True)))
+    )
     existing = await find_live_import(db, importer.site, external_id)
     if existing is None:
         existing = await find_active_import(db, importer.site, external_id)
