@@ -15,6 +15,9 @@ can't leak into each other.
 
 from __future__ import annotations
 
+import os
+import shutil
+
 import httpx
 import pytest
 
@@ -252,6 +255,13 @@ async def test_skip_outcome_still_enqueues_next_step(
     assert _step_2_state["calls"] == [blob_hash]
 
 
+# optimize_glb hard-requires the gltfpack binary (installed in the Docker image
+# and by scripts/fetch-gltfpack.sh in CI); skip on dev hosts that lack it, but
+# never in CI, where a missing binary is a real install failure.
+@pytest.mark.skipif(
+    shutil.which("gltfpack") is None and not os.environ.get("CI"),
+    reason="gltfpack not on PATH (run scripts/fetch-gltfpack.sh)",
+)
 async def test_full_stl_pipeline_runs_every_registered_step_to_done(
     authenticated_client: httpx.AsyncClient, corpus: CorpusPaths
 ) -> None:
