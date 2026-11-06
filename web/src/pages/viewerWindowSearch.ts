@@ -1,3 +1,4 @@
+import type { FileOut } from "@/api/types";
 /**
  * The pop-out viewer window's URL contract. Kept in its own module (no React
  * component export) so `parseViewerWindowSearch` can serve as the route's
@@ -65,4 +66,13 @@ export function parseViewerWindowSearch(search: Record<string, unknown>): Window
     blob: asString(search.blob),
     plate: asString(search.plate),
   };
+}
+
+/** `?plate=` only counts as an integer >= 1 that exists on the requested profile. */
+export function parsePlate(raw: string | number | undefined, blob: string | undefined, files: FileOut[]): number | undefined {
+  if (raw === undefined || raw === "" || !blob) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return undefined;
+  const exists = files.some((f) => f.blob_hash === blob && (f.meta?.plates ?? []).some((p) => p.index === n));
+  return exists ? n : undefined;
 }

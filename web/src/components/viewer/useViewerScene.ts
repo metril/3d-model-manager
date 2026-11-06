@@ -9,6 +9,7 @@
  * flags), keeping the assembly in one place instead of duplicated per caller.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -45,7 +46,9 @@ import {
   useSelectedPlate,
   viewerPlates,
   visibleParts,
+  type ViewerPlateFile,
 } from "@/components/viewer/plates";
+import { loadViewerPick, saveViewerPick } from "@/components/viewer/viewerPick";
 import type { ViewerPart } from "@/components/viewer/viewable";
 import { glbUrl } from "@/components/viewer/viewable";
 import type { FileOut } from "@/api/types";
@@ -67,6 +70,13 @@ export interface ViewerSceneInitial {
   /** Pop-out: the profile blob (or ALL_FILES) and plate the opener was showing. */
   blob?: string;
   plate?: number;
+}
+
+function samePlateFiles(a: ViewerPlateFile[], b: ViewerPlateFile[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.fileId === b[i].fileId && x.blobHash === b[i].blobHash && x.label === b[i].label && x.plates === b[i].plates)
+  );
 }
 
 type StagePropsBundle = Omit<
@@ -140,6 +150,7 @@ export function useViewerScene({
   // sourced from the first printer's build volume when one is configured.
   const plateSize = printers.data?.[0]?.build_volume_mm?.x ?? PLATE_SIZE_MM;
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!persist) return;
@@ -164,7 +175,7 @@ export function useViewerScene({
     try {
       const blob = await viewerApiRef.current?.screenshot();
       if (!blob) {
-        toast.error("Couldn't capture a screenshot");
+        toast.error(t("viewer.coverCaptureFailed"));
         return;
       }
 
@@ -173,30 +184,40 @@ export function useViewerScene({
         queryClient.invalidateQueries({ queryKey: modelQueryOptions(slug).queryKey }),
         queryClient.invalidateQueries({ queryKey: ["models", "list"] }),
       ]);
-      toast.success("Cover updated");
+      toast.success(t("viewer.coverUpdated"));
     } catch {
-      toast.error("Couldn't update cover");
+      toast.error(t("viewer.coverFailed"));
     } finally {
       setCapturingCover(false);
     }
-  }, [persist, slug, queryClient]);
+  }, [persist, slug, queryClient, t]);
 
   // B1 "toggle-fix core": every combinable file becomes a part, checked or
   // not -- the scene keeps them all mounted and toggles `visible` instead of
   // the checklist changing which parts even exist in the tree (which used to
   // force the whole canvas to remount on every checkbox click). `checkedIds`
   // still drives `visible`, `checkedList`, and the "N of M" header below.
-  const plateFiles = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
+  const plateFilesRaw = useMemo(() => viewerPlates(files, checkedIds), [files, checkedIds]);
+  // Toggling a part checkbox re-sorts "checked first" but usually yields the
+  // same entries: keep the previous reference so nothing downstream recomputes.
+  const plateFilesRef = useRef(plateFilesRaw);
+  if (!samePlateFiles(plateFilesRef.current, plateFilesRaw)) plateFilesRef.current = plateFilesRaw;
+  const plateFiles = plateFilesRef.current;
   // The selection is hook-local (so "All files" from another model can't leak
   // in); the module store is only the channel the profile cards share. Store
   // values already present at mount are stale and ignored.
   const storeBlob = useActiveViewerBlob();
-  const [preferredBlob, setPreferred] = useState<string | null>(initial?.blob ?? null);
+  // The pick to start from: the pop-out's URL, else this tab's per-model
+  // sessionStorage memory. Seeded into the plate store BEFORE the first read so
+  // the first render already shows the right plate (no null -> N swap that
+  // would reset explode / refit twice).
+  const [seed] = useState<{ blob: string | null }>(() => {
+    const pick = initial?.blob ? { blob: initial.blob, plate: initial.plate ?? null } : persist ? loadViewerPick(slug) : null;
+    if (pick && pick.blob !== ALL_FILES && pick.plate) setSelectedPlate(pick.blob, pick.plate);
+    return { blob: pick?.blob ?? null };
+  });
+  const [preferredBlob, setPreferred] = useState<string | null>(seed.blob);
   const seenStore = useRef(storeBlob);
-  useEffect(() => {
-    if (initial?.blob && initial.plate) setSelectedPlate(initial.blob, initial.plate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   // "All files" (combined view) only exists when non-profile meshes do too.
   const hasAllFiles = useMemo(
     () => plateFiles.length > 0 && files.some((f) => !plateFiles.some((p) => p.blobHash === f.blob_hash)),
@@ -211,8 +232,7 @@ export function useViewerScene({
   const target = allFiles ? ALL_FILES : plateBlob;
   // Publish which blob this viewer drives (profile cards act only on it).
   useEffect(() => {
-    if (plateFiles.length === 0) return;
-    setActiveViewerBlob(target);
+    setActiveViewerBlob(plateFiles.length === 0 ? null : target);
   }, [target, plateFiles.length]);
   // Adopt a profile picked elsewhere (cards); an unknown one is overwritten
   // with the resolved selection so the cards never highlight a ghost.
@@ -225,14 +245,42 @@ export function useViewerScene({
     else setActiveViewerBlob(target);
   }, [storeBlob, plateFiles, hasAllFiles, target]);
   // Forget the blob's plate pick when the profile changes or the viewer goes away.
+  // Profile change: clear the OLD blob in the effect body. On unmount, clear
+  // through a deferred "still not shown" check so a StrictMode remount (which
+  // re-runs effects) doesn't wipe the plate it just rendered with.
+  const prevBlob = useRef<string | null>(null);
   useEffect(() => {
-    if (!plateBlob) return;
-    return () => clearSelectedPlate(plateBlob);
+    if (prevBlob.current && prevBlob.current !== plateBlob) clearSelectedPlate(prevBlob.current);
+    prevBlob.current = plateBlob;
   }, [plateBlob]);
+  const shownBlob = useRef<string | null>(null);
+  shownBlob.current = plateBlob;
+  useEffect(() => {
+    return () => {
+      const blob = prevBlob.current;
+      if (!blob) return;
+      setTimeout(() => {
+        if (shownBlob.current !== blob || !mounted.current) clearSelectedPlate(blob);
+      }, 0);
+    };
+  }, []);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => () => setActiveViewerBlob(null), []);
   const selectedPlate = useSelectedPlate(plateBlob);
   // A profile isolates its file; "All files" restores the checked set.
-  const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob), [files, checkedIds, plateBlob]);
+  const activeFileId = plateInfo?.fileId ?? null;
+  const shown = useMemo(() => visibleParts(files, checkedIds, plateBlob, activeFileId), [files, checkedIds, plateBlob, activeFileId]);
+  // Remember the pick for this session (the tab only; the pop-out is URL-derived).
+  useEffect(() => {
+    if (!persist || plateFiles.length === 0) return;
+    saveViewerPick(slug, target ? { blob: target, plate: allFiles ? null : selectedPlate } : null);
+  }, [persist, slug, plateFiles.length, target, allFiles, selectedPlate]);
   // Isolation DROPS the other files from the tree rather than hiding them:
   // `Resize`/`Center` measure hidden parts too (so checkbox toggles never
   // shift the layout), which would ground and centre the lone profile against
@@ -249,7 +297,7 @@ export function useViewerScene({
   const parts: ViewerPart[] = useMemo(() => {
     if (layout) {
       return files
-        .filter((file) => file.blob_hash === plateBlob)
+        .filter((file) => file.id === activeFileId)
         .flatMap((file) =>
           layout.parts.map((lp) => ({
             id: layoutPartId(file.id, lp.plate),
@@ -267,7 +315,7 @@ export function useViewerScene({
       color: colors[file.id],
       visible: shown.has(file.id),
     }));
-  }, [files, shown, colors, plateBlob, selectedPlate, isolating, layout]);
+  }, [files, shown, colors, plateBlob, selectedPlate, isolating, layout, activeFileId]);
 
   // A plate swap loads different geometry (and isolates one file): reset
   // explode (its offsets describe the old parts) and reframe/fit to the bed.
@@ -324,7 +372,7 @@ export function useViewerScene({
 
   // What is actually on screen: the profile's files while one is active,
   // else the checked set. Colours, AMS sync and pop-outs act on this.
-  const checkedList = [...shown];
+  const checkedList = useMemo(() => [...shown], [shown]);
   const hasColors = Object.keys(colors).length > 0;
 
   // Open the current selection (or a single part) in its OWN browser window
