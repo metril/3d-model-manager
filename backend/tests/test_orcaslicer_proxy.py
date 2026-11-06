@@ -84,7 +84,9 @@ async def test_http_passthrough(authenticated_client: httpx.AsyncClient, db_sess
 
     r = await authenticated_client.get("/slicer/")
     assert r.status_code == 200 and r.text == "<html>orcaslicer</html>"
-    assert r.headers["content-security-policy"] == "frame-ancestors 'self'"
+    csp = r.headers["content-security-policy"]
+    assert csp.startswith("frame-ancestors 'self'")
+    assert "connect-src" in csp and "/api" not in csp
     assert r.headers["x-frame-options"] == "SAMEORIGIN"
     assert r.headers["cache-control"] == "max-age=60" and r.headers["x-up"] == "1"
     sent = html.calls.last.request

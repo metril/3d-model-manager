@@ -11,12 +11,14 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from fastapi import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import Session, User
 from app.models.enums import UserRole
 from app.security import hash_password
+from app.services.session_tokens import hash_session_token, new_session_token
 
 USERNAME = "admin"
 PASSWORD = "correct horse battery staple"
@@ -97,10 +99,14 @@ async def test_login_correct_credentials_returns_204_and_creates_session(
     cookie: http.cookies.BaseCookie = http.cookies.SimpleCookie()
     cookie.load(header)
     morsel = cookie["tdmm_session"]
-    token = uuid.UUID(morsel.value)  # raises if not a valid session token
+    token = morsel.value
+    assert len(token) >= 32
 
-    session = await db_session.get(Session, token)
+    session = await db_session.scalar(
+        select(Session).where(Session.token_hash == hash_session_token(token))
+    )
     assert session is not None
+    assert str(session.id) != token
     assert session.user_id == admin_user.id
     expected_expiry = before + timedelta(days=30)
     assert abs((session.expires_at - expected_expiry).total_seconds()) < 5
@@ -185,14 +191,16 @@ async def test_me_with_valid_session_returns_username(
 async def test_expired_session_is_rejected(
     client: httpx.AsyncClient, admin_user: User, db_session: AsyncSession
 ) -> None:
+    token = new_session_token()
     expired = Session(
+        token_hash=hash_session_token(token),
         user_id=admin_user.id,
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
     db_session.add(expired)
     await db_session.commit()
 
-    client.cookies.set("tdmm_session", str(expired.id))
+    client.cookies.set("tdmm_session", token)
     response = await client.get("/api/auth/me")
 
     assert response.status_code == 401
@@ -324,7 +332,7 @@ async def test_logout_deletes_session_and_clears_cookie(
     login = await client.post("/api/auth/login", json={"username": USERNAME, "password": PASSWORD})
     cookie = http.cookies.SimpleCookie()
     cookie.load(_set_cookie_header(login))
-    token = uuid.UUID(cookie["tdmm_session"].value)
+    token = cookie["tdmm_session"].value
 
     response = await client.post("/api/auth/logout")
 
@@ -332,7 +340,11 @@ async def test_logout_deletes_session_and_clears_cookie(
     clear_header = _set_cookie_header(response).lower()
     assert "max-age=0" in clear_header
 
-    assert await db_session.get(Session, token) is None
+    assert (
+        await db_session.scalar(
+            select(Session).where(Session.token_hash == hash_session_token(token))
+        )
+    ) is None
 
     followup = await client.get("/api/auth/me")
     assert followup.status_code == 401
@@ -348,15 +360,19 @@ async def test_last_seen_at_is_not_updated_within_throttle_window(
 ) -> None:
     now = datetime.now(UTC)
     seeded_last_seen = now - timedelta(seconds=30)
+    token = new_session_token()
     session = Session(
-        user_id=admin_user.id, expires_at=now + timedelta(days=30), last_seen_at=seeded_last_seen
+        token_hash=hash_session_token(token),
+        user_id=admin_user.id,
+        expires_at=now + timedelta(days=30),
+        last_seen_at=seeded_last_seen,
     )
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     stored_last_seen = session.last_seen_at
 
-    client.cookies.set("tdmm_session", str(session.id))
+    client.cookies.set("tdmm_session", token)
     response = await client.get("/api/auth/me")
     assert response.status_code == 200
 
@@ -368,13 +384,17 @@ async def test_last_seen_at_updates_after_throttle_window(
     client: httpx.AsyncClient, admin_user: User, db_session: AsyncSession
 ) -> None:
     stale = datetime.now(UTC) - timedelta(minutes=5)
+    token = new_session_token()
     session = Session(
-        user_id=admin_user.id, expires_at=datetime.now(UTC) + timedelta(days=30), last_seen_at=stale
+        token_hash=hash_session_token(token),
+        user_id=admin_user.id,
+        expires_at=datetime.now(UTC) + timedelta(days=30),
+        last_seen_at=stale,
     )
     db_session.add(session)
     await db_session.commit()
 
-    client.cookies.set("tdmm_session", str(session.id))
+    client.cookies.set("tdmm_session", token)
     response = await client.get("/api/auth/me")
     assert response.status_code == 200
 

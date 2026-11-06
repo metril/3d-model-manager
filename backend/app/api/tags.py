@@ -224,9 +224,13 @@ async def remove_tag(model_id: int, name: str, db: AsyncSession = Depends(get_db
 
 @router.put("/models/{model_id}/tags", response_model=list[TagRef], dependencies=_W)
 async def set_model_tags(
-    model_id: int, payload: TagIdsIn, db: AsyncSession = Depends(get_db)
+    model_id: int,
+    payload: TagIdsIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[TagRef]:
     model = await library.get_model_by_id(db, model_id)
+    require_owner_or_admin(ctx, model.created_by_user_id, "retag")
     refs = await tags_svc.set_entity_tags(db, "model", model_id, payload.tag_ids)
     model.updated_at = func.now()
     await db.commit()
@@ -235,9 +239,13 @@ async def set_model_tags(
 
 @router.put("/models/{model_id}/files/tags", response_model=list[TagRef], dependencies=_W)
 async def set_model_file_tags(
-    model_id: int, payload: FileTagIdsIn, db: AsyncSession = Depends(get_db)
+    model_id: int,
+    payload: FileTagIdsIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> list[TagRef]:
-    await library.get_model_by_id(db, model_id)
+    model = await library.get_model_by_id(db, model_id)
+    require_owner_or_admin(ctx, model.created_by_user_id, "retag")
     return await tags_svc.set_file_tags(db, model_id, payload.rel_path, payload.tag_ids)
 
 

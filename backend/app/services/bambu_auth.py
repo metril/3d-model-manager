@@ -283,6 +283,10 @@ def login(account: str, password: str, region: str = "global") -> BambuLoginResu
     return result
 
 
+# Only these client-echoed continuation keys may reach the outbound body.
+_MFA_CONTEXT_KEYS = frozenset({"tfaKey", "loginType"})
+
+
 def verify_code(
     account: str, code: str, region: str, context: dict | None = None
 ) -> BambuLoginResult:
@@ -295,7 +299,8 @@ def verify_code(
     multi-round flow is documented."""
     body: dict = {"account": account, "code": code}
     for key, value in (context or {}).items():
-        body.setdefault(key, value)
+        if key in _MFA_CONTEXT_KEYS and isinstance(value, str | int):
+            body.setdefault(key, value)
     result = _parse_login_response(_post_login(body, region))
     if result.status != "connected":
         raise BambuAuthError("Bambu did not accept the verification code (wrong or expired code?).")

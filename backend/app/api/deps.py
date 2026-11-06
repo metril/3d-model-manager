@@ -4,7 +4,6 @@ requirement 1). ``require_session`` is composed at *router* level in
 protected endpoint individually.
 """
 
-import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,6 +19,7 @@ from app.models import ApiToken, Group, Session, User
 from app.services import api_tokens, two_factor
 from app.services.app_config import get_app_config
 from app.services.permissions import PERMS, Perm, PrinterAcl, load_grants
+from app.services.session_tokens import hash_session_token
 from app.storage.base import StorageBackend
 
 SESSION_COOKIE_NAME = "tdmm_session"
@@ -109,14 +109,15 @@ async def require_session(
     """
     if tdmm_session is None:
         raise _unauthenticated()
-    try:
-        token = uuid.UUID(tdmm_session)
-    except ValueError:
-        raise _unauthenticated() from None
+    if not tdmm_session or len(tdmm_session) > 256:
+        raise _unauthenticated()
+    token_hash = hash_session_token(tdmm_session)
 
     row = (
         await db.execute(
-            select(Session, User).join(User, User.id == Session.user_id).where(Session.id == token)
+            select(Session, User)
+            .join(User, User.id == Session.user_id)
+            .where(Session.token_hash == token_hash)
         )
     ).one_or_none()
     if row is None:

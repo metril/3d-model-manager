@@ -8,7 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthContext, require_perm, require_session
 from app.db import get_db
-from app.models import AuditLog, Group, GroupMember, Printer, PrinterAccess, User
+from app.models import (
+    ApiToken,
+    AuditLog,
+    AuthEphemeralToken,
+    Group,
+    GroupMember,
+    Printer,
+    PrinterAccess,
+    User,
+)
 from app.models import Session as SessionModel
 from app.models.enums import MembershipSource
 from app.schemas.admin import (
@@ -146,6 +155,8 @@ async def reset_password(
     user = await _get(db, user_id)
     user.password_hash = await anyio.to_thread.run_sync(hash_password, payload.new_password)
     await db.execute(delete(SessionModel).where(SessionModel.user_id == user.id))
+    await db.execute(delete(ApiToken).where(ApiToken.user_id == user.id))
+    await db.execute(delete(AuthEphemeralToken).where(AuthEphemeralToken.user_id == user.id))
     await db.commit()
 
 

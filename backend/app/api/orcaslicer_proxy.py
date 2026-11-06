@@ -84,6 +84,15 @@ def _upstream_url(cfg: ServerConfig, path: str, query: str) -> str:
     return f"{url}?{query}" if query else url
 
 
+def _html_csp(request: Request) -> str:
+    host = request.headers.get("host", "")
+    connect = " ".join(f"{scheme}://{host}/slicer/" for scheme in ("http", "https", "ws", "wss"))
+    return (
+        f"frame-ancestors 'self'; connect-src {connect}; object-src 'none'; "
+        "base-uri 'self'; form-action 'self'"
+    )
+
+
 async def _body(request: Request) -> AsyncIterator[bytes]:
     async for chunk in request.stream():
         yield chunk
@@ -123,7 +132,11 @@ async def proxy_http(
         ]
         raw += [
             # Always 'self': there is no server-config field for frame-ancestors.
-            ("Content-Security-Policy", "frame-ancestors 'self'"),
+            # A sandbox CSP is NOT usable here: the sidecar UI's websocket needs
+            # a same-origin Origin header + the Lax session cookie, both lost in
+            # an opaque origin. Instead pin connect-src to the proxy path so
+            # sidecar-served script can't fetch/XHR/WebSocket to /api/*.
+            ("Content-Security-Policy", _html_csp(request)),
             ("X-Frame-Options", "SAMEORIGIN"),
         ]
     response = StreamingResponse(

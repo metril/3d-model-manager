@@ -58,6 +58,7 @@ async def _event_stream(
     printer_ids: list[int] | None = None,
     key_stream: bool = False,
     recheck: Callable[[], Awaitable[set[int] | None]] | None = None,
+    visible_ids: set[int] | None = None,
 ) -> AsyncIterator[bytes]:
     """``printer_ids`` (already ACL-intersected) enables ``printer.*`` events;
     ``key_stream`` restricts the stream to ``print_job.updated`` + ``printer.*``
@@ -66,12 +67,15 @@ async def _event_stream(
     pubsub = client.pubsub()
     await pubsub.subscribe(CHANNEL)
     ids = set(printer_ids or [])
+    # Non-admin web sessions: print_job.*/printer.* always limited to the
+    # caller's visible printers, even with no printer_ids param.
+    scope = ids if (ids or key_stream or visible_ids is None) else visible_ids
     streamer = PrinterStream(settings, client, sorted(ids)) if ids and settings else None
     heartbeat = min(heartbeat_interval, PING_MAX_S)
     last_out = time.monotonic()
     next_tick = last_out  # poll immediately: initial printer.status
     next_recheck = last_out + RECHECK_S
-    filter_ids = key_stream or bool(ids)
+    filter_ids = key_stream or bool(ids) or visible_ids is not None
     try:
         while True:
             now = time.monotonic()
@@ -85,7 +89,7 @@ async def _event_stream(
                 data = message["data"]
                 if isinstance(data, bytes):
                     data = data.decode()
-                if _forward(data, ids, key_stream, filter_ids):
+                if _forward(data, scope, key_stream, filter_ids):
                     last_out = time.monotonic()
                     yield f"data: {data}\n\n".encode()
             if recheck and time.monotonic() >= next_recheck:
@@ -130,6 +134,7 @@ def _forward(data: str, ids: set[int], key_stream: bool, filter_ids: bool) -> bo
     typ = ev.get("type", "") if isinstance(ev, dict) else ""
     if typ == "print_job.updated":
         printer_stream.invalidate(ev.get("printer_id"))
+    if typ.startswith(("print_job.", "printer.")):
         return not filter_ids or ev.get("printer_id") in ids
     if not key_stream:
         return True
@@ -239,6 +244,7 @@ async def sse_events(
             settings=settings,
             printer_ids=sorted(ids),
             key_stream=auth.is_key,
+            visible_ids=None if auth.is_key else auth.allowed,
             recheck=_key_recheck(auth.token) if auth.is_key and auth.token else None,
         ),
         media_type="text/event-stream",
