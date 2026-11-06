@@ -55,6 +55,8 @@ test("cookies.onChanged for the makerworld `token` cookie triggers the courier; 
   listener({ cookie: { name: "other", domain: ".makerworld.com" }, removed: false });
   listener({ cookie: { name: "token", domain: ".example.com" }, removed: false });
   listener({ cookie: { name: "token", domain: ".makerworld.com" }, removed: true });
+  listener({ cookie: { name: "token", domain: ".evilmakerworld.com" }, removed: false }); // lookalike host
+  listener({ cookie: { name: "token", domain: "makerworld.com.evil.test" }, removed: false });
   await tick();
   assert.equal(fetchCalls.length, 0);
   listener({ cookie: { name: "token", domain: ".makerworld.com" }, removed: false });

@@ -87,7 +87,7 @@ def test_build_argv_is_list_with_expected_flags(tmp_path):
     assert runner.build_argv(
         cli="c", work=tmp_path, model=tmp_path / "m", settings=[], filaments=[],
         bed_type="Cool Plate", auto_orient=False, arrange=False, plate=None, use_xvfb=True,
-    )[:2] == ["xvfb-run", "-a"]
+    )[:2] == ["xvfb-run", "-n"]
     with pytest.raises(runner.BadRequest):
         runner.bed_type_name("lava")
 
@@ -343,3 +343,67 @@ def test_profile_index_multiple_vendors(tmp_path):
     assert {e["name"]: e["vendor"] for e in ix.entries("printer")} == {
         "BBL printer": "BBL", "Prusa printer": "Prusa"}
     assert [e["name"] for e in ProfileIndex(tmp_path, ["BBL"]).entries("printer")] == ["BBL printer"]
+
+
+def test_xvfb_display_numbers_unique():
+    a, b = runner.next_display(), runner.next_display()
+    assert a != b and a >= 100
+
+
+def test_run_slice_uses_private_home(fake_cli):
+    job = _job(None)
+    try:
+        _run(job, fake_cli)
+        assert (job.dir / "home.txt").read_text() == str(job.dir / "home")
+    finally:
+        runner.cleanup(job.dir)
+
+
+def test_timeout_keeps_log_tail(fake_cli):
+    job = _job(None, "hangout")
+    try:
+        with pytest.raises(runner.SliceTimeout) as ei:
+            _run(job, fake_cli, timeout=1)
+        assert "partial output before hang" in ei.value.log_tail
+    finally:
+        runner.cleanup(job.dir)
+
+
+def test_flatten_strips_command_keys(bbl):
+    ix = ProfileIndex(bbl)
+    flat = ix.flatten_dict(
+        "process", {"name": "x", "post_process": ["rm -rf /"], "printhost_apikey": "k", "layer_height": "0.2"}
+    )
+    assert flat == {"name": "x", "layer_height": "0.2"}
+
+
+def test_slice_negative_plate_400(api):
+    req = _body()
+    req["data"]["options"] = '{"plate": -1}'
+    r = api.post("/slice", **req)
+    assert r.status_code == 400 and "plate" in r.json()["message"]
+
+
+def test_slice_plate_zero_means_all(api):
+    req = _body()
+    req["data"]["options"] = '{"plate": 0}'
+    assert api.post("/slice", **req).status_code == 200
+
+
+def test_slice_requires_content_length(api):
+    def chunks():
+        yield b"x"
+
+    r = api.post("/slice", content=chunks())
+    assert r.status_code == 411
+
+
+def test_slice_counters_reset_when_job_dir_fails(api, monkeypatch):
+    def boom():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(runner, "new_job_dir", boom)
+    with pytest.raises(OSError):
+        api.post("/slice", **_body())
+    assert main.app.state.running == 0
+    assert not main.app.state.sem.locked()

@@ -12,7 +12,13 @@
 # swaps that image in. The pin below is the single source of truth -- the
 # workflow reads it from this file. printerd hands the ML API a one-shot snapshot URL
 # served by the API (`/api/obico/frame/<nonce>`), so the sidecar must be able
-# to reach `api:8000` (same compose network).
+# to reach `api:8080` (same compose network).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   obico-ml:
     build:
@@ -22,6 +28,7 @@ services:
         org.opencontainers.image.source: https://github.com/TheSpaghettiDetective/obico-server
     image: ${OBICO_ML_IMAGE:-tdmm-obico-ml:local}
     platform: linux/amd64
+    mem_limit: ${OBICO_MEM_LIMIT:-4g}
     command: ["bash", "-c", "gunicorn --bind 0.0.0.0:3333 --workers 1 --timeout 120 wsgi"]
     environment:
       DEBUG: "False"
@@ -37,3 +44,4 @@ services:
       retries: 5
       start_period: 60s
     restart: unless-stopped
+    logging: *default-logging

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import json
 import os
 import shutil
@@ -77,8 +78,9 @@ def build_argv(
     arrange: bool,
     plate: int | None,
     use_xvfb: bool = False,
+    display: int | None = None,
 ) -> list[str]:
-    argv = ["xvfb-run", "-a"] if use_xvfb else []
+    argv = ["xvfb-run", "-n", str(display if display is not None else next_display())] if use_xvfb else []
     argv += [cli, "--load-settings", ";".join(str(p) for p in settings)]
     if filaments:
         argv += ["--load-filaments", ";".join(str(p) for p in filaments)]
@@ -87,6 +89,15 @@ def build_argv(
     argv += ["--slice", str(plate if plate else 0)]
     argv += ["--export-3mf", OUT_NAME, "--outputdir", str(work / "out"), str(model)]
     return argv
+
+
+_display_counter = itertools.count()
+
+
+def next_display() -> int:
+    """Unique X display number per job (`xvfb-run -a` races when jobs overlap).
+    Cycles through 100..899; stale locks from killed servers are reclaimed."""
+    return 100 + next(_display_counter) % 800
 
 
 def _tail(data: bytes) -> str:
@@ -164,8 +175,14 @@ async def run_slice(
         plate=plate,
         use_xvfb=use_xvfb,
     )
+    # Private HOME per job: Orca writes config/cache under $HOME, and sharing
+    # one across jobs lets a job read or poison another's state.
+    home = job.dir / "home"
+    home.mkdir(exist_ok=True)
+    env = {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
     proc = await asyncio.create_subprocess_exec(
         *argv,
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         stdin=asyncio.subprocess.DEVNULL,
@@ -176,17 +193,32 @@ async def run_slice(
         handle.proc = proc
         if handle.cancelled:
             _kill_group(proc)
+    buf = bytearray()
+
+    async def pump() -> None:
+        # Keep only the newest bytes so a timeout still has a log to show.
+        assert proc.stdout is not None
+        while chunk := await proc.stdout.read(65536):
+            buf.extend(chunk)
+            if len(buf) > 2 * LOG_TAIL_BYTES:
+                del buf[:-LOG_TAIL_BYTES]
+
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+        await asyncio.wait_for(asyncio.gather(pump(), proc.wait()), timeout=timeout_s)
     except asyncio.TimeoutError:
         _kill_group(proc)
         with contextlib.suppress(Exception):
             await proc.wait()
-        raise SliceTimeout(f"slice exceeded {timeout_s:.0f}s", None, "") from None
+        tail = _tail(bytes(buf))
+        if handle is not None:
+            handle.log_tail = tail
+        raise SliceTimeout(f"slice exceeded {timeout_s:.0f}s", None, tail) from None
     except BaseException:
         _kill_group(proc)
+        # Reap without blocking a cancellation.
+        asyncio.ensure_future(proc.wait())
         raise
-    tail = _tail(out or b"")
+    tail = _tail(bytes(buf))
     if handle is not None:
         handle.log_tail = tail
     if handle is not None and handle.cancelled:

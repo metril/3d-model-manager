@@ -6,6 +6,20 @@
 const REQUIRED_PERMS = ["library:write"];
 
 /** True for hosts where plain http is acceptable: localhost, RFC1918, `.local`. */
+/**
+ * The `<origin>/*` pattern of the app address the user moved away from, or
+ * null when the origin is unchanged / either URL is missing or invalid.
+ */
+export function staleOriginPattern(prevUrl, nextUrl) {
+  try {
+    const before = new URL(prevUrl).origin;
+    const after = new URL(nextUrl).origin;
+    return before !== after ? `${before}/*` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isPrivateHost(hostname) {
   const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host === "::1" || host.endsWith(".localhost") || host.endsWith(".local")) {

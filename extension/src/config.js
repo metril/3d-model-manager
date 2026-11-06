@@ -123,9 +123,14 @@ export async function getState() {
 /** Atomically shallow-merges `patch` into the persisted config. */
 export function setConfig(patch) {
   return withLock(async () => {
-    const { config, state } = await readAll();
+    const { config, state, needsMigration } = await readAll();
     const next = coerceConfig({ ...config, ...patch });
-    await chrome.storage.local.set({ [CONFIG_KEY]: next, [STATE_KEY]: state });
+    // Write only the key that changed; a stale `state` snapshot must never
+    // overwrite one a concurrent context just wrote. A pending migration is
+    // the one case that needs both (config gets its schemaVersion now).
+    await chrome.storage.local.set(
+      needsMigration ? { [CONFIG_KEY]: next, [STATE_KEY]: state } : { [CONFIG_KEY]: next },
+    );
     return next;
   });
 }
@@ -139,10 +144,12 @@ export function setConfig(patch) {
  */
 export function setState(update) {
   return withLock(async () => {
-    const { config, state } = await readAll();
+    const { config, state, needsMigration } = await readAll();
     const patch = typeof update === "function" ? update(state) : update;
     const next = coerceState({ ...state, ...patch });
-    await chrome.storage.local.set({ [CONFIG_KEY]: config, [STATE_KEY]: next });
+    await chrome.storage.local.set(
+      needsMigration ? { [CONFIG_KEY]: config, [STATE_KEY]: next } : { [STATE_KEY]: next },
+    );
     return next;
   });
 }

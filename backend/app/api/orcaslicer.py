@@ -17,6 +17,7 @@ from app.api.deps import AuthContext, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.services import events, library, orcaslicer_sessions
+from app.services.launcher_token import launcher_headers
 from app.services.server_config import ServerConfig, get_server_config
 
 router = APIRouter(tags=["orcaslicer"])
@@ -33,9 +34,7 @@ async def _redis(settings: Settings = Depends(get_settings)) -> AsyncIterator[ai
 async def _orcaslicer_running(cfg: ServerConfig) -> bool:
     if not cfg.orcaslicer_enabled:
         return False
-    headers = {}
-    if cfg.orcaslicer_launcher_token is not None:
-        headers["X-Launcher-Token"] = cfg.orcaslicer_launcher_token.get_secret_value()
+    headers = launcher_headers(cfg)
     with contextlib.suppress(httpx.HTTPError, ValueError):
         async with httpx.AsyncClient(timeout=3.0, follow_redirects=False) as c:
             resp = await c.get(f"{cfg.orcaslicer_launcher_url.rstrip('/')}/health", headers=headers)
