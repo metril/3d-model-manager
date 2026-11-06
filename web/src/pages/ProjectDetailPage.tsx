@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useRef, useState } from "react";
 import { EntityTags } from "@/components/tags/EntityTags";
 import { TagFilter } from "@/components/tags/TagFilter";
@@ -11,7 +12,6 @@ import { useAuth } from "@/api/auth";
 import { useModelSearchQuery } from "@/api/library";
 import {
   PROJECT_STATUSES,
-  statusLabel,
   attachmentUrl,
   exportUrl,
   useAddItem,
@@ -86,6 +86,7 @@ function AddPartDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q, 250);
   const results = useModelSearchQuery(dq);
@@ -95,12 +96,12 @@ function AddPartDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add part</DialogTitle>
+          <DialogTitle>{t("projectDetail.addPart")}</DialogTitle>
         </DialogHeader>
         <Input
           autoFocus
-          aria-label="Search models"
-          placeholder="Search models…"
+          aria-label={t("projectDetail.searchModels")}
+          placeholder={t("projectDetail.searchModelsPlaceholder")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -134,6 +135,7 @@ function AddPurchasedDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [cost, setCost] = useState("");
@@ -155,31 +157,31 @@ function AddPurchasedDialog({
       busy={add.isPending}
     >
       <DialogHeader>
-        <DialogTitle>Add purchased item</DialogTitle>
+        <DialogTitle>{t("projectDetail.addPurchased")}</DialogTitle>
       </DialogHeader>
       <Input
-        aria-label="Item name"
-        placeholder="Name (e.g. M3 screws)"
+        aria-label={t("projectDetail.itemName")}
+        placeholder={t("projectDetail.itemNamePlaceholder")}
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
       <div className="flex gap-2">
-        <Input aria-label="Quantity" type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+        <Input aria-label={t("projectDetail.quantity")} type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
         <Input
-          aria-label="Unit cost"
+          aria-label={t("projectDetail.unitCost")}
           type="number"
           min={0}
           step="0.01"
-          placeholder="Unit cost"
+          placeholder={t("projectDetail.unitCost")}
           value={cost}
           onChange={(e) => setCost(e.target.value)}
         />
       </div>
-      <Input aria-label="Link" placeholder="Link (optional)" value={url} onChange={(e) => setUrl(e.target.value)} />
+      <Input aria-label={t("projectDetail.link")} placeholder={t("projectDetail.linkOptional")} value={url} onChange={(e) => setUrl(e.target.value)} />
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
-            Cancel
+            {t("common.cancel")}
           </Button>
         </DialogClose>
         <Button
@@ -205,7 +207,7 @@ function AddPurchasedDialog({
             )
           }
         >
-          Add
+          {t("common.add")}
         </Button>
       </DialogFooter>
     </FormDialog>
@@ -213,6 +215,7 @@ function AddPurchasedDialog({
 }
 
 function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: boolean }) {
+  const { t } = useTranslation();
   const patch = usePatchItem(project.id);
   const del = useDeleteItem(project.id);
   const [partOpen, setPartOpen] = useState(false);
@@ -222,29 +225,29 @@ function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: bool
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle>Bill of materials</CardTitle>
+        <CardTitle>{t("projectDetail.bom")}</CardTitle>
         {canWrite && (
           <div className="flex gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => setPartOpen(true)}>
-              Add part
+              {t("projectDetail.addPart")}
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => setBuyOpen(true)}>
-              Add purchased item
+              {t("projectDetail.addPurchased")}
             </Button>
           </div>
         )}
       </CardHeader>
       <CardContent className="overflow-x-auto">
         {project.items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No items yet.</p>
+          <p className="text-sm text-muted-foreground">{t("projectDetail.noItems")}</p>
         ) : (
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr>
-                <th className="py-1">Item</th>
-                <th>Qty</th>
-                <th>Progress</th>
-                <th>Cost</th>
+                <th className="py-1">{t("projectDetail.col.item")}</th>
+                <th>{t("projectDetail.col.qty")}</th>
+                <th>{t("projectDetail.col.progress")}</th>
+                <th>{t("projectDetail.col.cost")}</th>
                 <th />
               </tr>
             </thead>
@@ -267,13 +270,13 @@ function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: bool
                       {i.kind}
                     </Badge>
                     {i.file_name && <span className="ml-2 text-xs text-muted-foreground">{i.file_name}</span>}
-                    {i.plate && <span className="ml-1 text-xs text-muted-foreground">plate {i.plate}</span>}
+                    {i.plate && <span className="ml-1 text-xs text-muted-foreground">{t("projectDetail.plate", { plate: i.plate })}</span>}
                   </td>
                   <td>
                     <NumberCell
                       value={i.quantity}
                       min={1}
-                      label={`Quantity for ${i.name}`}
+                      label={t("projectDetail.quantityFor", { name: i.name })}
                       disabled={!canWrite}
                       onCommit={(n) => edit(i, { quantity: n })}
                     />
@@ -282,13 +285,13 @@ function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: bool
                     {i.kind === "part" ? (
                       <span>
                         {i.done}/{i.quantity}
-                        {i.queued > 0 && <span className="text-muted-foreground"> (+{i.queued} queued)</span>}
+                        {i.queued > 0 && <span className="text-muted-foreground"> ({t("projectDetail.plusQueued", { n: i.queued })})</span>}
                       </span>
                     ) : (
                       <NumberCell
                         value={i.acquired}
                         min={0}
-                        label={`Acquired for ${i.name}`}
+                        label={t("projectDetail.acquiredFor", { name: i.name })}
                         disabled={!canWrite}
                         onCommit={(n) => edit(i, { acquired: n })}
                       />
@@ -301,7 +304,7 @@ function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: bool
                         type="button"
                         size="icon"
                         variant="ghost"
-                        aria-label={`Remove ${i.name}`}
+                        aria-label={t("projectDetail.removeNamed", { name: i.name })}
                         onClick={() => del.mutate(i.id)}
                       >
                         <Trash2Icon />
@@ -321,6 +324,7 @@ function BomCard({ project, canWrite }: { project: ProjectDetail; canWrite: bool
 }
 
 function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: boolean }) {
+  const { t } = useTranslation();
   const linked = useProjectArchives(projectId);
   const recent = useArchives({ limit: 50 });
   const link = useLinkArchives(projectId);
@@ -330,17 +334,17 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Print runs</CardTitle>
+        <CardTitle>{t("projectDetail.runs")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        {(linked.data ?? []).length === 0 && <p className="text-muted-foreground">No runs counted yet.</p>}
+        {(linked.data ?? []).length === 0 && <p className="text-muted-foreground">{t("projectDetail.noRuns")}</p>}
         {(linked.data ?? []).map((a) => (
           <div key={a.id} className="flex items-center justify-between gap-2">
             <span>
-              #{a.id} {a.model_name ?? "unknown"} · {a.result}
+              #{a.id} {a.model_name ?? t("projectDetail.unknown")} · {a.result}
               {a.duration_s ? ` · ${humanizeDuration(a.duration_s)}` : ""}
               {a.total_cost != null ? ` · ${formatCost(a.total_cost)}` : ""}
-              {!a.explicit && <span className="text-muted-foreground"> (auto-matched)</span>}
+              {!a.explicit && <span className="text-muted-foreground"> {t("projectDetail.autoMatched")}</span>}
             </span>
             {canWrite && a.explicit && (
               <Button
@@ -349,7 +353,7 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
                 variant="ghost"
                 onClick={() => link.mutate({ ids: [a.id], unlink: true })}
               >
-                Unlink
+                {t("projectDetail.unlink")}
               </Button>
             )}
           </div>
@@ -357,15 +361,15 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
         {canWrite && options.length > 0 && (
           <div className="flex gap-2 pt-2">
             <select
-              aria-label="Archive to link"
+              aria-label={t("projectDetail.archiveToLink")}
               className="h-8 flex-1 rounded-md border bg-background px-2 text-sm"
               value={pick}
               onChange={(e) => setPick(e.target.value)}
             >
-              <option value="">Link an archived run…</option>
+              <option value="">{t("projectDetail.linkRun")}</option>
               {options.map((a) => (
                 <option key={a.id} value={String(a.id)}>
-                  #{a.id} {a.model_name ?? a.subtask_name ?? "run"} ({a.result})
+                  #{a.id} {a.model_name ?? a.subtask_name ?? t("projectDetail.run")} ({a.result})
                 </option>
               ))}
             </select>
@@ -375,7 +379,7 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
               disabled={!pick}
               onClick={() => link.mutate({ ids: [Number(pick)], unlink: false }, { onSuccess: () => setPick("") })}
             >
-              Link
+              {t("projectDetail.linkBtn")}
             </Button>
           </div>
         )}
@@ -385,6 +389,7 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
 }
 
 function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWrite: boolean }) {
+  const { t } = useTranslation();
   const upload = useUploadAttachment(project.id);
   const del = useDeleteAttachment(project.id);
   const input = useRef<HTMLInputElement>(null);
@@ -393,7 +398,7 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle>Attachments</CardTitle>
+        <CardTitle>{t("projectDetail.attachments")}</CardTitle>
         {project.attachments.length > 0 && (
           <TagFilter value={tagFilter} onChange={setTagFilter} countKey="attachments" />
         )}
@@ -403,7 +408,7 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
               ref={input}
               type="file"
               hidden
-              aria-label="Upload attachment"
+              aria-label={t("projectDetail.uploadAttachment")}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) upload.mutate(f);
@@ -417,15 +422,15 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
               disabled={upload.isPending}
               onClick={() => input.current?.click()}
             >
-              <UploadIcon /> Upload
+              <UploadIcon /> {t("projectDetail.upload")}
             </Button>
           </>
         )}
       </CardHeader>
       <CardContent className="space-y-1 text-sm">
-        {project.attachments.length === 0 && <p className="text-muted-foreground">No attachments.</p>}
+        {project.attachments.length === 0 && <p className="text-muted-foreground">{t("projectDetail.noAttachments")}</p>}
         {project.attachments.length > 0 && shown.length === 0 && (
-          <p className="text-muted-foreground">No attachments match this tag filter.</p>
+          <p className="text-muted-foreground">{t("projectDetail.noAttachmentsMatch")}</p>
         )}
         {shown.map((a) => (
           <div key={a.id} className="flex items-center justify-between gap-2">
@@ -444,7 +449,7 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
                 type="button"
                 size="icon"
                 variant="ghost"
-                aria-label={`Delete ${a.filename}`}
+                aria-label={t("projectDetail.deleteNamed", { name: a.filename })}
                 onClick={() => del.mutate(a.id)}
               >
                 <Trash2Icon />
@@ -458,11 +463,12 @@ function AttachmentsCard({ project, canWrite }: { project: ProjectDetail; canWri
 }
 
 function TimelineCard({ projectId }: { projectId: number }) {
+  const { t } = useTranslation();
   const tl = useProjectTimeline(projectId);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Timeline</CardTitle>
+        <CardTitle>{t("projectDetail.timeline")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-1 text-sm">
         {(tl.data ?? []).map((e, idx) => (
@@ -471,13 +477,14 @@ function TimelineCard({ projectId }: { projectId: number }) {
             <span>{e.message}</span>
           </div>
         ))}
-        {(tl.data ?? []).length === 0 && <p className="text-muted-foreground">Nothing yet.</p>}
+        {(tl.data ?? []).length === 0 && <p className="text-muted-foreground">{t("projectDetail.nothingYet")}</p>}
       </CardContent>
     </Card>
   );
 }
 
 function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWrite: boolean; canPrint: boolean }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const patch = usePatchProject(project.id);
   const del = useDeleteProject();
@@ -493,7 +500,7 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
-          {project.is_template && <Badge>template</Badge>}
+          {project.is_template && <Badge>{t("projectDetail.template")}</Badge>}
         </div>
         <div className="flex flex-wrap gap-2">
           {canPrint && !project.is_template && (
@@ -505,19 +512,20 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
                   onSuccess: (r) => {
                     const n = r.enqueued.reduce((s, e) => s + e.copies, 0);
                     toast.success(
-                      `Queued ${n} print${n === 1 ? "" : "s"}${r.skipped.length ? `, skipped ${r.skipped.length}` : ""}`,
+                      t("projectDetail.queuedPrints", { count: n }) +
+                        (r.skipped.length ? t("projectDetail.skippedN", { n: r.skipped.length }) : ""),
                     );
                     r.skipped.forEach((s) => toast.warning(`${s.model}: ${s.reason}`));
                   },
                 })
               }
             >
-              <ListPlusIcon /> Queue remaining ({outstanding})
+              <ListPlusIcon /> {t("projectDetail.queueRemaining", { n: outstanding })}
             </Button>
           )}
           <details className="relative">
             <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border px-3 text-sm">
-              <DownloadIcon className="size-4" /> Export
+              <DownloadIcon className="size-4" /> {t("projectDetail.export")}
             </summary>
             <div className="absolute right-0 z-10 mt-1 flex w-28 flex-col rounded-md border bg-popover p-1 text-sm shadow">
               {(["csv", "json", "zip"] as const).map((f) => (
@@ -530,10 +538,10 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
           {canWrite && (
             <>
               <Button type="button" variant="outline" onClick={() => setTplOpen(true)}>
-                Save as template
+                {t("projectDetail.saveTemplate")}
               </Button>
               <Button type="button" variant="outline" onClick={() => setDelOpen(true)}>
-                <Trash2Icon /> Delete
+                <Trash2Icon /> {t("common.delete")}
               </Button>
             </>
           )}
@@ -542,7 +550,7 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
 
       <div className="flex flex-wrap items-center gap-3">
         <select
-          aria-label="Status"
+          aria-label={t("projectDetail.status")}
           className="h-8 rounded-md border bg-background px-2 text-sm"
           value={project.status}
           disabled={!canWrite}
@@ -550,28 +558,28 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
         >
           {PROJECT_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {statusLabel(s)}
+              {t(`projectsPage.status.${s}`)}
             </option>
           ))}
         </select>
         <label className="flex items-center gap-1 text-sm">
-          Due
+          {t("projectDetail.due")}
           <Input
             type="date"
             className="h-8 w-40"
-            aria-label="Due date"
+            aria-label={t("projectDetail.dueDate")}
             disabled={!canWrite}
             value={project.due_date ?? ""}
             onChange={(e) => patch.mutate({ due_date: e.target.value || null })}
           />
         </label>
-        {project.overdue && <Badge variant="destructive">Overdue</Badge>}
+        {project.overdue && <Badge variant="destructive">{t("projectDetail.overdue")}</Badge>}
         <EntityTags target={{ kind: "project", id: project.id }} tags={project.tag_refs} readOnly={!canWrite} />
       </div>
 
       <Textarea
-        aria-label="Notes"
-        placeholder="Notes"
+        aria-label={t("projectDetail.notes")}
+        placeholder={t("projectDetail.notes")}
         defaultValue={project.notes}
         disabled={!canWrite}
         onBlur={(e) => e.target.value !== project.notes && patch.mutate({ notes: e.target.value })}
@@ -580,9 +588,9 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
       <ConfirmDialog
         open={delOpen}
         onOpenChange={setDelOpen}
-        title={`Delete project "${project.name}"?`}
-        description={`Removes the project, its ${project.items.length} BOM item(s) and ${project.attachments.length} attachment(s). Models and print runs are kept.`}
-        confirmLabel="Delete project"
+        title={t("projectDetail.deleteTitle", { name: project.name })}
+        description={t("projectDetail.deleteDesc", { items: project.items.length, attachments: project.attachments.length })}
+        confirmLabel={t("projectDetail.deleteConfirm")}
         destructive
         onConfirm={() =>
           del.mutate(project.id, {
@@ -600,18 +608,18 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
         busy={makeTemplate.isPending}
       >
         <DialogHeader>
-          <DialogTitle>Save as template</DialogTitle>
+          <DialogTitle>{t("projectDetail.saveTemplate")}</DialogTitle>
         </DialogHeader>
         <Input
-          aria-label="Template name"
-          placeholder="Template name"
+          aria-label={t("projectDetail.templateName")}
+          placeholder={t("projectDetail.templateName")}
           value={tplName}
           onChange={(e) => setTplName(e.target.value)}
         />
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="outline">
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogClose>
           <Button
@@ -620,13 +628,13 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
             onClick={() =>
               makeTemplate.mutate(tplName.trim(), {
                 onSuccess: () => {
-                  toast.success("Template saved");
+                  toast.success(t("projectDetail.templateSaved"));
                   setTplOpen(false);
                 },
               })
             }
           >
-            Save
+            {t("common.save")}
           </Button>
         </DialogFooter>
       </FormDialog>
@@ -635,6 +643,7 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
 }
 
 export function ProjectDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams({ strict: false }) as { id: string };
   const auth = useAuth();
   const project = useProject(Number(id));
@@ -643,14 +652,14 @@ export function ProjectDetailPage() {
   if (project.error && !(project.error instanceof ApiError && project.error.status === 404)) {
     return (
       <div role="alert" className="space-y-2 text-sm">
-        <p className="text-destructive">{project.error instanceof ApiError ? project.error.detail : "Couldn't load the project."}</p>
+        <p className="text-destructive">{project.error instanceof ApiError ? project.error.detail : t("projectDetail.loadError")}</p>
         <Button size="sm" variant="outline" onClick={() => void project.refetch()}>
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
   }
-  if (!project.data) return <p className="text-sm text-muted-foreground">Project not found.</p>;
+  if (!project.data) return <p className="text-sm text-muted-foreground">{t("projectDetail.notFound")}</p>;
   const p = project.data;
   const canWrite = auth.can("library:write");
 
@@ -660,25 +669,29 @@ export function ProjectDetailPage() {
       <Card>
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
           <div className="space-y-2">
-            <Progress value={p.progress.percent} aria-label={`${p.progress.percent}% complete`} />
+            <Progress value={p.progress.percent} aria-label={t("projectsPage.percentComplete", { percent: p.progress.percent })} />
             <p className="text-sm">
-              {p.progress.percent}% · {p.progress.parts_done}/{p.progress.parts_total} parts printed
+              {t("projectDetail.progress", {
+                percent: p.progress.percent,
+                done: p.progress.parts_done,
+                total: p.progress.parts_total,
+              })}
               {p.progress.purchased_total > 0 &&
-                ` · ${p.progress.purchased_acquired}/${p.progress.purchased_total} items acquired`}
+                ` · ${t("projectDetail.acquired", { done: p.progress.purchased_acquired, total: p.progress.purchased_total })}`}
             </p>
           </div>
           <dl className="grid grid-cols-2 gap-x-4 text-sm">
-            <dt className="text-muted-foreground">Filament</dt>
+            <dt className="text-muted-foreground">{t("projectDetail.cost.filament")}</dt>
             <dd>{p.cost.filament_g} g</dd>
-            <dt className="text-muted-foreground">Print time</dt>
+            <dt className="text-muted-foreground">{t("projectDetail.cost.time")}</dt>
             <dd>{humanizeDuration(p.cost.print_time_s)}</dd>
-            <dt className="text-muted-foreground">Print cost</dt>
+            <dt className="text-muted-foreground">{t("projectDetail.cost.print")}</dt>
             <dd>{formatCost(p.cost.print_cost)}</dd>
-            <dt className="text-muted-foreground">Purchased</dt>
+            <dt className="text-muted-foreground">{t("projectDetail.cost.purchased")}</dt>
             <dd>{formatCost(p.cost.purchased_cost)}</dd>
-            <dt className="font-medium">Total</dt>
+            <dt className="font-medium">{t("projectDetail.cost.total")}</dt>
             <dd className="font-medium">{formatCost(p.cost.total_cost)}</dd>
-            <dt className="text-muted-foreground">Est. remaining</dt>
+            <dt className="text-muted-foreground">{t("projectDetail.cost.remaining")}</dt>
             <dd>{formatCost(p.cost.estimated_remaining_cost)}</dd>
           </dl>
         </CardContent>
