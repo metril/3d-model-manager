@@ -135,22 +135,29 @@ def _load_json(raw: bytes, what: str):
 @app.post("/slice")
 async def slice_(request: Request):
     sem: asyncio.Semaphore = app.state.sem
+    # Require a declared length: a chunked body would bypass the size cap below
+    # (the backend client always sends one).
     try:
-        declared = int(request.headers.get("content-length") or 0)
+        declared = int(request.headers.get("content-length") or -1)
     except ValueError:
-        declared = 0
+        declared = -1
+    if declared < 0:
+        return _err(411, "length_required", "Content-Length header required")
     if declared > MAX_UPLOAD + _UPLOAD_SLACK:
         return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
     if sem.locked():
         return _err(429, "busy", "slicer is busy", headers={"Retry-After": "15"})
     await sem.acquire()
-    app.state.running += 1
-    job_dir = runner.new_job_dir()
+    counted = False
+    job_dir: Path | None = None
     job_id = (request.headers.get("x-job-id") or "").strip()[:128]
     handle = runner.JobHandle()
-    if job_id:
-        app.state.jobs[job_id] = handle
     try:
+        app.state.running += 1
+        counted = True
+        job_dir = runner.new_job_dir()
+        if job_id:
+            app.state.jobs[job_id] = handle
         try:
             form = await request.form(max_part_size=MAX_UPLOAD)
         except Exception:
@@ -171,10 +178,13 @@ async def slice_(request: Request):
             options = _load_json(raw_options.encode(), "options")
             if not isinstance(options, dict):
                 return _err(400, "bad_request", "options must be a JSON object")
+            plate_raw = options.get("plate")
             try:
-                plate = int(options["plate"]) if options.get("plate") else None
+                plate = int(plate_raw) if plate_raw not in (None, "", False) else None
             except (TypeError, ValueError):
                 return _err(400, "bad_request", "options.plate must be an integer")
+            if plate is not None and plate < 0:
+                return _err(400, "bad_request", "options.plate must be >= 0 (0/omitted = all plates)")
             bed_type = str(form.get("bed_type") or "textured_plate")
         except OverflowError:
             return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
@@ -247,6 +257,8 @@ async def slice_(request: Request):
     finally:
         if job_id and app.state.jobs.get(job_id) is handle:
             del app.state.jobs[job_id]
-        runner.cleanup(job_dir)
-        app.state.running -= 1
+        if job_dir is not None:
+            runner.cleanup(job_dir)
+        if counted:
+            app.state.running -= 1
         sem.release()
