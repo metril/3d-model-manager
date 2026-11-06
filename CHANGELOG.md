@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.2](https://github.com/metril/3d-model-manager/compare/v0.17.1...v0.17.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **backend:** printers, Celery, storage review fixes ([#237](https://github.com/metril/3d-model-manager/issues/237)) ([2ed570a](https://github.com/metril/3d-model-manager/commit/2ed570a1b374d7724f42b9968824bf7c237ef6ba))
+
 ## [0.17.1](https://github.com/metril/3d-model-manager/compare/v0.17.0...v0.17.1) (2026-11-06)
 
 
