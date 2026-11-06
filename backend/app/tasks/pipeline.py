@@ -55,7 +55,16 @@ from sqlalchemy.orm import Session as SyncSession
 from app.config import Settings, get_settings
 from app.models import Blob, BlobMeta, Derivative, File, Job
 from app.models.enums import BlobFormat, DerivativeKind, DerivativeStatus
-from app.pipeline import convert, gcode_meta, meshload, plates3mf, render, slicedmeta, thumbs
+from app.pipeline import (
+    convert,
+    gcode_meta,
+    meshload,
+    plates3mf,
+    render,
+    slicedmeta,
+    threemf_colour,
+    thumbs,
+)
 from app.services import derivatives, jobs
 from app.services.storage_config import resolve_backend_sync
 from app.storage.base import StorageBackend
@@ -883,7 +892,7 @@ def _convert_to_glb_step(
 
 
 # Bump when ``plates_json`` gains fields so the startup backfill re-analyses old rows.
-PLATES_VERSION = 2
+PLATES_VERSION = 3
 
 
 def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
@@ -994,7 +1003,7 @@ def _generate_plate_assets(session: SyncSession, settings: Settings, blob: Blob,
                     "fits": fits,
                     "bed": list(plate_bed),
                     "origin": list(plates3mf.plate_origin(idx, n_grid, plate_bed)),
-                    **fil_info.get(idx, {"filaments": [], "colour_changes": []}),
+                    **fil_info.get(idx, {"filaments": [], "colour_changes": [], "pauses": []}),
                 }
             )
         meta.plates_json = out
@@ -1092,6 +1101,21 @@ def backfill_plates() -> int:
     return done
 
 
+def _glb_needs_only_stamp(session: SyncSession, settings: Settings, blob: Blob) -> bool:
+    """Already-Y-up GLB that the layer-type fix cannot change: any non-3MF, or a
+    3MF with no ``custom_gcode_per_layer.xml``. Only the version stamp is bumped."""
+    deriv = _glb_derivative(session, blob.hash)
+    if deriv is None or deriv.version < convert.GLB_YUP_VERSION:
+        return False
+    if blob.format is not BlobFormat.THREEMF:
+        return True
+    with (
+        derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
+        zipfile.ZipFile(fh) as zf,
+    ):
+        return threemf_colour.GCODE_PER_LAYER not in zf.namelist()
+
+
 def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> None:
     """Rewrite a stale (pre-Y-up) blob's raw GLB, plate GLBs, glb_web and
     preview LOD from the source file, then stamp ``GLB_VERSION``."""
@@ -1170,7 +1194,12 @@ def backfill_glb_orientation() -> int:
         )
         for blob in rows:
             try:
-                _regenerate_glb(session, settings, blob)
+                if _glb_needs_only_stamp(session, settings, blob):
+                    deriv = _glb_derivative(session, blob.hash)
+                    deriv.version = convert.GLB_VERSION
+                    session.commit()
+                else:
+                    _regenerate_glb(session, settings, blob)
                 done += 1
             except Exception:
                 session.rollback()

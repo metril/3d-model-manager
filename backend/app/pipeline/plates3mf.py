@@ -87,13 +87,14 @@ def parse_unsliced_plates(zf: zipfile.ZipFile) -> list[dict]:
 
 
 def plate_filament_info(zf: zipfile.ZipFile, plates: list[dict]) -> dict[int, dict]:
-    """``{plate index: {"filaments": [...], "colour_changes": [...]}}``; empty
+    """``{plate index: {"filaments": [...], "colour_changes": [...], "pauses": [...]}}``; empty
     lists when the file has no Bambu/Orca filament data."""
     info = threemf_colour.read_colour_info(zf)
     return {
         p["index"]: {
             "filaments": info.plate_filaments(p["object_ids"]) if info else [],
             "colour_changes": info.plate_colour_changes(p["index"]) if info else [],
+            "pauses": info.plate_pauses(p["index"]) if info else [],
         }
         for p in plates
     }
@@ -271,7 +272,7 @@ def _load_items(
     items: list[trimesh.Trimesh | None] = []
     for pos, parts in enumerate(pieces):
         oid = item_oids[pos]
-        changes = info.changes.get(plate_of.get(pos, -1))
+        plate_idx = plate_of.get(pos, -1)
         painted: list[trimesh.Trimesh] = []
         for piece in parts:
             rgba = (
@@ -279,6 +280,9 @@ def _load_items(
             )
             if rgba is None:
                 continue  # modifier / negative part / support blocker
+            changes = info.painting_changes(
+                plate_idx, info.part_extruder(oid, piece.metadata.get("part_index"))
+            )
             painted.append(threemf_colour.paint_faces(piece, rgba, changes))
         items.append(trimesh.util.concatenate(painted) if painted else None)
     return items, assigned, item_oids

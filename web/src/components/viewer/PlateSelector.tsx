@@ -1,4 +1,4 @@
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, Pause } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PlateSwatches } from "@/components/viewer/PlateFilaments";
@@ -45,12 +45,23 @@ export function PlateSelector({
   };
   const optionLabel = (f: ViewerPlateFile) =>
     f.plates.length > 0 ? t("profiles.profileOption", { title: f.label, plates: t("profiles.plateCount", { count: f.plates.length }) }) : f.label;
+  const current = files?.find((f) => f.blobHash === blobHash);
+  const currentPlates = current && current.plates.length > 0 ? t("profiles.plateCount", { count: current.plates.length }) : null;
   return (
     <div className="pointer-events-none flex max-w-full gap-1.5 overflow-x-auto px-2">
       {showPicker ? (
         <Select value={blobHash} onValueChange={onFileChange}>
-          <SelectTrigger aria-label={t("profiles.plateFile")} className="pointer-events-auto h-7 w-auto max-w-64 shrink-0 gap-1.5 rounded-full bg-background/80 px-2.5 text-xs backdrop-blur-sm">
-            <SelectValue />
+          <SelectTrigger aria-label={t("profiles.plateFile")} title={current ? optionLabel(current) : undefined} className="pointer-events-auto h-7 w-auto max-w-72 shrink-0 gap-1.5 rounded-full bg-background/80 px-2.5 text-xs backdrop-blur-sm">
+            {current ? (
+              <SelectValue>
+                <span className="flex min-w-0 items-baseline gap-1">
+                  <span className="min-w-0 truncate">{current.label}</span>{" "}
+                  {currentPlates ? <span className="shrink-0 whitespace-nowrap text-muted-foreground">· {currentPlates}</span> : null}
+                </span>
+              </SelectValue>
+            ) : (
+              <SelectValue />
+            )}
           </SelectTrigger>
           <SelectContent>
             {files.map((f) => (
@@ -85,6 +96,7 @@ export function PlateSelector({
               <span className="whitespace-nowrap">{chipLabel(p)}</span>
               <PlateSwatches plate={p} className="size-2" />
               {(p.colour_changes?.length ?? 0) > 0 ? <span aria-hidden className="text-[10px]">⇄</span> : null}
+              {(p.pauses?.length ?? 0) > 0 ? <Pause aria-hidden data-testid="plate-pause" className="size-3" /> : null}
               {p.fits === false ? <span className="text-destructive">!</span> : null}
             </button>
           ))}

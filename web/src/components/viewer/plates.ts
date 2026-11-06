@@ -219,6 +219,7 @@ export function plateTitle(plate: PlateOut, t: (k: string, o?: Record<string, un
   const f = plate.filaments.map((x) => x.type ?? "").filter(Boolean);
   if (f.length) parts.push(f.join(" / "));
   for (const c of plate.colour_changes ?? []) parts.push(t("profiles.colourChange", { z: c.z.toFixed(1) }) + ` → ${c.colour}`);
+  for (const p of plate.pauses ?? []) parts.push(t("profiles.pauseAt", { z: p.z.toFixed(1) }));
   return parts.length ? parts.join(" · ") : undefined;
 }
 

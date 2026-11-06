@@ -176,6 +176,8 @@ export interface PlateOut {
   filaments: PlateFilamentOut[];
   /** Mid-print colour swaps (unsliced Bambu 3MFs). */
   colour_changes?: PlateColourChange[];
+  /** Print pauses (manual filament swap); the model is not repainted at them. */
+  pauses?: { z: number }[];
   /** Unsliced multi-plate projects: plate name, per-plate GLB, extents (mm), bed fit. */
   name?: string;
   has_glb?: boolean;

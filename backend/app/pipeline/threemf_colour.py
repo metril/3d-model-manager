@@ -25,7 +25,13 @@ MODEL_SETTINGS = "Metadata/model_settings.config"
 PROJECT_SETTINGS = "Metadata/project_settings.config"
 GCODE_PER_LAYER = "Metadata/custom_gcode_per_layer.xml"
 NORMAL_PART = "normal_part"
-COLOUR_CHANGE = 1  # <layer type="1"> = filament colour change
+# <layer type=N> per libslic3r CustomGCode.hpp: 0 ColorChange, 1 PausePrint,
+# 2 ToolChange, 3 Template, 4 Custom. Only 0 and 2 repaint; 1 is a pause marker.
+COLOUR_CHANGE = 0
+PAUSE_PRINT = 1
+TOOL_CHANGE = 2
+MODE_MULTI_EXTRUDER = "MultiExtruder"
+MODE_MULTI_AS_SINGLE = "MultiAsSingle"
 DEFAULT_RGBA = (191, 191, 191, 255)
 _HEX = re.compile(r"^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$")
 
@@ -55,31 +61,63 @@ class ObjectInfo:
 
 
 @dataclass
+class LayerEvent:
+    z: float
+    rgba: tuple[int, int, int, int]
+    extruder: int | None
+    kind: int  # COLOUR_CHANGE | TOOL_CHANGE
+
+
+@dataclass
 class ColourInfo:
     palette: list[tuple[int, int, int, int]]
     objects: dict[int, ObjectInfo]
-    # plate index -> [(top_z, rgba)] sorted by top_z
-    changes: dict[int, list[tuple[float, tuple[int, int, int, int]]]]
-    # plate index -> extruder slot per change (parallel to ``changes``; None when unknown)
-    change_slots: dict[int, list[int | None]] = field(default_factory=dict)
+    # plate index -> colour/tool changes sorted by z (pauses excluded)
+    events: dict[int, list[LayerEvent]]
+    # plate index -> slicer mode ("SingleExtruder" when absent)
+    modes: dict[int, str] = field(default_factory=dict)
+    # plate index -> sorted pause z's
+    pauses: dict[int, list[float]] = field(default_factory=dict)
+
+    def painting_changes(
+        self, plate_index: int, part_extruder: int | None
+    ) -> list[tuple[float, tuple[int, int, int, int]]]:
+        """``[(z, rgba)]`` ascending that repaint a part printed by
+        ``part_extruder``. MultiExtruder: only that extruder's colour changes;
+        otherwise everything above z (tool changes only in MultiAsSingle)."""
+        mode = self.modes.get(plate_index)
+        out = []
+        for ev in self.events.get(plate_index, []):
+            if mode == MODE_MULTI_EXTRUDER:
+                if ev.kind == COLOUR_CHANGE and ev.extruder == part_extruder:
+                    out.append((ev.z, ev.rgba))
+            elif ev.kind == COLOUR_CHANGE or mode == MODE_MULTI_AS_SINGLE:
+                out.append((ev.z, ev.rgba))
+        return out
 
     def extruder_rgba(self, extruder: int) -> tuple[int, int, int, int] | None:
         return self.palette[extruder - 1] if 1 <= extruder <= len(self.palette) else None
 
-    def part_rgba(self, oid: int, part_index: int | None) -> tuple[int, int, int, int] | None:
-        """Colour of a display part, or ``None`` when the part is not display
-        geometry (modifier, negative part, support blocker/enforcer)."""
+    def part_extruder(self, oid: int, part_index: int | None) -> int | None:
+        """Extruder slot of a display part, or ``None`` when the part is not
+        display geometry (modifier, negative part, support blocker/enforcer)."""
         obj = self.objects.get(oid)
         if obj is None:
-            return self.extruder_rgba(1) or DEFAULT_RGBA
-        extruder = obj.extruder
+            return 1
         # Part lists are positional; a mismatch (e.g. a single mesh holding
         # several parts) falls back to the object-level colour.
         if part_index is not None and 0 <= part_index < len(obj.parts):
             part = obj.parts[part_index]
-            if part.subtype != NORMAL_PART:
-                return None
-            extruder = part.extruder
+            return part.extruder if part.subtype == NORMAL_PART else None
+        return obj.extruder
+
+    def part_rgba(self, oid: int, part_index: int | None) -> tuple[int, int, int, int] | None:
+        """Colour of a display part, or ``None`` when it is not display geometry."""
+        extruder = self.part_extruder(oid, part_index)
+        if extruder is None:
+            return None
+        if oid not in self.objects:
+            return self.extruder_rgba(1) or DEFAULT_RGBA
         return self.extruder_rgba(extruder) or DEFAULT_RGBA
 
     def used_extruders(self, object_ids) -> list[int]:
@@ -103,19 +141,20 @@ class ColourInfo:
         ]
 
     def plate_colour_changes(self, plate_index: int) -> list[dict]:
-        rows = self.changes.get(plate_index, [])
-        slots = self.change_slots.get(plate_index, [None] * len(rows))
         return [
-            {"z": z, "slot": slot, "colour": hex_rgb(rgba)}
-            for (z, rgba), slot in zip(rows, slots, strict=False)
+            {"z": ev.z, "slot": ev.extruder, "colour": hex_rgb(ev.rgba)}
+            for ev in self.events.get(plate_index, [])
         ]
+
+    def plate_pauses(self, plate_index: int) -> list[dict]:
+        return [{"z": z} for z in self.pauses.get(plate_index, [])]
 
     @property
     def is_multicolour(self) -> bool:
         """Only multi-filament files are painted: a single-colour project
         keeps the viewer's own default material instead of the slicer's
         (arbitrary) default filament colour."""
-        if any(self.changes.values()):
+        if any(self.events.values()):
             return True
         used: set[int] = set()
         for obj in self.objects.values():
@@ -163,7 +202,7 @@ def read_colour_info(zf: zipfile.ZipFile) -> ColourInfo | None:
     if not objects:
         return None
 
-    out = ColourInfo(palette=palette, objects=objects, changes={})
+    out = ColourInfo(palette=palette, objects=objects, events={})
     gcodes = slicedmeta.read_zip_member(zf, GCODE_PER_LAYER)
     if gcodes is not None:
         try:
@@ -175,21 +214,34 @@ def read_colour_info(zf: zipfile.ZipFile) -> ColourInfo | None:
             idx = slicedmeta._parse_int(info_el.get("id")) if info_el is not None else None
             if idx is None:
                 continue
-            rows: list[tuple[float, tuple[int, int, int, int], int | None]] = []
+            events: list[LayerEvent] = []
+            pauses: list[float] = []
             for layer in plate_el.findall("layer"):
-                if slicedmeta._parse_int(layer.get("type")) != COLOUR_CHANGE:
+                kind = slicedmeta._parse_int(layer.get("type"))
+                if kind not in (COLOUR_CHANGE, PAUSE_PRINT, TOOL_CHANGE):
                     continue
                 try:
                     top_z = float(layer.get("top_z", ""))
                 except ValueError:
                     continue
+                if kind == PAUSE_PRINT:
+                    pauses.append(top_z)
+                    continue
                 ext = slicedmeta._parse_int(layer.get("extruder"))
-                rgba = parse_hex(layer.get("color")) or (out.extruder_rgba(ext) if ext else None)
+                slot_rgba = out.extruder_rgba(ext) if ext else None
+                rgba = (
+                    (parse_hex(layer.get("color")) or slot_rgba)
+                    if kind == COLOUR_CHANGE
+                    else slot_rgba or parse_hex(layer.get("color"))
+                )
                 if rgba is not None:
-                    rows.append((top_z, rgba, ext))
-            rows.sort(key=lambda r: r[0])
-            out.changes[idx] = [(z, c) for z, c, _ in rows]
-            out.change_slots[idx] = [e for _, _, e in rows]
+                    events.append(LayerEvent(top_z, rgba, ext, kind))
+            events.sort(key=lambda e: e.z)
+            out.events[idx] = events
+            out.pauses[idx] = sorted(pauses)
+            mode_el = plate_el.find("mode")
+            if mode_el is not None and mode_el.get("value"):
+                out.modes[idx] = mode_el.get("value", "")
     return out
 
 
