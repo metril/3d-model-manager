@@ -7,6 +7,7 @@
  * copy). Live-updates via `useEvents.tsx`'s `job.updated` branch, which
  * invalidates `["jobs"]` on every transition -- no polling needed here.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -38,13 +39,13 @@ const STATE_VARIANT: Record<JobState, "default" | "secondary" | "outline" | "des
 type StateFilter = "attention" | "all" | JobState;
 
 const FILTER_OPTIONS: { value: StateFilter; label: string }[] = [
-  { value: "attention", label: "Needs attention (failed + dead)" },
-  { value: "all", label: "All" },
-  { value: "queued", label: "Queued" },
-  { value: "running", label: "Running" },
-  { value: "done", label: "Done" },
-  { value: "failed", label: "Failed" },
-  { value: "dead", label: "Dead-lettered" },
+  { value: "attention", label: "jobsPage.filter.attention" },
+  { value: "all", label: "jobsPage.filter.all" },
+  { value: "queued", label: "jobsPage.filter.queued" },
+  { value: "running", label: "jobsPage.filter.running" },
+  { value: "done", label: "jobsPage.filter.done" },
+  { value: "failed", label: "jobsPage.filter.failed" },
+  { value: "dead", label: "jobsPage.filter.dead" },
 ];
 
 const NEEDS_ATTENTION = new Set<JobState>(["failed", "dead"]);
@@ -58,6 +59,7 @@ function isDeadLettered(job: JobOut): boolean {
 }
 
 export function JobsPage() {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<StateFilter>("attention");
   const backendState = filter === "attention" || filter === "all" ? undefined : filter;
   const jobsQuery = useJobs({ state: backendState });
@@ -69,19 +71,19 @@ export function JobsPage() {
     <PageContainer width="default">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Jobs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("jobsPage.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Every background job tracked by the app — uploads, pipeline steps, scans, imports, and storage migrations.
+            {t("jobsPage.subtitle")}
           </p>
         </div>
         <Select value={filter} onValueChange={(value) => setFilter(value as StateFilter)}>
-          <SelectTrigger aria-label="Filter by state">
+          <SelectTrigger aria-label={t("jobsPage.filterAria")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {FILTER_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                {t(option.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -90,9 +92,9 @@ export function JobsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Job list</CardTitle>
+          <CardTitle>{t("jobsPage.listTitle")}</CardTitle>
           <CardDescription>
-            {filter === "attention" ? "Jobs that failed or were dead-lettered." : "Most recent jobs, newest first."}
+            {filter === "attention" ? t("jobsPage.listAttention") : t("jobsPage.listRecent")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -100,23 +102,23 @@ export function JobsPage() {
             <Skeleton className="h-32 w-full rounded-lg" />
           ) : jobsQuery.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {jobsQuery.error instanceof ApiError ? jobsQuery.error.detail : "Couldn't load jobs."}
+              {jobsQuery.error instanceof ApiError ? jobsQuery.error.detail : t("jobsPage.loadError")}
             </p>
           ) : jobs.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              {filter === "attention" ? "No jobs need attention." : "No jobs match this filter."}
+              {filter === "attention" ? t("jobsPage.emptyAttention") : t("jobsPage.emptyFilter")}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Attempts</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead>Error</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>{t("jobsPage.col.type")}</TableHead>
+                  <TableHead>{t("jobsPage.col.state")}</TableHead>
+                  <TableHead>{t("jobsPage.col.subject")}</TableHead>
+                  <TableHead>{t("jobsPage.col.attempts")}</TableHead>
+                  <TableHead>{t("jobsPage.col.updated")}</TableHead>
+                  <TableHead>{t("jobsPage.col.error")}</TableHead>
+                  <TableHead>{t("jobsPage.col.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -133,6 +135,7 @@ export function JobsPage() {
 }
 
 function JobRow({ job }: { job: JobOut }) {
+  const { t } = useTranslation();
   const retryJob = useRetryJob();
   const dead = isDeadLettered(job);
   // `migrate_storage` has no retry path at all (`app/services/jobs.py`
@@ -148,7 +151,7 @@ function JobRow({ job }: { job: JobOut }) {
       <TableCell className="font-mono text-xs">{job.type}</TableCell>
       <TableCell>
         {dead ? (
-          <Badge variant="destructive">Dead-lettered</Badge>
+          <Badge variant="destructive">{t("jobsPage.filter.dead")}</Badge>
         ) : (
           <Badge variant={STATE_VARIANT[job.state]}>{job.state}</Badge>
         )}
@@ -173,16 +176,16 @@ function JobRow({ job }: { job: JobOut }) {
               disabled={isRetrying}
               onClick={() => retryJob.mutate(job.id)}
             >
-              {isRetrying ? "Retrying…" : "Retry"}
+              {isRetrying ? t("jobsPage.retrying") : t("common.retry")}
             </Button>
             {retryFailed ? (
               <p role="alert" className="text-xs text-destructive">
-                {retryJob.error instanceof ApiError ? retryJob.error.detail : "Retry failed."}
+                {retryJob.error instanceof ApiError ? retryJob.error.detail : t("jobsPage.retryFailed")}
               </p>
             ) : null}
           </div>
         ) : showMigrateHint ? (
-          <span className="text-xs text-muted-foreground">Re-run from Settings</span>
+          <span className="text-xs text-muted-foreground">{t("jobsPage.rerunHint")}</span>
         ) : null}
       </TableCell>
     </TableRow>

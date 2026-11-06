@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { FolderKanbanIcon, PlusIcon } from "lucide-react";
@@ -5,7 +6,6 @@ import { FolderKanbanIcon, PlusIcon } from "lucide-react";
 import { useAuth } from "@/api/auth";
 import {
   PROJECT_STATUSES,
-  statusLabel,
   useCreateProject,
   useFromTemplate,
   useProjects,
@@ -38,6 +38,7 @@ export function ProjectCover({ slug }: { slug: string | null }) {
 }
 
 function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () => void }) {
+  const { t } = useTranslation();
   const p = project.progress;
   return (
     <Card className="overflow-hidden py-0">
@@ -53,15 +54,15 @@ function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () =
               {project.name}
             </Link>
           )}
-          {!project.is_template && <Badge variant="secondary">{statusLabel(project.status)}</Badge>}
+          {!project.is_template && <Badge variant="secondary">{t(`projectsPage.status.${project.status}`)}</Badge>}
         </div>
         <TagChips tags={tagRefsOf(project)} />
         {!project.is_template && (
           <>
-            <Progress value={p.percent} aria-label={`${p.percent}% complete`} />
+            <Progress value={p.percent} aria-label={t("projectsPage.percentComplete", { percent: p.percent })} />
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>
-                {p.parts_done}/{p.parts_total} parts · {p.percent}%
+                {t("projectsPage.parts", { done: p.parts_done, total: p.parts_total, percent: p.percent })}
               </span>
               <span>{formatCost(project.cost.total_cost)}</span>
             </div>
@@ -69,13 +70,13 @@ function ProjectCard({ project, onUse }: { project: ProjectSummary; onUse?: () =
         )}
         {project.due_date && (
           <div className={project.overdue ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
-            {project.overdue ? "Overdue · " : "Due "}
+            {project.overdue ? t("projectsPage.overdue") : t("projectsPage.due")}
             {formatDate(project.due_date)}
           </div>
         )}
         {onUse && (
           <Button type="button" size="sm" onClick={onUse}>
-            Use template
+            {t("projectsPage.useTemplate")}
           </Button>
         )}
       </CardContent>
@@ -96,6 +97,7 @@ function NameDialog({
   onSubmit: (name: string) => void;
   pending: boolean;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   return (
     <FormDialog
@@ -112,8 +114,8 @@ function NameDialog({
       </DialogHeader>
       <Input
         autoFocus
-        aria-label="Project name"
-        placeholder="Project name"
+        aria-label={t("projectsPage.name")}
+        placeholder={t("projectsPage.name")}
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
@@ -123,11 +125,11 @@ function NameDialog({
       <DialogFooter>
         <DialogClose asChild>
           <Button type="button" variant="outline">
-            Cancel
+            {t("common.cancel")}
           </Button>
         </DialogClose>
         <Button type="button" disabled={!name.trim() || pending} onClick={() => onSubmit(name.trim())}>
-          Create
+          {t("projectsPage.create")}
         </Button>
       </DialogFooter>
     </FormDialog>
@@ -135,6 +137,7 @@ function NameDialog({
 }
 
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const auth = useAuth();
   const canWrite = auth.can("library:write");
   const navigate = useNavigate();
@@ -161,10 +164,10 @@ export function ProjectsPage() {
   return (
     <PageContainer width="default">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("projectsPage.title")}</h1>
         {canWrite && (
           <Button type="button" onClick={() => setCreateOpen(true)}>
-            <PlusIcon /> New project
+            <PlusIcon /> {t("projectsPage.new")}
           </Button>
         )}
       </div>
@@ -176,7 +179,7 @@ export function ProjectsPage() {
           variant={tab === "projects" ? "default" : "outline"}
           onClick={() => setTab("projects")}
         >
-          Projects
+          {t("projectsPage.title")}
         </Button>
         <Button
           type="button"
@@ -184,27 +187,27 @@ export function ProjectsPage() {
           variant={tab === "templates" ? "default" : "outline"}
           onClick={() => setTab("templates")}
         >
-          Templates
+          {t("projectsPage.templates")}
         </Button>
         {tab === "projects" && (
           <>
             <select
-              aria-label="Status filter"
+              aria-label={t("projectsPage.statusFilter")}
               className="h-8 rounded-md border bg-background px-2 text-sm"
               value={status}
               onChange={(e) => setStatus(e.target.value as ProjectStatus | "")}
             >
-              <option value="">All statuses</option>
+              <option value="">{t("projectsPage.allStatuses")}</option>
               {PROJECT_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {statusLabel(s)}
+                  {t(`projectsPage.status.${s}`)}
                 </option>
               ))}
             </select>
             <Input
               className="h-8 w-56"
-              aria-label="Search projects"
-              placeholder="Search…"
+              aria-label={t("projectsPage.search")}
+              placeholder={t("projectsPage.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -220,13 +223,13 @@ export function ProjectsPage() {
           icon={FolderKanbanIcon}
           title={
             tab === "projects"
-              ? "No projects yet. Create one, or add models to a project from the library."
-              : "No templates yet. Save a project as a template from its page."
+              ? t("projectsPage.emptyProjects")
+              : t("projectsPage.emptyTemplates")
           }
           action={
             tab === "projects" && canWrite ? (
               <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
-                <PlusIcon /> New project
+                <PlusIcon /> {t("projectsPage.new")}
               </Button>
             ) : undefined
           }
@@ -244,14 +247,14 @@ export function ProjectsPage() {
       )}
 
       <NameDialog
-        title="New project"
+        title={t("projectsPage.new")}
         open={createOpen}
         onOpenChange={setCreateOpen}
         pending={create.isPending}
         onSubmit={(name) => create.mutate({ name }, { onSuccess: (p) => goto(p.id) })}
       />
       <NameDialog
-        title="Create project from template"
+        title={t("projectsPage.fromTemplate")}
         open={templateId !== null}
         onOpenChange={(o) => !o && setTemplateId(null)}
         pending={fromTemplate.isPending}
