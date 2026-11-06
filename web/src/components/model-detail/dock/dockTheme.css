@@ -106,3 +106,10 @@
 .dockview-theme-tdmm .dv-groupview {
   box-shadow: var(--elevation-1);
 }
+
+/* Popper overlays (selects, menus, popovers, tooltips) portal to <body> at z-50;
+ * dockview floating groups sit at --dv-overlay-z-index (~999), so lift them above.
+ * Sonner toasts (z ~1e9) and dialogs are unaffected. */
+[data-radix-popper-content-wrapper] {
+  z-index: 1000 !important;
+}

@@ -16,7 +16,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useStageFullscreen } from "@/components/viewer/useStageFullscreen";
-import { PortalContainerContext } from "@/lib/portalContainer";
+import { PortalContainerContext, resolveOverlayContainer, usePortalContainer } from "@/lib/portalContainer";
 import { cn } from "@/lib/utils";
 import type { BackgroundPreset } from "@/components/viewer/background";
 import type { ExplodeMode } from "@/components/viewer/explode";
@@ -593,10 +593,16 @@ export function ViewerStage({
   useEffect(() => {
     setPortalContainer(stageRef.current);
   }, []);
+  // Only portal into the stage while it IS the fullscreen element: in normal
+  // mode the stage is overflow-hidden and short, so a stage portal clips
+  // listboxes. Otherwise fall back to the owning document's default container
+  // (the dock supplies the pop-out window's body via the outer context).
+  const outerContainer = usePortalContainer();
+  const overlayContainer = resolveOverlayContainer(isFullscreen, portalContainer, outerContainer) ?? null;
 
   return (
     <TooltipProvider>
-      <PortalContainerContext.Provider value={portalContainer ?? undefined}>
+      <PortalContainerContext.Provider value={overlayContainer ?? undefined}>
       <div
         ref={stageRef}
         className={cn(
@@ -674,7 +680,7 @@ export function ViewerStage({
           canCaptureCover={canCaptureCover}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
-          container={portalContainer}
+          container={overlayContainer}
         />
         {plateInfo ? (
           <div className="pointer-events-none absolute inset-x-0 top-11 flex justify-center">
@@ -707,7 +713,7 @@ export function ViewerStage({
                 onApplyAmsColors={onApplyAmsColors}
                 onOpenWindow={onOpenWindow}
                 showWindowButtons={showWindowButtons}
-                container={portalContainer}
+                container={overlayContainer}
               />
             }
           />

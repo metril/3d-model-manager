@@ -9,3 +9,14 @@ export const PortalContainerContext = createContext<HTMLElement | undefined>(und
 export function usePortalContainer(): HTMLElement | undefined {
   return useContext(PortalContainerContext);
 }
+
+/** Overlays portal into the viewer stage only while the stage is fullscreen
+ * (a body portal would be invisible then); otherwise the owning document's
+ * default container, so the overflow-hidden stage never clips them. */
+export function resolveOverlayContainer(
+  isFullscreen: boolean,
+  stage: HTMLElement | null,
+  outer: HTMLElement | undefined,
+): HTMLElement | undefined {
+  return (isFullscreen ? stage : null) ?? outer ?? undefined;
+}

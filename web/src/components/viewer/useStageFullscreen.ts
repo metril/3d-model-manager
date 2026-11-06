@@ -15,8 +15,10 @@ export function useStageFullscreen(stageRef: RefObject<HTMLElement | null>, acti
 
   const toggleFullscreen = useCallback(() => {
     const doc = stageRef.current?.ownerDocument ?? document;
-    if (doc.fullscreenElement) void doc.exitFullscreen();
-    else void stageRef.current?.requestFullscreen();
+    // The browser may refuse (no user gesture, policy): fail quietly.
+    const quiet = () => {};
+    if (doc.fullscreenElement) void doc.exitFullscreen()?.catch(quiet);
+    else void stageRef.current?.requestFullscreen()?.catch(quiet);
   }, [stageRef]);
   useHotkeys({ F: toggleFullscreen }, { enabled: active, doc: hostDoc });
 
