@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/metril/3d-model-manager/compare/v0.17.0...v0.17.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **3mf:** treat Bambu layer pauses as pauses, not colour changes ([#235](https://github.com/metril/3d-model-manager/issues/235)) ([78523eb](https://github.com/metril/3d-model-manager/commit/78523eb6872e4b87a8a929388401168a9f7c0283))
+
 ## [0.17.0](https://github.com/metril/3d-model-manager/compare/v0.16.2...v0.17.0) (2026-11-06)
 
 
