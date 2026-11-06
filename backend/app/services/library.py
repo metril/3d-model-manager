@@ -62,7 +62,7 @@ from app.schemas.library import (
     RevisionSummary,
     TagOut,
 )
-from app.services import derivatives, layout
+from app.services import derivatives, layout, pending_deletes
 from app.services import jobs as jobs_service
 from app.services import tags as tags_svc
 from app.services.app_config import get_app_config
@@ -608,15 +608,8 @@ async def hard_delete_model(
             "a file is still processing; retry once stored",
         )
 
-    slug = model.slug  # the commit below expires the ORM row
-
-    def _delete_sidecar() -> None:
-        try:
-            backend.delete(layout.sidecar_key(slug))
-        except StorageKeyNotFound:
-            pass
-        except Exception:
-            log.warning("hard-delete: sidecar delete failed for %s", slug, exc_info=True)
+    sidecar_key = layout.sidecar_key(model.slug)  # the commit below expires the ORM row
+    sidecar_target = [(backend, None, sidecar_key)]
 
     if files:
         file_ids = [f.id for f in files]
@@ -642,30 +635,25 @@ async def hard_delete_model(
                 )
 
         # Snapshot plain values: the commit below expires/deletes the ORM rows.
-        primary_targets = [(primary_backend_by_file_id[f.id], f.storage_path) for f in files]
-        location_targets = [
-            (location_backend_by_id[loc.backend_id], storage_path_by_file_id[loc.file_id])
+        targets = [
+            (primary_backend_by_file_id[f.id], f.backend_id, f.storage_path) for f in files
+        ] + [
+            (
+                location_backend_by_id[loc.backend_id],
+                loc.backend_id,
+                storage_path_by_file_id[loc.file_id],
+            )
             for loc in locations
         ]
+        targets += sidecar_target
+    else:
+        targets = sidecar_target
 
-        def _delete_all() -> None:
-            for be, path in [*primary_targets, *location_targets]:
-                try:
-                    be.delete(path)
-                except StorageKeyNotFound:
-                    pass
-                except Exception:
-                    log.warning("hard-delete: storage delete failed for %s", path, exc_info=True)
-            _delete_sidecar()
-
-        # DB first: a failed commit must never leave rows pointing at deleted blobs.
-        await db.execute(sa_delete(Model).where(Model.id == model.id))
-        await db.commit()
-        await anyio.to_thread.run_sync(_delete_all)
-        return
+    # DB first: a failed commit must never leave rows pointing at deleted blobs.
     await db.execute(sa_delete(Model).where(Model.id == model.id))
     await db.commit()
-    await anyio.to_thread.run_sync(_delete_sidecar)
+    failed = await anyio.to_thread.run_sync(pending_deletes.delete_collecting, targets)
+    await pending_deletes.record_async(db, failed)
 
 
 async def bulk_hard_delete_models(

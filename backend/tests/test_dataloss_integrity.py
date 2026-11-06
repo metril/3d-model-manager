@@ -16,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.models.enums import BlobFormat, BlobKind, QueueState
+from app.models.enums import TRASH_HOLD, BlobFormat, BlobKind, QueueState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
+from app.models.storage import PendingStorageDelete
 from app.services import batches as batches_svc
 from app.services import billing, library, queue, trash
 from app.services import scanner as scanner_svc
@@ -59,6 +60,9 @@ async def test_hard_delete_survives_storage_failure(
     model = await db_session.get(Model, m["id"])
     await library.hard_delete_model(db_session, backend, get_settings(), model)
     assert await db_session.scalar(select(Model.id).where(Model.id == m["id"])) is None
+    # failed deletes are queued so the reaper can retry and the scanner won't re-adopt
+    keys = (await db_session.scalars(select(PendingStorageDelete.key))).all()
+    assert any(k.endswith("part.stl") for k in keys)
 
 
 async def test_trash_purge_survives_storage_failure(
@@ -89,7 +93,7 @@ async def test_restore_resets_queue_entry(authenticated_client, db_session: Asyn
     e = await db_session.get(PrintQueueEntry, eid)
     await db_session.refresh(e)
     assert e.state == QueueState.HELD
-    e.hold_reason = trash.MODEL_IN_TRASH
+    e.hold_reason = TRASH_HOLD  # as the print worker sets it
     e.attempts = 4
     await db_session.commit()
     r = await authenticated_client.post("/api/trash/restore", json={"ids": [m["id"]]})
@@ -99,7 +103,7 @@ async def test_restore_resets_queue_entry(authenticated_client, db_session: Asyn
     assert e.attempts == 0
     assert e.assigned_printer_id is None
     assert e.print_job_id is None
-    assert e.state != QueueState.HELD
+    assert e.state == QueueState.WAITING  # bare entry: dispatchable, not HELD
 
 
 # -- 4. in-place retry clears scheduling leftovers ----------------------------
@@ -289,3 +293,34 @@ async def test_scan_pass2_skips_path_adopted_meanwhile(
         text("select count(*) from files where storage_path = :p"), {"p": key}
     )
     assert n == 1
+
+
+# -- pending storage deletes: retried by the reaper, skipped by the scanner ----
+
+
+async def test_reaper_retries_pending_delete(
+    db_session: AsyncSession, backend: LocalStorageBackend
+) -> None:
+    from app.services import pending_deletes
+
+    backend.write("ghost/rev/x.stl", [b"x"])
+    db_session.add(PendingStorageDelete(backend_id=None, key="ghost/rev/x.stl"))
+    await db_session.commit()
+    with base.sync_session() as s:
+        assert pending_deletes.retry_sync(s, get_settings()) == 1
+    assert not backend.exists("ghost/rev/x.stl")
+    assert await db_session.scalar(text("select count(*) from pending_storage_deletes")) == 0
+
+
+async def test_scanner_does_not_adopt_pending_delete_key(
+    db_session: AsyncSession, backend: LocalStorageBackend
+) -> None:
+    from tests.test_scanner import _run_scan
+
+    key = "ghost-model/rev-001_initial/x.stl"
+    backend.write(key, [b"orphan-bytes"])
+    db_session.add(PendingStorageDelete(backend_id=None, key=key))
+    await db_session.commit()
+    _run_scan(backend)
+    assert await db_session.scalar(select(text("count(*)")).select_from(File)) == 0
+    assert await db_session.scalar(select(text("count(*)")).select_from(Model)) == 0

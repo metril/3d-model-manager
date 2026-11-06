@@ -25,9 +25,8 @@ from app.models import Job
 from app.models.library import File, Model, Revision
 from app.models.storage import FileLocation
 from app.services import jobs as jobs_service
-from app.services import spool
+from app.services import pending_deletes, spool
 from app.services.storage_backends import backend_for_id_sync, resolve_backend_for_file_sync
-from app.storage.errors import StorageKeyNotFound
 
 log = logging.getLogger(__name__)
 
@@ -56,13 +55,15 @@ def _delete(session: SyncSession, settings: Settings, file: File, job_id: object
     shared = session.scalar(
         select(func.count()).select_from(File).where(File.storage_path == path, File.id != fid)
     )
-    backends = []
+    targets = []
     if not shared:
-        backends = [resolve_backend_for_file_sync(session, settings, file)]
+        targets = [(resolve_backend_for_file_sync(session, settings, file), file.backend_id, path)]
         for loc in session.execute(
             select(FileLocation).where(FileLocation.file_id == fid)
         ).scalars():
-            backends.append(backend_for_id_sync(session, settings, loc.backend_id))
+            targets.append(
+                (backend_for_id_sync(session, settings, loc.backend_id), loc.backend_id, path)
+            )
     model = session.scalar(
         select(Model)
         .join(Revision, Revision.model_id == Model.id)
@@ -73,13 +74,7 @@ def _delete(session: SyncSession, settings: Settings, file: File, job_id: object
         model.updated_at = func.now()
     # Commit the row delete first; storage cleanup is best-effort afterwards.
     session.commit()
-    for b in backends:
-        try:
-            b.delete(path)
-        except StorageKeyNotFound:
-            pass
-        except Exception:
-            log.warning("file reap: storage delete failed for %s", path, exc_info=True)
+    pending_deletes.record_sync(session, pending_deletes.delete_collecting(targets))
     if job_id is not None:
         spool.spool_path(settings, job_id).unlink(missing_ok=True)
     from app.tasks.pipeline import maybe_enqueue_assembly_sync
@@ -90,6 +85,7 @@ def _delete(session: SyncSession, settings: Settings, file: File, job_id: object
 def reap_unverified_files_sync(
     session: SyncSession, settings: Settings, now: datetime | None = None
 ) -> int:
+    pending_deletes.retry_sync(session, settings)
     cutoff = (now or datetime.now(UTC)) - REAP_AFTER
     latest = _latest_jobs_subq(cutoff)
     reaped = 0

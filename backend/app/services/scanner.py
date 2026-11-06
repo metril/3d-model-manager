@@ -105,7 +105,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import Settings
 from app.models import Blob, File, FileLocation, Model, Revision, ScanRun, StorageBackendRow
-from app.services import layout
+from app.services import layout, pending_deletes
 from app.services import prints as prints_service
 from app.services import storage_backends as storage_backends_service
 from app.storage.base import EntryInfo, StorageBackend
@@ -399,6 +399,7 @@ def _reconcile_against_backend(
                 select(File.storage_path).where(File.storage_path.in_([e.key for e in chunk]))
             ).scalars()
         )
+        taken_now |= pending_deletes.pending_keys(session, [e.key for e in chunk])
         chunk = [e for e in chunk if e.key not in taken_now]
         if not chunk:
             continue

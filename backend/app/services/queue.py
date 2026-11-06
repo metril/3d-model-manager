@@ -46,6 +46,7 @@ from app.services.app_config import get_app_config
 from app.services.bed_fit import guard_plate_index, guard_recipe_fit
 from app.services.print_plan import estimate_item_sync
 from app.services.queue_filaments import details_for_entries
+from app.services.queue_position import QUEUE_POSITION_LOCK
 from app.services.queue_settings import get_queue_config
 from app.services.server_config import get_server_config
 
@@ -408,12 +409,9 @@ async def list_queue(
     return await _to_out(db, settings, entries, redis)
 
 
-_QUEUE_POSITION_LOCK = 0x514D5155  # advisory-lock key serialising position allocation
-
-
 async def _append_position(db: AsyncSession, *, front: bool) -> int:
     # Transaction-scoped: released on commit/rollback; serialises concurrent enqueues.
-    await db.execute(select(func.pg_advisory_xact_lock(_QUEUE_POSITION_LOCK)))
+    await db.execute(select(func.pg_advisory_xact_lock(QUEUE_POSITION_LOCK)))
     if front:
         await db.execute(
             update(PrintQueueEntry).values(position=PrintQueueEntry.position + 1),

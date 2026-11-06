@@ -31,7 +31,7 @@ from sqlalchemy import select, update
 
 from app.config import Settings, get_settings
 from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
-from app.models.enums import PrintJobState, QueueState
+from app.models.enums import TRASH_HOLD, PrintJobState, QueueState
 from app.printers import gcode3mf, pause_eta
 from app.printers.base import PrinterConnection, PrintSpec
 from app.printers.connection import connection_from_printer
@@ -42,8 +42,6 @@ from app.services.library import get_live_file_sync
 from app.services.printer_state import preflight_ok, read_state_sync
 from app.tasks import base
 from app.tasks.celery_app import celery_app
-
-TRASH_HOLD = "model_in_trash"
 
 
 class SendError(RuntimeError):

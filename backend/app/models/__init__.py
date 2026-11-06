@@ -71,7 +71,7 @@ from app.models.processing import AssemblyThumb, BlobMeta, Derivative
 from app.models.projects import Project, ProjectAttachment, ProjectEvent, ProjectItem
 from app.models.sensors import PrinterSensorSample
 from app.models.slicing import PrintRecipe, SliceJob, SlicerPipeline, SlicerProfile
-from app.models.storage import FileLocation, StorageBackendRow
+from app.models.storage import FileLocation, PendingStorageDelete, StorageBackendRow
 from app.models.system import Import, Job, ScanRun, Setting
 from app.models.tag_links import (  # noqa: F401
     followed_collection_tags,
@@ -100,6 +100,7 @@ __all__ = [
     "OverlayToken",
     "File",
     "FileLocation",
+    "PendingStorageDelete",
     "FollowedCollection",
     "Group",
     "GroupMember",

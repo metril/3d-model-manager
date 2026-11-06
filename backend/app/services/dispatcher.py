@@ -44,6 +44,7 @@ from app.services.notify import events
 from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
+from app.services.queue_position import append_position_sync
 from app.services.queue_preheat import get_preheat_config_sync
 from app.services.queue_settings import get_queue_config_sync
 
@@ -554,8 +555,7 @@ def _clone_entry(
     running ahead of whatever was queued after ``item``, rather than
     getting appended behind it."""
     if position is None:
-        max_position = session.scalar(select(func.max(PrintQueueEntry.position))) or 0
-        position = max_position + 1
+        position = append_position_sync(session)
     else:
         session.execute(
             update(PrintQueueEntry)
