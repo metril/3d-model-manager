@@ -41,8 +41,7 @@ from app.schemas.housekeeping import (
 )
 from app.services import spool_labels
 from app.services.ams_match import delta_e_ok
-from app.services.ha_client import HaClient, HaUnreachable
-from app.services.ha_config import get_ha_config
+from app.services.ha_entities import fetch_ha, filter_entities
 from app.services.housekeeping import load_default_catalog, name_key
 from app.services.library import _escape_like
 from app.services.server_config import get_server_config
@@ -237,43 +236,8 @@ async def ha_entities(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> list[HaEntityOut]:
-    cfg = await get_ha_config(db, settings)
-    if not cfg.ha_url or not cfg.ha_token:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "home assistant not configured")
-
-    def _fetch() -> list[dict]:
-        client = HaClient(cfg.ha_url, cfg.ha_token)
-        try:
-            return client.states()
-        finally:
-            client.close()
-
-    try:
-        states = await run_in_threadpool(_fetch)
-    except HaUnreachable as e:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "could not reach home assistant"
-        ) from e
-    needle = q.lower() if q else None
-    out: list[HaEntityOut] = []
-    for st in states:
-        eid = st.get("entity_id", "")
-        attrs = st.get("attributes") or {}
-        if not eid.startswith(("sensor.", "binary_sensor.")):
-            continue
-        fname = attrs.get("friendly_name")
-        if needle and needle not in eid.lower() and needle not in str(fname or "").lower():
-            continue
-        out.append(
-            HaEntityOut(
-                entity_id=eid,
-                friendly_name=fname,
-                state=st.get("state"),
-                unit=attrs.get("unit_of_measurement"),
-                device_class=attrs.get("device_class"),
-            )
-        )
-    return sorted(out, key=lambda e: e.entity_id)
+    states = await fetch_ha(db, settings, "states")
+    return filter_entities(states, domains={"sensor", "binary_sensor"}, device_classes=set(), q=q)
 
 
 @locations_router.patch("/sensors/{sensor_id}", response_model=SensorOut)

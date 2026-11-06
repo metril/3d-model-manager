@@ -14,7 +14,7 @@ import json
 import threading
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.auth import User
 from app.models.home_assistant import HaLink
+from app.models.ops import SmartPlug
 from app.models.printing import Printer
 from app.schemas.home_assistant import (
     HaActorOut,
@@ -36,6 +37,7 @@ from app.schemas.home_assistant import (
     check_link_invariants,
     validate_alert_condition,
 )
+from app.schemas.housekeeping import HaEntityOut
 from app.services import ha_state
 from app.services import settings_store as store
 from app.services.ha_client import HaClient, HaUnreachable
@@ -46,11 +48,20 @@ from app.services.ha_config import (
     parse_mqtt_url,
     set_ha_config,
 )
+from app.services.ha_entities import csv, fetch_ha, filter_entities, filter_services
 from app.services.permissions import load_grants
+from app.services.power_source import power_link_shadow
 from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/settings/home-assistant",
+    tags=["home-assistant"],
+    dependencies=[Depends(require_perm("settings:write"))],
+)
+
+# Entity / service pickers for the web UI (settings:write, same as the links).
+entities_router = APIRouter(
+    prefix="/ha",
     tags=["home-assistant"],
     dependencies=[Depends(require_perm("settings:write"))],
 )
@@ -303,7 +314,13 @@ async def _printer_names(db: AsyncSession, printer_ids: set[int]) -> dict[int, s
     return dict(rows)
 
 
-def _link_out(link: HaLink, names: dict[int, str]) -> HaLinkOut:
+def _link_out(
+    link: HaLink,
+    names: dict[int, str],
+    links: list[HaLink] | None = None,
+    plugs: list[SmartPlug] | None = None,
+) -> HaLinkOut:
+    shadow = power_link_shadow(link, links or [], plugs or [])
     return HaLinkOut(
         id=link.id,
         printer_id=link.printer_id,
@@ -316,7 +333,19 @@ def _link_out(link: HaLink, names: dict[int, str]) -> HaLinkOut:
         created_by_user_id=link.created_by_user_id,
         created_at=link.created_at,
         updated_at=link.updated_at,
+        active=shadow is None,
+        shadowed_by=shadow,
     )
+
+
+async def _links_and_plugs(db: AsyncSession) -> tuple[list[HaLink], list[SmartPlug]]:
+    links = list((await db.execute(select(HaLink).order_by(HaLink.id))).scalars().all())
+    plugs = list(
+        (await db.execute(select(SmartPlug).where(SmartPlug.printer_id.is_not(None))))
+        .scalars()
+        .all()
+    )
+    return links, plugs
 
 
 async def _get_link_or_404(db: AsyncSession, link_id: int) -> HaLink:
@@ -335,9 +364,9 @@ async def _require_printer(db: AsyncSession, printer_id: int | None) -> None:
 
 @router.get("/links", response_model=list[HaLinkOut])
 async def list_links(db: AsyncSession = Depends(get_db)) -> list[HaLinkOut]:
-    links = list((await db.execute(select(HaLink).order_by(HaLink.id))).scalars().all())
+    links, plugs = await _links_and_plugs(db)
     names = await _printer_names(db, {link.printer_id for link in links if link.printer_id})
-    return [_link_out(link, names) for link in links]
+    return [_link_out(link, names, links, plugs) for link in links]
 
 
 @router.post("/links", status_code=status.HTTP_201_CREATED, response_model=HaLinkOut)
@@ -360,7 +389,8 @@ async def create_link(
     await db.commit()
     await db.refresh(link)
     names = await _printer_names(db, {link.printer_id} if link.printer_id else set())
-    return _link_out(link, names)
+    links, plugs = await _links_and_plugs(db)
+    return _link_out(link, names, links, plugs)
 
 
 @router.patch("/links/{link_id}", response_model=HaLinkOut)
@@ -410,7 +440,8 @@ async def patch_link(
     await db.commit()
     await db.refresh(link)
     names = await _printer_names(db, {link.printer_id} if link.printer_id else set())
-    return _link_out(link, names)
+    links, plugs = await _links_and_plugs(db)
+    return _link_out(link, names, links, plugs)
 
 
 @router.delete("/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -418,3 +449,30 @@ async def delete_link(link_id: int, db: AsyncSession = Depends(get_db)) -> None:
     link = await _get_link_or_404(db, link_id)
     await db.delete(link)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Pickers
+# ---------------------------------------------------------------------------
+
+
+@entities_router.get("/entities", response_model=list[HaEntityOut])
+async def list_entities(
+    domain: str | None = Query(default=None, description="comma-separated, e.g. sensor,switch"),
+    device_class: str | None = Query(default=None, description="comma-separated"),
+    q: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[HaEntityOut]:
+    states = await fetch_ha(db, settings, "states")
+    return filter_entities(states, domains=csv(domain), device_classes=csv(device_class), q=q)
+
+
+@entities_router.get("/services", response_model=list[str])
+async def list_services(
+    domain: str = Query(default="notify"),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[str]:
+    raw = await fetch_ha(db, settings, "services")
+    return filter_services(raw, domain)

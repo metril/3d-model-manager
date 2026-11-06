@@ -59,6 +59,11 @@ class HaClient:
         data = self._json(self._get("/api/states", _MAX_STATES_BYTES), limit=_MAX_STATES_BYTES)
         return data if isinstance(data, list) else []
 
+    def services(self) -> list[dict]:
+        """GET /api/services -- `[{domain, services: {name: {...}}}]`."""
+        data = self._json(self._get("/api/services"), limit=_MAX_STATES_BYTES)
+        return data if isinstance(data, list) else []
+
     def states_for(self, entity_ids: Iterable[str]) -> dict[str, dict | None]:
         """One ``GET /api/states`` filtered locally: ``{entity_id: state|None}``
         (``None`` = HA doesn't know the entity), instead of one request per

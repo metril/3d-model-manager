@@ -28,6 +28,7 @@ from app.crypto import decrypt_secret, encrypt_secret
 from app.db import get_db
 from app.models import Printer, SmartPlug
 from app.schemas.ops import PlugIn, PlugOut
+from app.services.redis_pool import get_async_redis
 from app.services.smart_plugs import manager
 from app.services.smart_plugs.drivers import PlugError, build_driver
 from app.tasks import base
@@ -283,6 +284,26 @@ async def plug_off(
 
 class PlugSummaryOut(BaseModel):
     plugs: dict[int, PlugOut]
+    # Live watts from an HA `power_w` link, by printer id (printers whose plug
+    # reports no power show this instead).
+    link_power_w: dict[int, float] = {}
+
+
+async def _link_power(settings: Settings, ctx: AuthContext) -> dict[int, float]:
+    visible = visible_printer_ids(ctx)
+    r = get_async_redis(settings.redis_url)
+    out: dict[int, float] = {}
+    try:
+        async for key in r.scan_iter("ha:power:[0-9]*"):
+            pid = int(key.decode().rsplit(":", 1)[1])
+            if visible is not None and pid not in visible:
+                continue
+            raw = await r.get(key)
+            if raw is not None:
+                out[pid] = float(raw)
+    finally:
+        await r.aclose()
+    return out
 
 
 @summary_router.get("/summary", response_model=PlugSummaryOut)
@@ -300,4 +321,7 @@ async def plugs_summary(
         cur = chosen.get(p.printer_id)
         if cur is None or (p.controls_printer_power and not cur.controls_printer_power):
             chosen[p.printer_id] = p
-    return PlugSummaryOut(plugs={pid: _out(settings, p) for pid, p in chosen.items()})
+    return PlugSummaryOut(
+        plugs={pid: _out(settings, p) for pid, p in chosen.items()},
+        link_power_w=await _link_power(settings, ctx),
+    )

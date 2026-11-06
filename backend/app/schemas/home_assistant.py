@@ -203,3 +203,7 @@ class HaLinkOut(BaseModel):
     created_by_user_id: int | None
     created_at: datetime
     updated_at: datetime
+    # power_w links only: False when a higher-priority source (energy link,
+    # plug power) feeds the printer instead; `shadowed_by` names it.
+    active: bool = True
+    shadowed_by: str | None = None
