@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.4](https://github.com/metril/3d-model-manager/compare/v0.17.3...v0.17.4) (2026-11-06)
+
+
+### Bug Fixes
+
+* **viewer:** portal profile dropdown to stage only in fullscreen ([#266](https://github.com/metril/3d-model-manager/issues/266)) ([6315709](https://github.com/metril/3d-model-manager/commit/6315709a55d0d7a80f3991cfa02cef9486bff64b))
+
 ## [0.17.3](https://github.com/metril/3d-model-manager/compare/v0.17.2...v0.17.3) (2026-11-06)
 
 
