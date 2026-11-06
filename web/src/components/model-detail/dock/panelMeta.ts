@@ -21,7 +21,7 @@ export const PANEL_TITLES: Record<PanelId, string> = {
   description: "Description",
   tagsLinks: "Tags & links",
   related: "Related",
-  gcodeProfiles: "G-code profiles",
+  gcodeProfiles: "Profiles",
   printHistory: "Print history",
   filesDocs: "Files",
   revisions: "Revisions",

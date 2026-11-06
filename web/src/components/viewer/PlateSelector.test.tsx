@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { PortalContainerContext } from "@/lib/portalContainer";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { PlateOut } from "@/api/types";
 
@@ -40,7 +41,7 @@ describe("PlateSelector profiles", () => {
     { fileId: 3, blobHash: "c", label: "No AMS", plates: [plate(1)] },
     { fileId: 4, blobHash: "d", label: "15% infill", plates: [plate(1), plate(2)] },
   ];
-  const open = () => fireEvent.click(screen.getByRole("combobox", { name: "Print profile" }));
+  const open = () => fireEvent.click(screen.getByRole("combobox", { name: /Print profile/ }));
 
   it("lists all profiles incl. single-plate ones, no All files without other meshes", () => {
     render(<PlateSelector blobHash="a" plates={profiles[0].plates} value={null} onChange={() => {}} files={profiles} onFileChange={() => {}} />);
@@ -72,7 +73,7 @@ describe("PlateSelector trigger + pause marker", () => {
   it("keeps the plate-count suffix as its own non-shrinking span and exposes the full label", () => {
     const files = [{ fileId: 1, blobHash: "a", label: "A very long profile title 15% infill no AM", plates: [plate(1), plate(2)] }];
     render(<PlateSelector blobHash="a" plates={files[0].plates} value={null} onChange={() => {}} files={files} onFileChange={() => {}} />);
-    const trigger = screen.getByRole("combobox", { name: "Print profile" });
+    const trigger = screen.getByRole("combobox", { name: /Print profile/ });
     expect(trigger).toHaveAttribute("title", "A very long profile title 15% infill no AM · 2 plates");
     const suffix = screen.getByText("· 2 plates");
     expect(suffix).toHaveClass("shrink-0", "whitespace-nowrap");
@@ -84,5 +85,67 @@ describe("PlateSelector trigger + pause marker", () => {
     const chips = screen.getAllByRole("radio");
     expect(chips[1].querySelector("[data-testid=plate-pause]")).not.toBeNull();
     expect(chips[2].querySelector("[data-testid=plate-pause]")).toBeNull();
+  });
+});
+
+describe("PlateSelector accessibility + portal + collapse", () => {
+  const files = [
+    { fileId: 1, blobHash: "a", label: "A", plates: [plate(1), plate(2)] },
+    { fileId: 2, blobHash: "b", label: "B", plates: [plate(1)] },
+  ];
+
+  it("chips are a roving radiogroup: one tab stop, arrows move and select", () => {
+    const onChange = vi.fn();
+    render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={1} onChange={onChange} />);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    fireEvent.keyDown(radios[1], { key: "ArrowRight" });
+    expect(onChange).toHaveBeenLastCalledWith(2);
+    fireEvent.keyDown(radios[0], { key: "ArrowLeft" });
+    expect(onChange).toHaveBeenLastCalledWith(2);
+    fireEvent.keyDown(radios[1], { key: "Home" });
+    expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("gives screen readers text for too-large, colour-change and pause markers", () => {
+    const p = { ...plate(1), fits: false, pauses: [{ z: 2 }], colour_changes: [{ z: 1, slot: 1, colour: "#00ff00" }] };
+    render(<PlateSelector blobHash="h" plates={[p, plate(2)]} value={null} onChange={() => {}} />);
+    const chip = screen.getByRole("radio", { name: /Plate 1\/2/ });
+    expect(chip).toHaveTextContent("Too large");
+    expect(chip).toHaveTextContent("1 colour change");
+    expect(chip).toHaveTextContent("1 pause");
+    expect(chip.querySelector(".sr-only")).not.toBeNull();
+  });
+
+  it("labels the profile trigger by a label + its value", () => {
+    render(<PlateSelector blobHash="a" plates={files[0].plates} value={null} onChange={() => {}} files={files} onFileChange={() => {}} />);
+    const trigger = screen.getByRole("combobox", { name: /Print profile/ });
+    expect(trigger.getAttribute("aria-labelledby")?.split(" ")).toHaveLength(2);
+  });
+
+  it("opens the profile list inside the portal container (fullscreen-safe)", () => {
+    const stage = document.createElement("div");
+    document.body.appendChild(stage);
+    render(
+      <PortalContainerContext.Provider value={stage}>
+        <PlateSelector blobHash="a" plates={files[0].plates} value={null} onChange={() => {}} files={files} onFileChange={() => {}} />
+      </PortalContainerContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: /Print profile/ }));
+    expect(stage.querySelector("[role=listbox]")).not.toBeNull();
+    stage.remove();
+  });
+
+  it("collapses to a compact select beyond six plates", () => {
+    const many = [1, 2, 3, 4, 5, 6, 7].map((i) => plate(i));
+    render(<PlateSelector blobHash="h" plates={many} value={null} onChange={() => {}} />);
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Plate" })).toBeInTheDocument();
+  });
+
+  it("lays chips out wrapped (no scroll wrapper swallowing pointer events)", () => {
+    const { container } = render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={null} onChange={() => {}} />);
+    expect(container.firstElementChild).toHaveClass("flex-wrap");
+    expect(container.firstElementChild).not.toHaveClass("overflow-x-auto");
   });
 });

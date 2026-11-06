@@ -1,9 +1,10 @@
 import { lazy, Suspense, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ImageIcon, LayersIcon, LoaderCircleIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatCost, humanizeDuration } from "@/lib/format";
-import { plateLabel, setSelectedPlate, useIsActiveViewerBlob, useSelectedPlate } from "@/components/viewer/plates";
+import { plateLabel, safeColour, setSelectedPlate, type TFn, useIsActiveViewerBlob, useSelectedPlate } from "@/components/viewer/plates";
 import { cn } from "@/lib/utils";
 import type { FileOut, PlateOut } from "@/api/types";
 
@@ -44,9 +45,9 @@ function metaLine(file: FileOut): string | null {
  * Est. cost: N.NN]`, skipping any part whose source value is null (Task 9
  * brief; the cost segment is the server-computed `est_cost`, shown when
  * non-null). */
-function plateCaption(plate: PlateOut): string {
+function plateCaption(plate: PlateOut, t: TFn): string {
   const parts = [
-    plateLabel(plate),
+    plateLabel(plate, t),
     plate.prediction_s !== null ? humanizeDuration(plate.prediction_s) : null,
     plate.weight_g !== null ? `${Math.round(plate.weight_g)} g` : null,
     plate.est_cost !== null ? `Est. cost: ${formatCost(plate.est_cost)}` : null,
@@ -54,7 +55,8 @@ function plateCaption(plate: PlateOut): string {
   return parts.filter((part): part is string => part !== null).join(" · ");
 }
 
-function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate: PlateOut; small?: boolean }) {
+function PlateCard({ blobHash, plate }: { blobHash: string; plate: PlateOut }) {
+  const { t } = useTranslation();
   const active = useSelectedPlate(blobHash) === plate.index;
   const inViewer = useIsActiveViewerBlob(blobHash);
   const selectable = plate.has_glb === true && inViewer;
@@ -65,23 +67,23 @@ function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate
         ? {
             type: "button" as const,
             "aria-pressed": active,
-            title: "Show this plate in the viewer",
+            title: t("profiles.showPlate"),
             onClick: () => setSelectedPlate(blobHash, active ? null : plate.index),
           }
         : {})}
       className={cn(
         "shrink-0 space-y-1.5 rounded-lg border p-2 text-left",
-        small ? "w-40" : "w-48",
+        "w-48",
         active ? "border-primary" : "border-border",
       )}
     >
       <div
-        className={`flex items-center justify-center overflow-hidden rounded bg-muted ${small ? "h-14" : "aspect-square"}`}
+        className="flex aspect-square items-center justify-center overflow-hidden rounded bg-muted"
       >
         {plate.thumbnail_available ? (
           <img
             src={`/api/blobs/${blobHash}/plates/${plate.index}/thumb`}
-            alt={`Plate ${plate.index}`}
+            alt={t("profiles.plateImgAlt", { index: plate.index })}
             className="h-full w-full object-cover"
           />
         ) : (
@@ -89,8 +91,8 @@ function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        {plateCaption(plate)}
-        {plate.fits === false ? <span className="ml-1 font-medium text-destructive">Too large</span> : null}
+        {plateCaption(plate, t)}
+        {plate.fits === false ? <span className="ml-1 font-medium text-destructive">{t("profiles.tooLarge")}</span> : null}
       </p>
       {plate.filaments.length > 0 && (
         <div className="flex flex-wrap gap-1">
@@ -102,7 +104,7 @@ function PlateCard({ blobHash, plate, small = false }: { blobHash: string; plate
               {filament.color ? (
                 <span
                   className="size-2 shrink-0 rounded-full border border-border/50"
-                  style={{ backgroundColor: filament.color }}
+                  style={{ backgroundColor: safeColour(filament.color) }}
                 />
               ) : null}
               {filament.type ?? "Filament"}
@@ -139,11 +141,12 @@ export function PlatePanel({
   /** Metadata + plate strip only; the layer preview lives in the main viewer. */
   noPreview?: boolean;
 }) {
+  const { t } = useTranslation();
   const plates = file.meta?.plates ?? [];
   const header = headerLine(file);
   const meta = metaLine(file);
   const [previewOpen, setPreviewOpen] = useState(autoPreview);
-  const singleFill = fill && plates.length === 1 ? plateCaption(plates[0]) : null;
+  const singleFill = fill && plates.length === 1 ? plateCaption(plates[0], t) : null;
   const info = [header, meta, singleFill].filter(Boolean).join(" · ");
   const infoLine = (
     <>
@@ -197,14 +200,14 @@ export function PlatePanel({
                   {plate.thumbnail_available ? (
                     <img
                       src={`/api/blobs/${file.blob_hash}/plates/${plate.index}/thumb`}
-                      alt={`Plate ${plate.index}`}
+                      alt={t("profiles.plateImgAlt", { index: plate.index })}
                       className="h-full w-full object-cover"
                     />
                   ) : (
                     <ImageIcon className="size-4 text-muted-foreground" />
                   )}
                 </div>
-                <span className="whitespace-nowrap text-xs text-muted-foreground">{plateCaption(plate)}</span>
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{plateCaption(plate, t)}</span>
               </div>
             ))}
           </div>
@@ -214,9 +217,9 @@ export function PlatePanel({
           <p className="py-8 text-center text-sm text-muted-foreground">No plate details available yet.</p>
         )
       ) : (
-        <div className={fill ? "flex shrink-0 gap-2 overflow-x-auto pb-1" : "flex gap-3 overflow-x-auto pb-2"}>
+        <div className="flex gap-3 overflow-x-auto pb-2">
           {plates.map((plate) => (
-            <PlateCard key={plate.index} blobHash={file.blob_hash} plate={plate} small={fill} />
+            <PlateCard key={plate.index} blobHash={file.blob_hash} plate={plate} />
           ))}
         </div>
       )}

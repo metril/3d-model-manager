@@ -51,6 +51,7 @@ import { needsReview } from "@/lib/permissions";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
 import { useFileBedFit, useFilePlates, useRecipes, useSlicerHealth } from "@/api/slicing";
+import { PauseWarning } from "@/components/print/PauseWarning";
 import { PlatePicker } from "@/components/print/PlatePicker";
 import { selectablePlates } from "@/components/viewer/plates";
 import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
@@ -709,6 +710,8 @@ export function PrintDialog({
     );
   }
 
+  const pauseSourcePlates = (profileMode === "recipe" ? filePlatesQ.data?.plates : plan?.plates) ?? [];
+
   const footerPlate = plan?.plates.find((p) => p.index === effectivePlate) ?? plan?.plates[0];
 
   return (
@@ -914,6 +917,7 @@ export function PrintDialog({
 
             {step === SEND ? (
               <div className="space-y-4">
+                <PauseWarning plates={pauseSourcePlates} plate={effectivePlate} />
                 <PrinterPicker
                   idPrefix="print-dialog-printer"
                   value={effectivePrinterId}

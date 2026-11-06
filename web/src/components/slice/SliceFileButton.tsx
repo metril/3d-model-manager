@@ -18,10 +18,12 @@ export function SliceFileButton({
   file,
   size = "icon-sm",
   modelSlug,
+  initialPlate,
 }: {
   file: Pick<FileOut, "id" | "rel_path" | "format" | "verified_at">;
   size?: "icon-sm" | "default";
   modelSlug?: string;
+  initialPlate?: number | null;
 }) {
   const features = useFeatures();
   const { can } = useAuth();
@@ -39,7 +41,7 @@ export function SliceFileButton({
           <ScissorsIcon className="size-4" />
         </Button>
       )}
-      <SliceDialog open={open} onOpenChange={setOpen} file={file} modelSlug={modelSlug} />
+      <SliceDialog open={open} onOpenChange={setOpen} file={file} modelSlug={modelSlug} initialPlate={initialPlate} />
     </>
   );
 }

@@ -12,16 +12,3 @@ export function sanitizeDescriptionHtml(raw: string): string {
   const html = HAS_TAG.test(raw) ? raw : raw.replace(/\n/g, "<br>");
   return sanitizeHtml(html);
 }
-
-/** Strips markup down to plain text, collapsing whitespace -- for contexts
- * (card summaries, previews) that want a plain string rather than rendered
- * HTML. */
-export function toPlainText(raw: string): string {
-  // DOMPurify with an empty tag allowlist strips markup but re-escapes
-  // entities in its string output (`&amp;` stays `&amp;`) -- parsing the
-  // sanitized fragment and reading `textContent` decodes them.
-  const stripped = sanitizeHtml(raw, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
-  const div = document.createElement("div");
-  div.innerHTML = stripped;
-  return (div.textContent ?? "").replace(/\s+/g, " ").trim();
-}

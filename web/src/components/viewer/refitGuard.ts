@@ -62,6 +62,7 @@ export function createRefitScheduler(opts: {
       held = held === "now" ? "now" : kind;
       return;
     }
+    held = null;
     opts.run(kind);
   };
   return {
@@ -191,3 +192,25 @@ export function pickFitDirection(opts: {
 
 /** A fit consumes the iso reset only when the selection key changed (call it on a run that really fits). */
 export const shouldResetView = (last: string | null, key: string): boolean => last !== key;
+
+/** Tracks "has the user moved the camera" + "which selection was last framed".
+ * `commit` must only be called once a fit really goes ahead -- a run that bails
+ * out (no box, zero-sized panel) leaves the reset and the user's pose pending. */
+export function createViewState() {
+  let last: string | null = null;
+  let touched = false;
+  return {
+    /** True when this selection should be reset to iso (never while a camera preset owns the view). */
+    wantReset: (key: string, presetActive: boolean) => !presetActive && shouldResetView(last, key),
+    commit(key: string) {
+      last = key;
+      touched = false;
+    },
+    markInteracted() {
+      touched = true;
+    },
+    get interacted() {
+      return touched;
+    },
+  };
+}

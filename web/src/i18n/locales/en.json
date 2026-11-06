@@ -1851,7 +1851,23 @@
     "notReady": "3D preview {{status}}",
     "allPlates": "All plates",
     "profileOption": "{{title}} · {{plates}}",
-    "showProfile": "Show this profile in the viewer"
+    "showProfile": "Show this profile in the viewer",
+    "plateN": "Plate {{index}}",
+    "plateGroup": "Plate",
+    "colourChangeTo": "Colour change at {{z}} mm → {{colour}}",
+    "zMmTo": "{{z}} mm →",
+    "colourChangeCount_one": "{{count}} colour change",
+    "colourChangeCount_other": "{{count}} colour changes",
+    "pauseCount_one": "{{count}} pause",
+    "pauseCount_other": "{{count}} pauses",
+    "pausePlateWarn": "This plate pauses at {{z}} mm for a manual filament swap.",
+    "pauseAllWarn_one": "{{count}} plate pauses for a manual filament swap.",
+    "pauseAllWarn_other": "{{count}} plates pause for a manual filament swap.",
+    "plateImgAlt": "Plate {{index}}",
+    "allPlatesCount_one": "{{count}} plate",
+    "allPlatesCount_other": "{{count}} plates",
+    "allPlatesNote": "All plates are sliced, but only plate 1 prints.",
+    "tooLarge": "Too large"
   },
   "routeError": {
     "title": "Something went wrong",
@@ -1869,5 +1885,24 @@
   },
   "format": {
     "justNow": "just now"
+  },
+  "viewer": {
+    "coverCaptureFailed": "Couldn't capture a screenshot",
+    "coverUpdated": "Cover updated",
+    "coverFailed": "Couldn't update cover",
+    "previewFailedTitle": "Preview failed to load",
+    "previewFailedBody": "The 3D preview crashed while loading this file. It may be corrupt or in an unsupported format.",
+    "selectPartTitle": "Select a part to preview",
+    "selectPartBody": "Select a part in the panel to render it.",
+    "noPartsSelected": "No parts selected",
+    "loadingPlate": "Loading model",
+    "modelNotFound": "Model not found.",
+    "noRenderable": "No renderable parts selected.",
+    "loadError": "Couldn't load this model.",
+    "retry": "Retry",
+    "hotkeys": "Hotkeys",
+    "hotkeyLegend": "F fit · R auto-rotate · W wireframe · G grid · Shift+F fullscreen",
+    "hotkeyPlates": "[ ] previous/next plate · 0 all plates · P cycle profiles",
+    "dragHint": "Drag to orbit · Scroll to zoom · F fit"
   }
 }

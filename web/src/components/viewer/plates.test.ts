@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { bedsBounds, buildPlateLayout, layoutPartId, clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts } from "@/components/viewer/plates";
+import i18n from "@/i18n";
+
+import { bedsBounds, buildPlateLayout, layoutPartId, clearSelectedPlate, getSelectedPlate, partUrl, plateLabel, resolveActive, selectablePlates, setSelectedPlate, viewerPlates, visibleParts, handlePlateKey, withSourceFallback, nextProfile, plateTotal, safeColour } from "@/components/viewer/plates";
 import type { FileOut, PlateOut } from "@/api/types";
 
+const T = i18n.t.bind(i18n);
 const plate = (index: number, over: Partial<PlateOut> = {}): PlateOut => ({
   index, prediction_s: null, weight_g: null, est_cost: null, thumbnail_available: true, filaments: [],
   name: `P${index}`, has_glb: true, ...over,
@@ -32,11 +35,11 @@ describe("plates", () => {
   });
 
   it("labels and stores the selection", () => {
-    expect(plateLabel({ index: 2, name: "Lid" })).toBe("Plate 2 · Lid");
-    expect(plateLabel({ index: 2, name: "" })).toBe("Plate 2");
-    expect(plateLabel({ index: 1, name: "Plate 1" })).toBe("Plate 1");
-    expect(plateLabel({ index: 3, name: "plate 3" })).toBe("Plate 3");
-    expect(plateLabel({ index: 2, name: "Plate 3" })).toBe("Plate 2 · Plate 3");
+    expect(plateLabel({ index: 2, name: "Lid" }, T)).toBe("Plate 2 · Lid");
+    expect(plateLabel({ index: 2, name: "" }, T)).toBe("Plate 2");
+    expect(plateLabel({ index: 1, name: "Plate 1" }, T)).toBe("Plate 1");
+    expect(plateLabel({ index: 3, name: "plate 3" }, T)).toBe("Plate 3");
+    expect(plateLabel({ index: 2, name: "Plate 3" }, T)).toBe("Plate 2 · Plate 3");
     setSelectedPlate("hx", 3);
     expect(getSelectedPlate("hx")).toBe(3);
     setSelectedPlate("hx", null);
@@ -120,5 +123,69 @@ describe("plate layout", () => {
   it("synthetic part ids never collide with file ids", () => {
     expect(layoutPartId(7, null)).toBe(7);
     expect(layoutPartId(7, 2)).toBe(-7002);
+  });
+});
+
+describe("plate hotkeys", () => {
+  const plates = [plate(1), plate(2), plate(4)];
+  const files = [
+    { fileId: 1, blobHash: "a", label: "A", plates },
+    { fileId: 2, blobHash: "b", label: "B", plates: [plate(1)] },
+  ];
+  const nav = (over = {}) => ({ blobHash: "a", plates, files, hasAllFiles: true, value: null as number | null, onChange: vi.fn(), onFileChange: vi.fn(), ...over });
+
+  it("[ and ] step through All, 1, 2, 4 and clamp at the ends", () => {
+    const n = nav();
+    expect(handlePlateKey("]", n)).toBe(true);
+    expect(n.onChange).toHaveBeenLastCalledWith(1);
+    const m = nav({ value: 2 });
+    handlePlateKey("]", m);
+    expect(m.onChange).toHaveBeenLastCalledWith(4);
+    handlePlateKey("[", m);
+    expect(m.onChange).toHaveBeenLastCalledWith(1);
+    const last = nav({ value: 4 });
+    handlePlateKey("]", last);
+    expect(last.onChange).toHaveBeenLastCalledWith(4);
+    const first = nav({ value: null });
+    handlePlateKey("[", first);
+    expect(first.onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("0 selects All plates; P cycles profiles incl. All files", () => {
+    const n = nav({ value: 2 });
+    expect(handlePlateKey("0", n)).toBe(true);
+    expect(n.onChange).toHaveBeenCalledWith(null);
+    handlePlateKey("p", n);
+    expect(n.onFileChange).toHaveBeenLastCalledWith("b");
+    expect(nextProfile(files, true, "b")).toBe("*");
+    expect(nextProfile(files, true, "*")).toBe("a");
+  });
+
+  it("ignores other keys, missing nav, and single-plate profiles", () => {
+    expect(handlePlateKey("x", nav())).toBe(false);
+    expect(handlePlateKey("]", null)).toBe(false);
+    const single = nav({ plates: [plate(1)] });
+    expect(handlePlateKey("]", single)).toBe(false);
+    expect(handlePlateKey("0", single)).toBe(false);
+    expect(handlePlateKey("p", nav({ files: [files[0]], hasAllFiles: false }))).toBe(false);
+  });
+});
+
+describe("plate helpers", () => {
+  it("total is the max index; colours are validated; source fills time/weight", () => {
+    expect(plateTotal([plate(1), plate(4)])).toBe(4);
+    expect(safeColour("#00ff00")).toBe("#00ff00");
+    expect(safeColour("#00ff00cc")).toBe("#00ff00cc");
+    expect(safeColour("red; background:url(x)")).toBeUndefined();
+    const src = { plates: [{ index: 1, name: null, thumb: null, prediction: 3600, weight: 12 }] };
+    const out = withSourceFallback([plate(1), plate(2)], src);
+    expect([out[0].prediction_s, out[0].weight_g, out[1].prediction_s]).toEqual([3600, 12, null]);
+    const plates = [plate(1, { prediction_s: 5, weight_g: 6 })];
+    expect(withSourceFallback(plates, src)).toBe(plates);
+  });
+  it("visibleParts limits isolation to the active file among same-blob duplicates", () => {
+    const fs = [{ id: 1, blob_hash: "h" }, { id: 2, blob_hash: "h" }];
+    expect([...visibleParts(fs, new Set(), "h", 2)]).toEqual([2]);
+    expect([...visibleParts(fs, new Set(), "h")]).toEqual([1, 2]);
   });
 });

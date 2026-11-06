@@ -21,6 +21,7 @@ import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { useThree } from "@react-three/fiber";
 import { Grid, Html } from "@react-three/drei";
+import { useTranslation } from "react-i18next";
 
 import { plateLabel } from "@/components/viewer/plates";
 import type { PlateBed } from "@/components/viewer/plates";
@@ -124,6 +125,7 @@ export function PlateGrid({ plateSize, scaleFactor }: { plateSize: number; scale
 /** One real-sized bed per plate of a plated 3MF (`PlateLayout.beds`), at the
  * layout offsets -- no recentring, the parts sit on them in the same space. */
 export function PlateBeds({ beds, scaleFactor }: { beds: PlateBed[]; scaleFactor: number }) {
+  const { t } = useTranslation();
   return (
     <>
       {beds.map((bed) => (
@@ -148,7 +150,7 @@ export function PlateBeds({ beds, scaleFactor }: { beds: PlateBed[]; scaleFactor
             style={{ pointerEvents: "none" }}
           >
             <span className="whitespace-nowrap rounded bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {plateLabel({ index: bed.index, name: bed.name })}
+              {plateLabel({ index: bed.index, name: bed.name }, t)}
             </span>
           </Html>
         ))}

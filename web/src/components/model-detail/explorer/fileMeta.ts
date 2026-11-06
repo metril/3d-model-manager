@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { humanizeDuration } from "@/lib/format";
 import type { BlobMetaOut, FileOut } from "@/api/types";
 
@@ -15,7 +16,7 @@ function meshMetaLine(meta: BlobMetaOut): string | null {
  * skipping any part whose source value is null. */
 function slicedMetaLine(meta: BlobMetaOut): string | null {
   const parts: string[] = [];
-  if (meta.plate_count !== null) parts.push(`${meta.plate_count} plates`);
+  if (meta.plate_count !== null) parts.push(i18n.t("profiles.plateCount", { count: meta.plate_count }));
   if (meta.print_time_s !== null) parts.push(humanizeDuration(meta.print_time_s));
   if (meta.filament_g !== null) parts.push(`${Math.round(meta.filament_g)} g`);
   return parts.length > 0 ? parts.join(" · ") : null;
@@ -39,7 +40,7 @@ export function profileMetaLine(file: FileOut): string | null {
     parts.push(`Printers: ${shown}${names.length > 3 ? ` +${names.length - 3}` : ""}`);
   }
   const plates = sm.plates?.length ?? 0;
-  if (plates) parts.push(`${plates} ${plates === 1 ? "plate" : "plates"}`);
+  if (plates) parts.push(i18n.t("profiles.plateCount", { count: plates }));
   return parts.length ? parts.join(" · ") : null;
 }
 

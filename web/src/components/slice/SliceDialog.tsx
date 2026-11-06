@@ -5,6 +5,7 @@
  * (`SliceJobsHost`); nothing is queued or sent to a printer.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { SourceMeta } from "@/api/types";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -32,10 +33,13 @@ export function SliceDialog({
   onOpenChange,
   file,
   modelSlug,
+  initialPlate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  file: { id: number; rel_path: string };
+  file: { id: number; rel_path: string; source_meta?: SourceMeta | null };
+  /** Seeds the plate pick (e.g. the plate selected in the model viewer). */
+  initialPlate?: number | null;
   /** Enables the pre-flight bed-fit check once a printer is chosen. */
   modelSlug?: string;
 }) {
@@ -54,7 +58,10 @@ export function SliceDialog({
   const [mode, setMode] = useState<"recipe" | "pipeline">("recipe");
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [recipeId, setRecipeId] = useState<number | null>(null);
-  const [plate, setPlate] = useState<number | null>(null);
+  const [plate, setPlate] = useState<number | null>(initialPlate ?? null);
+  useEffect(() => {
+    if (open) setPlate(initialPlate ?? null);
+  }, [open, initialPlate]);
   const filePlatesQ = useFilePlates(file.id, open);
   const plates = selectablePlates(filePlatesQ.data?.plates);
   const [search, setSearch] = useState("");
@@ -255,6 +262,7 @@ export function SliceDialog({
             value={plate}
             onChange={setPlate}
             allowAll
+            source={file.source_meta}
           />
         </div>
       ) : null}

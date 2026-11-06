@@ -1,15 +1,16 @@
 /**
- * Pure plate helpers + a tiny selection store shared by the viewer's
- * PlateSelector, the model-detail PlatePanel and the print/slice pickers.
- * No React-three here (viewer math lives in pure modules); the store is a
- * module-level map keyed by blob hash so unrelated components agree on the
- * selected plate without prop plumbing.
+ * Pure plate helpers + two tiny module-level stores shared by the viewer's
+ * PlateSelector, the model-detail ProfilesPanel/PlatePanel and the print/slice
+ * pickers: the viewer's active profile blob (`useActiveViewerBlob`) and the
+ * selected plate per blob (`useSelectedPlate`). No React-three here (viewer
+ * math lives in pure modules), and no prop plumbing between those components.
  */
 import { useSyncExternalStore } from "react";
 
 import { GLB_CACHE_V, glbUrl } from "@/components/viewer/viewable";
+import { humanizeDuration } from "@/lib/format";
 import { plainText } from "@/lib/plainText";
-import type { FileOut, PlateOut } from "@/api/types";
+import type { FileOut, PlateOut, SourceMeta } from "@/api/types";
 
 /** Plates worth offering a choice between: a selector needs at least two. */
 export function selectablePlates(plates: PlateOut[] | null | undefined): PlateOut[] {
@@ -19,11 +20,102 @@ export function selectablePlates(plates: PlateOut[] | null | undefined): PlateOu
 export const plateGlbUrl = (blobHash: string, plate: number) => `/api/blobs/${blobHash}/plates/${plate}/glb?v=${GLB_CACHE_V}`;
 export const plateThumbUrl = (blobHash: string, plate: number) => `/api/blobs/${blobHash}/plates/${plate}/thumb`;
 
-/** "Plate 2 · Lid" (name omitted when empty or just the default "Plate N"). */
-export function plateLabel(plate: Pick<PlateOut, "index" | "name">): string {
-  const base = `Plate ${plate.index}`;
+export type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+/** "Plate 2 · Lid" (name omitted when empty or just the default "Plate N");
+ * with `total`, "Plate 2/4 · Lid". The one label shared by chips, tiles, pickers. */
+export function plateLabel(plate: Pick<PlateOut, "index" | "name">, t: TFn, total?: number): string {
+  const base = total != null ? t("profiles.plateOf", { index: plate.index, total }) : t("profiles.plateN", { index: plate.index });
   const name = plate.name?.trim();
-  return name && name.toLowerCase() !== base.toLowerCase() ? `${base} · ${name}` : base;
+  return name && name.toLowerCase() !== `plate ${plate.index}` ? `${base} · ${name}` : base;
+}
+
+/** Highest plate index (chips say "2/4" even when plate numbers have gaps). */
+export const plateTotal = (plates: PlateOut[]): number => plates.reduce((m, p) => Math.max(m, p.index), 0);
+
+/** A colour safe to put in a `style` (hex only); anything else is dropped. */
+export function safeColour(c: string | null | undefined): string | undefined {
+  return c && /^#[0-9a-f]{6,8}$/i.test(c) ? c : undefined;
+}
+
+/** Fill a plate's missing time/weight from MakerWorld `source_meta.plates` (matched by index). */
+export function withSourceFallback(plates: PlateOut[], source: SourceMeta | null | undefined): PlateOut[] {
+  const sp = source?.plates;
+  if (!sp || sp.length === 0) return plates;
+  const out = plates.map((p) => {
+    if (p.prediction_s != null && p.weight_g != null) return p;
+    const m = sp.find((x) => x.index === p.index);
+    const prediction_s = p.prediction_s ?? m?.prediction ?? null;
+    const weight_g = p.weight_g ?? m?.weight ?? null;
+    return prediction_s === p.prediction_s && weight_g === p.weight_g ? p : { ...p, prediction_s, weight_g };
+  });
+  return out.every((p, i) => p === plates[i]) ? plates : out;
+}
+
+/** Sum of known plate times/weights (null when no plate reports one). */
+export function plateTotals(plates: PlateOut[]): { seconds: number | null; grams: number | null } {
+  const sum = (k: "prediction_s" | "weight_g") => {
+    const v = plates.map((p) => p[k]).filter((x): x is number => x != null);
+    return v.length ? v.reduce((a, b) => a + b, 0) : null;
+  };
+  return { seconds: sum("prediction_s"), grams: sum("weight_g") };
+}
+
+/** Next/previous plate in the chip order [All, 1, 2, ...] with wrap-free clamping; null = All. */
+export function stepPlate(plates: PlateOut[], value: number | null, dir: 1 | -1): number | null {
+  const order: (number | null)[] = [null, ...plates.map((p) => p.index)];
+  const i = Math.max(0, order.indexOf(value));
+  return order[Math.min(order.length - 1, Math.max(0, i + dir))];
+}
+
+/** Next profile blob in dropdown order (wraps), including the All-files entry when offered. */
+export function nextProfile(files: ViewerPlateFile[], hasAllFiles: boolean, current: string): string | null {
+  const order = [...files.map((f) => f.blobHash), ...(hasAllFiles ? [ALL_FILES] : [])];
+  if (order.length < 2) return null;
+  return order[(Math.max(0, order.indexOf(current)) + 1) % order.length];
+}
+
+export interface PlateNav {
+  blobHash: string;
+  plates: PlateOut[];
+  files?: ViewerPlateFile[];
+  hasAllFiles?: boolean;
+  value: number | null;
+  onChange: (plate: number | null) => void;
+  onFileChange?: (blobHash: string) => void;
+}
+
+/** Viewer stage plate/profile shortcuts: `[` previous, `]` next, `0` all plates, `P` cycle
+ * profiles. Returns true when the key was handled. */
+export function handlePlateKey(key: string, nav: PlateNav | null | undefined): boolean {
+  if (!nav) return false;
+  const list = selectablePlates(nav.plates);
+  if (key === "[" || key === "]") {
+    if (list.length === 0) return false;
+    nav.onChange(stepPlate(list, nav.value, key === "]" ? 1 : -1));
+    return true;
+  }
+  if (key === "0") {
+    if (list.length === 0) return false;
+    nav.onChange(null);
+    return true;
+  }
+  if (key === "p" || key === "P") {
+    const next = nav.files && nav.onFileChange ? nextProfile(nav.files, !!nav.hasAllFiles, nav.blobHash) : null;
+    if (!next) return false;
+    nav.onFileChange!(next);
+    return true;
+  }
+  return false;
+}
+
+const warmed = new Set<string>();
+/** Warm the HTTP cache for a plate GLB (chip hover/focus) so the swap is instant. */
+export function preloadPlateGlb(blobHash: string, plate: number) {
+  const url = plateGlbUrl(blobHash, plate);
+  if (warmed.has(url) || typeof fetch !== "function") return;
+  warmed.add(url);
+  fetch(url).catch(() => warmed.delete(url));
 }
 
 export interface ViewerPlateFile {
@@ -54,9 +146,11 @@ export function viewerPlates(files: FileOut[], checkedIds?: ReadonlySet<number>)
   const profiles = profileFiles(files);
   const ordered = checkedIds ? [...profiles.filter((f) => checkedIds.has(f.id)), ...profiles.filter((f) => !checkedIds.has(f.id))] : profiles;
   const out: ViewerPlateFile[] = [];
+  const seen = new Set<string>();
   for (const file of ordered) {
-    if (out.some((o) => o.blobHash === file.blob_hash)) continue;
-    out.push({ fileId: file.id, blobHash: file.blob_hash, label: profileTitle(file), plates: file.meta?.plates ?? [] });
+    if (seen.has(file.blob_hash)) continue;
+    seen.add(file.blob_hash);
+    out.push({ fileId: file.id, blobHash: file.blob_hash, label: profileTitle(file), plates: withSourceFallback(file.meta?.plates ?? [], file.source_meta) });
   }
   return out;
 }
@@ -66,15 +160,17 @@ export function resolveActive(entries: ViewerPlateFile[], preferred: string | nu
   return entries.find((e) => e.blobHash === preferred) ?? entries[0] ?? null;
 }
 
-/** File ids to render. A profile (active blob) always isolates its file(s);
- * no active blob ("All files") keeps the normal multi-file checked view. */
+/** File ids to render. A profile (active blob) always isolates ONE file (`activeFileId`,
+ * else every file of that blob); no active blob ("All files") keeps the normal
+ * multi-file checked view. */
 export function visibleParts(
   files: Pick<FileOut, "id" | "blob_hash">[],
   checkedIds: ReadonlySet<number>,
   activeBlob: string | null,
+  activeFileId?: number | null,
 ): Set<number> {
   if (!activeBlob) return new Set(checkedIds);
-  return new Set(files.filter((f) => f.blob_hash === activeBlob).map((f) => f.id));
+  return new Set(files.filter((f) => f.blob_hash === activeBlob && (activeFileId == null || f.id === activeFileId)).map((f) => f.id));
 }
 
 /** Part GLB url: the per-plate GLB when a plate is selected on this file's blob. */
@@ -167,8 +263,6 @@ export function setActiveViewerBlob(blobHash: string | null) {
   for (const l of listeners) l();
 }
 
-export const getActiveViewerBlob = () => activeBlob;
-
 /** Switch the viewer to a profile (or ALL_FILES), dropping the previous profile's plate pick. */
 export function selectProfile(blobHash: string) {
   if (activeBlob === blobHash) return;
@@ -213,12 +307,14 @@ export function useSelectedPlate(blobHash: string | null | undefined): number | 
 }
 
 /** Plain-text tooltip for a plate chip. */
-export function plateTitle(plate: PlateOut, t: (k: string, o?: Record<string, unknown>) => string): string | undefined {
+export function plateTitle(plate: PlateOut, t: TFn): string | undefined {
   const parts: string[] = [];
   if (plate.fits === false) parts.push(t("profiles.tooFar"));
   const f = plate.filaments.map((x) => x.type ?? "").filter(Boolean);
   if (f.length) parts.push(f.join(" / "));
-  for (const c of plate.colour_changes ?? []) parts.push(t("profiles.colourChange", { z: c.z.toFixed(1) }) + ` → ${c.colour}`);
+  if (plate.prediction_s != null) parts.push(humanizeDuration(plate.prediction_s));
+  if (plate.weight_g != null) parts.push(`${Math.round(plate.weight_g)} g`);
+  for (const c of plate.colour_changes ?? []) parts.push(t("profiles.colourChangeTo", { z: c.z.toFixed(1), colour: c.colour }));
   for (const p of plate.pauses ?? []) parts.push(t("profiles.pauseAt", { z: p.z.toFixed(1) }));
   return parts.length ? parts.join(" · ") : undefined;
 }

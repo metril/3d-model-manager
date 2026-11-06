@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 import { Badge } from "@/components/ui/badge";
 import { FORMAT_LABELS } from "@/lib/formatMeta";
 import type { FileOut } from "@/api/types";
@@ -13,6 +15,7 @@ export function ViewerFooterStrip({
   files: FileOut[];
   checkedIds: ReadonlySet<number>;
 }) {
+  const { t } = useTranslation();
   const checked = files.filter((file) => checkedIds.has(file.id));
   const formats = [...new Set(checked.map((file) => file.format))];
   const names = checked.map((file) => file.rel_path).join(", ");
@@ -29,7 +32,7 @@ export function ViewerFooterStrip({
           {names}
         </span>
       )}
-      <span className="shrink-0">Drag to orbit · Scroll to zoom · F fit</span>
+      <span className="shrink-0">{t("viewer.dragHint")}</span>
     </div>
   );
 }

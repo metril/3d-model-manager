@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ALL_FILES, getSelectedPlate, getActiveViewerBlob, setActiveViewerBlob, setSelectedPlate } from "@/components/viewer/plates";
+import { ALL_FILES, getSelectedPlate, setActiveViewerBlob, setSelectedPlate, useActiveViewerBlob } from "@/components/viewer/plates";
 import { useViewerScene } from "@/components/viewer/useViewerScene";
 import type { FileOut, PlateOut } from "@/api/types";
 
@@ -145,12 +145,67 @@ describe("useViewerScene profile isolation", () => {
 
   it("re-publishes the resolved profile when the store holds an unknown blob", () => {
     const { result, unmount } = renderHook(
-      () => useViewerScene({ slug: "m", files: [FILE, stl], persist: false, defaultAllChecked: true }),
+      () => ({ scene: useViewerScene({ slug: "m", files: [FILE, stl], persist: false, defaultAllChecked: true }), active: useActiveViewerBlob() }),
       { wrapper },
     );
     act(() => setActiveViewerBlob("gone"));
-    expect(result.current.stageProps.plateInfo!.blobHash).toBe("vs1");
-    expect(getActiveViewerBlob()).toBe("vs1");
+    expect(result.current.scene.stageProps.plateInfo!.blobHash).toBe("vs1");
+    expect(result.current.active).toBe("vs1");
+    unmount();
+  });
+});
+
+describe("useViewerScene pop-out seed + session memory", () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it("seeds the pop-out plate before the first read and keeps ?ex= explode", () => {
+    const seen: (number | null | undefined)[] = [];
+    const { result, unmount } = renderHook(
+      () => {
+        const r = useViewerScene({ slug: "m", files: [FILE], persist: false, initial: { blob: "vs1", plate: 2, tools: { explode: 0.5 } } });
+        seen.push(r.stageProps.plateInfo?.value);
+        return r;
+      },
+      { wrapper },
+    );
+    expect(seen[0]).toBe(2);
+    expect(new Set(seen)).toEqual(new Set([2]));
+    expect(result.current.stageProps.tools.explode).toBe(0.5);
+    unmount();
+  });
+
+  it("remembers profile + plate per model slug across a remount", () => {
+    const first = renderHook(() => useViewerScene({ slug: "mem", files: [FILE] }), { wrapper });
+    act(() => first.result.current.stageProps.plateInfo!.onChange(2));
+    expect(JSON.parse(sessionStorage.getItem("viewer-profile:mem")!)).toEqual({ blob: "vs1", plate: 2 });
+    first.unmount();
+    const second = renderHook(() => useViewerScene({ slug: "mem", files: [FILE] }), { wrapper });
+    expect(second.result.current.stageProps.plateInfo!.value).toBe(2);
+    second.unmount();
+    // a different model starts clean
+    const other = renderHook(() => useViewerScene({ slug: "other", files: [FILE] }), { wrapper });
+    expect(other.result.current.stageProps.plateInfo!.value).toBeNull();
+    other.unmount();
+  });
+
+  it("isolates only plateInfo.fileId among same-blob duplicate files", () => {
+    const dup = { ...FILE, id: 2 } as unknown as FileOut;
+    const { result, unmount } = renderHook(
+      () => useViewerScene({ slug: "dup", files: [FILE, dup], persist: false, defaultAllChecked: true }),
+      { wrapper },
+    );
+    expect(result.current.stageProps.parts.map((p) => [p.id, p.visible])).toEqual([[1, true]]);
+    unmount();
+  });
+
+  it("publishes no active blob when the model has no profiles", () => {
+    const stl = { ...FILE, id: 3, blob_hash: "x", format: "stl", meta: { triangle_count: 5 } } as unknown as FileOut;
+    setActiveViewerBlob("stale");
+    const { result, unmount } = renderHook(
+      () => ({ scene: useViewerScene({ slug: "np", files: [stl], persist: false }), active: useActiveViewerBlob() }),
+      { wrapper },
+    );
+    expect(result.current.active).toBeNull();
     unmount();
   });
 });

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ViewerWindowPage } from "@/pages/ViewerWindowPage";
+import { parsePlate } from "@/pages/viewerWindowSearch";
 import type { FileOut, ModelDetail } from "@/api/types";
 
 /** `useViewerScene` calls `useQueryClient()` unconditionally (R13a's Cover
@@ -46,7 +47,7 @@ const { paramsBox, searchBox, modelBox, modelViewerMock } = vi.hoisted(() => ({
       ex?: string;
     },
   },
-  modelBox: { current: { data: undefined as unknown, isLoading: false } },
+  modelBox: { current: { data: undefined, isLoading: false } as { data: unknown; isLoading: boolean; isError?: boolean; refetch?: () => unknown } },
   modelViewerMock: vi.fn(
     ({
       parts,
@@ -346,5 +347,30 @@ describe("ViewerWindowPage", () => {
     searchBox.current = {};
     renderPage();
     expect(await screen.findByTestId("model-viewer")).toHaveAttribute("data-contact-shadow", "true");
+  });
+});
+
+describe("ViewerWindowPage errors + plate param", () => {
+  it("shows a retry state (not 'not found') when the model fetch failed", async () => {
+    const refetch = vi.fn();
+    modelBox.current = { data: undefined, isLoading: false, isError: true, refetch };
+    renderPage();
+    expect(screen.queryByText("Model not found.")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(refetch).toHaveBeenCalled();
+    modelBox.current = { data: undefined, isLoading: false, };
+  });
+
+  it("parsePlate accepts only integers >= 1 that exist on the blob", () => {
+    const files = [{ blob_hash: "h", meta: { plates: [{ index: 1 }, { index: 3 }] } }] as unknown as FileOut[];
+    expect(parsePlate("3", "h", files)).toBe(3);
+    expect(parsePlate("2", "h", files)).toBeUndefined();
+    expect(parsePlate("0", "h", files)).toBeUndefined();
+    expect(parsePlate("1.5", "h", files)).toBeUndefined();
+    expect(parsePlate("-1", "h", files)).toBeUndefined();
+    expect(parsePlate("abc", "h", files)).toBeUndefined();
+    expect(parsePlate("1", "other", files)).toBeUndefined();
+    expect(parsePlate("1", undefined, files)).toBeUndefined();
+    expect(parsePlate(undefined, "h", files)).toBeUndefined();
   });
 });
