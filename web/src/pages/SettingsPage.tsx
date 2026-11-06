@@ -5,7 +5,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useStorageBackends } from "@/api/settings";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { AppearanceCard } from "@/components/settings/AppearanceCard";
 import { AutomationCard } from "@/components/settings/AutomationCard";
 import { MakerWorldProfilesCard } from "@/components/settings/MakerWorldProfilesCard";
@@ -77,7 +77,7 @@ export function SettingsPage() {
           <CardHeader className="items-center text-center">
             <CardTitle>{t("settings.loadError")}</CardTitle>
             <CardDescription>
-              {backendsQuery.error instanceof ApiError ? backendsQuery.error.detail : "Something went wrong."}
+              {backendsQuery.error instanceof ApiError ? backendsQuery.error.detail : t("settings.genericError")}
             </CardDescription>
           </CardHeader>
           <div className="flex justify-center pb-4">
@@ -152,11 +152,10 @@ export function SettingsPage() {
                 live on their own page, so say so -- and adding this as a 5th
                 grid item would have broken the packing worked out below. */}
             <p className="text-sm text-muted-foreground">
-              Connect your gallery accounts here. The collections they hold appear under{" "}
-              <Link to="/collections" className="underline">
-                Collections
-              </Link>
-              , where you pick which ones to keep synced.
+              <Trans
+                i18nKey="settings.accountsHint"
+                components={{ collections: <Link to="/collections" className="underline" /> }}
+              />
             </p>
             <div className="grid gap-6 xl:grid-cols-2">
               {/* Sparse grid auto-placement never backfills: a col-span-2 card

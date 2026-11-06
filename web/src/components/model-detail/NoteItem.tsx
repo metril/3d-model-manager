@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -23,6 +24,7 @@ export function NoteItem({
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(note.body);
 
   if (editing) {
@@ -36,7 +38,7 @@ export function NoteItem({
             disabled={isSaving || draft.trim().length === 0}
             onClick={() => onSave(draft, () => setEditing(false))}
           >
-            Save
+            {t("common.save")}
           </Button>
           <Button
             type="button"
@@ -47,7 +49,7 @@ export function NoteItem({
               setEditing(false);
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
         </div>
       </li>
@@ -61,16 +63,16 @@ export function NoteItem({
         <span>{formatDateTime(note.updated_at)}</span>
         <div className="flex gap-3">
           <button type="button" className="hover:underline" onClick={() => setEditing(true)}>
-            Edit
+            {t("common.edit")}
           </button>
           <ConfirmDialog
             trigger={
               <button type="button" className="hover:underline">
-                Delete
+                {t("common.delete")}
               </button>
             }
-            title="Delete this note?"
-            confirmLabel="Delete"
+            title={t("mdNote.deleteTitle")}
+            confirmLabel={t("common.delete")}
             destructive
             onConfirm={onDelete}
           />

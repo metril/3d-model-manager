@@ -1,3 +1,4 @@
+import { Trans, useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function SiteTokensCard() {
+  const { t } = useTranslation();
   const tokens = useImportTokens();
   const update = useUpdateImportTokens();
   const [thingiverseToken, setThingiverseToken] = useState("");
@@ -21,39 +23,35 @@ export function SiteTokensCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Gallery site tokens</CardTitle>
+        <CardTitle>{t("settingsSiteTokens.title")}</CardTitle>
         <CardDescription>
-          Thingiverse needs a personal App Token to download files. Create a &quot;Desktop app&quot; at
-          thingiverse.com/apps/create and paste the token here. Printables downloads still need no
-          token, but connecting a Printables account below unlocks syncing your saved collections.
+          {t("settingsSiteTokens.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="thingiverse-token">Thingiverse App Token</Label>
+          <Label htmlFor="thingiverse-token">{t("settingsSiteTokens.thingiverseLabel")}</Label>
           <Input
             id="thingiverse-token"
             type="password"
             autoComplete="new-password"
             value={thingiverseToken}
-            placeholder={isThingiverseSet ? "•• (stored — leave blank to keep)" : "paste your app token"}
+            placeholder={isThingiverseSet ? t("settingsSiteTokens.stored") : t("settingsSiteTokens.pasteApp")}
             onChange={(e) => setThingiverseToken(e.target.value)}
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="makerworld-token">MakerWorld web token</Label>
+          <Label htmlFor="makerworld-token">{t("settingsSiteTokens.makerworldLabel")}</Label>
           <Input
             id="makerworld-token"
             type="password"
             autoComplete="new-password"
             value={makerworldToken}
-            placeholder={isMakerworldSet ? "•• (stored — leave blank to keep)" : "paste your web token"}
+            placeholder={isMakerworldSet ? t("settingsSiteTokens.stored") : t("settingsSiteTokens.pasteWeb")}
             onChange={(e) => setMakerworldToken(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            DevTools → Application → Cookies → https://makerworld.com → copy the value of{" "}
-            <code>token</code>. Needed to sync your MakerWorld collections; it expires periodically
-            and can be re-pasted.
+            <Trans i18nKey="settingsSiteTokens.makerworldHelp" components={{ code: <code /> }} />
           </p>
         </div>
         <Button
@@ -71,14 +69,14 @@ export function SiteTokensCard() {
             )
           }
         >
-          {update.isPending ? "Saving…" : "Save tokens"}
+          {update.isPending ? t("settingsSiteTokens.saving") : t("settingsSiteTokens.save")}
         </Button>
         {update.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {update.error instanceof ApiError ? update.error.detail : "Could not save the tokens."}
+            {update.error instanceof ApiError ? update.error.detail : t("settingsSiteTokens.saveError")}
           </p>
         )}
-        {update.isSuccess && <p className="text-sm text-success">Saved.</p>}
+        {update.isSuccess && <p className="text-sm text-success">{t("settingsSiteTokens.saved")}</p>}
       </CardContent>
     </Card>
   );

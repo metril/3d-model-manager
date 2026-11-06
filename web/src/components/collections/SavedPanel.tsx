@@ -5,7 +5,7 @@ import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilt
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, ImageIcon, RefreshCwIcon } from "lucide-react";
 
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import {
@@ -257,8 +257,7 @@ export function ReviewQueueCard() {
         <CardHeader>
           <CardTitle>{t("collections.reviewQueue")}</CardTitle>
           <CardDescription>
-            New models found in your <em>review</em> lists. Nothing enters the library until you
-            import it.
+            <Trans i18nKey="collections.reviewDesc" components={{ em: <em /> }} />
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -274,8 +273,7 @@ export function ReviewQueueCard() {
         <CardHeader>
           <CardTitle>{t("collections.reviewQueue")}</CardTitle>
           <CardDescription>
-            New models found in your <em>review</em> lists. Nothing enters the library until you
-            import it.
+            <Trans i18nKey="collections.reviewDesc" components={{ em: <em /> }} />
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -302,8 +300,7 @@ export function ReviewQueueCard() {
           />
         </div>
         <CardDescription>
-          New models found in your <em>review</em> lists. Nothing enters the library until you
-          import it.
+          <Trans i18nKey="collections.reviewDesc" components={{ em: <em /> }} />
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -479,26 +476,20 @@ export function BrowseCard() {
         ) : (lists.data ?? []).length === 0 ? (
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>
-              No collections found yet. To sync your saved models, connect each site in{" "}
-              <Link to="/settings" className="underline">
-                Settings
-              </Link>{" "}
-              → Imports:
+              <Trans
+                i18nKey="collections.noneFound"
+                components={{ settings: <Link to="/settings" className="underline" /> }}
+              />
             </p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <span className="font-medium text-foreground">MakerWorld</span> — paste your web
-                token under Gallery site tokens. Your MakerWorld collections sync from the browser
-                extension — open your MakerWorld collections page once with the extension
-                installed.
+                <Trans i18nKey="collections.siteMakerworld" components={{ name: <span className="font-medium text-foreground" /> }} />
               </li>
               <li>
-                <span className="font-medium text-foreground">Thingiverse</span> — paste your App
-                Token under Gallery site tokens.
+                <Trans i18nKey="collections.siteThingiverse" components={{ name: <span className="font-medium text-foreground" /> }} />
               </li>
               <li>
-                <span className="font-medium text-foreground">Printables</span> — connect your
-                account.
+                <Trans i18nKey="collections.sitePrintables" components={{ name: <span className="font-medium text-foreground" /> }} />
               </li>
             </ul>
           </div>

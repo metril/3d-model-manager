@@ -5,6 +5,7 @@
  * redirect or re-login is needed here on success.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useChangePassword } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function ChangePasswordCard() {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -42,15 +44,14 @@ export function ChangePasswordCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Password</CardTitle>
+        <CardTitle>{t("settingsPassword.title")}</CardTitle>
         <CardDescription>
-          Change the admin password. You&apos;ll stay signed in here; any other sessions are
-          signed out.
+          {t("settingsPassword.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="current-password">Current password</Label>
+          <Label htmlFor="current-password">{t("settingsPassword.current")}</Label>
           <Input
             id="current-password"
             type="password"
@@ -60,7 +61,7 @@ export function ChangePasswordCard() {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="new-password">New password</Label>
+          <Label htmlFor="new-password">{t("settingsPassword.new")}</Label>
           <Input
             id="new-password"
             type="password"
@@ -70,7 +71,7 @@ export function ChangePasswordCard() {
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="confirm-password">Confirm new password</Label>
+          <Label htmlFor="confirm-password">{t("settingsPassword.confirm")}</Label>
           <Input
             id="confirm-password"
             type="password"
@@ -80,20 +81,20 @@ export function ChangePasswordCard() {
           />
         </div>
         <Button type="button" disabled={changePassword.isPending} onClick={submit}>
-          {changePassword.isPending ? "Updating…" : "Change password"}
+          {changePassword.isPending ? t("settingsPassword.updating") : t("settingsPassword.submit")}
         </Button>
         {mismatch && (
           <p role="alert" className="text-sm text-destructive">
-            Passwords don&apos;t match.
+            {t("settingsPassword.mismatch")}
           </p>
         )}
         {!mismatch && changePassword.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {changePassword.error instanceof ApiError ? changePassword.error.detail : "Could not update the password."}
+            {changePassword.error instanceof ApiError ? changePassword.error.detail : t("settingsPassword.error")}
           </p>
         )}
         {!mismatch && changePassword.isSuccess && (
-          <p className="text-sm text-success">Password updated.</p>
+          <p className="text-sm text-success">{t("settingsPassword.success")}</p>
         )}
       </CardContent>
     </Card>

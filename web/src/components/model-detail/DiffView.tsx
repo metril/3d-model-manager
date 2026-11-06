@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { humanizeBytes } from "@/lib/format";
 import type { DiffEntry, DiffResponse } from "@/api/types";
@@ -5,10 +6,10 @@ import type { DiffEntry, DiffResponse } from "@/api/types";
 type DiffKey = keyof DiffResponse;
 
 const DIFF_SECTIONS: { key: DiffKey; label: string; badgeClassName: string }[] = [
-  { key: "added", label: "Added", badgeClassName: "bg-success/15 text-success" },
-  { key: "removed", label: "Removed", badgeClassName: "bg-destructive/15 text-destructive" },
-  { key: "changed", label: "Changed", badgeClassName: "bg-warning/15 text-warning" },
-  { key: "unchanged", label: "Unchanged", badgeClassName: "bg-muted text-muted-foreground" },
+  { key: "added", label: "mdDiff.added", badgeClassName: "bg-success/15 text-success" },
+  { key: "removed", label: "mdDiff.removed", badgeClassName: "bg-destructive/15 text-destructive" },
+  { key: "changed", label: "mdDiff.changed", badgeClassName: "bg-warning/15 text-warning" },
+  { key: "unchanged", label: "mdDiff.unchanged", badgeClassName: "bg-muted text-muted-foreground" },
 ];
 
 function entrySize(entry: DiffEntry): string {
@@ -17,9 +18,11 @@ function entrySize(entry: DiffEntry): string {
 }
 
 export function DiffView({ diff }: { diff: DiffResponse }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-4">
-      {DIFF_SECTIONS.map(({ key, label, badgeClassName }) => {
+      {DIFF_SECTIONS.map(({ key, label: labelKey, badgeClassName }) => {
+        const label = t(labelKey);
         const entries = diff[key];
         return (
           <section key={key} aria-label={label}>
@@ -30,7 +33,7 @@ export function DiffView({ diff }: { diff: DiffResponse }) {
               </Badge>
             </h4>
             {entries.length === 0 ? (
-              <p className="text-xs text-muted-foreground">None</p>
+              <p className="text-xs text-muted-foreground">{t("mdDiff.none")}</p>
             ) : (
               <ul className="divide-y divide-border rounded-md border border-border">
                 {entries.map((entry) => (

@@ -11,6 +11,7 @@
  * status only ever carries `connected`/`username`/`user_id`
  * (`PrintablesStatusOut`), never an access/refresh token.
  */
+import { Trans, useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -22,16 +23,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function PrintablesAccountCard() {
+  const { t } = useTranslation();
   const status = usePrintablesStatus();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Printables account</CardTitle>
+        <CardTitle>{t("settingsPrintables.title")}</CardTitle>
         <CardDescription>
-          Connect a Printables account so your saved collections and liked prints can sync.
-          Printables has no login this app can drive itself -- paste your browser&apos;s refresh
-          token cookie instead.
+          {t("settingsPrintables.description")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -39,7 +39,7 @@ export function PrintablesAccountCard() {
           <Skeleton className="h-32 w-full rounded-lg" />
         ) : status.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {status.error instanceof ApiError ? status.error.detail : "Couldn't load Printables account status."}
+            {status.error instanceof ApiError ? status.error.detail : t("settingsPrintables.loadError")}
           </p>
         ) : status.data?.connected ? (
           <ConnectedView username={status.data.username} />
@@ -52,19 +52,24 @@ export function PrintablesAccountCard() {
 }
 
 function ConnectedView({ username }: { username: string | null }) {
+  const { t } = useTranslation();
   const disconnect = usePrintablesDisconnect();
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-foreground">
-        Connected as <span className="font-medium">{username ?? "unknown account"}</span>
+        <Trans
+          i18nKey="settingsPrintables.connectedAs"
+          components={{ name: <span className="font-medium" /> }}
+          values={{ name: username ?? t("settingsPrintables.unknownAccount") }}
+        />
       </p>
       <Button type="button" variant="outline" disabled={disconnect.isPending} onClick={() => disconnect.mutate()}>
-        {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
+        {disconnect.isPending ? t("settingsPrintables.disconnecting") : t("settingsPrintables.disconnect")}
       </Button>
       {disconnect.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {disconnect.error instanceof ApiError ? disconnect.error.detail : "Could not disconnect."}
+          {disconnect.error instanceof ApiError ? disconnect.error.detail : t("settingsPrintables.disconnectError")}
         </p>
       )}
     </div>
@@ -72,6 +77,7 @@ function ConnectedView({ username }: { username: string | null }) {
 }
 
 function ConnectForm() {
+  const { t } = useTranslation();
   const [refreshToken, setRefreshToken] = useState("");
   const connect = usePrintablesConnect();
 
@@ -85,7 +91,7 @@ function ConnectForm() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="printables-refresh-token">Refresh token</Label>
+        <Label htmlFor="printables-refresh-token">{t("settingsPrintables.refreshToken")}</Label>
         <Input
           id="printables-refresh-token"
           type="password"
@@ -95,16 +101,15 @@ function ConnectForm() {
           autoComplete="off"
         />
         <p className="text-xs text-muted-foreground">
-          In your browser: DevTools → Application → Cookies → https://www.printables.com → copy
-          the value of <code>auth.refresh_token</code>.
+          <Trans i18nKey="settingsPrintables.tokenHelp" components={{ code: <code /> }} />
         </p>
       </div>
       <Button type="button" disabled={connect.isPending || !refreshToken.trim()} onClick={submit}>
-        {connect.isPending ? "Connecting…" : "Connect"}
+        {connect.isPending ? t("settingsPrintables.connecting") : t("settingsPrintables.connect")}
       </Button>
       {connect.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {connect.error instanceof ApiError ? connect.error.detail : "Could not connect."}
+          {connect.error instanceof ApiError ? connect.error.detail : t("settingsPrintables.connectError")}
         </p>
       )}
     </div>

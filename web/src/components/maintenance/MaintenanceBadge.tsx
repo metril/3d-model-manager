@@ -1,18 +1,20 @@
 import { WrenchIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { dueCount, useMaintenanceTasks } from "@/api/ops";
 import { Badge } from "@/components/ui/badge";
 
 /** Due-count pill for a printer; renders nothing when nothing is due. Exported for Q3's BadgeRow. */
 export function MaintenanceBadge({ printerId }: { printerId: number }) {
+  const { t } = useTranslation();
   const tasks = useMaintenanceTasks(printerId);
   const n = dueCount(tasks.data);
   if (n === 0) return null;
   const overdue = tasks.data?.some((t) => t.status === "overdue");
   return (
-    <Badge variant={overdue ? "destructive" : "secondary"} title="Maintenance due">
+    <Badge variant={overdue ? "destructive" : "secondary"} title={t("maintenanceBadge.title")}>
       <WrenchIcon />
-      {n} due
+      {t("maintenanceBadge.due", { n })}
     </Badge>
   );
 }

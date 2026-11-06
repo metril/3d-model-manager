@@ -41,7 +41,7 @@ function RunRow({
   onToggle: () => void;
 }) {
   const { t } = useTranslation();
-  const name = run.model_name ?? run.subtask_name ?? `Run #${run.id}`;
+  const name = run.model_name ?? run.subtask_name ?? t("runDetail.runId", { id: run.id });
   return (
     <TableRow
       className="cursor-pointer"
@@ -70,7 +70,7 @@ function RunRow({
       <TableCell className="max-w-64 truncate text-sm">{name}</TableCell>
       <TableCell>{run.printer_name}</TableCell>
       <TableCell>
-        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{run.result}</Badge>
+        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
         <RunCountBadge count={run.run_count} />
       </TableCell>
       <TableCell className="font-mono tabular-nums">
@@ -113,20 +113,20 @@ export function PrintJobHistory({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Print history</CardTitle>
-        <CardDescription>Finished runs, most recent first.</CardDescription>
+        <CardTitle>{t("printJobHistory.title")}</CardTitle>
+        <CardDescription>{t("printJobHistory.subtitle")}</CardDescription>
         <div className="flex gap-2 pt-2">
           {fixedPrinterId == null ? (
             <Select
-              aria-label="Printer filter"
+              aria-label={t("printJobHistory.printerFilter")}
               value={printerId != null ? String(printerId) : ALL}
               onValueChange={(v) => setPrinterId(v === ALL ? undefined : Number(v))}
             >
-              <SelectTrigger aria-label="Printer filter" className="w-40">
+              <SelectTrigger aria-label={t("printJobHistory.printerFilter")} className="w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All printers</SelectItem>
+                <SelectItem value={ALL}>{t("printJobHistory.allPrinters")}</SelectItem>
                 {(printers.data ?? []).map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
                     {p.name}
@@ -136,18 +136,18 @@ export function PrintJobHistory({
             </Select>
           ) : null}
           <Select
-            aria-label="Result filter"
+            aria-label={t("printJobHistory.resultFilter")}
             value={result ?? ALL}
             onValueChange={(v) => setResult(v === ALL ? undefined : (v as ArchiveResult))}
           >
-            <SelectTrigger aria-label="Result filter" className="w-40">
+            <SelectTrigger aria-label={t("printJobHistory.resultFilter")} className="w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All results</SelectItem>
+              <SelectItem value={ALL}>{t("printJobHistory.allResults")}</SelectItem>
               {RESULTS.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {r}
+                  {t(`resultStatus.${r}`, { defaultValue: r })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -166,25 +166,25 @@ export function PrintJobHistory({
           <Skeleton className="h-32 w-full rounded-lg" />
         ) : archives.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {archives.error instanceof ApiError ? archives.error.detail : "Couldn't load print history."}
+            {archives.error instanceof ApiError ? archives.error.detail : t("printJobHistory.loadError")}
           </p>
         ) : !rows || rows.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">No finished prints yet.</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">{t("printJobHistory.empty")}</p>
         ) : (
           <Table className="data-table">
             <TableHeader>
               <TableRow>
                 <TableHead />
                 <TableHead />
-                <TableHead>Name</TableHead>
-                <TableHead>Printer</TableHead>
-                <TableHead>Result</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Grams</TableHead>
-                <TableHead>Cost</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Quality</TableHead>
-                <TableHead>Finished</TableHead>
+                <TableHead>{t("printJobHistory.col.name")}</TableHead>
+                <TableHead>{t("printJobHistory.col.printer")}</TableHead>
+                <TableHead>{t("printJobHistory.col.result")}</TableHead>
+                <TableHead>{t("printJobHistory.col.duration")}</TableHead>
+                <TableHead>{t("printJobHistory.col.grams")}</TableHead>
+                <TableHead>{t("printJobHistory.col.cost")}</TableHead>
+                <TableHead>{t("printJobHistory.col.tags")}</TableHead>
+                <TableHead>{t("printJobHistory.col.quality")}</TableHead>
+                <TableHead>{t("printJobHistory.col.finished")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { usePatchModel } from "@/api/library";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InlineEdit } from "@/components/InlineEdit";
@@ -9,19 +10,20 @@ import type { ModelDetail } from "@/api/types";
  * render otherwise. Owns its own `usePatchModel` mutation, same posture as
  * `TagEditor`. */
 export function DescriptionCard({ model, editMode }: { model: ModelDetail; editMode: boolean }) {
+  const { t } = useTranslation();
   const patchModel = usePatchModel(model.slug);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Description</CardTitle>
+        <CardTitle>{t("mdDesc.title")}</CardTitle>
       </CardHeader>
       <CardContent>
         {editMode ? (
           <InlineEdit
             value={model.description ?? ""}
-            placeholder="Add a description…"
-            aria-label="description"
+            placeholder={t("mdDesc.placeholder")}
+            aria-label={t("mdDesc.aria")}
             multiline
             onSave={(description) => patchModel.mutate({ description: description || null })}
             displayClassName="text-sm text-muted-foreground"
@@ -32,7 +34,7 @@ export function DescriptionCard({ model, editMode }: { model: ModelDetail; editM
             dangerouslySetInnerHTML={{ __html: sanitizeDescriptionHtml(model.description) }}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">No description yet.</p>
+          <p className="text-sm text-muted-foreground">{t("mdDesc.empty")}</p>
         )}
       </CardContent>
     </Card>

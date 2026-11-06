@@ -1,4 +1,5 @@
 /** Per-printer Obico failure detection (Q10): enable + action override. */
+import { useTranslation } from "react-i18next";
 import { ApiError } from "@/api/client";
 import type { DetectionAction } from "@/api/detection";
 import { usePrinterDetection, useSavePrinterDetection } from "@/api/detection";
@@ -9,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
 export function PrinterDetectionSection({ printer }: { printer: PrinterOut }) {
+  const { t } = useTranslation();
   const q = usePrinterDetection(printer.id);
   const save = useSavePrinterDetection(printer.id);
   const id = `printer-${printer.id}-detection`;
@@ -17,7 +19,7 @@ export function PrinterDetectionSection({ printer }: { printer: PrinterOut }) {
 
   return (
     <fieldset className="flex flex-col gap-3 rounded-md border p-3">
-      <legend className="px-1 text-sm font-medium">Failure detection</legend>
+      <legend className="px-1 text-sm font-medium">{t("settingsPrinterDetection.title")}</legend>
       <div className="grid items-end gap-3 sm:grid-cols-2">
         <div className="flex items-center gap-3">
           <Switch
@@ -26,10 +28,10 @@ export function PrinterDetectionSection({ printer }: { printer: PrinterOut }) {
             disabled={save.isPending}
             onCheckedChange={(enabled) => save.mutate({ enabled, action: d.action })}
           />
-          <Label htmlFor={`${id}-enabled`}>Watch this printer</Label>
+          <Label htmlFor={`${id}-enabled`}>{t("settingsPrinterDetection.watch")}</Label>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-action`}>Action</Label>
+          <Label htmlFor={`${id}-action`}>{t("settingsPrinterDetection.action")}</Label>
           <select
             id={`${id}-action`}
             className={selectClass}
@@ -42,21 +44,21 @@ export function PrinterDetectionSection({ printer }: { printer: PrinterOut }) {
               })
             }
           >
-            <option value="">Default ({d.effective_action})</option>
-            <option value="none">Record only</option>
-            <option value="notify">Notify</option>
-            <option value="pause">Pause the print</option>
+            <option value="">{t("settingsPrinterDetection.default", { action: d.effective_action })}</option>
+            <option value="none">{t("settingsPrinterDetection.record")}</option>
+            <option value="notify">{t("settingsPrinterDetection.notify")}</option>
+            <option value="pause">{t("settingsPrinterDetection.pause")}</option>
           </select>
         </div>
       </div>
       {!d.global_enabled ? (
         <p className="text-xs text-muted-foreground">
-          Failure detection is off globally. Configure it in Settings → Printer → Failure detection.
+          {t("settingsPrinterDetection.offGlobally")}
         </p>
       ) : null}
       {save.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {save.error instanceof ApiError ? save.error.detail : "Could not save."}
+          {save.error instanceof ApiError ? save.error.detail : t("settingsPrinterDetection.saveError")}
         </p>
       ) : null}
     </fieldset>

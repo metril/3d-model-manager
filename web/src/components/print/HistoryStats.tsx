@@ -23,13 +23,14 @@ import { SegmentedControl } from "@/components/viewer/SegmentedControl";
 import { formatCost, formatDate, humanizeBytes } from "@/lib/format";
 import { formatIcon } from "@/lib/formatMeta";
 import { dailyRunCounts } from "@/lib/runSeries";
+import { useTranslation } from "react-i18next";
 
 // Duplicated from `PrintsTab.tsx` (not exported there) -- keep in sync if the
 // result vocabulary changes.
 const RESULT_LABELS: Record<PrintResult, string> = {
-  success: "Success",
-  fail: "Fail",
-  partial: "Partial",
+  success: "histStats.result.success",
+  fail: "histStats.result.fail",
+  partial: "histStats.result.partial",
 };
 const RESULT_BADGE: Record<PrintResult, { variant: "destructive" | "outline"; className?: string }> = {
   success: { variant: "outline", className: "bg-success/15 text-success" },
@@ -64,6 +65,7 @@ type FilamentView = "material" | "spool";
  * declare a `spool` search param, so this is a simple deep link rather
  * than a typed in-app navigation). */
 function FilamentSeriesRow({ series, kind }: { series: FilamentSeriesOut; kind: FilamentView }) {
+  const { t } = useTranslation();
   const row = (
     <div className="flex items-center gap-3 py-2">
       <FilamentChip color={series.color_hex ?? undefined} label={series.name} />
@@ -75,7 +77,7 @@ function FilamentSeriesRow({ series, kind }: { series: FilamentSeriesOut; kind: 
       </span>
       <Sparkline
         values={series.points.map((p) => p.grams)}
-        aria-label={`${series.name} grams per bucket`}
+        aria-label={t("histStats.gramsPerBucket", { name: series.name })}
         className="ml-auto"
       />
     </div>
@@ -96,6 +98,7 @@ function FilamentSeriesRow({ series, kind }: { series: FilamentSeriesOut; kind: 
 /** Filament usage section (P5 Task 12): per-material/per-spool grams+cost
  * over a 30/90/365-day range, fed by `GET /stats/filament`. */
 function FilamentUsageSection() {
+  const { t } = useTranslation();
   const [view, setView] = useState<FilamentView>("material");
   const [range, setRange] = useState<FilamentRange>("90");
   const filamentStats = useFilamentStats({ days: Number(range), bucket: "week" });
@@ -104,17 +107,17 @@ function FilamentUsageSection() {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <CardTitle>Filament usage</CardTitle>
+        <CardTitle>{t("histStats.filamentUsage")}</CardTitle>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedControl<FilamentView>
-            label="View by"
+            label={t("histStats.viewBy")}
             options={["material", "spool"]}
-            labels={{ material: "By material", spool: "By spool" }}
+            labels={{ material: t("histStats.byMaterial"), spool: t("histStats.bySpool") }}
             value={view}
             onChange={setView}
           />
           <SegmentedControl<FilamentRange>
-            label="Range"
+            label={t("histStats.range")}
             options={["30", "90", "365"]}
             labels={{ "30": "30d", "90": "90d", "365": "365d" }}
             value={range}
@@ -126,7 +129,7 @@ function FilamentUsageSection() {
         {filamentStats.isLoading ? (
           <Skeleton className="h-24 w-full rounded-lg" />
         ) : series.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No filament usage logged in this range.</p>
+          <p className="text-sm text-muted-foreground">{t("histStats.noFilament")}</p>
         ) : (
           <div className="divide-y divide-border">
             {series.map((s) => (
@@ -140,6 +143,7 @@ function FilamentUsageSection() {
 }
 
 export function HistoryStats() {
+  const { t } = useTranslation();
   const statsQuery = useStats();
   const archivesQuery = useArchives();
 
@@ -157,9 +161,9 @@ export function HistoryStats() {
     return (
       <Card className="mx-auto mt-12 max-w-md">
         <CardHeader className="items-center text-center">
-          <CardTitle>Couldn&apos;t load the dashboard</CardTitle>
+          <CardTitle>{t("histStats.loadError")}</CardTitle>
           <CardDescription>
-            {statsQuery.error instanceof ApiError ? statsQuery.error.detail : "Something went wrong."}
+            {statsQuery.error instanceof ApiError ? statsQuery.error.detail : t("histStats.wentWrong")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -178,32 +182,32 @@ export function HistoryStats() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Models" value={stats.models.total} />
+          <StatTile label={t("histStats.models")} value={stats.models.total} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Favorites" value={stats.models.favorites} />
+          <StatTile label={t("histStats.favorites")} value={stats.models.favorites} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Archived" value={stats.models.archived} />
+          <StatTile label={t("histStats.archived")} value={stats.models.archived} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Drafts" value={stats.models.drafts} />
+          <StatTile label={t("histStats.drafts")} value={stats.models.drafts} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Files" value={stats.files.total} />
+          <StatTile label={t("histStats.files")} value={stats.files.total} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Storage used" value={humanizeBytes(stats.files.bytes_total)} />
+          <StatTile label={t("histStats.storageUsed")} value={humanizeBytes(stats.files.bytes_total)} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Tags" value={stats.tags} />
+          <StatTile label={t("histStats.tags")} value={stats.tags} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Followed collections" value={stats.collections} />
+          <StatTile label={t("histStats.followed")} value={stats.collections} />
         </div>
         <div className="rounded-[6px] border p-3">
-          <StatTile label="Runs (14d)" value={runCounts.reduce((a, b) => a + b, 0)}>
-            <Sparkline values={runCounts} aria-label="Runs over the last 14 days" />
+          <StatTile label={t("histStats.runs14")} value={runCounts.reduce((a, b) => a + b, 0)}>
+            <Sparkline values={runCounts} aria-label={t("histStats.runs14Aria")} />
           </StatTile>
         </div>
       </div>
@@ -211,44 +215,46 @@ export function HistoryStats() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Prints</CardTitle>
+            <CardTitle>{t("histStats.prints")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-xl font-semibold tabular-nums">{stats.prints.total}</p>
-                <p className="text-xs text-muted-foreground">Logged</p>
+                <p className="text-xs text-muted-foreground">{t("histStats.logged")}</p>
               </div>
               <div>
                 <p className="text-xl font-semibold tabular-nums text-success">
                   {stats.prints.succeeded}
                 </p>
-                <p className="text-xs text-muted-foreground">Succeeded</p>
+                <p className="text-xs text-muted-foreground">{t("histStats.succeeded")}</p>
               </div>
               <div>
                 <p className="text-xl font-semibold tabular-nums text-destructive">{stats.prints.failed}</p>
-                <p className="text-xs text-muted-foreground">Failed</p>
+                <p className="text-xs text-muted-foreground">{t("histStats.failed")}</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              {Math.round(stats.prints.filament_g_total)} g filament ·{" "}
-              {Math.round(stats.prints.duration_s_total / 3600)} h print time (all-time)
+              {t("histStats.filamentTime", {
+                g: Math.round(stats.prints.filament_g_total),
+                h: Math.round(stats.prints.duration_s_total / 3600),
+              })}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent activity (7 days)</CardTitle>
+            <CardTitle>{t("histStats.recent7")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p>
               <span className="font-semibold tabular-nums">{stats.recent.models_added_7d}</span>{" "}
-              <span className="text-muted-foreground">models added</span>
+              <span className="text-muted-foreground">{t("histStats.modelsAdded")}</span>
             </p>
             <p>
               <span className="font-semibold tabular-nums">{stats.recent.prints_7d}</span>{" "}
-              <span className="text-muted-foreground">prints logged</span>
+              <span className="text-muted-foreground">{t("histStats.printsLogged")}</span>
             </p>
           </CardContent>
         </Card>
@@ -257,11 +263,11 @@ export function HistoryStats() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Files by format</CardTitle>
+            <CardTitle>{t("histStats.filesByFormat")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {formatEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No files yet.</p>
+              <p className="text-sm text-muted-foreground">{t("histStats.noFiles")}</p>
             ) : (
               formatEntries.map(([format, count]) => (
                 <Bar key={format} label={format} value={count} max={maxFormatCount} />
@@ -272,11 +278,11 @@ export function HistoryStats() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Storage by backend</CardTitle>
+            <CardTitle>{t("histStats.storageByBackend")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {backendEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No files yet.</p>
+              <p className="text-sm text-muted-foreground">{t("histStats.noFiles")}</p>
             ) : (
               backendEntries.map(([name, bytes]) => (
                 <Bar key={name} label={`${name} — ${humanizeBytes(bytes)}`} value={bytes} max={maxBackendBytes} />
@@ -289,11 +295,11 @@ export function HistoryStats() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Recent models</CardTitle>
+            <CardTitle>{t("histStats.recentModels")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {stats.recent_models.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No models yet.</p>
+              <p className="text-sm text-muted-foreground">{t("histStats.noModels")}</p>
             ) : (
               stats.recent_models.slice(0, 10).map((model) => {
                 const Icon = formatIcon(model.formats[0]);
@@ -326,11 +332,11 @@ export function HistoryStats() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent prints</CardTitle>
+            <CardTitle>{t("histStats.recentPrints")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {stats.recent_prints.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No prints logged yet.</p>
+              <p className="text-sm text-muted-foreground">{t("histStats.noPrints")}</p>
             ) : (
               stats.recent_prints.slice(0, 10).map((entry) => {
                 const badge = RESULT_BADGE[entry.result];
@@ -348,7 +354,7 @@ export function HistoryStats() {
                       <span className="truncate font-medium text-foreground">{entry.model_name}</span>
                     )}
                     <Badge variant={badge.variant} className={badge.className}>
-                      {RESULT_LABELS[entry.result]}
+                      {t(RESULT_LABELS[entry.result])}
                     </Badge>
                     {entry.material && (
                       <FilamentChip
@@ -370,16 +376,20 @@ export function HistoryStats() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Material usage</CardTitle>
+          <CardTitle>{t("histStats.materialUsage")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {stats.material_usage.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No material usage logged yet.</p>
+            <p className="text-sm text-muted-foreground">{t("histStats.noMaterial")}</p>
           ) : (
             stats.material_usage.map((entry) => (
               <Bar
                 key={entry.material_id ?? `free:${entry.name}`}
-                label={`${entry.name} — ${Math.round(entry.grams)} g · ${entry.prints} print(s)`}
+                label={t("histStats.materialRow", {
+                  name: entry.name,
+                  g: Math.round(entry.grams),
+                  prints: entry.prints,
+                })}
                 value={entry.grams}
                 max={maxMaterialGrams}
               />
@@ -392,10 +402,10 @@ export function HistoryStats() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Printer jobs</CardTitle>
+          <CardTitle>{t("histStats.printerJobs")}</CardTitle>
           <CardDescription>
             <Link to="/system/jobs" className="underline">
-              View all jobs
+              {t("histStats.viewAllJobs")}
             </Link>
           </CardDescription>
         </CardHeader>
@@ -403,15 +413,15 @@ export function HistoryStats() {
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className="text-xl font-semibold tabular-nums">{stats.jobs.running}</p>
-              <p className="text-xs text-muted-foreground">Running</p>
+              <p className="text-xs text-muted-foreground">{t("histStats.running")}</p>
             </div>
             <div>
               <p className="text-xl font-semibold tabular-nums">{stats.jobs.queued}</p>
-              <p className="text-xs text-muted-foreground">Queued</p>
+              <p className="text-xs text-muted-foreground">{t("histStats.queued")}</p>
             </div>
             <div>
               <p className="text-xl font-semibold tabular-nums text-destructive">{stats.jobs.failed_24h}</p>
-              <p className="text-xs text-muted-foreground">Failed (24h)</p>
+              <p className="text-xs text-muted-foreground">{t("histStats.failed24")}</p>
             </div>
           </div>
         </CardContent>

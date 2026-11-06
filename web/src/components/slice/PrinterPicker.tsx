@@ -10,6 +10,7 @@ import { usePrintersOverview } from "@/api/printers";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { splitOnline } from "@/lib/presetList";
+import { useTranslation } from "react-i18next";
 
 export interface PickerPrinter {
   id: number;
@@ -40,6 +41,7 @@ export function PrinterPicker({
   onChange: (id: number, auto: boolean) => void;
   idPrefix: string;
 }) {
+  const { t } = useTranslation();
   const onlineIds = useOnlinePrinterIds();
   const { online, offline } = useMemo(() => splitOnline(printers, onlineIds), [printers, onlineIds]);
   const soleId = online.length === 1 && !online[0].disabled ? online[0].id : null;
@@ -62,11 +64,11 @@ export function PrinterPicker({
     <RadioGroup value={value != null ? String(value) : ""} onValueChange={(v) => onChange(Number(v), false)}>
       {online.map(row)}
       {online.length === 0 && offline.length > 0 ? (
-        <p className="text-sm text-muted-foreground">No printers are online.</p>
+        <p className="text-sm text-muted-foreground">{t("printerPicker.noneOnline")}</p>
       ) : null}
       {offline.length > 0 ? (
         <details className="text-sm" open={value != null && offline.some((p) => p.id === value)}>
-          <summary className="cursor-pointer text-muted-foreground">Offline ({offline.length})</summary>
+          <summary className="cursor-pointer text-muted-foreground">{t("printerPicker.offline", { n: offline.length })}</summary>
           <div className="mt-1 space-y-1.5">{offline.map(row)}</div>
         </details>
       ) : null}

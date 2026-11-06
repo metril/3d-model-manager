@@ -10,6 +10,7 @@
  * default backend, or one still holding files) as a plain error message
  * rather than trying to predict it client-side.
  */
+import { useTranslation } from "react-i18next";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { ApiError } from "@/api/client";
@@ -25,7 +26,7 @@ import {
 import type { StorageBackendOut, StorageConfigIn, StorageConfigOut } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
-  BACKEND_LABELS,
+  backendLabels,
   missingRequiredFields,
   seedDraft,
   StorageBackendForm,
@@ -73,6 +74,7 @@ function backendPayloadConfig(draft: StorageConfigIn): Record<string, unknown> {
  * so both the card's "Add backend" trigger and each row's "Edit" trigger can
  * mount one independently. */
 function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?: StorageBackendOut }) {
+  const { t } = useTranslation();
   const isEdit = backend !== undefined;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(backend?.name ?? "");
@@ -84,7 +86,7 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
   const updateBackend = useUpdateBackend();
   const mutation = isEdit ? updateBackend : createBackend;
 
-  const missing = missingRequiredFields(draft, backend ? asConfigOut(backend) : undefined);
+  const missing = missingRequiredFields(draft, backend ? asConfigOut(backend) : undefined, t);
   const nameMissing = name.trim().length === 0;
   const isReady = missing.length === 0 && !nameMissing;
 
@@ -129,16 +131,16 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
       <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? `Edit "${backend.name}"` : "Add storage backend"}</DialogTitle>
+            <DialogTitle>{isEdit ? t("settingsStorage.editTitle", { name: backend.name }) : t("settingsStorage.addTitle")}</DialogTitle>
             <DialogDescription>
               {isEdit
-                ? "Update this backend's connection details. A blank secret field keeps the stored value."
-                : "Configure a new backend that library files can be stored on."}
+                ? t("settingsStorage.editDesc")
+                : t("settingsStorage.addDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="backend-name">Name</Label>
+              <Label htmlFor="backend-name">{t("settingsStorage.name")}</Label>
               <Input
                 id="backend-name"
                 value={name}
@@ -156,18 +158,18 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
             />
             {missing.length > 0 ? (
               <p role="alert" className="text-sm text-destructive">
-                Fill in: {missing.join(", ")}
+                {t("settingsStorage.fillIn", { fields: missing.join(", ") })}
               </p>
             ) : null}
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {mutation.error instanceof ApiError ? mutation.error.detail : "Could not save this backend"}
+                {mutation.error instanceof ApiError ? mutation.error.detail : t("settingsStorage.saveError")}
               </p>
             ) : null}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={!isReady || mutation.isPending}>
-              {mutation.isPending ? "Saving..." : isEdit ? "Save changes" : "Add backend"}
+              {mutation.isPending ? t("settingsStorage.saving") : isEdit ? t("settingsStorage.saveChanges") : t("settingsStorage.addBackend")}
             </Button>
           </DialogFooter>
         </form>
@@ -179,6 +181,7 @@ function BackendFormDialog({ trigger, backend }: { trigger: ReactNode; backend?:
 }
 
 function BackendRow({ backend }: { backend: StorageBackendOut }) {
+  const { t } = useTranslation();
   const testBackend = useTestBackend();
   const setDefaultBackend = useSetDefaultBackend();
   const deleteBackend = useDeleteBackend();
@@ -196,8 +199,8 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
   return (
     <TableRow>
       <TableCell className="font-medium text-foreground">{backend.name}</TableCell>
-      <TableCell className="text-muted-foreground">{BACKEND_LABELS[backend.scheme] ?? backend.scheme}</TableCell>
-      <TableCell>{backend.is_default ? <Badge>Default</Badge> : null}</TableCell>
+      <TableCell className="text-muted-foreground">{backendLabels(t)[backend.scheme] ?? backend.scheme}</TableCell>
+      <TableCell>{backend.is_default ? <Badge>{t("settingsStorage.default")}</Badge> : null}</TableCell>
       <TableCell className="whitespace-normal">
         <div className="flex flex-wrap items-center gap-1.5">
           <Button
@@ -207,7 +210,7 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
             disabled={testingThis}
             onClick={() => testBackend.mutate(backend.id)}
           >
-            {testingThis ? "Testing..." : "Test"}
+            {testingThis ? t("settingsStorage.testing") : t("settingsStorage.test")}
           </Button>
           {!backend.is_default ? (
             <Button
@@ -217,19 +220,19 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
               disabled={settingDefaultThis}
               onClick={() => setDefaultBackend.mutate(backend.id)}
             >
-              {settingDefaultThis ? "Setting..." : "Set default"}
+              {settingDefaultThis ? t("settingsStorage.setting") : t("settingsStorage.setDefault")}
             </Button>
           ) : null}
           {!backend.is_default ? (
             <ConfirmDialog
               trigger={
                 <Button type="button" size="sm" variant="outline" disabled={migratingThis}>
-                  {migratingThis ? "Moving..." : "Move all here"}
+                  {migratingThis ? t("settingsStorage.moving") : t("settingsStorage.moveAll")}
                 </Button>
               }
-              title={`Move the whole library to "${backend.name}"?`}
-              description="Makes this backend the default and moves every model's files onto it (copy, verify, then remove the source). Runs as a job you can watch on the Jobs page."
-              confirmLabel="Move all here"
+              title={t("settingsStorage.moveTitle", { name: backend.name })}
+              description={t("settingsStorage.moveDesc")}
+              confirmLabel={t("settingsStorage.moveAll")}
               onConfirm={() => migrateBackend.mutate(backend.id)}
             />
           ) : null}
@@ -237,19 +240,19 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
             backend={backend}
             trigger={
               <Button type="button" size="sm" variant="outline">
-                Edit
+                {t("common.edit")}
               </Button>
             }
           />
           <ConfirmDialog
             trigger={
               <Button type="button" size="sm" variant="destructive" disabled={deletingThis}>
-                {deletingThis ? "Deleting..." : "Delete"}
+                {deletingThis ? t("settingsStorage.deleting") : t("common.delete")}
               </Button>
             }
-            title={`Delete "${backend.name}"?`}
-            description="This only removes the backend's configuration -- it never deletes files. The default backend, the last remaining backend, or one still holding files can't be deleted this way."
-            confirmLabel="Delete"
+            title={t("settingsStorage.deleteTitle", { name: backend.name })}
+            description={t("settingsStorage.deleteDesc")}
+            confirmLabel={t("common.delete")}
             destructive
             onConfirm={() => deleteBackend.mutate(backend.id)}
           />
@@ -257,7 +260,7 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
         {testResultForThis ? (
           testBackend.isError ? (
             <p role="alert" className="mt-1 text-xs text-destructive">
-              {testBackend.error instanceof ApiError ? testBackend.error.detail : "Could not test connection"}
+              {testBackend.error instanceof ApiError ? testBackend.error.detail : t("settingsStorage.testError")}
             </p>
           ) : (
             <p
@@ -272,17 +275,17 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
         ) : null}
         {defaultErrorForThis ? (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {setDefaultBackend.error instanceof ApiError ? setDefaultBackend.error.detail : "Could not set default backend"}
+            {setDefaultBackend.error instanceof ApiError ? setDefaultBackend.error.detail : t("settingsStorage.defaultError")}
           </p>
         ) : null}
         {migrateErrorForThis ? (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {migrateBackend.error instanceof ApiError ? migrateBackend.error.detail : "Could not move the library"}
+            {migrateBackend.error instanceof ApiError ? migrateBackend.error.detail : t("settingsStorage.moveError")}
           </p>
         ) : null}
         {deleteErrorForThis ? (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {deleteBackend.error instanceof ApiError ? deleteBackend.error.detail : "Could not delete this backend"}
+            {deleteBackend.error instanceof ApiError ? deleteBackend.error.detail : t("settingsStorage.deleteError")}
           </p>
         ) : null}
       </TableCell>
@@ -291,22 +294,22 @@ function BackendRow({ backend }: { backend: StorageBackendOut }) {
 }
 
 export function StorageBackendsCard() {
+  const { t } = useTranslation();
   const backendsQuery = useStorageBackends();
   const backends = backendsQuery.data ?? [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Storage backends</CardTitle>
+        <CardTitle>{t("settingsStorage.title")}</CardTitle>
         <CardDescription>
-          Run more than one backend at once -- the default is where new files are written; others can hold moved or
-          replicated files.
+          {t("settingsStorage.description")}
         </CardDescription>
         <CardAction>
           <BackendFormDialog
             trigger={
               <Button type="button" variant="outline">
-                Add backend
+                {t("settingsStorage.addBackend")}
               </Button>
             }
           />
@@ -317,18 +320,18 @@ export function StorageBackendsCard() {
           <Skeleton className="h-24 w-full rounded-lg" />
         ) : backendsQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {backendsQuery.error instanceof ApiError ? backendsQuery.error.detail : "Could not load storage backends"}
+            {backendsQuery.error instanceof ApiError ? backendsQuery.error.detail : t("settingsStorage.loadError")}
           </p>
         ) : backends.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No storage backends configured.</p>
+          <p className="text-sm text-muted-foreground">{t("settingsStorage.none")}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Scheme</TableHead>
-                <TableHead>Default</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>{t("settingsStorage.name")}</TableHead>
+                <TableHead>{t("settingsStorage.scheme")}</TableHead>
+                <TableHead>{t("settingsStorage.default")}</TableHead>
+                <TableHead>{t("settingsStorage.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

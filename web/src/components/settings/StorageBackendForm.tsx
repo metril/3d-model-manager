@@ -1,3 +1,5 @@
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,11 +22,13 @@ interface FieldSpec {
   options?: SelectOption[];
 }
 
-export const BACKEND_LABELS: Record<StorageScheme, string> = {
-  local: "Local disk",
-  smb: "SMB / CIFS network share",
-  s3: "S3-compatible object storage",
-};
+export function backendLabels(t: TFunction): Record<StorageScheme, string> {
+  return {
+    local: t("settingsStorageForm.local"),
+    smb: t("settingsStorageForm.smb"),
+    s3: t("settingsStorageForm.s3"),
+  };
+}
 
 /** Secret fields per backend -- the ones a save/test/migrate payload must
  * drop when left blank instead of overwriting the stored value (Task 7
@@ -35,51 +39,61 @@ export const SECRET_FIELDS: Record<StorageScheme, string[]> = {
   s3: ["secret_key"],
 };
 
-const SMB_FIELDS: FieldSpec[] = [
-  { name: "host", label: "Host", kind: "text", required: true, placeholder: "192.168.1.50 or nas.lan" },
-  { name: "share", label: "Share", kind: "text", required: true },
-  { name: "root", label: "Root path", kind: "text", placeholder: "(share root)" },
-  { name: "username", label: "Username", kind: "text", required: true },
-  { name: "password", label: "Password", kind: "password", required: true },
-  { name: "port", label: "Port", kind: "number", placeholder: "445" },
-  { name: "encrypt", label: "Encrypt (SMB3)", kind: "checkbox" },
-];
+function smbFields(t: TFunction): FieldSpec[] {
+  return [
+    { name: "host", label: t("settingsStorageForm.host"), kind: "text", required: true, placeholder: t("settingsStorageForm.hostPlaceholder") },
+    { name: "share", label: t("settingsStorageForm.share"), kind: "text", required: true },
+    { name: "root", label: t("settingsStorageForm.root"), kind: "text", placeholder: t("settingsStorageForm.rootPlaceholder") },
+    { name: "username", label: t("settingsStorageForm.username"), kind: "text", required: true },
+    { name: "password", label: t("settingsStorageForm.password"), kind: "password", required: true },
+    { name: "port", label: t("settingsStorageForm.port"), kind: "number", placeholder: "445" },
+    { name: "encrypt", label: t("settingsStorageForm.encrypt"), kind: "checkbox" },
+  ];
+}
 
-const S3_FIELDS: FieldSpec[] = [
-  { name: "bucket", label: "Bucket", kind: "text", required: true },
-  { name: "access_key", label: "Access key", kind: "text", required: true },
-  { name: "secret_key", label: "Secret key", kind: "password", required: true },
-  { name: "endpoint_url", label: "Endpoint URL", kind: "text", placeholder: "(AWS default)" },
-  { name: "region", label: "Region", kind: "text" },
-  { name: "prefix", label: "Key prefix", kind: "text", placeholder: "(bucket root)" },
-  {
-    name: "addressing",
-    label: "Addressing",
-    kind: "select",
-    options: [
-      { value: "path", label: "Path-style (required for MinIO)" },
-      { value: "virtual", label: "Virtual-hosted-style" },
-    ],
-  },
-];
+function s3Fields(t: TFunction): FieldSpec[] {
+  return [
+    { name: "bucket", label: t("settingsStorageForm.bucket"), kind: "text", required: true },
+    { name: "access_key", label: t("settingsStorageForm.accessKey"), kind: "text", required: true },
+    { name: "secret_key", label: t("settingsStorageForm.secretKey"), kind: "password", required: true },
+    { name: "endpoint_url", label: t("settingsStorageForm.endpoint"), kind: "text", placeholder: t("settingsStorageForm.endpointPlaceholder") },
+    { name: "region", label: t("settingsStorageForm.region"), kind: "text" },
+    { name: "prefix", label: t("settingsStorageForm.prefix"), kind: "text", placeholder: t("settingsStorageForm.prefixPlaceholder") },
+    {
+      name: "addressing",
+      label: t("settingsStorageForm.addressing"),
+      kind: "select",
+      options: [
+        { value: "path", label: t("settingsStorageForm.pathStyle") },
+        { value: "virtual", label: t("settingsStorageForm.virtualStyle") },
+      ],
+    },
+  ];
+}
 
-export const FIELDS_BY_BACKEND: Record<StorageScheme, FieldSpec[]> = {
-  local: [],
-  smb: SMB_FIELDS,
-  s3: S3_FIELDS,
-};
+export function fieldsByBackend(t: TFunction): Record<StorageScheme, FieldSpec[]> {
+  return {
+    local: [],
+    smb: smbFields(t),
+    s3: s3Fields(t),
+  };
+}
 
 /** Required fields still blank in `draft`, skipping any secret field that's
  * allowed to stay blank because the backend already has one stored (Task 7:
  * "leave blank = keep" for a secret belonging to the currently-active
  * backend). Returns field labels for display; empty means the candidate is
  * ready to test/save/migrate. */
-export function missingRequiredFields(draft: StorageConfigIn, active: StorageConfigOut | undefined): string[] {
+export function missingRequiredFields(
+  draft: StorageConfigIn,
+  active: StorageConfigOut | undefined,
+  t: TFunction,
+): string[] {
   const secretFields = SECRET_FIELDS[draft.backend];
   const activeHasSecret = (name: string) =>
     active !== undefined && active.backend === draft.backend && active.config[name] === "***";
 
-  return FIELDS_BY_BACKEND[draft.backend]
+  return fieldsByBackend(t)[draft.backend]
     .filter((field) => field.required)
     .filter((field) => {
       const raw = draft.config[field.name];
@@ -127,7 +141,9 @@ interface StorageBackendFormProps {
  * controlled: the caller (`SettingsPage`) owns the draft config so it can
  * feed the same value into Test/Save/Migrate. */
 export function StorageBackendForm({ value, onChange, disabled, idPrefix = "storage" }: StorageBackendFormProps) {
-  const fields = FIELDS_BY_BACKEND[value.backend];
+  const { t } = useTranslation();
+  const labels = backendLabels(t);
+  const fields = fieldsByBackend(t)[value.backend];
 
   function setField(name: string, fieldValue: unknown) {
     onChange({ ...value, config: { ...value.config, [name]: fieldValue } });
@@ -136,7 +152,7 @@ export function StorageBackendForm({ value, onChange, disabled, idPrefix = "stor
   return (
     <div className="space-y-4">
       <div className="flex max-w-xs flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-backend`}>Backend</Label>
+        <Label htmlFor={`${idPrefix}-backend`}>{t("settingsStorageForm.backend")}</Label>
         <Select
           value={value.backend}
           onValueChange={(next) => onChange({ backend: next as StorageScheme, config: {} })}
@@ -146,9 +162,9 @@ export function StorageBackendForm({ value, onChange, disabled, idPrefix = "stor
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {(Object.keys(BACKEND_LABELS) as StorageScheme[]).map((scheme) => (
+            {(Object.keys(labels) as StorageScheme[]).map((scheme) => (
               <SelectItem key={scheme} value={scheme}>
-                {BACKEND_LABELS[scheme]}
+                {labels[scheme]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -157,7 +173,7 @@ export function StorageBackendForm({ value, onChange, disabled, idPrefix = "stor
 
       {fields.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No configuration needed -- files are stored under the server&apos;s local library root.
+          {t("settingsStorageForm.noConfig")}
         </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -211,7 +227,7 @@ export function StorageBackendForm({ value, onChange, disabled, idPrefix = "stor
                   id={id}
                   type={field.kind === "password" ? "password" : field.kind === "number" ? "number" : "text"}
                   value={stringValue}
-                  placeholder={field.kind === "password" ? "••• (unchanged)" : field.placeholder}
+                  placeholder={field.kind === "password" ? t("settingsStorageForm.unchanged") : field.placeholder}
                   onChange={(event) => {
                     const next = event.target.value;
                     if (field.kind === "number") {
@@ -231,12 +247,12 @@ export function StorageBackendForm({ value, onChange, disabled, idPrefix = "stor
 
       {value.backend === "s3" ? (
         <p className="text-xs text-muted-foreground">
-          Set a bucket lifecycle rule to expire incomplete multipart uploads.
+          {t("settingsStorageForm.lifecycle")}
         </p>
       ) : null}
       {value.backend === "smb" ? (
         <p className="text-xs text-muted-foreground">
-          Use an IP or a resolvable DNS name; container needs <code>extra_hosts:</code> for LAN names.
+          <Trans i18nKey="settingsStorageForm.smbHint" components={{ code: <code /> }} />
         </p>
       ) : null}
     </div>

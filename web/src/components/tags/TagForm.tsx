@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { TAG_ICONS, TAG_ICON_NAMES } from "@/components/tags/tagIcons";
 import { TagChip } from "@/components/tags/TagChip";
@@ -19,16 +20,17 @@ export interface TagFormValues {
 
 /** Palette quick-picks + colour picker popover. */
 export function TagColorField({ value, onChange }: { value: string | null; onChange: (hex: string) => void }) {
+  const { t } = useTranslation();
   const current = isHexColor(value) ? value.toLowerCase() : null;
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Color">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("tagForm.color")}>
         {TAG_PALETTE.map(({ key, hex }) => (
           <button
             key={key}
             type="button"
-            aria-label={`Color ${key}`}
+            aria-label={t("tagForm.colorKey", { key })}
             aria-pressed={current === hex}
             onClick={() => onChange(hex)}
             style={{ backgroundColor: hex, color: readableTextColor(hex) }}
@@ -43,7 +45,7 @@ export function TagColorField({ value, onChange }: { value: string | null; onCha
       </div>
       <div className="flex items-center gap-2">
         <ColorField
-          label="Pick custom color"
+          label={t("tagForm.customColor")}
           value={current ?? ""}
           onChange={onChange}
           swatches={[]}
@@ -57,8 +59,9 @@ export function TagColorField({ value, onChange }: { value: string | null; onCha
 
 /** Grid of the curated lucide subset; click again to clear. */
 export function TagIconField({ value, onChange }: { value: string | null; onChange: (icon: string | null) => void }) {
+  const { t } = useTranslation();
   return (
-    <div className="grid max-h-28 grid-cols-8 gap-1 overflow-y-auto" role="group" aria-label="Icon">
+    <div className="grid max-h-28 grid-cols-8 gap-1 overflow-y-auto" role="group" aria-label={t("tagForm.icon")}>
       {TAG_ICON_NAMES.map((name) => {
         const Icon = TAG_ICONS[name]!;
         return (
@@ -66,7 +69,7 @@ export function TagIconField({ value, onChange }: { value: string | null; onChan
             key={name}
             type="button"
             title={name}
-            aria-label={`Icon ${name}`}
+            aria-label={t("tagForm.iconName", { name })}
             aria-pressed={value === name}
             onClick={() => onChange(value === name ? null : name)}
             className={cn(
@@ -100,6 +103,7 @@ export function TagForm({
   /** Reports whether the fields differ from `initial` (false again on unmount). */
   onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(initial.name ?? "");
   const [color, setColor] = useState<string | null>(initial.color ?? DEFAULT_TAG_COLOR);
   const [icon, setIcon] = useState<string | null>(initial.icon ?? null);
@@ -125,22 +129,22 @@ export function TagForm({
         onSubmit({ name: trimmed, color, icon, description: description.trim() || null });
       }}
     >
-      <Input aria-label="Tag name" placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />
+      <Input aria-label={t("tagForm.name")} placeholder={t("tagForm.namePlaceholder")} value={name} onChange={(event) => setName(event.target.value)} />
       <TagColorField value={color} onChange={setColor} />
       <TagIconField value={icon} onChange={setIcon} />
       <Textarea
-        aria-label="Tag description"
-        placeholder="Description (optional)"
+        aria-label={t("tagForm.description")}
+        placeholder={t("tagForm.descriptionPlaceholder")}
         rows={2}
         value={description}
         onChange={(event) => setDescription(event.target.value)}
       />
       <div className="flex items-center justify-between gap-2">
-        <TagChip tag={{ name: trimmed || "Preview", color, icon, description: null }} />
+        <TagChip tag={{ name: trimmed || t("tagForm.preview"), color, icon, description: null }} />
         <div className="flex gap-1.5">
           {onCancel && (
             <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           )}
           <Button type="submit" size="sm" disabled={!trimmed || pending}>

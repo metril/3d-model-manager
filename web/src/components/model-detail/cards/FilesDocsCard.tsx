@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileExplorer } from "@/components/model-detail/explorer/FileExplorer";
 import type { FileOut, ModelDetail } from "@/api/types";
@@ -11,10 +12,11 @@ export function FilesDocsCard({
   model: ModelDetail;
   onViewIn3D?: (file: FileOut) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Files</CardTitle>
+        <CardTitle>{t("mdCards.files")}</CardTitle>
       </CardHeader>
       <CardContent>
         <FileExplorer model={model} onViewIn3D={onViewIn3D} />

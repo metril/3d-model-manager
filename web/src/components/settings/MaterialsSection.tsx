@@ -6,6 +6,7 @@
  * key), previewed with `FilamentChip`'s `normalizeHex` helper.
  */
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useCreateMaterial, useDeleteMaterial, useMaterials, useUpdateMaterial } from "@/api/materials";
 import { ApiError } from "@/api/client";
@@ -37,6 +38,7 @@ const DEFAULT_KIND: MaterialKind = "PLA";
 const MATERIAL_KINDS: MaterialKind[] = ["PLA", "PETG", "ABS", "ASA", "TPU", "Resin", "Other"];
 
 function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; material?: MaterialOut }) {
+  const { t } = useTranslation();
   const isEdit = material !== undefined;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(material?.name ?? "");
@@ -98,14 +100,14 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
       <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? `Edit "${material.name}"` : "Add material"}</DialogTitle>
+            <DialogTitle>{isEdit ? t("settingsMaterials.editTitle", { name: material.name }) : t("settingsMaterials.addTitle")}</DialogTitle>
             <DialogDescription>
-              A filament profile you can attach to a logged print, in addition to a freeform filament note.
+              {t("settingsMaterials.dialogDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="material-name">Name</Label>
+              <Label htmlFor="material-name">{t("settingsMaterials.name")}</Label>
               <Input
                 id="material-name"
                 value={name}
@@ -116,9 +118,9 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="material-kind">Kind</Label>
-              <Select aria-label="Kind" value={kind} onValueChange={(value) => setKind(value as MaterialKind)}>
-                <SelectTrigger id="material-kind" aria-label="Kind" className="w-full">
+              <Label htmlFor="material-kind">{t("settingsMaterials.kind")}</Label>
+              <Select aria-label={t("settingsMaterials.kind")} value={kind} onValueChange={(value) => setKind(value as MaterialKind)}>
+                <SelectTrigger id="material-kind" aria-label={t("settingsMaterials.kind")} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -131,17 +133,17 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
               </Select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="material-color">Color</Label>
+              <Label htmlFor="material-color">{t("settingsMaterials.color")}</Label>
               <ColorField
                 id="material-color"
-                label="Color"
+                label={t("settingsMaterials.color")}
                 value={color}
                 onChange={setColor}
                 disabled={mutation.isPending}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="material-vendor">Vendor</Label>
+              <Label htmlFor="material-vendor">{t("settingsMaterials.vendor")}</Label>
               <Input
                 id="material-vendor"
                 value={vendor}
@@ -150,7 +152,7 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="material-notes">Notes</Label>
+              <Label htmlFor="material-notes">{t("settingsMaterials.notes")}</Label>
               <Textarea
                 id="material-notes"
                 rows={2}
@@ -161,13 +163,13 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
             </div>
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {mutation.error instanceof ApiError ? mutation.error.detail : "Could not save this material"}
+                {mutation.error instanceof ApiError ? mutation.error.detail : t("settingsMaterials.saveError")}
               </p>
             ) : null}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={name.trim().length === 0 || mutation.isPending}>
-              {mutation.isPending ? "Saving..." : isEdit ? "Save changes" : "Add material"}
+              {mutation.isPending ? t("settingsMaterials.saving") : isEdit ? t("settingsMaterials.saveChanges") : t("settingsMaterials.addTitle")}
             </Button>
           </DialogFooter>
         </form>
@@ -179,6 +181,7 @@ function MaterialFormDialog({ trigger, material }: { trigger: React.ReactNode; m
 }
 
 function MaterialRow({ material }: { material: MaterialOut }) {
+  const { t } = useTranslation();
   const deleteMaterial = useDeleteMaterial();
   const deletingThis = deleteMaterial.isPending && deleteMaterial.variables === material.id;
   const deleteErrorForThis = deleteMaterial.isError && deleteMaterial.variables === material.id;
@@ -203,30 +206,30 @@ function MaterialRow({ material }: { material: MaterialOut }) {
             material={material}
             trigger={
               <Button type="button" size="sm" variant="outline">
-                Edit
+                {t("common.edit")}
               </Button>
             }
           />
           <ConfirmDialog
             trigger={
               <Button type="button" size="sm" variant="destructive" disabled={deletingThis}>
-                {deletingThis ? "Deleting..." : "Delete"}
+                {deletingThis ? t("settingsMaterials.deleting") : t("common.delete")}
               </Button>
             }
-            title={`Delete "${material.name}"?`}
+            title={t("settingsMaterials.deleteTitle", { name: material.name })}
             description={
               material.print_count > 0
-                ? `${material.print_count} print${material.print_count === 1 ? "" : "s"} will lose their material reference.`
-                : "This material has no prints logged against it."
+                ? t("settingsMaterials.deleteDesc", { count: material.print_count })
+                : t("settingsMaterials.deleteDescNone")
             }
-            confirmLabel="Delete"
+            confirmLabel={t("common.delete")}
             destructive
             onConfirm={() => deleteMaterial.mutate(material.id)}
           />
         </div>
         {deleteErrorForThis ? (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {deleteMaterial.error instanceof ApiError ? deleteMaterial.error.detail : "Could not delete this material"}
+            {deleteMaterial.error instanceof ApiError ? deleteMaterial.error.detail : t("settingsMaterials.deleteError")}
           </p>
         ) : null}
       </TableCell>
@@ -235,21 +238,22 @@ function MaterialRow({ material }: { material: MaterialOut }) {
 }
 
 export function MaterialsSection() {
+  const { t } = useTranslation();
   const materialsQuery = useMaterials();
   const materials = materialsQuery.data ?? [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Materials</CardTitle>
+        <CardTitle>{t("settingsMaterials.title")}</CardTitle>
         <CardDescription>
-          Filament profiles you can attach to a logged print, in addition to a freeform filament note.
+          {t("settingsMaterials.desc")}
         </CardDescription>
         <CardAction>
           <MaterialFormDialog
             trigger={
               <Button type="button" variant="outline">
-                Add material
+                {t("settingsMaterials.addTitle")}
               </Button>
             }
           />
@@ -261,27 +265,27 @@ export function MaterialsSection() {
         ) : materialsQuery.isError ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Couldn&apos;t load materials</p>
+              <p className="text-sm font-medium text-foreground">{t("settingsMaterials.loadError")}</p>
               <p role="alert" className="text-sm text-muted-foreground">
-                {materialsQuery.error instanceof ApiError ? materialsQuery.error.detail : "Something went wrong."}
+                {materialsQuery.error instanceof ApiError ? materialsQuery.error.detail : t("settingsMaterials.genericError")}
               </p>
             </div>
             <Button type="button" size="sm" onClick={() => void materialsQuery.refetch()}>
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         ) : materials.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No materials yet.</p>
+          <p className="text-sm text-muted-foreground">{t("settingsMaterials.empty")}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead />
-                <TableHead>Name</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Prints</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>{t("settingsMaterials.name")}</TableHead>
+                <TableHead>{t("settingsMaterials.kind")}</TableHead>
+                <TableHead>{t("settingsMaterials.vendor")}</TableHead>
+                <TableHead>{t("settingsMaterials.colPrints")}</TableHead>
+                <TableHead>{t("settingsMaterials.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

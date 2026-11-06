@@ -5,6 +5,7 @@
  * and an "Add manual usage" form for topping up the ledger by hand.
  */
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useAddUsage } from "@/api/spools";
@@ -24,6 +25,7 @@ export function SpoolUsageHistory({
   spool: SpoolDetailOut;
   onOpenRun?: (archiveId: number) => void;
 }) {
+  const { t } = useTranslation();
   const { can } = useAuth();
   const canWrite = can("inventory:write");
   const addUsage = useAddUsage(spool.id);
@@ -41,22 +43,22 @@ export function SpoolUsageHistory({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
-        <Sparkline values={values} aria-label="Remaining filament over time" />
+        <Sparkline values={values} aria-label={t("spoolUsage.chart")} />
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {Math.max(0, Math.round(spool.remaining_g))} g remaining
+          {t("spoolUsage.remaining", { g: Math.max(0, Math.round(spool.remaining_g)) })}
         </span>
       </div>
 
       {spool.usage.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No usage logged yet.</p>
+        <p className="text-sm text-muted-foreground">{t("spoolUsage.none")}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Run</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Grams</TableHead>
-              <TableHead>Source</TableHead>
+              <TableHead>{t("spoolUsage.run")}</TableHead>
+              <TableHead>{t("spoolUsage.date")}</TableHead>
+              <TableHead>{t("spoolUsage.grams")}</TableHead>
+              <TableHead>{t("spoolUsage.source")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -69,7 +71,7 @@ export function SpoolUsageHistory({
                       className="text-left text-primary hover:underline"
                       onClick={() => onOpenRun?.(row.archive_id!)}
                     >
-                      {row.model_name ?? `Run #${row.archive_id}`}
+                      {row.model_name ?? t("spoolUsage.runId", { id: row.archive_id })}
                     </button>
                   ) : (
                     <span className="text-muted-foreground">—</span>
@@ -90,7 +92,7 @@ export function SpoolUsageHistory({
         <form onSubmit={handleSubmit} className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="usage-grams" className="text-xs text-muted-foreground">
-              Add manual usage (g)
+              {t("spoolUsage.manual")}
             </label>
             <Input
               id="usage-grams"
@@ -102,11 +104,11 @@ export function SpoolUsageHistory({
             />
           </div>
           <Button type="submit" size="sm" variant="outline" disabled={addUsage.isPending}>
-            {addUsage.isPending ? "Adding..." : "Add"}
+            {addUsage.isPending ? t("spoolUsage.adding") : t("common.add")}
           </Button>
           {addUsage.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {addUsage.error instanceof ApiError ? addUsage.error.detail : "Could not log usage"}
+              {addUsage.error instanceof ApiError ? addUsage.error.detail : t("spoolUsage.logFailed")}
             </p>
           ) : null}
         </form>

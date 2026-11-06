@@ -22,9 +22,9 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { formatCost, formatDateTime, humanizeDuration } from "@/lib/format";
 
 const FETCH_NOTE: Record<string, string> = {
-  pending: "Fetching files from the printer...",
-  missing: "The printer no longer has this run's files.",
-  error: "Fetching files from the printer failed.",
+  pending: "runDetail.fetch.pending",
+  missing: "runDetail.fetch.missing",
+  error: "runDetail.fetch.error",
 };
 
 function CostRow({ label, value, strong }: { label: string; value: number | null | undefined; strong?: boolean }) {
@@ -37,6 +37,7 @@ function CostRow({ label, value, strong }: { label: string; value: number | null
 }
 
 function Grading({ run }: { run: PrintEntry }) {
+  const { t } = useTranslation();
   const patch = usePatchRun();
   const [rejecting, setRejecting] = useState(run.quality === "reject");
   const [reason, setReason] = useState(run.failure_reason ?? "");
@@ -54,15 +55,15 @@ function Grading({ run }: { run: PrintEntry }) {
             patch.mutate({ id: run.id, patch: { quality: "good" } }, {});
           }}
         >
-          Good
+          {t("runDetail.good")}
         </Button>
         <Button size="sm" variant={rejecting ? "destructive" : "outline"} onClick={() => setRejecting(true)}>
-          Reject
+          {t("runDetail.reject")}
         </Button>
       </div>
       {rejecting ? (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="run-failure-reason">Failure reason</Label>
+          <Label htmlFor="run-failure-reason">{t("runDetail.failureReason")}</Label>
           <Input
             id="run-failure-reason"
             value={reason}
@@ -79,13 +80,13 @@ function Grading({ run }: { run: PrintEntry }) {
               )
             }
           >
-            Save
+            {t("runDetail.save")}
           </Button>
         </div>
       ) : null}
       <div className="flex items-end gap-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="run-actual-grams">Actual grams</Label>
+          <Label htmlFor="run-actual-grams">{t("runDetail.actualGrams")}</Label>
           <Input
             id="run-actual-grams"
             type="number"
@@ -102,7 +103,7 @@ function Grading({ run }: { run: PrintEntry }) {
           disabled={!Number.isFinite(gramsValue) || gramsValue < 0}
           onClick={() => patch.mutate({ id: run.id, patch: { filament_g: gramsValue } }, {})}
         >
-          Save grams
+          {t("runDetail.saveGrams")}
         </Button>
       </div>
     </section>
@@ -140,26 +141,26 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
       ) : archive.has_snapshot ? (
         <img
           src={archiveSnapshotUrl(archive.id)}
-          alt="Captured snapshot"
+          alt={t("runDetail.snapshot")}
           className="aspect-video w-full rounded-[6px] border border-border object-cover"
         />
       ) : null}
       {archive.media_note ? <p className="text-muted-foreground">{archive.media_note}</p> : null}
       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
-        <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{archive.result}</Badge>
+        <Badge variant={archive.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${archive.result}`, { defaultValue: archive.result })}</Badge>
         <RunCountBadge count={archive.run_count} />
         <span>{archive.printer_name}</span>
         {archive.duration_s != null ? <span className="tabular-nums">{humanizeDuration(archive.duration_s)}</span> : null}
         <span>{formatDateTime(archive.finished_at ?? archive.created_at)}</span>
       </div>
       <EntityTags target={{ kind: "archive", id: archive.id }} tags={archive.tag_refs} readOnly={!canWriteArchive} />
-      {note ? <p className="text-muted-foreground">{note}</p> : null}
+      {note ? <p className="text-muted-foreground">{t(note)}</p> : null}
       {archive.fetch_error ? <p className="text-destructive">{archive.fetch_error}</p> : null}
       {archive.est_filament && archive.est_filament.length > 0 ? (
         <ul className="space-y-1">
           {archive.est_filament.map((f, i) => (
             <li key={i} className="flex items-center gap-2">
-              <FilamentChip color={f.color ?? undefined} material={f.type ?? "Filament"} size="sm" />
+              <FilamentChip color={f.color ?? undefined} material={f.type ?? t("runDetail.filament")} size="sm" />
               {f.grams != null ? <span className="font-mono tabular-nums">{f.grams} g</span> : null}
             </li>
           ))}
@@ -170,25 +171,25 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
         <dl className="space-y-1">
           {run.energy_kwh != null ? (
             <div className="flex justify-between">
-              <dt className="text-muted-foreground">Energy used</dt>
+              <dt className="text-muted-foreground">{t("runDetail.energyUsed")}</dt>
               <dd className="font-mono tabular-nums">{run.energy_kwh.toFixed(2)} kWh</dd>
             </div>
           ) : null}
-          <CostRow label="Filament" value={run.filament_cost} />
-          <CostRow label="Machine" value={run.machine_cost} />
-          <CostRow label="Energy" value={run.energy_cost} />
-          <CostRow label="Wear" value={run.wear_cost} />
-          <CostRow label="Total" value={run.total_cost} strong />
+          <CostRow label={t("runDetail.filament")} value={run.filament_cost} />
+          <CostRow label={t("runDetail.machine")} value={run.machine_cost} />
+          <CostRow label={t("runDetail.energy")} value={run.energy_cost} />
+          <CostRow label={t("runDetail.wear")} value={run.wear_cost} />
+          <CostRow label={t("runDetail.total")} value={run.total_cost} strong />
         </dl>
       ) : null}
       {run?.quality === "reject" && run.failure_reason && !canGrade ? (
-        <p className="text-muted-foreground">Rejected: {run.failure_reason}</p>
+        <p className="text-muted-foreground">{t("runDetail.rejected", { reason: run.failure_reason })}</p>
       ) : null}
       {canGrade && run ? <Grading key={run.id} run={run} /> : null}
       {can("printers:print") ? (
         <>
           <Button type="button" variant="outline" size="sm" onClick={() => setReprintOpen(true)}>
-            Reprint
+            {t("runDetail.reprint")}
           </Button>
           <PrintDialog
             open={reprintOpen}
@@ -220,7 +221,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
       {archive.has_file ? (
         <Button asChild variant="outline" size="sm">
           <a href={archiveFileUrl(archive.id)} download>
-            Download 3MF
+            {t("runDetail.download3mf")}
           </a>
         </Button>
       ) : null}
@@ -235,13 +236,14 @@ export function RunDetailSheet({
   archiveId: number | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { data } = useArchive(archiveId);
   return (
     <Sheet open={archiveId != null} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>{data ? (data.model_name ?? data.subtask_name ?? `Run #${data.id}`) : "Run"}</SheetTitle>
-          <SheetDescription>Archived print run</SheetDescription>
+          <SheetTitle>{data ? (data.model_name ?? data.subtask_name ?? t("runDetail.runId", { id: data.id })) : t("runDetail.run")}</SheetTitle>
+          <SheetDescription>{t("runDetail.archivedRun")}</SheetDescription>
         </SheetHeader>
         {data ? <Body archive={data} onDeleted={() => onOpenChange(false)} /> : null}
       </SheetContent>

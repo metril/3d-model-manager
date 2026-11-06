@@ -5,6 +5,7 @@
  * (composer at top, list below) and `NoteItem.tsx` (inline edit/delete,
  * delete gated behind `ConfirmDialog`).
  */
+import { useTranslation } from "react-i18next";
 import { useId, useState, type FormEvent } from "react";
 import { PlusIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -46,9 +47,9 @@ const NO_MATERIAL = "__none__";
 const OTHER_MATERIAL = "__other__";
 
 const RESULT_LABELS: Record<PrintResult, string> = {
-  success: "Success",
-  fail: "Fail",
-  partial: "Partial",
+  success: "mdPrints.success",
+  fail: "mdPrints.fail",
+  partial: "mdPrints.partial",
 };
 
 /** `fail` reuses the shared `destructive` Badge variant; `success`/`partial`
@@ -113,11 +114,12 @@ function PrintFields({
   materials: MaterialOut[];
 }) {
   const id = useId();
+  const { t } = useTranslation();
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-printed-at`}>Printed at</Label>
+        <Label htmlFor={`${id}-printed-at`}>{t("mdPrints.printedAt")}</Label>
         <Input
           id={`${id}-printed-at`}
           type="datetime-local"
@@ -126,17 +128,17 @@ function PrintFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-printer`}>Printer</Label>
+        <Label htmlFor={`${id}-printer`}>{t("mdPrints.printer")}</Label>
         <Select
-          aria-label="Printer"
+          aria-label={t("mdPrints.printer")}
           value={draft.printerName}
           onValueChange={(value) => onFieldChange("printerName", value)}
         >
-          <SelectTrigger id={`${id}-printer`} aria-label="Printer" className="w-full">
+          <SelectTrigger id={`${id}-printer`} aria-label={t("mdPrints.printer")} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_PRINTER}>None</SelectItem>
+            <SelectItem value={NO_PRINTER}>{t("mdPrints.none")}</SelectItem>
             {printers.map((printer) => (
               <SelectItem key={printer.id} value={printer.name}>
                 {printer.name}
@@ -146,58 +148,58 @@ function PrintFields({
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-result`}>Result</Label>
+        <Label htmlFor={`${id}-result`}>{t("mdPrints.result")}</Label>
         <Select
-          aria-label="Result"
+          aria-label={t("mdPrints.result")}
           value={draft.result}
           onValueChange={(value) => onFieldChange("result", value as PrintResult)}
         >
-          <SelectTrigger id={`${id}-result`} aria-label="Result" className="w-full">
+          <SelectTrigger id={`${id}-result`} aria-label={t("mdPrints.result")} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(Object.keys(RESULT_LABELS) as PrintResult[]).map((result) => (
               <SelectItem key={result} value={result}>
-                {RESULT_LABELS[result]}
+                {t(RESULT_LABELS[result])}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-material`}>Material</Label>
+        <Label htmlFor={`${id}-material`}>{t("mdPrints.material")}</Label>
         <Select
-          aria-label="Material"
+          aria-label={t("mdPrints.material")}
           value={draft.materialId}
           onValueChange={(value) => onFieldChange("materialId", value)}
         >
-          <SelectTrigger id={`${id}-material`} aria-label="Material" className="w-full">
+          <SelectTrigger id={`${id}-material`} aria-label={t("mdPrints.material")} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_MATERIAL}>None</SelectItem>
+            <SelectItem value={NO_MATERIAL}>{t("mdPrints.none")}</SelectItem>
             {materials.map((material) => (
               <SelectItem key={material.id} value={String(material.id)}>
                 {material.name}
               </SelectItem>
             ))}
-            <SelectItem value={OTHER_MATERIAL}>Other...</SelectItem>
+            <SelectItem value={OTHER_MATERIAL}>{t("mdPrints.other")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
       {(draft.materialId === NO_MATERIAL || draft.materialId === OTHER_MATERIAL) && (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-filament`}>Filament</Label>
+          <Label htmlFor={`${id}-filament`}>{t("mdPrints.filament")}</Label>
           <Input
             id={`${id}-filament`}
-            placeholder="e.g. PLA — Galaxy Black"
+            placeholder={t("mdPrints.filamentPh")}
             value={draft.filament}
             onChange={(event) => onFieldChange("filament", event.target.value)}
           />
         </div>
       )}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-duration`}>Duration (minutes)</Label>
+        <Label htmlFor={`${id}-duration`}>{t("mdPrints.duration")}</Label>
         <Input
           id={`${id}-duration`}
           type="number"
@@ -207,7 +209,7 @@ function PrintFields({
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${id}-filament-g`}>Filament used (g)</Label>
+        <Label htmlFor={`${id}-filament-g`}>{t("mdPrints.filamentUsed")}</Label>
         <Input
           id={`${id}-filament-g`}
           type="number"
@@ -218,7 +220,7 @@ function PrintFields({
         />
       </div>
       <div className="flex flex-col gap-1.5 sm:col-span-2">
-        <Label htmlFor={`${id}-notes`}>Notes</Label>
+        <Label htmlFor={`${id}-notes`}>{t("mdPrints.notes")}</Label>
         <Textarea
           id={`${id}-notes`}
           rows={2}
@@ -250,6 +252,7 @@ function PrintComposer({
   const [draft, setDraft] = useState<PrintDraft>(emptyDraft);
   const [printedAtTouched, setPrintedAtTouched] = useState(false);
   const logPrint = useLogPrint(modelId, slug);
+  const { t } = useTranslation();
 
   function handleFieldChange<K extends keyof PrintDraft>(key: K, value: PrintDraft[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -283,10 +286,10 @@ function PrintComposer({
     <Card>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <h3 className="text-sm font-semibold">Log a print</h3>
+          <h3 className="text-sm font-semibold">{t("mdPrints.logAPrint")}</h3>
           <PrintFields draft={draft} onFieldChange={handleFieldChange} printers={printers} materials={materials} />
           <Button type="submit" size="sm" disabled={logPrint.isPending}>
-            Log print
+            {t("mdPrints.logPrint")}
           </Button>
         </form>
       </CardContent>
@@ -314,6 +317,7 @@ function PrintRow({
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<PrintDraft>(() => draftFromEntry(entry));
   const [touched, setTouched] = useState<Partial<Record<keyof PrintDraft, true>>>({});
 
@@ -350,10 +354,10 @@ function PrintRow({
         <PrintFields draft={draft} onFieldChange={handleFieldChange} printers={printers} materials={materials} />
         <div className="mt-3 flex gap-2">
           <Button type="button" size="sm" disabled={isSaving} onClick={handleSave}>
-            Save
+            {t("common.save")}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={handleCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
         </div>
       </li>
@@ -368,7 +372,7 @@ function PrintRow({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{formatDateTime(entry.printed_at)}</span>
           <Badge variant={badge.variant} className={badge.className}>
-            {RESULT_LABELS[entry.result]}
+            {t(RESULT_LABELS[entry.result])}
           </Badge>
           {entry.printer_name ? <span className="text-muted-foreground">{entry.printer_name}</span> : null}
           {entry.material ? (
@@ -380,24 +384,24 @@ function PrintRow({
             <span className="text-muted-foreground">{entry.filament_g} g</span>
           ) : null}
           {entry.duration_min != null ? (
-            <span className="text-muted-foreground">{entry.duration_min} min</span>
+            <span className="text-muted-foreground">{t("mdPrints.minutes", { n: entry.duration_min })}</span>
           ) : null}
           {entry.total_cost != null ? (
-            <span className="text-muted-foreground">Est. cost: {formatCost(entry.total_cost)}</span>
+            <span className="text-muted-foreground">{t("mdPrints.estCost", { cost: formatCost(entry.total_cost) })}</span>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-3 text-xs">
           <button type="button" className="hover:underline" onClick={() => setEditing(true)}>
-            Edit
+            {t("common.edit")}
           </button>
           <ConfirmDialog
             trigger={
               <button type="button" className="hover:underline">
-                Delete
+                {t("common.delete")}
               </button>
             }
-            title="Delete this print log entry?"
-            confirmLabel="Delete"
+            title={t("mdPrints.deleteTitle")}
+            confirmLabel={t("common.delete")}
             destructive
             onConfirm={onDelete}
           />
@@ -410,6 +414,7 @@ function PrintRow({
 
 export function PrintsTab({ model }: { model: ModelDetail }) {
   const printsQuery = usePrints(model.id);
+  const { t } = useTranslation();
   const printersQuery = usePrinters();
   const materialsQuery = useMaterials();
   const queueQuery = useQueue();
@@ -432,17 +437,17 @@ export function PrintsTab({ model }: { model: ModelDetail }) {
   function handleLogged(result: PrintResult) {
     if (result === "success" && queueEntry) {
       const entryId = queueEntry.id;
-      toast.success("Print logged.", {
+      toast.success(t("mdPrints.logged"), {
         action: {
-          label: "Remove from queue",
+          label: t("mdPrints.removeFromQueue"),
           onClick: () =>
             removeQueueEntry.mutate(entryId, {
-              onSuccess: () => toast.success("Removed from queue"),
+              onSuccess: () => toast.success(t("mdPrints.removedFromQueue")),
             }),
         },
       });
     } else {
-      toast.success("Print logged.");
+      toast.success(t("mdPrints.logged"));
     }
   }
 
@@ -451,7 +456,7 @@ export function PrintsTab({ model }: { model: ModelDetail }) {
       <div className="flex justify-end">
         <Button type="button" variant="outline" size="sm" onClick={() => setComposerOpen((prev) => !prev)}>
           <PlusIcon className="size-4" />
-          Log a print
+          {t("mdPrints.logAPrint")}
         </Button>
       </div>
 
@@ -469,7 +474,7 @@ export function PrintsTab({ model }: { model: ModelDetail }) {
       )}
 
       {prints.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No prints logged yet. Log your first print above.</p>
+        <p className="text-sm text-muted-foreground">{t("mdPrints.empty")}</p>
       ) : (
         <ul className="space-y-3">
           {prints.map((entry) => (

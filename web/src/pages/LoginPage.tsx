@@ -94,14 +94,14 @@ export function LoginPage() {
     login.error instanceof ApiError
       ? login.error.code === "2fa_locked"
         ? t("twofa.login.locked")
-        : login.error.detail : login.error ? "Login failed" : null;
+        : login.error.detail : login.error ? t("loginPage.failed") : null;
 
   return (
     <div className="flex min-h-svh items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>3D Model Manager</CardTitle>
-          <CardDescription>{pending ? t("twofa.login.title") : "Sign in to continue"}</CardDescription>
+          <CardDescription>{pending ? t("twofa.login.title") : t("loginPage.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {pending ? (
@@ -133,20 +133,20 @@ export function LoginPage() {
           ) : null}
           {providers.map((provider) => (
             <Button key={provider.slug} asChild variant="outline">
-              <a href={`/api/auth/oidc/${provider.slug}/start`}>Sign in with {provider.name}</a>
+              <a href={`/api/auth/oidc/${provider.slug}/start`}>{t("loginPage.signInWith", { name: provider.name })}</a>
             </Button>
           ))}
           {providers.length > 0 ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
-              or
+              {t("loginPage.or")}
               <span className="h-px flex-1 bg-border" />
             </div>
           ) : null}
           <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="username" className="text-sm font-medium">
-                Username
+                {t("loginPage.username")}
               </label>
               <Input
                 id="username"
@@ -159,7 +159,7 @@ export function LoginPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="password" className="text-sm font-medium">
-                Password
+                {t("loginPage.password")}
               </label>
               <Input
                 id="password"
@@ -177,7 +177,7 @@ export function LoginPage() {
               </p>
             ) : null}
             <Button type="submit" disabled={login.isPending} className="mt-2">
-              {login.isPending ? "Signing in..." : "Sign in"}
+              {login.isPending ? t("loginPage.signingIn") : t("loginPage.signIn")}
             </Button>
           </form>
             </>

@@ -17,7 +17,7 @@
  * page, just now computed against the entry's neighbor WITHIN its own
  * lane rather than the whole queue.
  */
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -47,16 +47,7 @@ import { FORMAT_LABELS } from "@/lib/formatMeta";
 
 const ANY_PRINTER = "any" as const;
 
-const STATE_LABELS: Record<QueueState, string> = {
-  waiting: "Waiting",
-  slicing: "Slicing",
-  ready: "Ready",
-  dispatched: "Dispatched",
-  held: "Held",
-  failed: "Failed",
-  done: "Done",
-  skipped: "Skipped",
-};
+const STATE_KEYS: readonly QueueState[] = ["waiting", "slicing", "ready", "dispatched", "held", "failed", "done", "skipped"];
 
 // P3's state-tone vocabulary (`index.css`'s `--state-*`), reused here
 // rather than introducing a second color system: idle-muted
@@ -83,22 +74,23 @@ export function QueueStateChip({
   lastError?: string | null;
   attempts?: number;
 }) {
+  const { t } = useTranslation();
   const parts: string[] = [];
-  if (attempts != null) parts.push(`${attempts}/3 attempts`);
+  if (attempts != null) parts.push(t("queuePage.attempts", { n: attempts }));
   if (lastError) parts.push(lastError);
   const title = parts.length > 0 ? parts.join(" — ") : undefined;
 
   if (state === "waiting" && lastError === PLATE_NOT_EMPTY) {
     return (
-      <Badge variant="outline" className={STATE_CLASSES.held} title={title} aria-label="Held: plate not empty">
-        Plate not empty
+      <Badge variant="outline" className={STATE_CLASSES.held} title={title} aria-label={t("queuePage.heldPlate")}>
+        {t("queuePage.plateNotEmpty")}
       </Badge>
     );
   }
 
   return (
     <Badge variant="outline" className={STATE_CLASSES[state]} title={title}>
-      {STATE_LABELS[state]}
+      {STATE_KEYS.includes(state) ? t(`queuePage.state.${state}`) : state}
     </Badge>
   );
 }
@@ -110,15 +102,16 @@ export function QueueStateChip({
 // (slate outline) -- the label stays plain "Held"; the reason only shows
 // as the hover/focus tooltip and aria-label.
 function HeldChip({ reason }: { reason?: string | null }) {
+  const { t } = useTranslation();
   if (!reason) return null;
   return (
     <Badge
       variant="outline"
       className={STATE_CLASSES.held}
       title={reason}
-      aria-label={`Held: ${reason}`}
+      aria-label={t("queuePage.heldReason", { reason })}
     >
-      Held
+      {t("queuePage.state.held")}
     </Badge>
   );
 }
@@ -128,24 +121,25 @@ function HeldChip({ reason }: { reason?: string | null }) {
 // dispatch `QueueStateChip`, not replacing it (an entry can be e.g. both
 // `held`/over-budget AND still `review_state=pending`).
 function ReviewChips({ entry }: { entry: QueueEntry }) {
+  const { t } = useTranslation();
   const retryEntry = useRetryQueueEntry();
   const overBudget = entry.hold_reason === "over_budget";
   return (
     <>
       {entry.review_state === "pending" ? (
         <Badge variant="outline" className="border-muted-foreground bg-transparent text-muted-foreground">
-          Pending review
+          {t("queuePage.pendingReview")}
         </Badge>
       ) : null}
       {entry.review_state === "rejected" ? (
         <Badge variant="outline" className="border-destructive bg-transparent text-destructive" title={entry.review_note ?? undefined}>
-          Rejected
+          {t("queuePage.rejected")}
         </Badge>
       ) : null}
       {overBudget ? (
         <span className="inline-flex items-center gap-1.5">
           <Badge variant="outline" className="border-warning bg-transparent text-warning">
-            Over budget
+            {t("queuePage.overBudget")}
           </Badge>
           <Button
             type="button"
@@ -154,7 +148,7 @@ function ReviewChips({ entry }: { entry: QueueEntry }) {
             disabled={retryEntry.isPending}
             onClick={() => retryEntry.mutate(entry.id)}
           >
-            Retry budget
+            {t("queuePage.retryBudget")}
           </Button>
         </span>
       ) : null}
@@ -181,7 +175,7 @@ function groupByLane(entries: QueueEntry[], printers: PrinterOut[]) {
 
 export function QueuePage() {
   const { t } = useTranslation();
-  const search = useSearch({ strict: false }) as { tab?: "queue" | "batches"; batch?: number };
+  const search = useSearch({ strict: false }) as { tab?: "queue" | "batches"; batch?: number; entry?: number };
   const navigate = useNavigate();
   const { can } = useAuth();
   const canReview = can("queue:review");
@@ -199,7 +193,7 @@ export function QueuePage() {
           </TabsList>
         ) : null}
         <TabsContent value="queue" className="space-y-4">
-          <QueueLanes />
+          <QueueLanes highlightId={search.entry ?? null} />
         </TabsContent>
         <TabsContent value="batches" className="space-y-4">
           <BatchesPanel openBatchId={search.batch ?? null} />
@@ -209,38 +203,57 @@ export function QueuePage() {
   );
 }
 
-function QueueLanes() {
-  const [includeDone, setIncludeDone] = useState(false);
+function QueueLanes({ highlightId }: { highlightId: number | null }) {
+  const { t } = useTranslation();
+  // A deep-linked entry may already be finished; show finished entries so it can be found.
+  const [includeDone, setIncludeDone] = useState(highlightId != null);
   const queueQuery = useQueue({ includeDone });
   const printers = usePrinters();
   const entries = queueQuery.data ?? [];
   const lanes = groupByLane(entries, printers.data ?? []);
+  useEffect(() => {
+    if (highlightId != null) setIncludeDone(true);
+  }, [highlightId]);
+  // Scroll to the deep-linked row once per highlightId (not on every refetch/remount).
+  const scrolledFor = useRef<number | null>(null);
+  const found = highlightId != null && entries.some((e) => e.id === highlightId);
+  useEffect(() => {
+    if (!found || scrolledFor.current === highlightId) return;
+    scrolledFor.current = highlightId;
+    document.getElementById(`queue-entry-${highlightId}`)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [found, highlightId]);
 
   const columns: { key: number | typeof ANY_PRINTER; title: string }[] = [
     ...(printers.data ?? []).map((p) => ({ key: p.id, title: p.name })),
-    { key: ANY_PRINTER, title: "Any printer" },
+    { key: ANY_PRINTER, title: t("queuePage.anyPrinter") },
   ];
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print queue</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("queuePage.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            One lane per printer, plus unassigned entries waiting for the dispatcher.
+            {t("queuePage.subtitle")}
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Switch checked={includeDone} onCheckedChange={setIncludeDone} aria-label="Show finished" />
-          Show finished
+          <Switch checked={includeDone} onCheckedChange={setIncludeDone} aria-label={t("queuePage.showFinished")} />
+          {t("queuePage.showFinished")}
         </label>
       </div>
+
+      {highlightId != null && queueQuery.isSuccess && !found ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t("queuePage.entryNotFound", { id: highlightId })}
+        </p>
+      ) : null}
 
       {queueQuery.isLoading ? (
         <Skeleton className="h-64 w-full rounded-lg" />
       ) : queueQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
-          {queueQuery.error instanceof ApiError ? queueQuery.error.detail : "Couldn't load the queue."}
+          {queueQuery.error instanceof ApiError ? queueQuery.error.detail : t("queuePage.loadError")}
         </p>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2">
@@ -250,6 +263,7 @@ function QueueLanes() {
               title={col.title}
               printerId={col.key === ANY_PRINTER ? null : col.key}
               entries={lanes.get(col.key) ?? []}
+              highlightId={highlightId}
             />
           ))}
         </div>
@@ -258,7 +272,17 @@ function QueueLanes() {
   );
 }
 
-function QueueLane({ title, entries, printerId }: { title: string; entries: QueueEntry[]; printerId: number | null }) {
+function QueueLane({
+  title,
+  entries,
+  printerId,
+  highlightId,
+}: {
+  title: string;
+  entries: QueueEntry[];
+  printerId: number | null;
+  highlightId: number | null;
+}) {
   const { t } = useTranslation();
   return (
     <Card className="w-80 shrink-0">
@@ -267,7 +291,7 @@ function QueueLane({ title, entries, printerId }: { title: string; entries: Queu
           <CardTitle className="text-sm">{title}</CardTitle>
           <LaneResumeButton printerId={printerId} entries={entries} />
         </div>
-        <CardDescription>{entries.length} queued</CardDescription>
+        <CardDescription>{t("queuePage.queued", { n: entries.length })}</CardDescription>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
@@ -276,7 +300,7 @@ function QueueLane({ title, entries, printerId }: { title: string; entries: Queu
           <ul className="divide-y divide-border">
             {entries.map((entry, index) => (
               <Fragment key={entry.id}>
-                <QueueRow entry={entry} prev={entries[index - 1]} next={entries[index + 1]} />
+                <QueueRow entry={entry} prev={entries[index - 1]} next={entries[index + 1]} highlighted={entry.id === highlightId} />
               </Fragment>
             ))}
           </ul>
@@ -312,11 +336,14 @@ function QueueRow({
   entry,
   prev,
   next,
+  highlighted = false,
 }: {
   entry: QueueEntry;
   prev: QueueEntry | undefined;
   next: QueueEntry | undefined;
+  highlighted?: boolean;
 }) {
+  const { t } = useTranslation();
   const moveEntry = useMoveQueueEntry();
   const removeEntry = useRemoveQueueEntry();
   const reEnqueue = useEnqueue();
@@ -331,12 +358,16 @@ function QueueRow({
   const name = entry.file_name ?? model?.name ?? "—";
 
   return (
-    <li className="py-2.5">
+    <li
+      id={`queue-entry-${entry.id}`}
+      data-highlighted={highlighted || undefined}
+      className={highlighted ? "-mx-2 rounded-md bg-primary/10 px-2 py-2.5 ring-2 ring-primary" : "py-2.5"}
+    >
     <div className="flex items-center gap-2">
       <button
         type="button"
         aria-expanded={expanded}
-        aria-label={`${expanded ? "Hide" : "Show"} details for ${name}`}
+        aria-label={expanded ? t("queuePage.hideDetails", { name }) : t("queuePage.showDetails", { name })}
         className="shrink-0 text-muted-foreground hover:text-foreground"
         onClick={() => setExpanded((v) => !v)}
       >
@@ -363,10 +394,10 @@ function QueueRow({
           <span className="truncate text-sm font-medium">{name}</span>
         )}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          {entry.plate != null ? <span>Plate {entry.plate}</span> : null}
+          {entry.plate != null ? <span>{t("queuePage.plate", { plate: entry.plate })}</span> : null}
           <span>×{entry.copies ?? 1}</span>
-          <span>{entry.recipe_name ?? "As sliced"}</span>
-          <span>Added {formatDate(entry.added_at)}</span>
+          <span>{entry.recipe_name ?? t("queuePage.asSliced")}</span>
+          <span>{t("queuePage.added", { date: formatDate(entry.added_at) })}</span>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
@@ -388,7 +419,7 @@ function QueueRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={`Cancel slicing ${name}`}
+            aria-label={t("queuePage.cancelSlicing", { name })}
             disabled={cancelSlice.isPending}
             onClick={() => cancelSlice.mutate(entry.id)}
           >
@@ -400,7 +431,7 @@ function QueueRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={`Retry ${name}`}
+            aria-label={t("queuePage.retryNamed", { name })}
             disabled={retryEntry.isPending}
             onClick={() => retryEntry.mutate(entry.id)}
           >
@@ -411,7 +442,7 @@ function QueueRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={`Move ${name} up`}
+          aria-label={t("queuePage.moveUp", { name })}
           disabled={!prev || moveEntry.isPending}
           onClick={() => prev && moveEntry.mutate({ entryId: entry.id, position: prev.position })}
         >
@@ -421,7 +452,7 @@ function QueueRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={`Move ${name} down`}
+          aria-label={t("queuePage.moveDown", { name })}
           disabled={!next || moveEntry.isPending}
           onClick={() => next && moveEntry.mutate({ entryId: entry.id, position: next.position })}
         >
@@ -431,14 +462,14 @@ function QueueRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label={`Remove ${name}`}
+          aria-label={t("queuePage.remove", { name })}
           disabled={removeEntry.isPending}
           onClick={() =>
             removeEntry.mutate(entry.id, {
               onSuccess: () =>
-                toast(`Removed ${name} from the queue`, {
-                  description: "Undo re-adds it at the end of the queue.",
-                  action: { label: "Undo", onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
+                toast(t("queuePage.removed", { name }), {
+                  description: t("queuePage.undoHint"),
+                  action: { label: t("queuePage.undo"), onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
                 }),
             })
           }

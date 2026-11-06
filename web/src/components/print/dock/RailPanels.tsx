@@ -4,6 +4,7 @@ import { RecentRunsList } from "@/components/print/RecentRunsList";
 import { UpNextList } from "@/components/print/UpNextList";
 import { StockForecastWidget } from "@/components/inventory/ForecastPanel";
 import { usePrintDash } from "./PrintDashContext";
+import { useTranslation } from "react-i18next";
 
 /** The right rail as one stack: queue, extras (review inbox), recent archives. */
 export function RailStack() {
@@ -33,9 +34,10 @@ export function ArchivesPanel() {
 
 /** A live tile per printer the user may print on. */
 export function CameraPanel() {
+  const { t } = useTranslation();
   const { printers } = usePrintDash();
   const cams = printers.filter((p) => p.can_print);
-  if (cams.length === 0) return <p className="text-sm text-muted-foreground">No cameras available.</p>;
+  if (cams.length === 0) return <p className="text-sm text-muted-foreground">{t("railPanels.noCameras")}</p>;
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))" }}>
       {cams.map((p) => (

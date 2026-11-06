@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -21,13 +22,14 @@ function fmtSize(n: number | null) {
 }
 
 function RunRow({ run, isAdmin }: { run: BackupRun; isAdmin: boolean }) {
+  const { t } = useTranslation();
   const restore = useRestoreSettings();
   return (
     <li className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
       <span className="font-medium">{run.status}</span>
       <span className="text-muted-foreground">
         {run.kind} · {new Date(run.created_at).toLocaleString()} · {fmtSize(run.size_bytes)}
-        {run.git_pushed ? " · pushed" : ""}
+        {run.git_pushed ? t("settingsBackups.pushed") : ""}
       </span>
       {run.location ? <span className="truncate text-xs text-muted-foreground">{run.location}</span> : null}
       {run.error ? <span className="text-xs text-destructive">{run.error}</span> : null}
@@ -35,20 +37,20 @@ function RunRow({ run, isAdmin }: { run: BackupRun; isAdmin: boolean }) {
         <ConfirmDialog
           trigger={
             <Button type="button" size="sm" variant="outline" className="ml-auto">
-              Restore settings
+              {t("settingsBackups.restoreBtn")}
             </Button>
           }
-          title="Restore settings from this backup?"
-          description="Overwrites current app settings with the values in this backup."
-          confirmLabel="Restore"
+          title={t("settingsBackups.restoreTitle")}
+          description={t("settingsBackups.restoreDesc")}
+          confirmLabel={t("settingsBackups.restoreConfirm")}
           destructive
           onConfirm={() => restore.mutate(run.id)}
         />
       ) : null}
-      {restore.isSuccess ? <span className="w-full text-xs text-success">Restored {restore.data.restored} settings.</span> : null}
+      {restore.isSuccess ? <span className="w-full text-xs text-success">{t("settingsBackups.restored", { count: restore.data.restored })}</span> : null}
       {restore.isError ? (
         <span role="alert" className="w-full text-xs text-destructive">
-          {errText(restore.error, "Restore failed")}
+          {errText(restore.error, t("settingsBackups.restoreFailed"))}
         </span>
       ) : null}
     </li>
@@ -56,6 +58,7 @@ function RunRow({ run, isAdmin }: { run: BackupRun; isAdmin: boolean }) {
 }
 
 export function BackupsCard() {
+  const { t } = useTranslation();
   const auth = useAuth();
   const isAdmin = auth.can("admin");
   const ops = useOpsSettings();
@@ -104,30 +107,30 @@ export function BackupsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Backups</CardTitle>
-        <CardDescription>Scheduled database + settings backups, optionally pushed to a git repository.</CardDescription>
+        <CardTitle>{t("settingsBackups.title")}</CardTitle>
+        <CardDescription>{t("settingsBackups.desc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {ops.isLoading ? <p className="text-sm text-muted-foreground">Loading...</p> : null}
+        {ops.isLoading ? <p className="text-sm text-muted-foreground">{t("settingsBackups.loading")}</p> : null}
         {ops.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(ops.error, "Couldn't load backup settings")}
+            {errText(ops.error, t("settingsBackups.loadError"))}
           </p>
         ) : null}
-        <SwitchRow id="bk-enabled" label="Scheduled backups" checked={enabled} onCheckedChange={setEnabled} />
+        <SwitchRow id="bk-enabled" label={t("settingsBackups.scheduled")} checked={enabled} onCheckedChange={setEnabled} />
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="bk-interval">Interval (hours)</Label>
+            <Label htmlFor="bk-interval">{t("settingsBackups.interval")}</Label>
             <Input id="bk-interval" type="number" min="1" value={interval} onChange={(e) => setIntervalH(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="bk-provider">Git provider</Label>
+            <Label htmlFor="bk-provider">{t("settingsBackups.gitProvider")}</Label>
             <Select value={provider} onValueChange={setProvider}>
-              <SelectTrigger id="bk-provider" aria-label="Git provider">
+              <SelectTrigger id="bk-provider" aria-label={t("settingsBackups.gitProvider")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>None</SelectItem>
+                <SelectItem value={NONE}>{t("settingsBackups.none")}</SelectItem>
                 <SelectItem value="github">GitHub</SelectItem>
                 <SelectItem value="gitlab">GitLab</SelectItem>
                 <SelectItem value="gitea">Gitea</SelectItem>
@@ -139,25 +142,25 @@ export function BackupsCard() {
             <>
               {provider === "gitea" || provider === "forgejo" || provider === "gitlab" ? (
                 <div className="space-y-1.5">
-                  <Label htmlFor="bk-base">Base URL</Label>
+                  <Label htmlFor="bk-base">{t("settingsBackups.baseUrl")}</Label>
                   <Input id="bk-base" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
                 </div>
               ) : null}
               <div className="space-y-1.5">
-                <Label htmlFor="bk-repo">Repository (owner/name)</Label>
+                <Label htmlFor="bk-repo">{t("settingsBackups.repo")}</Label>
                 <Input id="bk-repo" value={repo} onChange={(e) => setRepo(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="bk-branch">Branch</Label>
+                <Label htmlFor="bk-branch">{t("settingsBackups.branch")}</Label>
                 <Input id="bk-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="bk-token">Access token</Label>
+                <Label htmlFor="bk-token">{t("settingsBackups.token")}</Label>
                 <Input
                   id="bk-token"
                   type="password"
                   autoComplete="off"
-                  placeholder={d?.git_token_set ? "Stored — leave blank to keep" : ""}
+                  placeholder={d?.git_token_set ? t("settingsBackups.tokenStored") : ""}
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                 />
@@ -167,23 +170,23 @@ export function BackupsCard() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={onSave} disabled={save.isPending || !d}>
-            {save.isPending ? "Saving..." : "Save"}
+            {save.isPending ? t("settingsBackups.saving") : t("common.save")}
           </Button>
           {isAdmin ? (
             <Button type="button" variant="outline" onClick={() => run.mutate()} disabled={run.isPending}>
-              Run backup now
+              {t("settingsBackups.runNow")}
             </Button>
           ) : null}
-          {save.isSuccess ? <span className="text-sm text-success">Saved.</span> : null}
+          {save.isSuccess ? <span className="text-sm text-success">{t("settingsBackups.saved")}</span> : null}
         </div>
         {save.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(save.error, "Could not save")}
+            {errText(save.error, t("settingsBackups.saveError"))}
           </p>
         ) : null}
         {run.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errText(run.error, "Could not start backup")}
+            {errText(run.error, t("settingsBackups.runError"))}
           </p>
         ) : null}
         {isAdmin ? (
@@ -194,7 +197,7 @@ export function BackupsCard() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No backups yet.</p>
+            <p className="text-sm text-muted-foreground">{t("settingsBackups.empty")}</p>
           )
         ) : null}
       </CardContent>

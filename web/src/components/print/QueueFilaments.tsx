@@ -10,8 +10,10 @@ import type { QueueEntry } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { FilamentChip } from "@/components/ui/filament-chip";
 import { formatCost } from "@/lib/format";
+import { useTranslation } from "react-i18next";
 
 export function QueueFilamentChips({ entry }: { entry: QueueEntry }) {
+  const { t } = useTranslation();
   const filaments = entry.filaments ?? [];
   if (filaments.length === 0) return null;
   const mismatched = filaments.filter((f) => f.colour_mismatch);
@@ -25,7 +27,7 @@ export function QueueFilamentChips({ entry }: { entry: QueueEntry }) {
               <span aria-hidden className="text-xs text-muted-foreground">
                 →
               </span>
-              <FilamentChip color={f.spool_color ?? undefined} label={f.spool_name ?? `Spool ${f.spool_id}`} />
+              <FilamentChip color={f.spool_color ?? undefined} label={f.spool_name ?? t("queueFilaments.spool", { id: f.spool_id })} />
             </>
           ) : null}
         </span>
@@ -37,17 +39,21 @@ export function QueueFilamentChips({ entry }: { entry: QueueEntry }) {
           title={mismatched
             .map(
               (f) =>
-                `Slot ${f.slot}: file wants ${f.color ?? "?"}, mapped spool is ${f.spool_color ?? "?"}`,
+                t("queueFilaments.mismatchLine", {
+                  slot: f.slot,
+                  want: f.color ?? "?",
+                  have: f.spool_color ?? "?",
+                }),
             )
             .join("\n")}
         >
           <AlertTriangleIcon className="size-3" />
-          Colour mismatch (slot {mismatched.map((f) => f.slot).join(", ")})
+          {t("queueFilaments.mismatch", { slots: mismatched.map((f) => f.slot).join(", ") })}
         </Badge>
       ) : null}
       {entry.estimated_cost != null ? (
-        <span className="text-xs text-muted-foreground" title="Estimated filament + machine + wear cost">
-          Est. {formatCost(entry.estimated_cost)}
+        <span className="text-xs text-muted-foreground" title={t("queueFilaments.costTitle")}>
+          {t("queueFilaments.est", { cost: formatCost(entry.estimated_cost) })}
         </span>
       ) : null}
     </div>

@@ -11,8 +11,10 @@ import { ReviewActions } from "@/components/print/ReviewActions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCost } from "@/lib/format";
+import { useTranslation } from "react-i18next";
 
 function ReviewRow({ entry, printerName }: { entry: QueueEntry; printerName: string }) {
+  const { t } = useTranslation();
   const name = entry.file_name ?? entry.model?.name ?? "—";
   return (
     <li className="space-y-1.5 py-2.5">
@@ -23,7 +25,7 @@ function ReviewRow({ entry, printerName }: { entry: QueueEntry; printerName: str
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-        {entry.plate != null ? <span>Plate {entry.plate}</span> : null}
+        {entry.plate != null ? <span>{t("reviewInbox.plate", { plate: entry.plate })}</span> : null}
         <span>{printerName}</span>
         {entry.created_by != null ? <span>{entry.created_by.username}</span> : null}
       </div>
@@ -33,26 +35,27 @@ function ReviewRow({ entry, printerName }: { entry: QueueEntry; printerName: str
 }
 
 export function ReviewInboxCard() {
+  const { t } = useTranslation();
   const inbox = useReviewInbox();
   const printers = usePrinters();
   const entries = inbox.data ?? [];
 
   function printerName(entry: QueueEntry): string {
     const id = entry.printer_id ?? entry.assigned_printer_id;
-    if (id == null) return "Any";
-    return (printers.data ?? []).find((p) => p.id === id)?.name ?? "Any";
+    if (id == null) return t("reviewInbox.any");
+    return (printers.data ?? []).find((p) => p.id === id)?.name ?? t("reviewInbox.any");
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Review inbox</CardTitle>
+        <CardTitle>{t("reviewInbox.title")}</CardTitle>
       </CardHeader>
       <CardContent>
         {inbox.isLoading ? (
           <Skeleton className="h-24 w-full rounded-lg" />
         ) : entries.length === 0 ? (
-          <p className="py-2 text-center text-sm text-muted-foreground">Nothing pending.</p>
+          <p className="py-2 text-center text-sm text-muted-foreground">{t("reviewInbox.empty")}</p>
         ) : (
           <ul className="divide-y divide-border">
             {entries.map((entry) => (

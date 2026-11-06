@@ -30,10 +30,12 @@ import { PrintJobHistory } from "@/components/printer/PrintJobHistory";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "react-i18next";
 
 const routeApi = getRouteApi("/authenticated/printers/$id");
 
 export function PrinterDetailPage() {
+  const { t } = useTranslation();
   const { id } = routeApi.useParams();
   const features = useFeatures();
   const enabled = !!features.data?.printer_enabled;
@@ -46,10 +48,9 @@ export function PrinterDetailPage() {
     return (
       <Card className="mx-auto mt-12 max-w-md">
         <CardHeader className="text-center">
-          <CardTitle>Printer integration is off</CardTitle>
+          <CardTitle>{t("printerDetail.offTitle")}</CardTitle>
           <CardDescription>
-            Turn it on under Settings → Printer to connect your Bambu printer over the LAN. It
-            takes effect immediately — no restart.
+            {t("printerDetail.offDesc")}
           </CardDescription>
         </CardHeader>
       </Card>
@@ -63,8 +64,8 @@ export function PrinterDetailPage() {
     return (
       <Card className="mx-auto mt-12 max-w-md">
         <CardHeader className="text-center">
-          <CardTitle>Printer not found</CardTitle>
-          <CardDescription>It may have been removed, or you don&apos;t have access to it.</CardDescription>
+          <CardTitle>{t("printerDetail.notFound")}</CardTitle>
+          <CardDescription>{t("printerDetail.notFoundDesc")}</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -82,6 +83,7 @@ function PrinterDetailBody({
   printer: PrinterOut;
   overviewItem: PrintersOverviewOut["printers"][number];
 }) {
+  const { t } = useTranslation();
   const { canPrinter } = useAuth();
   usePrintTitle([overviewItem]);
 
@@ -130,7 +132,7 @@ function PrinterDetailBody({
       </div>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Stats</h2>
+        <h2 className="text-sm font-semibold text-foreground">{t("stats.title")}</h2>
         <HistoryStats />
       </section>
     </PageContainer>

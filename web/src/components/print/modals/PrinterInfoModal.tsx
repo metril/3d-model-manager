@@ -1,17 +1,18 @@
 import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { modelKey, printerImage } from "@/lib/printerState";
+import { useTranslation } from "react-i18next";
 
 const CAP_LABELS: Record<string, string> = {
-  chamber_heater: "Chamber heater",
-  chamber_temp: "Chamber temperature",
-  airduct: "Airduct",
-  door: "Door sensor",
-  dual_nozzle: "Dual nozzle",
-  aux_fan: "Aux fan",
-  chamber_fan: "Chamber fan",
-  lidar: "Lidar",
-  ams_drying: "AMS drying",
+  chamber_heater: "printerInfo.cap.chamber_heater",
+  chamber_temp: "printerInfo.cap.chamber_temp",
+  airduct: "printerInfo.cap.airduct",
+  door: "printerInfo.cap.door",
+  dual_nozzle: "printerInfo.cap.dual_nozzle",
+  aux_fan: "printerInfo.cap.aux_fan",
+  chamber_fan: "printerInfo.cap.chamber_fan",
+  lidar: "printerInfo.cap.lidar",
+  ams_drying: "printerInfo.cap.ams_drying",
 };
 
 export function PrinterInfoModal({
@@ -25,23 +26,31 @@ export function PrinterInfoModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const caps = printer.capabilities;
   const enabledCaps = caps
     ? Object.keys(CAP_LABELS).filter((k) => caps[k as keyof typeof caps] === true)
     : [];
   const rows: [string, string][] = [
-    ["Status", status ? (status.online ? (status.gcode_state ?? "online") : "offline") : "unknown"],
-    ["IP address", printer.host],
-    ["Serial", printer.serial],
-    ["Firmware", status?.firmware?.ota ?? "unknown"],
     [
-      "Developer mode",
-      status?.dev_mode == null ? "unknown" : status.dev_mode ? "on" : "off",
+      t("printerInfo.status"),
+      status
+        ? status.online
+          ? (status.gcode_state ?? t("printerInfo.online"))
+          : t("printerInfo.offline")
+        : t("printerInfo.unknown"),
     ],
-    ["Nozzle", status?.nozzle_type ?? "unknown"],
+    [t("printerInfo.ip"), printer.host],
+    [t("printerInfo.serial"), printer.serial],
+    [t("printerInfo.firmware"), status?.firmware?.ota ?? t("printerInfo.unknown")],
     [
-      "Total print hours",
-      printer.total_print_hours != null ? `${printer.total_print_hours.toFixed(1)} h` : "unknown",
+      t("printerInfo.devMode"),
+      status?.dev_mode == null ? t("printerInfo.unknown") : status.dev_mode ? t("printerInfo.on") : t("printerInfo.off"),
+    ],
+    [t("printerInfo.nozzle"), status?.nozzle_type ?? t("printerInfo.unknown")],
+    [
+      t("printerInfo.totalHours"),
+      printer.total_print_hours != null ? `${printer.total_print_hours.toFixed(1)} h` : t("printerInfo.unknown"),
     ],
   ];
 
@@ -69,24 +78,24 @@ export function PrinterInfoModal({
         </dl>
         {caps ? (
           <div className="space-y-1.5">
-            <h3 className="text-sm font-semibold">Capabilities</h3>
+            <h3 className="text-sm font-semibold">{t("printerInfo.capabilities")}</h3>
             {enabledCaps.length === 0 && caps.camera === "none" ? (
-              <p className="text-xs text-muted-foreground">None reported.</p>
+              <p className="text-xs text-muted-foreground">{t("printerInfo.noneReported")}</p>
             ) : (
               <ul className="flex flex-wrap gap-1.5 text-xs">
                 {enabledCaps.map((k) => (
                   <li key={k} className="rounded-full border px-2 py-0.5">
-                    {CAP_LABELS[k]}
+                    {t(CAP_LABELS[k])}
                   </li>
                 ))}
                 {caps.camera !== "none" ? (
-                  <li className="rounded-full border px-2 py-0.5">Camera ({caps.camera})</li>
+                  <li className="rounded-full border px-2 py-0.5">{t("printerInfo.camera", { kind: caps.camera })}</li>
                 ) : null}
               </ul>
             )}
             {!caps.verified ? (
               <p className="text-xs text-warning">
-                untested on this model
+                {t("printerInfo.untested")}
               </p>
             ) : null}
           </div>

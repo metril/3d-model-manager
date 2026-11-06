@@ -6,6 +6,7 @@ import { useDiagnostic } from "@/api/printerOps";
 import type { DiagnosticCheck, DiagnosticIn } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 export function DiagnosticChecks({ checks }: { checks: DiagnosticCheck[] }) {
   return (
@@ -41,6 +42,7 @@ export function DiagnosticModal({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const diag = useDiagnostic();
   const { mutate } = diag;
   const adhocRef = useRef(adhoc);
@@ -59,18 +61,18 @@ export function DiagnosticModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Connection diagnostic</DialogTitle>
+          <DialogTitle>{t("diagnostic.title")}</DialogTitle>
         </DialogHeader>
-        {diag.isPending ? <p className="text-sm text-muted-foreground">Running checks...</p> : null}
+        {diag.isPending ? <p className="text-sm text-muted-foreground">{t("diagnostic.running")}</p> : null}
         {diag.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {diag.error instanceof ApiError ? diag.error.detail : "Diagnostic failed"}
+            {diag.error instanceof ApiError ? diag.error.detail : t("diagnostic.failed")}
           </p>
         ) : null}
         {diag.data ? <DiagnosticChecks checks={diag.data.checks} /> : null}
         <div className="flex justify-end">
           <Button variant="outline" disabled={diag.isPending} onClick={run}>
-            Run again
+            {t("diagnostic.runAgain")}
           </Button>
         </div>
       </DialogContent>

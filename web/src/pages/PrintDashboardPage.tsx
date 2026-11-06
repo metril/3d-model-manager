@@ -12,6 +12,7 @@
  * for `can_print` items (the token mint requires that permission; smaller
  * cards link to the detail page's camera instead of streaming N feeds).
  */
+import { useTranslation } from "react-i18next";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -37,6 +38,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { filterItems, sortGroups, summarize } from "@/lib/printerDashboard";
 
 export function PrintDashboardPage() {
+  const { t } = useTranslation();
   const overview = usePrintersOverview();
   const navigate = useNavigate();
   const search = parsePrintDashSearch(useSearch({ strict: false }) as Record<string, unknown>);
@@ -93,14 +95,14 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("printPage.title")}</h1>
         </div>
         <div className="space-y-2 py-8 text-center">
           <p role="alert" className="text-sm text-destructive">
-            {overview.error instanceof ApiError ? overview.error.detail : "Couldn't load the print overview."}
+            {overview.error instanceof ApiError ? overview.error.detail : t("printPage.loadError")}
           </p>
           <Button type="button" variant="outline" onClick={() => void overview.refetch()}>
-            Retry
+            {t("common.retry")}
           </Button>
         </div>
       </PageContainer>
@@ -111,8 +113,8 @@ export function PrintDashboardPage() {
     return (
       <PageContainer width="default">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
-          <p className="text-sm text-muted-foreground">Add a printer to start printing from here.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("printPage.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("printPage.noPrinters")}</p>
         </div>
         <PrinterSetupCard />
       </PageContainer>
@@ -123,14 +125,14 @@ export function PrintDashboardPage() {
     <PageContainer width="fluid">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Print</h1>
-          <p className="text-sm text-muted-foreground">A live overview of your printers.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("printPage.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("printPage.subtitle")}</p>
         </div>
         {canDock ? (
           <div className="flex items-center gap-2">
             {dockOn && dockApi ? <PanelsMenu api={dockApi} /> : null}
             <Button type="button" size="sm" variant="outline" aria-pressed={dockOn} onClick={toggleDock}>
-              {dockOn ? "Classic layout" : "Customize layout"}
+              {dockOn ? t("printPage.classic") : t("printPage.customize")}
             </Button>
           </div>
         ) : null}

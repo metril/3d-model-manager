@@ -1,4 +1,5 @@
 /** Add/edit a notification channel. Secrets come back as "********" and are kept server-side if echoed. */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function ChannelModal({ catalog, channel, onClose }: Props) {
+  const { t } = useTranslation();
   const create = useCreateChannel();
   const update = useUpdateChannel();
   const [kind, setKind] = useState(channel?.kind ?? catalog.kinds[0]?.kind ?? "");
@@ -95,11 +97,11 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
     <Dialog open onOpenChange={requestChange}>
       <DialogContent dismissable={false} className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{channel ? "Edit channel" : "Add channel"}</DialogTitle>
+          <DialogTitle>{channel ? t("settingsChannelModal.edit") : t("settingsChannelModal.add")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor="nc-kind">Type</Label>
+            <Label htmlFor="nc-kind">{t("settingsChannelModal.type")}</Label>
             <select
               id="nc-kind"
               className={SELECT_CLASS}
@@ -115,7 +117,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
             </select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="nc-name">Name</Label>
+            <Label htmlFor="nc-name">{t("settingsChannelModal.name")}</Label>
             <Input id="nc-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={64} />
           </div>
           {(kindDef?.fields ?? []).map((f) => {
@@ -143,7 +145,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
                     id={id}
                     rows={4}
                     value={value}
-                    placeholder={keep ? "leave blank to keep the saved URLs" : (f.placeholder ?? undefined)}
+                    placeholder={keep ? t("settingsChannelModal.keepUrls") : (f.placeholder ?? undefined)}
                     required={f.required && !keep}
                     autoComplete="off"
                     spellCheck={false}
@@ -165,7 +167,7 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
             );
           })}
           <fieldset className="space-y-1">
-            <legend className="text-sm font-medium">Events</legend>
+            <legend className="text-sm font-medium">{t("settingsChannelModal.events")}</legend>
             {catalog.events.map((ev) => (
               <label key={ev.id} className="flex items-start gap-2 text-sm">
                 <input
@@ -184,50 +186,50 @@ export function ChannelModal({ catalog, channel, onClose }: Props) {
           </fieldset>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={quiet} onChange={(e) => setQuiet(e.target.checked)} />
-            Quiet hours
+            {t("settingsChannelModal.quietHours")}
           </label>
           {quiet && (
             <div className="grid grid-cols-3 gap-2">
               <div className="space-y-1">
-                <Label htmlFor="nc-qs">Start</Label>
+                <Label htmlFor="nc-qs">{t("settingsChannelModal.start")}</Label>
                 <Input id="nc-qs" type="time" value={qStart} onChange={(e) => setQStart(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="nc-qe">End</Label>
+                <Label htmlFor="nc-qe">{t("settingsChannelModal.end")}</Label>
                 <Input id="nc-qe" type="time" value={qEnd} onChange={(e) => setQEnd(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="nc-qz">Timezone</Label>
+                <Label htmlFor="nc-qz">{t("settingsChannelModal.timezone")}</Label>
                 <Input id="nc-qz" value={qTz} onChange={(e) => setQTz(e.target.value)} placeholder="UTC" />
               </div>
             </div>
           )}
           <div className="space-y-1">
-            <Label htmlFor="nc-digest">Digest cron</Label>
+            <Label htmlFor="nc-digest">{t("settingsChannelModal.digest")}</Label>
             <Input
               id="nc-digest"
               value={digest}
               onChange={(e) => setDigest(e.target.value)}
-              placeholder="e.g. 0 9 * * * (blank = send immediately)"
+              placeholder={t("settingsChannelModal.digestPlaceholder")}
             />
           </div>
           {kindDef?.supports_photo && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={photo} onChange={(e) => setPhoto(e.target.checked)} />
-              Attach camera photo
+              {t("settingsChannelModal.attachPhoto")}
             </label>
           )}
           {error && (
             <p role="alert" className="text-sm text-destructive">
-              {error instanceof ApiError ? error.detail : "Could not save the channel."}
+              {error instanceof ApiError ? error.detail : t("settingsChannelModal.saveError")}
             </p>
           )}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => requestChange(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={pending || !name.trim() || missing}>
-              {channel ? "Save" : "Create channel"}
+              {channel ? t("common.save") : t("settingsChannelModal.create")}
             </Button>
           </DialogFooter>
         </form>

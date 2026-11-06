@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { CheckIcon, CopyIcon, TerminalIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import {
@@ -43,9 +43,7 @@ export function ApiKeysCard() {
       <CardHeader>
         <CardTitle>{t("apiKeys.title")}</CardTitle>
         <CardDescription>
-          Scoped keys for scripts, Home Assistant and other automation. A key acts as you, can
-          never exceed your own permissions, and never has admin rights. Send it as{" "}
-          <code>X-API-Key</code> (or a Bearer token) to <code>/api/ext/v2</code>.
+          <Trans i18nKey="apiKeys.desc" components={{ code: <code /> }} />
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -269,7 +267,7 @@ function KeyRow({ apiKey }: { apiKey: ApiKeyOut }) {
           {apiKey.scopes.join(", ")}
           {" · "}
           {apiKey.printer_ids ? t("apiKeys.printersCount", { n: apiKey.printer_ids.length }) : t("apiKeys.allPrinters")} ·{" "}
-          {apiKey.rate_limit_per_min}/min
+          {t("apiKeys.perMin", { n: apiKey.rate_limit_per_min })}
         </p>
         <p className="text-xs text-muted-foreground">
           {t("apiKeys.created_at", { date: formatDate(apiKey.created_at) })} ·{" "}
@@ -311,11 +309,14 @@ function ApiDocs() {
       <summary className="cursor-pointer text-sm font-medium">{t("apiKeys.reference")}</summary>
       <div className="mt-3 space-y-3 text-xs text-muted-foreground">
         <p>
-          Auth: <code>X-API-Key: &lt;key&gt;</code> or <code>Authorization: Bearer &lt;key&gt;</code>. Every
-          mutating call is audit-logged. Over the key&apos;s rate limit you get <code>429</code> with{" "}
-          <code>Retry-After</code>. Control commands use the same validation as the app: they return{" "}
-          <code>409</code> while printing (where refused), <code>422</code> for unsupported or invalid
-          arguments, and <code>202</code> if the printer has not answered yet.
+          <Trans
+            i18nKey="apiKeys.docsAuth"
+            components={{
+              code: <code />,
+              hdr: <code>X-API-Key: &lt;key&gt;</code>,
+              bearer: <code>Authorization: Bearer &lt;key&gt;</code>,
+            }}
+          />
         </p>
         <ul className="space-y-3">
           {ENDPOINTS.map((e) => (
@@ -330,9 +331,14 @@ function ApiDocs() {
           ))}
         </ul>
         <p>
-          Outgoing events: add a <strong>Webhook</strong> channel under Notifications, choose its events, and set a
-          signing secret. Each delivery carries <code>X-TDMM-Timestamp</code> and{" "}
-          <code>X-TDMM-Signature: sha256=HMAC_SHA256(secret, timestamp + &quot;.&quot; + body)</code>.
+          <Trans
+            i18nKey="apiKeys.docsEvents"
+            components={{
+              code: <code />,
+              strong: <strong />,
+              sig: <code>X-TDMM-Signature: sha256=HMAC_SHA256(secret, timestamp + &quot;.&quot; + body)</code>,
+            }}
+          />
         </p>
       </div>
     </details>

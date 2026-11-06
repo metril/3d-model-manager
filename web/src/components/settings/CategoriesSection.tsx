@@ -7,6 +7,7 @@
  * input.
  */
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useCategories, useCreateCategory, useDeleteCategory, useUpdateCategory } from "@/api/categories";
 import { ApiError } from "@/api/client";
@@ -39,13 +40,14 @@ const DEFAULT_COLOR: TagColor = "slate";
  * button rather than the tag name itself (categories aren't inline-editable
  * text the way a tag chip is). */
 function CategoryColorPicker({ color, onPick }: { color: TagColor; onPick: (color: TagColor) => void }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="Category color"
+          aria-label={t("settingsCategories.colorAria")}
           className={cn("size-6 shrink-0 rounded-full ring-offset-2 ring-offset-background", tagSwatchClass(color))}
         />
       </PopoverTrigger>
@@ -55,7 +57,7 @@ function CategoryColorPicker({ color, onPick }: { color: TagColor; onPick: (colo
             <button
               key={option}
               type="button"
-              aria-label={`Color ${option}`}
+              aria-label={t("settingsCategories.colorOption", { color: option })}
               aria-pressed={color === option}
               className={cn(
                 "size-5 rounded-full ring-offset-2 ring-offset-background",
@@ -75,6 +77,7 @@ function CategoryColorPicker({ color, onPick }: { color: TagColor; onPick: (colo
 }
 
 function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; category?: CategoryOut }) {
+  const { t } = useTranslation();
   const isEdit = category !== undefined;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(category?.name ?? "");
@@ -121,14 +124,14 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
       <DialogContent dismissable={false}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEdit ? `Edit "${category.name}"` : "Add category"}</DialogTitle>
+            <DialogTitle>{isEdit ? t("settingsCategories.editTitle", { name: category.name }) : t("settingsCategories.addTitle")}</DialogTitle>
             <DialogDescription>
-              A model has at most one category -- a coarser grouping than tags.
+              {t("settingsCategories.dialogDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="category-name">Name</Label>
+              <Label htmlFor="category-name">{t("settingsCategories.name")}</Label>
               <Input
                 id="category-name"
                 value={name}
@@ -139,18 +142,18 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label>Color</Label>
+              <Label>{t("settingsCategories.color")}</Label>
               <CategoryColorPicker color={color} onPick={setColor} />
             </div>
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
-                {mutation.error instanceof ApiError ? mutation.error.detail : "Could not save this category"}
+                {mutation.error instanceof ApiError ? mutation.error.detail : t("settingsCategories.saveError")}
               </p>
             ) : null}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={name.trim().length === 0 || mutation.isPending}>
-              {mutation.isPending ? "Saving..." : isEdit ? "Save changes" : "Add category"}
+              {mutation.isPending ? t("settingsCategories.saving") : isEdit ? t("settingsCategories.saveChanges") : t("settingsCategories.addTitle")}
             </Button>
           </DialogFooter>
         </form>
@@ -162,6 +165,7 @@ function CategoryFormDialog({ trigger, category }: { trigger: React.ReactNode; c
 }
 
 function CategoryRow({ category }: { category: CategoryOut }) {
+  const { t } = useTranslation();
   const deleteCategory = useDeleteCategory();
   const deletingThis = deleteCategory.isPending && deleteCategory.variables === category.id;
   const deleteErrorForThis = deleteCategory.isError && deleteCategory.variables === category.id;
@@ -182,30 +186,30 @@ function CategoryRow({ category }: { category: CategoryOut }) {
             category={category}
             trigger={
               <Button type="button" size="sm" variant="outline">
-                Edit
+                {t("common.edit")}
               </Button>
             }
           />
           <ConfirmDialog
             trigger={
               <Button type="button" size="sm" variant="destructive" disabled={deletingThis}>
-                {deletingThis ? "Deleting..." : "Delete"}
+                {deletingThis ? t("settingsCategories.deleting") : t("common.delete")}
               </Button>
             }
-            title={`Delete "${category.name}"?`}
+            title={t("settingsCategories.deleteTitle", { name: category.name })}
             description={
               category.model_count > 0
-                ? `${category.model_count} model${category.model_count === 1 ? "" : "s"} will become uncategorized.`
-                : "This category has no models on it."
+                ? t("settingsCategories.deleteDesc", { count: category.model_count })
+                : t("settingsCategories.deleteDescNone")
             }
-            confirmLabel="Delete"
+            confirmLabel={t("common.delete")}
             destructive
             onConfirm={() => deleteCategory.mutate(category.id)}
           />
         </div>
         {deleteErrorForThis ? (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {deleteCategory.error instanceof ApiError ? deleteCategory.error.detail : "Could not delete this category"}
+            {deleteCategory.error instanceof ApiError ? deleteCategory.error.detail : t("settingsCategories.deleteError")}
           </p>
         ) : null}
       </TableCell>
@@ -214,21 +218,22 @@ function CategoryRow({ category }: { category: CategoryOut }) {
 }
 
 export function CategoriesSection() {
+  const { t } = useTranslation();
   const categoriesQuery = useCategories();
   const categories = categoriesQuery.data ?? [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Categories</CardTitle>
+        <CardTitle>{t("settingsCategories.title")}</CardTitle>
         <CardDescription>
-          Exclusive, single-per-model groupings (unlike tags, which can be many-per-model).
+          {t("settingsCategories.desc")}
         </CardDescription>
         <CardAction>
           <CategoryFormDialog
             trigger={
               <Button type="button" variant="outline">
-                Add category
+                {t("settingsCategories.addTitle")}
               </Button>
             }
           />
@@ -240,25 +245,25 @@ export function CategoriesSection() {
         ) : categoriesQuery.isError ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Couldn&apos;t load categories</p>
+              <p className="text-sm font-medium text-foreground">{t("settingsCategories.loadError")}</p>
               <p role="alert" className="text-sm text-muted-foreground">
-                {categoriesQuery.error instanceof ApiError ? categoriesQuery.error.detail : "Something went wrong."}
+                {categoriesQuery.error instanceof ApiError ? categoriesQuery.error.detail : t("settingsCategories.genericError")}
               </p>
             </div>
             <Button type="button" size="sm" onClick={() => void categoriesQuery.refetch()}>
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         ) : categories.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No categories yet.</p>
+          <p className="text-sm text-muted-foreground">{t("settingsCategories.empty")}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead />
-                <TableHead>Name</TableHead>
-                <TableHead>Models</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead>{t("settingsCategories.name")}</TableHead>
+                <TableHead>{t("settingsCategories.colModels")}</TableHead>
+                <TableHead>{t("settingsCategories.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

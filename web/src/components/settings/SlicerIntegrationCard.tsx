@@ -27,7 +27,7 @@
  * cache -- there's no build id exposed to the frontend to use instead.
  */
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
@@ -45,26 +45,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/format";
 
 export function SlicerIntegrationCard() {
+  const { t } = useTranslation();
   const tokens = useApiTokens();
   const health = useSlicerHealth();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Slicer integration</CardTitle>
-        <CardDescription>Send sliced files straight from OrcaSlicer to your library.</CardDescription>
+        <CardTitle>{t("settingsSlicer.title")}</CardTitle>
+        <CardDescription>{t("settingsSlicer.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Uses the same API tokens as the browser extension — a token from either works for both.
+            {t("settingsSlicer.tokensNote")}
           </p>
           <MintForm />
           {tokens.isLoading ? (
             <Skeleton className="h-16 w-full rounded-lg" />
           ) : tokens.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {tokens.error instanceof ApiError ? tokens.error.detail : "Couldn't load API tokens."}
+              {tokens.error instanceof ApiError ? tokens.error.detail : t("settingsSlicer.tokensError")}
             </p>
           ) : (
             <TokenList tokens={tokens.data ?? []} />
@@ -73,27 +74,22 @@ export function SlicerIntegrationCard() {
 
         <div className="space-y-4 border-t border-border pt-4 text-sm">
           <div className="space-y-1">
-            <h3 className="font-medium text-foreground">1. Auto-upload every slice (metadata)</h3>
+            <h3 className="font-medium text-foreground">{t("settingsSlicer.step1Title")}</h3>
             <p className="text-muted-foreground">
-              OrcaSlicer → <strong>Process → Others → Post-processing scripts</strong>:{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">python3 /path/to/slicer_postprocess.py</code>,
-              with <code className="rounded bg-muted px-1 py-0.5 text-xs">INTAKE_URL</code> (e.g.{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                http://&lt;this host&gt;:8080/api/slicer/intake
-              </code>
-              ) and <code className="rounded bg-muted px-1 py-0.5 text-xs">INTAKE_TOKEN</code> set in the
-              script&apos;s environment. Every sliced plate is uploaded and matched to a model by name (or a new
-              model is created).
+              <Trans
+                i18nKey="settingsSlicer.step1Body"
+                values={{ url: "http://<this host>:8080/api/slicer/intake" }}
+                components={{ strong: <strong />, code: <code className="rounded bg-muted px-1 py-0.5 text-xs" /> }}
+              />
             </p>
             <p className="text-xs text-muted-foreground">
-              This path uploads plain .gcode — rich history and metadata, but not printable from this app.
+              {t("settingsSlicer.step1Note")}
             </p>
           </div>
           <div className="space-y-1">
-            <h3 className="font-medium text-foreground">2. Printable file (watched folder)</h3>
+            <h3 className="font-medium text-foreground">{t("settingsSlicer.step2Title")}</h3>
             <p className="text-muted-foreground">
-              <strong>File → Export → Export plate sliced file</strong> into the watched folder — imported the same
-              way, and the resulting .gcode.3mf gets the Send-to-printer button (Queue + Files tab).
+              <Trans i18nKey="settingsSlicer.step2Body" components={{ strong: <strong /> }} />
             </p>
           </div>
           <ScriptDownloadLink />
@@ -102,10 +98,9 @@ export function SlicerIntegrationCard() {
 
         {health.data?.configured ? (
           <div className="space-y-2 border-t border-border pt-4">
-            <h3 className="text-sm font-medium text-foreground">Slicer profiles</h3>
+            <h3 className="text-sm font-medium text-foreground">{t("settingsSlicer.profiles")}</h3>
             <p className="text-xs text-muted-foreground">
-              Import the slicer sidecar&apos;s bundled Bambu printer, process and filament presets
-              (version {health.data.version ?? "?"}). Edited or imported profiles are never overwritten.
+              {t("settingsSlicer.profilesBody", { version: health.data.version ?? "?" })}
             </p>
             <SyncProfilesButton idPrefix="card-sync" />
           </div>
@@ -116,6 +111,7 @@ export function SlicerIntegrationCard() {
 }
 
 function ScriptDownloadLink() {
+  const { t } = useTranslation();
   // Recomputed every render (not memoized) so each fresh page load/render
   // mints a new cache-busting query value -- see the module docstring.
   const href = `/slicer_postprocess.py?v=${Date.now()}`;
@@ -126,12 +122,13 @@ function ScriptDownloadLink() {
       download="slicer_postprocess.py"
       className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-4 hover:no-underline"
     >
-      <DownloadIcon className="size-4" /> Download slicer_postprocess.py
+      <DownloadIcon className="size-4" /> {t("settingsSlicer.download")}
     </a>
   );
 }
 
 function WatchedFolderStatus() {
+  const { t } = useTranslation();
   const features = useFeatures();
 
   if (features.isLoading) return <Skeleton className="h-10 w-full rounded-lg" />;
@@ -139,7 +136,7 @@ function WatchedFolderStatus() {
   if (!features.data?.watch_enabled) {
     return (
       <p className="text-xs text-muted-foreground">
-        Watched-folder polling is off — set a poll interval under Settings → General → Automation.
+        {t("settingsSlicer.pollingOff")}
       </p>
     );
   }
@@ -147,18 +144,24 @@ function WatchedFolderStatus() {
   return (
     <div className="space-y-0.5">
       <p className="text-sm text-foreground">
-        Watched folder: <code className="rounded bg-muted px-1 py-0.5 text-xs">{features.data.watch_dir}</code>{" "}
-        (active)
+        <Trans
+          i18nKey="settingsSlicer.watchedFolder"
+          values={{ dir: features.data.watch_dir }}
+          components={{ code: <code className="rounded bg-muted px-1 py-0.5 text-xs" /> }}
+        />
       </p>
       <p className="text-xs text-muted-foreground">
-        That&apos;s the path inside the container — it maps to{" "}
-        <code className="rounded bg-muted px-1 py-0.5">WATCH_HOST_DIR</code> on the host.
+        <Trans
+          i18nKey="settingsSlicer.watchedFolderHint"
+          components={{ code: <code className="rounded bg-muted px-1 py-0.5" /> }}
+        />
       </p>
     </div>
   );
 }
 
 function MintForm() {
+  const { t } = useTranslation();
   const [label, setLabel] = useState("OrcaSlicer");
   const [minted, setMinted] = useState<{ label: string; token: string } | null>(null);
   const createToken = useCreateApiToken();
@@ -184,22 +187,22 @@ function MintForm() {
     <div className="space-y-2">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="slicer-api-token-label">Token label</Label>
+          <Label htmlFor="slicer-api-token-label">{t("settingsSlicer.tokenLabel")}</Label>
           <Input
             id="slicer-api-token-label"
-            placeholder="e.g. OrcaSlicer"
+            placeholder={t("settingsSlicer.tokenPlaceholder")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             disabled={createToken.isPending}
           />
         </div>
         <Button type="button" disabled={createToken.isPending || !label.trim()} onClick={submit}>
-          {createToken.isPending ? "Creating…" : "Create token"}
+          {createToken.isPending ? t("settingsSlicer.creating") : t("settingsSlicer.create")}
         </Button>
       </div>
       {createToken.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {createToken.error instanceof ApiError ? createToken.error.detail : "Could not create the token."}
+          {createToken.error instanceof ApiError ? createToken.error.detail : t("settingsSlicer.createError")}
         </p>
       )}
     </div>
@@ -215,6 +218,7 @@ function MintedTokenReveal({
   token: string;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -226,37 +230,37 @@ function MintedTokenReveal({
 
   return (
     <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="text-sm font-medium text-foreground">Token created for &quot;{label}&quot;</p>
+      <p className="text-sm font-medium text-foreground">{t("settingsSlicer.created", { label })}</p>
       <p className="text-xs text-warning">
-        Copy it now — it won&apos;t be shown again. Set it as <code>INTAKE_TOKEN</code> in the
-        post-processing script&apos;s environment.
+        <Trans i18nKey="settingsSlicer.copyNow" components={{ code: <code /> }} />
       </p>
       <div className="flex items-center gap-2">
-        <code aria-label="New API token" className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
+        <code aria-label={t("settingsSlicer.newToken")} className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
           {token}
         </code>
         <Button type="button" size="sm" variant="outline" onClick={handleCopy}>
           {copied ? (
             <>
-              <CheckIcon /> Copied
+              <CheckIcon /> {t("settingsSlicer.copied")}
             </>
           ) : (
             <>
-              <CopyIcon /> Copy
+              <CopyIcon /> {t("settingsSlicer.copy")}
             </>
           )}
         </Button>
       </div>
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
-        Done — I&apos;ve saved it
+        {t("settingsSlicer.saved")}
       </Button>
     </div>
   );
 }
 
 function TokenList({ tokens }: { tokens: ApiTokenOut[] }) {
+  const { t } = useTranslation();
   if (tokens.length === 0) {
-    return <p className="text-sm text-muted-foreground">No tokens yet.</p>;
+    return <p className="text-sm text-muted-foreground">{t("settingsSlicer.noTokens")}</p>;
   }
 
   return (
@@ -280,12 +284,14 @@ function TokenRow({ token }: { token: ApiTokenOut }) {
       <div>
         <p className="text-sm font-medium text-foreground">{token.label}</p>
         <p className="text-xs text-muted-foreground">
-          Created {formatDate(token.created_at)} ·{" "}
-          {token.last_used_at ? `Last used ${formatDate(token.last_used_at)}` : "Never used"}
+          {t("settingsSlicer.createdOn", { date: formatDate(token.created_at) })} ·{" "}
+          {token.last_used_at
+            ? t("settingsSlicer.lastUsed", { date: formatDate(token.last_used_at) })
+            : t("settingsSlicer.neverUsed")}
         </p>
         {errorForThis && (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {revokeToken.error instanceof ApiError ? revokeToken.error.detail : "Could not revoke this token."}
+            {revokeToken.error instanceof ApiError ? revokeToken.error.detail : t("settingsSlicer.revokeError")}
           </p>
         )}
       </div>
@@ -296,7 +302,7 @@ function TokenRow({ token }: { token: ApiTokenOut }) {
         disabled={revokingThis}
         onClick={() => setConfirming(true)}
       >
-        {revokingThis ? "Revoking…" : "Revoke"}
+        {revokingThis ? t("settingsSlicer.revoking") : t("common.revoke")}
       </Button>
       <ConfirmDialog
         open={confirming}

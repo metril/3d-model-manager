@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
@@ -19,6 +20,7 @@ const routeApi = getRouteApi("/authenticated/models/$slug");
 export function ModelDetailPage() {
   const { slug } = routeApi.useParams();
   const modelQuery = useModel(slug);
+  const { t } = useTranslation();
   // Per-visit UI state only -- not persisted. Gates metadata editing
   // (name/description/tags/archive) behind an explicit toggle so a stray
   // click can't silently mutate a model.
@@ -69,7 +71,7 @@ export function ModelDetailPage() {
 
   if (modelQuery.isError) {
     const message =
-      modelQuery.error instanceof ApiError ? modelQuery.error.detail : "Could not load this model.";
+      modelQuery.error instanceof ApiError ? modelQuery.error.detail : t("mdPage.loadError");
     return <p className="text-sm text-destructive">{message}</p>;
   }
 

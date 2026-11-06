@@ -79,10 +79,10 @@ import { cn } from "@/lib/utils";
 import type { LibrarySearch } from "@/pages/librarySearch";
 
 const SORT_OPTIONS = [
-  { value: "-updated_at", label: "Recently updated" },
-  { value: "-created_at", label: "Recently added" },
-  { value: "-print_count", label: "Most printed" },
-  { value: "name", label: "Name" },
+  { value: "-updated_at", label: "library.sort.updated" },
+  { value: "-created_at", label: "library.sort.added" },
+  { value: "-print_count", label: "library.sort.printed" },
+  { value: "name", label: "library.sort.name" },
 ] as const;
 
 // Stable fallbacks so `data ?? []` does not hand `useMemo` deps a fresh array every render.
@@ -113,13 +113,14 @@ function saveViewMode(mode: ViewMode): void {
 /** Grid / list / folders segmented control (R13b), persisted to
  * localStorage so the choice survives a reload. */
 function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (mode: ViewMode) => void }) {
+  const { t } = useTranslation();
   const options: Array<{ mode: ViewMode; label: string; icon: typeof LayoutGridIcon }> = [
-    { mode: "grid", label: "Grid view", icon: LayoutGridIcon },
-    { mode: "list", label: "List view", icon: ListIcon },
-    { mode: "folders", label: "Folder view", icon: FolderTreeIcon },
+    { mode: "grid", label: t("library.gridView"), icon: LayoutGridIcon },
+    { mode: "list", label: t("folderBrowser.listView"), icon: ListIcon },
+    { mode: "folders", label: t("folderBrowser.folderView"), icon: FolderTreeIcon },
   ];
   return (
-    <div role="group" aria-label="View mode" className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+    <div role="group" aria-label={t("library.viewMode")} className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
       {options.map((option) => (
         <Button
           key={option.mode}
@@ -161,11 +162,12 @@ const QUICK_FORMATS: BlobFormat[] = ["stl", "3mf", "gcode"];
 
 /** Multi-select over every file type (the chips beside it cover the common ones). */
 function TypeFilter({ value, onChange }: { value: BlobFormat[]; onChange: (next: BlobFormat[]) => void }) {
+  const { t } = useTranslation();
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm">
-          Type{value.length > 0 ? <Badge variant="secondary">{value.length}</Badge> : null}
+          {t("library.type")}{value.length > 0 ? <Badge variant="secondary">{value.length}</Badge> : null}
           <ChevronDownIcon />
         </Button>
       </PopoverTrigger>
@@ -300,8 +302,8 @@ export function LibraryPage() {
   function startScan() {
     triggerScan.mutate(undefined, {
       onSuccess: () =>
-        toast.success("Scan started", {
-          action: { label: "View jobs", onClick: () => void navigate({ to: "/system/jobs" }) },
+        toast.success(t("library.scanStarted"), {
+          action: { label: t("shell.viewJobs"), onClick: () => void navigate({ to: "/system/jobs" }) },
         }),
     });
   }
@@ -583,9 +585,9 @@ export function LibraryPage() {
   const secondaryFilters = (
     <>
       {categories.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by category">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("library.filterCategory")}>
           <FilterChip active={!activeCategory} onClick={() => goToCategory(undefined)}>
-            All categories
+            {t("library.allCategories")}
           </FilterChip>
           {categories.map((category) => (
             <FilterChip
@@ -604,22 +606,22 @@ export function LibraryPage() {
       )}
       <Label className="flex items-center gap-2 text-sm font-normal">
         <Checkbox checked={slicedOnly} onCheckedChange={(checked) => setSlicedOnly(checked === true)} />
-        Sliced only
+        {t("library.slicedOnly")}
       </Label>
       <FilterChip active={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}>
         <StarIcon className={favoritesOnly ? "fill-current" : undefined} />
-        Favorites
+        {t("library.favorites")}
       </FilterChip>
       <FilterChip active={archivedOnly} onClick={() => setArchivedOnly(!archivedOnly)}>
         <ArchiveIcon />
-        Include archived
+        {t("library.includeArchived")}
       </FilterChip>
-      <TagFilter value={tagFilter} onChange={setTagFilter} label="Tags" countKey="models" />
-      <TagFilter value={fileTagFilter} onChange={setFileTagFilter} label="Has file tagged" countKey="model_files" />
+      <TagFilter value={tagFilter} onChange={setTagFilter} label={t("library.tags")} countKey="models" />
+      <TagFilter value={fileTagFilter} onChange={setFileTagFilter} label={t("library.hasFileTagged")} countKey="model_files" />
       <Popover>
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" size="sm">
-            <BookmarkIcon /> {activeCollectionTitle ? `Collection: ${activeCollectionTitle}` : "Collection"}
+            <BookmarkIcon /> {activeCollectionTitle ? t("library.collectionNamed", { title: activeCollectionTitle }) : t("library.collection")}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64">
@@ -635,7 +637,7 @@ export function LibraryPage() {
                 </Badge>
               </button>
             ))}
-            {collections.length === 0 && <p className="text-xs text-muted-foreground">No followed collections</p>}
+            {collections.length === 0 && <p className="text-xs text-muted-foreground">{t("library.noCollections")}</p>}
           </div>
         </PopoverContent>
       </Popover>
@@ -653,19 +655,19 @@ export function LibraryPage() {
               ref={searchInputRef}
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search models…"
+              placeholder={t("library.searchPlaceholder")}
               className="pl-8"
-              aria-label="Search models"
+              aria-label={t("library.searchLabel")}
             />
           </div>
           <Select value={sort} onValueChange={setSort}>
-            <SelectTrigger aria-label="Sort by">
+            <SelectTrigger aria-label={t("library.sortBy")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {SORT_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label}
+                  {t(option.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -675,14 +677,14 @@ export function LibraryPage() {
           {can("settings:write") ? (
             <Button type="button" variant="outline" disabled={triggerScan.isPending} onClick={startScan}>
               <RefreshCwIcon className={triggerScan.isPending ? "animate-spin" : undefined} />
-              Scan library
+              {t("library.scanLibrary")}
             </Button>
           ) : null}
           {can("library:write") ? (
             <NewModelDialog
               trigger={
                 <Button type="button">
-                  <PlusIcon /> New model
+                  <PlusIcon /> {t("newModel.title")}
                 </Button>
               }
             />
@@ -691,9 +693,9 @@ export function LibraryPage() {
 
         {viewMode !== "folders" && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by format">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("library.filterFormat")}>
               <FilterChip active={activeFormats.length === 0} onClick={() => setActiveFormats([])}>
-                All
+                {t("library.all")}
               </FilterChip>
               {QUICK_FORMATS.map((format) => (
                 <FilterChip
@@ -715,14 +717,14 @@ export function LibraryPage() {
               <Sheet>
                 <SheetTrigger asChild>
                   <Button type="button" variant="outline" size="sm">
-                    <SlidersHorizontalIcon /> Filters
+                    <SlidersHorizontalIcon /> {t("library.filters")}
                     {extraFilterCount > 0 ? <Badge variant="secondary">{extraFilterCount}</Badge> : null}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="bottom" className="max-h-[85svh] overflow-y-auto">
                   <SheetHeader>
-                    <SheetTitle>Filters</SheetTitle>
-                    <SheetDescription className="sr-only">Narrow the library</SheetDescription>
+                    <SheetTitle>{t("library.filters")}</SheetTitle>
+                    <SheetDescription className="sr-only">{t("library.narrow")}</SheetDescription>
                   </SheetHeader>
                   <div className="flex flex-col items-start gap-4 px-4 pb-6">{secondaryFilters}</div>
                 </SheetContent>
@@ -744,16 +746,16 @@ export function LibraryPage() {
       ) : modelsQuery.isError ? (
         <Card className="mx-auto mt-12 max-w-md">
           <CardHeader className="items-center text-center">
-            <CardTitle>Couldn&apos;t load models</CardTitle>
+            <CardTitle>{t("library.loadError")}</CardTitle>
             <CardDescription>
               {modelsQuery.error instanceof ApiError
                 ? modelsQuery.error.detail
-                : "Something went wrong loading the gallery."}
+                : t("library.loadErrorBody")}
             </CardDescription>
           </CardHeader>
           <div className="flex justify-center pb-4">
             <Button type="button" onClick={() => void modelsQuery.refetch()}>
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         </Card>
@@ -833,7 +835,7 @@ export function LibraryPage() {
             })}
           </div>
           {modelsQuery.isFetchingNextPage && (
-            <p className="py-4 text-center text-sm text-muted-foreground">Loading more…</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">{t("library.loadingMore")}</p>
           )}
         </>
       )}
@@ -866,6 +868,7 @@ function SelectionActionBar({
   deleteConfirmOpen: boolean;
   onDeleteConfirmOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [queueing, setQueueing] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
 
@@ -911,7 +914,7 @@ function SelectionActionBar({
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`Tagged ${result.updated} model${result.updated === 1 ? "" : "s"}`);
+          toast.success(t("library.tagged", { count: result.updated }));
           onDone();
         },
       },
@@ -925,7 +928,7 @@ function SelectionActionBar({
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`Untagged ${result.updated} model${result.updated === 1 ? "" : "s"}`);
+          toast.success(t("library.untagged", { count: result.updated }));
           onDone();
         },
       },
@@ -939,7 +942,7 @@ function SelectionActionBar({
       {
         onSettled: release,
         onSuccess: (result) => {
-          toast.success(`${favorite ? "Favorited" : "Unfavorited"} ${result.updated} model${result.updated === 1 ? "" : "s"}`);
+          toast.success(t(favorite ? "library.favorited" : "library.unfavorited", { count: result.updated }));
           // Non-destructive -- keep the selection live instead of exiting.
         },
       },
@@ -953,11 +956,11 @@ function SelectionActionBar({
       const results = await Promise.allSettled(ids.map((id) => enqueueModel.mutateAsync(id)));
       const succeeded = results.filter((result) => result.status === "fulfilled").length;
       const failed = results.length - succeeded;
-      if (succeeded > 0) toast.success(`Added ${succeeded} model${succeeded === 1 ? "" : "s"} to queue`);
+      if (succeeded > 0) toast.success(t("library.queued", { count: succeeded }));
       // Fix-review F3: `Promise.allSettled` swallows rejections silently --
       // without this, a total failure (e.g. every model already queued)
       // left the user with no feedback at all.
-      if (failed > 0) toast.error(`Failed to add ${failed} model${failed === 1 ? "" : "s"} to queue`);
+      if (failed > 0) toast.error(t("library.queueFailed", { count: failed }));
     } finally {
       setQueueing(false);
       release();
@@ -977,13 +980,13 @@ function SelectionActionBar({
         onSettled: release,
         onSuccess: (result) => {
           toast.success(
-            `Moved ${result.deleted} model${result.deleted === 1 ? "" : "s"} to trash`,
+            t("library.trashed", { count: result.deleted }),
             {
               action: {
-                label: "Undo",
+                label: t("library.undo"),
                 onClick: () =>
                   restoreTrash.mutate(ids, {
-                    onSuccess: () => toast.success("Restored"),
+                    onSuccess: () => toast.success(t("library.restored")),
                   }),
               },
             },
@@ -997,7 +1000,7 @@ function SelectionActionBar({
   return (
     <Card className="fixed inset-x-0 bottom-6 z-40 mx-auto w-fit flex-row items-center gap-3 px-4 py-2.5 shadow-lg">
       <span className="text-sm font-medium">
-        {selectedItems.length} selected
+        {t("library.selected", { n: selectedItems.length })}
       </span>
 
       <TagPicker
@@ -1006,7 +1009,7 @@ function SelectionActionBar({
         disabled={busy}
         trigger={
           <Button type="button" variant="outline" size="sm" disabled={busy}>
-            <TagIcon /> Add tag
+            <TagIcon /> {t("library.addTag")}
           </Button>
         }
       />
@@ -1018,25 +1021,25 @@ function SelectionActionBar({
         disabled={busy || tagsOnSelection.length === 0}
         trigger={
           <Button type="button" variant="outline" size="sm" disabled={busy || tagsOnSelection.length === 0}>
-            <XIcon /> Remove tag
+            <XIcon /> {t("library.removeTag")}
           </Button>
         }
       />
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => favoriteSelection(true)}>
-        <StarIcon /> Favorite
+        <StarIcon /> {t("library.favorite")}
       </Button>
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => favoriteSelection(false)}>
-        <StarOffIcon /> Unfavorite
+        <StarOffIcon /> {t("library.unfavorite")}
       </Button>
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void addToQueue()}>
-        <ListPlusIcon /> Add to queue
+        <ListPlusIcon /> {t("library.addToQueue")}
       </Button>
 
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setProjectOpen(true)}>
-        <FolderKanbanIcon /> Add to project
+        <FolderKanbanIcon /> {t("library.addToProject")}
       </Button>
       <AddToProjectDialog
         open={projectOpen}
@@ -1048,20 +1051,20 @@ function SelectionActionBar({
       <ConfirmDialog
         trigger={
           <Button type="button" variant="destructive" size="sm" disabled={busy}>
-            <Trash2Icon /> Delete
+            <Trash2Icon /> {t("common.delete")}
           </Button>
         }
         open={deleteConfirmOpen}
         onOpenChange={onDeleteConfirmOpenChange}
-        title={`Move ${ids.length} model${ids.length === 1 ? "" : "s"} to trash?`}
-        description="The selected models are hidden from the library and can be restored from the trash until it is emptied or the retention period ends."
-        confirmLabel="Move to trash"
+        title={t("library.trashTitle", { count: ids.length })}
+        description={t("library.trashDesc")}
+        confirmLabel={t("library.moveToTrash")}
         destructive
         onConfirm={deleteSelection}
       />
 
       <Button type="button" variant="ghost" size="sm" onClick={onDone}>
-        Cancel
+        {t("common.cancel")}
       </Button>
     </Card>
   );

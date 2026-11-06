@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useViewerScene } from "@/components/viewer/useViewerScene";
 import { PlaceholderCard } from "@/components/viewer/ViewerStage";
 import type { StudioSelection } from "@/components/model-detail/studioSelection";
@@ -36,11 +37,12 @@ function StudioWorkspaceGeneration({
     defaultAllChecked: true,
   });
 
+  const { t } = useTranslation();
   if (glbable.length === 0 && others.length === 0) {
     return (
       <PlaceholderCard
-        title="No previewable files"
-        description="Upload a mesh, CAD, or sliced file to preview it here."
+        title={t("mdStudio.noFilesTitle")}
+        description={t("mdStudio.noFilesDesc")}
       />
     );
   }

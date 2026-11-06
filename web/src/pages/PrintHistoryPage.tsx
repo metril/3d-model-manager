@@ -34,18 +34,18 @@ export function PrintHistoryPage() {
   return (
     <PageContainer width="default">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">History</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("historyPage.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          {printerEnabled ? "Print runs and library stats." : "Library stats."}
+          {printerEnabled ? t("historyPage.subtitle") : t("historyPage.subtitleStats")}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => navigate({ search: { tab: v as "runs" | "stats" | "calendar" } })}>
         {printerEnabled ? (
           <TabsList>
-            <TabsTrigger value="runs">Runs</TabsTrigger>
+            <TabsTrigger value="runs">{t("historyPage.runs")}</TabsTrigger>
             <TabsTrigger value="calendar">{t("archiveX.calendar.tab")}</TabsTrigger>
-            <TabsTrigger value="stats">Stats</TabsTrigger>
+            <TabsTrigger value="stats">{t("stats.title")}</TabsTrigger>
           </TabsList>
         ) : null}
         <TabsContent value="runs">

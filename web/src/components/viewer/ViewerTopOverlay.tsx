@@ -7,6 +7,7 @@ import { PartsChecklist } from "@/components/model-detail/FileRail";
 import { formatStats, type SceneStats } from "@/components/viewer/tools";
 import type { PartColors } from "@/components/viewer/partColors";
 import type { FileOut } from "@/api/types";
+import { useTranslation } from "react-i18next";
 
 /** Top overlay (R13a GyroidVault re-chrome): the "how big is this print"
  * dims pill on the left, and on the right the Parts popover (hosting the
@@ -50,6 +51,7 @@ export function ViewerTopOverlay({
   onToggleFullscreen: () => void;
   container: HTMLElement | null;
 }) {
+  const { t } = useTranslation();
   return (
     // Local `TooltipProvider` (mirrors `BackgroundSwatches`/`ViewerDock`)
     // keeps this component self-sufficient for standalone rendering in
@@ -57,7 +59,7 @@ export function ViewerTopOverlay({
     <TooltipProvider>
     <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
       <div className="pointer-events-none rounded-full bg-background/80 px-3 py-1 text-xs whitespace-nowrap text-muted-foreground backdrop-blur-sm">
-        {stats ? formatStats(stats) : "No parts selected"}
+        {stats ? formatStats(stats) : t("viewer.noPartsSelected")}
       </div>
       <div
         className="pointer-events-auto flex items-center gap-1.5"
@@ -67,7 +69,7 @@ export function ViewerTopOverlay({
           <Popover>
             <PopoverTrigger asChild>
               <Button type="button" variant="outline" size="sm">
-                Parts
+                {t("viewer.top.parts")}
                 <ChevronDownIcon />
               </Button>
             </PopoverTrigger>
@@ -96,13 +98,13 @@ export function ViewerTopOverlay({
               variant={autoRotate ? "secondary" : "outline"}
               size="icon-sm"
               aria-pressed={autoRotate}
-              aria-label="Auto-rotate"
+              aria-label={t("viewer.autoRotate")}
               onClick={onToggleAutoRotate}
             >
               <RotateCwIcon />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Spin (R)</TooltipContent>
+          <TooltipContent>{t("viewer.top.spin")}</TooltipContent>
         </Tooltip>
         {canCaptureCover && (
           <Tooltip>
@@ -111,14 +113,14 @@ export function ViewerTopOverlay({
                 type="button"
                 variant="outline"
                 size="icon-sm"
-                aria-label="Cover"
+                aria-label={t("viewer.top.cover")}
                 disabled={capturingCover}
                 onClick={onCaptureCover}
               >
                 <CameraIcon />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Set as cover</TooltipContent>
+            <TooltipContent>{t("viewer.top.setCover")}</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
@@ -128,13 +130,13 @@ export function ViewerTopOverlay({
               variant="outline"
               size="icon-sm"
               aria-pressed={isFullscreen}
-              aria-label="Fullscreen"
+              aria-label={t("viewer.fullscreen")}
               onClick={onToggleFullscreen}
             >
               {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Fullscreen (Shift+F)</TooltipContent>
+          <TooltipContent>{t("viewer.top.fullscreenTip")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

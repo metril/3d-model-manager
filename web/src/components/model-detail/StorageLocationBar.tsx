@@ -20,6 +20,7 @@
  * relocate without polling itself. `useJob` below is only for the small
  * "Relocation <state>" progress line shown after dispatch.
  */
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 
@@ -47,6 +48,7 @@ export function StorageLocationBar({
   onOpenChange: (open: boolean) => void;
 }) {
   const [targetId, setTargetId] = useState("");
+  const { t } = useTranslation();
   const [mode, setMode] = useState<RelocateMode>("move");
   const [jobId, setJobId] = useState<string | undefined>(undefined);
 
@@ -78,9 +80,9 @@ export function StorageLocationBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-muted-foreground">Stored on:</span>
+      <span className="text-muted-foreground">{t("mdStorage.storedOn")}</span>
       {model.backends.length === 0 ? (
-        <span className="text-xs text-muted-foreground">unknown</span>
+        <span className="text-xs text-muted-foreground">{t("mdStorage.unknown")}</span>
       ) : (
         model.backends.map((backend) => (
           <Badge key={backend.id} variant="outline">
@@ -99,28 +101,27 @@ export function StorageLocationBar({
         busy={relocate.isPending}
       >
         <DialogHeader>
-          <DialogTitle>Move or copy to another backend</DialogTitle>
+          <DialogTitle>{t("mdStorage.title")}</DialogTitle>
           <DialogDescription>
-            Moves or replicates every file across every revision of this model onto the target backend, in the
-            background.
+            {t("mdStorage.desc")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="relocate-target">Target backend</Label>
+            <Label htmlFor="relocate-target">{t("mdStorage.target")}</Label>
             {/* `aria-label` on `Select` itself (in addition to the real
              * one on `SelectTrigger` below) is a no-op on the real Radix
              * root but lets a jsdom test's native-<select> stand-in find
              * this control by accessible name even with more than one
              * `<select>` on the page at once. */}
             <Select
-              aria-label="Target backend"
+              aria-label={t("mdStorage.target")}
               value={targetId}
               onValueChange={setTargetId}
               disabled={relocate.isPending}
             >
-              <SelectTrigger id="relocate-target" aria-label="Target backend">
-                <SelectValue placeholder="Choose a backend" />
+              <SelectTrigger id="relocate-target" aria-label={t("mdStorage.target")}>
+                <SelectValue placeholder={t("mdStorage.choose")} />
               </SelectTrigger>
               <SelectContent>
                 {candidates.map((backend) => (
@@ -131,49 +132,49 @@ export function StorageLocationBar({
               </SelectContent>
             </Select>
             {backendsQuery.isSuccess && candidates.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No other backends are configured.</p>
+              <p className="text-xs text-muted-foreground">{t("mdStorage.none")}</p>
             ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="relocate-mode">Action</Label>
+            <Label htmlFor="relocate-mode">{t("mdStorage.action")}</Label>
             <Select
-              aria-label="Action"
+              aria-label={t("mdStorage.action")}
               value={mode}
               onValueChange={(next) => setMode(next as RelocateMode)}
               disabled={relocate.isPending}
             >
-              <SelectTrigger id="relocate-mode" aria-label="Action">
+              <SelectTrigger id="relocate-mode" aria-label={t("mdStorage.action")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="move">Move (remove from the current backend)</SelectItem>
-                <SelectItem value="replicate">Replicate (keep a copy on the current backend)</SelectItem>
+                <SelectItem value="move">{t("mdStorage.move")}</SelectItem>
+                <SelectItem value="replicate">{t("mdStorage.replicate")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {relocate.isError ? (
             <p role="alert" className="text-sm text-destructive">
-              {relocate.error instanceof ApiError ? relocate.error.detail : "Could not start relocation"}
+              {relocate.error instanceof ApiError ? relocate.error.detail : t("mdStorage.couldNotStart")}
             </p>
           ) : null}
         </div>
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="outline">
-              Cancel
+              {t("common.cancel")}
             </Button>
           </DialogClose>
           <Button type="button" disabled={!targetId || relocate.isPending} onClick={handleStart}>
-            {relocate.isPending ? "Starting..." : "Start"}
+            {relocate.isPending ? t("mdStorage.starting") : t("mdStorage.start")}
           </Button>
         </DialogFooter>
       </FormDialog>
 
       {jobId ? (
         <span className="text-xs text-muted-foreground">
-          {relocateJob.data ? `Relocation ${relocateJob.data.state}` : "Relocation started"} —{" "}
+          {relocateJob.data ? t("mdStorage.relocationState", { state: relocateJob.data.state }) : t("mdStorage.relocationStarted")} —{" "}
           <Link to="/system/jobs" className="underline">
-            View jobs
+            {t("mdStorage.viewJobs")}
           </Link>
         </span>
       ) : null}

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,23 +35,24 @@ const IMPORT_SITES: ReadonlyArray<{ value: ImportSite; label: string }> = [
  * pages and the fragile "add to existing model" picker (adding files to an
  * existing model lives on that model's page). */
 export function AddPage() {
+  const { t } = useTranslation();
   const [activeImportId, setActiveImportId] = useState<number | undefined>(undefined);
   const active = useImport(activeImportId);
 
   return (
     <PageContainer width="fluid">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Add to library</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("addPage.title")}</h1>
         <p className="text-sm text-muted-foreground">
-          Upload your own files, import from a link, or search the galleries.
+          {t("addPage.subtitle")}
         </p>
       </div>
 
       <Tabs defaultValue="upload">
         <TabsList>
-          <TabsTrigger value="upload">Upload files</TabsTrigger>
-          <TabsTrigger value="url">Import from URL</TabsTrigger>
-          <TabsTrigger value="search">Search galleries</TabsTrigger>
+          <TabsTrigger value="upload">{t("addPage.upload")}</TabsTrigger>
+          <TabsTrigger value="url">{t("addPage.importUrl")}</TabsTrigger>
+          <TabsTrigger value="search">{t("addPage.search")}</TabsTrigger>
         </TabsList>
         <TabsContent value="upload">
           <UploadPanel />
@@ -69,6 +71,7 @@ export function AddPage() {
 }
 
 function UploadPanel() {
+  const { t } = useTranslation();
   const [newModelName, setNewModelName] = useState("");
   const [resolvedTarget, setResolvedTarget] = useState<UploadTarget | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -98,16 +101,16 @@ function UploadPanel() {
   return (
     <Card className="max-w-3xl">
       <CardHeader>
-        <CardTitle>Upload files</CardTitle>
-        <CardDescription>Name the new model, then add files to the queue.</CardDescription>
+        <CardTitle>{t("addPage.upload")}</CardTitle>
+        <CardDescription>{t("addPage.uploadDesc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="new-model-name">New model name</Label>
+          <Label htmlFor="new-model-name">{t("addPage.modelName")}</Label>
           <Input
             id="new-model-name"
             value={newModelName}
-            placeholder="e.g. Articulated dragon"
+            placeholder={t("addPage.modelNamePlaceholder")}
             disabled={isUploading}
             onChange={(event) => {
               setNewModelName(event.target.value);
@@ -127,6 +130,7 @@ function UploadPanel() {
 }
 
 function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => void }) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const createImport = useCreateImport();
   const appSettings = useAppSettings();
@@ -151,12 +155,12 @@ function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => v
   return (
     <Card className="max-w-3xl">
       <CardHeader>
-        <CardTitle>Model URL</CardTitle>
-        <CardDescription>The site is detected automatically.</CardDescription>
+        <CardTitle>{t("addPage.modelUrl")}</CardTitle>
+        <CardDescription>{t("addPage.siteDetected")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="import-url">URL</Label>
+          <Label htmlFor="import-url">{t("addPage.url")}</Label>
           <Input
             id="import-url"
             value={url}
@@ -167,34 +171,34 @@ function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => v
 
         {url.trim() !== "" && detected.site !== null && (
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Detected:</span>
+            <span className="text-muted-foreground">{t("addPage.detected")}</span>
             <Badge variant={detected.supported ? "secondary" : "outline"}>{detected.label}</Badge>
           </div>
         )}
 
         {url.trim() !== "" && detected.site === null && (
           <p role="alert" className="text-sm text-destructive">
-            Unrecognized link — paste a Thingiverse, Printables, or MakerWorld model URL.
+            {t("addPage.unrecognized")}
           </p>
         )}
 
         {isMakerWorld && (
           <SwitchRow
             id="import-owned-profiles"
-            label="Only profiles for my printers"
-            description="Skip print profiles that aren't compatible with your enabled printers. If none match, every profile is kept."
+            label={t("addPage.ownedOnly")}
+            description={t("addPage.ownedOnlyDesc")}
             checked={ownedChecked}
             onCheckedChange={setOwnedOnly}
           />
         )}
 
         <Button type="button" onClick={start} disabled={!canImport}>
-          {createImport.isPending ? "Starting…" : "Import"}
+          {createImport.isPending ? t("addPage.starting") : t("addPage.import")}
         </Button>
 
         {createImport.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {createImport.error instanceof ApiError ? createImport.error.detail : "Could not start the import."}
+            {createImport.error instanceof ApiError ? createImport.error.detail : t("addPage.importError")}
           </p>
         )}
       </CardContent>
@@ -203,6 +207,7 @@ function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => v
 }
 
 function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => void }) {
+  const { t } = useTranslation();
   const [selectedSites, setSelectedSites] = useState<ImportSite[]>(IMPORT_SITES.map((s) => s.value));
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
@@ -239,11 +244,11 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Search galleries</CardTitle>
-        <CardDescription>Search all selected sites at once, then import a result.</CardDescription>
+        <CardTitle>{t("addPage.search")}</CardTitle>
+        <CardDescription>{t("addPage.searchDesc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Sites to search">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("addPage.sites")}>
           {IMPORT_SITES.map((s) => {
             const on = selectedSites.includes(s.value);
             return (
@@ -257,11 +262,11 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
         </div>
 
         <div className="flex max-w-3xl flex-col gap-1.5">
-          <Label htmlFor="search-query">Search query</Label>
+          <Label htmlFor="search-query">{t("addPage.query")}</Label>
           <Input
             id="search-query"
             value={query}
-            placeholder="Search models…"
+            placeholder={t("addPage.queryPlaceholder")}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
@@ -270,13 +275,13 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
           .filter((s) => s.status === "error")
           .map((s) => (
             <p key={s.site} role="alert" className="text-sm text-destructive">
-              {s.site}: {s.detail ?? "search failed"}
+              {s.site}: {s.detail ?? t("addPage.siteSearchFailed")}
             </p>
           ))}
 
         {noSites || debouncedQuery.trim() === "" ? (
           <p className="text-sm text-muted-foreground">
-            {noSites ? "Select at least one site to search." : "Type to search."}
+            {noSites ? t("addPage.noSites") : t("addPage.typeToSearch")}
           </p>
         ) : search.isLoading ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -286,10 +291,10 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
           </div>
         ) : search.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {search.error instanceof ApiError ? search.error.detail : "Search failed."}
+            {search.error instanceof ApiError ? search.error.detail : t("addPage.searchFailed")}
           </p>
         ) : results.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No results for &quot;{debouncedQuery}&quot;.</p>
+          <p className="text-sm text-muted-foreground">{t("addPage.noResults", { query: debouncedQuery })}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -310,7 +315,7 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
                   disabled={search.isFetchingNextPage}
                   onClick={() => void search.fetchNextPage()}
                 >
-                  {search.isFetchingNextPage ? "Loading…" : "Load more"}
+                  {search.isFetchingNextPage ? t("addPage.loading") : t("addPage.loadMore")}
                 </Button>
               </div>
             )}
@@ -319,7 +324,7 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
 
         {createImport.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {createImport.error instanceof ApiError ? createImport.error.detail : "Could not start the import."}
+            {createImport.error instanceof ApiError ? createImport.error.detail : t("addPage.importError")}
           </p>
         )}
       </CardContent>
@@ -336,6 +341,7 @@ function SearchResultCard({
   busy: boolean;
   onAdd: () => void;
 }) {
+  const { t } = useTranslation();
   const [imgErrored, setImgErrored] = useState(false);
   const showThumb = result.thumbnail_url !== null && !imgErrored;
 
@@ -360,9 +366,9 @@ function SearchResultCard({
         <h3 className="truncate text-sm font-medium" title={result.title}>
           {result.title}
         </h3>
-        {result.author && <p className="truncate text-xs text-muted-foreground">by {result.author}</p>}
+        {result.author && <p className="truncate text-xs text-muted-foreground">{t("addPage.by", { author: result.author })}</p>}
         <Button type="button" size="sm" disabled={busy} onClick={onAdd}>
-          {busy ? "Adding…" : "Add to library"}
+          {busy ? t("addPage.adding") : t("addPage.title")}
         </Button>
       </CardContent>
     </Card>
@@ -370,6 +376,7 @@ function SearchResultCard({
 }
 
 function ImportProgress({ importId }: { importId: number }) {
+  const { t } = useTranslation();
   const imp = useImport(importId);
   if (!imp.data) return null;
   const { state, error, model_id } = imp.data;
@@ -378,9 +385,9 @@ function ImportProgress({ importId }: { importId: number }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Import progress</CardTitle>
+        <CardTitle>{t("addPage.progress")}</CardTitle>
         <CardDescription>
-          {state === "done" ? "Complete." : done ? "Failed." : `${state}…`}
+          {state === "done" ? t("addPage.complete") : done ? t("addPage.failed") : t("addPage.state", { state })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -391,12 +398,12 @@ function ImportProgress({ importId }: { importId: number }) {
         )}
         {state === "failed" && (
           <p role="alert" className="text-sm text-destructive">
-            {error ?? "Import failed."}
+            {error ?? t("addPage.importFailed")}
           </p>
         )}
         {state === "done" && model_id !== null && (
           <Button asChild variant="outline">
-            <Link to="/library">View library</Link>
+            <Link to="/library">{t("addPage.viewLibrary")}</Link>
           </Button>
         )}
       </CardContent>

@@ -2,6 +2,7 @@ import { useCategories } from "@/api/categories";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { tagColorClass } from "@/lib/tagColors";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "react-i18next";
 
 const NONE_VALUE = "__none__";
 
@@ -18,6 +19,7 @@ export function CategoryPicker({
   onChange: (categoryId: number | null) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   const categoriesQuery = useCategories();
   const categories = categoriesQuery.data ?? [];
 
@@ -27,11 +29,11 @@ export function CategoryPicker({
       onValueChange={(next) => onChange(next === NONE_VALUE ? null : Number(next))}
       disabled={disabled}
     >
-      <SelectTrigger aria-label="Category">
+      <SelectTrigger aria-label={t("newModel.category")}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NONE_VALUE}>None</SelectItem>
+        <SelectItem value={NONE_VALUE}>{t("newModel.none")}</SelectItem>
         {categories.map((category) => (
           <SelectItem key={category.id} value={String(category.id)}>
             <span className="flex items-center gap-1.5">

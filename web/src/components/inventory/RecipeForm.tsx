@@ -269,7 +269,7 @@ export function RecipeForm({
                     onValueChange={(v) => setFilamentSlot(index, v === "none" ? null : Number(v))}
                     disabled={fields.printerProfileId == null}
                   >
-                    <SelectTrigger aria-label={`Filament slot ${index + 1}`} className="w-full">
+                    <SelectTrigger aria-label={t("recipeForm.filamentSlot", { n: index + 1 })} className="w-full">
                       <SelectValue placeholder={t("recipeForm.slot", { n: index + 1 })} />
                     </SelectTrigger>
                     <SelectContent>
@@ -311,12 +311,14 @@ export function RecipeForm({
                 {t("recipeForm.showAllProfiles")}
               </label>
               <p className="text-xs text-muted-foreground">
-                By default only profiles for the {targetPrinter ? "target printer" : "chosen printer profile"}&apos;s model
-                and nozzle{scopeNozzle != null ? ` (${scopeNozzle} mm)` : ""} are listed.
+                {t("recipeForm.scopeNote", {
+                  who: targetPrinter ? t("recipeForm.scopeTarget") : t("recipeForm.scopeChosen"),
+                  nozzle: scopeNozzle != null ? ` (${scopeNozzle} mm)` : "",
+                })}
               </p>
               {staleSelection ? (
                 <p role="status" className="text-xs text-amber-600 dark:text-amber-400">
-                  A selected profile doesn&apos;t match this printer&apos;s model or nozzle.
+                  {t("recipeForm.staleSelection")}
                 </p>
               ) : null}
             </div>

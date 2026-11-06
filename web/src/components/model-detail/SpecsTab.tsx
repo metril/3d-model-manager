@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { meshSpecItems, slicedSpecItems } from "@/components/model-detail/modelSpec";
 import { SpecRow } from "@/components/ui/spec-row";
 import { FORMAT_LABELS } from "@/lib/formatMeta";
@@ -10,6 +11,7 @@ import type { ModelDetail } from "@/api/types";
  * Distinct from `FilesTab`'s table: this is read-only spec facts, not file
  * management (rename/delete/download). */
 export function SpecsTab({ model }: { model: ModelDetail }) {
+  const { t } = useTranslation();
   const files = model.current_revision?.files ?? [];
   const withSpecs = files
     .map((file) => {
@@ -25,7 +27,7 @@ export function SpecsTab({ model }: { model: ModelDetail }) {
     .filter(({ items }) => items.length > 0);
 
   if (withSpecs.length === 0) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">No file specs available yet.</p>;
+    return <p className="py-8 text-center text-sm text-muted-foreground">{t("mdSpecs.none")}</p>;
   }
 
   return (
