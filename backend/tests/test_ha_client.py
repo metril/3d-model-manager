@@ -115,3 +115,10 @@ def test_oversized_body_is_capped_not_buffered():
     c = HaClient(BASE_URL, "tok")
     with pytest.raises(HaUnreachable):  # truncated JSON -> malformed
         c.ping()
+
+
+@respx.mock
+def test_services_accepts_body_over_64kb():
+    body = [{"domain": "notify", "services": {f"s{i}": {"d": "x" * 40} for i in range(2500)}}]
+    respx.get(f"{BASE_URL}/api/services").mock(return_value=httpx.Response(200, json=body))
+    assert len(HaClient(BASE_URL, TOKEN).services()[0]["services"]) == 2500

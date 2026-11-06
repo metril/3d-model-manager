@@ -94,7 +94,8 @@ async def test_entities_filters(authenticated_client: httpx.AsyncClient):
     assert ids == ["binary_sensor.door"]
     hit = (await c.get("/api/ha/entities?device_class=power")).json()[0]
     assert hit["friendly_name"] == "Plug power" and hit["unit"] == "W" and hit["state"] == "120"
-    assert route.call_count == 6  # exactly one /api/states call per request
+    # one HA fetch for the whole burst (10 s server-side cache)
+    assert route.call_count == 1
 
     # the old location-sensor route stays, hard-filtered to sensors
     old = (await c.get("/api/storage-locations/sensors/entities")).json()
@@ -180,8 +181,8 @@ def test_power_link_integrates_when_alone(redis_url: str):
         s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
         s.commit()
         _poll(s, r, 10_000.0)
-        _poll(s, r, 10_060.0)
-    assert energy_acc(r, pid) == pytest.approx(1000 * 60 / 3_600_000)
+        _poll(s, r, 10_015.0)
+    assert energy_acc(r, pid) == pytest.approx(1000 * 15 / 3_600_000)
     assert float(r.get(power_key(pid))) == 1000.0
 
 
@@ -195,7 +196,7 @@ def test_plug_power_shadows_power_link(redis_url: str):
         s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
         s.commit()
         _poll(s, r, 10_000.0)
-        _poll(s, r, 10_060.0)
+        _poll(s, r, 10_015.0)
     assert energy_acc(r, pid) is None  # the plug integrates; the link adds nothing
     assert float(r.get(power_key(pid))) == 1000.0  # live watts still published
 
@@ -210,8 +211,8 @@ def test_broken_plug_hands_over_to_power_link(redis_url: str):
         s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
         s.commit()
         _poll(s, r, 10_000.0)
-        _poll(s, r, 10_060.0)
-    assert energy_acc(r, pid) == pytest.approx(600 * 60 / 3_600_000)
+        _poll(s, r, 10_015.0)
+    assert energy_acc(r, pid) == pytest.approx(600 * 15 / 3_600_000)
 
 
 @respx.mock
@@ -256,14 +257,15 @@ async def test_links_api_marks_shadowed_power_link(
     )
     await db_session.commit()
     row = (await c.get("/api/settings/home-assistant/links")).json()[0]
-    assert row["active"] is False and "Main plug" in row["shadowed_by"]
+    assert row["active"] is False
+    assert row["shadowed_by"] == {"kind": "plug", "name": "Main plug"}
 
     await c.post(
         "/api/settings/home-assistant/links",
         json={"printer_id": pid, "entity_id": "sensor.kwh", "role": "energy_kwh"},
     )
     row = (await c.get("/api/settings/home-assistant/links")).json()[0]
-    assert "sensor.kwh" in row["shadowed_by"]
+    assert row["shadowed_by"] == {"kind": "energy_link", "name": "sensor.kwh"}
 
 
 async def test_plug_summary_exposes_link_power(authenticated_client: httpx.AsyncClient, redis_url):
@@ -278,3 +280,169 @@ async def test_plug_summary_exposes_link_power(authenticated_client: httpx.Async
     r.set(power_key(pid), "321.5", ex=60)
     out = (await c.get("/api/printers/plugs/summary")).json()
     assert out["link_power_w"] == {str(pid): 321.5}
+
+
+# --- review fixes ----------------------------------------------------------
+
+
+@respx.mock
+async def test_entities_cache_expires(authenticated_client: httpx.AsyncClient, monkeypatch):
+    from app.services import ha_entities
+
+    await _configure(authenticated_client)
+    route = respx.get(f"{BASE_URL}/api/states").respond(json=STATES)
+    await authenticated_client.get("/api/ha/entities")
+    await authenticated_client.get("/api/ha/entities")
+    assert route.call_count == 1
+    ha_entities.clear_cache()
+    await authenticated_client.get("/api/ha/entities")
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_services_body_over_64kb(authenticated_client: httpx.AsyncClient):
+    await _configure(authenticated_client)
+    big = [
+        {
+            "domain": "notify",
+            "services": {f"mobile_app_{i}": {"desc": "x" * 40} for i in range(2500)},
+        }
+    ]
+    assert len(json.dumps(big)) > 64 * 1024
+    respx.get(f"{BASE_URL}/api/services").respond(json=big)
+    r = await authenticated_client.get("/api/ha/services?domain=notify")
+    assert r.status_code == 200 and len(r.json()) == 2500
+
+
+@pytest.mark.parametrize(
+    ("state", "unit", "want"),
+    [
+        ("1000", "W", 1000.0),
+        ("1000", None, 1000.0),
+        ("1.5", "kW", 1500.0),
+        ("2500", "mW", 2.5),
+        ("5", "BTU/h", None),
+        ("nan", "W", None),
+        ("inf", "W", None),
+        ("-3", "W", None),
+        ("unavailable", "W", None),
+    ],
+)
+def test_state_watts(state, unit, want):
+    from app.services.power_source import state_watts
+
+    attrs = {"unit_of_measurement": unit} if unit else {}
+    got = state_watts({"state": state, "attributes": attrs})
+    assert got == (pytest.approx(want) if want is not None else None)
+
+
+@respx.mock
+def test_power_link_nan_does_not_break_poll(redis_url: str):
+    r = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        pid = _printer(s)
+        s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
+        s.commit()
+        _states("1000")
+        _poll(s, r, 10_000.0)
+        _states("nan")
+        assert _poll_ok(s, r, 10_015.0)
+        assert not r.keys("ha:power:last:*")
+        _states("1000")
+        _poll(s, r, 10_030.0)  # restart: no integration yet
+    assert energy_acc(r, pid) is None
+
+
+def _poll_ok(s, r, ts: float) -> bool:
+    from datetime import UTC, datetime
+
+    return poll_once(s, r, _cfg(), now=datetime.fromtimestamp(ts, UTC))["ok"]
+
+
+@respx.mock
+def test_power_link_scales_kw_and_skips_unknown_unit(redis_url: str):
+    r = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        pid = _printer(s)
+        s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
+        s.commit()
+        respx.get(f"{BASE_URL}/api/states").respond(
+            json=[
+                {
+                    "entity_id": "sensor.w",
+                    "state": "1.2",
+                    "attributes": {"unit_of_measurement": "kW"},
+                }
+            ]
+        )
+        _poll(s, r, 10_000.0)
+        _poll(s, r, 10_015.0)
+        assert float(r.get(power_key(pid))) == pytest.approx(1200.0)
+        acc = energy_acc(r, pid)
+        assert acc == pytest.approx(1200 * 15 / 3_600_000)
+        respx.get(f"{BASE_URL}/api/states").respond(
+            json=[
+                {
+                    "entity_id": "sensor.w",
+                    "state": "5",
+                    "attributes": {"unit_of_measurement": "BTU/h"},
+                }
+            ]
+        )
+        _poll(s, r, 10_030.0)
+    assert energy_acc(r, pid) == pytest.approx(acc)
+
+
+@respx.mock
+def test_integration_dt_capped_and_outage_clears_last(redis_url: str):
+    r = redis_lib.Redis.from_url(redis_url)
+    _states("1000")
+    with base.sync_session() as s:
+        pid = _printer(s)
+        s.add(HaLink(printer_id=pid, entity_id="sensor.w", role=HaRole.POWER_W))
+        s.commit()
+        _poll(s, r, 10_000.0)
+        _poll(s, r, 10_200.0)  # stalled poller: dt capped at 30 s
+        assert energy_acc(r, pid) == pytest.approx(1000 * 30 / 3_600_000)
+        respx.get(f"{BASE_URL}/api/states").respond(503)
+        _poll(s, r, 10_215.0)
+        assert not r.keys("ha:power:last:*")
+        _states("1000")
+        _poll(s, r, 10_230.0)  # first sample after the outage: nothing added
+    assert energy_acc(r, pid) == pytest.approx(1000 * 30 / 3_600_000)
+
+
+def test_plug_error_resets_integration(redis_url: str, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.smart_plugs import drivers, manager
+
+    r = redis_lib.Redis.from_url(redis_url)
+    mode = {"v": "ok"}
+
+    class Drv:
+        def status(self):
+            if mode["v"] == "err":
+                raise drivers.PlugError("down")
+            return drivers.PlugStatus(on=True, power_w=600.0 if mode["v"] == "ok" else None)
+
+    monkeypatch.setattr(manager, "driver_for", lambda *a, **k: Drv())
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    with base.sync_session() as s:
+        pid = _printer(s)
+        plug = _plug(s, pid, watts=None)
+        pk = manager.polled_key(plug.id)
+        tick = lambda n: manager.tick(s, r, get_settings(), now=t0 + timedelta(seconds=n))  # noqa: E731
+        tick(0)
+        assert r.get(pk) is not None
+        mode["v"] = "err"
+        tick(60)
+        assert r.get(pk) is None
+        mode["v"] = "ok"
+        tick(600)  # first good sample after the error: no integration
+        assert energy_acc(r, pid) is None
+        tick(615)
+        assert energy_acc(r, pid) == pytest.approx(600 * 15 / 3_600_000)
+        mode["v"] = "nowatts"
+        tick(630)
+        assert r.get(pk) is None

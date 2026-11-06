@@ -2323,7 +2323,7 @@ export interface HaLink {
   updated_at: string;
   /** power_w links: false when a higher-priority source feeds the printer. */
   active: boolean;
-  shadowed_by: string | null;
+  shadowed_by: { kind: "energy_link" | "plug"; name: string | null } | null;
 }
 
 export interface HaLinkIn {

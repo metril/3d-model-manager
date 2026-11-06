@@ -61,7 +61,7 @@ class HaClient:
 
     def services(self) -> list[dict]:
         """GET /api/services -- `[{domain, services: {name: {...}}}]`."""
-        data = self._json(self._get("/api/services"), limit=_MAX_STATES_BYTES)
+        data = self._json(self._get("/api/services", _MAX_STATES_BYTES), limit=_MAX_STATES_BYTES)
         return data if isinstance(data, list) else []
 
     def states_for(self, entity_ids: Iterable[str]) -> dict[str, dict | None]:

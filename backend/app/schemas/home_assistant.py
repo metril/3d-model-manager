@@ -13,6 +13,7 @@ runtime support for it.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -191,6 +192,11 @@ class HaLinkPatchIn(BaseModel):
         return validate_alert_condition(v)
 
 
+class HaShadowOut(BaseModel):
+    kind: Literal["energy_link", "plug"]
+    name: str | None = None
+
+
 class HaLinkOut(BaseModel):
     id: int
     printer_id: int | None
@@ -206,4 +212,4 @@ class HaLinkOut(BaseModel):
     # power_w links only: False when a higher-priority source (energy link,
     # plug power) feeds the printer instead; `shadowed_by` names it.
     active: bool = True
-    shadowed_by: str | None = None
+    shadowed_by: HaShadowOut | None = None

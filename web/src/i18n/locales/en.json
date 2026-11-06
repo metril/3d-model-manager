@@ -4928,11 +4928,14 @@
     "loading": "Loading…",
     "unavailable": "Couldn't list Home Assistant entities. Type the id to use it anyway.",
     "none": "No match.",
-    "use": "Use \"{{value}}\""
+    "use": "Use \"{{value}}\"",
+    "clear": "Clear"
   },
   "haLink": {
     "duplicatePlug": "Already provided by plug {{plug}} for this printer; this link adds nothing.",
-    "inactive": "Inactive: {{by}} already supplies this printer's power",
-    "inactiveHint": "Only one source feeds a printer's energy: an energy link, then the plug's power sensor, then a power link."
+    "inactiveHint": "Only one source feeds a printer's energy: an energy link, then the plug's power sensor, then a power link.",
+    "inactiveEnergy": "Inactive: energy link {{name}} already supplies this printer's power",
+    "inactivePlug": "Inactive: plug {{name}} already supplies this printer's power",
+    "inactivePlugAnon": "Inactive: a smart plug already supplies this printer's power"
   }
 }

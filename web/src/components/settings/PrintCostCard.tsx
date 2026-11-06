@@ -66,7 +66,7 @@ export function PrintCostCard() {
   const [priceSource, setPriceSource] = useState<"fixed" | "homeassistant" | null>(null);
   const [priceEntity, setPriceEntity] = useState<string | null>(null);
   const [currency, setCurrencyDraft] = useState<string | null>(null);
-    const reprice = useRepriceRuns();
+  const reprice = useRepriceRuns();
   const [repriceCount, setRepriceCount] = useState<number | null>(null);
 
   useEffect(() => {

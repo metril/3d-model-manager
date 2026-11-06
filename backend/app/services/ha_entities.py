@@ -3,6 +3,7 @@ the web entity pickers (`GET /api/ha/entities`, `GET /api/ha/services`)."""
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 
 from fastapi import HTTPException, status
@@ -15,6 +16,14 @@ from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import get_ha_config
 
 _MAX_RESULTS = 2000
+_CACHE_TTL_S = 10.0
+# (url, token, what) -> (monotonic expiry, rows). Pickers fire per keystroke-open
+# and per field; one HA fetch per 10 s is plenty.
+_cache: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
+
+
+def clear_cache() -> None:
+    _cache.clear()
 
 
 def csv(value: str | None) -> set[str]:
@@ -28,6 +37,11 @@ async def fetch_ha(db: AsyncSession, settings: Settings, what: str) -> list[dict
     if not cfg.ha_url or not cfg.ha_token:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "home assistant not configured")
 
+    key = (cfg.ha_url, cfg.ha_token, what)
+    hit = _cache.get(key)
+    if hit is not None and hit[0] > time.monotonic():
+        return hit[1]
+
     def _fetch() -> list[dict]:
         client = HaClient(cfg.ha_url, cfg.ha_token)
         try:
@@ -36,11 +50,13 @@ async def fetch_ha(db: AsyncSession, settings: Settings, what: str) -> list[dict
             client.close()
 
     try:
-        return await run_in_threadpool(_fetch)
+        rows = await run_in_threadpool(_fetch)
     except HaUnreachable as e:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "could not reach home assistant"
         ) from e
+    _cache[key] = (time.monotonic() + _CACHE_TTL_S, rows)
+    return rows
 
 
 def filter_entities(

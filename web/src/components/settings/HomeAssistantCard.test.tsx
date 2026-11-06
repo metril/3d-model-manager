@@ -282,6 +282,7 @@ describe("HomeAssistantCard", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add link" }));
     fireEvent.change(await screen.findByLabelText("Role"), { target: { value: "power_w" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Entity ID" })); // the list loads lazily, on open
     await waitFor(() => expect(getMock).toHaveBeenCalledWith("/ha/entities?domain=sensor&device_class=power"));
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "door" } });
     await waitFor(() =>
@@ -319,7 +320,7 @@ describe("HomeAssistantCard", () => {
       created_at: "",
       updated_at: "",
       active: false,
-      shadowed_by: "plug Main plug",
+      shadowed_by: { kind: "plug", name: "Main plug" },
     } as HaLink;
     mockGet(fakeSettings(), [link]);
     renderCard();

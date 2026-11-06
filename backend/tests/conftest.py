@@ -158,6 +158,9 @@ async def _truncate_all_tables(migrated_db: str) -> AsyncGenerator[None, None]:
     from app.services import printer_stream, redis_pool
 
     redis_pool.reset_pools()
+    from app.services import ha_entities
+
+    ha_entities.clear_cache()
     printer_stream.invalidate()
     table_names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     engine = get_engine()

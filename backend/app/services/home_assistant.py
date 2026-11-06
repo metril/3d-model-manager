@@ -38,7 +38,7 @@ from app.services.ha_state import (
     power_last_key,
 )
 from app.services.permissions import can_control_sync
-from app.services.power_source import power_link_shadow
+from app.services.power_source import power_link_shadow, state_watts
 from app.services.printer_state import read_state_sync
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,8 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
 
 
 _RESET_FACTOR = 0.9
-_MAX_INTEGRATE_S = 300  # cap one tick's dt so a stalled poller can't invent energy
+# cap one tick's dt (2x the poll interval) so a stalled poller can't invent energy
+_MAX_INTEGRATE_S = 30  # beat runs `poll_ha` every 15s (tasks.home_assistant.POLL_INTERVAL_S)
 _DENIED_LOG_TTL_S = 600
 
 
@@ -216,12 +217,8 @@ def _poll_power_links(
     watts_by_pid: dict[int, float] = {}
     for link in power_links:
         pid = link.printer_id
-        state_obj = states.get(link.entity_id)
-        try:
-            watts = float(state_obj.get("state")) if state_obj else None
-        except (TypeError, ValueError):
-            watts = None
-        if watts is None or watts < 0:
+        watts = state_watts(states.get(link.entity_id))
+        if watts is None:
             r.delete(power_last_key(link.id))
             continue
         watts_by_pid[pid] = watts_by_pid.get(pid, 0.0) + watts
@@ -283,6 +280,9 @@ def poll_once(
             # HA comes back, since the edge-triggered NX guard would have
             # been wiped out from under it.
             for key in r.scan_iter("ha:alert:[0-9]*"):
+                r.delete(key)
+            # No integration across an outage: the next good sample restarts it.
+            for key in r.scan_iter("ha:power:last:*"):
                 r.delete(key)
             return status
 

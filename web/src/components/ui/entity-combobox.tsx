@@ -5,7 +5,7 @@
  * dialogs and dock panels. */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, XIcon } from "lucide-react";
 
 import { useHaPickerEntities, useHaServices, type HaEntityFilter } from "@/api/haPicker";
 import type { HaEntity } from "@/api/types";
@@ -35,6 +35,8 @@ interface BaseProps {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** Show a × that sets the value to "" (default on). */
+  clearable?: boolean;
 }
 
 function ComboboxBase({
@@ -48,9 +50,17 @@ function ComboboxBase({
   disabled,
   className,
   ariaLabel,
-}: BaseProps & { options: Option[]; loading: boolean; error: boolean }) {
+  clearable = true,
+  open,
+  setOpen,
+}: BaseProps & {
+  options: Option[];
+  loading: boolean;
+  error: boolean;
+  open: boolean;
+  setOpen: (o: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const typed = text.trim();
   const exact = options.some((o) => o.value === typed);
@@ -68,6 +78,7 @@ function ComboboxBase({
         if (o) setText("");
       }}
     >
+      <div className="relative">
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -77,7 +88,7 @@ function ComboboxBase({
           aria-expanded={open}
           aria-label={ariaLabel}
           disabled={disabled}
-          className={cn("w-full justify-between font-normal", className)}
+          className={cn("w-full justify-between font-normal", clearable && value && !disabled && "pr-14", className)}
         >
           <span className={cn("truncate font-mono text-xs", !value && "text-muted-foreground")}>
             {value || placeholder || t("haPicker.choose")}
@@ -85,6 +96,17 @@ function ComboboxBase({
           <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
+      {clearable && value && !disabled ? (
+        <button
+          type="button"
+          aria-label={t("haPicker.clear")}
+          className="absolute top-1/2 right-8 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+          onClick={() => onChange("")}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      ) : null}
+      </div>
       <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-72 p-0">
         <Command>
           <CommandInput value={text} onValueChange={setText} placeholder={t("haPicker.search")} />
@@ -132,14 +154,17 @@ export interface EntityComboboxProps extends BaseProps, HaEntityFilter {
 }
 
 export function EntityCombobox({ filter, domain, deviceClass, ...rest }: EntityComboboxProps) {
-  const q = useHaPickerEntities({ domain, deviceClass });
+  const [open, setOpen] = useState(false);
+  // Fetch only while the list is open (a settings page can hold several pickers).
+  const q = useHaPickerEntities({ domain, deviceClass }, open);
   const rows = filter ? (q.data ?? []).filter(filter) : (q.data ?? []);
-  return <ComboboxBase {...rest} options={rows.map(entityOption)} loading={q.isLoading} error={q.isError} />;
+  return <ComboboxBase {...rest} open={open} setOpen={setOpen} options={rows.map(entityOption)} loading={q.isLoading} error={q.isError} />;
 }
 
 /** Combobox over `domain.service` names, e.g. the notify services. */
 export function ServiceCombobox({ domain, ...rest }: BaseProps & { domain: string }) {
-  const q = useHaServices(domain);
+  const [open, setOpen] = useState(false);
+  const q = useHaServices(domain, open);
   const options = (q.data ?? []).map((s) => ({ value: s, label: null, detail: null }));
-  return <ComboboxBase {...rest} options={options} loading={q.isLoading} error={q.isError} />;
+  return <ComboboxBase {...rest} open={open} setOpen={setOpen} options={options} loading={q.isLoading} error={q.isError} />;
 }

@@ -140,6 +140,8 @@ def tick(
             counts["polled"] += 1
             if st.power_w is not None:
                 _integrate(session, r, plug, st.power_w, now.timestamp())
+            else:
+                r.delete(polled_key(plug.id))  # no watts: restart integration later
             _check_alert(plug, st, now)
             if _run_schedule(r, plug, drv, now, wanted) or _run_dry_off(r, plug, drv, now):
                 continue
@@ -147,10 +149,12 @@ def tick(
                 counts["turned_off"] += 1
         except PlugError as exc:
             plug.last_error = str(exc)[:200]
+            r.delete(polled_key(plug.id))  # don't integrate across the outage
             counts["errors"] += 1
         except Exception:  # noqa: BLE001 -- one bad plug must not stop the tick
             log.exception("plug tick failed for plug %s", plug.id)
             plug.last_error = "unexpected error"
+            r.delete(polled_key(plug.id))
             counts["errors"] += 1
     session.commit()
     return counts

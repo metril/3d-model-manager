@@ -10,6 +10,7 @@
  * blank field on save means "keep the current secret".
  */
 import { useEffect, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
@@ -317,6 +318,12 @@ function RestSection({
   );
 }
 
+function shadowedLabel(t: TFunction, by: HaLink["shadowed_by"]): string {
+  if (!by) return "";
+  if (by.kind === "energy_link") return t("haLink.inactiveEnergy", { name: by.name ?? "" });
+  return by.name ? t("haLink.inactivePlug", { name: by.name }) : t("haLink.inactivePlugAnon");
+}
+
 function LinksSection() {
   const { t } = useTranslation();
   const links = useHaLinks();
@@ -357,7 +364,7 @@ function LinksSection() {
                   {t(ROLE_LABEL_KEYS[link.role])}
                   {!link.active ? (
                     <span className="mt-0.5 block text-xs text-warning" title={t("haLink.inactiveHint")}>
-                      {t("haLink.inactive", { by: link.shadowed_by ?? "" })}
+                      {shadowedLabel(t, link.shadowed_by)}
                     </span>
                   ) : null}
                 </TableCell>
