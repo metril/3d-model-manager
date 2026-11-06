@@ -166,14 +166,26 @@ def compute(session: Session, now: datetime | None = None):
     spools = list(session.scalars(select(Spool).where(Spool.archived_at.is_(None))))
     since = now - timedelta(days=HISTORY_DAYS)
     history: dict[int, list[sf.UsageRecord]] = {}
+    archived_history: dict[sf.SkuKey, list[sf.UsageRecord]] = {}
     if spools:
+        # Archived spools no longer count as stock, but what they consumed is
+        # still the best evidence of this SKU's burn rate.
+        archived_keys = {
+            s.id: sf.sku_key(s.material_type, s.brand, color_key(s))
+            for s in session.scalars(select(Spool).where(Spool.archived_at.is_not(None)))
+        }
         rows = session.execute(
             select(SpoolUsage.spool_id, SpoolUsage.created_at, SpoolUsage.grams).where(
                 SpoolUsage.created_at >= since, SpoolUsage.grams > 0
             )
         )
         for sid, at, grams in rows:
-            history.setdefault(sid, []).append(sf.UsageRecord(at, grams))
+            if sid in archived_keys:
+                archived_history.setdefault(archived_keys[sid], []).append(
+                    sf.UsageRecord(at, grams)
+                )
+            else:
+                history.setdefault(sid, []).append(sf.UsageRecord(at, grams))
     demand = queued_demand(session) if cfg.include_queue else {}
     fm = sf.forecast_all(
         [_stock_spool(s) for s in spools],
@@ -182,6 +194,11 @@ def compute(session: Session, now: datetime | None = None):
         cfg.lead_time_days,
         now,
         demand,
+        default_settings=sf.SkuSettings(
+            safety_margin_value=cfg.safety_margin_value,
+            safety_margin_unit=cfg.safety_margin_unit,
+        ),
+        extra_history_by_key=archived_history,
     )
     return cfg, fm, demand
 

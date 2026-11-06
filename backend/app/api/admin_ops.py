@@ -12,7 +12,6 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from importlib import metadata
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text, update
@@ -34,6 +33,7 @@ from app.services import backup as backup_svc
 from app.services import service_status, updates
 from app.services.log_stream import redact_line
 from app.services.ops_settings import get_ops_config, get_update_cache, set_ops_config
+from app.services.redis_pool import get_async_redis
 from app.services.service_status import AdminStatusOut
 from app.tasks import base
 from app.tasks.ops import backup_run
@@ -138,7 +138,7 @@ async def _service_logs(settings: Settings) -> str:
     """Last lines shipped by every service (api/workers/beat/printerd), redacted."""
     from app.services import log_stream as ls
 
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         raw = await r.lrange(ls.LOG_LIST_KEY, 0, 1999)
     except Exception:  # noqa: BLE001 - the bundle must still build without redis
@@ -187,6 +187,7 @@ async def _settings_out(db: AsyncSession, settings: Settings) -> OpsSettingsOut:
         git_repo=c.git_repo,
         git_branch=c.git_branch,
         git_token_set=bool(c.git_token),
+        git_push_dump=c.git_push_dump,
         update_check_enabled=c.update_check_enabled,
     )
 
@@ -205,7 +206,13 @@ async def put_ops_settings(
     settings: Settings = Depends(get_settings),
 ) -> OpsSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
-    for k in ("backup_enabled", "backup_interval_hours", "backup_retention", "git_branch"):
+    for k in (
+        "backup_enabled",
+        "backup_interval_hours",
+        "backup_retention",
+        "git_branch",
+        "git_push_dump",
+    ):
         if patch.get(k) is None:
             patch.pop(k, None)
     await set_ops_config(db, settings, patch)
@@ -240,7 +247,7 @@ async def admin_status(
     settings: Settings = Depends(get_settings),
 ) -> AdminStatusOut:
     """Health of every backing service and sidecar (admin only, cached ~15 s)."""
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         return await service_status.cached_collect(db, r, settings, refresh=refresh)
     finally:

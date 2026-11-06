@@ -10,7 +10,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import (
     APIRouter,
     Cookie,
@@ -41,6 +40,7 @@ from app.services import api_tokens, printer_stream
 from app.services.events import CHANNEL
 from app.services.permissions import load_grants
 from app.services.printer_stream import PrinterStream
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import get_server_config
 
 router = APIRouter(tags=["events"])
@@ -63,7 +63,7 @@ async def _event_stream(
     """``printer_ids`` (already ACL-intersected) enables ``printer.*`` events;
     ``key_stream`` restricts the stream to ``print_job.updated`` + ``printer.*``
     for those printers."""
-    client = aioredis.Redis.from_url(redis_url)
+    client = get_async_redis(redis_url)
     pubsub = client.pubsub()
     await pubsub.subscribe(CHANNEL)
     ids = set(printer_ids or [])

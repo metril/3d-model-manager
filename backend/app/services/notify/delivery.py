@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
-import redis
 from celery.schedules import crontab_parser
 
 from app.config import Settings, get_settings
@@ -16,6 +15,7 @@ from app.crypto import decrypt_secret, encrypt_secret
 from app.models.notify import NotificationChannel
 from app.services import camera_state
 from app.services.notify import MASK, PROVIDERS, Message, ProviderError
+from app.services.redis_pool import get_sync_redis
 
 
 def load_config(settings: Settings, channel: NotificationChannel) -> dict:
@@ -90,19 +90,27 @@ def _cron_sets(expr: str):
     return minute, hour, dom, month, dow
 
 
-def cron_due(expr: str, last: datetime, now: datetime) -> bool:
-    """True when a minute matching ``expr`` (UTC) lies in ``(last, now]``.
-    Lookback is capped at 2 days."""
+def cron_due(expr: str, last: datetime, now: datetime, tz: str | None = None) -> bool:
+    """True when a minute matching ``expr`` lies in ``(last, now]``.
+
+    Fields are evaluated in ``tz`` (an IANA name; UTC when empty/invalid --
+    typically the channel's quiet-hours zone). Standard cron day semantics:
+    when BOTH day-of-month and day-of-week are restricted a day matches if
+    EITHER does; if only one is restricted, that one decides. Lookback is
+    capped at 2 days."""
     minute, hour, dom, month, dow = _cron_sets(expr)
+    parts = expr.split()
+    dom_star, dow_star = parts[2].startswith("*"), parts[4].startswith("*")
+    try:
+        zone = ZoneInfo(tz) if tz else UTC
+    except Exception:  # noqa: BLE001 -- bad zone name: fall back to UTC
+        zone = UTC
     t = max(last, now - timedelta(days=2)).replace(second=0, microsecond=0) + timedelta(minutes=1)
     while t <= now:
-        if (
-            t.minute in minute
-            and t.hour in hour
-            and t.day in dom
-            and t.month in month
-            and (t.weekday() + 1) % 7 in dow
-        ):
+        lt = t.astimezone(zone)
+        dom_ok, dow_ok = lt.day in dom, (lt.weekday() + 1) % 7 in dow
+        day_ok = (dom_ok and dow_ok) if (dom_star or dow_star) else (dom_ok or dow_ok)
+        if lt.minute in minute and lt.hour in hour and lt.month in month and day_ok:
             return True
         t += timedelta(minutes=1)
     return False
@@ -119,7 +127,7 @@ def fetch_photo(
     if printer_id is None:
         return None
     settings = settings or get_settings()
-    r = redis.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         frame = None
         job_id = payload.get("job_id")

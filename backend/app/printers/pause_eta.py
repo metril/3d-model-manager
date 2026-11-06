@@ -14,6 +14,7 @@ import json
 import re
 import zipfile
 from collections.abc import Iterable
+from pathlib import Path
 
 DEFAULT_HEADS_UP_MIN = 5
 MAX_HEADS_UP_MIN = 120
@@ -66,11 +67,11 @@ def parse_pause_points(lines: Iterable[str]) -> list[dict]:
     return out
 
 
-def pause_points_from_3mf(source: bytes, plate: int) -> list[dict]:
+def pause_points_from_3mf(source: bytes | Path, plate: int) -> list[dict]:
     """Pause points of ``Metadata/plate_<plate>.gcode``; ``[]`` if unreadable."""
     try:
         with (
-            zipfile.ZipFile(io.BytesIO(source)) as zf,
+            zipfile.ZipFile(source if isinstance(source, Path) else io.BytesIO(source)) as zf,
             zf.open(f"Metadata/plate_{plate}.gcode") as fh,
         ):
             return parse_pause_points(io.TextIOWrapper(fh, encoding="utf-8", errors="replace"))

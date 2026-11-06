@@ -95,14 +95,6 @@ async def upsert_cache_entry(
     return 1
 
 
-def upsert_cache_entry_sync(session: SyncSession, site: ImportSite, entry: CacheEntry) -> int:
-    """SYNC twin of ``upsert_cache_entry``."""
-    session.execute(_upsert_stmt(site, entry))
-    session.commit()
-    session.expire_all()
-    return 1
-
-
 async def replace_site_cache(db: AsyncSession, site: ImportSite, entries: list[CacheEntry]) -> int:
     """ASYNC twin (API path, ``POST /ext/collections``). Upsert every entry
     by ``(site, list_id)``, then delete whatever else was cached for ``site``

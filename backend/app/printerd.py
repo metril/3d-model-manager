@@ -66,6 +66,7 @@ from app.services.events import publish_print_job_event_sync
 from app.services.notify import hms_dedup
 from app.services.notify.events import emit_bg
 from app.services.queue_settings import get_queue_config_sync
+from app.services.redis_pool import get_sync_redis
 from app.services.server_config import seed_all_sync_safe
 from app.services.service_status import PRINTERD_KEY as PRINTERD_HEARTBEAT_KEY
 from app.tasks import base
@@ -846,7 +847,7 @@ class PrinterWorker:
 class PrinterDaemon:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.redis = redis.Redis.from_url(settings.redis_url)
+        self.redis = get_sync_redis(settings.redis_url)
         self._workers: dict[int, PrinterWorker] = {}
         self._pubsubs: dict[int, redis.client.PubSub] = {}
         self._threads: dict[int, threading.Thread] = {}

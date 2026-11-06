@@ -19,6 +19,7 @@ from fastapi import HTTPException, status
 from redis.asyncio import Redis
 
 from app.config import get_settings
+from app.services.redis_pool import get_async_redis
 
 USER_LIMIT = 10
 IP_LIMIT = 50
@@ -34,7 +35,7 @@ def _ip_key(ip: str) -> str:
 
 
 def _client() -> Redis:
-    return Redis.from_url(get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2)
+    return get_async_redis(get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2)
 
 
 def _too_many(ttl: int) -> HTTPException:

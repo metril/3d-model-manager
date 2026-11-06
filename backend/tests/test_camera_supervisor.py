@@ -192,6 +192,10 @@ def test_unsupported_sets_status_and_no_retry(redis_url):
     assert status == "unsupported"
 
     worker_after_unsupported = sup._workers[pid]
+    # Status is published just before the worker thread exits; wait for it.
+    deadline = time.monotonic() + 3.0
+    while worker_after_unsupported.alive and time.monotonic() < deadline:
+        time.sleep(0.02)
     assert worker_after_unsupported.alive is False
 
     # Several more ticks (viewer still present, as if the page stayed

@@ -9,6 +9,7 @@ last status *sent* -- only when something other than ``VOLATILE`` changed.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -27,11 +28,13 @@ VOLATILE = frozenset({"last_report_at"})
 
 # (printer_id) -> (state fingerprint, built-at monotonic, status)
 _cache: dict[int, tuple[str, float, PrinterStatusOut]] = {}
+_locks: dict[int, asyncio.Lock] = {}
 
 
 def invalidate(printer_id: int | None = None) -> None:
     if printer_id is None:
         _cache.clear()
+        _locks.clear()
     else:
         _cache.pop(printer_id, None)
 
@@ -86,19 +89,28 @@ def _fingerprint(state: dict | None) -> str:
 
 async def _status_for(settings: Settings, pid: int, state: dict | None) -> PrinterStatusOut | None:
     fp = _fingerprint(state)
-    now = time.monotonic()
     hit = _cache.get(pid)
-    if hit is not None and hit[0] == fp and now - hit[1] < CACHE_TTL_S:
+    if hit is not None and hit[0] == fp and time.monotonic() - hit[1] < CACHE_TTL_S:
         out = hit[2].model_copy()
     else:
-        async with get_sessionmaker()() as db:
-            printer = await db.get(Printer, pid)
-            if printer is None:
-                _cache.pop(pid, None)
-                return None
-            out = await build_status(db, settings, printer, state)
-        _cache[pid] = (fp, now, out)
-        out = out.model_copy()
+        # One rebuild per printer at a time: N SSE connections hitting a stale
+        # cache entry together would otherwise each run the DB overlay build.
+        async with _locks.setdefault(pid, asyncio.Lock()):
+            hit = _cache.get(pid)
+            now = time.monotonic()
+            if hit is not None and hit[0] == fp and now - hit[1] < CACHE_TTL_S:
+                out = hit[2].model_copy()
+            else:
+                async with get_sessionmaker()() as db:
+                    printer = await db.get(Printer, pid)
+                    if printer is None:
+                        _cache.pop(pid, None)
+                        return None
+                    out = await build_status(db, settings, printer, state)
+                _cache[pid] = (fp, now, out)
+                out = out.model_copy()
+    # last_report_at is VOLATILE (excluded from the fingerprint), so a cache hit
+    # carries a stale value: always overlay the live one.
     out.last_report_at = (state or {}).get("last_report_at", out.last_report_at)
     return out
 

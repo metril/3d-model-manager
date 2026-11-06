@@ -100,10 +100,28 @@ def _setup_denied(r, *, actor_kind: str) -> tuple[int, int, int | None]:
     return pid, link_id, actor
 
 
-def _state_route(entity_id: str, state: str):
-    return respx.get(f"{BASE_URL}/api/states/{entity_id}").mock(
-        return_value=httpx.Response(200, json={"state": state, "attributes": {}})
+_STATES: dict[str, dict] = {}
+
+
+@pytest.fixture(autouse=True)
+def _reset_states():
+    _STATES.clear()
+    yield
+    _STATES.clear()
+
+
+def _states_route(status: int = 200):
+    """The ONE ``/api/states`` route the poller reads (filtered locally)."""
+    if status != 200:
+        return respx.get(f"{BASE_URL}/api/states").mock(return_value=httpx.Response(status))
+    return respx.get(f"{BASE_URL}/api/states").mock(
+        side_effect=lambda request: httpx.Response(200, json=list(_STATES.values()))
     )
+
+
+def _state_route(entity_id: str, state: str):
+    _STATES[entity_id] = {"entity_id": entity_id, "state": state, "attributes": {}}
+    return _states_route()
 
 
 def _seed_printer_raw(session, *, name: str) -> Printer:
@@ -248,7 +266,7 @@ def test_alert_ttl_fails_open(redis_url: str, fake_adapter):
 @respx.mock
 def test_pause_on_alert_edge_only(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("binary_sensor.door", "on")
+    _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
         actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="PauseP")
@@ -285,12 +303,12 @@ def test_pause_on_alert_edge_only(redis_url: str):
     assert msgs == [{"command": "pause"}]
 
     # clear then fire again -> a second pause.
-    route.respond(200, json={"state": "off", "attributes": {}})
+    _STATES["binary_sensor.door"]["state"] = "off"
     with base.sync_session() as s:
         poll_once(s, r, _cfg(ha_actor_user_id=actor))
     assert r.get(fired_key(1, pid)) is None
 
-    route.respond(200, json={"state": "on", "attributes": {}})
+    _STATES["binary_sensor.door"]["state"] = "on"
     with base.sync_session() as s:
         poll_once(s, r, _cfg(ha_actor_user_id=actor))
 
@@ -313,7 +331,7 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
     firing pause condition fires a SECOND pause the moment HA comes back,
     since the edge-triggered NX guard was wiped out from under it."""
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("binary_sensor.door", "on")
+    _state_route("binary_sensor.door", "on")
     with base.sync_session() as s:
         actor = _seed_admin(s)
         printer = _seed_printer_raw(s, name="UnreachableFired")
@@ -342,14 +360,14 @@ def test_unreachable_does_not_clear_fired_key(redis_url: str):
 
     # HA goes unreachable -- the condition is STILL firing on HA's side,
     # it just can't be observed right now.
-    respx.get(f"{BASE_URL}/api/states/binary_sensor.door").mock(return_value=httpx.Response(503))
+    _states_route(503)
     with base.sync_session() as s:
         result = poll_once(s, r, _cfg(ha_actor_user_id=actor))
     assert result["ok"] is False
     assert r.get(fired_key(link_id, pid)) is not None  # survived
 
     # HA comes back, condition still firing -- must NOT pause again.
-    route.respond(200, json={"state": "on", "attributes": {}})
+    _STATES["binary_sensor.door"]["state"] = "on"
     with base.sync_session() as s:
         poll_once(s, r, _cfg(ha_actor_user_id=actor))
 

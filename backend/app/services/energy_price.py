@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 
 from sqlalchemy.orm import Session
@@ -14,15 +15,14 @@ from app.services.ha_config import get_ha_config_sync
 
 logger = logging.getLogger(__name__)
 
-_warned = False
+_warned: set[str] = set()  # messages already logged
 CACHE_TTL_S = 60.0
 _cache: dict[str, tuple[float, float]] = {}  # entity -> (monotonic ts, price)
 
 
 def _warn_once(msg: str) -> None:
-    global _warned
-    if not _warned:
-        _warned = True
+    if msg not in _warned:
+        _warned.add(msg)
         logger.warning("%s; using the fixed energy price", msg)
 
 
@@ -62,7 +62,7 @@ def sample_energy_price(
     except (TypeError, ValueError):
         _warn_once(f"energy price sensor {entity} is unavailable")
         return None
-    if price != price or price < 0:
+    if not math.isfinite(price) or price < 0:
         _warn_once(f"energy price sensor {entity} is unavailable")
         return None
     _cache[entity] = (time.monotonic(), price)

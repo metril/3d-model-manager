@@ -8,7 +8,6 @@ import asyncio
 import time
 import uuid
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -22,6 +21,7 @@ from app.models import AuditLog, PlateReference
 from app.printers.camera_select import camera_kind
 from app.services import camera_state as cs
 from app.services import plate_detection as pd
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(prefix="/printers", tags=["plate-check"])
 _control = Depends(require_printer_access("control"))
@@ -68,7 +68,7 @@ async def grab_frame(
     settings: Settings, printer_id: int, timeout: float = FRAME_WAIT_S
 ) -> bytes | None:
     """Register a viewer so printerd's on-demand worker starts, then poll."""
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     vid = f"plate:{uuid.uuid4()}"
     try:
         await cs.aadd_viewer(r, printer_id, vid)
@@ -235,7 +235,7 @@ async def diagnose_camera(
     frame arrives within the wait window, and a plain-language hint."""
     printer = await _get_enabled_or_404(db, printer_id)
     kind = camera_kind(printer.model, printer.serial, printer.options)
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         worker = await cs.aget_status(r, printer_id)
         viewers = int(await r.zcard(cs.viewers_key(printer_id)))

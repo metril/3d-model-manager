@@ -34,7 +34,7 @@ from app.printers.registry import build_adapter
 from app.services import camera_state as cs
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_lookup import archive_for_job
-from app.services.derivatives import publish_bytes
+from app.services.derivatives import publish_bytes, publish_path, sha256_file
 
 TIMELAPSE_DIRS: tuple[str, ...] = ("/timelapse", "/timelapse/video")
 _TIMELAPSE_EXTS = (".mp4", ".avi")
@@ -169,14 +169,14 @@ def fetch_timelapse_for(
                 adapter.download_file(remote, dest)
             except (OSError, FileNotFoundError):
                 return "retry"
-            data = dest.read_bytes()
+            sha = sha256_file(dest)
+            size = dest.stat().st_size
+            ext = Path(rf.name).suffix.lstrip(".").lower()
+            publish_path(dest, archive_path(settings, sha, ext))
     finally:
         adapter.close()
-    sha = hashlib.sha256(data).hexdigest()
-    ext = Path(rf.name).suffix.lstrip(".").lower()
     fmt = BlobFormat.MP4 if ext == "mp4" else BlobFormat.AVI
-    publish_bytes(data, archive_path(settings, sha, ext))
-    _ensure_blob(session, sha, len(data), BlobKind.VIDEO, fmt)
+    _ensure_blob(session, sha, size, BlobKind.VIDEO, fmt)
     if folded:
         # An earlier run: keep it as an archive photo, not the latest run's slot.
         arc.photos = [

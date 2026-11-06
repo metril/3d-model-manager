@@ -139,6 +139,15 @@ def history_rate(records: Sequence[UsageRecord], now: datetime) -> tuple[float, 
         age_days = (now - midnight).total_seconds() / _SECONDS_PER_DAY
         observations.append((days[i][1] / elapsed_days, math.exp(-_LAMBDA * age_days)))
 
+    # Idle decay: with no usage since the last print and a longer silence than
+    # the last measured gap, spread that print over the whole idle time so the
+    # rate keeps falling instead of freezing at its last busy value.
+    last_day, last_grams = days[-1]
+    idle_days = (now.date() - last_day).days
+    last_gap = max((days[-1][0] - days[-2][0]).days, 1)
+    if idle_days > last_gap:
+        observations.append((last_grams / idle_days, 1.0))
+
     total_weight = sum(w for _, w in observations)
     if total_weight == 0:
         return None
@@ -176,13 +185,14 @@ def forecast_sku(
     global_lead_time_days: int,
     now: datetime,
     demand_g: float = 0.0,
+    extra_history: Sequence[UsageRecord] = (),
 ) -> SkuForecast:
     """Forecast one SKU from its spools. ``spools`` must be non-empty and share a key."""
     lead_time = max(global_lead_time_days, settings.lead_time_days)
     stock = sum(s.remaining_g for s in spools)
     remaining = max(0.0, stock - demand_g)
 
-    history: list[UsageRecord] = []
+    history: list[UsageRecord] = list(extra_history)  # e.g. archived spools of this SKU
     for spool in spools:
         history.extend(history_by_spool.get(spool.id, ()))
 
@@ -244,6 +254,8 @@ def forecast_all(
     global_lead_time_days: int,
     now: datetime,
     demand_by_material: Mapping[str, float] | None = None,
+    default_settings: SkuSettings | None = None,
+    extra_history_by_key: Mapping[SkuKey, Sequence[UsageRecord]] | None = None,
 ) -> ForecastMap:
     """Forecast every SKU present in ``spools``.
 
@@ -267,7 +279,7 @@ def forecast_all(
 
     out: ForecastMap = {}
     for key, members in groups.items():
-        settings = sku_settings.get(key) or SkuSettings()
+        settings = sku_settings.get(key) or default_settings or SkuSettings()
         demand = 0.0
         total = stock_by_material.get(key[0].lower(), 0.0)
         if demand_by_material and total > 0:
@@ -277,7 +289,15 @@ def forecast_all(
                 / total
             )
         out[key] = (
-            forecast_sku(members, history_by_spool, settings, global_lead_time_days, now, demand),
+            forecast_sku(
+                members,
+                history_by_spool,
+                settings,
+                global_lead_time_days,
+                now,
+                demand,
+                (extra_history_by_key or {}).get(key, ()),
+            ),
             members[0],
         )
     return out

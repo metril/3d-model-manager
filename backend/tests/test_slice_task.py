@@ -27,6 +27,10 @@ class FakeSlicerClient:
         self.side_effect = side_effect
         self.calls = 0
 
+    def close(self) -> None:
+
+        pass
+
     def slice(self, **kwargs) -> bytes:
         self.calls += 1
         if self.side_effect is not None:
@@ -299,6 +303,9 @@ def test_http_slice_call_holds_no_row_lock(
     probe: dict[str, bool] = {}
 
     class ProbingClient(FakeSlicerClient):
+        def close(self) -> None:
+            pass
+
         def slice(self, **kwargs) -> bytes:
             engine = base.get_sync_engine()
             with engine.connect() as conn:
@@ -335,6 +342,9 @@ def test_result_discarded_if_entry_reset_during_slice(
         entry_id = entry.id
 
     class ResettingClient(FakeSlicerClient):
+        def close(self) -> None:
+            pass
+
         def slice(self, **kwargs) -> bytes:
             with base.sync_session() as session:
                 session.execute(

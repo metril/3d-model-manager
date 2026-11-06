@@ -37,10 +37,16 @@ async def _get_or_404(db: AsyncSession, pipeline_id: int) -> SlicerPipeline:
     return row
 
 
-async def _out(db: AsyncSession, row: SlicerPipeline) -> PipelineOut:
-    recipe = await db.get(PrintRecipe, row.recipe_id)
+async def _out(
+    db: AsyncSession, row: SlicerPipeline, recipe_names: dict[int, str] | None = None
+) -> PipelineOut:
+    if recipe_names is None:
+        recipe = await db.get(PrintRecipe, row.recipe_id)
+        name = recipe.name if recipe is not None else None
+    else:
+        name = recipe_names.get(row.recipe_id)
     out = PipelineOut.model_validate(row, from_attributes=True)
-    out.recipe_name = recipe.name if recipe is not None else None
+    out.recipe_name = name
     return out
 
 
@@ -93,7 +99,20 @@ async def list_pipelines(
             )
 
         rows = [r for r in rows if keep(r)]
-    return [await _out(db, r) for r in rows]
+    ids = {r.recipe_id for r in rows}
+    names = (
+        {
+            i: n
+            for i, n in (
+                await db.execute(
+                    select(PrintRecipe.id, PrintRecipe.name).where(PrintRecipe.id.in_(ids))
+                )
+            ).all()
+        }
+        if ids
+        else {}
+    )
+    return [await _out(db, r, names) for r in rows]
 
 
 @router.post(

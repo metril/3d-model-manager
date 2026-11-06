@@ -27,7 +27,7 @@ def _patch_cfg(monkeypatch, **kw):
         **kw,
     )
     monkeypatch.setattr(energy_price, "get_app_config_sync", lambda s, st: cfg)
-    monkeypatch.setattr(energy_price, "_warned", False)
+    monkeypatch.setattr(energy_price, "_warned", set())
     monkeypatch.setattr(energy_price, "_cache", {})
 
 

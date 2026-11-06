@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import (
     APIRouter,
     Depends,
@@ -78,6 +77,7 @@ from app.services.app_config import get_app_config
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_blobs import blob_ext, release_blobs, unlink_all
 from app.services.derivatives import publish_bytes
+from app.services.redis_pool import get_async_redis
 from app.services.repricing import reprice_runs
 from app.services.tz import parse_tz
 from app.tasks.base import sync_session
@@ -340,7 +340,7 @@ async def _rate_limit(request: Request, settings: Settings = Depends(get_setting
     tok = archive_confirm.hash_token(request.path_params.get("token", ""))[:16]
     key = f"confirm:rl:{tok}:{ip}:{int(time.time() // 60)}"
     try:
-        client = aioredis.Redis.from_url(settings.redis_url)
+        client = get_async_redis(settings.redis_url)
         try:
             n = await client.incr(key)
             if n == 1:
@@ -492,41 +492,44 @@ async def timelapse_info(
 
 
 def _frames(path: Any, duration: float, n: int) -> list[str]:
-    out: list[str] = []
-    for i in range(n):
-        t = max(duration * (i + 0.5) / n, 0)
-        try:
-            r = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-v",
-                    "error",
-                    "-ss",
-                    f"{t:.3f}",
-                    "-i",
-                    str(path),
-                    "-frames:v",
-                    "1",
-                    "-vf",
-                    "scale=160:-2",
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    "mjpeg",
-                    "-q:v",
-                    "6",
-                    "pipe:1",
-                ],  # fmt: skip
-                check=True,
-                capture_output=True,
-                timeout=_FFPROBE_TIMEOUT,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ffmpeg unavailable") from e
-        if r.stdout:
-            out.append("data:image/jpeg;base64," + base64.b64encode(r.stdout).decode())
-    return out
+    """``n`` evenly spaced 160px thumbnails from ONE ffmpeg pass (the ``fps``
+    filter samples at the mid-point of each of ``n`` equal segments) instead of
+    one process + seek per frame."""
+    rate = n / duration if duration > 0 else 1.0
+    start = max(duration / (2 * n), 0) if duration > 0 else 0.0
+    try:
+        r = subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-v",
+                "error",
+                "-ss",
+                f"{start:.3f}",
+                "-i",
+                str(path),
+                "-vf",
+                f"fps={rate:.6f},scale=160:-2",
+                "-frames:v",
+                str(n),
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
+                "-q:v",
+                "6",
+                "pipe:1",
+            ],  # fmt: skip
+            check=True,
+            capture_output=True,
+            timeout=_FFPROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "ffmpeg unavailable") from e
+    return [
+        "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + chunk).decode()
+        for chunk in r.stdout.split(b"\xff\xd8\xff")[1:]
+    ][:n]
 
 
 @router.get("/{archive_id}/timelapse/thumbnails", response_model=TimelapseThumbsOut)
@@ -539,7 +542,7 @@ async def timelapse_thumbnails(
 ) -> TimelapseThumbsOut:
     _arc, blob, path = await _timelapse(db, ctx, settings, archive_id)
     key = f"tl:thumbs:{blob.hash}:{n}"
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         cached = await client.get(key)
         if cached:
@@ -587,7 +590,7 @@ async def timelapse_process(
     from app.tasks.media import timelapse_edit
 
     job_id = uuid.uuid4().hex
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         await client.set(
             job_key(job_id),
@@ -610,7 +613,7 @@ async def timelapse_job(
 ) -> TimelapseJobStateOut:
     row = await _get_visible(db, ctx, archive_id)
     ctx.require_printer(row[2].id, "print")
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         raw = await client.get(job_key(job_id))
     finally:

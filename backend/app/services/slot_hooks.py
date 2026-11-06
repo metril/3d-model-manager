@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 
-import redis.asyncio as aioredis
 from sqlalchemy import select
 
 from app.models.kprofiles import SpoolKProfile
 from app.printers.capabilities import capabilities_for
 from app.services import kprofiles
 from app.services.printer_state import read_state_async
+from app.services.redis_pool import get_async_redis
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def kprofile_after_slot_configure(
     ``ams_slot_configure`` when the assigned spool has a stored profile for
     this printer and nozzle. Best effort: never fails the slot assignment."""
     try:  # slot (re)configured: forget the negative cache / deliberate default
-        flags = aioredis.Redis.from_url(settings.redis_url)
+        flags = get_async_redis(settings.redis_url)
         try:
             await kprofiles.clear_tray_flags_async(flags, printer.id, ams_id, tray_id)
         finally:
@@ -50,7 +50,7 @@ async def kprofile_after_slot_configure(
         )
         if not rows:
             return
-        client = aioredis.Redis.from_url(settings.redis_url)
+        client = get_async_redis(settings.redis_url)
         try:
             state = await read_state_async(client, printer.id) or {}
             dual = capabilities_for(printer.model, printer.serial).dual_nozzle

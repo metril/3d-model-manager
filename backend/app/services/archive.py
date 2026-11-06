@@ -12,7 +12,6 @@ import tempfile
 import zipfile
 from dataclasses import asdict
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 
 from sqlalchemy import select
@@ -45,7 +44,12 @@ from app.services.costing import (
     job_energy_kwh,
     price_run,
 )
-from app.services.derivatives import fetch_blob_to_temp, publish_bytes
+from app.services.derivatives import (
+    fetch_blob_to_temp,
+    publish_bytes,
+    publish_path,
+    sha256_file,
+)
 from app.services.slicer_intake import _find_model_by_name_ci_sync
 from app.services.slicer_naming import _safe_basename, model_name_from_filename
 
@@ -91,7 +95,7 @@ def _candidate_names(job: PrintJob) -> list[tuple[str, str]]:
     return probes
 
 
-def _fetch_ftps(settings: Settings, printer: Printer, job: PrintJob, tmp: Path) -> bytes | None:
+def _fetch_ftps(settings: Settings, printer: Printer, job: PrintJob, tmp: Path) -> Path | None:
     probes = _candidate_names(job)
     if not probes:
         return None
@@ -109,7 +113,7 @@ def _fetch_ftps(settings: Settings, printer: Printer, job: PrintJob, tmp: Path) 
                     adapter.download_file(remote, dest)
                 except FileNotFoundError:
                     continue
-                return dest.read_bytes()
+                return dest
         return None
     except (OSError, ftplib.Error, NotImplementedError) as e:
         raise OSError(str(e).replace(conn.access_code, "***") or type(e).__name__) from e
@@ -119,13 +123,12 @@ def _fetch_ftps(settings: Settings, printer: Printer, job: PrintJob, tmp: Path) 
 
 def _locate(
     session: Session, settings: Settings, printer: Printer, job: PrintJob, tmp: Path
-) -> bytes | None:
+) -> Path | None:
     if job.file_id is not None:
         f = session.get(File, job.file_id)
         if f is not None:
             try:
-                p = fetch_blob_to_temp(session, settings, f.blob_hash, tmp, ".gcode.3mf")
-                return p.read_bytes()
+                return fetch_blob_to_temp(session, settings, f.blob_hash, tmp, ".gcode.3mf")
             except LookupError:
                 pass
     return _fetch_ftps(settings, printer, job, tmp)
@@ -249,6 +252,18 @@ def _append_run(session: Session, arc: PrintArchive, job: PrintJob) -> None:
 def archive_job(
     session: Session, settings: Settings, print_job_id: int, result: ArchiveResult
 ) -> PrintArchive:
+    # The fetched 3MF stays on disk (never read whole) for the function's life.
+    with tempfile.TemporaryDirectory(prefix="tdmm-arc-") as td:
+        return _archive_job(session, settings, print_job_id, result, Path(td))
+
+
+def _archive_job(
+    session: Session,
+    settings: Settings,
+    print_job_id: int,
+    result: ArchiveResult,
+    workdir: Path,
+) -> PrintArchive:
     job = session.get(PrintJob, print_job_id)
     if job is None:
         raise LookupError(f"print job {print_job_id} not found")
@@ -273,13 +288,12 @@ def archive_job(
     arc.result = result
     arc.created_by_user_id = job.created_by_user_id
 
-    data: bytes | None = None
+    data: Path | None = None
     fetch_exc: OSError | None = None
-    with tempfile.TemporaryDirectory(prefix="tdmm-arc-") as td:
-        try:
-            data = _locate(session, settings, printer, job, Path(td))
-        except OSError as e:
-            fetch_exc = e
+    try:
+        data = _locate(session, settings, printer, job, workdir)
+    except OSError as e:
+        fetch_exc = e
 
     est: list[dict] = []
     sha: str | None = None
@@ -291,12 +305,9 @@ def archive_job(
         arc.fetch_state = ArchiveFetchState.MISSING
         arc.fetch_error = None
     else:
-        sha = hashlib.sha256(data).hexdigest()
+        sha = sha256_file(data)
         try:
-            with tempfile.TemporaryDirectory(prefix="tdmm-arc-") as td:
-                p = Path(td) / "a.gcode.3mf"
-                p.write_bytes(data)
-                meta = parse_gcode_3mf(p)
+            meta = parse_gcode_3mf(data)
             if plate_no is None:
                 plate_no = plates_in_gcode_3mf(data)[0]
         except (zipfile.BadZipFile, NotSendableError) as e:
@@ -326,8 +337,8 @@ def archive_job(
                     arc, is_new = existing, False
                     arc.result = result
                     arc.created_by_user_id = job.created_by_user_id
-            publish_bytes(data, archive_path(settings, sha, "gcode.3mf"))
-            _ensure_blob(session, sha, len(data), BlobKind.SLICED, BlobFormat.GCODE_3MF)
+            publish_path(data, archive_path(settings, sha, "gcode.3mf"))
+            _ensure_blob(session, sha, data.stat().st_size, BlobKind.SLICED, BlobFormat.GCODE_3MF)
             arc.archive_blob = sha
             plate = next((x for x in meta.plates if x["index"] == plate_no), None)
             if plate is not None:
@@ -356,7 +367,7 @@ def archive_job(
                     est.append(row)
                 thumb = plate.get("thumbnail_file")
                 if thumb:
-                    with zipfile.ZipFile(BytesIO(data)) as zf:
+                    with zipfile.ZipFile(data) as zf:
                         if thumb in zf.namelist():
                             tb = zf.read(thumb)
                             tsha = hashlib.sha256(tb).hexdigest()

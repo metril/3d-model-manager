@@ -9,7 +9,6 @@ just leaves the .avi in place with ``media_note`` explaining why.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import shutil
 import subprocess
@@ -24,7 +23,8 @@ from app.models.library import Blob
 from app.models.printing import PrintArchive
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_lookup import archive_for_job
-from app.services.derivatives import publish_bytes
+from app.services.derivatives import publish_path, sha256_file
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -76,7 +76,9 @@ def transcode_timelapse(archive_id: int) -> str:
                 capture_output=True,
                 timeout=_FFMPEG_TIMEOUT_S,
             )
-            data = dest.read_bytes()
+            new_sha = sha256_file(dest)
+            size = dest.stat().st_size
+            publish_path(dest, archive_path(settings, new_sha, "mp4"))
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         with base.sync_session() as session:
             arc = session.get(PrintArchive, archive_id)
@@ -85,13 +87,11 @@ def transcode_timelapse(archive_id: int) -> str:
                 session.commit()
         return "error"
 
-    new_sha = hashlib.sha256(data).hexdigest()
-    publish_bytes(data, archive_path(settings, new_sha, "mp4"))
     with base.sync_session() as session:
         arc = session.get(PrintArchive, archive_id)
         if arc is None:
             return "error"
-        _ensure_blob(session, new_sha, len(data), BlobKind.VIDEO, BlobFormat.MP4)
+        _ensure_blob(session, new_sha, size, BlobKind.VIDEO, BlobFormat.MP4)
         arc.timelapse_blob = new_sha
         session.commit()
         # Only drop the old .avi (file + blob row) once nothing else points
@@ -116,13 +116,12 @@ def transcode_timelapse(archive_id: int) -> str:
 def assemble_layer_timelapse(print_job_id: int) -> str:
     """Stitch a job's per-layer frames into its archive timelapse; if that
     fails, fall back to fetching the printer's own timelapse from SD."""
-    import redis
 
     from app.models import PrintJob
     from app.services import layer_timelapse
 
     settings = get_settings()
-    r = redis.Redis.from_url(settings.redis_url)
+    r = get_sync_redis(settings.redis_url)
     try:
         with base.sync_session() as session:
             ok = layer_timelapse.assemble_for(session, settings, r, print_job_id)
@@ -148,9 +147,7 @@ def assemble_layer_timelapse(print_job_id: int) -> str:
 def _set_job(job_id: str, **fields: object) -> None:
     import json
 
-    import redis
-
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     try:
         key = f"tl:job:{job_id}"
         raw = r.get(key)
@@ -203,15 +200,15 @@ def timelapse_edit(
                 str(dest),
             ]  # fmt: skip
             subprocess.run(cmd, check=True, capture_output=True, timeout=_FFMPEG_TIMEOUT_S)
-            data = dest.read_bytes()
-        if not data:
-            raise ValueError("empty output")
+            size = dest.stat().st_size
+            if not size:
+                raise ValueError("empty output")
+            new_sha = sha256_file(dest)
+            publish_path(dest, archive_path(settings, new_sha, "mp4"))
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as e:
         _set_job(job_id, state="error", error=f"ffmpeg failed: {type(e).__name__}")
         return "error"
 
-    new_sha = hashlib.sha256(data).hexdigest()
-    publish_bytes(data, archive_path(settings, new_sha, "mp4"))
     paths: list[Path] = []
     filename = None
     with base.sync_session() as session:
@@ -219,7 +216,7 @@ def timelapse_edit(
         if arc is None:
             _set_job(job_id, state="error", error="archive gone")
             return "error"
-        _ensure_blob(session, new_sha, len(data), BlobKind.VIDEO, BlobFormat.MP4)
+        _ensure_blob(session, new_sha, size, BlobKind.VIDEO, BlobFormat.MP4)
         if save_mode == "new":
             dup = next((x for x in (arc.photos or []) if x.get("blob") == new_sha), None)
             if dup is not None:  # redelivery: already appended

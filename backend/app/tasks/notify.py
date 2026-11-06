@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import UTC, datetime
 
-import redis
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -32,6 +31,7 @@ from app.services.notify.delivery import (
 )
 from app.services.notify.events import QUEUE_KEY
 from app.services.notify.templates import base_context, render
+from app.services.redis_pool import get_sync_redis
 from app.services.server_config import get_server_config_sync
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -117,7 +117,7 @@ def deliver_pending() -> int:
     """Items move queue -> processing (LMOVE) and are only removed once their
     fan-out was handed to Celery, so a crash/DB error never loses them: the
     next run first moves any leftover processing items back to the queue."""
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     # Singleton: a second overlapping run would move the first's in-flight
     # items from PROCESSING back to the queue and deliver them twice.
     lock = r.lock(DELIVER_LOCK_KEY, timeout=DELIVER_LOCK_TTL_S, blocking=False)
@@ -205,7 +205,7 @@ def digest(now: datetime | None = None) -> int:
     """Send one digest per due channel; returns how many were sent."""
     now = now or datetime.now(UTC)
     sent = 0
-    r = redis.Redis.from_url(get_settings().redis_url)
+    r = get_sync_redis(get_settings().redis_url)
     try:
         with base.sync_session() as s:
             channels = list(
@@ -220,7 +220,9 @@ def digest(now: datetime | None = None) -> int:
                 raw = r.get(key)
                 last = datetime.fromisoformat(raw.decode()) if raw else ch.created_at
                 try:
-                    if not cron_due(ch.digest_cron or "", last, now):
+                    if not cron_due(
+                        ch.digest_cron or "", last, now, (ch.quiet_hours or {}).get("tz")
+                    ):
                         continue
                 except Exception:
                     continue

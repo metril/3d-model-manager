@@ -24,12 +24,12 @@ DISPATCH_LOCK_KEY = "tdmm:dispatch:lock"
 _LOCK_TIMEOUT_S = 60
 DISPATCH_INTERVAL_S = 10
 
-from redis import Redis  # noqa: E402
 from redis.exceptions import LockError  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services.app_config import get_app_config_sync  # noqa: E402
 from app.services.dispatcher import dispatch_once  # noqa: E402
+from app.services.redis_pool import get_sync_redis  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
 
@@ -37,7 +37,7 @@ from app.tasks.celery_app import celery_app  # noqa: E402
 @celery_app.task(name="app.tasks.dispatch.dispatch_queue")
 def dispatch_queue() -> dict | None:
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         with base.sync_session() as s:
             cfg = get_app_config_sync(s, settings)

@@ -13,7 +13,6 @@ import uuid
 from pathlib import Path
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -38,6 +37,7 @@ from app.printers.capabilities import capabilities_for
 from app.printers.gcode3mf import printable_objects
 from app.services import drying, hooks
 from app.services.printer_state import read_state_async
+from app.services.redis_pool import get_async_redis
 from app.services.storage_backends import resolve_backend_for_file
 
 router = APIRouter(
@@ -161,7 +161,7 @@ async def run_command(
         clean = cmds.validate(command, args)
     except cmds.CommandError as e:
         return _err(cmds.HTTP_STATUS.get(e.code, 422), e.code, e.message)
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer.id)
         if state is None:
@@ -317,7 +317,7 @@ async def clear_plate(
     FINISH/FAILED."""
     printer = await _get_or_404(db, printer_id)
     if not printer.awaiting_plate_clear:
-        client = aioredis.Redis.from_url(settings.redis_url)
+        client = get_async_redis(settings.redis_url)
         try:
             state = await read_state_async(client, printer_id)
         finally:
@@ -335,7 +335,7 @@ async def clear_plate(
         )
     )
     await db.commit()
-    hooks.plate_cleared(printer_id, ctx.user.id)
+    await anyio.to_thread.run_sync(hooks.plate_cleared, printer_id, ctx.user.id)  # sync DB hook
     return JSONResponse(status_code=200, content={"awaiting_plate_clear": False})
 
 
@@ -384,7 +384,7 @@ async def developer_mode_warnings(
     """Enabled, visible printers whose Developer Mode is known to be off."""
     visible = visible_printer_ids(ctx)
     rows = (await db.execute(select(Printer).where(Printer.enabled.is_(True)))).scalars().all()
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         out: list[dict] = []
         for p in rows:

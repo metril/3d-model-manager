@@ -17,12 +17,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-import redis
 from sqlalchemy import select
 
 from app.config import Settings, get_settings
 from app.crypto import decrypt_secret
 from app.models import VirtualPrinter
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.virtual_printer.intake import VpConfig, VpNetwork, load_network
 from app.virtual_printer.service import VirtualPrinterService, preflight
@@ -59,7 +59,7 @@ def build_status(
 def publish_status(settings: Settings, status: dict[str, Any]) -> None:
     """Best effort; when Redis is unreachable nothing is written (UI: offline)."""
     try:
-        client = redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+        client = get_sync_redis(settings.redis_url, socket_timeout=2)
         try:
             client.set(STATUS_KEY, json.dumps(status), ex=STATUS_TTL_S)
         finally:

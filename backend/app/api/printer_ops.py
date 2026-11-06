@@ -13,7 +13,6 @@ from pathlib import Path
 from urllib.parse import quote
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import select
@@ -48,6 +47,7 @@ from app.schemas.printer_ops import (
 )
 from app.services import ams_backup, kprofiles
 from app.services.printer_state import read_state_async
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/printers", tags=["printer-ops"], dependencies=[Depends(require_printer_enabled)]
@@ -62,7 +62,7 @@ def ams_label_key(printer_serial: str, ams_id: int, unit_serial: str | None) -> 
 
 
 async def _state(settings: Settings, printer_id: int) -> dict | None:
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await read_state_async(client, printer_id)
     finally:

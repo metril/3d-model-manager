@@ -10,7 +10,6 @@ import time
 from collections.abc import AsyncIterator
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
@@ -34,6 +33,7 @@ from app.services.mqtt_relay_config import (
     valid_prefix,
 )
 from app.services.permissions import load_grants
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/admin/printers", tags=["admin-mqtt"], dependencies=[Depends(require_perm("admin"))]
@@ -62,7 +62,7 @@ async def mqtt_history(
 ) -> list[dict]:
     """Last ``limit`` raw messages, oldest first."""
     await _require_printer(db, printer_id)
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         await mqtt_debug.mark_viewer(r, printer_id)  # start tapping for the modal
         raw = await r.lrange(mqtt_debug.list_key(printer_id), 0, limit - 1)
@@ -76,7 +76,7 @@ async def mqtt_history(
 
 
 async def _stream(redis_url: str, printer_id: int, heartbeat: float = 15.0) -> AsyncIterator[bytes]:
-    client = aioredis.Redis.from_url(redis_url)
+    client = get_async_redis(redis_url)
     pubsub = client.pubsub()
     chan = mqtt_debug.channel(printer_id)
     await pubsub.subscribe(chan)
@@ -180,7 +180,7 @@ class RelayTestOut(BaseModel):
 
 async def _relay_out(db: AsyncSession, settings: Settings) -> RelayOut:
     c = await get_relay_config(db, settings)
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         raw = await r.get(STATUS_KEY)
     finally:

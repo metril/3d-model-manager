@@ -13,6 +13,7 @@ touches it, so a misbehaving/huge response can't blow up memory.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 
 import httpx
 
@@ -55,8 +56,19 @@ class HaClient:
 
     def states(self) -> list[dict]:
         """GET /api/states -- every entity (T5 location sensor picker)."""
-        data = self._json(self._get("/api/states"), limit=_MAX_STATES_BYTES)
+        data = self._json(self._get("/api/states", _MAX_STATES_BYTES), limit=_MAX_STATES_BYTES)
         return data if isinstance(data, list) else []
+
+    def states_for(self, entity_ids: Iterable[str]) -> dict[str, dict | None]:
+        """One ``GET /api/states`` filtered locally: ``{entity_id: state|None}``
+        (``None`` = HA doesn't know the entity), instead of one request per
+        entity every poll tick."""
+        by_id = {
+            e["entity_id"]: e
+            for e in self.states()
+            if isinstance(e, dict) and isinstance(e.get("entity_id"), str)
+        }
+        return {eid: by_id.get(eid) for eid in entity_ids}
 
     def call_service(self, domain: str, service: str, data: dict) -> None:
         """POST /api/services/<domain>/<service> (Q7 smart plugs)."""
@@ -67,16 +79,27 @@ class HaClient:
         if not (200 <= response.status_code < 300):
             raise HaUnreachable(f"home assistant returned {response.status_code}") from None
 
-    def _get(self, path: str) -> httpx.Response:
+    def _get(self, path: str, limit: int = _MAX_BODY_BYTES) -> httpx.Response:
+        """GET with the body streamed and capped at ``limit`` bytes (an
+        oversized response is cut off, never fully buffered)."""
         try:
-            response = self._http.get(path)
+            with self._http.stream("GET", path) as response:
+                status = response.status_code
+                chunks: list[bytes] = []
+                if 200 <= status < 300:
+                    got = 0
+                    for chunk in response.iter_bytes():
+                        chunks.append(chunk)
+                        got += len(chunk)
+                        if got > limit:
+                            break
         except httpx.TransportError as exc:
             raise HaUnreachable("could not reach home assistant") from exc
-        if response.status_code == 404:
-            return response
-        if not (200 <= response.status_code < 300):
-            raise HaUnreachable(f"home assistant returned {response.status_code}") from None
-        return response
+        if status == 404:
+            return httpx.Response(404)
+        if not (200 <= status < 300):
+            raise HaUnreachable(f"home assistant returned {status}") from None
+        return httpx.Response(status, content=b"".join(chunks)[:limit])
 
     @staticmethod
     def _json(response: httpx.Response, limit: int = _MAX_BODY_BYTES) -> dict | list | None:

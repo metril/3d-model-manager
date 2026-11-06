@@ -37,6 +37,7 @@ from app.schemas.home_assistant import (
     validate_alert_condition,
 )
 from app.services import ha_state
+from app.services import settings_store as store
 from app.services.ha_client import HaClient, HaUnreachable
 from app.services.ha_config import (
     HaConfig,
@@ -46,6 +47,7 @@ from app.services.ha_config import (
     set_ha_config,
 )
 from app.services.permissions import load_grants
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(
     prefix="/settings/home-assistant",
@@ -53,12 +55,12 @@ router = APIRouter(
     dependencies=[Depends(require_perm("settings:write"))],
 )
 
-_KEEP_SENTINEL = "***"
+_KEEP_SENTINEL = store.KEEP
 _MQTT_TEST_TIMEOUT_S = 5.0
 
 
 def _redis(settings: Settings) -> aioredis.Redis:
-    return aioredis.Redis.from_url(settings.redis_url)
+    return get_async_redis(settings.redis_url)
 
 
 def _apply_overrides(config: HaConfig, patch: dict) -> HaConfig:

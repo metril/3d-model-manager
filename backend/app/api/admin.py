@@ -35,20 +35,31 @@ from app.schemas.admin import (
 )
 from app.security import hash_password
 from app.services import two_factor
-from app.services.permissions import load_grants
+from app.services.permissions import effective_perms
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_perm("admin"))])
 
 
-async def _out(db: AsyncSession, user: User) -> UserAdminOut:
-    groups = (
-        await db.scalars(
-            select(Group)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.user_id == user.id)
-            .order_by(Group.name)
-        )
-    ).all()
+async def _groups_by_user(
+    db: AsyncSession, user_ids: list[int] | None = None
+) -> dict[int, list[Group]]:
+    """``user_id -> groups`` (ordered by name) in one query."""
+    stmt = (
+        select(GroupMember.user_id, Group)
+        .join(Group, Group.id == GroupMember.group_id)
+        .order_by(Group.name)
+    )
+    if user_ids is not None:
+        stmt = stmt.where(GroupMember.user_id.in_(user_ids))
+    out: dict[int, list[Group]] = {}
+    for uid, g in (await db.execute(stmt)).all():
+        out.setdefault(uid, []).append(g)
+    return out
+
+
+async def _out(db: AsyncSession, user: User, groups: list[Group] | None = None) -> UserAdminOut:
+    if groups is None:
+        groups = (await _groups_by_user(db, [user.id])).get(user.id, [])
     return UserAdminOut(
         id=user.id,
         username=user.username,
@@ -73,11 +84,8 @@ async def _get(db: AsyncSession, user_id: int) -> User:
 async def _active_admin_count(db: AsyncSession) -> int:
     """Active users holding the ``admin`` perm (role- or group-granted)."""
     users = (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
-    n = 0
-    for u in users:
-        _, perms, _ = await load_grants(db, u)
-        n += "admin" in perms
-    return n
+    by_user = await _groups_by_user(db)
+    return sum("admin" in effective_perms(u, by_user.get(u.id, [])) for u in users)
 
 
 async def _guard_last_admin(db: AsyncSession) -> None:
@@ -94,7 +102,8 @@ def _dup() -> HTTPException:
 @router.get("/users", response_model=list[UserAdminOut])
 async def list_users(db: AsyncSession = Depends(get_db)) -> list[UserAdminOut]:
     users = (await db.scalars(select(User).order_by(User.id))).all()
-    return [await _out(db, u) for u in users]
+    by_user = await _groups_by_user(db)
+    return [await _out(db, u, by_user.get(u.id, [])) for u in users]
 
 
 @router.post("/users", response_model=UserAdminOut, status_code=status.HTTP_201_CREATED)
@@ -184,22 +193,29 @@ async def delete_user(
 # --- groups -----------------------------------------------------------------
 
 
-async def _group_out(db: AsyncSession, group: Group) -> GroupOut:
-    members = (
-        await db.execute(
-            select(GroupMember, User.username)
-            .join(User, User.id == GroupMember.user_id)
-            .where(GroupMember.group_id == group.id)
-            .order_by(GroupMember.user_id)
-        )
-    ).all()
-    access = (
-        await db.scalars(
-            select(PrinterAccess)
-            .where(PrinterAccess.group_id == group.id)
-            .order_by(PrinterAccess.printer_id)
-        )
-    ).all()
+async def _group_out(
+    db: AsyncSession,
+    group: Group,
+    members: list | None = None,
+    access: list[PrinterAccess] | None = None,
+) -> GroupOut:
+    if members is None:
+        members = (
+            await db.execute(
+                select(GroupMember, User.username)
+                .join(User, User.id == GroupMember.user_id)
+                .where(GroupMember.group_id == group.id)
+                .order_by(GroupMember.user_id)
+            )
+        ).all()
+    if access is None:
+        access = (
+            await db.scalars(
+                select(PrinterAccess)
+                .where(PrinterAccess.group_id == group.id)
+                .order_by(PrinterAccess.printer_id)
+            )
+        ).all()
     return GroupOut(
         id=group.id,
         name=group.name,
@@ -234,7 +250,19 @@ def _dup_group() -> HTTPException:
 @router.get("/groups", response_model=list[GroupOut])
 async def list_groups(db: AsyncSession = Depends(get_db)) -> list[GroupOut]:
     groups = (await db.scalars(select(Group).order_by(Group.name))).all()
-    return [await _group_out(db, g) for g in groups]
+    members: dict[int, list] = {}
+    for m, name in (
+        await db.execute(
+            select(GroupMember, User.username)
+            .join(User, User.id == GroupMember.user_id)
+            .order_by(GroupMember.user_id)
+        )
+    ).all():
+        members.setdefault(m.group_id, []).append((m, name))
+    access: dict[int, list[PrinterAccess]] = {}
+    for a in (await db.scalars(select(PrinterAccess).order_by(PrinterAccess.printer_id))).all():
+        access.setdefault(a.group_id, []).append(a)
+    return [await _group_out(db, g, members.get(g.id, []), access.get(g.id, [])) for g in groups]
 
 
 @router.post("/groups", response_model=GroupOut, status_code=status.HTTP_201_CREATED)

@@ -217,3 +217,25 @@ def test_dispatch_gate_no_frame_stall_alert(redis_url: str, fake_adapter, monkey
         dispatcher.dispatch_once(s, client, settings)
     assert not client.exists(dispatcher.plate_stall_key(entry_id))
     client.close()
+
+
+@pytest.mark.usefixtures("data_dir", "printer_enabled", "library_root")
+def test_dispatch_gate_uncalibrated_fails_closed(redis_url: str, fake_adapter) -> None:
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="plate-nocal")
+        printer = _seed_printer(s, name="NoCalP")
+        printer.options = {"plate_check": {"enabled": True, "threshold": 1.0}}
+        admin_id = _seed_admin(s)
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["sent"] == 0
+    with base.sync_session() as s:
+        e = s.get(PrintQueueEntry, entry_id)
+        assert e.last_error == dispatcher.PLATE_NEEDS_CALIBRATION and e.attempts == 0

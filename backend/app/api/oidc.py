@@ -6,7 +6,6 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +15,7 @@ from app.db import get_db
 from app.models import OidcProvider
 from app.services import oidc as svc
 from app.services import two_factor
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import cookie_secure, get_server_config, public_origin
 
 BIND_COOKIE = "tdmm_oidc"
@@ -61,7 +61,7 @@ async def start(
     provider = await _provider(db, slug)
     if provider is None:
         return _fail("oidc_failed")
-    redis = Redis.from_url(get_settings().redis_url)
+    redis = get_async_redis(get_settings().redis_url)
     try:
         url = await svc.start_login(
             redis,
@@ -104,7 +104,7 @@ async def callback(
         failure = _fail("invalid_state")
         failure.delete_cookie(BIND_COOKIE, path="/api/auth/oidc")
         return failure
-    redis = Redis.from_url(get_settings().redis_url)
+    redis = get_async_redis(get_settings().redis_url)
     try:
         user, return_to = await svc.complete_login(
             db,

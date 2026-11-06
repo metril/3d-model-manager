@@ -82,10 +82,28 @@ def _cfg(**overrides) -> HaConfig:
     return HaConfig(**fields)
 
 
-def _state_route(entity_id: str, state: str):
-    return respx.get(f"{BASE_URL}/api/states/{entity_id}").mock(
-        return_value=httpx.Response(200, json={"state": state, "attributes": {}})
+_STATES: dict[str, dict] = {}
+
+
+@pytest.fixture(autouse=True)
+def _reset_states():
+    _STATES.clear()
+    yield
+    _STATES.clear()
+
+
+def _states_route(status: int = 200):
+    """The ONE ``/api/states`` route the poller reads (filtered locally)."""
+    if status != 200:
+        return respx.get(f"{BASE_URL}/api/states").mock(return_value=httpx.Response(status))
+    return respx.get(f"{BASE_URL}/api/states").mock(
+        side_effect=lambda request: httpx.Response(200, json=list(_STATES.values()))
     )
+
+
+def _state_route(entity_id: str, state: str):
+    _STATES[entity_id] = {"entity_id": entity_id, "state": state, "attributes": {}}
+    return _states_route()
 
 
 def _seed_printer(session, *, name="P1") -> Printer:
@@ -171,7 +189,7 @@ def test_printerd_redis_failure_never_blocks_transition(worker, monkeypatch):
 @respx.mock
 def test_counter_reset_mid_job(redis_url: str):
     r = redis_lib.Redis.from_url(redis_url)
-    route = _state_route("sensor.plug_energy", "10.0")
+    _state_route("sensor.plug_energy", "10.0")
     with base.sync_session() as s:
         printer = _seed_printer(s, name="EnergyResetP")
         s.add(
@@ -188,11 +206,11 @@ def test_counter_reset_mid_job(redis_url: str):
     start = ha_state.energy_acc(r, pid)
     assert start == pytest.approx(0.0)
 
-    route.respond(200, json={"state": "10.5", "attributes": {}})
+    _STATES["sensor.plug_energy"]["state"] = "10.5"
     with base.sync_session() as s:
         poll_once(s, r, _cfg())  # +0.5 -> acc=0.5
 
-    route.respond(200, json={"state": "0.1", "attributes": {}})  # counter reset
+    _STATES["sensor.plug_energy"]["state"] = "0.1"  # counter reset
     with base.sync_session() as s:
         poll_once(s, r, _cfg())  # reset: whole new reading -> acc=0.6
 

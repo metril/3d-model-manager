@@ -27,14 +27,13 @@ import contextlib
 import threading
 from datetime import UTC, datetime, timedelta
 
-import redis.asyncio as aioredis
-from redis import Redis
 from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.models import ScanRun
 from app.services import scanner
 from app.services.events import publish_scan_event_sync
+from app.services.redis_pool import get_async_redis, get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import LONG_SOFT_TIME_LIMIT_S, LONG_TIME_LIMIT_S, celery_app
 
@@ -60,7 +59,7 @@ def is_scan_lock_held_sync(redis_url: str) -> bool:
     """Worker/beat-side (sync) check: does anything currently hold the scan
     singleton lock?
     """
-    client = Redis.from_url(redis_url)
+    client = get_sync_redis(redis_url)
     try:
         return bool(client.exists(SCAN_LOCK_KEY))
     finally:
@@ -69,7 +68,7 @@ def is_scan_lock_held_sync(redis_url: str) -> bool:
 
 async def is_scan_lock_held(redis_url: str) -> bool:
     """API-side (async) twin of :func:`is_scan_lock_held_sync`."""
-    client = aioredis.Redis.from_url(redis_url)
+    client = get_async_redis(redis_url)
     try:
         return bool(await client.exists(SCAN_LOCK_KEY))
     finally:
@@ -107,7 +106,7 @@ def _already_terminal(scan_run_id: int) -> bool:
 )
 def scan_library(scan_run_id: int) -> None:
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     lock = client.lock(SCAN_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
     if not lock.acquire(blocking=False):
         _skip_if_queued(scan_run_id)  # another run holds the lock

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import UTC, datetime
 
 from redis import Redis
@@ -93,6 +94,8 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
             cur = float(state)
             target = float(value)
         except (TypeError, ValueError):
+            return False
+        if not (math.isfinite(cur) and math.isfinite(target)):
             return False
         if op == "gt":
             return cur > target
@@ -212,14 +215,10 @@ def poll_once(
     client = client or HaClient(cfg.ha_url, cfg.ha_token)
     try:
         entity_ids = sorted({link.entity_id for link in links})
-        states: dict[str, dict | None] = {}
         entity_errors: list[str] = []
         try:
-            for entity_id in entity_ids:
-                value = client.state(entity_id)
-                if value is None:
-                    entity_errors.append(entity_id)
-                states[entity_id] = value
+            states = client.states_for(entity_ids)  # one /api/states, filtered locally
+            entity_errors = [eid for eid, value in states.items() if value is None]
         except HaUnreachable:
             checked_at = now if now is not None else datetime.now(UTC)
             status = {"ok": False, "error": "unreachable", "checked_at": checked_at.isoformat()}
@@ -270,6 +269,8 @@ def poll_once(
                 cur = float(state_val)
             except (TypeError, ValueError):
                 continue  # non-numeric: keeps prev, no update this tick
+            if not math.isfinite(cur):
+                continue  # "nan"/"inf" would poison the running total
 
             total = r.eval(
                 _ENERGY_UPDATE_LUA,

@@ -159,12 +159,12 @@ def _edges(
             try:
                 if manager.request_dry_off(session, settings, r, plug):
                     counts["plug_off"] += 1
-                session.commit()
             except PlugError as exc:
                 plug.last_error = str(exc)[:200]
             except Exception:  # noqa: BLE001 -- one plug must not stop the tick
                 log.exception("drying: plug off failed for printer %s", pid)
                 session.rollback()
+        session.commit()  # one commit per printer, not per plug (off is idempotent)
 
 
 def _stamp_dried(session: Session, row: ScheduledDrying, now: datetime) -> None:

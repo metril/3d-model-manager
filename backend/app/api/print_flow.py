@@ -6,7 +6,6 @@ legacy ``POST /printers/{id}/print`` route -- see ``app.services.print_plan``).
 
 from __future__ import annotations
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +15,7 @@ from app.db import get_db
 from app.schemas.print_flow import PlanIn, PlanOut, SendIn
 from app.schemas.printers import PrintJobOut
 from app.services.print_plan import build_plan, create_job
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(prefix="/print", tags=["print"], dependencies=[Depends(require_printer_enabled)])
 
@@ -27,7 +27,7 @@ async def plan_print(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> PlanOut:
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await build_plan(db, settings, client, ctx, payload)
     finally:

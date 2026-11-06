@@ -173,6 +173,31 @@ class PrintArchive(Base):
     pulled off the printer plus run metadata. One row per job."""
 
     __tablename__ = "print_archives"
+    # ``release_blobs`` asks "does any archive still reference this blob?" per
+    # column; partial indexes keep that off a seq scan (most rows are NULL).
+    __table_args__ = (
+        *(
+            Index(
+                f"ix_print_archives_{col}",
+                col,
+                postgresql_where=text(f"{col} IS NOT NULL"),
+            )
+            for col in (
+                "archive_blob",
+                "thumbnail_blob",
+                "snapshot_blob",
+                "timelapse_blob",
+                "source_blob",
+                "f3d_blob",
+            )
+        ),
+        Index(
+            "ix_print_archives_photos",
+            "photos",
+            postgresql_using="gin",
+            postgresql_ops={"photos": "jsonb_path_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     print_job_id: Mapped[int] = mapped_column(

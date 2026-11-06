@@ -32,6 +32,7 @@ from app.schemas.settings import (
     VpStatusOut,
 )
 from app.services import mailer, obico
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import (
     ENV_SEED,
     SECRET_MASK,
@@ -246,7 +247,7 @@ async def server_status(
 ) -> ServerStatusOut:
     cfg = await get_server_config(db)
     obico_url = (await obico.get_config(db, settings)).url
-    r = aioredis.Redis.from_url(settings.redis_url)
+    r = get_async_redis(settings.redis_url)
     try:
         probes = await _probes(r, cfg, obico_url)
         vp = await _vp_status(r)

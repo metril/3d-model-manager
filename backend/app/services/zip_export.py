@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator, Sequence
 from pathlib import PurePosixPath
 from zipfile import ZIP_DEFLATED, ZIP_STORED
 
+import anyio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from zipstream import ZipStream
@@ -26,6 +27,7 @@ from app.models import Blob, File, FollowedCollection, Model
 from app.models.enums import BlobFormat
 from app.services import layout
 from app.services.storage_backends import resolve_backend_for_file
+from app.storage.base import StorageBackend
 
 # Already-compressed archive formats -- re-deflating them wastes CPU for
 # ~0 size benefit, so they're stored raw in the export zip.
@@ -92,6 +94,19 @@ async def _current_revision_files(db: AsyncSession, model: Model) -> list[tuple[
     ]
 
 
+async def _drain(chunks) -> AsyncIterator[bytes]:
+    """Iterate a blocking chunk generator (``ZipStream.file()`` pulls the
+    backend read synchronously) in a worker thread so disk/S3 reads never
+    stall the event loop."""
+    it = iter(chunks)
+    done = object()
+    while True:
+        chunk = await anyio.to_thread.run_sync(next, it, done)
+        if chunk is done:
+            return
+        yield chunk
+
+
 async def _add_model_entries(
     zs: ZipStream,
     db: AsyncSession,
@@ -113,8 +128,11 @@ async def _add_model_entries(
     for chunk in zs.file():
         yield chunk
 
+    backends: dict[int | None, StorageBackend] = {}  # memoised per call
     for file, blob in files:
-        backend = await resolve_backend_for_file(db, settings, file)
+        backend = backends.get(file.backend_id)
+        if backend is None:
+            backend = backends[file.backend_id] = await resolve_backend_for_file(db, settings, file)
         arcname = _dedupe_name(used_names, PurePosixPath(file.rel_path).name)
         zs.add(
             backend.read(file.storage_path),
@@ -122,7 +140,7 @@ async def _add_model_entries(
             size=blob.size,
             compress_type=_compress_type_for(blob.format),
         )
-        for chunk in zs.file():
+        async for chunk in _drain(zs.file()):
             yield chunk
 
 

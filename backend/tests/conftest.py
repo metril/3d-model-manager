@@ -152,6 +152,13 @@ def migrated_db(postgres_url: str) -> str:
 @pytest.fixture(autouse=True)
 async def _truncate_all_tables(migrated_db: str) -> AsyncGenerator[None, None]:
     """Empty every app table before each test function runs."""
+    from app.services import two_factor
+
+    two_factor.reset_require_cache()  # in-process policy cache must not outlive the DB
+    from app.services import printer_stream, redis_pool
+
+    redis_pool.reset_pools()
+    printer_stream.invalidate()
     table_names = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     engine = get_engine()
     async with engine.begin() as conn:

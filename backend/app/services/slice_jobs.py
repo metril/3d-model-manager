@@ -128,6 +128,8 @@ async def stop_slice(
             killed = await anyio.to_thread.run_sync(client.cancel, sidecar_job_id)
         except Exception as exc:  # noqa: BLE001 -- DB state already wins; never 500
             logger.warning("sidecar cancel of %s failed: %s", sidecar_job_id, exc)
+        finally:
+            client.close()
     if task_id:
         from app.tasks.celery_app import celery_app
 

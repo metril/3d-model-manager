@@ -10,7 +10,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
@@ -40,6 +39,7 @@ from app.services import tags as tags_svc
 from app.services.archive import archive_path
 from app.services.archive_blobs import blob_hashes, release_blobs, unlink_all
 from app.services.print_plan import build_plan
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(prefix="/archives", tags=["archives"])
 
@@ -468,7 +468,7 @@ async def reprint_archive(
         if row.get("filament_id") is not None and row.get("tray") is not None
     }
     body = PlanIn(file_id=file_id, plate=arc.plate, printer_id=job.printer_id, overrides=overrides)
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await build_plan(db, settings, client, ctx, body)
     finally:

@@ -23,7 +23,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import anyio
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
@@ -96,6 +95,7 @@ from app.services.print_plan import create_job
 from app.services.printer_overview import build_overview
 from app.services.printer_state import read_state_async
 from app.services.printer_status import build_status, fill_tray_spools
+from app.services.redis_pool import get_async_redis
 from app.tasks import base
 
 # AMS slot coordinates: unit 0-3 (a real AMS unit) or the 255/254
@@ -224,7 +224,7 @@ async def printers_overview(
     cross-printer recent runs. Declared before ``/{printer_id}`` so
     ``overview`` isn't swallowed as a path param.
     """
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await build_overview(db, client, settings, ctx)
     finally:
@@ -436,7 +436,7 @@ async def set_slot(
         except IntegrityError as e:
             raise HTTPException(status.HTTP_409_CONFLICT, "slot already assigned") from e
         with contextlib.suppress(Exception):  # T2: fresh assignment -> fixer starts over
-            flags = aioredis.Redis.from_url(settings.redis_url)
+            flags = get_async_redis(settings.redis_url)
             try:
                 from app.services import kprofiles as _kp
 
@@ -444,7 +444,7 @@ async def set_slot(
             finally:
                 await flags.aclose()
 
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:
@@ -538,7 +538,7 @@ async def printer_status(
     """
     _require_visible(ctx, printer_id)
     printer = await _get_or_404(db, printer_id)
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:
@@ -556,7 +556,7 @@ async def _publish_command(
     """Command envelope v2: ``{command, args, request_id}`` (printerd writes
     its result to ``cmd_result_key``). Returns the request id."""
     request_id = request_id or uuid.uuid4().hex
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         await client.publish(
             command_channel(printer_id),
@@ -641,7 +641,7 @@ async def diagnostic_printer(
 
 
 async def _read_state(settings: Settings, printer_id: int) -> dict | None:
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         return await read_state_async(client, printer_id)
     finally:
@@ -674,7 +674,7 @@ async def printer_firmware(
     settings: Settings = Depends(get_settings),
 ) -> FirmwareInfoOut:
     printer = await _get_or_404(db, printer_id)
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
         raw = await client.get(fw.upload_status_key(printer_id))
@@ -816,7 +816,7 @@ async def camera_status(
 ) -> CameraStatusOut:
     printer = await _get_or_404(db, printer_id)
     source = camera_kind(printer.model, printer.serial, printer.options)
-    redis = aioredis.Redis.from_url(settings.redis_url)
+    redis = get_async_redis(settings.redis_url)
     try:
         live = await cs.aget_status(redis, printer_id)
     finally:
@@ -916,7 +916,7 @@ async def overlay(
         if printer is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "printer not found")
         name, options = printer.name, printer.options
-    redis = aioredis.Redis.from_url(settings.redis_url)
+    redis = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(redis, printer_id) or {}
     finally:

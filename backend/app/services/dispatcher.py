@@ -149,11 +149,13 @@ def plate_hold_reason(printer: Printer, gate_on: bool) -> str | None:
 
 
 PLATE_NO_FRAME = "plate check: waiting for camera frame"
+PLATE_NEEDS_CALIBRATION = "plate check: capture empty-plate references first"
 # The dispatcher ticks every 10 s while a camera viewer registration lasts
 # VIEWER_TTL_S (10 s) and a frame 5 s, so the plate-check viewer is renewed
 # with extra lifetime to keep the stream (and a cached frame) alive between ticks.
 PLATE_VIEWER_EXTRA_S = 20.0
 _NO_FRAME = object()
+_NEEDS_CAL = object()
 # A fail-closed hold with no camera frame for this long is a stuck printer, not
 # a warm-up: notify once per entry and flag the printer (key lives 60 s, so it
 # lapses on its own once the hold clears).
@@ -220,7 +222,9 @@ def plate_gate(
                 )
             )
         )
-        if refs:
+        if not refs:
+            cache[printer.id] = _NEEDS_CAL  # enabled but uncalibrated: hold, never print blind
+        else:
             try:
                 cs.add_viewer(
                     client,
@@ -233,16 +237,24 @@ def plate_gate(
             except Exception:  # noqa: BLE001 - analysis error: treat as no frame
                 cache[printer.id] = _NO_FRAME
     res = cache[printer.id]
+    if res is not None and res is not _NO_FRAME and res is not _NEEDS_CAL and res.needs_calibration:
+        res = cache[printer.id] = _NEEDS_CAL  # no usable references
     if res is _NO_FRAME:
         if item.last_error != PLATE_NO_FRAME:
             item.last_error = PLATE_NO_FRAME
             session.commit()
         _plate_stall_check(session, client, item, printer)
         return False
+    if res is _NEEDS_CAL:
+        if item.last_error != PLATE_NEEDS_CALIBRATION:
+            item.last_error = PLATE_NEEDS_CALIBRATION
+            session.commit()
+        _plate_stall_check(session, client, item, printer)  # notifies once if it persists
+        return False
     client.delete(plate_stall_key(item.id), f"plate:stall:notified:{item.id}")
     res = cache[printer.id]
     if res is None or res.needs_calibration or res.empty:
-        if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME):
+        if item.last_error in (pd.PLATE_NOT_EMPTY, PLATE_NO_FRAME, PLATE_NEEDS_CALIBRATION):
             item.last_error = None
             session.commit()
         return True
@@ -785,9 +797,7 @@ def _housekeeping(
     """T4: bed keep-warm + auto power-off. Both ask "is more work queued for
     this printer?" over the deferred-inclusive queue; a failure here must
     never stall dispatch."""
-    has_auto_off = next(client.scan_iter(f"{queue_schedule.AUTO_OFF_PREFIX}*", count=10), None)
-    has_warm = next(client.scan_iter(f"{queue_schedule.KEEPWARM_PREFIX}*", count=10), None)
-    if not (cfg.keep_warm_enabled or has_auto_off or has_warm):
+    if not (cfg.keep_warm_enabled or queue_schedule.has_housekeeping_work(client)):
         return
     try:
         horizon = datetime.now(UTC) + timedelta(minutes=cfg.keep_warm_max_min)
@@ -797,6 +807,7 @@ def _housekeeping(
         _, pending = queue_target_ids(session, client, soon, acl_cache, memo)
         queue_schedule.run_keep_warm(session, client, cfg, pending)
         queue_schedule.process_auto_off(session, settings, client, wanted)
+        queue_schedule.prune_housekeeping_set(client)
     except Exception:  # noqa: BLE001
         session.rollback()
 

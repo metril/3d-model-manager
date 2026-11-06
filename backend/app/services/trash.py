@@ -165,8 +165,10 @@ async def list_trash(
             func.coalesce(func.sum(Blob.size), 0).label("sz"),
         )
         .select_from(Revision)
+        .join(Model, Model.id == Revision.model_id)
         .join(File, File.revision_id == Revision.id)
         .outerjoin(Blob, Blob.hash == File.blob_hash)
+        .where(Model.deleted_at.is_not(None))  # only size the trashed models
         .group_by(Revision.model_id)
         .subquery()
     )

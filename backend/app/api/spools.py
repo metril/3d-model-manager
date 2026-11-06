@@ -88,7 +88,13 @@ async def list_spools(
         cutoff = datetime.now(UTC) - timedelta(days=drying_days)
         stmt = stmt.where(or_(Spool.last_dried_at.is_(None), Spool.last_dried_at < cutoff))
     rows = (await db.execute(stmt.order_by(Spool.id))).scalars().all()
-    out = [await _out(db, s) for s in rows]
+    slots = {
+        sl.spool_id: SpoolSlotOut(printer_id=sl.printer_id, ams_unit=sl.ams_unit, slot=sl.slot)
+        for sl in (
+            await db.scalars(select(SpoolSlot).where(SpoolSlot.spool_id.in_([s.id for s in rows])))
+        ).all()
+    }
+    out = [SpoolOut.from_model(s, slots.get(s.id)) for s in rows]
     if low_stock is not None:
         out = [o for o in out if o.low_stock == low_stock]
     return out

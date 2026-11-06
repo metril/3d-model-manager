@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -19,7 +20,6 @@ import anyio
 import pyotp
 from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
-from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,7 @@ from app.crypto import decrypt_secret
 from app.models import AuthEphemeralToken, Setting, User, UserOtpCode, UserTotp
 from app.security import hash_password, verify_password
 from app.services import mailer
+from app.services.redis_pool import get_async_redis
 
 PRE_AUTH = "pre_auth"
 TOTP_SETUP = "totp_setup"
@@ -64,7 +65,7 @@ async def guard(user_id: int) -> None:
     """429 ``2fa_locked`` while the user has >= FAIL_LIMIT recent failed second-factor
     attempts (across every token / re-auth route). Locked checks add no failures,
     so the lock ends FAIL_WINDOW_S after the last real failure."""
-    r = Redis.from_url(get_settings().redis_url)
+    r = get_async_redis(get_settings().redis_url)
     try:
         n = int(await r.get(_fail_key(user_id)) or 0)
     except (RedisError, OSError):
@@ -76,7 +77,7 @@ async def guard(user_id: int) -> None:
 
 
 async def note_failure(user_id: int) -> None:
-    r = Redis.from_url(get_settings().redis_url)
+    r = get_async_redis(get_settings().redis_url)
     try:
         key = _fail_key(user_id)
         await r.incr(key)
@@ -106,7 +107,31 @@ def _sha(token: str) -> str:
 # --- security settings ------------------------------------------------------
 
 
+_REQUIRE_TTL_S = 1.0
+_require_cache: tuple[float, bool] | None = None  # (expires_monotonic, value)
+
+
+def reset_require_cache() -> None:
+    global _require_cache
+    _require_cache = None
+
+
 async def require_2fa_enabled(db: AsyncSession) -> bool:
+    """Instance-wide policy; read on every authenticated request, so cached
+    briefly in-process (``set_require_2fa`` refreshes it immediately; other
+    workers converge within the TTL)."""
+    global _require_cache
+    hit = _require_cache
+    if hit is not None and hit[0] > time.monotonic():
+        return hit[1]
+    row = await db.get(Setting, SECURITY_KEY)
+    value = bool(row and (row.value or {}).get("require_2fa") is True)
+    _require_cache = (time.monotonic() + _REQUIRE_TTL_S, value)
+    return value
+
+
+async def require_2fa_stored(db: AsyncSession) -> bool:
+    """Uncached read (for read-modify-write paths)."""
     row = await db.get(Setting, SECURITY_KEY)
     return bool(row and (row.value or {}).get("require_2fa") is True)
 
@@ -312,8 +337,12 @@ async def verify_backup(db: AsyncSession, user_id: int, code: str) -> bool:
 # --- email OTP ------------------------------------------------------------------
 
 
-async def send_email_otp(db: AsyncSession, user: User) -> None:
-    """Mint + email a 6-digit code (caller commits). Raises coded HTTP errors."""
+async def send_email_otp(db: AsyncSession, user: User) -> Callable[[], None]:
+    """Mint a 6-digit code (caller commits). Raises coded HTTP errors.
+
+    Returns the delivery thunk: call it only AFTER the commit, so a failed
+    commit never emails a code that was never stored (and the row lock is not
+    held while the mail is enqueued)."""
     # Serialise concurrent sends per user so the rate limit below cannot be raced.
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     if not user.email:
@@ -345,12 +374,17 @@ async def send_email_otp(db: AsyncSession, user: User) -> None:
         )
     )
     await db.flush()
-    mailer.send(
-        user.email,
-        "Your sign-in code",
-        f"Your verification code is {code}. It expires in 10 minutes.\n"
-        "If you did not request it, you can ignore this email.",
-    )
+    to = user.email
+
+    def deliver() -> None:
+        mailer.send(
+            to,
+            "Your sign-in code",
+            f"Your verification code is {code}. It expires in 10 minutes.\n"
+            "If you did not request it, you can ignore this email.",
+        )
+
+    return deliver
 
 
 async def verify_email_otp(db: AsyncSession, user_id: int, code: str) -> bool:

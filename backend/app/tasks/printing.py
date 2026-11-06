@@ -40,6 +40,7 @@ from app.services import derivatives, kprofiles
 from app.services.events import publish_print_job_event_sync
 from app.services.library import get_live_file_sync
 from app.services.printer_state import preflight_ok, read_state_sync
+from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
 
@@ -102,7 +103,7 @@ def _set_job_state(
 @celery_app.task(name="app.tasks.printing.send_to_printer", soft_time_limit=900, time_limit=960)
 def send_to_printer(print_job_id: int, options: dict) -> None:
     settings = get_settings()
-    client = redis.Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         _send_to_printer(settings, client, print_job_id, options)
     finally:
@@ -171,9 +172,8 @@ def _send_to_printer(
             # than one backend) rather than a caller-supplied default.
             path = derivatives.fetch_blob_to_temp(s2, settings, blob_hash, Path(tmp), ".gcode.3mf")
             try:
-                data = path.read_bytes()
-                gcode3mf.assert_plate_available(data, options["plate"])
-                pause_points = pause_eta.pause_points_from_3mf(data, options["plate"])
+                gcode3mf.assert_plate_available(path, options["plate"])
+                pause_points = pause_eta.pause_points_from_3mf(path, options["plate"])
             except gcode3mf.NotSendableError as e:
                 raise SendError(str(e)) from e
             spec = PrintSpec(

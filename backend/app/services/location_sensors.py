@@ -5,6 +5,7 @@ into the alerting state."""
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -84,6 +85,8 @@ def poll_once(
             try:
                 value = float(state)
             except (TypeError, ValueError):
+                continue
+            if not math.isfinite(value):
                 continue
             breach = evaluate(
                 value,

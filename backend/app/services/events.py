@@ -19,7 +19,8 @@ import json
 import uuid
 
 import redis
-import redis.asyncio as aioredis
+
+from app.services.redis_pool import get_async_redis, get_sync_redis
 
 CHANNEL = "tdmm:events"
 
@@ -45,7 +46,7 @@ def job_event_payload(
 
 def publish_job_event_sync(redis_url: str, **kwargs: object) -> None:
     """Publish from Celery task bodies (sync world; see ``app.tasks.base``)."""
-    client = redis.Redis.from_url(redis_url)
+    client = get_sync_redis(redis_url)
     try:
         client.publish(CHANNEL, json.dumps(job_event_payload(**kwargs)))
     finally:
@@ -54,7 +55,7 @@ def publish_job_event_sync(redis_url: str, **kwargs: object) -> None:
 
 async def publish_job_event(redis_url: str, **kwargs: object) -> None:
     """Publish from async API-side code."""
-    client = aioredis.Redis.from_url(redis_url)
+    client = get_async_redis(redis_url)
     try:
         await client.publish(CHANNEL, json.dumps(job_event_payload(**kwargs)))
     finally:
@@ -77,7 +78,7 @@ def print_job_event_payload(*, print_job_id: int, printer_id: int, state: str) -
 def publish_print_job_event_sync(
     redis_url: str, *, print_job_id: int, printer_id: int, state: str
 ) -> None:
-    client = redis.Redis.from_url(redis_url)
+    client = get_sync_redis(redis_url)
     try:
         client.publish(
             CHANNEL,
@@ -149,7 +150,7 @@ def slice_event_payload(
 def publish_slice_event_sync(redis_url: str, **kwargs: object) -> None:
     """Best-effort: a Redis blip never fails the slice that was committed."""
     try:
-        client = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        client = get_sync_redis(redis_url, socket_timeout=2, socket_connect_timeout=2)
         try:
             client.publish(CHANNEL, json.dumps(slice_event_payload(**kwargs)))
         finally:
@@ -161,7 +162,7 @@ def publish_slice_event_sync(redis_url: str, **kwargs: object) -> None:
 def publish_event_sync(redis_url: str, payload: dict) -> None:
     """Best-effort generic publish (orcaslicer events); a Redis blip never raises."""
     try:
-        client = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        client = get_sync_redis(redis_url, socket_timeout=2, socket_connect_timeout=2)
         try:
             client.publish(CHANNEL, json.dumps(payload))
         finally:
@@ -173,7 +174,7 @@ def publish_event_sync(redis_url: str, payload: dict) -> None:
 async def publish_event(redis_url: str, payload: dict) -> None:
     """Async twin of ``publish_event_sync``."""
     try:
-        client = aioredis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        client = get_async_redis(redis_url, socket_timeout=2, socket_connect_timeout=2)
         try:
             await client.publish(CHANNEL, json.dumps(payload))
         finally:

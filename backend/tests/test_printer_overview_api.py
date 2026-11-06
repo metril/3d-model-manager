@@ -179,11 +179,17 @@ async def test_overview_constant_query_count(
     authenticated_client: httpx.AsyncClient,
     printer_enabled: None,
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    # Pin the 2FA-policy cache so its 1s TTL can't expire mid-test and add a query.
+    from app.services import two_factor
+
+    monkeypatch.setattr(two_factor, "_REQUIRE_TTL_S", 3600.0)
     p1 = await _printer(db_session, "only")
     await _finished_archive(db_session, p1, n=1)
 
     engine = get_engine()
+    await authenticated_client.get("/api/printers/overview")  # warm per-process caches
     one_count = await _count_statements(engine, authenticated_client.get("/api/printers/overview"))
 
     for i in range(2):

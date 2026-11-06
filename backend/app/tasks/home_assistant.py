@@ -13,11 +13,11 @@ POLL_LOCK_KEY = "ha:poll:lock"
 _LOCK_TIMEOUT_S = 14
 POLL_INTERVAL_S = 15.0
 
-from redis import Redis  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.services.ha_config import get_ha_config_sync  # noqa: E402
 from app.services.home_assistant import poll_once  # noqa: E402
+from app.services.redis_pool import get_sync_redis  # noqa: E402
 from app.tasks import base  # noqa: E402
 from app.tasks.celery_app import celery_app  # noqa: E402
 
@@ -25,7 +25,7 @@ from app.tasks.celery_app import celery_app  # noqa: E402
 @celery_app.task(name="app.tasks.home_assistant.poll_ha", soft_time_limit=12, time_limit=14)
 def poll_ha() -> dict | None:
     settings = get_settings()
-    client = Redis.from_url(settings.redis_url)
+    client = get_sync_redis(settings.redis_url)
     try:
         lock = client.lock(POLL_LOCK_KEY, timeout=_LOCK_TIMEOUT_S, blocking=False)
         if not lock.acquire(blocking=False):

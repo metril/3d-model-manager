@@ -8,18 +8,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from cryptography.fernet import InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.crypto import decrypt_secret, encrypt_secret
+from app.crypto import encrypt_secret
 from app.models import Setting
+from app.services import settings_store as store
 
 SETTINGS_KEY = "mqtt_relay"
 STATUS_KEY = "relay:status"
 STATUS_TTL_S = 30
-KEEP_SENTINEL = "***"
+KEEP_SENTINEL = store.KEEP
 COMMANDS = ("pause", "resume", "stop")
 DEFAULT_PREFIX = "tdmm"
 DEFAULT_LOW_FILAMENT_PCT = 10
@@ -83,12 +83,7 @@ class MqttRelayConfig:
 
 def _to_config(settings: Settings, value: dict | None) -> MqttRelayConfig:
     v = value or {}
-    pw = None
-    if v.get("password_enc"):
-        try:
-            pw = decrypt_secret(settings, v["password_enc"])
-        except InvalidToken:
-            pw = v["password_enc"]
+    pw = store.decrypt_or_raw(settings, v["password_enc"]) if v.get("password_enc") else None
     return MqttRelayConfig(
         enabled=bool(v.get("enabled", False)),
         host=v.get("host") or None,

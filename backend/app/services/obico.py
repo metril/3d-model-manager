@@ -54,10 +54,6 @@ def nonce_key(nonce: str) -> str:
     return f"obico:frame:{nonce}"
 
 
-def event_frame_key(detection_id: int) -> str:
-    return f"obico:evt:{detection_id}"
-
-
 def _global(raw: dict | None, settings: Settings | None = None) -> ObicoConfig:
     """Resolve the global row. Empty/missing url + callback_url take the
     default; the environment is read ONLY by ``seed_obico_config``."""
@@ -163,11 +159,6 @@ def effective_action(cfg: ObicoConfig, pc: PrinterDetection) -> str:
 def get_config_sync(session: Session, settings: Settings) -> ObicoConfig:
     row = session.get(Setting, GLOBAL_KEY)
     return _global(row.value if row else None, settings)
-
-
-def get_printer_sync(session: Session, printer_id: int) -> PrinterDetection:
-    row = session.get(Setting, printer_key(printer_id))
-    return _printer(row.value if row else None)
 
 
 def printer_configs_sync(session: Session) -> dict[int, PrinterDetection]:

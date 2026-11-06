@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.services.redis_pool import get_async_redis
 
 if TYPE_CHECKING:
     # Deferred to a function-local import at its one runtime call site
@@ -38,8 +39,13 @@ from app.services import derivatives, library
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
 from app.services.app_config import get_app_config, get_app_config_sync
-from app.services.costing import CostRates, filament_cost, price_run
-from app.services.printer_state import preflight_ok, read_state_async, read_state_sync
+from app.services.costing import CostRates, estimate_cost
+from app.services.printer_state import (
+    preflight_ok,
+    read_state_async,
+    read_state_sync,
+    read_states_async,
+)
 
 
 def _spool_label(s) -> str:
@@ -143,26 +149,6 @@ def plan_mapping(
     return matches, ams_mapping, use_ams
 
 
-def estimate_from_plate(
-    plate: dict, usages: list[tuple[object | None, float]], rates: CostRates
-) -> float | None:
-    """A plate's estimated total cost: per-spool filament pricing
-    (``usages``) falling back to the plate's own ``weight_g`` at the
-    global rate, plus machine time off ``prediction_s``. Extracted from
-    ``build_plan`` (no behaviour change) so ``estimate_item_sync`` below
-    can share it.
-    """
-    est_duration_s = plate.get("prediction_s")
-    est_grams = plate.get("weight_g")
-    machine_cost = price_run(None, est_duration_s, rates).machine_cost
-    fc = filament_cost(usages, rates.filament_per_kg)
-    if fc is None and est_grams is not None:
-        fc = est_grams / 1000 * rates.filament_per_kg
-    if fc is None and machine_cost is None:
-        return None
-    return (fc or 0.0) + (machine_cost or 0.0)
-
-
 def estimate_item_sync(session: Session, settings: Settings, item: PrintQueueEntry) -> float | None:
     """Worker/enqueue-side (SYNC world) cost estimate for a queue entry
     that already has a sliced file: its ``BlobMeta`` plate's filaments,
@@ -205,7 +191,8 @@ def estimate_item_sync(session: Session, settings: Settings, item: PrintQueueEnt
             else None
         )
         usages.append((spool, grams))
-    per_copy = estimate_from_plate(plate, usages, rates)
+    printer = session.get(Printer, item.printer_id) if item.printer_id is not None else None
+    per_copy = estimate_cost(plate, usages, rates, printer.wear_cost_per_hour if printer else None)
     # I1: the reservation must cover every copy up front (the dispatcher's
     # copies-split fanout only ever TRANSFERS a slice of this total onto
     # each clone -- see `billing.transfer` -- it never tops up a short
@@ -272,10 +259,9 @@ async def build_plan(
 
     printer_model = (meta.printer_model if meta is not None else None) or None
     printers: list[PlanPrinter] = []
-    states: dict[int, dict | None] = {}
+    states: dict[int, dict | None] = await read_states_async(redis, [p.id for p in printable])
     for p in printable:
-        state = await read_state_async(redis, p.id)
-        states[p.id] = state
+        state = states[p.id]
         idle = preflight_ok(state)
         compatible = model_matches(printer_model, p.model)
         reason = f"sliced for {printer_model}" if not compatible else None
@@ -380,7 +366,10 @@ async def build_plan(
 
     est_duration_s = plate.get("prediction_s")
     est_grams = plate.get("weight_g")
-    est_cost = estimate_from_plate(plate, usages, rates)
+    plan_printer = next((p for p in printable if p.id == printer_id), None)
+    est_cost = estimate_cost(
+        plate, usages, rates, plan_printer.wear_cost_per_hour if plan_printer else None
+    )
 
     existence = await _thumbnail_existence(settings, file.blob_hash, raw_plates)
     plates_out = [
@@ -442,7 +431,7 @@ async def create_job(
         _check_sendable(blob)
     except NotSendableError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
     finally:

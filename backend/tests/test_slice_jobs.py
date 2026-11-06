@@ -29,6 +29,10 @@ class FakeClient:
         self.job_ids: list[str | None] = []
         self.last_log_tail: str | None = None
 
+    def close(self) -> None:
+
+        pass
+
     def slice(self, **kwargs) -> bytes:
         self.job_ids.append(kwargs.get("job_id"))
         if self.error is not None:
@@ -398,6 +402,9 @@ async def test_cancel_before_store_leaves_no_orphan_file(
     await set_server(slicer_enabled=True, slicer_url="http://s:1")
 
     class CancellingClient(FakeClient):
+        def close(self) -> None:
+            pass
+
         def slice(self, **kwargs) -> bytes:
             out = super().slice(**kwargs)
             with base.sync_session() as s:
@@ -440,6 +447,9 @@ async def test_stop_slice_swallows_sidecar_errors(db_session, monkeypatch) -> No
     from app.config import get_settings
 
     class Boom:
+        def close(self) -> None:
+            pass
+
         def cancel(self, job_id):
             raise RuntimeError("weird")
 

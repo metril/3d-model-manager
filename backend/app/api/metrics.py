@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +18,7 @@ from app.models.library import PrintQueueEntry
 from app.models.printing import PrintArchive
 from app.printers.base import state_key
 from app.services.permissions import load_grants
+from app.services.redis_pool import get_async_redis
 
 router = APIRouter(tags=["metrics"])
 _ACTIVE = ("queued", "uploading", "starting", "printing", "paused")
@@ -48,7 +48,7 @@ async def metrics(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "metrics token must belong to an admin")
 
     printers = (await db.scalars(select(Printer))).all()
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         by_state: dict[str, int] = {}
         raws = await client.mget([state_key(p.id) for p in printers]) if printers else []

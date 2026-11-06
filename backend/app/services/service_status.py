@@ -141,7 +141,7 @@ def _inspect_workers() -> dict[str, set[str]]:
 
 
 async def _workers() -> dict[str, ServiceStatus]:
-    workers = await anyio.to_thread.run_sync(_inspect_workers)
+    workers = await anyio.to_thread.run_sync(_inspect_workers, abandon_on_cancel=True)
     out: dict[str, ServiceStatus] = {}
     for key, queue in (("worker_io", "io"), ("worker_cpu", "cpu")):
         n = sum(1 for qs in workers.values() if queue in qs)
@@ -285,7 +285,7 @@ async def _ha(ha) -> dict[str, ServiceStatus]:  # noqa: ANN001
                 c.close()
 
         try:
-            msg = await anyio.to_thread.run_sync(_ping)
+            msg = await anyio.to_thread.run_sync(_ping, abandon_on_cancel=True)
         except HaUnreachable:
             return {"home_assistant": _st("down", "unreachable")}
         except Exception as exc:  # noqa: BLE001 -- type only

@@ -10,7 +10,6 @@ archive step stitches them (``assemble_for``) into the archive's timelapse.
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -23,7 +22,7 @@ from app.models.enums import BlobFormat, BlobKind
 from app.services import camera_state
 from app.services.archive import _ensure_blob, archive_path
 from app.services.archive_lookup import archive_for_job
-from app.services.derivatives import publish_bytes
+from app.services.derivatives import publish_path, sha256_file
 
 VIEWER_ID = "layer-timelapse"
 FRAMES_TTL_S = 24 * 3600
@@ -144,10 +143,10 @@ def assemble_for(session: Session, settings: Settings, r, print_job_id: int) -> 
         out = Path(td) / "timelapse.mp4"
         if not stitch(frames_dir(settings, job.printer_id, job.id), n, out):
             return False
-        data = out.read_bytes()
-    sha = hashlib.sha256(data).hexdigest()
-    publish_bytes(data, archive_path(settings, sha, "mp4"))
-    _ensure_blob(session, sha, len(data), BlobKind.VIDEO, BlobFormat.MP4)
+        sha = sha256_file(out)
+        size = out.stat().st_size
+        publish_path(out, archive_path(settings, sha, "mp4"))
+    _ensure_blob(session, sha, size, BlobKind.VIDEO, BlobFormat.MP4)
     arc.timelapse_blob = sha
     arc.timelapse_frames = n
     arc.timelapse_layers = int(last) if last is not None else n

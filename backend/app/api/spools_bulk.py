@@ -10,7 +10,6 @@ import json
 import secrets
 from datetime import UTC, datetime
 
-import redis.asyncio as aioredis
 from fastapi import (
     APIRouter,
     Depends,
@@ -48,6 +47,7 @@ from app.schemas.housekeeping import (
 from app.schemas.inventory import SpoolSupplierIn, SpoolSupplierOut, SpoolUpdate
 from app.services import spool_csv, spool_labels
 from app.services.housekeeping import spool_suppliers
+from app.services.redis_pool import get_async_redis
 from app.services.server_config import get_server_config
 
 router = APIRouter(prefix="/spools", tags=["spools"])
@@ -271,7 +271,7 @@ async def import_csv(
     token = None
     if any(r["action"] in ("create", "update") for r in parsed["rows"]):
         token = secrets.token_urlsafe(18)
-        client = aioredis.Redis.from_url(settings.redis_url)
+        client = get_async_redis(settings.redis_url)
         try:
             await client.set(
                 _KEY + token,
@@ -290,7 +290,7 @@ async def import_commit(
     settings: Settings = Depends(get_settings),
     ctx: AuthContext = Depends(require_session),
 ) -> ImportResultOut:
-    client = aioredis.Redis.from_url(settings.redis_url)
+    client = get_async_redis(settings.redis_url)
     try:
         raw = await client.getdel(_KEY + payload.token)
     finally:

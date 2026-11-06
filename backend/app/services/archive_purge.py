@@ -38,10 +38,16 @@ def _bytes(session: Session, rows: list[PrintArchive]) -> int:
     for a in rows:
         seen |= blob_hashes(a)
     total = 0
-    for h in seen:
-        b = session.get(Blob, h)
-        if b is not None:
-            total += b.size
+    hashes = list(seen)
+    for i in range(0, len(hashes), 1000):
+        total += int(
+            session.scalar(
+                select(func.coalesce(func.sum(Blob.size), 0)).where(
+                    Blob.hash.in_(hashes[i : i + 1000])
+                )
+            )
+            or 0
+        )
     return total
 
 

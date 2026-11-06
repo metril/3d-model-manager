@@ -85,4 +85,7 @@ def energy_acc(r: Redis, pid: int) -> float | None:
     raw = r.get(energy_acc_key(pid))
     if raw is None:
         return None
-    return float(raw)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None

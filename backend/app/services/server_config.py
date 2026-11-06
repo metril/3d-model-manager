@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.crypto import decrypt_secret, encrypt_secret
 from app.models import Setting
+from app.services import settings_store as store
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -84,7 +85,7 @@ ENV_SEED: dict[str, str] = {
     "smtp.password": "TDMM_SMTP_PASSWORD",
     "smtp.from_addr": "TDMM_SMTP_FROM",
 }
-SECRET_MASK = "***"  # noqa: S105
+SECRET_MASK = store.KEEP
 # Env vars that are removed/moved but may still be set; warned about too.
 EXTRA_IGNORED_ENV = ("COOKIE_SECURE", "TDMM_VP_ENABLED", "TDMM_OBICO_URL", "TDMM_OBICO_CALLBACK")
 

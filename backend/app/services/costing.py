@@ -116,3 +116,22 @@ def filament_cost(usages: list[tuple[Spool | None, float]], global_per_kg: float
         )
         total += grams / 1000 * rate
     return total
+
+
+def estimate_cost(
+    plate: dict,
+    usages: list[tuple[Spool | None, float]],
+    rates: CostRates,
+    wear_per_hour: float | None = None,
+) -> float | None:
+    """THE per-copy estimate (queue cards, print preview and the billing
+    reservation all use this one): per-spool filament pricing (global rate for
+    a spool-less slot, or the plate's own ``weight_g`` when no per-slot grams
+    exist), plus machine and printer-wear rates x the predicted time. ``None``
+    when nothing is known."""
+    fc = filament_cost(usages, rates.filament_per_kg)
+    if fc is None and plate.get("weight_g") is not None:
+        fc = plate["weight_g"] / 1000 * rates.filament_per_kg
+    cost = price_run(None, plate.get("prediction_s"), rates, wear_per_hour=wear_per_hour)
+    parts = [c for c in (fc, cost.machine_cost, cost.wear_cost) if c is not None]
+    return sum(parts) if parts else None

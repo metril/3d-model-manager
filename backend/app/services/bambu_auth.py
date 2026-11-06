@@ -605,16 +605,6 @@ async def clear_refresh_failed(db: AsyncSession, settings: Settings) -> None:
     await db.commit()
 
 
-def clear_refresh_failed_sync(session: SyncSession, settings: Settings) -> None:
-    row = session.get(Setting, SETTINGS_KEY)
-    if row is None or not row.value or "refresh_failed_at" not in row.value:
-        return
-    value = dict(row.value)
-    value.pop("refresh_failed_at", None)
-    row.value = value
-    session.commit()
-
-
 def get_access_token_sync(session: SyncSession, settings: Settings) -> str:
     """A currently-valid Bambu access token for worker use (MakerWorld's
     authenticated download/search calls, ``app.importers.makerworld``).
