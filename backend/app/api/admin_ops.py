@@ -206,7 +206,13 @@ async def put_ops_settings(
     settings: Settings = Depends(get_settings),
 ) -> OpsSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
-    for k in ("backup_enabled", "backup_interval_hours", "backup_retention", "git_branch", "git_push_dump"):
+    for k in (
+        "backup_enabled",
+        "backup_interval_hours",
+        "backup_retention",
+        "git_branch",
+        "git_push_dump",
+    ):
         if patch.get(k) is None:
             patch.pop(k, None)
     await set_ops_config(db, settings, patch)

@@ -53,7 +53,12 @@ def hex_to_oklab(hex_: str) -> tuple[float, float, float]:
 
 
 def delta_e_ok(a: str, b: str) -> float:
-    return math.dist(hex_to_oklab(a), hex_to_oklab(b))
+    """OKLab distance; an unparseable colour is treated as "no colour info"
+    (0.0) rather than raising mid-match."""
+    try:
+        return math.dist(hex_to_oklab(a), hex_to_oklab(b))
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def _norm_type(t: str | None) -> str | None:

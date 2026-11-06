@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import UTC, datetime
 
 from redis import Redis
@@ -93,6 +94,8 @@ def evaluate(cond: dict | None, state: str | None) -> bool:
             cur = float(state)
             target = float(value)
         except (TypeError, ValueError):
+            return False
+        if not (math.isfinite(cur) and math.isfinite(target)):
             return False
         if op == "gt":
             return cur > target
@@ -270,6 +273,8 @@ def poll_once(
                 cur = float(state_val)
             except (TypeError, ValueError):
                 continue  # non-numeric: keeps prev, no update this tick
+            if not math.isfinite(cur):
+                continue  # "nan"/"inf" would poison the running total
 
             total = r.eval(
                 _ENERGY_UPDATE_LUA,

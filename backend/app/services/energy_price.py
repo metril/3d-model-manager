@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 
 from sqlalchemy.orm import Session
@@ -62,7 +63,7 @@ def sample_energy_price(
     except (TypeError, ValueError):
         _warn_once(f"energy price sensor {entity} is unavailable")
         return None
-    if price != price or price < 0:
+    if not math.isfinite(price) or price < 0:
         _warn_once(f"energy price sensor {entity} is unavailable")
         return None
     _cache[entity] = (time.monotonic(), price)

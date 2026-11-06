@@ -104,3 +104,14 @@ def test_ha_token_never_logged(caplog: pytest.LogCaptureFixture):
     assert TOKEN not in str(excinfo.value)
     for record in caplog.records:
         assert TOKEN not in record.getMessage()
+
+
+@respx.mock
+def test_oversized_body_is_capped_not_buffered():
+    from app.services import ha_client
+
+    big = b'{"message": "' + b"x" * (ha_client._MAX_BODY_BYTES * 2) + b'"}'
+    respx.get(f"{BASE_URL}/api/").mock(return_value=httpx.Response(200, content=big))
+    c = HaClient(BASE_URL, "tok")
+    with pytest.raises(HaUnreachable):  # truncated JSON -> malformed
+        c.ping()

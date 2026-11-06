@@ -36,6 +36,10 @@ ACTIVE_KEY = "tdmm:orcaslicer:active"
 ARRANGEABLE_EXTS = (".3mf", ".stl", ".obj", ".step", ".stp")
 LAUNCHER_TIMEOUT_S = 10.0
 CREATE_LOCK_KEY = "tdmm:orcaslicer:create-lock"
+CREATE_LOCK_TTL_S = 120  # copy-in of a large file + launcher round trip
+_RELEASE_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
+)
 
 
 def session_key(token: str) -> str:
@@ -83,12 +87,14 @@ async def create(
     file: File,
     user_id: int,
 ) -> CreatedSession:
-    if not await r.set(CREATE_LOCK_KEY, "1", nx=True, ex=30):
+    lock_token = secrets.token_hex(8)
+    if not await r.set(CREATE_LOCK_KEY, lock_token, nx=True, ex=CREATE_LOCK_TTL_S):
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"code": "orcaslicer_busy"})
     try:
         return await _create(db, settings, cfg, r, model, revision, file, user_id)
     finally:
-        await r.delete(CREATE_LOCK_KEY)
+        # compare-and-delete: never release a lock that expired and was re-taken
+        await r.eval(_RELEASE_LUA, 1, CREATE_LOCK_KEY, lock_token)
 
 
 async def _create(db, settings, cfg, r, model, revision, file, user_id) -> CreatedSession:
