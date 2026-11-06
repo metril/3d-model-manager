@@ -464,7 +464,7 @@ async def test_db_failure_publishes_error_and_keeps_looping(vp_env):
 
 def test_publish_status_swallows_redis_failure(vp_env, monkeypatch):
     monkeypatch.setattr(
-        vp_main.redis.Redis, "from_url", lambda *a, **k: (_ for _ in ()).throw(OSError("x"))
+        vp_main, "get_sync_redis", lambda *a, **k: (_ for _ in ()).throw(OSError("x"))
     )
     vp_main.publish_status(vp_env, {"state": "idle"})  # must not raise
 
@@ -479,7 +479,7 @@ def test_publish_status_writes_key_with_ttl(vp_env, monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(vp_main.redis.Redis, "from_url", lambda *a, **k: Fake())
+    monkeypatch.setattr(vp_main, "get_sync_redis", lambda *a, **k: Fake())
     vp_main.publish_status(vp_env, {"state": "idle"})
     assert calls == [("tdmm:vp:status", {"state": "idle"}, 30)]
 

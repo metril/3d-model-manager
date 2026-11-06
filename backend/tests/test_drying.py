@@ -903,7 +903,7 @@ def test_running_row_with_missing_unit_fails_after_timeout(rds, bus):
 def test_drying_task_skips_when_lock_held(rds, monkeypatch):
     from app.tasks import ops
 
-    monkeypatch.setattr(ops.Redis, "from_url", lambda *_a, **_k: rds)
+    monkeypatch.setattr(ops, "get_sync_redis", lambda *_a, **_k: rds)
     monkeypatch.setattr(rds, "close", lambda: None)
     called = []
     monkeypatch.setattr(ops.drying_tick, "tick", lambda *a, **k: called.append(1) or {"x": 1})

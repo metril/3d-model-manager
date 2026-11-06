@@ -71,7 +71,7 @@ def test_emit_pushes_to_queue_and_swallows_errors(redis_url, monkeypatch):
     assert r.llen(nev.QUEUE_KEY) == 1
     r.delete(nev.QUEUE_KEY)
     monkeypatch.setattr(
-        nev.redis.Redis, "from_url", lambda *a, **k: (_ for _ in ()).throw(OSError())
+        nev, "get_sync_redis", lambda *a, **k: (_ for _ in ()).throw(OSError())
     )
     assert nev.emit("job_started") is False
 
