@@ -160,7 +160,7 @@ class OpsSettingsOut(BaseModel):
     git_repo: str | None
     git_branch: str
     git_token_set: bool
-    git_push_dump: bool = False
+    git_push_dump: bool = True
     update_check_enabled: bool
 
 

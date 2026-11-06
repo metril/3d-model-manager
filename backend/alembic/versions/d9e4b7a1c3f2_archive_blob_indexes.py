@@ -31,23 +31,40 @@ _COLS = (
 
 
 def upgrade() -> None:
-    for col in _COLS:
+    # CONCURRENTLY: no write lock on print_archives while indexing.
+    with op.get_context().autocommit_block():
+        for col in _COLS:
+            op.create_index(
+                f"ix_print_archives_{col}",
+                "print_archives",
+                [col],
+                postgresql_where=sa.text(f"{col} IS NOT NULL"),
+                postgresql_concurrently=True,
+                if_not_exists=True,
+            )
         op.create_index(
-            f"ix_print_archives_{col}",
+            "ix_print_archives_photos",
             "print_archives",
-            [col],
-            postgresql_where=sa.text(f"{col} IS NOT NULL"),
+            ["photos"],
+            postgresql_using="gin",
+            postgresql_ops={"photos": "jsonb_path_ops"},
+            postgresql_concurrently=True,
+            if_not_exists=True,
         )
-    op.create_index(
-        "ix_print_archives_photos",
-        "print_archives",
-        ["photos"],
-        postgresql_using="gin",
-        postgresql_ops={"photos": "jsonb_path_ops"},
-    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_print_archives_photos", table_name="print_archives")
-    for col in reversed(_COLS):
-        op.drop_index(f"ix_print_archives_{col}", table_name="print_archives")
+    with op.get_context().autocommit_block():
+        op.drop_index(
+            "ix_print_archives_photos",
+            table_name="print_archives",
+            postgresql_concurrently=True,
+            if_exists=True,
+        )
+        for col in reversed(_COLS):
+            op.drop_index(
+                f"ix_print_archives_{col}",
+                table_name="print_archives",
+                postgresql_concurrently=True,
+                if_exists=True,
+            )

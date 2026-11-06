@@ -155,6 +155,7 @@ def run_backup(session: Session, settings: Settings, run_id: int) -> BackupRun:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     prefix = f"{PREFIX}/{stamp}-{run.id}"
     backend = None
+    stored = False  # True once the dump + settings are safely in storage
     try:
         backend = resolve_backend_sync(session, settings)
         settings_json = json.dumps(export_settings(session), indent=2, sort_keys=True).encode()
@@ -168,28 +169,38 @@ def run_backup(session: Session, settings: Settings, run_id: int) -> BackupRun:
             # The backup itself is safe in storage; a git push problem is a
             # warning on an otherwise-ok run, not a failed backup.
             run.status, run.error = "ok", None
+            stored = True
             if cfg.git_active:
-                files = {f"{stamp}/settings.json": settings_json}
-                if cfg.git_push_dump and dump.stat().st_size <= git_backup.MAX_FILE_BYTES:
-                    files[f"{stamp}/db.dump"] = dump.read_bytes()
                 try:
+                    files = {f"{stamp}/settings.json": settings_json}
+                    if cfg.git_push_dump and dump.stat().st_size <= git_backup.MAX_FILE_BYTES:
+                        files[f"{stamp}/db.dump"] = dump.read_bytes()
                     _git_push(cfg, stamp, files)
                     run.git_pushed = True
                 except git_backup.GitPushError as exc:
                     run.git_pushed = False
                     run.error = f"git push failed: {exc}"[:500]
-        _prune(backend, session, cfg.backup_retention)
+                except Exception:  # noqa: BLE001 -- the stored backup stays ok
+                    log.exception("backup run %s: git push crashed", run.id)
+                    run.git_pushed = False
+                    run.error = "git push failed (see logs)"
+        try:
+            _prune(backend, session, cfg.backup_retention)
+        except Exception:  # noqa: BLE001 -- pruning never fails a stored backup
+            log.exception("backup run %s: prune failed", run.id)
+            session.rollback()
+            run.error = run.error or "prune failed (see logs)"
     except BackupError as exc:
         run.status = "failed"
         run.error = str(exc)[:500]
-        if backend is not None:
+        if backend is not None and not stored:
             _discard_partial(backend, prefix)
         run.location = None
     except Exception:  # noqa: BLE001
         log.exception("backup run %s failed", run.id)
         run.status = "failed"
         run.error = "unexpected error (see logs)"
-        if backend is not None:
+        if backend is not None and not stored:
             _discard_partial(backend, prefix)
         run.location = None
     run.finished_at = datetime.now(UTC)

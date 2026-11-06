@@ -107,7 +107,7 @@ def _sha(token: str) -> str:
 # --- security settings ------------------------------------------------------
 
 
-_REQUIRE_TTL_S = 5.0
+_REQUIRE_TTL_S = 1.0
 _require_cache: tuple[float, bool] | None = None  # (expires_monotonic, value)
 
 
@@ -130,8 +130,13 @@ async def require_2fa_enabled(db: AsyncSession) -> bool:
     return value
 
 
+async def require_2fa_stored(db: AsyncSession) -> bool:
+    """Uncached read (for read-modify-write paths)."""
+    row = await db.get(Setting, SECURITY_KEY)
+    return bool(row and (row.value or {}).get("require_2fa") is True)
+
+
 async def set_require_2fa(db: AsyncSession, value: bool) -> None:
-    reset_require_cache()
     row = await db.get(Setting, SECURITY_KEY)
     if row is None:
         db.add(Setting(key=SECURITY_KEY, value={"require_2fa": value}))

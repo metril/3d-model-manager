@@ -99,7 +99,7 @@ def has_housekeeping_work(client: Redis) -> bool:
         for prefix in (AUTO_OFF_PREFIX, KEEPWARM_PREFIX):
             for raw in client.scan_iter(f"{prefix}*"):
                 client.sadd(HOUSEKEEPING_SET, raw)
-        client.set(_HK_INIT, "1")
+        client.set(_HK_INIT, "1", ex=3600)  # re-run the backfill hourly
     return bool(client.scard(HOUSEKEEPING_SET))
 
 

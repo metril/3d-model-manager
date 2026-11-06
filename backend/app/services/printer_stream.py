@@ -34,6 +34,7 @@ _locks: dict[int, asyncio.Lock] = {}
 def invalidate(printer_id: int | None = None) -> None:
     if printer_id is None:
         _cache.clear()
+        _locks.clear()
     else:
         _cache.pop(printer_id, None)
 
@@ -104,7 +105,6 @@ async def _status_for(settings: Settings, pid: int, state: dict | None) -> Print
                     printer = await db.get(Printer, pid)
                     if printer is None:
                         _cache.pop(pid, None)
-                        _locks.pop(pid, None)
                         return None
                     out = await build_status(db, settings, printer, state)
                 _cache[pid] = (fp, now, out)

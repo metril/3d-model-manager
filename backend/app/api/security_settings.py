@@ -29,7 +29,7 @@ async def put_security(
     ctx: AuthContext = _admin,
     db: AsyncSession = Depends(get_db),
 ) -> SecuritySettings:
-    old = await two_factor.require_2fa_enabled(db)
+    old = await two_factor.require_2fa_stored(db)
     await two_factor.set_require_2fa(db, payload.require_2fa)
     if old != payload.require_2fa:
         db.add(
@@ -41,4 +41,5 @@ async def put_security(
             )
         )
     await db.commit()
+    two_factor.reset_require_cache()  # after commit: no stale re-cache window
     return payload

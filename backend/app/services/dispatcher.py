@@ -237,6 +237,8 @@ def plate_gate(
             except Exception:  # noqa: BLE001 - analysis error: treat as no frame
                 cache[printer.id] = _NO_FRAME
     res = cache[printer.id]
+    if res is not None and res is not _NO_FRAME and res is not _NEEDS_CAL and res.needs_calibration:
+        res = cache[printer.id] = _NEEDS_CAL  # no usable references
     if res is _NO_FRAME:
         if item.last_error != PLATE_NO_FRAME:
             item.last_error = PLATE_NO_FRAME
@@ -247,6 +249,7 @@ def plate_gate(
         if item.last_error != PLATE_NEEDS_CALIBRATION:
             item.last_error = PLATE_NEEDS_CALIBRATION
             session.commit()
+        _plate_stall_check(session, client, item, printer)  # notifies once if it persists
         return False
     client.delete(plate_stall_key(item.id), f"plate:stall:notified:{item.id}")
     res = cache[printer.id]
