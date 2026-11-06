@@ -4,6 +4,7 @@
  * field) -- only shown for a new center.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useSaveCostCenter } from "@/api/finance";
 import { ApiError } from "@/api/client";
@@ -30,6 +31,7 @@ export function CostCenterForm({
   /** Reports unsaved edits / save-in-flight so a wrapping FormDialog can guard closing. */
   onStateChange?: (state: { dirty: boolean; busy: boolean }) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(center?.name ?? "");
   const [ownerUserId, setOwnerUserId] = useState("");
   const [groupId, setGroupId] = useState("");
@@ -77,13 +79,13 @@ export function CostCenterForm({
   return (
     <form className="space-y-3" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="cost-center-name">Name</Label>
+        <Label htmlFor="cost-center-name">{t("finance.col.name")}</Label>
         <Input id="cost-center-name" value={name} onChange={(e) => setName(e.target.value)} required />
       </div>
       {!center && (
         <div className="flex gap-3">
           <div className="flex flex-1 flex-col gap-1.5">
-            <Label htmlFor="cost-center-owner">Owner user ID</Label>
+            <Label htmlFor="cost-center-owner">{t("finance.ownerId")}</Label>
             <Input
               id="cost-center-owner"
               type="number"
@@ -92,11 +94,11 @@ export function CostCenterForm({
                 setOwnerUserId(e.target.value);
                 if (e.target.value.trim()) setGroupId("");
               }}
-              placeholder="Exactly one of owner/group"
+              placeholder={t("finance.ownerOrGroup")}
             />
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
-            <Label htmlFor="cost-center-group">Group ID</Label>
+            <Label htmlFor="cost-center-group">{t("finance.groupId")}</Label>
             <Input
               id="cost-center-group"
               type="number"
@@ -110,7 +112,7 @@ export function CostCenterForm({
         </div>
       )}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="cost-center-budget-total">Total budget</Label>
+        <Label htmlFor="cost-center-budget-total">{t("finance.budgetTotal")}</Label>
         <Input
           id="cost-center-budget-total"
           type="number"
@@ -118,11 +120,11 @@ export function CostCenterForm({
           step="0.01"
           value={budgetTotal}
           onChange={(e) => setBudgetTotal(e.target.value)}
-          placeholder="No limit"
+          placeholder={t("finance.noLimit")}
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="cost-center-budget-monthly">Monthly budget</Label>
+        <Label htmlFor="cost-center-budget-monthly">{t("finance.budgetMonthly")}</Label>
         <Input
           id="cost-center-budget-monthly"
           type="number"
@@ -130,19 +132,19 @@ export function CostCenterForm({
           step="0.01"
           value={budgetMonthly}
           onChange={(e) => setBudgetMonthly(e.target.value)}
-          placeholder="No limit"
+          placeholder={t("finance.noLimit")}
         />
       </div>
       {save.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {errText(save.error, "Could not save the cost center.")}
+          {errText(save.error, t("finance.saveError"))}
         </p>
       )}
       <Button
         type="submit"
         disabled={save.isPending || !name.trim() || (!center && !ownerUserId.trim() && !groupId.trim())}
       >
-        {center ? "Save" : "Create center"}
+        {center ? t("finance.save") : t("finance.create")}
       </Button>
     </form>
   );

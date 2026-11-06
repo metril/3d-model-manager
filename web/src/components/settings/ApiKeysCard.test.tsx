@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiKeysCard } from "@/components/settings/ApiKeysCard";
@@ -89,6 +89,9 @@ describe("ApiKeysCard", () => {
     renderCard();
     await screen.findByText("Home Assistant");
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(deleteMock).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/settings/api-keys/1"));
   });
 

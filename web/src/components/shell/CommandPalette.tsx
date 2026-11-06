@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { Bookmark, ListChecks, ListOrdered, PrinterIcon, Shapes } from "lucide-react";
 
@@ -20,18 +21,22 @@ import {
 import { useOrcaSlicerEnabled } from "@/api/orcaslicer";
 import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
-import { PrintDialog } from "@/components/print/PrintDialog";
-import { useHotkeys } from "@/hooks/useHotkeys";
+import { useNavLabel } from "@/components/shell/useNavLabel";
+
+// The print wizard is heavy and only needed once "Print…" is picked.
+const PrintDialog = lazy(() => import("@/components/print/PrintDialog").then((m) => ({ default: m.PrintDialog })));
 
 const SEARCH_DEBOUNCE_MS = 200;
 
-/** cmdk palette (R12): Mod+K anywhere opens it (registered here so any
- * mount point works -- `AppShell` just owns the open/closed boolean).
+/** cmdk palette (R12): `AppShell` owns the open/closed boolean and the Mod+K
+ * hotkey, and lazy-loads this component on first open.
  * Three sections: static pages (`navItems.ts`), followed collections
  * (`useFollowedCollections`), and a debounced model search
  * (`useModelSearchQuery`, same hook the upload page's model picker uses). */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const navLabel = useNavLabel();
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
@@ -41,8 +46,6 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const followed = useFollowedCollections();
   const categoriesQuery = useCategories();
   const printersQuery = usePrinters({ enabled: printerEnabled });
-
-  useHotkeys({ "mod+k": () => onOpenChange(!open) });
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebounced(query), SEARCH_DEBOUNCE_MS);
@@ -98,26 +101,26 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <>
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Search pages, collections, models…" value={query} onValueChange={setQuery} />
+      <CommandInput placeholder={t("cmdk.placeholder")} value={query} onValueChange={setQuery} />
       <CommandList>
-        <CommandEmpty>No results.</CommandEmpty>
-        <CommandGroup heading="Pages">
+        <CommandEmpty>{t("cmdk.empty")}</CommandEmpty>
+        <CommandGroup heading={t("cmdk.pages")}>
           {filterNavItems(ALL_NAV_ITEMS, {
             printerEnabled,
             can,
             orcaslicerEnabled,
             hasPrinter: (printersQuery.data?.length ?? 0) > 0,
           }).map((item) => (
-            <CommandItem key={item.to as string} value={item.label} onSelect={() => (item.orcaslicerWindow ? openSlicer() : goTo(item.to as string))}>
+            <CommandItem key={item.to as string} value={navLabel(item.label)} onSelect={() => (item.orcaslicerWindow ? openSlicer() : goTo(item.to as string))}>
               <item.icon className="size-4" />
-              {item.label}
+              {navLabel(item.label)}
             </CommandItem>
           ))}
         </CommandGroup>
         {printers.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Printers">
+            <CommandGroup heading={t("cmdk.printers")}>
               {printers.map((item) => (
                 <CommandItem
                   key={`printer-${item.params?.id}`}
@@ -134,7 +137,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         {collections.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Collections">
+            <CommandGroup heading={t("cmdk.collections")}>
               {collections.map((c) => (
                 <CommandItem
                   key={c.id}
@@ -151,7 +154,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         {categories.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Categories">
+            <CommandGroup heading={t("cmdk.categories")}>
               {categories.map((category) => (
                 <CommandItem
                   key={category.id}
@@ -168,7 +171,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         {models.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Models">
+            <CommandGroup heading={t("cmdk.models")}>
               {models.map((m) => (
                 <CommandItem key={m.id} value={`model-${m.name}-${m.slug}`} onSelect={() => goToModel(m.slug)}>
                   <span className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
@@ -187,39 +190,43 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
         {printerEnabled && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Actions">
+            <CommandGroup heading={t("cmdk.actions")}>
               {can("printers:print") ? (
                 <CommandItem
-                  value="Print…"
+                  value={t("cmdk.print")}
                   onSelect={() => {
                     onOpenChange(false);
                     setPrintOpen(true);
                   }}
                 >
                   <PrinterIcon className="size-4" />
-                  Print…
+                  {t("cmdk.print")}
                 </CommandItem>
               ) : null}
-              <CommandItem value="Open print queue" onSelect={() => goTo("/print/queue")}>
+              <CommandItem value={t("cmdk.openQueue")} onSelect={() => goTo("/print/queue")}>
                 <ListOrdered className="size-4" />
-                Open print queue
+                {t("cmdk.openQueue")}
               </CommandItem>
               <CommandItem
-                value="Run history stats"
+                value={t("cmdk.historyStats")}
                 onSelect={() => {
                   onOpenChange(false);
                   void navigate({ to: "/print/history", search: { tab: "stats" } });
                 }}
               >
                 <ListChecks className="size-4" />
-                Run history stats
+                {t("cmdk.historyStats")}
               </CommandItem>
             </CommandGroup>
           </>
         )}
       </CommandList>
     </CommandDialog>
-    <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "pick" }} />
+    {printOpen && (
+      <Suspense fallback={null}>
+        <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "pick" }} />
+      </Suspense>
+    )}
     </>
   );
 }

@@ -80,8 +80,8 @@ vi.mock("@/api/categories", () => ({
   useCategories: () => ({ data: categoriesBox.current }),
 }));
 
-function renderSidebar() {
-  const rootRoute = createRootRoute({ component: () => <AppSidebar onOpenShortcuts={vi.fn()} mobileOpen={false} onCloseMobile={vi.fn()} /> });
+function renderSidebar(mobileOpen = false, onCloseMobile: () => void = vi.fn()) {
+  const rootRoute = createRootRoute({ component: () => <AppSidebar onOpenShortcuts={vi.fn()} mobileOpen={mobileOpen} onCloseMobile={onCloseMobile} /> });
   const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => null });
   const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: () => null });
   const router = createRouter({
@@ -95,6 +95,15 @@ function renderSidebar() {
     </QueryClientProvider>,
   );
 }
+
+describe("AppSidebar -- mobile drawer", () => {
+  it("closes an open drawer when the viewport is (or becomes) desktop", async () => {
+    // jsdom has no matchMedia: useMediaQuery falls back to desktop.
+    const onClose = vi.fn();
+    renderSidebar(true, onClose);
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+});
 
 describe("AppSidebar -- failed-imports badge", () => {
   it("explains the badge and links to the Recent imports tab", async () => {

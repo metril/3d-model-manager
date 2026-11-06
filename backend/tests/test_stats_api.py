@@ -643,3 +643,54 @@ async def test_filament_stats_buckets_day_in_tz(
     la_day = datetime.fromisoformat(la_t).astimezone(ZoneInfo("America/Los_Angeles")).date()
     assert la_day == at.date() - timedelta(days=1)
     assert (await authenticated_client.get(base + "&tz=Nope/Zone")).status_code == 422
+
+
+async def test_stats_heatmap_tz_and_stopped(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    a = await _printer(db_session, "TZ")
+    mon = (datetime.now(UTC) - timedelta(days=3)).replace(hour=1, minute=0, second=0, microsecond=0)
+    mon -= timedelta(days=mon.weekday())  # Monday 01:00 UTC
+    await _run(db_session, a, start=mon)
+    await _run(db_session, a, result=ArchiveResult.STOPPED, start=mon + timedelta(hours=1))
+    await db_session.commit()
+
+    d = (await authenticated_client.get("/api/stats/dashboard?days=30")).json()
+    assert d["success_rate"]["stopped"] == 1 and d["success_rate"]["canceled"] == 0
+    assert d["heatmap"]["counts"][0][1] == 1
+    # Monday 01:00 UTC is Sunday 20:00 in New York (any DST offset: 20-21h).
+    hm = (await authenticated_client.get("/api/stats/heatmap?days=30&tz=America/New_York")).json()
+    assert hm["counts"][0][1] == 0 and sum(hm["counts"][6]) == 2
+    bad = await authenticated_client.get("/api/stats/heatmap?days=30&tz=Nope/Zone")
+    assert bad.status_code == 422
+
+
+async def test_stopped_applies_only_to_the_run_the_archive_points_at(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    """A reprint folded onto a stopped archive must not inherit STOPPED."""
+    a = await _printer(db_session, "Fold")
+    start = datetime.now(UTC) - timedelta(days=2)
+    arc = await _run(db_session, a, result=ArchiveResult.STOPPED, start=start)
+    reprint = PrintJob(
+        printer_id=a.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="again",
+        state=PrintJobState.FINISHED,
+        started_at=start + timedelta(hours=3),
+        finished_at=start + timedelta(hours=4),
+    )
+    db_session.add(reprint)
+    await db_session.flush()
+    db_session.add(
+        Print(
+            print_job_id=reprint.id,
+            archive_id=arc.id,
+            source=PrintSource.AUTO,
+            result=PrintResult.PARTIAL,
+            duration_min=60,
+        )
+    )
+    await db_session.commit()
+    sr = (await authenticated_client.get("/api/stats/success-rate?days=30")).json()
+    assert sr["total"] == 2 and sr["stopped"] == 1 and sr["canceled"] == 1

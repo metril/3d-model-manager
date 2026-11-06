@@ -10,11 +10,13 @@
  * means revoking it and minting a fresh one.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
 import { useApiTokens, useCreateApiToken, useRevokeApiToken } from "@/api/apiTokens";
 import type { ApiTokenOut } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -161,6 +163,8 @@ function TokenList({ tokens }: { tokens: ApiTokenOut[] }) {
 }
 
 function TokenRow({ token }: { token: ApiTokenOut }) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
   const revokeToken = useRevokeApiToken();
   const revokingThis = revokeToken.isPending && revokeToken.variables === token.id;
   const errorForThis = revokeToken.isError && revokeToken.variables === token.id;
@@ -184,10 +188,20 @@ function TokenRow({ token }: { token: ApiTokenOut }) {
         size="sm"
         variant="outline"
         disabled={revokingThis}
-        onClick={() => revokeToken.mutate(token.id)}
+        onClick={() => setConfirming(true)}
       >
         {revokingThis ? "Revoking…" : "Revoke"}
       </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("tokens.revokeTitle", { label: token.label })}
+        description={t("tokens.revokeDesc")}
+        confirmLabel={t("tokens.revoke")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => revokeToken.mutate(token.id)}
+      />
     </li>
   );
 }

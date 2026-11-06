@@ -6,7 +6,7 @@
  * presets edited locally are protected unless "overwrite local edits" is on.
  */
 import { useIsMutating } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CloudDownloadIcon, RefreshCwIcon } from "lucide-react";
 
 import { ApiError } from "@/api/client";
@@ -98,11 +98,13 @@ function DiffRow({ source, presetId }: { source: CloudSource; presetId: string }
   );
 }
 
-function OrcaConnect() {
+function OrcaConnect({ onActive }: { onActive?: (active: boolean) => void }) {
   const start = useOrcaDeviceStart();
   const poll = useOrcaDevicePoll();
   const [device, setDevice] = useState<DeviceStart | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // A pending device-code login is progress Escape must not silently drop.
+  useEffect(() => onActive?.(device !== null), [device, onActive]);
   const intervalMs = useRef(5000);
 
   // Poll the token endpoint while a pairing is awaiting approval.
@@ -190,7 +192,17 @@ function OrcaConnect() {
   );
 }
 
-function SourcePanel({ source, canWrite, canAdmin }: { source: CloudSource; canWrite: boolean; canAdmin: boolean }) {
+function SourcePanel({
+  source,
+  canWrite,
+  canAdmin,
+  onActive,
+}: {
+  source: CloudSource;
+  canWrite: boolean;
+  canAdmin: boolean;
+  onActive: (key: string, active: boolean) => void;
+}) {
   const status = useCloudStatus();
   const connected = status.data?.[source].connected ?? false;
   const needsReconnect = status.data?.[source].needs_reconnect ?? false;
@@ -201,6 +213,7 @@ function SourcePanel({ source, canWrite, canAdmin }: { source: CloudSource; canW
   const [diffId, setDiffId] = useState<string | null>(null);
   const [result, setResult] = useState<CloudSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  useEffect(() => onActive(`${source}-sync`, result !== null), [result, source, onActive]);
 
   function run(presetIds?: string[]) {
     setResult(null);
@@ -213,7 +226,7 @@ function SourcePanel({ source, canWrite, canAdmin }: { source: CloudSource; canW
 
   if (status.isLoading) return <Skeleton className="h-24 w-full" />;
   if (!connected || needsReconnect) {
-    if (source === "orca") return canAdmin ? <OrcaConnect /> : <p className="text-sm text-muted-foreground">Orca Cloud isn&apos;t connected. Ask an admin to connect it.</p>;
+    if (source === "orca") return canAdmin ? <OrcaConnect onActive={(a) => onActive(`${source}-login`, a)} /> : <p className="text-sm text-muted-foreground">Orca Cloud isn&apos;t connected. Ask an admin to connect it.</p>;
     return (
       <p className="text-sm text-muted-foreground">
         {needsReconnect
@@ -388,8 +401,15 @@ export function CloudPresetsDialog({
   const [tab, setTab] = useState<CloudSource>("orca");
   // Any in-flight sync / pairing mutation blocks closing; nothing is "dirty" (each preset imports immediately).
   const busy = useIsMutating({ mutationKey: CLOUD_MUTATION_KEY }) > 0;
+  // A device-code login in progress or an unread sync result is dirty: Escape asks first.
+  const [flags, setFlags] = useState<Record<string, boolean>>({});
+  const onActive = useCallback(
+    (key: string, active: boolean) => setFlags((f) => (!!f[key] === active ? f : { ...f, [key]: active })),
+    [],
+  );
+  const dirty = Object.values(flags).some(Boolean);
   return (
-    <FormDialog open={open} onOpenChange={onOpenChange} busy={busy} className="sm:max-w-2xl">
+    <FormDialog open={open} onOpenChange={onOpenChange} dirty={dirty} busy={busy} className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Cloud presets</DialogTitle>
           <DialogDescription>
@@ -403,10 +423,10 @@ export function CloudPresetsDialog({
             <TabsTrigger value="bambu">Bambu Cloud</TabsTrigger>
           </TabsList>
           <TabsContent value="orca">
-            <SourcePanel source="orca" canWrite={canWrite} canAdmin={canAdmin} />
+            <SourcePanel source="orca" canWrite={canWrite} canAdmin={canAdmin} onActive={onActive} />
           </TabsContent>
           <TabsContent value="bambu">
-            <SourcePanel source="bambu" canWrite={canWrite} canAdmin={canAdmin} />
+            <SourcePanel source="bambu" canWrite={canWrite} canAdmin={canAdmin} onActive={onActive} />
           </TabsContent>
         </Tabs>
         <DialogFooter>

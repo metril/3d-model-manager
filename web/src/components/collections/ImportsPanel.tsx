@@ -20,6 +20,8 @@ import {
 } from "@/api/imports";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import type { ImportOut, ImportState } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -32,13 +34,8 @@ import { dateGroupLabel, groupByDate } from "@/lib/dateGroups";
 import { formatRelativeTime } from "@/lib/format";
 
 
-const STATE_LABEL: Record<ImportState, string> = {
-  pending: "Pending",
-  fetching: "Fetching",
-  downloading: "Downloading",
-  done: "Done",
-  failed: "Failed",
-};
+/** How long "Dismiss all failed" waits (undo window) before it is sent. */
+const UNDO_MS = 6000;
 
 // `failed` reuses the shared `destructive` Badge variant; `done` layers
 // emerald and the in-flight states amber onto `outline`, since neither
@@ -63,6 +60,7 @@ function importTitle(imp: ImportOut): string {
 }
 
 function ImportRow({ imp }: { imp: ImportOut }) {
+  const { t } = useTranslation();
   const retry = useRetryImport();
   const dismiss = useDismissImport();
   const dismissed = imp.state === "failed" && !!imp.dismissed_at;
@@ -75,9 +73,9 @@ function ImportRow({ imp }: { imp: ImportOut }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={badge.variant} className={badge.className}>
-              {STATE_LABEL[imp.state]}
+              {t(`imports.state.${imp.state}`)}
             </Badge>
-            {dismissed ? <Badge variant="outline">Dismissed</Badge> : null}
+            {dismissed ? <Badge variant="outline">{t("imports.dismissed")}</Badge> : null}
             {imp.state === "done" && imp.model_slug ? (
               <Link
                 to="/models/$slug"
@@ -98,7 +96,7 @@ function ImportRow({ imp }: { imp: ImportOut }) {
             {typeof imp.meta?.profiles_total === "number" &&
             typeof imp.meta?.profiles_kept === "number" &&
             imp.meta.profiles_kept < imp.meta.profiles_total
-              ? ` · filtered ${imp.meta.profiles_kept}/${imp.meta.profiles_total}`
+              ? ` · ${t("imports.filtered", { kept: imp.meta.profiles_kept, total: imp.meta.profiles_total })}`
               : ""}
           </p>
           {imp.state === "failed" && imp.error ? (
@@ -115,7 +113,7 @@ function ImportRow({ imp }: { imp: ImportOut }) {
                 disabled={dismiss.isPending}
                 onClick={() => dismiss.mutate(imp.id)}
               >
-                Dismiss
+                {t("imports.dismiss")}
               </Button>
             ) : null}
             <Button
@@ -125,7 +123,7 @@ function ImportRow({ imp }: { imp: ImportOut }) {
               disabled={retry.isPending}
               onClick={() => retry.mutate(imp.id)}
             >
-              {retry.isPending ? "Retrying…" : "Retry"}
+              {retry.isPending ? t("imports.retrying") : t("imports.retry")}
             </Button>
           </div>
         ) : null}
@@ -135,6 +133,8 @@ function ImportRow({ imp }: { imp: ImportOut }) {
 }
 
 export function ImportsPanel() {
+  const { t } = useTranslation();
+  const [dismissAllPending, setDismissAllPending] = useState(false);
   const [view, setView] = useState<ImportsView>("downloads");
   const [showDismissed, setShowDismissed] = useState(false);
   const importsQuery = useImportsList(view, showDismissed);
@@ -142,6 +142,26 @@ export function ImportsPanel() {
   const groups = groupByDate(imports, (r) => r.created_at);
   const dismissAll = useDismissFailedImports();
   const undismissed = useFailedImportsCount();
+
+  // No server-side undo exists, so the request is simply held back for a few
+  // seconds; "Undo" in the toast cancels it before anything is sent.
+  function dismissAllWithUndo() {
+    const timer = window.setTimeout(() => {
+      setDismissAllPending(false);
+      dismissAll.mutate();
+    }, UNDO_MS);
+    setDismissAllPending(true);
+    toast(t("imports.dismissAllToast", { count: undismissed }), {
+      duration: UNDO_MS,
+      action: {
+        label: t("imports.undo"),
+        onClick: () => {
+          window.clearTimeout(timer);
+          setDismissAllPending(false);
+        },
+      },
+    });
+  }
 
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = importsQuery;
   const sentinel = useRef<HTMLDivElement | null>(null);
@@ -158,11 +178,14 @@ export function ImportsPanel() {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <CardTitle>Recent imports</CardTitle>
+        <CardTitle>{t("imports.title")}</CardTitle>
         <Tabs value={view} onValueChange={(v) => setView(v as ImportsView)}>
           <TabsList>
-            <TabsTrigger value="downloads">Downloads</TabsTrigger>
-            <TabsTrigger value="failures">Failures{undismissed > 0 ? ` (${undismissed})` : ""}</TabsTrigger>
+            <TabsTrigger value="downloads">{t("imports.downloads")}</TabsTrigger>
+            <TabsTrigger value="failures">
+              {t("imports.failures")}
+              {undismissed > 0 ? ` (${undismissed})` : ""}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>
@@ -170,18 +193,18 @@ export function ImportsPanel() {
         {view === "failures" ? (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Switch checked={showDismissed} onCheckedChange={setShowDismissed} aria-label="Show dismissed" />
-              Show dismissed
+              <Switch checked={showDismissed} onCheckedChange={setShowDismissed} aria-label={t("imports.showDismissed")} />
+              {t("imports.showDismissed")}
             </label>
             {undismissed > 0 ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={dismissAll.isPending}
-                onClick={() => dismissAll.mutate()}
+                disabled={dismissAll.isPending || dismissAllPending}
+                onClick={dismissAllWithUndo}
               >
-                Dismiss all failed ({undismissed})
+                {t("imports.dismissAll", { n: undismissed })}
               </Button>
             ) : null}
           </div>
@@ -191,8 +214,8 @@ export function ImportsPanel() {
         ) : imports.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {view === "failures"
-              ? "No failed imports."
-              : "No imports yet. Save a model from the extension or approve one from a collection review."}
+              ? t("imports.noneFailed")
+              : t("imports.none")}
           </p>
         ) : (
           <div data-testid="imports-list">
@@ -218,7 +241,7 @@ export function ImportsPanel() {
                   disabled={isFetchingNextPage}
                   onClick={() => void fetchNextPage()}
                 >
-                  {isFetchingNextPage ? "Loading…" : "Show more"}
+                  {isFetchingNextPage ? t("imports.loading") : t("imports.showMore")}
                 </Button>
               </>
             ) : null}

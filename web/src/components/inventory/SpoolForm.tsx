@@ -93,6 +93,7 @@ export function SpoolForm({
 
   const [fields, setFields] = useState(() => fieldsFor(spool, prefill));
   const [grossWeight, setGrossWeight] = useState("");
+  const [created, setCreated] = useState<SpoolOut | null>(null);
   const [suppliers, setSuppliers] = useState<SpoolSupplierLink[]>(spool?.suppliers ?? []);
   const { t } = useTranslation();
   const putSuppliers = usePutSpoolSuppliers();
@@ -106,6 +107,7 @@ export function SpoolForm({
       setFields(fieldsFor(spool, prefill));
       setGrossWeight("");
       setSuppliers(spool?.suppliers ?? []);
+      setCreated(null);
       createSpool.reset();
       patchSpool.reset();
     }
@@ -167,13 +169,24 @@ export function SpoolForm({
           return; // putSuppliers.isError renders below; keep the dialog open
         }
       }
+      setCreated(null);
       onSaved?.(saved);
       onOpenChange(false);
     };
     if (isEdit) {
       patchSpool.mutate({ id: spool.id, payload: patch }, { onSuccess: finish });
+    } else if (created) {
+      // The spool exists already (a previous attempt created it but the
+      // supplier PUT failed): never create twice; PATCH any edits made since
+      // onto it, then retry the follow-up.
+      patchSpool.mutate({ id: created.id, payload }, { onSuccess: finish });
     } else {
-      createSpool.mutate(payload, { onSuccess: finish });
+      createSpool.mutate(payload, {
+        onSuccess: (saved) => {
+          setCreated(saved);
+          return finish(saved);
+        },
+      });
     }
   }
 

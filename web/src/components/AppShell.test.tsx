@@ -236,6 +236,25 @@ describe("AppShell keyboard shortcuts dialog (R9-C item 5)", () => {
     expect(screen.getByText("Keyboard shortcuts")).toBeInTheDocument();
   });
 
+  it("Ctrl+K lazy-loads and opens the command palette", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    Element.prototype.scrollIntoView = vi.fn();
+    renderShell();
+    await screen.findByRole("link", { name: "Models" });
+    expect(screen.queryByPlaceholderText(/Search pages/)).toBeNull();
+
+    fireEvent.keyDown(document.body, { key: "k", ctrlKey: true });
+
+    expect(await screen.findByPlaceholderText(/Search pages/)).toBeInTheDocument();
+  });
+
   it("the sidebar's Keyboard shortcuts button opens the same dialog", async () => {
     renderShell();
     await screen.findByRole("link", { name: "Models" });

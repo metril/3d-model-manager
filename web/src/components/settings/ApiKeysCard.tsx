@@ -4,7 +4,8 @@
  * a docs panel with curl examples for every endpoint.
  */
 import { useState } from "react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, TerminalIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import {
@@ -15,6 +16,7 @@ import {
   type ApiKeyScope,
 } from "@/api/apiKeys";
 import { usePrinters } from "@/api/printers";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,26 +26,22 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ENDPOINTS, curlFor } from "@/components/settings/apiKeysDocs";
 import { formatDate } from "@/lib/format";
 
-const SCOPES: { id: ApiKeyScope; label: string; hint: string }[] = [
-  { id: "read", label: "Read status", hint: "printers, live status, queue, slice jobs" },
-  { id: "control", label: "Control printers", hint: "pause / resume / stop, temperature, fan, light, speed, home" },
-  { id: "queue", label: "Manage queue", hint: "add, reorder, cancel entries; start slice-only jobs" },
-  { id: "upload", label: "Upload / import", hint: "create models, upload files, import from URL" },
-];
+const SCOPES: ApiKeyScope[] = ["read", "control", "queue", "upload"];
 
-const EXPIRY_OPTIONS = [
-  { value: "", label: "Never" },
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "365", label: "1 year" },
+const EXPIRY_OPTIONS: { value: string; labelKey: string }[] = [
+  { value: "", labelKey: "apiKeys.expiry.never" },
+  { value: "30", labelKey: "apiKeys.expiry.d30" },
+  { value: "90", labelKey: "apiKeys.expiry.d90" },
+  { value: "365", labelKey: "apiKeys.expiry.y1" },
 ];
 
 export function ApiKeysCard() {
+  const { t } = useTranslation();
   const keys = useApiKeys();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>API keys</CardTitle>
+        <CardTitle>{t("apiKeys.title")}</CardTitle>
         <CardDescription>
           Scoped keys for scripts, Home Assistant and other automation. A key acts as you, can
           never exceed your own permissions, and never has admin rights. Send it as{" "}
@@ -56,7 +54,7 @@ export function ApiKeysCard() {
           <Skeleton className="h-16 w-full rounded-lg" />
         ) : keys.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {keys.error instanceof ApiError ? keys.error.detail : "Couldn't load API keys."}
+            {keys.error instanceof ApiError ? keys.error.detail : t("apiKeys.loadError")}
           </p>
         ) : (
           <KeyList keys={keys.data ?? []} />
@@ -68,6 +66,7 @@ export function ApiKeysCard() {
 }
 
 function CreateForm() {
+  const { t } = useTranslation();
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>(["read"]);
   const [printerIds, setPrinterIds] = useState<number[]>([]);
@@ -107,35 +106,35 @@ function CreateForm() {
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="api-key-label">Key label</Label>
+        <Label htmlFor="api-key-label">{t("apiKeys.keyLabel")}</Label>
         <Input
           id="api-key-label"
-          placeholder="e.g. Home Assistant"
+          placeholder={t("apiKeys.labelPlaceholder")}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           disabled={create.isPending}
         />
       </div>
       <fieldset className="space-y-2">
-        <legend className="text-sm font-medium">Scopes</legend>
+        <legend className="text-sm font-medium">{t("apiKeys.scopes")}</legend>
         {SCOPES.map((s) => (
-          <div key={s.id} className="flex items-start gap-2">
+          <div key={s} className="flex items-start gap-2">
             <Checkbox
-              id={`api-key-scope-${s.id}`}
-              checked={scopes.includes(s.id)}
-              onCheckedChange={() => setScopes((cur) => toggle(cur, s.id))}
+              id={`api-key-scope-${s}`}
+              checked={scopes.includes(s)}
+              onCheckedChange={() => setScopes((cur) => toggle(cur, s))}
             />
-            <Label htmlFor={`api-key-scope-${s.id}`} className="flex flex-col items-start gap-0">
-              <span>{s.label}</span>
-              <span className="text-xs font-normal text-muted-foreground">{s.hint}</span>
+            <Label htmlFor={`api-key-scope-${s}`} className="flex flex-col items-start gap-0">
+              <span>{t(`apiKeys.scope.${s}.label`)}</span>
+              <span className="text-xs font-normal text-muted-foreground">{t(`apiKeys.scope.${s}.hint`)}</span>
             </Label>
           </div>
         ))}
       </fieldset>
       {printers.data && printers.data.length > 0 && (
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Printer allowlist</legend>
-          <p className="text-xs text-muted-foreground">Leave all unchecked to allow every printer you can reach.</p>
+          <legend className="text-sm font-medium">{t("apiKeys.printerAllowlist")}</legend>
+          <p className="text-xs text-muted-foreground">{t("apiKeys.allowlistHint")}</p>
           {printers.data.map((p) => (
             <div key={p.id} className="flex items-center gap-2">
               <Checkbox
@@ -150,7 +149,7 @@ function CreateForm() {
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="api-key-expiry">Expires</Label>
+          <Label htmlFor="api-key-expiry">{t("apiKeys.expires")}</Label>
           <select
             id="api-key-expiry"
             className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
@@ -159,13 +158,13 @@ function CreateForm() {
           >
             {EXPIRY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {t(o.labelKey)}
               </option>
             ))}
           </select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="api-key-rate">Rate limit (requests / minute)</Label>
+          <Label htmlFor="api-key-rate">{t("apiKeys.rateLimit")}</Label>
           <Input
             id="api-key-rate"
             type="number"
@@ -178,11 +177,11 @@ function CreateForm() {
         </div>
       </div>
       <Button type="button" disabled={create.isPending || !label.trim() || scopes.length === 0} onClick={submit}>
-        {create.isPending ? "Creating…" : "Create key"}
+        {create.isPending ? t("apiKeys.creating") : t("apiKeys.create")}
       </Button>
       {create.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {create.error instanceof ApiError ? create.error.detail : "Could not create the key."}
+          {create.error instanceof ApiError ? create.error.detail : t("apiKeys.createError")}
         </p>
       )}
     </div>
@@ -190,44 +189,59 @@ function CreateForm() {
 }
 
 function MintedKey({ label, secret, onDismiss }: { label: string; secret: string; onDismiss: () => void }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    void navigator.clipboard.writeText(secret).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState<"key" | "curl" | null>(null);
+  function copy(what: "key" | "curl") {
+    const text =
+      what === "key" ? secret : `curl -H "X-API-Key: ${secret}" "${window.location.origin}/api/ext/v2/printers"`;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(what);
+      window.setTimeout(() => setCopied(null), 1500);
     });
   }
   return (
     <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="text-sm font-medium text-foreground">Key created for &quot;{label}&quot;</p>
+      <p className="text-sm font-medium text-foreground">{t("apiKeys.created", { label })}</p>
       <p className="text-xs text-warning">
-        Copy it now — it won&apos;t be shown again.
+        {t("apiKeys.copyNow")}
       </p>
       <div className="flex items-center gap-2">
-        <code aria-label="New API key" className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
+        <code aria-label={t("apiKeys.newKey")} className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
           {secret}
         </code>
-        <Button type="button" size="sm" variant="outline" onClick={copy}>
-          {copied ? (
+        <Button type="button" size="sm" variant="outline" onClick={() => copy("key")}>
+          {copied === "key" ? (
             <>
-              <CheckIcon /> Copied
+              <CheckIcon /> {t("apiKeys.copied")}
             </>
           ) : (
             <>
-              <CopyIcon /> Copy
+              <CopyIcon /> {t("apiKeys.copy")}
+            </>
+          )}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => copy("curl")}>
+          {copied === "curl" ? (
+            <>
+              <CheckIcon /> {t("apiKeys.copiedCurl")}
+            </>
+          ) : (
+            <>
+              <TerminalIcon /> {t("apiKeys.copyCurl")}
             </>
           )}
         </Button>
       </div>
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
-        Done — I&apos;ve saved it
+        {t("apiKeys.done")}
       </Button>
     </div>
   );
 }
 
 function KeyList({ keys }: { keys: ApiKeyOut[] }) {
-  if (keys.length === 0) return <p className="text-sm text-muted-foreground">No API keys yet.</p>;
+  const { t } = useTranslation();
+  if (keys.length === 0) return <p className="text-sm text-muted-foreground">{t("apiKeys.none")}</p>;
   return (
     <ul className="divide-y divide-border">
       {keys.map((k) => (
@@ -238,6 +252,8 @@ function KeyList({ keys }: { keys: ApiKeyOut[] }) {
 }
 
 function KeyRow({ apiKey }: { apiKey: ApiKeyOut }) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
   const revoke = useRevokeApiKey();
   const pending = revoke.isPending && revoke.variables === apiKey.id;
   const failed = revoke.isError && revoke.variables === apiKey.id;
@@ -251,36 +267,48 @@ function KeyRow({ apiKey }: { apiKey: ApiKeyOut }) {
         </p>
         <p className="text-xs text-muted-foreground">
           {apiKey.scopes.join(", ")}
-          {apiKey.printer_ids ? ` · ${apiKey.printer_ids.length} printer(s)` : " · all printers"} ·{" "}
+          {" · "}
+          {apiKey.printer_ids ? t("apiKeys.printersCount", { n: apiKey.printer_ids.length }) : t("apiKeys.allPrinters")} ·{" "}
           {apiKey.rate_limit_per_min}/min
         </p>
         <p className="text-xs text-muted-foreground">
-          Created {formatDate(apiKey.created_at)} ·{" "}
-          {apiKey.last_used_at ? `Last used ${formatDate(apiKey.last_used_at)}` : "Never used"} ·{" "}
+          {t("apiKeys.created_at", { date: formatDate(apiKey.created_at) })} ·{" "}
+          {apiKey.last_used_at ? t("apiKeys.lastUsed", { date: formatDate(apiKey.last_used_at) }) : t("apiKeys.neverUsed")} ·{" "}
           {apiKey.expires_at
             ? expired
-              ? `Expired ${formatDate(apiKey.expires_at)}`
-              : `Expires ${formatDate(apiKey.expires_at)}`
-            : "No expiry"}
+              ? t("apiKeys.expired", { date: formatDate(apiKey.expires_at) })
+              : t("apiKeys.expiresOn", { date: formatDate(apiKey.expires_at) })
+            : t("apiKeys.noExpiry")}
         </p>
         {failed && (
           <p role="alert" className="mt-1 text-xs text-destructive">
-            {revoke.error instanceof ApiError ? revoke.error.detail : "Could not revoke this key."}
+            {revoke.error instanceof ApiError ? revoke.error.detail : t("apiKeys.revokeError")}
           </p>
         )}
       </div>
-      <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => revoke.mutate(apiKey.id)}>
-        {pending ? "Revoking…" : "Revoke"}
+      <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setConfirming(true)}>
+        {pending ? t("apiKeys.revoking") : t("apiKeys.revoke")}
       </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("apiKeys.revokeTitle", { label: apiKey.label })}
+        description={t("apiKeys.revokeDesc")}
+        confirmLabel={t("apiKeys.revoke")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => revoke.mutate(apiKey.id)}
+      />
     </li>
   );
 }
 
 function ApiDocs() {
+  const { t } = useTranslation();
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   return (
     <details className="rounded-lg border border-border p-3">
-      <summary className="cursor-pointer text-sm font-medium">API reference</summary>
+      <summary className="cursor-pointer text-sm font-medium">{t("apiKeys.reference")}</summary>
       <div className="mt-3 space-y-3 text-xs text-muted-foreground">
         <p>
           Auth: <code>X-API-Key: &lt;key&gt;</code> or <code>Authorization: Bearer &lt;key&gt;</code>. Every

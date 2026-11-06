@@ -6,6 +6,7 @@
  * camera diagnose action.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import {
@@ -18,6 +19,7 @@ import {
 } from "@/api/plateCheck";
 import { useUpdatePrinter } from "@/api/printers";
 import type { PrinterOut } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FormDialog } from "@/components/ui/form-dialog";
@@ -160,6 +162,8 @@ function CalibrationWizard({
   const refs = usePlateReferences(printer.id, open);
   const capture = useCaptureReference(printer.id);
   const del = useDeleteReference(printer.id);
+  const { t } = useTranslation();
+  const [deletingRef, setDeletingRef] = useState<number | null>(null);
   const mine = (refs.data ?? []).filter((r) => r.plate_type === plateType);
 
   function close(next: boolean) {
@@ -168,7 +172,7 @@ function CalibrationWizard({
   }
 
   return (
-    <FormDialog open={open} onOpenChange={close} busy={capture.isPending || del.isPending} className="sm:max-w-xl">
+    <FormDialog open={open} onOpenChange={close} dirty={step > 0} busy={capture.isPending || del.isPending} className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Calibrate plate check</DialogTitle>
           <DialogDescription>
@@ -203,13 +207,23 @@ function CalibrationWizard({
                     variant="ghost"
                     aria-label={`Delete reference ${r.id}`}
                     disabled={del.isPending}
-                    onClick={() => del.mutate(r.id)}
+                    onClick={() => setDeletingRef(r.id)}
                   >
                     Delete
                   </Button>
                 </div>
               ))}
             </div>
+            <ConfirmDialog
+              open={deletingRef != null}
+              onOpenChange={(open) => !open && setDeletingRef(null)}
+              title={t("plateRef.deleteTitle")}
+              description={t("plateRef.deleteDesc")}
+              confirmLabel={t("common.delete")}
+              cancelLabel={t("common.cancel")}
+              destructive
+              onConfirm={() => deletingRef != null && del.mutate(deletingRef)}
+            />
             {capture.isError ? (
               <p role="alert" className="text-destructive">
                 {errText(capture.error, "Capture failed")}

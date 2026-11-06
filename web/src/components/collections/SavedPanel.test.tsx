@@ -174,6 +174,8 @@ describe("FollowedCard", () => {
     expect(setModeMock).toHaveBeenCalledWith({ id: 1, mode: "auto" });
 
     fireEvent.click(screen.getByRole("button", { name: "Unfollow" }));
+    expect(unfollowMock).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Unfollow" }));
     expect(unfollowMock).toHaveBeenCalledWith(1);
   });
 

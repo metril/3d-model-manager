@@ -18,9 +18,9 @@ import {
   usePatchSensor,
 } from "@/api/spoolAdmin";
 import type { LocationSensor, SensorKind, StorageLocation } from "@/api/types";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelsDialog } from "@/components/inventory/LabelsDialog";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LocationClimate } from "@/components/inventory/LocationClimate";
@@ -254,6 +254,7 @@ function SensorSection({ location, canWrite }: { location: StorageLocation; canW
   const sensors = useLocationSensors(location.id);
   const readings = useLocationReadings(location.id);
   const del = useDeleteSensor();
+  const [deletingSensor, setDeletingSensor] = useState<LocationSensor | null>(null);
   const [editing, setEditing] = useState<LocationSensor | undefined>();
   const [open, setOpen] = useState(false);
   const reading = (id: number) => (readings.data ?? []).find((r) => r.sensor_id === id);
@@ -318,11 +319,7 @@ function SensorSection({ location, canWrite }: { location: StorageLocation; canW
                       size="sm"
                       variant="ghost"
                       aria-label={t("spoolAdmin.common.deleteNamed", { name: s.name })}
-                      onClick={() =>
-                        del.mutate(s.id, {
-                          onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("spoolAdmin.common.deleteFailed")),
-                        })
-                      }
+                      onClick={() => setDeletingSensor(s)}
                     >
                       {t("spoolAdmin.common.delete")}
                     </Button>
@@ -334,6 +331,22 @@ function SensorSection({ location, canWrite }: { location: StorageLocation; canW
         </ul>
       )}
       <SensorDialog open={open} onOpenChange={setOpen} locationId={location.id} sensor={editing} />
+      <ConfirmDialog
+        open={deletingSensor != null}
+        onOpenChange={(o) => !o && setDeletingSensor(null)}
+        title={t("spoolAdmin.sensor.deleteTitle", { name: deletingSensor?.name ?? "" })}
+        description={t("spoolAdmin.sensor.deleteDesc")}
+        confirmLabel={t("spoolAdmin.common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => {
+          if (!deletingSensor) return;
+          del.mutate(deletingSensor.id, {
+            onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("spoolAdmin.common.deleteFailed")),
+          });
+        }}
+      />
+
     </div>
   );
 }

@@ -10,11 +10,13 @@
  * blank field on save means "keep the current secret".
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { useDeleteHaLink, useHaActors, useHaLinks, useHaSettings, useSaveHaSettings, useTestHaMqtt, useTestHaRest } from "@/api/homeAssistant";
 import type { HaCondition, HaLink, HaRole, HaSettings, HaSettingsIn } from "@/api/types";
 import { HaLinkDialog } from "@/components/settings/HaLinkDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -315,6 +317,8 @@ function RestSection({
 function LinksSection() {
   const links = useHaLinks();
   const del = useDeleteHaLink();
+  const { t } = useTranslation();
+  const [deleting, setDeleting] = useState<HaLink | null>(null);
   const [editing, setEditing] = useState<HaLink | "new" | null>(null);
 
   return (
@@ -371,7 +375,7 @@ function LinksSection() {
                       variant="destructive"
                       aria-label={`Delete ${link.entity_id}`}
                       disabled={del.isPending}
-                      onClick={() => del.mutate(link.id)}
+                      onClick={() => setDeleting(link)}
                     >
                       Delete
                     </Button>
@@ -393,6 +397,16 @@ function LinksSection() {
       <Button type="button" variant="outline" onClick={() => setEditing("new")}>
         Add link
       </Button>
+      <ConfirmDialog
+        open={deleting != null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("haLinks.deleteTitle", { entity: deleting?.entity_id ?? "" })}
+        description={t("haLinks.deleteDesc")}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+      />
       <HaLinkDialog
         open={editing !== null}
         link={editing !== "new" ? editing : null}
