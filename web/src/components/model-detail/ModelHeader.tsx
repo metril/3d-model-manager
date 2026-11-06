@@ -184,14 +184,20 @@ export function ModelHeader({
   // slicer-eligible (3mf/step/obj/stl/iges) stored file on the current
   // revision, per `SLICER_FORMAT_PRIORITY` -- there's no broader "primary
   // file" concept to hang this off of yet.
-  const slicerFile = pickBestSlicerFile(model.current_revision?.files ?? []);
-  const orcaFile =
-    slicerFile && isOrcaSlicerOpenable(slicerFile)
-      ? slicerFile
-      : (model.current_revision?.files ?? []).find((f) => f.verified_at && isOrcaSlicerOpenable(f));
-  const sliceableFile = pickSliceableFile(model.current_revision?.files ?? []);
-  // The plate picked in the model viewer seeds the dialogs (only when it is this file's profile).
+  const files = model.current_revision?.files ?? [];
+  // The print profile shown in the viewer wins over the model's primary file.
   const viewerBlob = useActiveViewerBlob();
+  const viewerFile = viewerBlob ? files.find((f) => f.blob_hash === viewerBlob) : undefined;
+  const slicerFile = pickBestSlicerFile(files);
+  const orcaFile =
+    viewerFile && viewerFile.verified_at && isOrcaSlicerOpenable(viewerFile)
+      ? viewerFile
+      : slicerFile && isOrcaSlicerOpenable(slicerFile)
+        ? slicerFile
+        : files.find((f) => f.verified_at && isOrcaSlicerOpenable(f));
+  const sliceableFile =
+    viewerFile && pickSliceableFile([viewerFile]) ? viewerFile : pickSliceableFile(files);
+  // The plate picked in the model viewer seeds the dialogs (only when it is this file's profile).
   const viewerPlate = useSelectedPlate(viewerBlob);
   const dialogPlate = sliceableFile && viewerBlob === sliceableFile.blob_hash ? viewerPlate : null;
   const canSlice = !!sliceableFile && !!features.data?.slicer_configured && can("printers:print");

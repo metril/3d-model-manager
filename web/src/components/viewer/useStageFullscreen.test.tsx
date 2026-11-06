@@ -34,6 +34,20 @@ describe("useStageFullscreen", () => {
     home.appendChild(stage); // let React unmount cleanly
   });
 
+  it("swallows a refused requestFullscreen (no unhandled rejection)", async () => {
+    let api!: ReturnType<typeof useStageFullscreen>;
+    const { getByTestId } = render(<Harness expose={(value) => (api = value)} />);
+    const request = vi.fn().mockRejectedValue(new TypeError("not granted"));
+    getByTestId("stage").requestFullscreen = request as never;
+    const unhandled = vi.fn();
+    window.addEventListener("unhandledrejection", unhandled);
+    api.toggleFullscreen();
+    await new Promise((r) => setTimeout(r, 10));
+    window.removeEventListener("unhandledrejection", unhandled);
+    expect(request).toHaveBeenCalledOnce();
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+
   it("binds Shift+F to the hosting document after a relocate", () => {
     const popoutDoc = document.implementation.createHTMLDocument("popout");
     const emitter = createRelocateEmitter();
