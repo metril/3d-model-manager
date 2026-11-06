@@ -308,6 +308,10 @@ async def test_start_pipeline_fills_source_meta_for_deduped_file(
     model, f = await _seed(
         db_session, seed_file, make_coloured_project_3mf(profile_meta=True), "dedup"
     )
+    from app.services.storage_backends import resolve_default_backend_sync
+
+    with sync_session() as session:  # self-healing the default backend row commits: do it first
+        resolve_default_backend_sync(session, get_settings())
     monkeypatch.setattr(pipeline, "enqueue_step_sync", lambda *a, **k: None)
     with sync_session() as session:  # blob not analysed yet: left to the pipeline
         pipeline.start_pipeline_sync(session, blob_hash=f.blob_hash, file_id=f.id)

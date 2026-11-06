@@ -437,9 +437,16 @@ def decode_paint_state(code: str) -> int:
                 rec(weight / (sides + 1), depth + 1)
             return
         state = nib >> 2
-        if state == 3 and pos < len(nibbles):
-            state = 3 + nibbles[pos]
-            pos += 1
+        if state == 3:
+            # extended: runs of 0xF nibbles add 15 each, the final nibble the rest
+            extra = 0
+            while pos < len(nibbles) and nibbles[pos] == 0xF:
+                extra += 15
+                pos += 1
+            if pos < len(nibbles):
+                extra += nibbles[pos]
+                pos += 1
+            state = 3 + extra
         weights[state] = weights.get(state, 0.0) + weight
 
     rec(1.0, 0)
@@ -607,26 +614,6 @@ def split_at_z(
         verts = np.vstack([verts, np.asarray(new_v)])
         faces = faces_out
     return trimesh.Trimesh(vertices=verts, faces=faces, process=False), attr
-
-
-def paint_faces(
-    mesh: trimesh.Trimesh,
-    base: tuple[int, int, int, int],
-    changes: list[tuple[float, tuple[int, int, int, int]]] | None,
-) -> trimesh.Trimesh:
-    """Set per-face colours: ``base``, overridden above each colour-change
-    ``top_z`` by the face-centroid Z (mesh must be in world space, Z up).
-    Faces straddling a change z are split there first. Returns a new mesh when
-    it had to split, else ``mesh`` itself."""
-    if changes and len(mesh.faces):
-        mesh, _ = split_at_z(mesh, [z for z, _ in changes])
-    colours = np.tile(np.array(base, dtype=np.uint8), (len(mesh.faces), 1))
-    if changes and len(mesh.faces):
-        zc = mesh.triangles_center[:, 2]
-        for top_z, rgba in changes:  # ascending: later (higher) changes win
-            colours[zc > top_z] = rgba
-    mesh.visual = trimesh.visual.ColorVisuals(mesh, face_colors=colours)
-    return mesh
 
 
 def paint_part(

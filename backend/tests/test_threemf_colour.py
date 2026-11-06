@@ -351,6 +351,8 @@ def test_decode_paint_state() -> None:
     d = threemf_colour.decode_paint_state
     assert d("") == 0 and d("0") == 0 and d("4") == 1 and d("8") == 2
     assert d("0C") == 3 and d("1C") == 4 and d("zz") == 0
+    # extended states: runs of 0xF nibbles add 15 each (stream is stored back to front)
+    assert d("EC") == 17 and d("0FC") == 18 and d("1FC") == 19 and d("0FFC") == 33
     # split in two (1 split side): leaves state 1 and state 2 -> tie goes to the first
     assert d("841") == 1
     # split in two where the second child is split again into leaves 2, 2: majority is 2

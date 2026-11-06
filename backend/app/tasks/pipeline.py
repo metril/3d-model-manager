@@ -46,11 +46,11 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
-from xml.etree import ElementTree as ET
 
 import trimesh
 from celery import Task
 from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
@@ -263,19 +263,19 @@ def _fill_file_source_meta(
     is never committed or rolled back. Not-yet-analysed blobs are left to the
     pipeline."""
     try:
-        meta = session.get(BlobMeta, blob.hash)
-        if meta is None or meta.plates_version is None:
-            return
-        file = session.get(File, file_id)
-        if file is None or not _source_meta_incomplete(file.source_meta):
-            return
-        with (
-            derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
-            zipfile.ZipFile(fh) as zf,
-        ):
-            sm = plates3mf.read_3mf_profile_meta(zf)
-        if sm is not None:
-            with session.begin_nested():
+        with session.begin_nested():
+            meta = session.get(BlobMeta, blob.hash)
+            if meta is None or meta.plates_version is None:
+                return
+            file = session.get(File, file_id)
+            if file is None or not _source_meta_incomplete(file.source_meta):
+                return
+            with (
+                derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
+                zipfile.ZipFile(fh) as zf,
+            ):
+                sm = plates3mf.read_3mf_profile_meta(zf)
+            if sm is not None:
                 _apply_source_meta(session, File.id == file_id, sm)
     except Exception:
         logger.warning("source_meta fill failed for file %s", file_id, exc_info=True)
@@ -931,12 +931,15 @@ def _plates_pending(session: SyncSession, blob_hash: str) -> bool:
     return meta is not None and meta.plates_json is None
 
 
+def _is_transient(exc: BaseException) -> bool:
+    """Storage / DB trouble that a later retry can fix (a missing stored copy
+    included); everything else is treated as a deterministic failure."""
+    return isinstance(exc, OSError | LookupError | DBAPIError)
+
+
 def _is_parse_error(exc: BaseException) -> bool:
-    """A deterministic failure of the file itself (never fixed by a retry), as
-    opposed to transient storage/DB trouble, which must not poison a row."""
-    return isinstance(exc, zipfile.BadZipFile | ET.ParseError | ValueError) or type(
-        exc
-    ).__module__.startswith("lib3mf")
+    """Deterministic failure: marked failed so it never reruns on every start."""
+    return not _is_transient(exc)
 
 
 def _load_project_best_effort(src: Path, *, only_if_needed: bool):
@@ -966,8 +969,11 @@ def _plates_for_blob(session: SyncSession, settings: Settings, blob: Blob) -> bo
             derivatives.open_blob_ranged(session, settings, blob.hash) as fh,
             zipfile.ZipFile(fh) as zf,
         ):
-            painted = threemf_colour.has_paint(zf)
-            if not painted:
+            deriv = _glb_derivative(session, blob.hash)
+            glb_current = deriv is not None and deriv.version >= convert.GLB_VERSION
+            # Painted files need their plate GLBs rebuilt; the GLB backfill does
+            # that for stale GLBs, so only take the full path when it is current.
+            if not (glb_current and threemf_colour.has_paint(zf)):
                 _refresh_plate_info(session, blob, meta, zf)
                 return True
     with tempfile.TemporaryDirectory(prefix="tdmm-pipe-") as tmp:
@@ -1005,6 +1011,11 @@ def _refresh_plate_info(
     session.commit()
 
 
+def _commit(session: SyncSession, commit: bool) -> None:
+    """Commit, or just flush so the caller's row lock survives until its own commit."""
+    session.commit() if commit else session.flush()
+
+
 def _generate_plate_assets(
     session: SyncSession,
     settings: Settings,
@@ -1012,6 +1023,7 @@ def _generate_plate_assets(
     src: Path,
     *,
     project: plates3mf.ParsedProject | None = None,
+    commit: bool = True,
 ) -> bool:
     """Unsliced multi-plate project 3MF: per-plate thumbs + recentred GLBs +
     ``BlobMeta.plates_json``. Best-effort -- a failure here never fails the
@@ -1037,7 +1049,7 @@ def _generate_plate_assets(
         if not plates:
             meta.plates_json = []
             meta.plates_version = PLATES_VERSION
-            session.commit()
+            _commit(session, commit)
             return True
         meshes: dict[int, trimesh.Trimesh] = {}
         if 1 < len(plates) <= plates3mf.MAX_PLATE_GLBS:
@@ -1077,7 +1089,7 @@ def _generate_plate_assets(
         meta.plates_json = out
         meta.plates_version = PLATES_VERSION
         meta.plate_count = len(plates)
-        session.commit()
+        _commit(session, commit)
     except Exception as exc:
         session.rollback()
         logger.warning("plate assets failed for %s", blob.hash, exc_info=True)
@@ -1087,7 +1099,7 @@ def _generate_plate_assets(
         meta = session.get(BlobMeta, blob.hash)
         if meta is not None:
             _mark_plates_poisoned(meta)
-            session.commit()
+            _commit(session, commit)
         return False
     return True
 
@@ -1265,7 +1277,7 @@ def _regenerate_glb(session: SyncSession, settings: Settings, blob: Blob) -> Non
                 project = _load_project_best_effort(src, only_if_needed=True)
             convert.convert_to_glb_file(src, blob.format, tmp_path, project=project)
             if blob.format is BlobFormat.THREEMF:
-                _generate_plate_assets(session, settings, blob, src, project=project)
+                _generate_plate_assets(session, settings, blob, src, project=project, commit=False)
         derivatives.publish_file(tmp_path, dest)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
