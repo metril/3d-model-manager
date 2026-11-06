@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # serving entirely -- local dev runs the Vite dev server instead, which
     # proxies `/api` to this backend (see README "Development").
     static_dir: Path | None = None
+    # Extra origins allowed to frame the app (space-separated), appended to
+    # `frame-ancestors 'self'` -- e.g. a Home Assistant iframe/webpage card.
+    frame_ancestors: str = Field(default="", validation_alias=AliasChoices("TDMM_FRAME_ANCESTORS"))
     # Path/name of the gltfpack executable (M2 "Processing pipeline":
     # `optimize_glb`/browser meshopt compression). Defaults to whatever
     # `gltfpack` resolves to on PATH (see tests/conftest.py, which prepends

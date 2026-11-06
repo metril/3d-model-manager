@@ -14,7 +14,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, get_storage_backend, require_perm, require_session
+from app.api.deps import (
+    AuthContext,
+    get_storage_backend,
+    require_owner_or_admin,
+    require_perm,
+    require_session,
+)
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AssemblyThumb, Revision
@@ -49,6 +55,7 @@ async def create_revision(
     ctx: AuthContext = Depends(require_session),
 ) -> RevisionDetail:
     model = await library.get_model_by_id(db, model_id)
+    require_owner_or_admin(ctx, model.created_by_user_id, "add a revision to")
     revision = await library.create_revision(
         db,
         backend,

@@ -34,6 +34,7 @@ from app.models import FailureDetection, Printer, Setting
 from app.services import camera_state, obico
 from app.services.obico import ObicoConfig, PrinterDetection
 from app.services.obico_ml import MlError, score_frame
+from app.services.url_safety import is_safe_url
 
 settings_router = APIRouter(
     prefix="/settings/obico",
@@ -270,10 +271,26 @@ async def test_obico_settings(
     payload: TestIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> TestOut:
     cfg = await obico.get_config(db, settings)
     url = (payload.url or cfg.url).strip().rstrip("/")
     callback = (payload.callback_url or cfg.callback_url).strip().rstrip("/")
+    # Probing a caller-supplied URL is an SSRF primitive: admin only, and never
+    # loopback / link-local / metadata (LAN ranges stay allowed).
+    saved = {cfg.url.strip().rstrip("/"), cfg.callback_url.strip().rstrip("/")}
+    for effective in (url, callback):
+        if effective and effective not in saved:
+            if not ctx.is_admin:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "only an admin can test an unsaved url"
+                )
+            if not await anyio.to_thread.run_sync(
+                lambda u=effective: is_safe_url(u, allow_private=True, unresolvable_ok=True)
+            ):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "url points at a disallowed address"
+                )
     ver = settings.obico_ml_version.strip() or None
     if not url:
         return TestOut(ok=False, detail="not_configured", ml_version=ver)

@@ -349,7 +349,8 @@ async def test_control_routes_through_command_bus(
         .scalars()
         .all()
     )
-    assert len(rows) == 5 and all(r.payload["key_label"] == "k" for r in rows)
+    # audited only on success: the 404 (control/nope) is not recorded
+    assert len(rows) == 4 and all(r.payload["key_label"] == "k" for r in rows)
     assert all(r.printer_id == pid for r in rows)
 
 

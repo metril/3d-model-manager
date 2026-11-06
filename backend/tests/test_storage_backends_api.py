@@ -141,7 +141,8 @@ async def test_update_omitted_s3_secret_key_keeps_stored_secret(
         json={
             "config": {
                 "backend": "s3",
-                "bucket": "renamed-bucket",
+                "bucket": "b",
+                "prefix": "renamed-prefix",
                 "access_key": "AK",
                 "addressing": "path",
             }
@@ -150,7 +151,7 @@ async def test_update_omitted_s3_secret_key_keeps_stored_secret(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["config"]["bucket"] == "renamed-bucket"
+    assert body["config"]["prefix"] == "renamed-prefix"
     assert body["config"]["secret_key"] == "***"
 
 

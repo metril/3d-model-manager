@@ -20,6 +20,7 @@ import pyotp
 from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +67,8 @@ async def guard(user_id: int) -> None:
     r = Redis.from_url(get_settings().redis_url)
     try:
         n = int(await r.get(_fail_key(user_id)) or 0)
+    except (RedisError, OSError):
+        raise _unavailable() from None  # fail closed: no throttle state, no attempt
     finally:
         await r.aclose()
     if n >= FAIL_LIMIT:
@@ -78,8 +81,14 @@ async def note_failure(user_id: int) -> None:
         key = _fail_key(user_id)
         await r.incr(key)
         await r.expire(key, FAIL_WINDOW_S)
+    except (RedisError, OSError):
+        raise _unavailable() from None
     finally:
         await r.aclose()
+
+
+def _unavailable() -> HTTPException:
+    return err(503, "2fa_unavailable", "two-factor throttle store unavailable; try again shortly")
 
 
 def err(status: int, code: str, message: str = "") -> HTTPException:

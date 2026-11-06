@@ -54,10 +54,8 @@ class User(Base):
 
 
 class Session(Base):
-    """Cookie-backed login session, keyed by the token itself (SPEC:
-    ``sessions(id uuid=cookie token, user_id, created_at, expires_at,
-    last_seen_at)``).
-    """
+    """Cookie-backed login session. The cookie holds a random token; only its
+    SHA-256 (``token_hash``) is stored."""
 
     __tablename__ = "sessions"
 
@@ -68,6 +66,8 @@ class Session(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # SHA-256 of the cookie token; ``id`` is just an internal row handle.
+    token_hash: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
 
 
 class ApiToken(Base):

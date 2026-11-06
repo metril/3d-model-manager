@@ -15,6 +15,7 @@ from app.api.orcaslicer_proxy import router as orcaslicer_router
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.logging_config import LevelPoller, apply_level, configure_logging
+from app.security_headers import SecurityHeadersMiddleware
 from app.services import spool
 from app.services.app_config import get_app_config, seed_app_config, warn_ignored_env
 from app.services.bootstrap import ensure_admin_user
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     # docker/Dockerfile); it surfaces in /api/openapi.json's `info.version`
     # and in the /docs page header.
     app = FastAPI(title="3D Model Manager", version=settings.app_version, lifespan=lifespan)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router, prefix="/api")
     # OrcaSlicer sidecar proxy: outside /api, before the SPA catch-all.
     app.include_router(orcaslicer_router)
