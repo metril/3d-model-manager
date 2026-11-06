@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/metril/3d-model-manager/compare/v0.16.2...v0.17.0) (2026-11-06)
+
+
+### Features
+
+* **viewer:** print-profile dropdown with per-profile plate chips ([#233](https://github.com/metril/3d-model-manager/issues/233)) ([4e73f80](https://github.com/metril/3d-model-manager/commit/4e73f80a0a3f79073cd080c0d42517188fa7a08e))
+
 ## [0.16.2](https://github.com/metril/3d-model-manager/compare/v0.16.1...v0.16.2) (2026-11-06)
 
 
