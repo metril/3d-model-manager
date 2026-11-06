@@ -17,6 +17,7 @@ have tried this very attempt again.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import tempfile
 import uuid
@@ -163,10 +164,12 @@ def slice_file(self, queue_entry_id: int) -> None:
         entry.last_log = None
         session.commit()
 
-    with base.sync_session() as session:
+    with base.sync_session() as session, contextlib.ExitStack() as _closer:
         cfg = get_app_config_sync(session, settings)
         server_cfg = get_server_config_sync(session, settings)
         client = client_from_config(server_cfg)
+        if client is not None:
+            _closer.callback(client.close)
         entry = session.get(PrintQueueEntry, queue_entry_id)
         if entry is None or entry.state != QueueState.SLICING:
             return
@@ -606,9 +609,11 @@ def slice_job(self, job_id: str) -> None:
 
     _publish(settings, state="running", slice_job_id=job_id, file_id=file_id)
 
-    with base.sync_session() as session:
+    with base.sync_session() as session, contextlib.ExitStack() as _closer:
         server_cfg = get_server_config_sync(session, settings)
         client = client_from_config(server_cfg)
+        if client is not None:
+            _closer.callback(client.close)
         if client is None:
             err = (
                 "slicer_disabled"

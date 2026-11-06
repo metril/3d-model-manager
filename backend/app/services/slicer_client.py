@@ -16,12 +16,13 @@ no sync step.
 from __future__ import annotations
 
 import base64
+import contextlib
 import logging
 import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import httpx
 
@@ -153,7 +154,7 @@ def _success_log_tail(response: httpx.Response) -> str | None:
 
 def _build_slice_request(
     *,
-    model: bytes,
+    model: bytes | BinaryIO,
     filename: str,
     printer_profile: dict,
     process_profile: dict,
@@ -216,9 +217,23 @@ class SlicerClient:
         # None when the sidecar predates the header.
         self.last_log_tail: str | None = None
 
-    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> SlicerClient:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def _request(
+        self, method: str, path: str, *, max_bytes: int | None = None, **kwargs
+    ) -> httpx.Response:
         try:
-            response = self._http.request(method, path, **kwargs)
+            if max_bytes is None:
+                response = self._http.request(method, path, **kwargs)
+            else:
+                response = self._capped_request(method, path, max_bytes, **kwargs)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             # Could not reach the sidecar at all -- doesn't consume a
             # retry attempt (`app.tasks.slicing`'s module docstring).
@@ -248,6 +263,23 @@ class SlicerClient:
                 _error_log_tail(response),
             )
         return response
+
+    def _capped_request(self, method: str, path: str, max_bytes: int, **kwargs) -> httpx.Response:
+        """Like ``request`` but the body is streamed and the read aborted as
+        soon as it passes ``max_bytes`` -- a hostile/broken sidecar can never
+        make us buffer more than the cap."""
+        with self._http.stream(method, path, **kwargs) as raw:
+            body = bytearray()
+            for chunk in raw.iter_bytes():
+                body += chunk
+                if len(body) > max_bytes:
+                    raise SlicerError(f"slicer response exceeds the {max_bytes} byte limit")
+            return httpx.Response(
+                raw.status_code,
+                headers={k: v for k, v in raw.headers.items() if k.lower() != "content-encoding"},
+                content=bytes(body),
+                request=raw.request,
+            )
 
     def health(self) -> dict:
         response = self._request("GET", _ENDPOINTS["health"])
@@ -300,23 +332,26 @@ class SlicerClient:
         options: SliceOptions,
         job_id: str | None = None,
     ) -> bytes:
-        model_bytes = Path(model).read_bytes() if isinstance(model, Path) else model
-        request_kwargs = _build_slice_request(
-            model=model_bytes,
-            filename=filename,
-            printer_profile=printer_profile,
-            process_profile=process_profile,
-            filament_profiles=filament_profiles,
-            bed_type=bed_type,
-            options=options,
-        )
-        response = self._request(
-            "POST",
-            _ENDPOINTS["slice"],
-            timeout=self._slice_timeout_s + _SLICE_TIMEOUT_GRACE_S,
-            headers={"X-Job-Id": job_id} if job_id else None,
-            **request_kwargs,
-        )
+        with contextlib.ExitStack() as stack:
+            # A Path is streamed from disk into the multipart body, not read whole.
+            model_part = stack.enter_context(model.open("rb")) if isinstance(model, Path) else model
+            request_kwargs = _build_slice_request(
+                model=model_part,
+                filename=filename,
+                printer_profile=printer_profile,
+                process_profile=process_profile,
+                filament_profiles=filament_profiles,
+                bed_type=bed_type,
+                options=options,
+            )
+            response = self._request(
+                "POST",
+                _ENDPOINTS["slice"],
+                timeout=self._slice_timeout_s + _SLICE_TIMEOUT_GRACE_S,
+                headers={"X-Job-Id": job_id} if job_id else None,
+                max_bytes=_MAX_SLICE_RESPONSE_BYTES,
+                **request_kwargs,
+            )
         self.last_log_tail = _success_log_tail(response)
         content = response.content
         if len(content) > _MAX_SLICE_RESPONSE_BYTES:

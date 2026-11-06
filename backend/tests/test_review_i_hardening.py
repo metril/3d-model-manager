@@ -60,3 +60,20 @@ def test_unconfigured_sku_uses_global_safety_margin():
     default = sf.forecast_all([spool], {}, {}, 0, now)
     key = spool.key
     assert fm[key][0].reorder_point_g > default[key][0].reorder_point_g
+
+
+def test_slicer_client_caps_streamed_response_and_closes():
+    import httpx
+    import pytest
+
+    from app.services import slicer_client as sc
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * 5000)
+
+    http = httpx.Client(base_url="http://s", transport=httpx.MockTransport(handler))
+    with sc.SlicerClient("http://s", http=http) as c:
+        with pytest.raises(sc.SlicerError, match="exceeds"):
+            c._request("GET", "/x", max_bytes=100)
+        assert c._request("GET", "/x", max_bytes=10_000).content == b"x" * 5000
+    assert http.is_closed
