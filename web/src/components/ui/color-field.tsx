@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { PipetteIcon, XIcon } from "lucide-react";
 import { HexColorPicker } from "react-colorful";
+import { useTranslation } from "react-i18next";
 
 import type { ColorCatalogEntry } from "@/api/types";
 import { ColorCatalogPicker } from "@/components/inventory/ColorCatalogPicker";
@@ -53,6 +54,7 @@ export function ColorField({
   clearable = true,
   className,
 }: ColorFieldProps) {
+  const { t } = useTranslation();
   const current = normalizeHex(value);
   const [hexText, setHexText] = useState(current ?? value);
   const [prev, setPrev] = useState(current);
@@ -82,7 +84,7 @@ export function ColorField({
         <button
           type="button"
           id={id}
-          aria-label={label}
+          aria-label={current ? t("colorField.labelWithValue", { label, value: current }) : label}
           disabled={disabled}
           className={cn(
             "flex h-8 w-full items-center gap-2 rounded-lg border border-input bg-transparent px-2 text-left text-sm outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
@@ -103,14 +105,14 @@ export function ColorField({
                   }
             }
           />
-          <span className={cn("font-mono text-xs", !current && "text-muted-foreground")}>{current ?? "#RRGGBB"}</span>
+          <span className={cn("font-mono text-xs", !current && "text-muted-foreground")}>{current ?? t("colorField.none")}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent side="bottom" align="start" sideOffset={6} collisionPadding={12} avoidCollisions className="max-h-[min(28rem,var(--radix-popover-content-available-height))] w-64 overflow-y-auto">
         <HexColorPicker color={current ?? FALLBACK} onChange={onChange} style={{ width: "100%", height: 160 }} />
         <div className="flex items-center gap-1.5">
           <Input
-            aria-label="Hex color"
+            aria-label={t("colorField.hex")}
             placeholder="#rrggbb"
             value={hexText}
             maxLength={7}
@@ -123,7 +125,7 @@ export function ColorField({
             }}
           />
           {eyeDropper ? (
-            <Button type="button" variant="outline" size="icon-sm" aria-label="Pick colour from screen" onClick={pipette}>
+            <Button type="button" variant="outline" size="icon-sm" aria-label={t("colorField.pipette")} onClick={pipette}>
               <PipetteIcon />
             </Button>
           ) : null}
@@ -132,7 +134,7 @@ export function ColorField({
               type="button"
               variant="outline"
               size="icon-sm"
-              aria-label="Clear colour"
+              aria-label={t("colorField.clear")}
               onClick={() => {
                 setHexText("");
                 onChange("");
@@ -143,12 +145,12 @@ export function ColorField({
           ) : null}
         </div>
         {quick.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick colours">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("colorField.quick")}>
             {quick.map((hex) => (
               <button
                 key={hex}
                 type="button"
-                aria-label={`Color ${hex}`}
+                aria-label={t("colorField.swatch", { hex })}
                 aria-pressed={current === hex.toLowerCase()}
                 onClick={() => onChange(hex)}
                 style={{ backgroundColor: hex }}

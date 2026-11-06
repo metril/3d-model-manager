@@ -81,7 +81,7 @@ export interface StatsDashboard {
   success_rate: SuccessRate;
   time_accuracy: TimeAccuracy;
   failures: FailureAnalysis;
-  /** counts[weekday][hour]; weekday 0 = Monday, hours UTC. */
+  /** counts[weekday][hour]; weekday 0 = Monday, in the `tz` the request asked for (the browser zone). */
   heatmap: { counts: number[][]; max: number };
   records: {
     longest_print: RecordEntry | null;
@@ -92,10 +92,21 @@ export interface StatsDashboard {
   filament_trends: { week: string; material: string; grams: number }[];
 }
 
+function browserTz(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** `GET /stats/dashboard?days=` -- every Stats-page widget in one payload. */
 export function useStatsDashboard(days: number) {
+  // Bucket the heatmap in the viewer's zone, not UTC.
+  const tz = browserTz();
   return useQuery({
-    queryKey: ["stats", "dashboard", days] as const,
-    queryFn: () => api.get<StatsDashboard>(`/stats/dashboard?days=${days}`),
+    queryKey: ["stats", "dashboard", days, tz] as const,
+    queryFn: () =>
+      api.get<StatsDashboard>(`/stats/dashboard?days=${days}${tz ? `&tz=${encodeURIComponent(tz)}` : ""}`),
   });
 }

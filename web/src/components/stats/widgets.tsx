@@ -7,7 +7,11 @@ import { StatTile } from "@/components/ui/stat-tile";
 const pct = (v: number | null) => (v == null ? "–" : `${Math.round(v * 1000) / 10}`);
 const fmtHours = (s: number) => `${Math.round((s / 3600) * 10) / 10} h`;
 const SERIES_COLORS = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)", "var(--viz-4)", "var(--viz-5)", "var(--viz-7)"];
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** Localized short weekday names, Monday first (2024-01-01 was a Monday). */
+const weekdayNames = (): string[] => {
+  const fmt = new Intl.DateTimeFormat(undefined, { weekday: "short", timeZone: "UTC" });
+  return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2024, 0, 1 + i))));
+};
 
 function Empty() {
   const { t } = useTranslation();
@@ -122,6 +126,7 @@ export function Heatmap({ d }: { d: StatsDashboard }) {
   const { t } = useTranslation();
   const { counts, max } = d.heatmap;
   if (!max) return <Empty />;
+  const WEEKDAYS = weekdayNames();
   const cell = 16;
   const gap = 2;
   return (
@@ -147,7 +152,7 @@ export function Heatmap({ d }: { d: StatsDashboard }) {
                 fillOpacity={n ? 0.15 + 0.85 * (n / max) : 0.06}
                 data-count={n}
               >
-                <title>{`${WEEKDAYS[wd]} ${String(h).padStart(2, "0")}:00 UTC - ${t("stats.prints", { count: n })}`}</title>
+                <title>{`${WEEKDAYS[wd]} ${String(h).padStart(2, "0")}:00 - ${t("stats.prints", { count: n })}`}</title>
               </rect>
             ))}
           </g>
@@ -236,9 +241,10 @@ export function Filament({ d }: { d: StatsDashboard }) {
   }));
   if (ranked.length > top.length) {
     series.push({
-      key: "other", label: "Other", color: SERIES_COLORS[5],
+      key: "other", label: t("stats.other"), color: SERIES_COLORS[5],
       points: weeks.map((w) => ({ t: w, v: sum((x) => !top.includes(x), w) })),
     });
   }
-  return <LineChart series={series} unit=" g" label={t("stats.w.filament")} formatT={(ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })} />;
+  return <LineChart series={series} unit=" g" label={t("stats.w.filament")} // Week keys are UTC midnights: format in UTC or west-of-UTC viewers see the day before.
+    formatT={(ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} />;
 }

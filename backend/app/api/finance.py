@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import AuthContext, require_perm, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import CostCenter, GroupMember, LedgerEntry, PrintQueueEntry
+from app.models import CostCenter, GroupMember, LedgerEntry, PrintQueueEntry, User
 from app.schemas.finance import (
     CostCenterCreateIn,
     CostCenterOut,
@@ -305,6 +305,12 @@ async def list_ledger(
         if before_id is not None:
             stmt = stmt.where(LedgerEntry.id < before_id)
         rows = s.execute(stmt).scalars().all()
+        uids = {r.created_by_user_id for r in rows if r.created_by_user_id is not None}
+        names = (
+            dict(s.execute(select(User.id, User.username).where(User.id.in_(uids))).all())
+            if uids
+            else {}
+        )
         return [
             LedgerEntryOut(
                 id=r.id,
@@ -314,6 +320,7 @@ async def list_ledger(
                 print_queue_id=r.print_queue_id,
                 print_id=r.print_id,
                 created_by_user_id=r.created_by_user_id,
+                created_by_username=names.get(r.created_by_user_id),
                 note=r.note,
                 created_at=r.created_at,
             )

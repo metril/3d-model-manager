@@ -69,10 +69,11 @@ Days = Query(30, ge=1, le=365)
 @router.get("/stats/dashboard", response_model=StatsDashboardOut)
 async def stats_dashboard(
     days: int = Days,
+    tz: str | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> StatsDashboardOut:
-    return await w.dashboard(db, days=days, visible=visible_printer_ids(ctx))
+    return await w.dashboard(db, days=days, visible=visible_printer_ids(ctx), tz=parse_tz(tz))
 
 
 async def _rows(db: AsyncSession, ctx: AuthContext, days: int) -> list[w.Row]:
@@ -109,10 +110,11 @@ async def stats_failures(
 @router.get("/stats/heatmap", response_model=HeatmapOut)
 async def stats_heatmap(
     days: int = Days,
+    tz: str | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> HeatmapOut:
-    return w.heatmap(await _rows(db, ctx, days))
+    return w.heatmap(await _rows(db, ctx, days), parse_tz(tz))
 
 
 @router.get("/stats/records", response_model=RecordsOut)

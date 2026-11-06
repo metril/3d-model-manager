@@ -271,3 +271,19 @@ async def test_deposit_unholds_over_budget_item(
 
         refreshed = s.get(PrintQueueEntry, item_id)
         assert refreshed.hold_reason is None
+
+
+async def test_ledger_entries_carry_username(
+    authenticated_client: httpx.AsyncClient, make_cost_center
+) -> None:
+    me = (await authenticated_client.get("/api/auth/me")).json()
+    with base.sync_session() as s:
+        cc = make_cost_center(s, "named-center", owner_user_id=me["id"], budget_total=10)
+        s.commit()
+        cc_id = cc.id
+    r = await authenticated_client.post(
+        "/api/finance/deposits", json={"cost_center_id": cc_id, "amount": 5}
+    )
+    assert r.status_code in (200, 201), r.text
+    rows = (await authenticated_client.get(f"/api/finance/ledger?cost_center={cc_id}")).json()
+    assert rows and rows[0]["created_by_username"] == me["username"]

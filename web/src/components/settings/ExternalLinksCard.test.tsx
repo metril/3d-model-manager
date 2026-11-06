@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExternalLinksCard } from "@/components/settings/ExternalLinksCard";
 
-const { getMock, postMock, deleteMock } = vi.hoisted(() => ({
+const { getMock, postMock, deleteMock, patchMock } = vi.hoisted(() => ({
+  patchMock: vi.fn(),
   getMock: vi.fn(),
   postMock: vi.fn(),
   deleteMock: vi.fn(),
@@ -12,7 +13,7 @@ const { getMock, postMock, deleteMock } = vi.hoisted(() => ({
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, delete: deleteMock, patch: vi.fn() } };
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, delete: deleteMock, patch: patchMock } };
 });
 
 function renderCard() {
@@ -61,6 +62,33 @@ describe("ExternalLinksCard", () => {
     deleteMock.mockResolvedValue(undefined);
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Delete Grafana" }));
+    expect(deleteMock).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/external-links/1"));
+  });
+
+  const three = [
+    { id: 1, name: "A", url: "https://a.example", icon: null, sort_order: 0, open_mode: "iframe" },
+    { id: 2, name: "B", url: "https://b.example", icon: null, sort_order: 5, open_mode: "iframe" },
+    { id: 3, name: "C", url: "https://c.example", icon: null, sort_order: 5, open_mode: "iframe" },
+  ];
+
+  it("renumbers to the new order when moving, even with duplicate sort orders", async () => {
+    getMock.mockResolvedValue(three);
+    patchMock.mockResolvedValue({});
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Move C up" }));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(patchMock).toHaveBeenCalledWith("/external-links/3", { sort_order: 1 });
+    expect(patchMock).toHaveBeenCalledWith("/external-links/2", { sort_order: 2 });
+  });
+
+  it("rolls back applied changes when a move fails", async () => {
+    getMock.mockResolvedValue(three);
+    patchMock.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("x")).mockResolvedValue({});
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Move C up" }));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(3));
+    expect(patchMock).toHaveBeenLastCalledWith("/external-links/3", { sort_order: 5 });
   });
 });

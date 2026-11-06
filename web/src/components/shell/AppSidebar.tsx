@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useAuth, useLogout } from "@/api/auth";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useCategories } from "@/api/categories";
 import { useFollowedCollections } from "@/api/collections";
 import { useFailedImportsCount } from "@/api/imports";
@@ -61,6 +62,7 @@ function useScanChipState(): ScanChipState | null {
 /** Toasts "Scan done" once when a run seen running/queued in this session
  * finishes (never for a run that was already done on page load). */
 function useScanDoneToast() {
+  const { t } = useTranslation();
   const { data } = useScanRuns();
   const navigate = useNavigate();
   const latest = data?.[0];
@@ -71,14 +73,15 @@ function useScanDoneToast() {
       watching.current = latest.id;
     } else if (latest.state === "done" && watching.current === latest.id) {
       watching.current = null;
-      toast.success("Scan done", {
-        action: { label: "View jobs", onClick: () => void navigate({ to: "/system/jobs" }) },
+      toast.success(t("shell.scanDone"), {
+        action: { label: t("shell.viewJobs"), onClick: () => void navigate({ to: "/system/jobs" }) },
       });
     }
-  }, [latest, navigate]);
+  }, [latest, navigate, t]);
 }
 
 function ScanChip({ collapsed }: { collapsed: boolean }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const state = useScanChipState();
   useScanDoneToast();
@@ -96,13 +99,16 @@ function ScanChip({ collapsed }: { collapsed: boolean }) {
         className="mx-2 mb-2 flex items-center gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/20"
       >
         <TriangleAlertIcon className="size-3.5" />
-        Scan failed
+        {t("shell.scanFailed")}
       </button>
     );
   }
 
   const { run } = state;
-  const label = run.files_seen > 0 ? `Scanning… ${run.files_hashed}/${run.files_seen}` : "Scanning…";
+  const label =
+    run.files_seen > 0
+      ? t("shell.scanningProgress", { done: run.files_hashed, total: run.files_seen })
+      : t("shell.scanning");
 
   return (
     <button
@@ -129,10 +135,11 @@ function NavLink({
    * item's "N awaiting review" (P7 Task 9). */
   badgeAriaLabel?: string;
 }) {
+  const { t } = useTranslation();
   const navLabel = useNavLabel();
   const label = item.translate === false ? item.label : navLabel(item.label);
   const badgeText =
-    badgeAriaLabel ?? `${badge} failed import${badge === 1 ? "" : "s"} — click to review`;
+    badgeAriaLabel ?? t("shell.failedImports", { count: badge ?? 0 });
   const linkClass = cn(
     "relative flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground",
     collapsed && "justify-center px-0",
@@ -240,7 +247,6 @@ export function AppSidebar({
     if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => ro.disconnect();
   }, [updateNavFade]);
-  useEffect(updateNavFade); // content (collections, printers) changes scrollHeight
   const navLabel = useNavLabel();
   const location = useRouterState({ select: (state) => state.location });
   const pathname = location.pathname;
@@ -255,15 +261,52 @@ export function AppSidebar({
     typeof item.to === "string" &&
     (item.exact ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`));
   const { groups: visibleGroups, systemItems: visibleSystemItems, externalItems } = useVisibleNav();
+  // Content (collections, categories, printers, external links) and the
+  // rail/expanded switch all change the nav's scrollHeight.
+  useEffect(updateNavFade, [updateNavFade, visibleGroups, visibleSystemItems, externalItems, followed.data, categories.data, collapsed, collectionsHidden]);
 
+  // Below `lg` the sidebar is an off-canvas drawer: while closed it is inert
+  // (not focusable, hidden from AT); while open it is a modal dialog that
+  // traps Tab and hands focus back on close.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const drawer = !isDesktop;
+  const drawerOpen = drawer && mobileOpen;
+  const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!mobileOpen) return;
+    const returnFocus = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        asideRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    if (drawerOpen) (focusables()[0] ?? asideRef.current)?.focus();
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onCloseMobile();
+      if (event.key === "Escape") return onCloseMobile();
+      if (event.key !== "Tab" || !drawerOpen) return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!asideRef.current?.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mobileOpen, onCloseMobile]);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (drawerOpen) returnFocus?.focus?.();
+    };
+  }, [mobileOpen, drawerOpen, onCloseMobile]);
 
   const collections = (followed.data ?? []).slice(0, MAX_COLLECTION_LINKS);
   const hasMoreCollections = (followed.data?.length ?? 0) > MAX_COLLECTION_LINKS;
@@ -286,6 +329,12 @@ export function AppSidebar({
         />
       )}
       <aside
+        ref={asideRef}
+        inert={drawer && !mobileOpen}
+        role={drawerOpen ? "dialog" : undefined}
+        aria-modal={drawerOpen ? true : undefined}
+        aria-label={drawerOpen ? t("shell.navigation") : undefined}
+        tabIndex={drawerOpen ? -1 : undefined}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex h-svh min-h-0 w-64 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-transform duration-150",
           "lg:sticky lg:top-0 lg:z-auto lg:w-auto lg:translate-x-0 lg:transition-[width]",
@@ -319,9 +368,9 @@ export function AppSidebar({
       {can("library:write") ? (
       <div className={cn("px-2 pb-2", collapsed && "px-1.5")}>
         <Button asChild className={cn("w-full gap-2", collapsed ? "justify-center px-0" : "justify-start")}>
-          <Link to="/add" title={collapsed ? "Add to library" : undefined}>
+          <Link to="/add" title={collapsed ? t("shell.addToLibrary") : undefined}>
             <Plus className="size-4" />
-            {!collapsed && "Add to library"}
+            {!collapsed && t("shell.addToLibrary")}
           </Link>
         </Button>
       </div>
@@ -357,7 +406,7 @@ export function AppSidebar({
                   }
                   badgeAriaLabel={
                     item.to === "/print/queue" && reviewCount.data?.count
-                      ? `${reviewCount.data.count} awaiting review`
+                      ? t("shell.awaitingReview", { n: reviewCount.data.count })
                       : undefined
                   }
                 />
@@ -401,7 +450,7 @@ export function AppSidebar({
                       to="/collections"
                       className="truncate rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
                     >
-                      {hasMoreCollections ? `All ${followed.data?.length} collections` : "All collections"}
+                      {hasMoreCollections ? t("shell.allCollectionsN", { n: followed.data?.length ?? 0 }) : t("shell.allCollections")}
                     </Link>
                   </div>
                 )}

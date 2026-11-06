@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NotificationsCard } from "@/components/settings/notifications/NotificationsCard";
@@ -67,7 +67,7 @@ describe("NotificationsCard", () => {
     renderWithQuery(<NotificationsCard />);
     fireEvent.click(await screen.findByRole("button", { name: "Delete Phone" }));
     expect(deleteMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/notifications/channels/1"));
   });
 });

@@ -1,20 +1,34 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SpoolForm } from "@/components/inventory/SpoolForm";
 
-const { getMock, postMock, authMock } = vi.hoisted(() => ({
+const { getMock, postMock, putMock, authMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
+  putMock: vi.fn(),
   authMock: vi.fn(),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock, post: postMock } };
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock } };
 });
+
+vi.mock("@/components/inventory/SupplierListEditor", () => ({
+  SupplierListEditor: ({ onChange }: { onChange: (v: unknown[]) => void }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onChange([{ supplier_id: 1, article_number: null, quoted_price_per_kg: null, is_purchase_source: false }])
+      }
+    >
+      add-supplier
+    </button>
+  ),
+}));
 
 vi.mock("@/api/auth", () => ({ useAuth: () => authMock() }));
 
@@ -56,6 +70,7 @@ describe("SpoolForm", () => {
   beforeEach(() => {
     getMock.mockReset();
     postMock.mockReset();
+    putMock.mockReset();
     authMock.mockReset();
     getMock.mockResolvedValue([]);
     authMock.mockReturnValue({ can: () => true, canPrinter: () => true });
@@ -84,5 +99,21 @@ describe("SpoolForm", () => {
   it("shows the Add spool button for a writer", () => {
     renderForm();
     expect(screen.getByRole("button", { name: "Add spool" })).toBeInTheDocument();
+  });
+
+  it("retries only the supplier PUT after a created spool's supplier save fails", async () => {
+    postMock.mockResolvedValue({ id: 7, suppliers: [] });
+    putMock.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce([]);
+    const onOpenChange = renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "add-supplier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add spool" }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add spool" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(putMock).toHaveBeenCalledTimes(2);
+    expect(postMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,8 @@ import { EMPTY_TAG_FILTER, type TagFilterValue } from "@/components/tags/tagFilt
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, ImageIcon, RefreshCwIcon } from "lucide-react";
 
+import { useTranslation } from "react-i18next";
+
 import { ApiError } from "@/api/client";
 import {
   useApprovePending,
@@ -19,6 +21,7 @@ import {
   useUnfollowCollection,
 } from "@/api/collections";
 import type { CollectionSyncMode, FollowedCollection, PendingImport, RemoteList } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ExpandCollapseAll } from "@/components/ExpandCollapseAll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +47,7 @@ import { useOpenMap } from "@/lib/useOpenMap";
  * `useFollowedCollections()` from both `FollowedCard` and `BrowseCard` is a
  * single shared request, not two. */
 export function FollowedCard() {
+  const { t } = useTranslation();
   const [tagFilter, setTagFilter] = useState<TagFilterValue>(EMPTY_TAG_FILTER);
   const followed = useFollowedCollections({
     tags: tagFilter.tags.length ? tagFilter.tags : undefined,
@@ -54,10 +58,9 @@ export function FollowedCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Followed collections</CardTitle>
+        <CardTitle>{t("collections.followedTitle")}</CardTitle>
         <CardDescription>
-          Lists you follow are re-checked on each sync. New models are imported straight away
-          (auto) or queued for you to approve (review).
+          {t("collections.followedDesc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -68,12 +71,12 @@ export function FollowedCard() {
             onClick={() => syncNow.mutate()}
           >
             <RefreshCwIcon />
-            {syncNow.isPending ? "Syncing…" : "Sync now"}
+            {syncNow.isPending ? t("collections.syncing") : t("collections.syncNow")}
           </Button>
           <TagFilter value={tagFilter} onChange={setTagFilter} countKey="collections" />
           {syncNow.isError && (
             <p role="alert" className="text-sm text-destructive">
-              {syncNow.error instanceof ApiError ? syncNow.error.detail : "Could not start the sync."}
+              {syncNow.error instanceof ApiError ? syncNow.error.detail : t("collections.syncError")}
             </p>
           )}
         </div>
@@ -83,8 +86,8 @@ export function FollowedCard() {
         ) : (followed.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {tagFilter.tags.length > 0
-              ? "No followed collections match this tag filter."
-              : "You aren't following any collections yet."}
+              ? t("collections.noMatch")
+              : t("collections.noneFollowed")}
           </p>
         ) : (
           <div className="space-y-2">
@@ -126,6 +129,8 @@ function CollectionCollage({ thumbnails }: { thumbnails: string[] }) {
 function FollowedRow({ collection }: { collection: FollowedCollection }) {
   const setMode = useSetCollectionMode();
   const unfollow = useUnfollowCollection();
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2">
@@ -135,7 +140,9 @@ function FollowedRow({ collection }: { collection: FollowedCollection }) {
         <EntityTags target={{ kind: "collection", id: collection.id }} tags={collection.tag_refs} className="my-0.5" />
         <p className="font-mono text-xs text-muted-foreground">
           <span className="capitalize">{collection.site}</span> · {collection.kind} ·{" "}
-          {collection.last_synced_at ? `synced ${formatDate(collection.last_synced_at)}` : "never synced"}
+          {collection.last_synced_at
+            ? t("collections.synced", { date: formatDate(collection.last_synced_at) })
+            : t("collections.neverSynced")}
         </p>
         {collection.last_error && (
           <p role="alert" className="text-xs text-destructive">
@@ -147,19 +154,19 @@ function FollowedRow({ collection }: { collection: FollowedCollection }) {
         value={collection.mode}
         onValueChange={(mode) => setMode.mutate({ id: collection.id, mode: mode as CollectionSyncMode })}
       >
-        <SelectTrigger aria-label={`Sync mode for ${collection.title}`} size="sm" className="w-36">
+        <SelectTrigger aria-label={t("collections.syncMode", { title: collection.title })} size="sm" className="w-36">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="auto">Auto-import</SelectItem>
-          <SelectItem value="review">Review</SelectItem>
+          <SelectItem value="auto">{t("collections.autoImport")}</SelectItem>
+          <SelectItem value="review">{t("collections.review")}</SelectItem>
         </SelectContent>
       </Select>
       {/* Plain anchor with `download` -- the session cookie carries auth, so
           no fetch-and-blob dance is needed (R11-A). */}
       <Button type="button" variant="outline" size="sm" asChild>
-        <a href={`/api/collections/${collection.id}/zip`} download aria-label={`Download ${collection.title} as zip`}>
-          Download ZIP
+        <a href={`/api/collections/${collection.id}/zip`} download aria-label={t("collections.downloadZipLabel", { title: collection.title })}>
+          {t("collections.downloadZip")}
         </a>
       </Button>
       <Button
@@ -167,10 +174,20 @@ function FollowedRow({ collection }: { collection: FollowedCollection }) {
         variant="outline"
         size="sm"
         disabled={unfollow.isPending}
-        onClick={() => unfollow.mutate(collection.id)}
+        onClick={() => setConfirming(true)}
       >
-        Unfollow
+        {t("collections.unfollow")}
       </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("collections.unfollowTitle", { title: collection.title })}
+        description={t("collections.unfollowDesc")}
+        confirmLabel={t("collections.unfollow")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => unfollow.mutate(collection.id)}
+      />
     </div>
   );
 }
@@ -221,6 +238,7 @@ function groupPendingItems(items: PendingImport[]): PendingGroup[] {
  * localStorage; per-tab session state is enough). Every group defaults
  * OPEN, so an id absent from the map (never toggled) reads as open. */
 export function ReviewQueueCard() {
+  const { t } = useTranslation();
   const pending = usePendingImports();
   // `items`/`groups` are computed up front, before the loading/empty early
   // returns below, so the `useOpenMap` call itself stays unconditional --
@@ -237,7 +255,7 @@ export function ReviewQueueCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Review queue</CardTitle>
+          <CardTitle>{t("collections.reviewQueue")}</CardTitle>
           <CardDescription>
             New models found in your <em>review</em> lists. Nothing enters the library until you
             import it.
@@ -254,14 +272,14 @@ export function ReviewQueueCard() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Review queue</CardTitle>
+          <CardTitle>{t("collections.reviewQueue")}</CardTitle>
           <CardDescription>
             New models found in your <em>review</em> lists. Nothing enters the library until you
             import it.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Nothing waiting for review.</p>
+          <p className="text-sm text-muted-foreground">{t("collections.nothingWaiting")}</p>
         </CardContent>
       </Card>
     );
@@ -271,12 +289,12 @@ export function ReviewQueueCard() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <CardTitle className="flex-1">Review queue</CardTitle>
+          <CardTitle className="flex-1">{t("collections.reviewQueue")}</CardTitle>
           <Badge variant="secondary" className="font-mono">
             {items.length}
           </Badge>
           <ExpandCollapseAll
-            label="review groups"
+            label={t("collections.reviewGroups")}
             allOpen={allOpen}
             allClosed={allClosed}
             onExpandAll={openAll}
@@ -352,6 +370,7 @@ function ReviewGroup({
  * a 3-line title doesn't grow it -- same fixed-height-then-clamp idiom as
  * `ModelCard`'s tag row, just for text instead of tags. */
 function ReviewCard({ item }: { item: PendingImport }) {
+  const { t } = useTranslation();
   const approve = useApprovePending();
   const dismiss = useDismissPending();
 
@@ -378,7 +397,7 @@ function ReviewCard({ item }: { item: PendingImport }) {
             disabled={approve.isPending}
             onClick={() => approve.mutate(item.id)}
           >
-            Import
+            {t("collections.import")}
           </Button>
           <Button
             type="button"
@@ -387,7 +406,7 @@ function ReviewCard({ item }: { item: PendingImport }) {
             disabled={dismiss.isPending}
             onClick={() => dismiss.mutate(item.id)}
           >
-            Dismiss
+            {t("collections.dismiss")}
           </Button>
         </div>
       </CardContent>
@@ -400,6 +419,7 @@ function ReviewCard({ item }: { item: PendingImport }) {
  * has -- pasting its URL follows it directly (`POST /collections/from-url`)
  * without needing it to show up in the browsable list first. */
 function AddCollectionByUrl() {
+  const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const followByUrl = useFollowCollectionByUrl();
 
@@ -416,23 +436,23 @@ function AddCollectionByUrl() {
     <form onSubmit={handleSubmit} className="space-y-2" data-testid="add-collection-by-url">
       <div className="flex flex-wrap items-center gap-2">
         <Label htmlFor="collection-url" className="sr-only">
-          Collection URL
+          {t("collections.url")}
         </Label>
         <Input
           id="collection-url"
           type="url"
-          placeholder="https://makerworld.com/…/collections/…"
+          placeholder={t("collections.urlPh")}
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           className="h-8 max-w-sm flex-1"
         />
         <Button type="submit" size="sm" variant="outline" disabled={!url.trim() || followByUrl.isPending}>
-          {followByUrl.isPending ? "Following…" : "Follow"}
+          {followByUrl.isPending ? t("collections.following") : t("collections.follow")}
         </Button>
       </div>
       {followByUrl.isError && (
         <p role="alert" className="text-sm text-destructive">
-          {followByUrl.error instanceof ApiError ? followByUrl.error.detail : "Could not follow that collection."}
+          {followByUrl.error instanceof ApiError ? followByUrl.error.detail : t("collections.followError")}
         </p>
       )}
     </form>
@@ -440,6 +460,7 @@ function AddCollectionByUrl() {
 }
 
 export function BrowseCard() {
+  const { t } = useTranslation();
   const lists = useRemoteLists();
   const follow = useFollowCollection();
   const followed = useFollowedCollections();
@@ -448,8 +469,8 @@ export function BrowseCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Your collections on each site</CardTitle>
-        <CardDescription>Follow a list to keep it synced with your library.</CardDescription>
+        <CardTitle>{t("collections.browseTitle")}</CardTitle>
+        <CardDescription>{t("collections.browseDesc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <AddCollectionByUrl />
@@ -494,7 +515,7 @@ export function BrowseCard() {
                     <p className="truncate text-sm font-medium text-foreground">{list.title}</p>
                     <p className="font-mono text-xs text-muted-foreground">
                       <span className="capitalize">{list.site}</span> · {list.kind}
-                      {list.count !== null ? ` · ${list.count} models` : ""}
+                      {list.count !== null ? ` · ${t("collections.modelsCount", { count: list.count })}` : ""}
                     </p>
                   </div>
                   <Button
@@ -512,7 +533,7 @@ export function BrowseCard() {
                       })
                     }
                   >
-                    {already ? "Following" : "Follow"}
+                    {already ? t("collections.followingState") : t("collections.follow")}
                   </Button>
                 </div>
               );

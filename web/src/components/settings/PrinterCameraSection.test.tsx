@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PrinterOut } from "@/api/types";
@@ -79,6 +79,8 @@ describe("PrinterCameraSection", () => {
     expect(postMock).toHaveBeenCalledWith("/printers/1/overlay-tokens", {});
 
     fireEvent.click(await screen.findByRole("button", { name: "Revoke token 5" }));
+    expect(deleteMock).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/printers/1/overlay-tokens/5"));
   });
 });

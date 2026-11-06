@@ -58,6 +58,7 @@ export function useForecast() {
 export function useForecastConfig() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silentError: true }, // ForecastPanel's config form toasts the failure itself
     mutationFn: (patch: Partial<ForecastConfig>) => api.put<ForecastConfig>("/spools/forecast/config", patch),
     onSuccess: () => void qc.invalidateQueries({ queryKey: KEY }),
   });

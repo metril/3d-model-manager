@@ -1,7 +1,10 @@
 import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
-import { ApiError } from "@/api/client";
+import { api, ApiError } from "@/api/client";
 import {
   useCreateExternalLink,
   useDeleteExternalLink,
@@ -9,6 +12,7 @@ import {
   useUpdateExternalLink,
   type ExternalLink,
 } from "@/api/externalLinks";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +26,10 @@ export function ExternalLinksCard() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [openMode, setOpenMode] = useState<ExternalLink["open_mode"]>("iframe");
+  const [deleting, setDeleting] = useState<ExternalLink | null>(null);
+  const [moving, setMoving] = useState(false);
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const items = links.data ?? [];
   const error = [create, update, remove].find((m) => m.isError)?.error;
@@ -45,13 +53,30 @@ export function ExternalLinksCard() {
     );
   }
 
-  // Swap sort_order with the neighbour; equal values are first de-duplicated
-  // by using the list index as the order.
-  function move(index: number, delta: -1 | 1) {
-    const other = items[index + delta];
-    if (!other) return;
-    update.mutate({ id: items[index].id, sort_order: index + delta });
-    update.mutate({ id: other.id, sort_order: index });
+  // The API has no bulk reorder, so renumber to the new list order (one PATCH
+  // per link whose value changes -- two for a clean swap). The cache is
+  // updated optimistically and every applied PATCH is undone on failure.
+  async function move(index: number, delta: -1 | 1) {
+    if (moving || !items[index + delta]) return;
+    const next = [...items];
+    [next[index], next[index + delta]] = [next[index + delta], next[index]];
+    const changes = next.map((l, i) => ({ link: l, order: i })).filter(({ link, order }) => link.sort_order !== order);
+    const key = ["external-links"];
+    queryClient.setQueryData<ExternalLink[]>(key, next.map((l, i) => ({ ...l, sort_order: i })));
+    setMoving(true);
+    const applied: ExternalLink[] = [];
+    try {
+      for (const { link, order } of changes) {
+        await api.patch(`/external-links/${link.id}`, { sort_order: order });
+        applied.push(link);
+      }
+    } catch (e) {
+      await Promise.allSettled(applied.map((l) => api.patch(`/external-links/${l.id}`, { sort_order: l.sort_order })));
+      toast.error(e instanceof ApiError ? e.detail : t("extLinks.moveError"));
+    } finally {
+      setMoving(false);
+      void queryClient.invalidateQueries({ queryKey: key });
+    }
   }
 
   return (
@@ -74,13 +99,13 @@ export function ExternalLinksCard() {
                   {link.url} · {link.open_mode === "iframe" ? "embedded" : "new tab"}
                 </div>
               </div>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move ${link.name} up`} disabled={index === 0} onClick={() => move(index, -1)}>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("extLinks.moveUp", { name: link.name })} disabled={moving || index === 0} onClick={() => move(index, -1)}>
                 <ArrowUp className="size-4" />
               </Button>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move ${link.name} down`} disabled={index === items.length - 1} onClick={() => move(index, 1)}>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("extLinks.moveDown", { name: link.name })} disabled={moving || index === items.length - 1} onClick={() => move(index, 1)}>
                 <ArrowDown className="size-4" />
               </Button>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={`Delete ${link.name}`} onClick={() => remove.mutate(link.id)}>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("extLinks.deleteLink", { name: link.name })} onClick={() => setDeleting(link)}>
                 <Trash2 className="size-4" />
               </Button>
             </li>
@@ -117,6 +142,16 @@ export function ExternalLinksCard() {
           </p>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={deleting != null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("extLinks.deleteTitle", { name: deleting?.name ?? "" })}
+        description={t("extLinks.deleteDesc")}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
     </Card>
   );
 }

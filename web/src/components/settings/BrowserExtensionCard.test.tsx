@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
@@ -139,6 +139,7 @@ describe("BrowserExtensionCard", () => {
 
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/settings/api-tokens/3"));
   });
@@ -151,6 +152,7 @@ describe("BrowserExtensionCard", () => {
 
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("api token 3 not found");
   });

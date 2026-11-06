@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { VirtualPrinter } from "@/api/types";
@@ -110,6 +110,8 @@ describe("VirtualPrinterCard", () => {
     patchMock.mockResolvedValue(fakeVp({ access_code: "11112222" }));
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Regenerate" }));
+    expect(patchMock).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Regenerate" }));
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith("/virtual-printers/1", { regenerate_access_code: true }),
     );
@@ -124,7 +126,7 @@ describe("VirtualPrinterCard", () => {
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(deleteMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/virtual-printers/1"));
     expect(await screen.findByText("No virtual printers yet.")).toBeInTheDocument();
   });

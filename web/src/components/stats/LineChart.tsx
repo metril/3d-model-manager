@@ -44,6 +44,7 @@ export function LineChart({
   const tMin = Math.min(...all.map((p) => p.t));
   const tMax = Math.max(...all.map((p) => p.t));
   const vals = all.map((p) => p.v);
+  const numFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const ticks = niceTicks(Math.min(0, ...vals), Math.max(...vals));
   const yMin = ticks[0];
   const yMax = ticks[ticks.length - 1] || 1;
@@ -75,7 +76,7 @@ export function LineChart({
           <g key={v}>
             <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity={0.12} />
             <text x={PAD.l - 6} y={y(v)} textAnchor="end" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
-              {v}
+              {numFmt.format(v)}
             </text>
           </g>
         ))}

@@ -74,6 +74,7 @@ export function useDeleteCostCenter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/finance/cost-centers/${id}`),
+    meta: { silentError: true }, // CostCenterTable toasts the failure itself
     onSuccess: () => invalidateCostCenters(queryClient),
   });
 }

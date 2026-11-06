@@ -22,8 +22,15 @@ export function BackupCodes({ codes }: { codes: string[] }) {
     const a = document.createElement("a");
     a.href = url;
     a.download = "backup-codes.txt";
+    a.style.display = "none";
+    // Firefox needs the anchor in the DOM, and revoking synchronously can
+    // cancel the download before it starts.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, 0);
   }
 
   return (

@@ -6,6 +6,7 @@
  * `virtual_printer_enabled` (the `virtual-printer` compose service is opt-in).
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/api/client";
 import { usePrinters } from "@/api/printers";
@@ -16,6 +17,7 @@ import {
   useUpdateVirtualPrinter,
   useVirtualPrinters,
 } from "@/api/virtualPrinters";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -153,7 +155,9 @@ function VirtualPrinterForm({ initial, onDone }: FormProps) {
 function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
   const update = useUpdateVirtualPrinter();
   const del = useDeleteVirtualPrinter();
+  const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const mode = MODES.find(([m]) => m === vp.mode)?.[1] ?? vp.mode;
   const err = update.error ?? del.error;
 
@@ -177,15 +181,9 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
           <Button size="sm" variant="outline" onClick={onEdit}>
             Edit
           </Button>
-          {confirming ? (
-            <Button size="sm" variant="destructive" disabled={del.isPending} onClick={() => del.mutate(vp.id)}>
-              Confirm delete
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
-              Delete
-            </Button>
-          )}
+          <Button size="sm" variant="outline" disabled={del.isPending} onClick={() => setConfirming(true)}>
+            Delete
+          </Button>
         </div>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -200,7 +198,7 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
             size="sm"
             variant="ghost"
             disabled={update.isPending}
-            onClick={() => update.mutate({ id: vp.id, body: { regenerate_access_code: true } })}
+            onClick={() => setRegenerating(true)}
           >
             Regenerate
           </Button>
@@ -211,6 +209,26 @@ function Row({ vp, onEdit }: { vp: VirtualPrinter; onEdit: () => void }) {
           {errorText(err, "Request failed.")}
         </p>
       )}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("virtualPrinter.deleteTitle", { name: vp.name })}
+        description={t("virtualPrinter.deleteDesc")}
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => del.mutate(vp.id)}
+      />
+      <ConfirmDialog
+        open={regenerating}
+        onOpenChange={setRegenerating}
+        title={t("virtualPrinter.regenTitle")}
+        description={t("virtualPrinter.regenDesc")}
+        confirmLabel={t("virtualPrinter.regenerate")}
+        cancelLabel={t("common.cancel")}
+        destructive
+        onConfirm={() => update.mutate({ id: vp.id, body: { regenerate_access_code: true } })}
+      />
     </li>
   );
 }

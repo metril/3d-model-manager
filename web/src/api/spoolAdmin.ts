@@ -150,6 +150,7 @@ export function useDeleteSensor() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/storage-locations/sensors/${id}`),
+    meta: { silentError: true }, // LocationsPanel toasts the failure itself
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["locations"] }),
   });
 }

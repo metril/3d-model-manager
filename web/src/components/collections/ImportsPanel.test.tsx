@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImportsPanel } from "@/components/collections/ImportsPanel";
@@ -8,7 +8,8 @@ import type { ImportOut } from "@/api/types";
 // `vi.mock` factories are hoisted above the module's own top-level bindings
 // (same pattern as SavedPanel.test.tsx), so the mutable boxes the tests
 // write to have to be created through `vi.hoisted`.
-const { importsBox, retryMock, dismissMock, dismissAllMock, failedBox, filterSpy, moreMock } = vi.hoisted(() => ({
+const { toastMock, importsBox, retryMock, dismissMock, dismissAllMock, failedBox, filterSpy, moreMock } = vi.hoisted(() => ({
+  toastMock: vi.fn(),
   importsBox: {
     current: { data: [] as ImportOut[], isLoading: false } as Record<string, unknown>,
   },
@@ -19,6 +20,8 @@ const { importsBox, retryMock, dismissMock, dismissAllMock, failedBox, filterSpy
   dismissMock: vi.fn(),
   dismissAllMock: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, params, ...rest }: { children: React.ReactNode; to: string; params: { slug: string } }) => (
@@ -153,8 +156,30 @@ describe("ImportsPanel", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
     expect(dismissMock).toHaveBeenCalledWith(1);
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss all failed (2)" }));
-    expect(dismissAllMock).toHaveBeenCalled();
+  });
+
+  it("Dismiss all failed waits out an undo window and Undo cancels it", () => {
+    vi.useFakeTimers();
+    try {
+      failedBox.current = 2;
+      importsBox.current = { data: [fakeImport({ id: 1, state: "failed", error: "a" })], isLoading: false };
+      renderPanel();
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "Failures (2)" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss all failed (2)" }));
+      expect(dismissAllMock).not.toHaveBeenCalled();
+      act(() => void vi.advanceTimersByTime(6000));
+      expect(dismissAllMock).toHaveBeenCalledTimes(1);
+
+      dismissAllMock.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss all failed (2)" }));
+      const opts = toastMock.mock.calls.at(-1)?.[1] as { action: { onClick: () => void } };
+      act(() => opts.action.onClick());
+      act(() => void vi.advanceTimersByTime(10000));
+      expect(dismissAllMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("Failures hides dismissed by default; the switch asks for them", () => {
