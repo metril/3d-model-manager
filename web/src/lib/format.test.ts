@@ -54,6 +54,8 @@ describe("formatCost", () => {
   it("uses currency style when set; bad code falls back", () => {
     setCurrency("usd");
     expect(formatCost(12.3)).toBe("$12.30");
+    setCurrency("jpy"); // the currency's own fraction digits, not a forced 2
+    expect(formatCost(1234.5)).toMatch(/1,23[45]$/);
     setCurrency("not-a-code");
     expect(formatCost(12.3)).toBe("12.30");
   });

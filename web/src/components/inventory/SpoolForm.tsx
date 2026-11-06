@@ -177,8 +177,9 @@ export function SpoolForm({
       patchSpool.mutate({ id: spool.id, payload: patch }, { onSuccess: finish });
     } else if (created) {
       // The spool exists already (a previous attempt created it but the
-      // supplier PUT failed): retry only the follow-up, never a second create.
-      void finish(created);
+      // supplier PUT failed): never create twice; PATCH any edits made since
+      // onto it, then retry the follow-up.
+      patchSpool.mutate({ id: created.id, payload }, { onSuccess: finish });
     } else {
       createSpool.mutate(payload, {
         onSuccess: (saved) => {

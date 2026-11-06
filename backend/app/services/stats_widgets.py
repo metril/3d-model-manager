@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import ArchiveResult, PrintResult
@@ -80,7 +80,14 @@ async def load_rows(db: AsyncSession, *, days: int, visible: set[int] | None) ->
     result = case(
         (Print.result == PrintResult.SUCCESS, ArchiveResult.COMPLETED.value),
         (Print.result == PrintResult.FAIL, ArchiveResult.FAILED.value),
-        (PrintArchive.result == ArchiveResult.STOPPED, ArchiveResult.STOPPED.value),
+        # Only the run the archive points at: a folded reprint shares the archive.
+        (
+            and_(
+                PrintArchive.result == ArchiveResult.STOPPED,
+                PrintArchive.print_job_id == PrintJob.id,
+            ),
+            ArchiveResult.STOPPED.value,
+        ),
         else_=ArchiveResult.CANCELED.value,
     )
     stmt = (

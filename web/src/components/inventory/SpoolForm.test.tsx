@@ -5,16 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SpoolForm } from "@/components/inventory/SpoolForm";
 
-const { getMock, postMock, putMock, authMock } = vi.hoisted(() => ({
+const { getMock, postMock, putMock, patchMock, authMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
   putMock: vi.fn(),
+  patchMock: vi.fn(),
   authMock: vi.fn(),
 }));
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
-  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock } };
+  return { ...actual, api: { ...actual.api, get: getMock, post: postMock, put: putMock, patch: patchMock } };
 });
 
 vi.mock("@/components/inventory/SupplierListEditor", () => ({
@@ -71,6 +72,7 @@ describe("SpoolForm", () => {
     getMock.mockReset();
     postMock.mockReset();
     putMock.mockReset();
+    patchMock.mockReset();
     authMock.mockReset();
     getMock.mockResolvedValue([]);
     authMock.mockReturnValue({ can: () => true, canPrinter: () => true });
@@ -101,9 +103,10 @@ describe("SpoolForm", () => {
     expect(screen.getByRole("button", { name: "Add spool" })).toBeInTheDocument();
   });
 
-  it("retries only the supplier PUT after a created spool's supplier save fails", async () => {
+  it("retries without a second create (PATCHing edits) after a created spool's supplier save fails", async () => {
     postMock.mockResolvedValue({ id: 7, suppliers: [] });
     putMock.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce([]);
+    patchMock.mockResolvedValue({ id: 7, suppliers: [] });
     const onOpenChange = renderForm();
 
     fireEvent.click(screen.getByRole("button", { name: "add-supplier" }));
@@ -115,5 +118,6 @@ describe("SpoolForm", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(putMock).toHaveBeenCalledTimes(2);
     expect(postMock).toHaveBeenCalledTimes(1);
+    expect(patchMock).toHaveBeenCalledWith(expect.stringContaining("/spools/7"), expect.anything());
   });
 });

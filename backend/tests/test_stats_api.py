@@ -663,3 +663,34 @@ async def test_stats_heatmap_tz_and_stopped(
     assert hm["counts"][0][1] == 0 and sum(hm["counts"][6]) == 2
     bad = await authenticated_client.get("/api/stats/heatmap?days=30&tz=Nope/Zone")
     assert bad.status_code == 422
+
+
+async def test_stopped_applies_only_to_the_run_the_archive_points_at(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    """A reprint folded onto a stopped archive must not inherit STOPPED."""
+    a = await _printer(db_session, "Fold")
+    start = datetime.now(UTC) - timedelta(days=2)
+    arc = await _run(db_session, a, result=ArchiveResult.STOPPED, start=start)
+    reprint = PrintJob(
+        printer_id=a.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="again",
+        state=PrintJobState.FINISHED,
+        started_at=start + timedelta(hours=3),
+        finished_at=start + timedelta(hours=4),
+    )
+    db_session.add(reprint)
+    await db_session.flush()
+    db_session.add(
+        Print(
+            print_job_id=reprint.id,
+            archive_id=arc.id,
+            source=PrintSource.AUTO,
+            result=PrintResult.PARTIAL,
+            duration_min=60,
+        )
+    )
+    await db_session.commit()
+    sr = (await authenticated_client.get("/api/stats/success-rate?days=30")).json()
+    assert sr["total"] == 2 and sr["stopped"] == 1 and sr["canceled"] == 1

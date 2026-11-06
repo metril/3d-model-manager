@@ -272,6 +272,11 @@ export function AppSidebar({
   const drawer = !isDesktop;
   const drawerOpen = drawer && mobileOpen;
   const asideRef = useRef<HTMLElement>(null);
+  // Resizing up to desktop leaves the drawer state stale (and the backdrop /
+  // focus trap would reappear on the next shrink): close it.
+  useEffect(() => {
+    if (isDesktop && mobileOpen) onCloseMobile();
+  }, [isDesktop, mobileOpen, onCloseMobile]);
   useEffect(() => {
     if (!mobileOpen) return;
     const returnFocus = document.activeElement as HTMLElement | null;

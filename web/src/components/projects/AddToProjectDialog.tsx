@@ -78,6 +78,7 @@ export function AddToProjectDialog({
         aria-label={t("projects.project")}
         className="h-9 w-full rounded-md border bg-background px-2 text-sm"
         value={choice}
+        disabled={createdId != null} // the project exists now: its name/choice is locked for the retry
         onChange={(e) => setChoice(e.target.value)}
       >
         <option value="">{t("projects.choose")}</option>
@@ -94,6 +95,7 @@ export function AddToProjectDialog({
           aria-label={t("projects.newName")}
           placeholder={t("projects.namePlaceholder")}
           value={newName}
+          disabled={createdId != null}
           onChange={(e) => setNewName(e.target.value)}
         />
       )}

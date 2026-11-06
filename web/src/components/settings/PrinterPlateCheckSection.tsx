@@ -172,7 +172,7 @@ function CalibrationWizard({
   }
 
   return (
-    <FormDialog open={open} onOpenChange={close} busy={capture.isPending || del.isPending} className="sm:max-w-xl">
+    <FormDialog open={open} onOpenChange={close} dirty={step > 0} busy={capture.isPending || del.isPending} className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Calibrate plate check</DialogTitle>
           <DialogDescription>
