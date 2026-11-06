@@ -31,6 +31,7 @@ class OpsConfig:
     git_repo: str | None = None  # "owner/name"
     git_branch: str = "main"
     git_token: str | None = None
+    git_push_dump: bool = False  # opt in: push the (large) db.dump, not just settings
     update_check_enabled: bool = True
 
     def __repr__(self) -> str:
@@ -49,6 +50,7 @@ _PLAIN = (
     "git_base_url",
     "git_repo",
     "git_branch",
+    "git_push_dump",
     "update_check_enabled",
 )
 

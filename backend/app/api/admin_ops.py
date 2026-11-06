@@ -187,6 +187,7 @@ async def _settings_out(db: AsyncSession, settings: Settings) -> OpsSettingsOut:
         git_repo=c.git_repo,
         git_branch=c.git_branch,
         git_token_set=bool(c.git_token),
+        git_push_dump=c.git_push_dump,
         update_check_enabled=c.update_check_enabled,
     )
 
@@ -205,7 +206,7 @@ async def put_ops_settings(
     settings: Settings = Depends(get_settings),
 ) -> OpsSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
-    for k in ("backup_enabled", "backup_interval_hours", "backup_retention", "git_branch"):
+    for k in ("backup_enabled", "backup_interval_hours", "backup_retention", "git_branch", "git_push_dump"):
         if patch.get(k) is None:
             patch.pop(k, None)
     await set_ops_config(db, settings, patch)

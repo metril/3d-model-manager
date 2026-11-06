@@ -229,3 +229,34 @@ def test_scheduled_gate_skips_while_running_and_expires_stale(fake_pg_dump):
         r.created_at = datetime.now(UTC) - timedelta(seconds=svc.STALE_AFTER_S + 60)
         s.commit()
     assert backup_scheduled.delay().get() is not None  # stale one expired -> new run
+
+
+@respx.mock
+def test_git_push_failure_keeps_run_ok(fake_pg_dump, monkeypatch):
+    monkeypatch.setattr(svc, "GIT_RETRY_DELAY_S", 0)
+    respx.get(url__regex=r"https://api\.github\.com/.*").respond(404)
+    put = respx.put(url__regex=r"https://api\.github\.com/.*").respond(500)
+    with base.sync_session() as s:
+        s.add(
+            Setting(
+                key="ops",
+                value={"git_provider": "github", "git_repo": "o/r", "git_token_enc": "tok"},
+            )
+        )
+        run = svc.new_run(s, "manual", None)
+        out = svc.run_backup(s, get_settings(), run.id)
+        assert out.status == "ok" and out.git_pushed is False
+        assert out.error.startswith("git push failed") and out.location
+    assert put.call_count == svc.GIT_PUSH_ATTEMPTS  # settings.json only; dump is opt-in
+
+
+def test_failed_backups_back_off(fake_pg_dump):
+    from datetime import UTC, datetime, timedelta
+
+    with base.sync_session() as s:
+        s.add(Setting(key="ops", value={"backup_enabled": True, "backup_interval_hours": 24}))
+        s.add(BackupRun(kind="scheduled", status="failed"))
+        s.commit()
+        now = datetime.now(UTC)
+        assert svc.due(s, get_settings(), now + timedelta(minutes=5)) is False
+        assert svc.due(s, get_settings(), now + timedelta(minutes=20)) is True

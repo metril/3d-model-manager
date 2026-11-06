@@ -10,6 +10,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -103,18 +104,40 @@ def _prune(backend: StorageBackend, session: Session, keep: int) -> None:
         run.status = "pruned"
 
 
+GIT_PUSH_ATTEMPTS = 3
+GIT_RETRY_DELAY_S = 2.0
+# After consecutive failures, wait min(interval, BASE * 2^(n-1)) before retrying.
+FAIL_BACKOFF_BASE_S = 15 * 60
+
+
 def _git_push(cfg: OpsConfig, stamp: str, files: dict[str, bytes]) -> None:
     for name, content in files.items():
-        git_backup.push_file(
-            provider=cfg.git_provider or "",
-            base_url=cfg.git_base_url,
-            repo=cfg.git_repo or "",
-            branch=cfg.git_branch,
-            token=cfg.git_token or "",
-            path=f"tdmm-backups/{name}",
-            content=content,
-            message=f"backup {stamp}",
-        )
+        for attempt in range(1, GIT_PUSH_ATTEMPTS + 1):
+            try:
+                git_backup.push_file(
+                    provider=cfg.git_provider or "",
+                    base_url=cfg.git_base_url,
+                    repo=cfg.git_repo or "",
+                    branch=cfg.git_branch,
+                    token=cfg.git_token or "",
+                    path=f"tdmm-backups/{name}",
+                    content=content,
+                    message=f"backup {stamp}",
+                )
+                break
+            except git_backup.GitPushError:
+                if attempt == GIT_PUSH_ATTEMPTS:
+                    raise
+                time.sleep(GIT_RETRY_DELAY_S * attempt)
+
+
+def _discard_partial(backend: StorageBackend, prefix: str) -> None:
+    """Remove whatever a failed run managed to write (best-effort)."""
+    try:
+        for entry in list(backend.walk(prefix)):
+            backend.delete(entry.key)
+    except Exception:  # noqa: BLE001
+        log.warning("could not remove partial backup %s", prefix)
 
 
 def new_run(session: Session, kind: str, user_id: int | None) -> BackupRun:
@@ -131,6 +154,7 @@ def run_backup(session: Session, settings: Settings, run_id: int) -> BackupRun:
     cfg = get_ops_config_sync(session, settings)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     prefix = f"{PREFIX}/{stamp}-{run.id}"
+    backend = None
     try:
         backend = resolve_backend_sync(session, settings)
         settings_json = json.dumps(export_settings(session), indent=2, sort_keys=True).encode()
@@ -141,22 +165,33 @@ def run_backup(session: Session, settings: Settings, run_id: int) -> BackupRun:
             backend.write(f"{prefix}/db.dump", _chunks(dump))
             backend.write(f"{prefix}/settings.json", iter([settings_json]))
             run.location, run.size_bytes = prefix, size
+            # The backup itself is safe in storage; a git push problem is a
+            # warning on an otherwise-ok run, not a failed backup.
+            run.status, run.error = "ok", None
             if cfg.git_active:
                 files = {f"{stamp}/settings.json": settings_json}
-                if dump.stat().st_size <= git_backup.MAX_FILE_BYTES:
+                if cfg.git_push_dump and dump.stat().st_size <= git_backup.MAX_FILE_BYTES:
                     files[f"{stamp}/db.dump"] = dump.read_bytes()
-                _git_push(cfg, stamp, files)
-                run.git_pushed = True
-        run.status = "ok"
-        run.error = None
+                try:
+                    _git_push(cfg, stamp, files)
+                    run.git_pushed = True
+                except git_backup.GitPushError as exc:
+                    run.git_pushed = False
+                    run.error = f"git push failed: {exc}"[:500]
         _prune(backend, session, cfg.backup_retention)
-    except (BackupError, git_backup.GitPushError) as exc:
+    except BackupError as exc:
         run.status = "failed"
         run.error = str(exc)[:500]
+        if backend is not None:
+            _discard_partial(backend, prefix)
+        run.location = None
     except Exception:  # noqa: BLE001
         log.exception("backup run %s failed", run.id)
         run.status = "failed"
         run.error = "unexpected error (see logs)"
+        if backend is not None:
+            _discard_partial(backend, prefix)
+        run.location = None
     run.finished_at = datetime.now(UTC)
     session.commit()
     return run
@@ -217,8 +252,31 @@ def due(session: Session, settings: Settings, now: datetime | None = None) -> bo
         .order_by(BackupRun.id.desc())
         .limit(1)
     )
+    interval_s = cfg.backup_interval_hours * 3600
+    if not _failure_backoff_elapsed(session, now, interval_s):
+        return False
     if last is None:
         return True
     if last.tzinfo is None:
         last = last.replace(tzinfo=UTC)
-    return (now - last).total_seconds() >= cfg.backup_interval_hours * 3600
+    return (now - last).total_seconds() >= interval_s
+
+
+def _failure_backoff_elapsed(session: Session, now: datetime, interval_s: int) -> bool:
+    """Retry failures with exponential backoff
+    (instead of a failing dump every 10 minutes)."""
+    recent = session.execute(
+        select(BackupRun.status, BackupRun.created_at).order_by(BackupRun.id.desc()).limit(10)
+    ).all()
+    streak = 0
+    for st, _ in recent:
+        if st != "failed":
+            break
+        streak += 1
+    if streak == 0:
+        return True
+    last_at = recent[0][1]
+    if last_at.tzinfo is None:
+        last_at = last_at.replace(tzinfo=UTC)
+    wait = min(interval_s, FAIL_BACKOFF_BASE_S * 2 ** (streak - 1))
+    return (now - last_at).total_seconds() >= wait

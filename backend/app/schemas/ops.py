@@ -146,6 +146,7 @@ class OpsSettingsIn(BaseModel):
     git_base_url: str | None = None
     git_repo: str | None = None
     git_branch: str | None = None
+    git_push_dump: bool | None = None
     git_token: str | None = None  # write-only: omitted / "***" keeps, "" clears
     update_check_enabled: bool | None = None
 
@@ -159,6 +160,7 @@ class OpsSettingsOut(BaseModel):
     git_repo: str | None
     git_branch: str
     git_token_set: bool
+    git_push_dump: bool = False
     update_check_enabled: bool
 
 
