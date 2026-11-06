@@ -32,7 +32,7 @@ services:
       SELKIES_FILE_TRANSFERS: ""
       SELKIES_ALLOWED_ORIGINS: ${ORCASLICER_ALLOWED_ORIGINS:-}
     shm_size: 1gb
-    mem_limit: ${ORCASLICER_MEM_LIMIT:-4g}
+    mem_limit: ${ORCASLICER_MEM_LIMIT:-8g}
     volumes:
       - orcaslicer_config:/config
       - ${ORCASLICER_EXCHANGE_HOST_DIR:-./orcaslicer-exchange}:/exchange

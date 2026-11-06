@@ -151,10 +151,16 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     image: tdmm:local
-    mem_limit: ${WORKER_CPU_MEM_LIMIT:-6g}
+    # Memory budget ~= CONCURRENCY x per-child RSS ceiling (MAX_MEMORY_PER_CHILD
+    # 1.5 GiB recycles a child, OCCT/f3d jobs can peak well above typical use).
+    # Default 8 children in 16g. Without CONCURRENCY celery starts one child per
+    # host core, which on a big host blows through any sane limit. Raise both
+    # together: WORKER_CPU_CONCURRENCY and WORKER_CPU_MEM_LIMIT.
+    mem_limit: ${WORKER_CPU_MEM_LIMIT:-16g}
     environment:
       ROLE: worker
       QUEUES: cpu
+      CONCURRENCY: ${WORKER_CPU_CONCURRENCY:-8}
       # No CONCURRENCY override here -- Celery defaults to one process
       # per CPU core, which is what CPU-bound extraction/convert/render work
       # wants. Recycled per-child (task count AND RSS) to contain OCCT/f3d
@@ -285,15 +291,18 @@ services:
     image: tdmm:local
     network_mode: host
     command: ["python", "-m", "app.virtual_printer"]
-    # Stays root on purpose (PUID=0 opts out of the entrypoint's privilege drop,
-    # which is otherwise the default): the FTPS listener binds port 990, and
-    # non-root + cap_add NET_BIND_SERVICE does not work (docker sets no ambient caps).
     env_file:
       - .env
     # Overrides env_file: host networking can't resolve `db`/`redis`.
+    cap_add:
+      - NET_BIND_SERVICE
     environment:
-      PUID: "0"
-      PGID: "0"
+      # Runs as PUID:PGID like everything else (so files it writes under
+      # /library and /data stay manageable), keeping only the capability to
+      # bind the privileged FTPS port 990 -- see docker/entrypoint.sh.
+      PUID: ${PUID:-}
+      PGID: ${PGID:-}
+      VP_BIND_CAP: "1"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tdmm}:${POSTGRES_PASSWORD:-tdmm}@127.0.0.1:${TDMM_DB_HOST_PORT:-15432}/${POSTGRES_DB:-tdmm}
       REDIS_URL: redis://127.0.0.1:${TDMM_REDIS_HOST_PORT:-16379}/0
     depends_on:

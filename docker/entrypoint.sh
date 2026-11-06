@@ -6,8 +6,8 @@ set -euo pipefail
 # Privilege drop (linuxserver.io convention). NON-ROOT BY DEFAULT: when started
 # as root the entrypoint remaps the `tdmm` user to PUID:PGID (default
 # 1000:1000), fixes ownership of the volumes, and re-execs through gosu.
-# PUID=0 opts out and stays root (the virtual-printer service needs this: it
-# binds privileged ports). Re-exec guard avoids an infinite loop.
+# PUID=0 opts out and stays root. VP_BIND_CAP=1 (virtual-printer) drops to
+# PUID:PGID but keeps CAP_NET_BIND_SERVICE for ports < 1024. Re-exec guard avoids an infinite loop.
 if [[ -z "${PRIVDROP_DONE:-}" && "$(id -u)" == "0" ]]; then
   PUID="${PUID:-1000}"; PGID="${PGID:-1000}"
   if [[ "$PUID" != "0" ]]; then
@@ -36,6 +36,14 @@ if [[ -z "${PRIVDROP_DONE:-}" && "$(id -u)" == "0" ]]; then
     chmod 1777 "${XDG_CACHE_HOME:-/var/cache/tdmm}" 2>/dev/null || true
     chown tdmm:tdmm /home/tdmm 2>/dev/null || true
     export PRIVDROP_DONE=1
+    if [[ "${VP_BIND_CAP:-}" == "1" ]]; then
+      # Run as PUID:PGID but keep ONLY the bind-privileged-ports capability
+      # (virtual-printer FTPS on 990). Needs NET_BIND_SERVICE in the bounding
+      # set (Docker's default; compose also cap_adds it explicitly).
+      export HOME=/home/tdmm USER=tdmm LOGNAME=tdmm
+      exec setpriv --reuid="$PUID" --regid="$PGID" --init-groups \
+        --inh-caps=+net_bind_service --ambient-caps=+net_bind_service "$0" "$@"
+    fi
     exec gosu tdmm:tdmm "$0" "$@"
   fi
 fi

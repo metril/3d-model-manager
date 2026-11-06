@@ -92,7 +92,7 @@ Docker's layer cache and are much faster.
 Either path brings up the same stack.
 
 This starts every service below, always (the opt-in `orcaslicer` sidecar aside): `api` (port `8080`), `worker-io` (uploads/store), `worker-cpu` (the
-metadata/GLB-conversion/thumbnail pipeline, one process per core,
+metadata/GLB-conversion/thumbnail pipeline, `WORKER_CPU_CONCURRENCY` processes (default 8),
 memory-recycled -- see "Worker split" below), `beat` (ticks the scan/
 collection-sync/watched-folder dispatcher), `printerd` (the Bambu LAN MQTT
 supervisor), `slicer` and `obico-ml` (sidecars), `virtual-printer` (a fake
@@ -162,7 +162,7 @@ the database/volumes: `docker compose down --volumes`.
 extraction, GLB conversion via OCCT/trimesh/lib3mf, `gltfpack` optimization,
 `f3d` thumbnail rendering) run on `worker-cpu`, routed there by queue name;
 everything else (`store_to_backend`, the upload path) runs on `worker-io`.
-`worker-cpu` runs one process per core with no fixed concurrency, and
+`worker-cpu` runs `WORKER_CPU_CONCURRENCY` (default 8) processes, and
 recycles each child process after 16 tasks or 1.5 GiB RSS, whichever comes
 first, to contain memory growth from OCCT (STEP/IGES) and f3d. Both workers
 expose a `celery inspect ping` healthcheck.
@@ -174,10 +174,10 @@ On the first start after upgrading from a root-running release, the entrypoint
 `chown -R`s `./library`, `/watch` and the exchange folder (only when their
 top-level owner differs, so later restarts are instant) and fixes any
 root-owned files in `tdmm_data`; a large library takes a while once. `PUID=0`
-keeps a container root; `virtual-printer` is pinned to root because it binds
-privileged ports. Set `POSTGRES_PASSWORD` (and the matching `DATABASE_URL`) to
+keeps a container root; `virtual-printer` also runs as `PUID:PGID` but keeps only
+`CAP_NET_BIND_SERVICE` (`VP_BIND_CAP=1`) to bind port 990. Set `POSTGRES_PASSWORD` (and the matching `DATABASE_URL`) to
 something real before the first `up` on any shared host. Resource caps:
-`API_MEM_LIMIT` (3g) and `WORKER_CPU_MEM_LIMIT` (6g), `OBICO_MEM_LIMIT` (4g).
+`API_MEM_LIMIT` (3g), `OBICO_MEM_LIMIT` (4g), `ORCASLICER_MEM_LIMIT` (8g), and `WORKER_CPU_MEM_LIMIT` (16g) paired with `WORKER_CPU_CONCURRENCY` (8 children; raise both together, roughly 2 GiB per child).
 Verify the drop works without standing up the whole
 stack:
 
