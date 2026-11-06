@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.3](https://github.com/metril/3d-model-manager/compare/v0.17.2...v0.17.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* **infra:** CI, release, docker, compose, slicer and extension hardening ([#243](https://github.com/metril/3d-model-manager/issues/243)) ([3f3bb6c](https://github.com/metril/3d-model-manager/commit/3f3bb6c859e90bebe315b28a912d994f2efa8654))
+* **security:** review PR-A security hardening ([#242](https://github.com/metril/3d-model-manager/issues/242)) ([c07393c](https://github.com/metril/3d-model-manager/commit/c07393c91fb803b97f756dcfaabb528dc8bb2a28))
+* **services:** review wave 2 — services perf + robustness ([#263](https://github.com/metril/3d-model-manager/issues/263)) ([9882cb4](https://github.com/metril/3d-model-manager/commit/9882cb46296b60a36e2be01e4ddb43d104e85c33))
+* **web:** i18n sweep + queue entry deep-link highlight ([#264](https://github.com/metril/3d-model-manager/issues/264)) ([638e8a3](https://github.com/metril/3d-model-manager/commit/638e8a3755edad7159f2e86dbb6d78dc8a37ec79))
+* **web:** print, plate editor, camera and upload review fixes (PR-G) ([#245](https://github.com/metril/3d-model-manager/issues/245)) ([a22dd1a](https://github.com/metril/3d-model-manager/commit/a22dd1aaaa248a97fbde784234aa9276dd668ac5))
+* **web:** settings, finance, inventory and shell review fixes ([#246](https://github.com/metril/3d-model-manager/issues/246)) ([f9f8a55](https://github.com/metril/3d-model-manager/commit/f9f8a55b2d2e7283fa8845f517c4dadcd9b78a48))
+* **web:** viewer and profiles review fixes ([#244](https://github.com/metril/3d-model-manager/issues/244)) ([edd988b](https://github.com/metril/3d-model-manager/commit/edd988b49a80aea0cb60043c643914a4c1ea19e8))
+
 ## [0.17.2](https://github.com/metril/3d-model-manager/compare/v0.17.1...v0.17.2) (2026-11-06)
 
 
