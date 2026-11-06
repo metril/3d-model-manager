@@ -317,3 +317,49 @@ async def test_fetch_blob_to_temp_raises_when_only_unverified_copies_exist(
 
     with sync_session() as session, pytest.raises(LookupError, match="no stored copy of blob"):
         derivatives.fetch_blob_to_temp(session, get_settings(), BLOB_HASH, tmp_path, ".stl")
+
+
+class _FakeBackend:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+
+    def stat(self, key):
+        class _S:
+            size = len(self.data)
+
+        return _S()
+
+    def read(self, key, start=None, end=None):
+        # over-returns on purpose: the reader must slice to what it asked for
+        yield self.data[start : (end + 7 if end is not None else None)]
+
+
+def test_ranged_reader_seek_modes_and_eof() -> None:
+    import io
+
+    r = derivatives._RangedReader(_FakeBackend(b"0123456789"), "k")
+    assert r.seek(3) == 3 and r.read(2) == b"34"
+    assert r.seek(-2, io.SEEK_CUR) == 3
+    assert r.seek(-4, io.SEEK_END) == 6 and r.read() == b"6789"
+    assert r.read(5) == b""  # at EOF
+    assert r.seek(20) == 20 and r.read(1) == b""  # past EOF reads nothing
+    with pytest.raises(ValueError):
+        r.seek(-1)
+    with pytest.raises(ValueError):
+        r.seek(-11, io.SEEK_END)
+    with pytest.raises(ValueError):
+        r.seek(0, 9)
+
+
+def test_ranged_reader_serves_a_zip() -> None:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.txt", "hello " * 500)
+        zf.writestr("b.txt", "world")
+    reader = io.BufferedReader(derivatives._RangedReader(_FakeBackend(buf.getvalue()), "k"))
+    with zipfile.ZipFile(reader) as zf:
+        assert zf.read("b.txt") == b"world"
+        assert zf.read("a.txt") == b"hello " * 500

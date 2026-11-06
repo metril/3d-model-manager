@@ -22,10 +22,11 @@ import logging
 import math
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import numpy as np
 import trimesh
 
 from app.pipeline import meshload, slicedmeta, threemf_colour
@@ -57,9 +58,11 @@ def parse_unsliced_plates(zf: zipfile.ZipFile) -> list[dict]:
         return []
     names = set(zf.namelist())
     plates: list[dict] = []
-    for position, plate_el in enumerate(root.findall("plate"), start=1):
+    plate_els = root.findall("plate")
+    for plate_el, index in zip(
+        plate_els, threemf_colour.resolve_plate_indices(plate_els), strict=True
+    ):
         meta = slicedmeta._plate_metadata(plate_el)
-        index = slicedmeta._parse_int(meta.get("plater_id")) or position
         object_ids: list[int] = []
         instance_ids: list[int] = []
         for inst in plate_el.findall("model_instance"):
@@ -86,25 +89,33 @@ def parse_unsliced_plates(zf: zipfile.ZipFile) -> list[dict]:
     return plates
 
 
-def plate_filament_info(zf: zipfile.ZipFile, plates: list[dict]) -> dict[int, dict]:
+def plate_filament_info(
+    zf: zipfile.ZipFile, plates: list[dict], *, scan_paint: bool = True
+) -> dict[int, dict]:
     """``{plate index: {"filaments": [...], "colour_changes": [...], "pauses": [...]}}``; empty
     lists when the file has no Bambu/Orca filament data."""
-    info = threemf_colour.read_colour_info(zf)
+    info = threemf_colour.read_colour_info(zf, scan_paint=scan_paint)
     return {
         p["index"]: {
-            "filaments": info.plate_filaments(p["object_ids"]) if info else [],
-            "colour_changes": info.plate_colour_changes(p["index"]) if info else [],
+            "filaments": info.plate_filaments(p["object_ids"], p["index"]) if info else [],
+            "colour_changes": (
+                info.plate_colour_changes(p["index"], p["object_ids"]) if info else []
+            ),
             "pauses": info.plate_pauses(p["index"]) if info else [],
         }
         for p in plates
     }
 
 
-_TAG_RE = re.compile(r"<[^>]*>")
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+_BREAK_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_PARA_RE = re.compile(r"</p\s*>", re.IGNORECASE)
 
 
 def clean_meta_text(text: str | None) -> str | None:
-    """Decode (possibly double) entity-escaped HTML to plain text."""
+    """Decode (possibly double) entity-escaped HTML to plain text. Only real tag
+    shapes are stripped (a bare ``<`` survives); ``<br>``/``</p>`` become line /
+    paragraph breaks."""
     if not text:
         return None
     for _ in range(3):
@@ -112,26 +123,44 @@ def clean_meta_text(text: str | None) -> str | None:
         if decoded == text:
             break
         text = decoded
+    text = _PARA_RE.sub("\n\n", _BREAK_RE.sub("\n", text))
     text = _TAG_RE.sub(" ", text)
-    return " ".join(text.split()) or None
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return out or None
+
+
+_PROFILE_KEYS = frozenset(
+    {
+        "DesignProfileId",
+        "ProfileId",
+        "DesignModelId",
+        "ProfileTitle",
+        "Title",
+        "ProfileDescription",
+        "ProfileUserName",
+        "Designer",
+    }
+)
 
 
 def read_3mf_profile_meta(zf: zipfile.ZipFile) -> dict | None:
     """MakerWorld provenance from ``3D/3dmodel.model`` ``<metadata>``, in the
     shape the MakerWorld importer stores in ``files.source_meta``; ``None``
-    when the file carries no profile/design id."""
-    data = slicedmeta.read_zip_member(zf, ROOT_MODEL)
-    if data is None:
-        return None
+    when the file carries no profile/design id. Streams the head of the model
+    and stops at ``<resources>`` (metadata precedes it)."""
+    md: dict[str, str] = {}
     try:
-        root = ET.fromstring(data)  # noqa: S314 - same trust level as slicedmeta
-    except ET.ParseError:
-        return None
-    md = {
-        el.get("name"): (el.text or "").strip()
-        for el in root.iter()
-        if _local(el.tag) == "metadata" and el.get("name")
-    }
+        with zf.open(ROOT_MODEL) as fh:
+            for ev, el in ET.iterparse(fh, events=("start", "end")):  # noqa: S314
+                name = _local(el.tag)
+                if ev == "start" and name == "resources":
+                    break
+                if ev == "end" and name == "metadata" and el.get("name") in _PROFILE_KEYS:
+                    md[el.get("name")] = (el.text or "").strip()
+    except (KeyError, ET.ParseError):
+        if not md:
+            return None
     profile_id = slicedmeta._parse_int(md.get("DesignProfileId") or md.get("ProfileId"))
     design_id = md.get("DesignModelId") or None
     if profile_id is None and not design_id:
@@ -142,7 +171,7 @@ def read_3mf_profile_meta(zf: zipfile.ZipFile) -> dict | None:
         "design_id": design_id,
         "design_title": clean_meta_text(md.get("Title")),
         "description": clean_meta_text(md.get("ProfileDescription")),
-        "author": md.get("ProfileUserName") or md.get("Designer") or None,
+        "author": clean_meta_text(md.get("ProfileUserName") or md.get("Designer")),
         "origin": "3mf",
     }
     return {k: v for k, v in out.items() if v is not None}
@@ -162,19 +191,20 @@ def read_bed(zf: zipfile.ZipFile) -> tuple[float, float] | None:
     return parse_printable_area(cfg) if isinstance(cfg, dict) else None
 
 
+_ITEM_RE = re.compile(rb"<(?:[\w.-]+:)?item\b([^>]*)>")
+_OBJECTID_RE = re.compile(rb"\bobjectid\s*=\s*[\"'](\d+)[\"']")
+
+
 def _build_item_object_ids(zf: zipfile.ZipFile) -> list[int | None]:
+    """``objectid`` of each ``<build><item>`` in document order, found without
+    building a tree (the model can hold millions of vertices)."""
     data = slicedmeta.read_zip_member(zf, ROOT_MODEL)
     if data is None:
         return []
     out: list[int | None] = []
-    import io
-
-    for _, el in ET.iterparse(io.BytesIO(data)):  # noqa: S314
-        name = _local(el.tag)
-        if name == "item":
-            out.append(slicedmeta._parse_int(el.get("objectid")))
-        elif name in ("vertices", "triangles", "object"):
-            el.clear()
+    for m in _ITEM_RE.finditer(data):
+        oid = _OBJECTID_RE.search(m.group(1))
+        out.append(int(oid.group(1)) if oid else None)
     return out
 
 
@@ -206,13 +236,15 @@ def _recentre(mesh: trimesh.Trimesh, index: int, n: int, bed: tuple[float, float
 
 
 def _assign_items(
-    items: list[trimesh.Trimesh | None],
+    bounds: list[np.ndarray | None],
     item_oids: list[int | None],
     plates: list[dict],
     bed: tuple[float, float] | None,
 ) -> dict[int, list[int]]:
-    """``{plate index: [build item positions]}``. Items not claimed by any
-    plate go on the plate whose grid cell holds them (logged)."""
+    """``{plate index: [build item positions]}`` from per-item ``(lo, hi)``
+    bounds. Items not claimed by any plate go on the plate whose grid cell
+    holds them (logged); an instance that does not exist, or an item already
+    claimed, is skipped (logged)."""
     if not plates:
         return {}
     by_object: dict[int, list[int]] = {}
@@ -227,16 +259,28 @@ def _assign_items(
             slots = by_object.get(oid) or []
             if not slots:
                 continue
-            pos = slots[inst] if inst < len(slots) else slots[0]
+            if not 0 <= inst < len(slots):
+                logger.warning(
+                    "plates3mf: plate %s object %s instance %s out of range (%d items); skipped",
+                    plate["index"],
+                    oid,
+                    inst,
+                    len(slots),
+                )
+                continue
+            pos = slots[inst]
+            if pos in claimed:
+                logger.warning("plates3mf: build item %d claimed twice; skipped", pos)
+                continue
             assigned[plate["index"]].append(pos)
             claimed.add(pos)
     n = max(max(p["index"] for p in plates), len(plates))
     eff = bed or DEFAULT_BED
     cols = max(1, math.ceil(math.sqrt(n)))
-    for pos in range(len(items)):
-        if pos in claimed or items[pos] is None:
+    for pos in range(len(bounds)):
+        if pos in claimed or bounds[pos] is None:
             continue
-        lo, hi = items[pos].bounds
+        lo, hi = bounds[pos]
         cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
         col = round((cx - eff[0] / 2) / (eff[0] * (1 + PLATE_GAP)))
         row = round(-(cy - eff[1] / 2) / (eff[1] * (1 + PLATE_GAP)))
@@ -249,57 +293,100 @@ def _assign_items(
     return assigned
 
 
-def _load_items(
-    path: Path, plates: list[dict], bed: tuple[float, float] | None, *, colour: bool = True
-) -> tuple[list[trimesh.Trimesh | None], dict[int, list[int]], list[int | None]] | None:
-    """Build items (painted by filament colour when the file is a
-    multi-filament Bambu/Orca project) plus plate assignment. ``None`` when
-    lib3mf and the XML disagree about the item count."""
+@dataclass
+class ParsedProject:
+    """A 3MF parsed once: lib3mf pieces per build item plus everything needed
+    to build whole-file, per-plate and per-object meshes from them."""
+
+    pieces: list[list[trimesh.Trimesh]]
+    item_oids: list[int | None]
+    plates: list[dict]
+    bed: tuple[float, float] | None
+    objects: dict[int, threemf_colour.ObjectInfo] = field(default_factory=dict)
+    info: threemf_colour.ColourInfo | None = None  # only for multi-filament projects
+    names: dict[int, str] = field(default_factory=dict)
+    _assigned: dict[int, list[int]] | None = field(default=None, repr=False)
+
+    @property
+    def has_non_display(self) -> bool:
+        return threemf_colour.has_non_display_parts(self.objects)
+
+    def assigned(self) -> dict[int, list[int]]:
+        if self._assigned is None:
+            bounds = [
+                (
+                    np.vstack([p.bounds[0] for p in parts]).min(axis=0),
+                    np.vstack([p.bounds[1] for p in parts]).max(axis=0),
+                )
+                if parts
+                else None
+                for parts in self.pieces
+            ]
+            self._assigned = _assign_items(bounds, self.item_oids, self.plates, self.bed)
+        return self._assigned
+
+    def build_items(self) -> list[trimesh.Trimesh | None]:
+        """One mesh per build item: multi-filament projects painted, every
+        project without modifier / negative / blocker parts."""
+        plate_of = {pos: idx for idx, poss in self.assigned().items() for pos in poss}
+        items: list[trimesh.Trimesh | None] = []
+        for pos, parts in enumerate(self.pieces):
+            oid = self.item_oids[pos]
+            out: list[trimesh.Trimesh] = []
+            for piece in parts:
+                part_index = piece.metadata.get("part_index")
+                if self.info is not None and oid is not None:
+                    painted = threemf_colour.paint_part(
+                        piece, self.info, plate_of.get(pos, -1), oid, part_index
+                    )
+                    if painted is not None:
+                        out.append(painted)
+                elif threemf_colour.is_display_part(self.objects, oid, part_index):
+                    out.append(piece.copy())
+            items.append(trimesh.util.concatenate(out) if out else None)
+        return items
+
+
+def load_project(path: Path, *, only_if_needed: bool = False) -> ParsedProject | None:
+    """Parse ``path`` once. ``None`` when lib3mf and the XML disagree about the
+    item count, or (``only_if_needed``) when the file is neither multi-filament
+    nor carries non-display parts -- the caller's plain mesh is already right."""
     with zipfile.ZipFile(path) as zf:
         item_oids = _build_item_object_ids(zf)
-        info = threemf_colour.read_colour_info(zf) if colour else None
-    if info is not None and not info.is_multicolour:
-        info = None
+        plates = parse_unsliced_plates(zf)
+        bed = read_bed(zf)
+        colour = threemf_colour.read_colour_info(zf)
+        objects = colour.objects if colour is not None else threemf_colour.read_object_infos(zf)
+        names = _object_names(zf)
+    if colour is not None and not colour.is_multicolour:
+        colour = None
+    if only_if_needed and colour is None and not threemf_colour.has_non_display_parts(objects):
+        return None
     pieces = meshload.load_3mf_build_pieces(path)
     if len(pieces) != len(item_oids):
         logger.warning("plates3mf: %d lib3mf items vs %d xml items", len(pieces), len(item_oids))
         return None
-    plain = [trimesh.util.concatenate(p) if p else None for p in pieces]
-    assigned = _assign_items(plain, item_oids, plates, bed)
-    if info is None:
-        return plain, assigned, item_oids
-    plate_of = {pos: idx for idx, poss in assigned.items() for pos in poss}
-    items: list[trimesh.Trimesh | None] = []
-    for pos, parts in enumerate(pieces):
-        oid = item_oids[pos]
-        plate_idx = plate_of.get(pos, -1)
-        painted: list[trimesh.Trimesh] = []
-        for piece in parts:
-            rgba = (
-                info.part_rgba(oid, piece.metadata.get("part_index")) if oid is not None else None
-            )
-            if rgba is None:
-                continue  # modifier / negative part / support blocker
-            changes = info.painting_changes(
-                plate_idx, info.part_extruder(oid, piece.metadata.get("part_index"))
-            )
-            painted.append(threemf_colour.paint_faces(piece, rgba, changes))
-        items.append(trimesh.util.concatenate(painted) if painted else None)
-    return items, assigned, item_oids
+    return ParsedProject(pieces, item_oids, plates, bed, objects, colour, names)
 
 
 def plate_meshes(
-    path: Path, plates: list[dict], bed: tuple[float, float] | None = None
+    path: Path | None,
+    plates: list[dict],
+    bed: tuple[float, float] | None = None,
+    *,
+    project: ParsedProject | None = None,
 ) -> dict[int, trimesh.Trimesh]:
     """``{plate index: mesh}`` recentred onto one bed, painted by filament
     colour for multi-filament projects. Plates with no geometry are omitted.
-    Build items not claimed by any plate go on plate 1 (logged)."""
+    Build items not claimed by any plate go on the plate whose grid cell holds them."""
     if not plates:
         return {}
-    loaded = _load_items(path, plates, bed)
-    if loaded is None:
+    project = project or (load_project(path) if path is not None else None)
+    if project is None:
         return {}
-    items, assigned, _ = loaded
+    plates, bed = project.plates, project.bed
+    items = project.build_items()
+    assigned = project.assigned()
     n = max(max(p["index"] for p in plates), len(plates))
     out: dict[int, trimesh.Trimesh] = {}
     for plate in plates:
@@ -312,20 +399,17 @@ def plate_meshes(
     return out
 
 
-def whole_file_mesh(path: Path) -> trimesh.Trimesh | None:
+def whole_file_mesh(
+    path: Path | None, *, project: ParsedProject | None = None
+) -> trimesh.Trimesh | None:
     """The whole-file mesh (all plates on the virtual grid, as sliced), painted
-    by filament colour -- or ``None`` when the file is not a multi-filament
-    Bambu/Orca project (the caller keeps its plain mesh)."""
-    with zipfile.ZipFile(path) as zf:
-        info = threemf_colour.read_colour_info(zf)
-        if info is None or not info.is_multicolour:
-            return None
-        plates = parse_unsliced_plates(zf)
-        bed = read_bed(zf)
-    loaded = _load_items(path, plates, bed)
-    if loaded is None:
+    by filament colour and without modifier/negative/blocker parts -- or
+    ``None`` when the file needs neither (the caller keeps its plain mesh)."""
+    if project is None:
+        project = load_project(path, only_if_needed=True) if path is not None else None
+    if project is None or (project.info is None and not project.has_non_display):
         return None
-    parts = [m for m in loaded[0] if m is not None]
+    parts = [m for m in project.build_items() if m is not None]
     return trimesh.util.concatenate(parts) if parts else None
 
 
@@ -366,21 +450,21 @@ def _object_names(zf: zipfile.ZipFile) -> dict[int, str]:
     return out
 
 
-def object_meshes(path: Path) -> list[ObjectPiece]:
+def object_meshes(path: Path | None, *, project: ParsedProject | None = None) -> list[ObjectPiece]:
     """Each build item of a 3MF as an independent mesh (painted by filament
     colour for multi-filament projects). Items of a multi-plate project are
     moved from the virtual plate grid onto the single bed, exactly as
     :func:`plate_meshes` does per plate. ``[]`` when the file is not
     splittable: fewer than two items, more than ``MAX_OBJECTS``, or lib3mf
     and the XML disagree."""
-    with zipfile.ZipFile(path) as zf:
-        plates = parse_unsliced_plates(zf)
-        bed = read_bed(zf)
-        names = _object_names(zf)
-    loaded = _load_items(path, plates, bed)
-    if loaded is None:
+    project = project or (load_project(path) if path is not None else None)
+    if project is None:
         return []
-    items, assigned, item_oids = loaded
+    plates, bed = project.plates, project.bed
+    names = project.names
+    items = project.build_items()
+    assigned = project.assigned()
+    item_oids = project.item_oids
     live = [pos for pos, m in enumerate(items) if m is not None]
     if len(live) < 2 or len(live) > MAX_OBJECTS:
         return []
