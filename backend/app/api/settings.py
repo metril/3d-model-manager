@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext, require_perm_on_write, require_session
+from app.api.deps import AuthContext, require_perm, require_perm_on_write, require_session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.importers.printables import fetch_identity
@@ -78,6 +78,32 @@ api_tokens_router = APIRouter(prefix="/settings", tags=["settings"])
 # -- an incoming request carrying this literal value is read back verbatim
 # from a form the client seeded off a redacted GET, never a real secret.
 _REDACTED_SENTINEL = "***"
+
+# Storage backend config decides where the server reads/writes files and where
+# stored credentials are sent: admin only (not just settings:write).
+_ADMIN = [Depends(require_perm("admin"))]
+
+
+# Fields naming WHERE a secret gets sent; changing one means the stored secret
+# must be re-entered rather than silently replayed to the new target.
+_TARGET_FIELDS: dict[str, tuple[str, ...]] = {
+    "smb": ("host", "port", "share"),
+    "s3": ("endpoint_url", "bucket"),
+}
+
+
+def _norm(value: object) -> str:
+    return str(value if value is not None else "").strip().rstrip("/").lower()
+
+
+def _reject_target_change(backend: str, incoming: dict, stored: dict, secret_field: str) -> None:
+    for field in _TARGET_FIELDS.get(backend, ()):
+        if field in incoming and _norm(incoming[field]) != _norm(stored.get(field)):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"{field!r} changed: re-enter {secret_field!r} (the stored secret "
+                "is not reused for a different target)",
+            )
 
 
 def _parse(backend: str, config: dict) -> StorageConfig:
@@ -137,6 +163,12 @@ async def _merge_stored_secrets(
     stored_secret = getattr(stored, secret_field, None) if stored.backend == backend else None
     stored_value = stored_secret.get_secret_value() if stored_secret is not None else ""
     if stored_value:
+        _reject_target_change(
+            backend,
+            config,
+            {k: getattr(stored, k, None) for k in _TARGET_FIELDS.get(backend, ())},
+            secret_field,
+        )
         return {**config, secret_field: stored_value}
     if incoming == _REDACTED_SENTINEL:
         raise HTTPException(
@@ -155,7 +187,7 @@ async def get_storage_settings(
     return StorageConfigOut.from_config(config)
 
 
-@router.put("/storage", response_model=StorageConfigOut)
+@router.put("/storage", response_model=StorageConfigOut, dependencies=_ADMIN)
 async def put_storage_settings(
     payload: StorageConfigIn,
     db: AsyncSession = Depends(get_db),
@@ -167,7 +199,7 @@ async def put_storage_settings(
     return StorageConfigOut.from_config(config)
 
 
-@router.post("/storage/test", response_model=ConnectionTestOut)
+@router.post("/storage/test", response_model=ConnectionTestOut, dependencies=_ADMIN)
 async def test_storage_settings(
     payload: StorageConfigIn,
     settings: Settings = Depends(get_settings),
@@ -180,7 +212,7 @@ async def test_storage_settings(
     return ConnectionTestOut(ok=ok, detail=detail, latency_ms=latency_ms)
 
 
-@router.post("/storage/migrate", response_model=JobOut)
+@router.post("/storage/migrate", response_model=JobOut, dependencies=_ADMIN)
 async def migrate_storage_settings(
     payload: StorageConfigIn,
     db: AsyncSession = Depends(get_db),
@@ -268,10 +300,17 @@ def _merge_backend_secrets(settings: Settings, row: StorageBackendRow, config: d
     if incoming not in ("", _REDACTED_SENTINEL):
         return config
     stored_value = ""
+    stored_data: dict = {}
     if row.scheme == backend_name:
         stored_data, _ = storage_config.decrypt_config_row(settings, dict(row.config))
         stored_value = stored_data.get(secret_field) or ""
     if stored_value:
+        _reject_target_change(
+            backend_name,
+            config,
+            stored_data if row.scheme == backend_name else {},
+            secret_field,
+        )
         return {**config, secret_field: stored_value}
     if incoming == _REDACTED_SENTINEL:
         raise HTTPException(
@@ -291,7 +330,10 @@ async def list_storage_backends(
 
 
 @router.post(
-    "/storage/backends", status_code=status.HTTP_201_CREATED, response_model=StorageBackendOut
+    "/storage/backends",
+    status_code=status.HTTP_201_CREATED,
+    response_model=StorageBackendOut,
+    dependencies=_ADMIN,
 )
 async def create_storage_backend(
     payload: StorageBackendCreateIn,
@@ -304,7 +346,7 @@ async def create_storage_backend(
     return StorageBackendOut.from_row(row, settings)
 
 
-@router.put("/storage/backends/{backend_id}", response_model=StorageBackendOut)
+@router.put("/storage/backends/{backend_id}", response_model=StorageBackendOut, dependencies=_ADMIN)
 async def update_storage_backend(
     backend_id: int,
     payload: StorageBackendUpdateIn,
@@ -322,7 +364,9 @@ async def update_storage_backend(
     return StorageBackendOut.from_row(row, settings)
 
 
-@router.delete("/storage/backends/{backend_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/storage/backends/{backend_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_ADMIN
+)
 async def delete_storage_backend(backend_id: int, db: AsyncSession = Depends(get_db)) -> None:
     # 409s via app.services.storage_backends.delete_backend's own guardrails
     # (last backend, default backend, or one file_locations still
@@ -330,7 +374,9 @@ async def delete_storage_backend(backend_id: int, db: AsyncSession = Depends(get
     await storage_backends_service.delete_backend(db, backend_id)
 
 
-@router.post("/storage/backends/{backend_id}/test", response_model=ConnectionTestOut)
+@router.post(
+    "/storage/backends/{backend_id}/test", response_model=ConnectionTestOut, dependencies=_ADMIN
+)
 async def test_storage_backend(
     backend_id: int,
     db: AsyncSession = Depends(get_db),
@@ -341,7 +387,9 @@ async def test_storage_backend(
     return ConnectionTestOut(ok=ok, detail=detail, latency_ms=latency_ms)
 
 
-@router.post("/storage/backends/{backend_id}/default", response_model=StorageBackendOut)
+@router.post(
+    "/storage/backends/{backend_id}/default", response_model=StorageBackendOut, dependencies=_ADMIN
+)
 async def set_default_storage_backend(
     backend_id: int,
     db: AsyncSession = Depends(get_db),
@@ -351,7 +399,7 @@ async def set_default_storage_backend(
     return StorageBackendOut.from_row(row, settings)
 
 
-@router.post("/storage/backends/{backend_id}/migrate", response_model=JobOut)
+@router.post("/storage/backends/{backend_id}/migrate", response_model=JobOut, dependencies=_ADMIN)
 async def migrate_library_to_backend(
     backend_id: int,
     db: AsyncSession = Depends(get_db),

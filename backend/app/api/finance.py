@@ -287,7 +287,7 @@ async def delete_cost_center(
 @router.get("/ledger", response_model=list[LedgerEntryOut])
 async def list_ledger(
     cost_center: int,
-    limit: int = Query(50, le=500),  # M3: cap the page size -- never an unbounded SELECT.
+    limit: int = Query(50, ge=1, le=500),  # M3: cap the page size -- never an unbounded SELECT.
     before_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),

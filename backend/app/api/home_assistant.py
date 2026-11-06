@@ -89,6 +89,30 @@ def _apply_overrides(config: HaConfig, patch: dict) -> HaConfig:
     return HaConfig(**values)
 
 
+def _norm_url(value: str | None) -> str:
+    return (value or "").strip().rstrip("/").lower()
+
+
+def require_secret_on_target_change(stored: HaConfig, patch: dict) -> None:
+    """422 when the MQTT/REST target URL changes but the matching secret is
+    not re-entered: the stored password/token must never be replayed to a
+    host the caller just chose."""
+    for url_field, secret_field, stored_url, stored_secret in (
+        ("ha_mqtt_url", "ha_mqtt_password", stored.ha_mqtt_url, stored.ha_mqtt_password),
+        ("ha_url", "ha_token", stored.ha_url, stored.ha_token),
+    ):
+        if url_field not in patch or patch[url_field] is None:
+            continue
+        if _norm_url(patch[url_field]) == _norm_url(stored_url) or not stored_secret:
+            continue
+        if patch.get(secret_field) in (None, _KEEP_SENTINEL):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"{url_field} changed: re-enter {secret_field} (the stored secret "
+                "is not reused for a different host)",
+            )
+
+
 # ---------------------------------------------------------------------------
 # Connection config
 # ---------------------------------------------------------------------------
@@ -141,6 +165,7 @@ async def put_ha_settings(
     ctx: AuthContext = Depends(require_session),
 ) -> HaSettingsOut:
     patch = payload.model_dump(exclude_unset=True)
+    require_secret_on_target_change(await get_ha_config(db, settings), patch)
     actor_id = patch.get("ha_actor_user_id")
     if actor_id is not None:
         actor = await db.get(User, actor_id)
@@ -232,6 +257,8 @@ async def test_mqtt(
     settings: Settings = Depends(get_settings),
 ) -> HaTestOut:
     stored = await get_ha_config(db, settings)
+    if payload is not None:
+        require_secret_on_target_change(stored, payload.model_dump(exclude_unset=True))
     config = stored if payload is None else _apply_overrides(stored, payload.model_dump())
     ok, detail = await run_in_threadpool(_run_mqtt_test, config)
     return HaTestOut(ok=ok, detail=detail)
