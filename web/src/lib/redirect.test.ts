@@ -8,7 +8,7 @@ describe("safeRedirect", () => {
     expect(safeRedirect("/")).toBe("/");
   });
   it("rejects external, protocol-relative, backslash and login targets", () => {
-    for (const bad of ["https://evil.example", "//evil.example", "/\\evil.example", "javascript:alert(1)", "library", "/login", "/login?x=1", 5, null, undefined]) {
+    for (const bad of ["https://evil.example", "//evil.example", "/\\evil.example", "/a\nb", "/\t/evil.example", "/a\u0000b", "javascript:alert(1)", "library", "/login", "/login?x=1", 5, null, undefined]) {
       expect(safeRedirect(bad)).toBeNull();
     }
   });

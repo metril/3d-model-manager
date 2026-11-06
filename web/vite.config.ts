@@ -30,13 +30,13 @@ export default defineConfig({
     },
   },
   build: {
-    // Vite 8 / rolldown: `advancedChunks` groups with explicit priorities (the
+    // Vite 8 / rolldown: `codeSplitting` groups with explicit priorities (the
     // old `manualChunks` function dragged React's CJS wrapper into
     // vendor-dnd/dockview, which then got modulepreloaded on every page).
     // @dnd-kit is deliberately ungrouped so it lands in the lazy Stats chunk.
     rollupOptions: {
       output: {
-        advancedChunks: {
+        codeSplitting: {
           groups: [
             {
               name: 'vendor-react',
