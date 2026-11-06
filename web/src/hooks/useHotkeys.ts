@@ -99,7 +99,7 @@ export function useHotkeys(
     if (!enabled) return;
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.repeat) return;
+      if (event.repeat || event.isComposing) return;
       const editable = event.key !== "Escape" && isEditableTarget(event.target);
       const overlay = event.key !== "Escape" && isOverlayActive(event.target, doc ?? document);
 

@@ -30,16 +30,26 @@ export default defineConfig({
     },
   },
   build: {
+    // Vite 8 / rolldown: `advancedChunks` groups with explicit priorities (the
+    // old `manualChunks` function dragged React's CJS wrapper into
+    // vendor-dnd/dockview, which then got modulepreloaded on every page).
+    // @dnd-kit is deliberately ungrouped so it lands in the lazy Stats chunk.
     rollupOptions: {
       output: {
-        manualChunks(id: string) {
-          if (!id.includes('node_modules')) return undefined
-          // React core first so three's chunk never owns it (would force-load three eagerly).
-          if (/node_modules\/(react|react-dom|scheduler|use-sync-external-store|zustand)\//.test(id)) return 'vendor-react'
-          if (/node_modules\/(three|@react-three|three-stdlib|postprocessing|meshline|troika)/.test(id)) return 'vendor-three'
-          if (id.includes('node_modules/dockview')) return 'vendor-dockview'
-          if (id.includes('node_modules/@dnd-kit')) return 'vendor-dnd'
-          return undefined
+        advancedChunks: {
+          groups: [
+            {
+              name: 'vendor-react',
+              test: /node_modules[\\/](react|react-dom|scheduler|use-sync-external-store|zustand)[\\/]/,
+              priority: 40,
+            },
+            {
+              name: 'vendor-three',
+              test: /node_modules[\\/](three|@react-three|three-stdlib|postprocessing|meshline|troika)/,
+              priority: 30,
+            },
+            { name: 'vendor-dockview', test: /node_modules[\\/]dockview/, priority: 20 },
+          ],
         },
       },
     },

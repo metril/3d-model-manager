@@ -8,10 +8,15 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import type { Features } from "@/api/types";
+import { setCurrency } from "@/lib/format";
 
 export const featuresQueryOptions = queryOptions({
   queryKey: ["features"] as const,
-  queryFn: () => api.get<Features>("/features"),
+  queryFn: async () => {
+    const features = await api.get<Features>("/features");
+    setCurrency(features.currency);
+    return features;
+  },
   staleTime: Infinity, // a process-level flag; no need to refetch
 });
 

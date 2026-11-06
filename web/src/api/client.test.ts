@@ -39,3 +39,24 @@ describe("api client coded errors", () => {
     window.removeEventListener(ENROLL_2FA_EVENT, seen);
   });
 });
+
+describe("api client body handling", () => {
+  it("returns undefined for an empty 200 body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 200 })));
+    await expect(api.post("/x")).resolves.toBeUndefined();
+  });
+
+  it("passes the abort signal through and getBlob returns a Blob", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("abc", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const ctrl = new AbortController();
+    const blob = await api.getBlob("/spools/export.csv", { signal: ctrl.signal });
+    expect(await blob.text()).toBe("abc");
+    expect(fetchMock.mock.calls[0][1].signal).toBe(ctrl.signal);
+  });
+
+  it("getBlob surfaces API errors", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "nope" }), { status: 400 })));
+    await expect(api.getBlob("/x")).rejects.toMatchObject({ status: 400, detail: "nope" });
+  });
+});

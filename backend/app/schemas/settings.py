@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.imports import NonEmptyStr
 from app.services.app_config import AppConfig
@@ -76,6 +76,12 @@ class AppSettingsIn(BaseModel):
     sensor_history_days: int = Field(default=30, ge=1, le=3650)
     trash_retention_days: int = Field(default=30, ge=0, le=3650)
     makerworld_profiles: Literal["all", "owned"] = "all"
+    currency: str = Field(default="", pattern=r"^([A-Za-z]{3})?$")
+
+    @field_validator("currency")
+    @classmethod
+    def _upper_currency(cls, v: str) -> str:
+        return v.upper()
 
 
 class AppSettingsOut(BaseModel):
@@ -92,6 +98,7 @@ class AppSettingsOut(BaseModel):
     sensor_history_days: int
     trash_retention_days: int
     makerworld_profiles: Literal["all", "owned"]
+    currency: str
 
     @classmethod
     def from_config(cls, config: AppConfig) -> AppSettingsOut:

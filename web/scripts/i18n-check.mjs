@@ -2,6 +2,7 @@
 // en.json, or when another locale lacks keys that en.json has.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pluralProblems } from "./i18n-rules.mjs";
 
 const root = new URL("../src", import.meta.url).pathname;
 const flat = (o, p = "") =>
@@ -15,21 +16,24 @@ const walk = (d) =>
   });
 
 const locales = join(root, "i18n/locales");
-const en = new Set(flat(JSON.parse(readFileSync(join(locales, "en.json"), "utf8"))));
+const enJson = JSON.parse(readFileSync(join(locales, "en.json"), "utf8"));
+const en = new Set(flat(enJson));
 // i18next plural forms (`key_one`/`key_other`) are looked up by their base key.
 const known = new Set([...en, ...[...en].map((k) => k.replace(/_(zero|one|two|few|many|other)$/, ""))]);
-const missing = [];
+const missing = [...pluralProblems(enJson).map((p) => `en.json: ${p}`)];
 const re = /(?:\bt\(\s*|i18nKey=)["'`]([A-Za-z0-9_.&' -]+)["'`]/g;
 for (const file of walk(root)) {
   const src = readFileSync(file, "utf8");
   for (const m of src.matchAll(re)) if (!known.has(m[1])) missing.push(`${file.replace(root, "src")}: ${m[1]}`);
 }
 for (const f of readdirSync(locales).filter((f) => f.endsWith(".json") && f !== "en.json")) {
-  const have = new Set(flat(JSON.parse(readFileSync(join(locales, f), "utf8"))));
+  const json = JSON.parse(readFileSync(join(locales, f), "utf8"));
+  missing.push(...pluralProblems(json).map((p) => `${f}: ${p}`));
+  const have = new Set(flat(json));
   for (const k of en) if (!have.has(k)) missing.push(`${f}: missing ${k}`);
 }
 if (missing.length) {
-  console.error(`i18n: ${missing.length} missing key(s)\n` + missing.join("\n"));
+  console.error(`i18n: ${missing.length} problem(s)\n` + missing.join("\n"));
   process.exit(1);
 }
 console.log(`i18n: ok (${en.size} keys)`);

@@ -198,12 +198,14 @@ export function useAdminReset2fa() {
   });
 }
 
-/** `POST /auth/logout`, then clears the cached `me` query. */
+/** `POST /auth/logout`, then drops the whole query cache (not just `me`:
+ * `setQueryData(key, undefined)` is a no-op in React Query v5, and every
+ * other cached query belongs to the signed-out user). */
 export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<void>("/auth/logout"),
-    onSuccess: () => queryClient.setQueryData(authQueryOptions.queryKey, undefined),
+    onSuccess: () => queryClient.clear(),
   });
 }
 

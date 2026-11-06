@@ -12,6 +12,7 @@
  *   from that call is the expected, unauthenticated case and must not
  *   trigger a redirect loop back to the page we're already on.
  */
+import { loginUrlFor } from "@/lib/redirect";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -35,6 +36,19 @@ const API_BASE = "/api";
 
 interface JsonRequestInit extends Omit<RequestInit, "body"> {
   body?: unknown;
+}
+
+/** Optional per-call options for the `api.*` helpers (query functions pass
+ * `{ signal }` so react-query can cancel superseded requests). */
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
+
+let unauthorizedHandler: (() => void) | null = null;
+
+/** Registered once by the app (queryClient.ts) so a 401 clears the cache. */
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn;
 }
 
 function isUnauthenticatedRedirectExempt(): boolean {
@@ -83,9 +97,12 @@ export const ENROLL_2FA_EVENT = "tdmm:2fa-enrollment-required";
 /** Shared 401/error/empty-body handling for both the JSON path (`request`)
  * and the raw-body path (`requestRaw`, e.g. the cover-snapshot upload) --
  * everything past "here's a `Response`" is identical between the two. */
-async function handleResponse<T>(response: Response): Promise<T> {
+async function handleResponse<T>(response: Response, parse: "json" | "blob" = "json"): Promise<T> {
   if (response.status === 401 && !isUnauthenticatedRedirectExempt()) {
-    window.location.assign("/login");
+    // A 401 means the cached session is gone: drop every cached query too,
+    // so nothing (e.g. a route guard) can pass from stale cache.
+    unauthorizedHandler?.();
+    window.location.assign(loginUrlFor(`${window.location.pathname}${window.location.search}`));
     throw new ApiError(401, (await extractError(response)).detail);
   }
 
@@ -97,14 +114,16 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new ApiError(response.status, detail, code, files);
   }
 
-  if (response.status === 204 || response.headers.get("content-length") === "0") {
-    return undefined as T;
-  }
+  if (parse === "blob") return (await response.blob()) as T;
 
-  return (await response.json()) as T;
+  if (response.status === 204) return undefined as T;
+  // Tolerate any empty body (200 with no content, etc.) without a JSON parse error.
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
-async function request<T>(path: string, init: JsonRequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: JsonRequestInit = {}, parse: "json" | "blob" = "json"): Promise<T> {
   const { body, headers, ...rest } = init;
 
   const response = await fetch(`${API_BASE}${path}`, {
@@ -117,7 +136,7 @@ async function request<T>(path: string, init: JsonRequestInit = {}): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  return handleResponse<T>(response);
+  return handleResponse<T>(response, parse);
 }
 
 /** Raw (non-JSON) request body -- e.g. the cover-snapshot endpoint, which
@@ -147,11 +166,14 @@ async function requestForm<T>(path: string, formData: FormData, method: "POST" |
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path, { method: "GET" }),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body }),
-  put: <T>(path: string, body?: unknown) => request<T>(path, { method: "PUT", body }),
-  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  get: <T>(path: string, opts?: RequestOptions) => request<T>(path, { method: "GET", signal: opts?.signal }),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>(path, { method: "POST", body, signal: opts?.signal }),
+  put: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>(path, { method: "PUT", body, signal: opts?.signal }),
+  patch: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>(path, { method: "PATCH", body, signal: opts?.signal }),
+  delete: <T>(path: string, opts?: RequestOptions) => request<T>(path, { method: "DELETE", signal: opts?.signal }),
+  /** Fetch a binary body (CSV, PNG, PDF...) through the shared 401/error handling. */
+  getBlob: (path: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}) =>
+    request<Blob>(path, { method: init.method ?? "GET", body: init.body, signal: init.signal }, "blob"),
   /** POST with a raw (non-JSON) body, e.g. an image blob. */
   postRaw: <T>(path: string, body: BodyInit, contentType: string) => requestRaw<T>(path, "POST", body, contentType),
   /** POST a multipart `FormData` body. */

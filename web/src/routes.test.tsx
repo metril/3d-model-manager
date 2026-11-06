@@ -227,3 +227,34 @@ describe("orcaslicer route", () => {
     expect(router.state.matches.map((m) => m.routeId)).toContain("/slicer");
   });
 });
+
+describe("login redirect + id guards", () => {
+  it("sends an unauthenticated visit to /login carrying a safe redirect", async () => {
+    getMock.mockRejectedValue(new Error("401"));
+    const router = makeRouter("/library?q=benchy");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.search).toEqual({ redirect: "/library?q=benchy" });
+  });
+
+  it("bounces an already-authenticated /login visit to the requested page", async () => {
+    mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
+    const router = makeRouter("/login?redirect=%2Fsettings");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/settings");
+  });
+
+  it("drops an unsafe redirect target", async () => {
+    mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
+    const router = makeRouter("/login?redirect=https%3A%2F%2Fevil.example");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/library"); // `/` -> /library (printer off); never the external URL
+  });
+
+  it("treats a non-integer project id as not found", async () => {
+    mockApi({ me: fakeMe(), features: fakeFeatures({ printer_enabled: false }), printers: [] });
+    const router = makeRouter("/projects/abc");
+    await router.load();
+    expect(router.state.matches.some((m) => m.status === "notFound")).toBe(true);
+  });
+});

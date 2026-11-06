@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { Outlet, createRootRouteWithContext, createRoute, lazyRouteComponent, redirect } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext, createRoute, lazyRouteComponent, notFound, redirect } from "@tanstack/react-router";
 
 import type { Me } from "@/api/auth";
 import { authQueryOptions } from "@/api/auth";
@@ -8,8 +8,7 @@ import { printersQueryOptions } from "@/api/printers";
 import type { Features, PrinterOut } from "@/api/types";
 import { can } from "@/lib/permissions";
 import { AppShell } from "@/components/AppShell";
-import { LibraryPage } from "@/pages/LibraryPage";
-import { LoginPage } from "@/pages/LoginPage";
+import { safeRedirect } from "@/lib/redirect";
 import { parseCollectionsSearch } from "@/pages/collectionsSearch";
 import { parseLibrarySearch, type LibrarySearch } from "@/pages/librarySearch";
 import { parsePrintHistorySearch } from "@/pages/printHistorySearch";
@@ -31,13 +30,29 @@ const loginRoute = createRoute({
   path: "/login",
   validateSearch: (
     search: Record<string, unknown>,
-  ): { error?: string; step?: string; token?: string; methods?: string } => ({
+  ): { error?: string; step?: string; token?: string; methods?: string; redirect?: string } => ({
     error: typeof search.error === "string" ? search.error : undefined,
     step: typeof search.step === "string" ? search.step : undefined,
     token: typeof search.token === "string" ? search.token : undefined,
     methods: typeof search.methods === "string" ? search.methods : undefined,
+    redirect: safeRedirect(search.redirect) ?? undefined,
   }),
-  component: LoginPage,
+  // Already signed in: bounce to the requested page (or `/`). A failed
+  // `/auth/me` just means "show the form" (401 is exempt on /login).
+  beforeLoad: async ({ context, search }) => {
+    try {
+      await context.queryClient.ensureQueryData(authQueryOptions);
+    } catch {
+      return;
+    }
+    const url = new URL(search.redirect ?? "/", "http://x");
+    throw redirect({
+      to: url.pathname as never,
+      search: Object.fromEntries(url.searchParams) as never,
+      replace: true,
+    });
+  },
+  component: lazyRouteComponent(() => import("@/pages/LoginPage"), "LoginPage"),
 });
 
 /** Pathless layout route: guards every child on `GET /auth/me` before it
@@ -46,11 +61,11 @@ const loginRoute = createRoute({
 const authenticatedRoute = createRoute({
   id: "authenticated",
   getParentRoute: () => rootRoute,
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     try {
       await context.queryClient.ensureQueryData(authQueryOptions);
     } catch {
-      throw redirect({ to: "/login" });
+      throw redirect({ to: "/login", search: { redirect: safeRedirect(location.href) ?? undefined } });
     }
   },
   component: AppShell,
@@ -81,12 +96,12 @@ const orcaslicerRoute = createRoute({
 // `/camwall` are session-guarded; `/overlay/$id?token=` is public (OBS
 // browser source) and authenticates by its read-only overlay token only.
 // Users who still must enrol in 2FA are sent to `/`, where AppShell shows the gate.
-async function sessionGuard({ context }: { context: RouterContext }) {
+async function sessionGuard({ context, location }: { context: RouterContext; location: { href: string } }) {
   let me;
   try {
     me = await context.queryClient.ensureQueryData(authQueryOptions);
   } catch {
-    throw redirect({ to: "/login" });
+    throw redirect({ to: "/login", search: { redirect: safeRedirect(location.href) ?? undefined } });
   }
   if (me.must_enroll_2fa) throw redirect({ to: "/" });
 }
@@ -94,7 +109,10 @@ async function sessionGuard({ context }: { context: RouterContext }) {
 const cameraWindowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/camera/$id",
-  beforeLoad: sessionGuard,
+  beforeLoad: async (args) => {
+    await sessionGuard(args);
+    requireIntId(args);
+  },
   component: lazyRouteComponent(() => import("@/pages/CameraPage"), "CameraPage"),
 });
 
@@ -120,11 +138,17 @@ const camWallRoute = createRoute({
 const overlayRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/overlay/$id",
+  beforeLoad: requireIntId,
   validateSearch: (search: Record<string, unknown>): { token?: string } => ({
     token: typeof search.token === "string" ? search.token : undefined,
   }),
   component: lazyRouteComponent(() => import("@/pages/OverlayPage"), "OverlayPage"),
 });
+
+/** `/x/$id` routes whose id must be a positive integer; anything else is a 404. */
+function requireIntId({ params }: { params: { id: string } }) {
+  if (!/^[1-9]\d*$/.test(params.id)) throw notFound();
+}
 
 /** Pure redirect policy for `/` (P3 Task 5): print-first by default, but
  * bounced to `/library` when there's nothing print-related to show --
@@ -157,8 +181,10 @@ const indexRoute = createRoute({
     ...parsePrintDashSearch(search),
   }),
   beforeLoad: async ({ context, search }) => {
-    const features = await context.queryClient.ensureQueryData(featuresQueryOptions);
-    const me = await context.queryClient.ensureQueryData(authQueryOptions);
+    const [features, me] = await Promise.all([
+      context.queryClient.ensureQueryData(featuresQueryOptions),
+      context.queryClient.ensureQueryData(authQueryOptions),
+    ]);
     const printers = features.printer_enabled
       ? await context.queryClient.ensureQueryData(printersQueryOptions)
       : [];
@@ -172,7 +198,7 @@ const libraryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/library",
   validateSearch: parseLibrarySearch,
-  component: LibraryPage,
+  component: lazyRouteComponent(() => import("@/pages/LibraryPage"), "LibraryPage"),
 });
 
 const modelDetailRoute = createRoute({
@@ -223,6 +249,7 @@ const projectsRoute = createRoute({
 const projectDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects/$id",
+  beforeLoad: requireIntId,
   component: lazyRouteComponent(() => import("@/pages/ProjectDetailPage"), "ProjectDetailPage"),
 });
 

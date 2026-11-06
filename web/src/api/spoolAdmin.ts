@@ -5,7 +5,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, ApiError } from "@/api/client";
+import { api } from "@/api/client";
 import type {
   BulkResult,
   BulkSpoolUpdate,
@@ -26,32 +26,10 @@ import type {
   SupplierIn,
 } from "@/api/types";
 
-const API_BASE = "/api";
-
 // ---- binary helpers ----
 
-async function failFrom(response: Response): Promise<never> {
-  let detail = response.statusText || `Request failed with status ${response.status}`;
-  try {
-    const data: unknown = await response.json();
-    if (data && typeof data === "object" && typeof (data as { detail?: unknown }).detail === "string") {
-      detail = (data as { detail: string }).detail;
-    }
-  } catch {
-    // not JSON
-  }
-  throw new ApiError(response.status, detail);
-}
-
-export async function fetchBlob(path: string, init?: { method?: string; body?: unknown }): Promise<Blob> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: init?.method ?? "GET",
-    credentials: "include",
-    headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
-  });
-  if (!response.ok) await failFrom(response);
-  return response.blob();
+export function fetchBlob(path: string, init?: { method?: string; body?: unknown }): Promise<Blob> {
+  return api.getBlob(path, init);
 }
 
 /** Save a blob through a transient anchor. */
@@ -185,7 +163,7 @@ export function useColorSearch(q: string) {
   const term = q.trim();
   return useQuery({
     queryKey: ["color-catalog", "search", term],
-    queryFn: () => api.get<ColorCatalogEntry[]>(`/color-catalog/search?q=${encodeURIComponent(term)}`),
+    queryFn: ({ signal }) => api.get<ColorCatalogEntry[]>(`/color-catalog/search?q=${encodeURIComponent(term)}`, { signal }),
     enabled: term.length >= 2,
   });
 }

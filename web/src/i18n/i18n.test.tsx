@@ -23,6 +23,9 @@ describe("i18n", () => {
   });
 
   it("switches language, persists the choice and falls back to en for missing keys", async () => {
+    // `supportedLngs` comes from LANGUAGES; register the test locale like a contributor would.
+    const supported = i18n.options.supportedLngs as string[];
+    supported.push("xx");
     i18n.addResourceBundle("xx", "translation", { stats: { title: "Estadisticas" } });
     render(<Probe />);
     await act(async () => {
@@ -32,5 +35,7 @@ describe("i18n", () => {
     expect(i18n.t("settings.title")).toBe("Settings");
     expect(localStorage.getItem(LANGUAGE_KEY)).toBe("xx");
     i18n.removeResourceBundle("xx", "translation");
+    supported.splice(supported.indexOf("xx"), 1);
+    expect(document.documentElement.lang).toBe("xx");
   });
 });
