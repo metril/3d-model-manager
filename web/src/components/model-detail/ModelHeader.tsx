@@ -188,7 +188,8 @@ export function ModelHeader({
   // The print profile shown in the viewer wins over the model's primary file.
   const viewerBlob = useActiveViewerBlob();
   const viewerFile = viewerBlob ? files.find((f) => f.blob_hash === viewerBlob) : undefined;
-  const slicerFile = pickBestSlicerFile(files);
+  const slicerFile =
+    viewerFile && pickBestSlicerFile([viewerFile]) ? viewerFile : pickBestSlicerFile(files);
   const orcaFile =
     viewerFile && viewerFile.verified_at && isOrcaSlicerOpenable(viewerFile)
       ? viewerFile
