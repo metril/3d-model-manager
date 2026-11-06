@@ -21,10 +21,10 @@ import { createClient } from "./api.js";
 import { getConfig, getState, isConfigured, setState } from "./config.js";
 import { runCourier } from "./courierRun.js";
 import { GALLERY_HOST_PATTERNS, isCollectionDetailPage, isCollectionsPage, isModelPage } from "./detect.js";
-import { execInTab } from "./exec.js";
+import { execInTab, topDocumentId } from "./exec.js";
 import { isOwnExtensionSender } from "./guards.js";
 import { runOnce } from "./runOnce.js";
-import { listActiveImports, patchImport, readImport, runQueue, startSave, trackImport } from "./importTracker.js";
+import { listActiveImports, patchImport, pruneFinishedImports, readImport, runQueue, startSave, trackImport } from "./importTracker.js";
 import {
   findLastCollectionItemsHash,
   hashCollectionItemsPayload,
@@ -147,6 +147,7 @@ async function finishAlarmIfIdle() {
 
 /** Resumes every unfinished import (alarm tick / worker start). */
 async function resumeImports() {
+  pruneFinishedImports().catch(() => {});
   const active = await listActiveImports();
   if (active.length === 0) {
     return;
@@ -269,19 +270,30 @@ const logReport = (prefix) => (text, kind) => {
 };
 
 /**
+ * `exec` bound to the document the trigger saw: with a documentId, a tab that
+ * has since navigated elsewhere makes the injection fail rather than scraping
+ * (and syncing) the wrong page.
+ */
+function execFor(documentId) {
+  return documentId
+    ? (tabId, func, args, timeoutMs) => execInTab({ tabId, documentId }, func, args, timeoutMs)
+    : execInTab;
+}
+
+/**
  * Collections LIST auto-sync: the same shared flow the popup button uses,
  * triggered by visiting the page. Throttled on a hash of the pushed payload
  * BEFORE any push. An empty read is never pushed (a flaky empty scrape must
  * not blow away real cached collections). A run with unreadable, failed or
  * partial collections must NOT advance the hash, so the next visit retries.
  */
-export async function runCollectionsSync(tabId, url) {
+export async function runCollectionsSync(tabId, url, documentId) {
   const config = await getConfig();
   if (!config.autoSyncCollections || !isConfigured(config)) {
     return;
   }
 
-  const page = await readCollectionsPage({ tabId, url, exec: execInTab });
+  const page = await readCollectionsPage({ tabId, url, exec: execFor(documentId) });
   if (!page) {
     console.error("[collections auto-sync] couldn't read the collections page");
     return;
@@ -301,7 +313,7 @@ export async function runCollectionsSync(tabId, url) {
     result = await syncCollections({
       tabId,
       url,
-      exec: execInTab,
+      exec: execFor(documentId),
       api: client,
       page,
       report: logReport("collections auto-sync"),
@@ -324,13 +336,13 @@ export async function runCollectionsSync(tabId, url) {
  * propagate; otherwise nothing is pushed. The throttle hash is persisted only
  * when `syncCollectionDetail` says the read is `persistable`.
  */
-export async function runCollectionDetailSync(tabId, url) {
+export async function runCollectionDetailSync(tabId, url, documentId) {
   const config = await getConfig();
   if (!config.autoSyncCollections || !isConfigured(config)) {
     return;
   }
 
-  const page = await readCollectionDetailPage({ tabId, url, exec: execInTab });
+  const page = await readCollectionDetailPage({ tabId, url, exec: execFor(documentId) });
   if (!page || !page.found) {
     console.error("[collection detail auto-sync] couldn't read this collection");
     return;
@@ -353,7 +365,7 @@ export async function runCollectionDetailSync(tabId, url) {
     result = await syncCollectionDetail({
       tabId,
       url,
-      exec: execInTab,
+      exec: execFor(documentId),
       api: client,
       page,
       report: logReport("collection detail auto-sync"),
@@ -385,14 +397,14 @@ function handleTabUrl(tabId, url) {
     runOnce("courier", runCourier).catch((err) => console.warn("courier failed", err));
   }
   if (isCollectionsPage(url)) {
-    runOnce(`${tabId}:collections`, () => runCollectionsSync(tabId, url)).catch((err) =>
-      console.warn("collections auto-sync failed", err),
-    );
+    runOnce(`${tabId}:collections`, async () =>
+      runCollectionsSync(tabId, url, await topDocumentId(tabId)),
+    ).catch((err) => console.warn("collections auto-sync failed", err));
   }
   if (isCollectionDetailPage(url)) {
-    runOnce(`${tabId}:collection-detail`, () => runCollectionDetailSync(tabId, url)).catch((err) =>
-      console.warn("collection detail auto-sync failed", err),
-    );
+    runOnce(`${tabId}:collection-detail`, async () =>
+      runCollectionDetailSync(tabId, url, await topDocumentId(tabId)),
+    ).catch((err) => console.warn("collection detail auto-sync failed", err));
   }
 }
 
@@ -415,7 +427,7 @@ chrome.webNavigation?.onHistoryStateUpdated.addListener(
 
 // Primary courier trigger: the session cookie changed (sign-in, refresh).
 chrome.cookies.onChanged.addListener(({ cookie, removed }) => {
-  if (!removed && cookie && cookie.name === "token" && String(cookie.domain).replace(/^\./, "").endsWith("makerworld.com")) {
+  if (!removed && cookie && cookie.name === "token" && MAKERWORLD_HOSTS.has(String(cookie.domain).replace(/^\./, "").toLowerCase())) {
     runOnce("courier", runCourier).catch((err) => console.warn("courier failed", err));
   }
 });

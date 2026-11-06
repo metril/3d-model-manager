@@ -20,6 +20,8 @@ export const IMPORT_PREFIX = "imp:";
 export const URL_PREFIX = "imp-url:";
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const GIVE_UP_AFTER_MS = 30 * 60 * 1000;
+/** Finished records (and their URL index) are dropped after this long. */
+export const FINISHED_TTL_MS = 60 * 60 * 1000;
 const BADGE_OK = "#2e7d32";
 const BADGE_ERR = "#b3261e";
 const BADGE_BUSY = "#475569";
@@ -42,8 +44,31 @@ export async function findImportForUrl(url) {
 export async function patchImport(id, patch) {
   const current = (await readImport(id)) ?? { id };
   const next = { ...current, ...patch };
+  if (next.finished && !next.finishedAt) {
+    next.finishedAt = Date.now();
+  }
   await session().set({ [IMPORT_PREFIX + id]: next });
   return next;
+}
+
+/**
+ * Removes finished records older than `FINISHED_TTL_MS` (plus the `imp-url:`
+ * index entry when it still points at that record), so session storage doesn't
+ * grow without bound. Returns the number pruned.
+ */
+export async function pruneFinishedImports(now = Date.now) {
+  const all = await session().get(null);
+  const cutoff = now() - FINISHED_TTL_MS;
+  const keys = [];
+  for (const [k, v] of Object.entries(all)) {
+    if (!k.startsWith(IMPORT_PREFIX) || !v || !v.finished) continue;
+    if ((v.finishedAt ?? v.startedAt ?? 0) >= cutoff) continue;
+    keys.push(k);
+    const urlKey = URL_PREFIX + v.url;
+    if (all[urlKey] === v.id) keys.push(urlKey);
+  }
+  if (keys.length > 0) await session().remove(keys);
+  return keys.filter((k) => k.startsWith(IMPORT_PREFIX)).length;
 }
 
 /** All unfinished records, for alarm/worker-start resume. */
@@ -67,6 +92,14 @@ export async function runQueue(id, deps) {
   const rec = await readImport(id);
   if (!rec || rec.modelId == null) {
     return patchImport(id, { queueResult: { status: "error", message: "The import has no model to queue." } });
+  }
+  if (!deps.v2Api) {
+    // The printer key was removed after the save asked for a queue step.
+    const next = await patchImport(id, {
+      queueResult: { status: "error", message: "The printer key was removed; can't add to the queue." },
+    });
+    await badge(deps, next, "!", BADGE_ERR);
+    return next;
   }
   let result;
   try {
@@ -118,7 +151,7 @@ export async function trackImport(id, deps) {
   await writes;
 
   if (outcome.outcome === "done") {
-    const queueNow = Boolean(rec.queue && deps.v2Api && !rec.queueResult);
+    const queueNow = Boolean(rec.queue && !rec.queueResult);
     // Not finished until the queue step has run, so a worker killed mid-queue
     // is resumed by the alarm (which re-enters here with queueResult unset).
     rec = await patchImport(id, { state: "done", finished: !queueNow });
