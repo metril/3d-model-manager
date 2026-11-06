@@ -31,6 +31,11 @@ describe("ProfilesPanel", () => {
     expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 
+  it("renders escaped html description as plain text", () => {
+    render(<ProfilesPanel model={model([file(1, "x.3mf", [plate(1)], { description: "&lt;p&gt;no ams.&lt;/p&gt;" })])} />);
+    expect(screen.getByTitle("no ams.")).toHaveTextContent("no ams.");
+  });
+
   it("shows the colour-change note", () => {
     render(<ProfilesPanel model={model([file(1, "x.3mf", [plate(1, { colour_changes: [{ z: 3, slot: 1, colour: "#00ff00" }] })])])} />);
     expect(screen.getByText(/Colour change at 3\.0 mm/)).toBeInTheDocument();
