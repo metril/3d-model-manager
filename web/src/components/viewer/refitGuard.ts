@@ -155,3 +155,39 @@ export function fitDistance(size: Vec3Like, fovDeg: number, aspect: number, marg
   const hHalf = Math.atan(Math.tan(vHalf) * (aspect > 0 ? aspect : 1));
   return (margin * radius) / Math.sin(Math.min(vHalf, hHalf));
 }
+
+export const FLAT_RATIO = 0.15;
+export const FLAT_MAX_ELEVATION_DEG = 15;
+const ISO: Vec3Like = { x: 1, y: 1, z: 1 };
+const TOP_ISO: Vec3Like = { x: 0.45, y: 1.6, z: 0.75 };
+
+/** True when the box is a thin slab (e.g. coins on a bed): height << footprint. */
+export function isFlatScene(size: Vec3Like): boolean {
+  return size.y < FLAT_RATIO * Math.max(size.x, size.z);
+}
+
+/**
+ * Direction (camera relative to target, Y-up) a fit should look from, or null to
+ * keep the current one. `reset` (new plate / layout selection, nothing moved by the
+ * user) picks iso, top-biased for flat scenes. Otherwise only a flat scene seen
+ * within ~15 degrees of horizontal is rescued with a top-biased direction.
+ */
+export function pickFitDirection(opts: {
+  current: Vec3Like;
+  size: Vec3Like;
+  reset: boolean;
+  /** Allow the flat edge-on rescue (false for preset-driven / resize fits). Default true. */
+  rescue?: boolean;
+}): Vec3Like | null {
+  const { current, size, reset, rescue = true } = opts;
+  const flat = isFlatScene(size);
+  if (reset) return flat ? TOP_ISO : ISO;
+  if (!flat || !rescue) return null;
+  const len = Math.hypot(current.x, current.y, current.z);
+  if (!(len > 1e-9)) return TOP_ISO;
+  const elevation = (Math.asin(Math.max(-1, Math.min(1, current.y / len))) * 180) / Math.PI;
+  return Math.abs(elevation) < FLAT_MAX_ELEVATION_DEG ? TOP_ISO : null;
+}
+
+/** A fit consumes the iso reset only when the selection key changed (call it on a run that really fits). */
+export const shouldResetView = (last: string | null, key: string): boolean => last !== key;

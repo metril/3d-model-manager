@@ -69,7 +69,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useOnRelocate } from "@/lib/windowRelocate";
 import { createInvalidateInstaller, createRafScheduler } from "@/components/viewer/rafDriver";
-import { FIT_MARGIN, boxesKey, canFit, fitDistance, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
+import { FIT_MARGIN, pickFitDirection, shouldResetView, boxesKey, canFit, fitDistance, createInteractionLod, createPoseGuard, createRefitScheduler } from "@/components/viewer/refitGuard";
 import {
   Bounds,
   Center,
@@ -428,7 +428,13 @@ function BoundsRefitter({
   fitSignal,
   getVisibleBox,
   bus,
+  viewKey,
+  cameraPreset,
 }: {
+  /** Active camera preset: its direction is the user's choice, never rescued. */
+  cameraPreset: CameraPreset;
+  /** Changes when the plate / layout selection changes: the next fit resets to iso. */
+  viewKey: string;
   loadedCount: number;
   /** `boxesKey` of the loaded parts: refit when geometry is swapped in place. */
   geometryKey: number;
@@ -448,18 +454,26 @@ function BoundsRefitter({
   // Once the user orbits/zooms, a plain resize keeps their pose (r3f updates
   // the aspect itself); only load / selection / explicit Fit refit.
   const interacted = useRef(false);
+  const lastViewKey = useRef<string | null>(null);
+  const presetRef = useRef(cameraPreset);
+  presetRef.current = cameraPreset;
   runRef.current = (kind) => {
     const { size: sz, camera, controls: ctl, invalidate } = get();
     if (kind === "debounced" && interacted.current) {
       invalidate();
       return;
     }
-    interacted.current = false;
     const box = getVisibleBox();
     if (!canFit(sz, box)) return;
     if (box) api.refresh(box);
     else if (loadedCount > 0) api.refresh();
     else return;
+    // Consumed only by a run that actually fits (not the empty mount/swap runs).
+    // New selection (or first fit): reset to iso. Same selection: keep the
+    // direction (user orbit / presets), except flat edge-on rescue.
+    const reset = shouldResetView(lastViewKey.current, viewKey);
+    interacted.current = false;
+    lastViewKey.current = viewKey;
     let measured = api.getSize();
     // drei sizes the distance from the box's longest edge and ignores depth, so
     // a cube-ish box (a single plate) overflows at a wide FOV. Inflate the box
@@ -478,6 +492,19 @@ function BoundsRefitter({
     if (!canFit(sz, measured.box) || !Number.isFinite(measured.distance)) return;
     api.clip();
     const orbit = ctl as unknown as OrbitLike | null;
+    // drei's fit keeps the current view direction; r3f's default camera sits on
+    // +Z (edge-on for flat plates), so choose the direction explicitly.
+    const dirNow = camera.position.clone().sub(orbit ? (orbit.target as THREE.Vector3) : measured.center);
+    const want = pickFitDirection({ current: dirNow, size: (box ?? measured.box).getSize(new THREE.Vector3()), reset, rescue: kind === "now" && !presetRef.current });
+    if (want) {
+      const d = new THREE.Vector3(want.x, want.y, want.z).normalize();
+      const dist = Math.max(dirNow.length(), measured.distance);
+      camera.position.copy(measured.center).addScaledVector(d, dist);
+      if (orbit) orbit.target.copy(measured.center);
+      camera.lookAt(measured.center);
+      orbit?.update();
+      camera.updateMatrixWorld();
+    }
     const ortho = (camera as THREE.OrthographicCamera).isOrthographicCamera;
     if (kind === "debounced" && !ortho) {
       // Resize fit: snap, don't tween -- a tween writes camera.position every
@@ -1196,6 +1223,8 @@ export default function ModelViewer({
           loadedCount={loadedCount}
           geometryKey={geometryKey}
           fitSignal={fitSignal + presetFitBump}
+          viewKey={`${layout ? "L" : "S"}:${parts.map((p) => p.id).join(",")}`}
+          cameraPreset={tools.cameraPreset}
           getVisibleBox={getVisibleBox}
           bus={gestureBus}
         />
