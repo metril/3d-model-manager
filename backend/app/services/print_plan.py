@@ -40,7 +40,12 @@ from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
 from app.services.app_config import get_app_config, get_app_config_sync
 from app.services.costing import CostRates, filament_cost, price_run
-from app.services.printer_state import preflight_ok, read_state_async, read_state_sync
+from app.services.printer_state import (
+    preflight_ok,
+    read_state_async,
+    read_state_sync,
+    read_states_async,
+)
 
 
 def _spool_label(s) -> str:
@@ -273,10 +278,9 @@ async def build_plan(
 
     printer_model = (meta.printer_model if meta is not None else None) or None
     printers: list[PlanPrinter] = []
-    states: dict[int, dict | None] = {}
+    states: dict[int, dict | None] = await read_states_async(redis, [p.id for p in printable])
     for p in printable:
-        state = await read_state_async(redis, p.id)
-        states[p.id] = state
+        state = states[p.id]
         idle = preflight_ok(state)
         compatible = model_matches(printer_model, p.model)
         reason = f"sliced for {printer_model}" if not compatible else None

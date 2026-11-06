@@ -40,6 +40,20 @@ def read_state_sync(redis_client, printer_id: int) -> dict | None:
         return None  # corrupt/partial value -> treat as absent (fail closed)
 
 
+async def read_states_async(redis_client, printer_ids: list[int]) -> dict[int, dict | None]:
+    """One ``MGET`` for many printers (same parse rules as ``read_state_async``)."""
+    if not printer_ids:
+        return {}
+    raws = await redis_client.mget([state_key(pid) for pid in printer_ids])
+    out: dict[int, dict | None] = {}
+    for pid, raw in zip(printer_ids, raws, strict=True):
+        try:
+            out[pid] = json.loads(raw) if raw else None
+        except (TypeError, ValueError):
+            out[pid] = None
+    return out
+
+
 async def read_state_async(redis_client, printer_id: int) -> dict | None:
     raw = await redis_client.get(state_key(printer_id))
     if not raw:
