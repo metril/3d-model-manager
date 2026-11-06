@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -331,8 +332,12 @@ async def verify_backup(db: AsyncSession, user_id: int, code: str) -> bool:
 # --- email OTP ------------------------------------------------------------------
 
 
-async def send_email_otp(db: AsyncSession, user: User) -> None:
-    """Mint + email a 6-digit code (caller commits). Raises coded HTTP errors."""
+async def send_email_otp(db: AsyncSession, user: User) -> Callable[[], None]:
+    """Mint a 6-digit code (caller commits). Raises coded HTTP errors.
+
+    Returns the delivery thunk: call it only AFTER the commit, so a failed
+    commit never emails a code that was never stored (and the row lock is not
+    held while the mail is enqueued)."""
     # Serialise concurrent sends per user so the rate limit below cannot be raced.
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     if not user.email:
@@ -364,12 +369,17 @@ async def send_email_otp(db: AsyncSession, user: User) -> None:
         )
     )
     await db.flush()
-    mailer.send(
-        user.email,
-        "Your sign-in code",
-        f"Your verification code is {code}. It expires in 10 minutes.\n"
-        "If you did not request it, you can ignore this email.",
-    )
+    to = user.email
+
+    def deliver() -> None:
+        mailer.send(
+            to,
+            "Your sign-in code",
+            f"Your verification code is {code}. It expires in 10 minutes.\n"
+            "If you did not request it, you can ignore this email.",
+        )
+
+    return deliver
 
 
 async def verify_email_otp(db: AsyncSession, user_id: int, code: str) -> bool:

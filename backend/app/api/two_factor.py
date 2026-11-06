@@ -93,8 +93,9 @@ async def email_send(payload: PreAuthIn, db: AsyncSession = Depends(get_db)) -> 
     _, user = await _pre_auth_user(db, payload.pre_auth_token)
     if not user.email_otp_enabled:
         raise tf.err(422, "method_unavailable", "email codes are not enabled")
-    await tf.send_email_otp(db, user)
+    deliver = await tf.send_email_otp(db, user)
     await db.commit()
+    deliver()
     return SentOut()
 
 
@@ -278,8 +279,9 @@ async def email_request(
     """Email a code for re-authenticating a sensitive action (e.g. disable)."""
     if not ctx.user.email_otp_enabled:
         raise tf.err(409, "not_enabled", "email codes are not enabled")
-    await tf.send_email_otp(db, ctx.user)
+    deliver = await tf.send_email_otp(db, ctx.user)
     await db.commit()
+    deliver()
     return SentOut()
 
 
@@ -289,8 +291,9 @@ async def email_enable(
 ) -> SentOut:
     if ctx.user.email_otp_enabled:
         raise tf.err(409, "already_enabled", "email codes are already enabled")
-    await tf.send_email_otp(db, ctx.user)
+    deliver = await tf.send_email_otp(db, ctx.user)
     await db.commit()
+    deliver()
     return SentOut()
 
 

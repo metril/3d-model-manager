@@ -22,6 +22,10 @@ class FakeClient:
         self.result = result
         self.calls: list[dict] = []
 
+    def close(self) -> None:
+
+        pass
+
     def slice(self, **kwargs) -> bytes:
         self.calls.append(kwargs)
         return self.result

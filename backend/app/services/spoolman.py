@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -203,7 +203,12 @@ def pull_spool(session: Session, spool: Spool) -> dict | None:
     return remote
 
 
-def push_usage(session: Session, spool: Spool, grams: float) -> bool:
+def push_usage(
+    session: Session, spool: Spool, grams: float, on_ok: Callable[[], None] | None = None
+) -> bool:
+    """``on_ok`` runs after a 2xx and BEFORE the commit, so a caller's
+    idempotency row lands in the same transaction as the sync-state update
+    (a crash between the two can no longer double-debit on redelivery)."""
     cfg = get_config_sync(session)
     if not cfg.active or spool.spoolman_id is None or grams == 0:
         return False
@@ -216,6 +221,8 @@ def push_usage(session: Session, spool: Spool, grams: float) -> bool:
         session.commit()
         return False
     _ok_push(session, spool)
+    if on_ok is not None:
+        on_ok()
     session.commit()
     return True
 
@@ -238,12 +245,14 @@ def push_usages(session: Session, job_id: int, usages: list[tuple[Spool | None, 
             delta = total - (row.grams if row is not None else 0.0)
             if abs(delta) < 1e-9:
                 continue
-            if push_usage(session, spool, delta):
+
+            def _record(row=row, spool=spool, total=total) -> None:
                 if row is None:
                     session.add(SpoolmanPush(print_job_id=job_id, spool_id=spool.id, grams=total))
                 else:
                     row.grams = total
-                session.commit()
+
+            push_usage(session, spool, delta, _record)
     except Exception:  # noqa: BLE001
         session.rollback()
 

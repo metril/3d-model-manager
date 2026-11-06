@@ -220,6 +220,10 @@ class _FakeSlicerClient:
     def __init__(self, result: bytes) -> None:
         self.result = result
 
+    def close(self) -> None:
+
+        pass
+
     def slice(self, **kwargs) -> bytes:
         return self.result
 

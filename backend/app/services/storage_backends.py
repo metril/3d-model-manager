@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -188,7 +189,26 @@ async def _ensure_default_backend_row(db: AsyncSession, settings: Settings) -> S
     from app.services.storage_config import get_active_config
 
     config = await get_active_config(db, settings)
-    return await create_backend(db, settings, "Default", config, is_default=True)
+    # One INSERT that is already the default (not create-then-promote): two
+    # concurrent self-heals race on the partial unique index, and the loser
+    # simply adopts the winner's row instead of leaving a stray non-default one.
+    row = StorageBackendRow(
+        name="Default",
+        scheme=config.backend,
+        config=encrypt_config_secret(settings, config),
+        is_default=True,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing = await get_default_backend_row(db)
+        if existing is None:
+            raise
+        return existing
+    await db.refresh(row)
+    return row
 
 
 async def resolve_default_backend(

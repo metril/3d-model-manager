@@ -48,6 +48,15 @@ KEEPWARM_PREFIX = "queue:keepwarm:"
 PREHEAT_PREFIX = "queue:preheat:"
 
 
+def _key_id(key: str, prefix: str) -> int | None:
+    """The numeric suffix of a ``<prefix><id>`` key, or None for a malformed
+    one (a sweep must skip it, never crash the dispatch tick)."""
+    try:
+        return int(key.removeprefix(prefix))
+    except ValueError:
+        return None
+
+
 def keepwarm_key(printer_id: int) -> str:
     return f"{KEEPWARM_PREFIX}{printer_id}"
 
@@ -252,7 +261,9 @@ def release_abandoned_preheats(
     n = 0
     for raw in client.scan_iter(f"{PREHEAT_PREFIX}*"):
         key = raw.decode() if isinstance(raw, bytes) else raw
-        entry_id = int(key.removeprefix(PREHEAT_PREFIX))
+        entry_id = _key_id(key, PREHEAT_PREFIX)
+        if entry_id is None:
+            continue
         entry = session.get(PrintQueueEntry, entry_id) if entry_id in eligible_ids else None
         rec = _load(client, key)
         if rec is None:
@@ -301,8 +312,9 @@ def run_keep_warm(
             key = raw.decode() if isinstance(raw, bytes) else raw
             rec = _load(client, key)
             if rec is not None and not rec.get("off"):
-                pid = int(key.removeprefix(KEEPWARM_PREFIX))
-                send_command(client, pid, "set_temperature", {"target": "bed", "value": 0})
+                pid = _key_id(key, KEEPWARM_PREFIX)
+                if pid is not None:
+                    send_command(client, pid, "set_temperature", {"target": "bed", "value": 0})
             client.delete(key)
         return
     for printer in session.scalars(select(Printer).where(Printer.enabled.is_(True))).all():
@@ -363,7 +375,9 @@ def process_auto_off(session: Session, settings: Settings, client: Redis, wanted
     n = 0
     for raw in client.scan_iter(f"{AUTO_OFF_PREFIX}*"):
         key = raw.decode() if isinstance(raw, bytes) else raw
-        printer_id = int(key.removeprefix(AUTO_OFF_PREFIX))
+        printer_id = _key_id(key, AUTO_OFF_PREFIX)
+        if printer_id is None:
+            continue
         queue_id = client.get(key)
         if printer_id in wanted:
             client.delete(key)
