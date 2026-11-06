@@ -41,8 +41,14 @@ async def create_note(
     "/{note_id}", response_model=NoteOut, dependencies=[Depends(require_perm("library:write"))]
 )
 async def patch_note(
-    note_id: int, payload: NotePatch, db: AsyncSession = Depends(get_db)
+    note_id: int,
+    payload: NotePatch,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> NoteOut:
+    note = await db.get(Note, note_id)
+    if note is not None:  # unknown id falls through to the service's 404
+        require_owner_or_admin(ctx, note.created_by_user_id, "edit")
     return await library.patch_note(db, note_id, payload.body)
 
 

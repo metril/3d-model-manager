@@ -14,6 +14,7 @@ printing behave exactly as in the UI.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal
 
@@ -168,15 +169,17 @@ def need(scope: Literal["read", "control", "queue", "upload"]):
         request: Request,
         auth: KeyAuth = Depends(require_key),
         db: AsyncSession = Depends(get_db),
-    ) -> KeyAuth:
+    ) -> AsyncIterator[KeyAuth]:
         if scope not in (auth.key.scopes or []):
             await _audit(db, request, auth, "api_key:denied", reason=f"missing scope: {scope}")
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"missing scope: {scope}")
         if not required <= auth.ctx.perms:
             await _audit(db, request, auth, "api_key:denied", reason="owner lacks permission")
             raise HTTPException(status.HTTP_403_FORBIDDEN, "key owner lacks the permission")
+        # Audit only after the handler succeeded (a rejected/failed call is
+        # not recorded as an accepted one).
+        yield auth
         await _audit(db, request, auth, f"api_key:{request.method.lower()}")
-        return auth
 
     return dep
 

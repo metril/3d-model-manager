@@ -202,6 +202,15 @@ async def _unique_username(db: AsyncSession, base: str) -> str:
     return candidate
 
 
+async def _is_admin(db: AsyncSession, user: User) -> bool:
+    if user.role == UserRole.ADMIN:
+        return True
+    from app.services.permissions import load_grants
+
+    _, perms, _ = await load_grants(db, user)
+    return "admin" in perms
+
+
 async def resolve_user(db: AsyncSession, provider: OidcProvider, claims: Mapping[str, Any]) -> User:
     iss, sub = str(claims["iss"]), str(claims["sub"])
     email = claims.get("email")
@@ -210,6 +219,9 @@ async def resolve_user(db: AsyncSession, provider: OidcProvider, claims: Mapping
     user = await db.scalar(select(User).where(User.oidc_issuer == iss, User.oidc_subject == sub))
     if user is None and provider.link_by_email and verified:
         user = await db.scalar(select(User).where(User.email == email, User.oidc_subject.is_(None)))
+        if user is not None and (user.password_hash or await _is_admin(db, user)):
+            # Never take over a local-password account or an admin by email.
+            user = None
         if user is not None:
             user.oidc_issuer, user.oidc_subject = iss, sub
     if user is None and provider.auto_create_users:

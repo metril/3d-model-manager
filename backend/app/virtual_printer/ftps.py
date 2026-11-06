@@ -13,6 +13,7 @@ import hmac
 import logging
 import random
 import ssl
+import time
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -82,6 +83,26 @@ class FtpsServer:
                 self._sessions.discard(task)
 
 
+# Per-IP failed-login throttle shared across control sessions.
+LOCKOUT_FAILS = 10
+LOCKOUT_WINDOW_S = 600.0
+_fail_log: dict[str, list[float]] = {}
+
+
+def _ip_locked(ip: str) -> bool:
+    cutoff = time.monotonic() - LOCKOUT_WINDOW_S
+    recent = [t for t in _fail_log.get(ip, ()) if t > cutoff]
+    if recent:
+        _fail_log[ip] = recent
+    else:
+        _fail_log.pop(ip, None)
+    return len(recent) >= LOCKOUT_FAILS
+
+
+def _note_ip_failure(ip: str) -> None:
+    _fail_log.setdefault(ip, []).append(time.monotonic())
+
+
 class _Session:
     def __init__(self, srv: FtpsServer, r: asyncio.StreamReader, w: asyncio.StreamWriter):
         self.srv, self.r, self.w = srv, r, w
@@ -139,11 +160,15 @@ class _Session:
     async def cmd_PASS(self, arg: str) -> str | None:
         if (self.user or "").lower() != "bblp":
             await self.send(503, "Login with USER first")
+        elif _ip_locked(self.remote_ip):
+            await self.send(530, "Too many failed logins; try again later")
+            return "quit"
         elif hmac.compare_digest(arg.encode(), self.srv.access_code.encode()):
             self.authed = True
             await self.send(230, "Login successful")
         else:
             self.failed_logins += 1
+            _note_ip_failure(self.remote_ip)
             await self.send(530, "Login incorrect")
             if self.failed_logins >= MAX_LOGIN_ATTEMPTS:
                 return "quit"
@@ -216,6 +241,10 @@ class _Session:
 
         async def on_conn(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
             assert self._data_q is not None
+            peer = w.get_extra_info("peername")
+            if (peer[0] if peer else None) != self.remote_ip:
+                w.close()  # data connection must come from the control peer
+                return
             if self._data_q.full():
                 w.close()
                 return

@@ -96,7 +96,7 @@ async def test_connection_checks_skip_when_sidecar_down(
 ) -> None:
     out = (
         await authenticated_client.post(
-            "/api/settings/obico/test", json={"url": "http://127.0.0.1:1"}
+            "/api/settings/obico/test", json={"url": "http://obico-down.invalid:1"}
         )
     ).json()
     assert [c["ok"] for c in out["checks"]] == [False, False, False]

@@ -27,6 +27,7 @@ from blake3 import blake3
 from app.config import Settings
 from app.models.enums import BlobFormat, BlobKind
 from app.services import layout, spool
+from app.services.url_safety import ssrf_request_hook
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB, matching store_to_backend's read chunking
 _TIMEOUT = httpx.Timeout(30.0, read=300.0)
@@ -68,7 +69,10 @@ class StagedFile:
 
 def _download_client() -> httpx.Client:
     return httpx.Client(
-        follow_redirects=True, timeout=_TIMEOUT, headers={"User-Agent": _USER_AGENT}
+        follow_redirects=True,
+        timeout=_TIMEOUT,
+        headers={"User-Agent": _USER_AGENT},
+        event_hooks={"request": [ssrf_request_hook]},  # every hop, incl. redirects
     )
 
 

@@ -9,18 +9,20 @@ from typing import Annotated, Literal
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     AuthContext,
     get_storage_backend,
+    require_owner_or_admin,
     require_perm,
     require_session,
 )
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.enums import BlobFormat, BlobKind
-from app.models.library import Revision
+from app.models.library import Model, Revision
 from app.schemas.jobs import JobOut
 from app.schemas.library import (
     FileOut,
@@ -140,12 +142,20 @@ async def list_models(
     "/bulk", response_model=ModelBulkOut, dependencies=[Depends(require_perm("library:write"))]
 )
 async def bulk_update_models(
-    payload: ModelBulkIn, db: AsyncSession = Depends(get_db)
+    payload: ModelBulkIn,
+    db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> ModelBulkOut:
     """Declared BEFORE ``/{slug}`` (Branch 4 Task 1) -- FastAPI matches
     routes in declaration order, so a literal ``/bulk`` segment must come
     before the ``{slug}`` path-param routes or it would be parsed as a slug.
     """
+    if not ctx.is_admin:
+        owners = (
+            await db.execute(select(Model.created_by_user_id).where(Model.id.in_(payload.ids)))
+        ).scalars()
+        for owner in owners:
+            require_owner_or_admin(ctx, owner, "edit")
     updated = await library.bulk_update_models(
         db,
         ids=payload.ids,
@@ -315,8 +325,10 @@ async def patch_model(
     db: AsyncSession = Depends(get_db),
     backend: StorageBackend = Depends(get_storage_backend),
     settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
 ) -> ModelDetail:
     model = await library.get_model_by_slug(db, slug)
+    require_owner_or_admin(ctx, model.created_by_user_id, "edit")
     model = await library.patch_model(db, backend, model, payload.model_dump(exclude_unset=True))
     return await library.build_model_detail(db, model, settings)
 
@@ -347,6 +359,7 @@ async def redownload_model(
     slug: str,
     payload: ModelRedownloadIn,
     db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> JobOut:
     """Re-fetches this model's files fresh from its original import source
     (feat/import-fidelity T3): dispatches
@@ -366,6 +379,8 @@ async def redownload_model(
     design, not source-scoped.
     """
     model = await library.get_model_by_slug(db, slug)
+    if payload.mode == "replace":  # overwrites the current revision's files in place
+        require_owner_or_admin(ctx, model.created_by_user_id, "replace files of")
     library.check_redownload_source(model)
 
     job = await jobs_service.create_job(
@@ -437,6 +452,7 @@ async def relocate_model(
     slug: str,
     payload: ModelRelocateIn,
     db: AsyncSession = Depends(get_db),
+    ctx: AuthContext = Depends(require_session),
 ) -> JobOut:
     """Dispatch ``app.tasks.relocate.relocate_model_storage`` (Workstream C
     task C3) to move or replicate every file of this model, across all its
@@ -446,6 +462,7 @@ async def relocate_model(
     ``get_backend_row``) before a job row is ever created.
     """
     model = await library.get_model_by_slug(db, slug)
+    require_owner_or_admin(ctx, model.created_by_user_id, "relocate")
     await storage_backends_service.get_backend_row(db, payload.target_backend_id)
 
     job = await jobs_service.create_job(

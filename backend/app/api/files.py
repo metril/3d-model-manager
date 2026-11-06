@@ -322,9 +322,11 @@ async def _download_file(
             raise HTTPException(status.HTTP_409_CONFLICT, "file is still processing")
 
     blob = await db.get(Blob, file.blob_hash)
+    if blob is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "file blob missing")
 
     if member == "gcode":
-        if blob is None or blob.format is not BlobFormat.GCODE_3MF:
+        if blob.format is not BlobFormat.GCODE_3MF:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "member=gcode needs a gcode_3mf file")
         try:
             tmp_path = await anyio.to_thread.run_sync(
@@ -349,13 +351,21 @@ async def _download_file(
         # cleanup). That's a 404, not the 409 "still processing" above.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file missing from storage") from exc
 
+    out_headers = {
+        "Content-Disposition": _content_disposition_for_filename(filename, inline=inline),
+        "Content-Length": str(blob.size),
+    }
+    if inline and PurePosixPath(filename).suffix.lower() in _INLINE_PREVIEWABLE_SUFFIXES:
+        # User-supplied content rendered in our origin: never let it run script.
+        out_headers["Content-Security-Policy"] = (
+            "script-src 'none'; frame-ancestors 'self'"
+            if filename.lower().endswith(".pdf")
+            else "default-src 'none'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'"
+        )
     return StreamingResponse(
         iterate_in_threadpool(iterator),
         media_type=_media_type_for_filename(filename),
-        headers={
-            "Content-Disposition": _content_disposition_for_filename(filename, inline=inline),
-            "Content-Length": str(blob.size),
-        },
+        headers=out_headers,
     )
 
 

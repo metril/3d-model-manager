@@ -178,7 +178,8 @@ async def test_put_omitted_smb_password_keeps_stored_secret(
     update_payload = {
         "backend": "smb",
         "config": {
-            "host": "new-fileserver.local",
+            "host": "fileserver.local",
+            "root": "sub",
             "share": "models",
             "username": "svc",
             "password": "",
@@ -192,7 +193,7 @@ async def test_put_omitted_smb_password_keeps_stored_secret(
     assert "hunter2" not in update_response.text
 
     stored = await get_active_config(db_session, get_settings())
-    assert stored.host == "new-fileserver.local"
+    assert stored.root == "sub"
     assert stored.password.get_secret_value() == "hunter2"
 
 
@@ -215,7 +216,8 @@ async def test_put_redacted_sentinel_smb_password_keeps_stored_secret(
     update_payload = {
         "backend": "smb",
         "config": {
-            "host": "another-fileserver.local",
+            "host": "fileserver.local",
+            "root": "sub2",
             "share": "models",
             "username": "svc",
             "password": "***",
@@ -225,7 +227,7 @@ async def test_put_redacted_sentinel_smb_password_keeps_stored_secret(
 
     assert update_response.status_code == 200, update_response.text
     stored = await get_active_config(db_session, get_settings())
-    assert stored.host == "another-fileserver.local"
+    assert stored.root == "sub2"
     assert stored.password.get_secret_value() == "hunter2"
 
 
@@ -250,7 +252,8 @@ async def test_put_omitted_s3_secret_key_keeps_stored_secret(
     update_payload = {
         "backend": "s3",
         "config": {
-            "bucket": "renamed-bucket",
+            "bucket": "my-bucket",
+            "prefix": "renamed-prefix",
             "access_key": "AKIAEXAMPLE",
             "secret_key": "",
             "endpoint_url": "http://127.0.0.1:1",
@@ -264,7 +267,7 @@ async def test_put_omitted_s3_secret_key_keeps_stored_secret(
     assert "super-secret-value" not in update_response.text
 
     stored = await get_active_config(db_session, get_settings())
-    assert stored.bucket == "renamed-bucket"
+    assert stored.prefix == "renamed-prefix"
     assert stored.secret_key.get_secret_value() == "super-secret-value"
 
 

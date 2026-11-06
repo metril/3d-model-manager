@@ -38,7 +38,7 @@ async def test_settings_test_connection(
     r = await authenticated_client.post("/api/settings/obico/test", json={})
     assert r.json()["ok"] is False  # default URL (http://obico-ml:3333) unreachable here
     r = await authenticated_client.post(
-        "/api/settings/obico/test", json={"url": "http://127.0.0.1:1"}
+        "/api/settings/obico/test", json={"url": "http://obico-down.invalid:1"}
     )
     assert r.json()["ok"] is False
 
