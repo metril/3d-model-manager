@@ -9,6 +9,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import {
   BoxSelectIcon,
   CopyPlusIcon,
+  LayoutGridIcon,
+  Loader2Icon,
   MinusIcon,
   MoveIcon,
   PlusIcon,
@@ -34,6 +36,7 @@ import {
   useCombine,
   useFileObjects,
   type CombinePose,
+  type CombineResult,
   type CombineRequest,
   type FileObject,
 } from "@/api/combine";
@@ -108,6 +111,34 @@ function profileHeight(data: Record<string, unknown> | null | undefined): number
     if (Number.isFinite(v) && v > 0) return v;
   }
   return null;
+}
+
+/** Per-row copies input: commits on blur/Enter. */
+function CountField({ label, value, onCommit }: { label: string; value: number; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  const commit = () => {
+    const n = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(n)) setDraft(String(value));
+    else if (Math.floor(n) !== value) onCommit(Math.floor(n));
+    else setDraft(String(value));
+  };
+  return (
+    <Input
+      type="number"
+      min={0}
+      max={MAX_ITEMS}
+      aria-label={label}
+      value={draft}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        e.stopPropagation();
+      }}
+      className="h-7 w-14 px-1 text-center text-xs tabular-nums"
+    />
+  );
 }
 
 export function NumField({
@@ -354,24 +385,84 @@ export function PlateEditorDialog({
   const selected = state.items.find((i) => i.uid === state.selected) ?? null;
   const canSave = ready && bedValid && state.items.length > 0 && offBed.length === 0 && !combine.isPending;
 
-  // Server auto-arrange of `items` (replaces the layout; undoable).
-  function arrangeItems(items: PlateItem[], autoOrientFirst = false) {
-    if (!bedValid) return;
+  // Pure server plan for `items` (nothing written to the editor state).
+  async function planArrange(items: PlateItem[], autoOrientFirst = false) {
     const req = autoRequest();
     req.items = groupItems(items);
-    if (req.items.length === 0) return;
     req.auto_orient = autoOrientFirst;
-    auto.mutate(req, {
-      onSuccess: (res) => {
-        setDims((prev) => new Map([...prev, ...res.parts.map((p): [string, PartDims] => [partKey(p), p])]));
-        const fresh = res.poses.map((p) => ({ item: { ...poseToItem(p), rot_z_deg: 0 }, dims: poseDims(p) }));
-        setItemDims(new Map(fresh.map((f) => [f.item.uid, f.dims])));
-        dispatch({ type: "replace", items: fresh.map((f) => f.item) });
+    const res = await auto.mutateAsync(req);
+    return { res, poses: res.poses, allFit: res.poses.every((p) => p.fits) };
+  }
+
+  function applyPlan(res: CombineResult) {
+    setDims((prev) => new Map([...prev, ...res.parts.map((p): [string, PartDims] => [partKey(p), p])]));
+    const fresh = res.poses.map((p) => ({ item: { ...poseToItem(p), rot_z_deg: 0 }, dims: poseDims(p) }));
+    setItemDims(new Map(fresh.map((f) => [f.item.uid, f.dims])));
+    dispatch({ type: "replace", items: fresh.map((f) => f.item) });
+  }
+
+  // Server auto-arrange of `items` (replaces the layout; undoable).
+  function arrangeItems(items: PlateItem[], autoOrientFirst = false) {
+    if (!bedValid || items.length === 0) return;
+    planArrange(items, autoOrientFirst).then(
+      ({ res }) => {
+        applyPlan(res);
         if (!res.fits) toast.warning(t("plate.autoNoFit"));
       },
-      onError: (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
-    });
+      (e) => toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed")),
+    );
   }
+
+  // Fill the plate with the selected part: largest copy count whose arrangement fits (binary search).
+  const [filling, setFilling] = useState(false);
+  const openRef = useRef(open);
+  openRef.current = open;
+  const fillTarget = selected
+    ? { file_id: selected.file_id, object_index: selected.object_index ?? null }
+    : (() => {
+        const keys = new Map(state.items.map((i) => [partKey(i), { file_id: i.file_id, object_index: i.object_index ?? null }]));
+        return keys.size === 1 ? [...keys.values()][0]! : null;
+      })();
+  async function fillPlate() {
+    if (!fillTarget || !bedValid || filling) return;
+    const key = partKey(fillTarget);
+    const mine = state.items.filter((i) => partKey(i) === key).length;
+    const other = state.items.length - mine;
+    let lo = mine;
+    let hi = MAX_ITEMS - other;
+    if (hi <= mine) {
+      toast.warning(t("plate.fillNone"));
+      return;
+    }
+    setFilling(true);
+    try {
+      let best: CombineResult | null = null;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        const trial = plateReducer(state, { type: "setCount", file_id: fillTarget.file_id, object_index: fillTarget.object_index, count: mid });
+        const plan = await planArrange(trial.items);
+        if (!openRef.current) return;
+        if (plan.allFit) {
+          best = plan.res;
+          lo = mid;
+        } else hi = mid - 1;
+      }
+      if (!best) toast.warning(t("plate.fillNone"));
+      else applyPlan(best);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.detail : t("plate.planFailed"));
+    } finally {
+      setFilling(false);
+    }
+  }
+
+  // Scene selection -> its object's row.
+  useEffect(() => {
+    if (!selected) return;
+    const key = partKey(selected);
+    const row = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-part-row]") ?? [])].find((el) => el.dataset.partRow === key);
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [selected?.uid]);
 
   const autoArrange = () => arrangeItems(state.items, orientFirst);
 
@@ -568,9 +659,13 @@ export function PlateEditorDialog({
               <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.redo")} title="Ctrl+Shift+Z" disabled={state.future.length === 0} onClick={() => dispatch({ type: "redo" })}>
                 <Redo2Icon className="size-4" />
               </Button>
-              <Button type="button" size="sm" variant="ghost" disabled={auto.isPending || !bedValid || !ready} onClick={autoArrange}>
+              <Button type="button" size="sm" variant="ghost" disabled={auto.isPending || filling || !bedValid || !ready} onClick={autoArrange}>
                 <WandSparklesIcon className="size-4" />
                 {t("plate.autoArrange")}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" disabled={!fillTarget || filling || auto.isPending || !bedValid || !ready} title={fillTarget ? t("plate.fillHint") : t("plate.fillPick")} onClick={() => void fillPlate()}>
+                {filling ? <Loader2Icon className="size-4 animate-spin" /> : <LayoutGridIcon className="size-4" />}
+                {t("plate.fill")}
               </Button>
               <Button
                 type="button"
@@ -628,23 +723,50 @@ export function PlateEditorDialog({
             {usableFiles.flatMap((f) => {
               const list = splitObjects.get(f.id);
               const plates = list ? [...new Set(list.flatMap((o) => (o.plate == null ? [] : [o.plate])))].sort((x, y) => x - y) : [];
-              const groups: (FileObject | null)[] = list ? list.filter((o) => state.items.some((i) => i.file_id === f.id && i.object_index === o.index)) : [null];
+              const groups: (FileObject | null)[] = list ? list : [null];
               const rows = groups.map((o) => {
               const mine = state.items.filter((i) => partKey(i) === partKey({ file_id: f.id, object_index: o?.index }));
-              const title = o ? o.name : baseName(f.rel_path);
+              const title = o ? o.name || `#${o.index + 1}` : baseName(f.rel_path);
               return (
-                <div key={partKey({ file_id: f.id, object_index: o?.index })} className="space-y-1.5">
-                  <div className="flex items-center gap-2">
+                <div key={partKey({ file_id: f.id, object_index: o?.index })} data-part-row={partKey({ file_id: f.id, object_index: o?.index })} className={`space-y-1.5 ${mine.length === 0 ? "opacity-60" : ""}`}>
+                  <div
+                    data-testid="plate-row"
+                    onClick={() => mine[0] && dispatch({ type: "select", uid: mine[0].uid })}
+                    className={`flex items-center gap-2 rounded-md ${selected && partKey(selected) === partKey({ file_id: f.id, object_index: o?.index }) ? "bg-primary/10 ring-1 ring-primary" : ""}`}
+                  >
                     <span className="size-2.5 shrink-0 rounded-sm" style={{ background: colorOf(f.id, o?.index) }} />
                     <span className="min-w-0 flex-1 truncate font-mono text-xs" title={o ? `${baseName(f.rel_path)} / ${o.name}` : f.rel_path}>
                       {title}
                     </span>
-                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.removeCopy", { name: title })} disabled={mine.length === 0} onClick={() => dispatch({ type: "removeLast", file_id: f.id, object_index: o?.index })}>
+                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.removeCopy", { name: title })} disabled={mine.length === 0} onClick={(e) => { e.stopPropagation(); dispatch({ type: "removeLast", file_id: f.id, object_index: o?.index }); }}>
                       <MinusIcon className="size-4" />
                     </Button>
-                    <span className="w-6 text-center text-xs tabular-nums">{mine.length}</span>
-                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.addCopy", { name: title })} disabled={state.items.length >= MAX_ITEMS} onClick={() => dispatch({ type: "addCopy", file_id: f.id, object_index: o?.index })}>
+                    <CountField
+                      key={`${partKey({ file_id: f.id, object_index: o?.index })}:${mine.length}`}
+                      label={t("plate.copies", { name: title })}
+                      value={mine.length}
+                      onCommit={(n) => dispatch({ type: "setCount", file_id: f.id, object_index: o?.index, count: n })}
+                    />
+                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.addCopy", { name: title })} disabled={state.items.length >= MAX_ITEMS} onClick={(e) => { e.stopPropagation(); dispatch({ type: "addCopy", file_id: f.id, object_index: o?.index }); }}>
                       <PlusIcon className="size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t("plate.duplicatePart", { name: title })}
+                      title={t("plate.duplicatePartHint", { name: title })}
+                      disabled={mine.length === 0 || state.items.length >= MAX_ITEMS}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const src = mine.find((i) => i.uid === state.selected) ?? mine[mine.length - 1];
+                        if (src) dispatch({ type: "addCopy", file_id: src.file_id, object_index: src.object_index ?? null });
+                      }}
+                    >
+                      <CopyPlusIcon className="size-4" />
+                    </Button>
+                    <Button type="button" size="icon-sm" variant="ghost" aria-label={t("plate.removeAllPart", { name: title })} title={t("plate.removeAllPart", { name: title })} disabled={mine.length === 0} onClick={(e) => { e.stopPropagation(); dispatch({ type: "removeAll", file_id: f.id, object_index: o?.index }); }}>
+                      <Trash2Icon className="size-4" />
                     </Button>
                   </div>
                   {mine.map((i) => (

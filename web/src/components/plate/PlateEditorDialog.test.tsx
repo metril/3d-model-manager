@@ -57,6 +57,71 @@ describe("PlateEditorDialog", () => {
   });
 });
 
+function renderDialog() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <PlateEditorDialog open onOpenChange={() => {}} slug="multi" files={[FILE]} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("PlateEditorDialog parts", () => {
+  it("keeps the row of a fully removed object so + re-adds it", async () => {
+    renderDialog();
+    const rm = await screen.findByRole("button", { name: "Remove a copy of Obj A" });
+    fireEvent.click(rm);
+    await waitFor(() => expect(screen.getAllByTestId("plate-item")).toHaveLength(1));
+    const add = screen.getByRole("button", { name: "Add a copy of Obj A" });
+    expect(add).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove a copy of Obj A" })).toBeDisabled();
+    fireEvent.click(add);
+    await waitFor(() => expect(screen.getAllByTestId("plate-item")).toHaveLength(2));
+  });
+
+  it("clicking a row selects that object's first copy", async () => {
+    renderDialog();
+    await screen.findByRole("button", { name: "Remove a copy of Obj B" });
+    const rows = screen.getAllByTestId("plate-row");
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(rows[1]!.className).toContain("ring-primary"));
+    expect(rows[0]!.className).not.toContain("ring-primary");
+  });
+
+  it("copies input sets the count", async () => {
+    renderDialog();
+    await waitFor(() => expect(screen.getAllByTestId("plate-item")).toHaveLength(2));
+    const input = screen.getByLabelText("Copies of Obj A") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.getAllByTestId("plate-item")).toHaveLength(4));
+  });
+
+  it("Fill plate binary-searches the largest fitting count", async () => {
+    postMock.mockImplementation((_path: string, req: { items: { file_id: number; object_index?: number; copies: number }[] }) => {
+      const poses = req.items.flatMap((it) =>
+        Array.from({ length: it.copies }, (_, k) => ({
+          file_id: it.file_id, object_index: it.object_index ?? null, x_mm: 10 + k, y_mm: 10, rot_z_deg: 0, scale: 1,
+          copy_index: k, fits: true, orient: [0, 0, 0, 1], w_mm: 10, d_mm: 10, h_mm: 10,
+        })),
+      );
+      const a = poses.filter((p) => p.object_index === 0).length;
+      if (a > 7) poses[0]!.fits = false;
+      return Promise.resolve({ fits: a <= 7, bed: { x_mm: 256, y_mm: 256 }, required_bed: { x_mm: 256, y_mm: 256 }, placements: [], poses, parts: [], file: null });
+    });
+    renderDialog();
+    await screen.findByRole("button", { name: "Remove a copy of Obj A" });
+    fireEvent.click(screen.getAllByTestId("plate-row")[0]!);
+    postMock.mockClear();
+    const btn = screen.getByRole("button", { name: /Fill plate/ });
+    await waitFor(() => expect(btn).toBeEnabled());
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getAllByTestId("plate-item")).toHaveLength(8));
+    expect(postMock.mock.calls.length).toBeLessThanOrEqual(7);
+    expect(screen.getByLabelText("Copies of Obj A")).toHaveValue(7);
+  });
+});
+
 describe("NumField", () => {
   function Harness() {
     const [v, setV] = useState(5);

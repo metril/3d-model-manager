@@ -219,6 +219,23 @@ describe("per-object parts", () => {
     expect(s.items).toHaveLength(2);
   });
 
+  it("setCount grows, shrinks and clamps to the item cap; removeAll clears one object", () => {
+    let s = run(initialState, { type: "init", items: [item("a", { object_index: 0 }), item("b", { object_index: 1, x_mm: 90 })] });
+    s = run(s, { type: "setCount", file_id: 1, object_index: 0, count: 4 });
+    expect(s.items.filter((i) => i.object_index === 0)).toHaveLength(4);
+    expect(s.past).toHaveLength(1);
+    s = run(s, { type: "setCount", file_id: 1, object_index: 0, count: 2 });
+    expect(s.items.filter((i) => i.object_index === 0)).toHaveLength(2);
+    s = run(s, { type: "setCount", file_id: 1, object_index: 0, count: 9999 });
+    expect(s.items).toHaveLength(MAX_ITEMS);
+    expect(s.items.filter((i) => i.object_index === 1)).toHaveLength(1);
+    s = run(s, { type: "setCount", file_id: 1, object_index: 0, count: 0 });
+    expect(s.items.map((i) => i.uid)).toEqual(["b"]);
+    s = run(s, { type: "setCount", file_id: 1, object_index: 0, count: 3 }, { type: "removeAll", file_id: 1, object_index: 0 });
+    expect(s.items.map((i) => i.uid)).toEqual(["b"]);
+    expect(s.selected).toBeNull();
+  });
+
   it("orients one object independently", () => {
     const q: Quat = [Math.SQRT1_2, 0, 0, Math.SQRT1_2];
     const s = run(
