@@ -409,7 +409,7 @@ function PrintDialogBody({
     if (next === PROFILE && !recipeReady) next = FILAMENT;
     setStep(next);
     setAutoAdvanced(true);
-  }, [plan, recipeReady, autoAdvanced, step, source, slicedFiles.files.length, filePlatesQ.isLoading, recipePlates.length]);
+  }, [plan, recipeReady, autoAdvanced, step, source, initialPlate, initialFileId, plate, effectiveFileId, slicedFiles.files.length, filePlatesQ.isLoading, recipePlates.length]);
 
   const { t } = useTranslation();
   const [forcedFor, setForcedFor] = useState<number | null>(null);
