@@ -119,6 +119,9 @@ def compatibility_reason(printer: Printer, state: dict | None, need: Needs) -> s
     ):
         return f"nozzle mismatch: needs {need.nozzle_mm}mm, printer has {printer_nozzle}mm"
 
+    if need.filaments and not (state or {}).get("trays"):
+        return "printer has not reported its filament trays yet (offline?)"
+
     if need.filaments:
         trays = [
             TrayInfo(tray=t["slot"], type=t.get("tray_type"), color=t.get("color"))
