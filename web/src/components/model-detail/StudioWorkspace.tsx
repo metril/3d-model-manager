@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useCanPrintModel } from "@/components/model-detail/useCanPrintModel";
 import { useViewerScene } from "@/components/viewer/useViewerScene";
 import { PlaceholderCard } from "@/components/viewer/ViewerStage";
 import type { StudioSelection } from "@/components/model-detail/studioSelection";
@@ -37,6 +38,7 @@ function StudioWorkspaceGeneration({
     defaultAllChecked: true,
   });
 
+  const canPrint = useCanPrintModel(model);
   const { t } = useTranslation();
   if (glbable.length === 0 && others.length === 0) {
     return (
@@ -54,7 +56,7 @@ function StudioWorkspaceGeneration({
         selection={selection}
         hasGlb={glbable.length > 0}
         otherFiles={others}
-        stageProps={stageProps}
+        stageProps={{ ...stageProps, canPrint }}
         onSelectAssembly={onSelectAssembly}
         onSelectFile={onSelectFile}
       />

@@ -1,6 +1,6 @@
 import { closePrint, openPrint, usePrintDialogRequest } from "@/components/print/printDialogStore";
 import { useTranslation } from "react-i18next";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/api/auth";
 import { useFeatures } from "@/api/features";
+import { useCanPrintModel } from "@/components/model-detail/useCanPrintModel";
 import { useRestoreTrash } from "@/api/trash";
 import { useArchiveModel, useDeleteModel, usePatchModel, useRedownloadModel } from "@/api/library";
 import { useEnqueueModel } from "@/api/queue";
@@ -166,17 +167,11 @@ export function ModelHeader({
   const [sliceOpen, setSliceOpen] = useState(false);
   const canRedownload = Boolean(model.source_site && model.source_url);
   const needsReview = model.review_state === "adopted";
-  // P5 Task 11: the header's "Print…" opens the shared `PrintDialog` --
-  // only when there's a sliced file to plan against AND the viewer holds
-  // the blanket `printers:print` permission (the dialog's own Send step
-  // re-checks per-printer ACLs once a printer is picked).
+  // P5 Task 11: the header's "Print…" opens the shared `PrintDialog` (see
+  // `useCanPrintModel` for the gate).
   const features = useFeatures();
-  const revFiles = model.current_revision?.files ?? [];
-  const hasSlicedFile = revFiles.some((f) => f.format === "gcode_3mf");
-  // Unsliced sources can be printed too when the slicer sidecar can slice them.
-  const hasSliceableFile =
-    !!features.data?.slicer_configured && revFiles.some((f) => ["3mf", "stl", "step", "obj"].includes(f.format));
-  const canPrint = (hasSlicedFile || hasSliceableFile) && can("printers:print");
+  const canPrint = useCanPrintModel(model);
+  useEffect(() => () => closePrint(), []);
 
   // R9-C item 5: same mutation as the star button below.
   useHotkeys({ f: () => patchModel.mutate({ favorite: !model.favorite }) });
