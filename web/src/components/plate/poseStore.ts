@@ -42,6 +42,8 @@ export type PlateAction =
   | { type: "addCopy"; file_id: number; object_index?: number | null }
   | { type: "removeCopy"; uid: string }
   | { type: "removeLast"; file_id: number; object_index?: number | null }
+  | { type: "removeAll"; file_id: number; object_index?: number | null }
+  | { type: "setCount"; file_id: number; object_index?: number | null; count: number }
   | { type: "undo" }
   | { type: "redo" };
 
@@ -153,6 +155,27 @@ export function plateReducer(state: PlateState, action: PlateAction): PlateState
       const mine = state.items.filter((i) => partKey(i) === partKey(action));
       const last = mine[mine.length - 1];
       return last ? plateReducer(state, { type: "removeCopy", uid: last.uid }) : state;
+    }
+    case "removeAll": {
+      const key = partKey(action);
+      if (!state.items.some((i) => partKey(i) === key)) return state;
+      return {
+        ...state,
+        ...push(state),
+        items: state.items.filter((i) => partKey(i) !== key),
+        selected: state.items.some((i) => i.uid === state.selected && partKey(i) === key) ? null : state.selected,
+      };
+    }
+    case "setCount": {
+      const have = state.items.filter((i) => partKey(i) === partKey(action)).length;
+      const other = state.items.length - have;
+      const want = Math.max(0, Math.min(Math.floor(action.count) || 0, MAX_ITEMS - other));
+      if (want === have) return state;
+      let s: PlateState = state;
+      for (let n = have; n < want; n++) s = plateReducer(s, { type: "addCopy", file_id: action.file_id, object_index: action.object_index });
+      for (let n = have; n > want; n--) s = plateReducer(s, { type: "removeLast", file_id: action.file_id, object_index: action.object_index });
+      // One undo step for the whole change.
+      return { ...s, past: [...state.past, state.items].slice(-HISTORY), future: [] };
     }
     case "undo": {
       const prev = state.past[state.past.length - 1];
