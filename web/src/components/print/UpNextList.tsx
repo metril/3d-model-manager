@@ -40,7 +40,7 @@ function UpNextRow({ entry }: { entry: QueueEntry }) {
   return (
     <li className="flex items-center gap-2 py-1.5">
       <div className="min-w-0 flex-1">
-        <Link to="/models/$slug" params={{ slug: entry.model.slug }} className="truncate text-sm hover:underline">
+        <Link to="/models/$slug" params={{ slug: entry.model.slug }} title={entry.model.name} className="line-clamp-2 break-words text-sm hover:underline">
           {entry.model.name}
         </Link>
       </div>

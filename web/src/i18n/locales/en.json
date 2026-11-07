@@ -1,5 +1,6 @@
 {
   "common": {
+    "moreActions": "More actions",
     "cancel": "Cancel",
     "delete": "Delete",
     "close": "Close",
@@ -1926,6 +1927,7 @@
   },
   "profiles": {
     "title": "Print profiles",
+    "printPlate": "Print plate {{n}}",
     "plateCount_one": "{{count}} plate",
     "plateCount_other": "{{count}} plates",
     "by": "by {{author}}",
@@ -3091,6 +3093,9 @@
     "retryNamed": "Retry {{name}}",
     "moveUp": "Move {{name}} up",
     "moveDown": "Move {{name}} down",
+    "moveUpShort": "Move up",
+    "moveDownShort": "Move down",
+    "removeShort": "Remove",
     "remove": "Remove {{name}}",
     "removed": "Removed {{name}} from the queue",
     "undoHint": "Undo re-adds it at the end of the queue.",

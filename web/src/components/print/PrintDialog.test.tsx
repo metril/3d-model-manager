@@ -212,7 +212,7 @@ function mockApi({
   });
 }
 
-function renderDialog(source: Parameters<typeof PrintDialog>[0]["source"], onSent = vi.fn(), extra: { initialPlate?: number | null } = {}) {
+function renderDialog(source: Parameters<typeof PrintDialog>[0]["source"], onSent = vi.fn(), extra: { initialPlate?: number | null; initialFileId?: number | null } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return {
     onSent,
@@ -882,6 +882,13 @@ describe("PrintDialog plate before slicing", () => {
     await waitFor(() =>
       expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ recipe_id: 9, plate: 2, front: true })),
     );
+  });
+
+  it("a plate seeded for this file skips the Plate step", async () => {
+    multiPlate();
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" }, vi.fn(), { initialPlate: 2, initialFileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Profile" })).toHaveAttribute("aria-current", "step"));
+    expect(screen.getByRole("button", { name: "Plate" })).not.toHaveAttribute("aria-current", "step");
   });
 
   it("All plates sends no plate", async () => {

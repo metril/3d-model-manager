@@ -9,6 +9,7 @@ import {
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getPrintRequest, openPrint } from "@/components/print/printDialogStore";
 import { ModelHeader } from "@/components/model-detail/ModelHeader";
 import type { ModelDetail } from "@/api/types";
 
@@ -509,5 +510,13 @@ describe("ModelHeader -- Print… (P5 Task 11)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Print…" }));
 
     expect(await screen.findByText("Print")).toBeInTheDocument();
+  });
+
+  it("clears a pending print request on unmount", async () => {
+    const { unmount } = renderHeader(false, vi.fn(), MODEL_WITH_SLICED_FILE);
+    await screen.findByRole("button", { name: "Print…" });
+    openPrint({ fileId: 1, plate: 2 });
+    unmount();
+    expect(getPrintRequest()).toBeNull();
   });
 });

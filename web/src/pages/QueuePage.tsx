@@ -21,7 +21,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, MoreHorizontalIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -29,6 +29,7 @@ import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
 import { useCancelQueueSlice, useEnqueue, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEnqueueBody, QueueEntry, QueueState } from "@/api/types";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 import { HoverPreview, QueueFilamentChips } from "@/components/print/QueueFilaments";
@@ -285,7 +286,7 @@ function QueueLane({
 }) {
   const { t } = useTranslation();
   return (
-    <Card className="w-80 shrink-0">
+    <Card className="w-96 shrink-0">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm">{title}</CardTitle>
@@ -387,11 +388,11 @@ function QueueRow({
 
       <div className="min-w-0 flex-1">
         {model ? (
-          <Link to="/models/$slug" params={{ slug: model.slug }} className="truncate text-sm font-medium hover:underline">
+          <Link to="/models/$slug" params={{ slug: model.slug }} title={name} className="line-clamp-2 break-words text-sm font-medium hover:underline">
             {name}
           </Link>
         ) : (
-          <span className="truncate text-sm font-medium">{name}</span>
+          <span title={name} className="line-clamp-2 break-words text-sm font-medium">{name}</span>
         )}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {entry.plate != null ? <span>{t("queuePage.plate", { plate: entry.plate })}</span> : null}
@@ -438,44 +439,45 @@ function QueueRow({
             <RotateCcwIcon className="size-4" />
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("queuePage.moveUp", { name })}
-          disabled={!prev || moveEntry.isPending}
-          onClick={() => prev && moveEntry.mutate({ entryId: entry.id, position: prev.position })}
-        >
-          <ArrowUpIcon className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("queuePage.moveDown", { name })}
-          disabled={!next || moveEntry.isPending}
-          onClick={() => next && moveEntry.mutate({ entryId: entry.id, position: next.position })}
-        >
-          <ArrowDownIcon className="size-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("queuePage.remove", { name })}
-          disabled={removeEntry.isPending}
-          onClick={() =>
-            removeEntry.mutate(entry.id, {
-              onSuccess: () =>
-                toast(t("queuePage.removed", { name }), {
-                  description: t("queuePage.undoHint"),
-                  action: { label: t("queuePage.undo"), onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
-                }),
-            })
-          }
-        >
-          <Trash2Icon className="size-4" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={t("common.moreActions")}>
+              <MoreHorizontalIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              disabled={!prev || moveEntry.isPending}
+              onSelect={() => prev && moveEntry.mutate({ entryId: entry.id, position: prev.position })}
+            >
+              <ArrowUpIcon />
+              {t("queuePage.moveUpShort")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!next || moveEntry.isPending}
+              onSelect={() => next && moveEntry.mutate({ entryId: entry.id, position: next.position })}
+            >
+              <ArrowDownIcon />
+              {t("queuePage.moveDownShort")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={removeEntry.isPending}
+              onSelect={() =>
+                removeEntry.mutate(entry.id, {
+                  onSuccess: () =>
+                    toast(t("queuePage.removed", { name }), {
+                      description: t("queuePage.undoHint"),
+                      action: { label: t("queuePage.undo"), onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
+                    }),
+                })
+              }
+            >
+              <Trash2Icon />
+              {t("queuePage.removeShort")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
     {expanded ? <QueueEntryDetail entry={entry} /> : null}

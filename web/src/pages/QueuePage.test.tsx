@@ -285,7 +285,27 @@ describe("QueuePage state chip", () => {
   });
 });
 
+async function openMenuAndClick(item: string) {
+  const trigger = await screen.findByRole("button", { name: "More actions" });
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
 describe("QueuePage retry/remove", () => {
+  it("keeps the full name in a title and tucks reorder/remove into the menu", async () => {
+    const long = "A very long model name that would never fit on one line of the lane card";
+    queueDataBox.current = [entry({ id: 11, model: model({ slug: "long", name: long }) })];
+    renderQueuePage();
+    expect(await screen.findByTitle(long)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Move .* up$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Remove / })).not.toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Move up" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Move down" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Remove" })).toBeInTheDocument();
+  });
+
+
   it("shows Retry only for failed or held entries", async () => {
     queueDataBox.current = [
       entry({ id: 1, state: "failed" }),
@@ -314,7 +334,7 @@ describe("QueuePage retry/remove", () => {
     queueDataBox.current = [entry({ id: 7 })];
     renderQueuePage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Articulated Dragon" }));
+    await openMenuAndClick("Remove");
     await waitFor(() => expect(removeMock).toHaveBeenCalledExactlyOnceWith(7, expect.anything()));
   });
 });
@@ -325,7 +345,7 @@ describe("QueuePage remove undo", () => {
     removeMock.mockImplementation((_id: number, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
     renderQueuePage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Articulated Dragon" }));
+    await openMenuAndClick("Remove");
     expect(toastMock).toHaveBeenCalledOnce();
     const opts = toastMock.mock.calls[0][1] as { action: { label: string; onClick: () => void } };
     expect(opts.action.label).toBe("Undo");

@@ -32,6 +32,7 @@ import { ViewerFooterStrip } from "@/components/viewer/ViewerFooterStrip";
 import { ViewerMorePanel } from "@/components/viewer/ViewerMorePanel";
 import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
+import { openPrint } from "@/components/print/printDialogStore";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { FileOut, PlateOut } from "@/api/types";
 import { handlePlateKey, type PlateLayout, type ViewerPlateFile } from "@/components/viewer/plates";
@@ -343,6 +344,8 @@ export interface ViewerStageProps {
    * (the pop-out window) only ever has one stage mounted at a time. */
   active?: boolean;
   /** Plate chooser for multi-plate projects; `null`/absent hides it. */
+  /** Show "Print plate N": only where a PrintDialog is mounted (model page). */
+  canPrint?: boolean;
   plateInfo?: {
     blobHash: string;
     plates: PlateOut[];
@@ -415,6 +418,7 @@ export function ViewerStage({
   canCaptureCover,
   active = true,
   plateInfo = null,
+  canPrint = false,
 }: ViewerStageProps) {
   const { t } = useTranslation();
   const handleAutoRotateToggle = useCallback(() => {
@@ -684,7 +688,17 @@ export function ViewerStage({
         />
         {plateInfo ? (
           <div className="pointer-events-none absolute inset-x-0 top-11 flex justify-center">
-            <PlateSelector {...plateInfo} />
+            <PlateSelector
+              {...plateInfo}
+              onPrint={
+                canPrint
+                  ? (plate) => {
+                      const file = plateInfo.files?.find((f) => f.blobHash === plateInfo.blobHash);
+                      if (file) openPrint({ fileId: file.fileId, plate });
+                    }
+                  : undefined
+              }
+            />
           </div>
         ) : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-2">

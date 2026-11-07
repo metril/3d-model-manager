@@ -34,6 +34,22 @@ describe("PlateSelector", () => {
   });
 });
 
+describe("PlateSelector print", () => {
+  it("offers Print plate N only with a selected plate and calls onPrint", () => {
+    const onPrint = vi.fn();
+    const { rerender } = render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={null} onChange={() => {}} onPrint={onPrint} />);
+    expect(screen.queryByRole("button", { name: /Print plate/ })).not.toBeInTheDocument();
+    rerender(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={2} onChange={() => {}} onPrint={onPrint} />);
+    fireEvent.click(screen.getByRole("button", { name: "Print plate 2" }));
+    expect(onPrint).toHaveBeenCalledWith(2);
+  });
+
+  it("hides Print plate N when no onPrint is given (no dialog mounted)", () => {
+    render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={2} onChange={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Print plate/ })).not.toBeInTheDocument();
+  });
+});
+
 describe("PlateSelector profiles", () => {
   const profiles = [
     { fileId: 1, blobHash: "a", label: "100% infill", plates: [plate(1)] },
