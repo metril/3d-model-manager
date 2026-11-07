@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/metril/3d-model-manager/compare/v0.19.0...v0.19.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **dispatcher:** say the printer is not reporting instead of a filament mismatch ([#275](https://github.com/metril/3d-model-manager/issues/275)) ([50e3620](https://github.com/metril/3d-model-manager/commit/50e36201f73f451ee5db36dafb7a4230fd859333))
+
 ## [0.19.0](https://github.com/metril/3d-model-manager/compare/v0.18.0...v0.19.0) (2026-11-07)
 
 
