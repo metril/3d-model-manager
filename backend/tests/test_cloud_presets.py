@@ -550,3 +550,38 @@ def test_upsert_remote_derives_scope_meta(_truncate_all_tables) -> None:
     assert {c["model_key"] for c in rows["0.20mm multi"].compat} == {"a1mini", "p1s"}
     assert rows["0.20mm multi"].layer_height_mm == 0.2
     assert rows["My PLA"].compat == [{"model_key": "a1mini", "nozzle_mm": 0.4}]
+
+
+def test_normalize_sanitizes_and_status_unchanged() -> None:
+    data = cloud_presets.normalize(
+        cloud_presets.ProfileKind.PROCESS, "p", {"tree_support_wall_count": "-1", "a": 1}
+    )
+    assert "tree_support_wall_count" not in data
+    row = SlicerProfile(data=data, cloud_hash="h", data_hash=cloud_presets.content_hash(data))
+    assert cloud_presets.status_of(row, "h") == "up_to_date"
+
+
+def test_backfill_profile_sanitize(migrated_db) -> None:
+    from app.models.enums import ProfileSource
+    from app.tasks import base, slicing
+
+    bad = {"tree_support_wall_count": "-1", "a": 1}
+    with base.sync_session() as s:
+        row = SlicerProfile(
+            name="bf-bad",
+            kind=cloud_presets.ProfileKind.PROCESS,
+            source=ProfileSource.SYNCED,
+            data=bad,
+            cloud_hash="h",
+            data_hash=cloud_presets.content_hash(bad),
+        )
+        s.add(row)
+        s.commit()
+        rid = row.id
+    assert slicing.backfill_profile_sanitize() >= 1
+    with base.sync_session() as s:
+        r = s.get(SlicerProfile, rid)
+        assert "tree_support_wall_count" not in r.data
+        assert r.data_hash == cloud_presets.content_hash(r.data)
+        assert cloud_presets.status_of(r, "h") == "up_to_date"
+    assert slicing.backfill_profile_sanitize() == 0

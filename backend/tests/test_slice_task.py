@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.enums import BlobFormat, BlobKind, Fanout, ProfileKind, QueueState
@@ -33,6 +34,7 @@ class FakeSlicerClient:
 
     def slice(self, **kwargs) -> bytes:
         self.calls += 1
+        self.seen = kwargs
         if self.side_effect is not None:
             raise self.side_effect
         assert self.result is not None
@@ -442,3 +444,95 @@ def test_wrong_printer_model_fails(monkeypatch: pytest.MonkeyPatch, sliced_3mf_b
         assert refreshed.attempts == 1
         assert refreshed.sliced_file_id is None
         assert "printer_model" in refreshed.last_error
+
+
+RANGE_MSG = "slicer returned 422: tree_support_wall_count: -1 not in range [0.000000,2.000000]"
+
+
+class _Range422Once(FakeSlicerClient):
+    def slice(self, **kwargs) -> bytes:
+        if self.calls == 0:
+            self.calls += 1
+            self.seen = kwargs
+            raise SlicerError("x", 422, RANGE_MSG)
+        return super().slice(**kwargs)
+
+
+def _set_process_data(data: dict) -> None:
+    with base.sync_session() as session:
+        p = session.scalars(
+            select(SlicerProfile).where(SlicerProfile.kind == ProfileKind.PROCESS)
+        ).one()
+        p.data = data
+        session.commit()
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_known_bad_value_never_reaches_client(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    _set_process_data({"tree_support_wall_count": "-1"})
+    fake = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    assert "tree_support_wall_count" not in fake.seen["process_profile"]
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_422_range_error_clamps_and_retries_once(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = _Range422Once(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    # bypass up-front sanitize so the 422 path is what fixes it
+    monkeypatch.setattr(slicing, "sanitize_profile", lambda d: (dict(d), []))
+    _set_process_data({"tree_support_wall_count": "-1"})
+    slicing.slice_file(entry_id)
+    assert fake.calls == 2
+    assert "tree_support_wall_count" not in fake.seen["process_profile"]
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.READY and e.attempts == 0
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_unparseable_422_fails_after_one_attempt(monkeypatch: pytest.MonkeyPatch):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = FakeSlicerClient(side_effect=SlicerError("slicer exited 205", 422, "garbage"))
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.FAILED and e.attempts == 1
+    assert fake.calls == 1
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_422_transient_exit_stays_retryable(monkeypatch: pytest.MonkeyPatch):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = FakeSlicerClient(side_effect=SlicerError("slicer exited 137", 422))
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.WAITING and e.attempts == 1
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_422_config_marker_is_permanent(monkeypatch: pytest.MonkeyPatch):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = FakeSlicerClient(
+        side_effect=SlicerError("slicer exited 205", 422, "Param values in 3mf/config error: x")
+    )
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.FAILED and e.attempts == 1

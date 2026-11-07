@@ -36,6 +36,7 @@ from app.config import Settings
 from app.models import SlicerProfile
 from app.models.enums import ProfileKind, ProfileSource
 from app.services import bambu_auth
+from app.services.profile_sanitize import sanitize_profile
 from app.services.slicer_profiles import apply_meta, compat_entries, derive_profile_meta
 
 SOURCES = ("orca", "bambu")
@@ -100,8 +101,9 @@ def content_hash(content: dict) -> str:
 def normalize(kind: ProfileKind, name: str, content: dict) -> dict:
     """The stored ``data``: the cloud content with the keys the slicer CLI
     insists on (``type``, ``from``, ``name``) pinned."""
+    data, _ = sanitize_profile(content)
     return {
-        **content,
+        **data,
         "type": _CLI_TYPE[kind],
         "from": "system",
         "name": content.get("name") or name,

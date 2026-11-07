@@ -42,6 +42,9 @@ class FakeClient:
         return self.result
 
 
+CFG = "Param values in 3mf/config error"
+
+
 @pytest.fixture(autouse=True)
 def _fetch_stub(monkeypatch: pytest.MonkeyPatch):
     from app.services import derivatives
@@ -158,13 +161,13 @@ async def test_slice_job_failure_keeps_log_tail(
 
     _, f, recipe = await _setup(db_session, seed_file, "sj-fail")
     await set_server(slicer_enabled=True, slicer_url="http://s:1")
-    err = SlicerError("slicer returned 422", 422, "boom on stderr")
+    err = SlicerError("slicer returned 422", 422, "boom on stderr " + CFG)
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: FakeClient(error=err))
 
     r = await authenticated_client.post(f"/api/files/{f.id}/slice", json={"recipe_id": recipe.id})
     body = (await authenticated_client.get(f"/api/slice-jobs/{r.json()['id']}")).json()
     assert body["state"] == "failed"
-    assert "422" in body["error"] and body["log_tail"] == "boom on stderr"
+    assert "422" in body["error"] and body["log_tail"].startswith("boom on stderr")
     assert body["sliced_file_id"] is None
 
 
@@ -253,13 +256,13 @@ async def test_queue_failure_exposes_last_log_and_sliced_meta(
     monkeypatch.setattr(
         slicing,
         "client_from_config",
-        lambda cfg: FakeClient(error=SlicerError("slicer returned 422", 422, "tail text")),
+        lambda cfg: FakeClient(error=SlicerError("slicer returned 422", 422, "tail text " + CFG)),
     )
     slicing.slice_file(entry.id)
 
     rows = (await authenticated_client.get("/api/queue")).json()
     got = next(r for r in rows if r["id"] == entry.id)
-    assert got["last_log"] == "tail text" and got["state"] == "waiting"
+    assert got["last_log"] == "tail text " + CFG and got["state"] == "failed"
     assert got["sliced_meta"] is None
 
 

@@ -21,6 +21,7 @@ LOCK_PREFIX = "tdmm:backfill-start:"
 BACKFILLS: tuple[tuple[str, str], ...] = (
     ("app.tasks.pipeline.backfill_plates", "cpu"),
     ("app.tasks.pipeline.backfill_glb_orientation", "cpu"),
+    ("app.tasks.slicing.backfill_profile_sanitize", "cpu"),
 )
 
 
