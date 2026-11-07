@@ -58,7 +58,9 @@ export function PlateSelector({
   const options = useMemo(() => ["all", ...list.map((p) => String(p.index))], [list]);
   const { itemProps } = useRovingRadioGroup(options, value == null ? "all" : String(value), (o) => onChange(o === "all" ? null : Number(o)));
   const showPicker = !!files && files.length > 0 && !!onFileChange;
-  if (!showPicker && list.length === 0) return null;
+  const single = plates && plates.length === 1 ? plates[0].index : null;
+  const printPlate = value ?? single;
+  if (!showPicker && list.length === 0 && !(onPrint && printPlate != null)) return null;
   const chip = (active: boolean) =>
     cn(
       "pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-xs backdrop-blur-sm",
@@ -179,9 +181,9 @@ export function PlateSelector({
           ))}
         </div>
       ) : null}
-      {onPrint && value != null ? (
-        <Button type="button" size="sm" className="pointer-events-auto h-7 rounded-full px-3 text-xs" onClick={() => onPrint(value)}>
-          {t("profiles.printPlate", { n: value })}
+      {onPrint && printPlate != null ? (
+        <Button type="button" size="sm" className="pointer-events-auto h-7 rounded-full px-3 text-xs" onClick={() => onPrint(printPlate)}>
+          {t("profiles.printPlate", { n: printPlate })}
         </Button>
       ) : null}
     </div>

@@ -44,6 +44,13 @@ describe("PlateSelector print", () => {
     expect(onPrint).toHaveBeenCalledWith(2);
   });
 
+  it("offers Print plate for a single-plate file and calls onPrint(1)", () => {
+    const onPrint = vi.fn();
+    render(<PlateSelector blobHash="h" plates={[plate(1)]} value={null} onChange={() => {}} onPrint={onPrint} />);
+    fireEvent.click(screen.getByRole("button", { name: "Print plate 1" }));
+    expect(onPrint).toHaveBeenCalledWith(1);
+  });
+
   it("hides Print plate N when no onPrint is given (no dialog mounted)", () => {
     render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={2} onChange={() => {}} />);
     expect(screen.queryByRole("button", { name: /Print plate/ })).not.toBeInTheDocument();
