@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/metril/3d-model-manager/compare/v0.18.0...v0.19.0) (2026-11-07)
+
+
+### Features
+
+* **plate:** keep object rows, per-part copies and fill plate ([#270](https://github.com/metril/3d-model-manager/issues/270)) ([6697233](https://github.com/metril/3d-model-manager/commit/6697233bc11d46736475010733cb3775777ab274))
+* **print:** print a plate from the viewer; readable queue names ([#272](https://github.com/metril/3d-model-manager/issues/272)) ([2f1933a](https://github.com/metril/3d-model-manager/commit/2f1933a12e9bb02ebd2b2047085297e8b379686e))
+
+
+### Bug Fixes
+
+* **slicing:** sanitize synced Bambu profiles before slicing ([#271](https://github.com/metril/3d-model-manager/issues/271)) ([86f170e](https://github.com/metril/3d-model-manager/commit/86f170edc373d7c57757867c8f238375a24c0101))
+
 ## [0.18.0](https://github.com/metril/3d-model-manager/compare/v0.17.4...v0.18.0) (2026-11-06)
 
 
