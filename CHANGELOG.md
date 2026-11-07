@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/metril/3d-model-manager/compare/v0.19.1...v0.19.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **viewer:** offer Print plate for single-plate files ([#277](https://github.com/metril/3d-model-manager/issues/277)) ([985c470](https://github.com/metril/3d-model-manager/commit/985c470263f0c93489712037e62e0d9f2d93cd35))
+
 ## [0.19.1](https://github.com/metril/3d-model-manager/compare/v0.19.0...v0.19.1) (2026-11-07)
 
 
