@@ -4,7 +4,7 @@
  * flag) with a per-slot load/unload menu, the existing assign-spool popover
  * around each circle, the external spool card and an AMS-backup badge.
  */
-import { DropletsIcon, MoreVerticalIcon, ThermometerIcon } from "lucide-react";
+import { DropletsIcon, ThermometerIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,7 +13,7 @@ import type { AmsTray, AmsUnit, PrinterOut, PrinterStatusOut } from "@/api/types
 import { SlotAssignPopover } from "@/components/inventory/SlotAssignPopover";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { normalizeHex } from "@/components/ui/filament-chip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -80,26 +80,25 @@ function SlotCircle({
       <div className="flex items-center">
         {canControl ? <SlotAssignPopover printerId={printer.id} tray={tray}>{circle}</SlotAssignPopover> : circle}
         {canControl ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon-xs" aria-label={t("card.filaments.slotMenu", { label })}>
-                <MoreVerticalIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                disabled={busy || tray.ams_unit === EXTERNAL_UNIT}
-                onSelect={() => void control.send("filament", { action: "load", tray: tray.slot })}
-              >
-                {t("card.filaments.load")}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={busy} onSelect={() => void control.send("filament", { action: "unload" })}>
-                {t("card.filaments.unload")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setConfigOpen(true)}>{t("printerOps.slot.configure")}</DropdownMenuItem>
-              {kprofiles ? <DropdownMenuItem onSelect={() => setKOpen(true)}>{t("kprofile.menu")}</DropdownMenuItem> : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <OverflowMenu
+            size="icon-xs"
+            ariaLabel={t("card.filaments.slotMenu", { label })}
+            groups={[
+              {
+                items: [
+                  {
+                    id: "load",
+                    label: t("card.filaments.load"),
+                    disabled: busy || tray.ams_unit === EXTERNAL_UNIT,
+                    onSelect: () => void control.send("filament", { action: "load", tray: tray.slot }),
+                  },
+                  { id: "unload", label: t("card.filaments.unload"), disabled: busy, onSelect: () => void control.send("filament", { action: "unload" }) },
+                  { id: "configure", label: t("printerOps.slot.configure"), onSelect: () => setConfigOpen(true) },
+                  { id: "kprofile", label: t("kprofile.menu"), hidden: !kprofiles, onSelect: () => setKOpen(true) },
+                ],
+              },
+            ]}
+          />
         ) : null}
         {configOpen ? (
           <SlotConfigDialog
@@ -172,16 +171,12 @@ function UnitHeader({
       <span className="pc-t10 font-medium">{unit?.label || unitLabel(id)}</span>
       {canRename && id < 254 ? (
         <>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon-xs" aria-label={t("card.filaments.unitMenu", { label: unit?.label || unitLabel(id) })}>
-                <MoreVerticalIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onSelect={() => setRenameOpen(true)}>{t("printerOps.ams.rename")}</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <OverflowMenu
+            size="icon-xs"
+            align="start"
+            ariaLabel={t("card.filaments.unitMenu", { label: unit?.label || unitLabel(id) })}
+            groups={[{ items: [{ id: "rename", label: t("printerOps.ams.rename"), onSelect: () => setRenameOpen(true) }] }]}
+          />
           {renameOpen ? (
             <AmsRenameDialog printerId={printerId} amsId={id} current={unit?.label ?? ""} open onOpenChange={setRenameOpen} />
           ) : null}

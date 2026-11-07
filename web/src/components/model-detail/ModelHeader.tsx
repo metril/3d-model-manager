@@ -5,7 +5,6 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   DownloadIcon,
-  EllipsisIcon,
   FileArchiveIcon,
   FolderInputIcon,
   FolderKanbanIcon,
@@ -45,14 +44,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { formatDateTime } from "@/lib/format";
 import { pickBestSlicerFile } from "@/lib/slicers";
@@ -330,48 +323,33 @@ export function ModelHeader({
               nested `DialogTrigger`, so the dialog survives the menu
               unmounting when it closes (standard Radix menu+dialog
               composition). */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="icon" aria-label={t("mdHeader.moreActions")}>
-                <EllipsisIcon />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem disabled={!canRedownload} onSelect={() => setRedownloadOpen(true)}>
-                <DownloadIcon />
-                {t("mdHeader.redownloadItem")}
-              </DropdownMenuItem>
-              {/* Plain anchor with `download` -- the session cookie carries
-                  auth, so no fetch-and-blob dance is needed (R11-A). */}
-              <DropdownMenuItem asChild>
-                <a href={`/api/models/${model.slug}/zip`} download>
-                  <FileArchiveIcon />
-                  {t("mdHeader.downloadZip")}
-                </a>
-              </DropdownMenuItem>
-              {can("library:write") ? (
-                <DropdownMenuItem onSelect={() => setProjectOpen(true)}>
-                  <FolderKanbanIcon />
-                  {t("mdHeader.addToProject")}
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem onSelect={onOpenRelocate}>
-                <FolderInputIcon />
-                {t("mdHeader.moveCopy")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setArchiveOpen(true)}>
-                <ArchiveIcon />
-                {t("mdHeader.archiveItem")}
-              </DropdownMenuItem>
-              {canDelete ? (
-                <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
-                  <Trash2Icon />
-                  {t("mdHeader.trashItem")}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <OverflowMenu
+            variant="outline"
+            size="icon"
+            ariaLabel={t("mdHeader.moreActions")}
+            groups={[
+              {
+                label: t("common.groupFile"),
+                items: [
+                  { id: "redownload", label: t("mdHeader.redownloadItem"), icon: DownloadIcon, disabled: !canRedownload, onSelect: () => setRedownloadOpen(true) },
+                  /* Plain anchor -- the session cookie carries auth (R11-A). */
+                  { id: "zip", label: t("mdHeader.downloadZip"), icon: FileArchiveIcon, href: `/api/models/${model.slug}/zip`, download: true },
+                ],
+              },
+              {
+                label: t("common.groupOrganize"),
+                items: [
+                  { id: "project", label: t("mdHeader.addToProject"), icon: FolderKanbanIcon, hidden: !can("library:write"), onSelect: () => setProjectOpen(true) },
+                  { id: "relocate", label: t("mdHeader.moveCopy"), icon: FolderInputIcon, onSelect: onOpenRelocate },
+                  { id: "archive", label: t("mdHeader.archiveItem"), icon: ArchiveIcon, onSelect: () => setArchiveOpen(true) },
+                ],
+              },
+              {
+                label: t("common.groupDanger"),
+                items: [{ id: "trash", label: t("mdHeader.trashItem"), icon: Trash2Icon, destructive: true, hidden: !canDelete, onSelect: () => setDeleteOpen(true) }],
+              },
+            ]}
+          />
           <AddToProjectDialog open={projectOpen} onOpenChange={setProjectOpen} modelIds={[model.id]} />
           <RedownloadDialog model={model} open={redownloadOpen} onOpenChange={setRedownloadOpen} />
           <ConfirmDialog

@@ -21,7 +21,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, MoreHorizontalIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ListOrderedIcon, ChevronRightIcon, RotateCcwIcon, Trash2Icon, XIcon } from "lucide-react";
 
 import { useAuth } from "@/api/auth";
 import { ApiError } from "@/api/client";
@@ -29,7 +29,7 @@ import { PLATE_NOT_EMPTY } from "@/api/plateCheck";
 import { usePrinters } from "@/api/printers";
 import { useCancelQueueSlice, useEnqueue, useMoveQueueEntry, useQueue, useRemoveQueueEntry, useRetryQueueEntry } from "@/api/queue";
 import type { PrinterOut, QueueEnqueueBody, QueueEntry, QueueState } from "@/api/types";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BatchesPanel } from "@/components/print/BatchesPanel";
 import { HoverPreview, QueueFilamentChips } from "@/components/print/QueueFilaments";
@@ -439,45 +439,47 @@ function QueueRow({
             <RotateCcwIcon className="size-4" />
           </Button>
         ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={t("common.moreActions")}>
-              <MoreHorizontalIcon className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={!prev || moveEntry.isPending}
-              onSelect={() => prev && moveEntry.mutate({ entryId: entry.id, position: prev.position })}
-            >
-              <ArrowUpIcon />
-              {t("queuePage.moveUpShort")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!next || moveEntry.isPending}
-              onSelect={() => next && moveEntry.mutate({ entryId: entry.id, position: next.position })}
-            >
-              <ArrowDownIcon />
-              {t("queuePage.moveDownShort")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={removeEntry.isPending}
-              onSelect={() =>
-                removeEntry.mutate(entry.id, {
-                  onSuccess: () =>
-                    toast(t("queuePage.removed", { name }), {
-                      description: t("queuePage.undoHint"),
-                      action: { label: t("queuePage.undo"), onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
+        <OverflowMenu
+          groups={[
+            {
+              items: [
+                {
+                  id: "up",
+                  label: t("queuePage.moveUpShort"),
+                  icon: ArrowUpIcon,
+                  disabled: !prev || moveEntry.isPending,
+                  onSelect: () => prev && moveEntry.mutate({ entryId: entry.id, position: prev.position }),
+                },
+                {
+                  id: "down",
+                  label: t("queuePage.moveDownShort"),
+                  icon: ArrowDownIcon,
+                  disabled: !next || moveEntry.isPending,
+                  onSelect: () => next && moveEntry.mutate({ entryId: entry.id, position: next.position }),
+                },
+              ],
+            },
+            {
+              items: [
+                {
+                  id: "remove",
+                  label: t("queuePage.removeShort"),
+                  icon: Trash2Icon,
+                  destructive: true,
+                  disabled: removeEntry.isPending,
+                  onSelect: () =>
+                    removeEntry.mutate(entry.id, {
+                      onSuccess: () =>
+                        toast(t("queuePage.removed", { name }), {
+                          description: t("queuePage.undoHint"),
+                          action: { label: t("queuePage.undo"), onClick: () => reEnqueue.mutate(entryToEnqueueBody(entry)) },
+                        }),
                     }),
-                })
-              }
-            >
-              <Trash2Icon />
-              {t("queuePage.removeShort")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                },
+              ],
+            },
+          ]}
+        />
       </div>
     </div>
     {expanded ? <QueueEntryDetail entry={entry} /> : null}

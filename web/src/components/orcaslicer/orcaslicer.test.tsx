@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import { serverSettingsQueryOptions } from "@/api/serverSettings";
 import type { OrcaSlicerSession } from "@/api/orcaslicer";
 import type { FileOut, ModelDetail } from "@/api/types";
-import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
+import { FileActionsMenu } from "@/components/model-detail/fileActionsHarness.test-util";
 import { fakeServer } from "@/components/settings/server/fixtures";
 import { OrcaSlicerServerCard } from "@/components/settings/server/OrcaSlicerServerCard";
 import { resetOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
@@ -149,7 +149,7 @@ describe("Open in OrcaSlicer menu entry", () => {
     // let /features + /orcaslicer/session resolve
     await waitFor(() => expect(getMock).toHaveBeenCalledWith("/features"));
     await new Promise((r) => setTimeout(r, 20));
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Actions for/ }), { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /More actions/ }), { button: 0 });
   }
 
   it("is shown for an openable format when enabled", async () => {
@@ -196,7 +196,7 @@ describe("Open in OrcaSlicer menu entry", () => {
     await openMenu(file(), { enabled: true });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Actions for/ }), { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /More actions/ }), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: /in OrcaSlicer/ }));
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledTimes(2));
     expect(openMock).toHaveBeenCalledTimes(1);

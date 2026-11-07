@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { EntityTags } from "@/components/tags/EntityTags";
 import { CopyableHash } from "@/components/model-detail/CopyableHash";
-import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
+import { useFileActionItems } from "@/components/model-detail/useFileActionItems";
 import { FileRow } from "@/components/model-detail/FileRow";
 import { FileThumb } from "@/components/model-detail/explorer/FileThumb";
 import { fileMetaLine, isPreviewable } from "@/components/model-detail/explorer/fileMeta";
@@ -15,6 +15,7 @@ import { SliceFileButton } from "@/components/slice/SliceFileButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { OverflowMenu, type OverflowItem } from "@/components/ui/overflow-menu";
 import { formatDate, formatDateTime, humanizeBytes } from "@/lib/format";
 import { isSlicerEligible } from "@/lib/slicers";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,8 @@ export interface FileEntryProps {
   /** Extra per-file actions (rename, move). Rendered before the actions menu. Pass a stable
    * function (not a node) so the memoized row isn't re-rendered by every parent render. */
   renderActions?: (file: FileOut) => ReactNode;
+  /** Organize-group items (rename, move) merged into the row's single overflow menu. */
+  organizeItems?: (file: FileOut) => OverflowItem[];
   /** Starts a drag-to-move of this file (PR 4); makes the row draggable when set. */
   onDragStartFile?: (event: DragEvent, file: FileOut) => void;
 }
@@ -73,9 +76,11 @@ function FileActions({
   onViewIn3D,
   onArrange,
   renderActions,
+  organizeItems,
 }: Omit<FileEntryProps, "layout" | "label" | "selectable" | "selected" | "onSelectedChange" | "onDragStartFile">) {
   const { t } = useTranslation();
   const isDoc = file.kind === "doc";
+  const { fileItems, dangerItems, dialogs } = useFileActionItems({ file, model, isDoc, onViewIn3D, onArrange });
   return (
     <>
       {onTogglePreview && isPreviewable(file) ? (
@@ -93,7 +98,15 @@ function FileActions({
         </>
       ) : null}
       {renderActions?.(file)}
-      <FileActionsMenu file={file} model={model} isDoc={isDoc} onViewIn3D={onViewIn3D} onArrange={onArrange} />
+      <OverflowMenu
+        ariaLabel={t("common.moreActionsFor", { name: file.rel_path })}
+        groups={[
+          { label: t("common.groupFile"), items: fileItems },
+          { label: t("common.groupOrganize"), items: organizeItems?.(file) ?? [] },
+          { label: t("common.groupDanger"), items: dangerItems },
+        ]}
+      />
+      {dialogs}
     </>
   );
 }

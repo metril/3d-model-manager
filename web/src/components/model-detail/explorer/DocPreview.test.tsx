@@ -150,6 +150,6 @@ describe("FileExplorer", () => {
     renderExplorer([docxFile]);
 
     expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: `Actions for ${docxFile.rel_path}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `More actions for ${docxFile.rel_path}` })).toBeInTheDocument();
   });
 });

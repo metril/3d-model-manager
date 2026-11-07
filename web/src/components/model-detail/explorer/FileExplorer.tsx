@@ -216,16 +216,7 @@ function FileExplorerInner({
     selection,
   });
   const { onDragStartFile } = manage;
-  const { fileActions: manageFileActions, folderActions: manageFolderActions } = manage;
-  const rowActions = useCallback(
-    (file: FileOut) => (
-      <>
-        {manageFileActions(file)}
-        {fileActions?.(file)}
-      </>
-    ),
-    [manageFileActions, fileActions],
-  );
+  const { fileItems: manageFileItems, folderActions: manageFolderActions } = manage;
   const folderRowActions = useCallback(
     (path: string) => (
       <>
@@ -473,7 +464,8 @@ function FileExplorerInner({
                         onTogglePreview={togglePreview}
                         onViewIn3D={onViewIn3D}
                         onArrange={canUpload ? arrangeOne : undefined}
-                        renderActions={rowActions}
+                        renderActions={fileActions}
+                        organizeItems={manageFileItems}
                         onDragStartFile={canUpload ? onDragStartFile : undefined}
                       />
                     );

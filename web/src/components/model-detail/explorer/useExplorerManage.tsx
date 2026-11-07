@@ -1,6 +1,6 @@
 /** Rename / move / new folder / bulk delete / drag-and-drop for the explorer (all gated on `canUpload`). */
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type HTMLAttributes, type ReactNode } from "react";
-import { FolderPlusIcon } from "lucide-react";
+import { FolderInputIcon, FolderPlusIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -24,7 +24,7 @@ import {
   isExplorerDrag,
   itemsFromKeys,
 } from "@/components/model-detail/explorer/dnd";
-import { ManageMenu } from "@/components/model-detail/explorer/ManageMenu";
+import { OverflowMenu, type OverflowItem } from "@/components/ui/overflow-menu";
 import { MoveDialog, NameDialog } from "@/components/model-detail/explorer/manageDialogs";
 import type { ExplorerSelection } from "@/components/model-detail/explorer/selection";
 import { baseName, dirName, findNode, flattenFiles, isInside, type TreeNode } from "@/components/model-detail/explorer/tree";
@@ -43,7 +43,8 @@ const errMsg = (e: unknown, fallback: string) =>
   e instanceof ApiError ? e.detail : e instanceof Error && e.message ? e.message : fallback;
 
 export interface ExplorerManage {
-  fileActions: (file: FileOut) => ReactNode;
+  /** Organize-group overflow items (rename, move) for a file row. */
+  fileItems: (file: FileOut) => OverflowItem[];
   folderActions: (path: string) => ReactNode;
   newFolderButton: ReactNode;
   dialogs: ReactNode;
@@ -218,30 +219,58 @@ export function useExplorerManage({
     [clearSelection, filesUnder, setExtraFolders],
   );
 
-  const fileActions = useCallback(
-    (file: FileOut): ReactNode =>
-      canUpload ? (
-        <ManageMenu
-          label={file.rel_path}
-          onRename={() => setDialog({ kind: "renameFile", file })}
-          onMove={() => setDialog({ kind: "move", items: { fileIds: [file.id], folders: [] } })}
-        />
-      ) : null,
-    [canUpload],
+  // Organize items for a file row; `FileEntry` merges them into its single overflow menu.
+  const fileItems = useCallback(
+    (file: FileOut): OverflowItem[] =>
+      canUpload
+        ? [
+            { id: "rename", label: t("explorer.manage.rename"), icon: PencilIcon, onSelect: () => setDialog({ kind: "renameFile", file }) },
+            {
+              id: "move",
+              label: t("explorer.manage.move"),
+              icon: FolderInputIcon,
+              onSelect: () => setDialog({ kind: "move", items: { fileIds: [file.id], folders: [] } }),
+            },
+          ]
+        : [],
+    [canUpload, t],
   );
 
   const folderActions = useCallback(
     (path: string): ReactNode =>
       canUpload && path !== "" ? (
-        <ManageMenu
-          label={path}
-          busy={busy}
-          onRename={() => setDialog({ kind: "renameFolder", path })}
-          onMove={() => setDialog({ kind: "move", items: { fileIds: [], folders: [path] } })}
-          onDelete={() => requestDelete({ fileIds: [], folders: [path] })}
+        <OverflowMenu
+          ariaLabel={t("common.moreActionsFor", { name: path })}
+          groups={[
+            {
+              label: t("common.groupOrganize"),
+              items: [
+                { id: "rename", label: t("explorer.manage.rename"), icon: PencilIcon, onSelect: () => setDialog({ kind: "renameFolder", path }) },
+                {
+                  id: "move",
+                  label: t("explorer.manage.move"),
+                  icon: FolderInputIcon,
+                  onSelect: () => setDialog({ kind: "move", items: { fileIds: [], folders: [path] } }),
+                },
+              ],
+            },
+            {
+              label: t("common.groupDanger"),
+              items: [
+                {
+                  id: "delete",
+                  label: t("explorer.manage.delete"),
+                  icon: Trash2Icon,
+                  destructive: true,
+                  disabled: busy,
+                  onSelect: () => requestDelete({ fileIds: [], folders: [path] }),
+                },
+              ],
+            },
+          ]}
         />
       ) : null,
-    [busy, canUpload, requestDelete],
+    [busy, canUpload, requestDelete, t],
   );
 
   const newFolderButton = canUpload ? (
@@ -371,7 +400,7 @@ export function useExplorerManage({
 
   // The callbacks are referentially stable; consumers destructure them so the object itself needn't be.
   return {
-    fileActions,
+    fileItems,
     folderActions,
     newFolderButton,
     dialogs,

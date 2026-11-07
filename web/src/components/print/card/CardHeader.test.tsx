@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CardHeader } from "./CardHeader";
@@ -14,10 +14,6 @@ vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
   return { ...actual, api: { ...actual.api, post: postMock, get: vi.fn().mockResolvedValue([]) } };
 });
-
-function openMenu() {
-  fireEvent.pointerDown(screen.getByRole("button", { name: "Printer menu" }), { button: 0, ctrlKey: false });
-}
 
 describe("CardHeader", () => {
   beforeEach(() => {
@@ -48,27 +44,5 @@ describe("CardHeader", () => {
     await screen.findByRole("link", { name: it.printer.model! });
     expect(screen.getAllByText("Printing")).toHaveLength(1);
     expect(screen.getByText(/0\.4 mm/).textContent).not.toContain(`${it.printer.model} \u00b7`);
-  });
-
-  it("menu: Reconnect probes the printer; admin items hidden without settings:write", async () => {
-    postMock.mockResolvedValue({ ok: true, detail: "ok", gcode_state: "IDLE" });
-    const it = a1Mini();
-    renderCard(<CardHeader printer={it.printer} status={it.status} />);
-    await screen.findByRole("link", { name: "A1 Mini" });
-    openMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Reconnect" }));
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/test"));
-  });
-
-  it("hides Edit/Diagnose/Delete for non-admins", async () => {
-    canBox.current = false;
-    const it = a1Mini();
-    renderCard(<CardHeader printer={it.printer} status={it.status} />);
-    await screen.findByRole("link", { name: "A1 Mini" });
-    openMenu();
-    await screen.findByRole("menuitem", { name: "Force refresh" });
-    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Diagnose" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
   });
 });

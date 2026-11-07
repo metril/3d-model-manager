@@ -38,6 +38,25 @@ describe("PrinterToolbar", () => {
     getMock.mockReset().mockResolvedValue([]);
   });
 
+  it("Printer group: Reconnect probes the printer; Edit/Delete are admin-only", async () => {
+    postMock.mockResolvedValue({ ok: true, detail: "ok", gcode_state: "IDLE" });
+    toolbar("M", {}, { canAdmin: false });
+    await openMore();
+    expect(await screen.findByText("Printer")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Force refresh" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reconnect" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/printers/1/test"));
+  });
+
+  it("Printer group shows Edit and Delete for admins", async () => {
+    toolbar("M", {}, { canAdmin: true });
+    await openMore();
+    expect(await screen.findByRole("menuitem", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+  });
+
   it("M: Move + Camera inline; Files, Options, Calibrate, Firmware, history in More", async () => {
     const onOpen = toolbar("M");
     expect(await screen.findByRole("button", { name: "Movement" })).toBeInTheDocument();
