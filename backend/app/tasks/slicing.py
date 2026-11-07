@@ -41,6 +41,7 @@ from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
 from app.services.print_plan import estimate_item_sync
+from app.services.profile_sanitize import clamp_key, parse_range_error, sanitize_profile
 from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
@@ -228,7 +229,9 @@ def slice_file(self, queue_entry_id: int) -> None:
             entry.last_error = str(exc)
             entry.last_log = getattr(exc, "log_tail", None)
             entry.state = (
-                QueueState.FAILED if entry.attempts >= MAX_ATTEMPTS else QueueState.WAITING
+                QueueState.FAILED
+                if entry.attempts >= MAX_ATTEMPTS or _is_permanent(exc)
+                else QueueState.WAITING
             )
             entry.slicing_started_at = None
             terminal = entry.state == QueueState.FAILED
@@ -383,6 +386,45 @@ def _slice(
     )
 
 
+def _is_permanent(exc: BaseException) -> bool:
+    """Deterministic failures that a retry can never fix."""
+    return isinstance(exc, ValueError) or (isinstance(exc, SlicerError) and exc.status == 422)
+
+
+def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):
+    """Sanitize known-bad values up front; on a 422 range error, clamp the
+    offending key everywhere and retry once within the same attempt."""
+    printer, changed_p = sanitize_profile(printer_profile)
+    process, changed_x = sanitize_profile(process_profile)
+    filaments = []
+    changed_f: list[str] = []
+    for f in filament_profiles:
+        fixed, ch = sanitize_profile(f)
+        filaments.append(fixed)
+        changed_f += ch
+    if changed_p or changed_x or changed_f:
+        logger.info("sanitized profile keys: %s", sorted({*changed_p, *changed_x, *changed_f}))
+    try:
+        return client.slice(
+            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+        )
+    except SlicerError as exc:
+        if exc.status != 422:
+            raise
+        parsed = parse_range_error(f"{exc}\n{exc.log_tail or ''}")
+        if parsed is None:
+            raise
+        key, lo, hi = parsed
+        if not any(clamp_key(d, key, lo, hi) for d in (printer, process, *filaments)):
+            raise
+        for d in (printer, process, *filaments):
+            clamp_key(d, key, lo, hi)
+        logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
+        return client.slice(
+            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+        )
+
+
 def slice_source(
     session: Session,
     settings,
@@ -446,7 +488,8 @@ def slice_source(
             arrange=bool(merged_options.get("arrange", False)),
             plate=plate,
         )
-        out_bytes = client.slice(
+        out_bytes = _slice_with_sanitize(
+            client,
             model=src_path,
             filename=file.rel_path,
             printer_profile=printer_profile.data,
@@ -698,3 +741,44 @@ def sweep_stuck_slice_jobs() -> int:
     for jid in ids:
         _finish_slice_job(settings, jid, state="failed", error="slice timed out")
     return len(ids)
+
+
+PROFILE_SANITIZE_BATCH = 200
+
+
+@celery_app.task(name="app.tasks.slicing.backfill_profile_sanitize")
+def backfill_profile_sanitize(after: int = 0) -> int:
+    """Self-draining startup backfill: sanitize synced profiles in place,
+    recomputing ``data_hash`` so ``status_of`` is unchanged. Idempotent."""
+    from app.models.enums import ProfileSource
+    from app.services.cloud_presets import content_hash
+
+    done = 0
+    with base.sync_session() as session:
+        rows = (
+            session.execute(
+                select(SlicerProfile)
+                .where(SlicerProfile.source == ProfileSource.SYNCED, SlicerProfile.id > after)
+                .order_by(SlicerProfile.id)
+                .limit(PROFILE_SANITIZE_BATCH)
+            )
+            .scalars()
+            .all()
+        )
+        last = after
+        for row in rows:
+            last = row.id
+            fixed, changed = sanitize_profile(row.data or {})
+            if not changed:
+                continue
+            # only rehash if the stored hash matched, i.e. no local edits to lose track of
+            was_clean = row.data_hash == content_hash(row.data or {})
+            row.data = fixed
+            if was_clean:
+                row.data_hash = content_hash(fixed)
+            done += 1
+        session.commit()
+        full = len(rows) >= PROFILE_SANITIZE_BATCH
+    if full:
+        backfill_profile_sanitize.apply_async(kwargs={"after": last}, countdown=2)
+    return done

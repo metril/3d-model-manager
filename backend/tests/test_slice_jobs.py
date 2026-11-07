@@ -259,7 +259,7 @@ async def test_queue_failure_exposes_last_log_and_sliced_meta(
 
     rows = (await authenticated_client.get("/api/queue")).json()
     got = next(r for r in rows if r["id"] == entry.id)
-    assert got["last_log"] == "tail text" and got["state"] == "waiting"
+    assert got["last_log"] == "tail text" and got["state"] == "failed"
     assert got["sliced_meta"] is None
 
 
