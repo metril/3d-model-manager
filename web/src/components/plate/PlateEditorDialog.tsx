@@ -462,6 +462,7 @@ export function PlateEditorDialog({
     const key = partKey(selected);
     const row = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-part-row]") ?? [])].find((el) => el.dataset.partRow === key);
     row?.scrollIntoView?.({ block: "nearest" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.uid]);
 
   const autoArrange = () => arrangeItems(state.items, orientFirst);
