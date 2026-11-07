@@ -231,6 +231,29 @@ def test_compat_rejects_model_nozzle_material():
     assert compatibility_reason(printer, state, material_need) is not None
 
 
+def test_compat_offline_printer_reason_is_not_a_filament_mismatch():
+    printer = Printer(
+        name="p",
+        kind=PrinterKind.BAMBU_LAN,
+        host="h",
+        serial="s",
+        access_code_enc="x",
+        model="A1 mini",
+    )
+    need = Needs(
+        printer_model=None,
+        nozzle_mm=None,
+        filaments=[FilamentNeed(filament_id=1, type="PLA", color=None, grams=1)],
+    )
+    for state in (None, {}, {"trays": []}, {"nozzle_mm": None, "trays": []}):
+        reason = compatibility_reason(printer, state, need)
+        assert reason == "printer has not reported its filament trays yet (offline?)"
+    wrong = {"trays": [{"slot": 0, "tray_type": "ABS"}]}
+    assert (
+        compatibility_reason(printer, wrong, need) == "no compatible filament slot for filament 1"
+    )
+
+
 def test_finish_is_idle_failed_is_not():
     assert dispatch_idle({"gcode_state": "IDLE"}) is True
     assert dispatch_idle({"gcode_state": "FINISH"}) is True
