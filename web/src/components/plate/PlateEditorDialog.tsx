@@ -119,8 +119,11 @@ function CountField({ label, value, onCommit }: { label: string; value: number; 
   const commit = () => {
     const n = Number(draft);
     if (draft.trim() === "" || !Number.isFinite(n)) setDraft(String(value));
-    else if (Math.floor(n) !== value) onCommit(Math.floor(n));
-    else setDraft(String(value));
+    else {
+      if (Math.floor(n) !== value) onCommit(Math.floor(n));
+      // Reset so a cap that leaves the count unchanged doesn't keep the typed value.
+      setDraft(String(value));
+    }
   };
   return (
     <Input
