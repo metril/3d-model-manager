@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -388,7 +389,21 @@ def _slice(
 
 def _is_permanent(exc: BaseException) -> bool:
     """Deterministic failures that a retry can never fix."""
-    return isinstance(exc, ValueError) or (isinstance(exc, SlicerError) and exc.status == 422)
+    if isinstance(exc, ValueError):
+        return True
+    if not (isinstance(exc, SlicerError) and exc.status == 422):
+        return False
+    # The sidecar 422s every SliceFailed, incl. OOM/crash/no-output (retryable).
+    text = f"{exc}\n{exc.log_tail or ''}"
+    if parse_range_error(text) or _CONFIG_ERR in text:
+        return True
+    m = _EXIT_RE.search(text)
+    return bool(m) and int(m.group(1)) not in _TRANSIENT_EXITS
+
+
+_CONFIG_ERR = "Param values in 3mf/config error"
+_EXIT_RE = re.compile(r"slicer exited (-?\d+)")
+_TRANSIENT_EXITS = {134, 137, 139}
 
 
 def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):

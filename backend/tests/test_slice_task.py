@@ -503,10 +503,36 @@ def test_422_range_error_clamps_and_retries_once(
 def test_unparseable_422_fails_after_one_attempt(monkeypatch: pytest.MonkeyPatch):
     with base.sync_session() as session:
         entry_id = _seed(session).id
-    fake = FakeSlicerClient(side_effect=SlicerError("bad", 422, "garbage"))
+    fake = FakeSlicerClient(side_effect=SlicerError("slicer exited 205", 422, "garbage"))
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
     slicing.slice_file(entry_id)
     with base.sync_session() as session:
         e = session.get(PrintQueueEntry, entry_id)
         assert e.state == QueueState.FAILED and e.attempts == 1
     assert fake.calls == 1
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_422_transient_exit_stays_retryable(monkeypatch: pytest.MonkeyPatch):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = FakeSlicerClient(side_effect=SlicerError("slicer exited 137", 422))
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.WAITING and e.attempts == 1
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_422_config_marker_is_permanent(monkeypatch: pytest.MonkeyPatch):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    fake = FakeSlicerClient(
+        side_effect=SlicerError("slicer exited 205", 422, "Param values in 3mf/config error: x")
+    )
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.FAILED and e.attempts == 1
