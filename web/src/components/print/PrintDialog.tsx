@@ -403,7 +403,9 @@ function PrintDialogBody({
     let next = step;
     const sourceNeeded = source.kind === "pick" || (source.kind === "model" && slicedFiles.files.length > 1);
     if (next === SOURCE && !sourceNeeded) next = PLATE;
-    if (next === PLATE && (recipeReady ? recipePlates.length < 2 : (plan?.plates.length ?? 0) <= 1)) next = PROFILE;
+    // A plate picked in the viewer (seeded for this very file) is already decided.
+    const seeded = initialPlate != null && plate != null && effectiveFileId === initialFileId;
+    if (next === PLATE && (seeded || (recipeReady ? recipePlates.length < 2 : (plan?.plates.length ?? 0) <= 1))) next = PROFILE;
     if (next === PROFILE && !recipeReady) next = FILAMENT;
     setStep(next);
     setAutoAdvanced(true);

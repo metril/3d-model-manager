@@ -1,3 +1,4 @@
+import { closePrint, openPrint, usePrintDialogRequest } from "@/components/print/printDialogStore";
 import { useTranslation } from "react-i18next";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -161,7 +162,7 @@ export function ModelHeader({
   const [projectOpen, setProjectOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [printOpen, setPrintOpen] = useState(false);
+  const printRequest = usePrintDialogRequest();
   const [sliceOpen, setSliceOpen] = useState(false);
   const canRedownload = Boolean(model.source_site && model.source_url);
   const needsReview = model.review_state === "adopted";
@@ -294,10 +295,18 @@ export function ModelHeader({
           )}
           {canPrint ? (
             <>
-              <Button type="button" onClick={() => setPrintOpen(true)}>
+              <Button type="button" onClick={() => openPrint({ fileId: dialogPlate && sliceableFile ? sliceableFile.id : null, plate: dialogPlate })}>
                 {t("mdHeader.print")}
               </Button>
-              <PrintDialog open={printOpen} onOpenChange={setPrintOpen} source={{ kind: "model", modelId: model.id }} initialPlate={dialogPlate} initialFileId={dialogPlate ? sliceableFile?.id : null} />
+              <PrintDialog
+                open={printRequest != null}
+                onOpenChange={(o) => {
+                  if (!o) closePrint();
+                }}
+                source={printRequest?.fileId != null ? { kind: "file", fileId: printRequest.fileId, format: "3mf" } : { kind: "model", modelId: model.id }}
+                initialPlate={printRequest?.plate ?? null}
+                initialFileId={printRequest?.plate ? printRequest.fileId : null}
+              />
             </>
           ) : null}
           {/* Queueing a model to print is a normal action too, not an edit. */}

@@ -32,6 +32,7 @@ import { ViewerFooterStrip } from "@/components/viewer/ViewerFooterStrip";
 import { ViewerMorePanel } from "@/components/viewer/ViewerMorePanel";
 import { ViewerTopOverlay } from "@/components/viewer/ViewerTopOverlay";
 import type { ViewerPart } from "@/components/viewer/viewable";
+import { openPrint } from "@/components/print/printDialogStore";
 import { PlateSelector } from "@/components/viewer/PlateSelector";
 import type { FileOut, PlateOut } from "@/api/types";
 import { handlePlateKey, type PlateLayout, type ViewerPlateFile } from "@/components/viewer/plates";
@@ -684,7 +685,13 @@ export function ViewerStage({
         />
         {plateInfo ? (
           <div className="pointer-events-none absolute inset-x-0 top-11 flex justify-center">
-            <PlateSelector {...plateInfo} />
+            <PlateSelector
+              {...plateInfo}
+              onPrint={(plate) => {
+                const file = plateInfo.files?.find((f) => f.blobHash === plateInfo.blobHash);
+                if (file) openPrint({ fileId: file.fileId, plate });
+              }}
+            />
           </div>
         ) : null}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-2">

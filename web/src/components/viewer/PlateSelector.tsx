@@ -2,6 +2,7 @@ import { useId, useMemo } from "react";
 import { ImageIcon, Pause } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Button } from "@/components/ui/button";
 import { PlateSwatches } from "@/components/viewer/PlateFilaments";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -36,6 +37,7 @@ export function PlateSelector({
   files,
   hasAllFiles,
   onFileChange,
+  onPrint,
 }: {
   blobHash: string;
   plates: PlateOut[] | null | undefined;
@@ -45,6 +47,8 @@ export function PlateSelector({
   files?: ViewerPlateFile[];
   hasAllFiles?: boolean;
   onFileChange?: (blobHash: string) => void;
+  /** Shown as a "Print plate N" button once a plate is selected. */
+  onPrint?: (plate: number) => void;
 }) {
   const { t } = useTranslation();
   const labelId = useId();
@@ -174,6 +178,11 @@ export function PlateSelector({
             </button>
           ))}
         </div>
+      ) : null}
+      {onPrint && value != null ? (
+        <Button type="button" size="sm" className="pointer-events-auto h-7 rounded-full px-3 text-xs" onClick={() => onPrint(value)}>
+          {t("profiles.printPlate", { n: value })}
+        </Button>
       ) : null}
     </div>
   );
