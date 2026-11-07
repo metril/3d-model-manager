@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FileActionsMenu } from "@/components/model-detail/FileActionsMenu";
+import { FileActionsMenu } from "@/components/model-detail/fileActionsHarness.test-util";
 import type { FileOut, ModelDetail } from "@/api/types";
 
 const { deleteMock, patchMock } = vi.hoisted(() => ({
@@ -65,7 +65,7 @@ function buildModel(): ModelDetail {
 }
 
 function openMenu(file: FileOut) {
-  fireEvent.pointerDown(screen.getByRole("button", { name: `Actions for ${file.rel_path}` }), { button: 0 });
+  fireEvent.pointerDown(screen.getByRole("button", { name: `More actions for ${file.rel_path}` }), { button: 0 });
 }
 
 function renderMenu(file: FileOut, extra: Partial<Parameters<typeof FileActionsMenu>[0]> = {}) {

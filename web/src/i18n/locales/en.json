@@ -1,6 +1,10 @@
 {
   "common": {
     "moreActions": "More actions",
+    "moreActionsFor": "More actions for {{name}}",
+    "groupFile": "File",
+    "groupOrganize": "Organize",
+    "groupDanger": "Danger",
     "cancel": "Cancel",
     "delete": "Delete",
     "close": "Close",
@@ -792,6 +796,7 @@
       "more": "More",
       "groupJob": "Job",
       "groupMaintain": "Maintain",
+      "groupPrinter": "Printer",
       "groupInsight": "Insight"
     },
     "footer": {

@@ -131,7 +131,7 @@ describe("FileExplorer", () => {
   // `OpenInSlicerButton.test.tsx`) is required before these actions are
   // reachable by role.
   function openActionsMenu(file: FileOut) {
-    fireEvent.pointerDown(screen.getByRole("button", { name: `Actions for ${file.rel_path}` }), { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: `More actions for ${file.rel_path}` }), { button: 0 });
   }
 
   it("keeps the download action enabled and linked for a verified file", async () => {

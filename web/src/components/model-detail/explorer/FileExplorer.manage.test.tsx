@@ -80,7 +80,7 @@ function renderExplorer(files: FileOut[]) {
 const FILES = [file(1, "a.stl"), file(2, "sub/b.stl"), file(3, "sub/c.stl")];
 
 function openManage(name: string, index = 0) {
-  fireEvent.pointerDown(screen.getAllByRole("button", { name: `Manage ${name}` })[index], { button: 0 });
+  fireEvent.pointerDown(screen.getAllByRole("button", { name: `More actions for ${name}` })[index], { button: 0 });
 }
 
 beforeEach(() => {
@@ -365,7 +365,7 @@ describe("bulk delete", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
-  it("is hidden without upload permission", () => {
+  it("is hidden without upload permission", async () => {
     authState.admin = false;
     const base = model(FILES);
     queryClient = new QueryClient();
@@ -376,6 +376,8 @@ describe("bulk delete", () => {
     );
     expect(screen.queryByRole("checkbox", { name: "Select a.stl" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New folder" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Manage a.stl" })).not.toBeInTheDocument();
+    openManage("a.stl");
+    await screen.findByRole("menuitem", { name: /Download/ });
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
   });
 });
