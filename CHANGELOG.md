@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.4](https://github.com/metril/3d-model-manager/compare/v0.20.3...v0.20.4) (2026-11-08)
+
+
+### Bug Fixes
+
+* **queue:** unblock the queue after a failed print ([#291](https://github.com/metril/3d-model-manager/issues/291)) ([e75e04f](https://github.com/metril/3d-model-manager/commit/e75e04fb66f0b0d651815ad25083388748f9c302))
+* **viewer:** load the g-code preview for plate-only slices ([#293](https://github.com/metril/3d-model-manager/issues/293)) ([bdf3bf0](https://github.com/metril/3d-model-manager/commit/bdf3bf0f1dcc219858ac84438c88529ffd599320))
+* **web:** keep select chevrons clear of text and stop recent-run rows overlapping ([#288](https://github.com/metril/3d-model-manager/issues/288)) ([1572ddc](https://github.com/metril/3d-model-manager/commit/1572ddca229c77fd5315029b06aff41de3f87c01))
+* **web:** UI audit — overlaps, truncation, sidebar, stats, viewer ([#289](https://github.com/metril/3d-model-manager/issues/289)) ([5dfea3a](https://github.com/metril/3d-model-manager/commit/5dfea3a9929d0219225da7d3dd474be6d8a21f35))
+* **web:** UI audit 2 — phone layout, drawer, palette, focus, formatting ([#294](https://github.com/metril/3d-model-manager/issues/294)) ([0efb444](https://github.com/metril/3d-model-manager/commit/0efb444af58fb83ef63ef5427be40c59844f05c3))
+
 ## [0.20.3](https://github.com/metril/3d-model-manager/compare/v0.20.2...v0.20.3) (2026-11-08)
 
 
