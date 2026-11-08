@@ -407,3 +407,41 @@ def test_slice_counters_reset_when_job_dir_fails(api, monkeypatch):
         api.post("/slice", **_body())
     assert main.app.state.running == 0
     assert not main.app.state.sem.locked()
+
+
+# --- include resolution -------------------------------------------------------
+
+
+def _ix(**presets):
+    ix = ProfileIndex()
+    for n, d in presets.items():
+        ix.by_kind["printer"][n] = {"name": n, **d}
+    return ix
+
+
+def test_flatten_include_order_and_override():
+    ix = _ix(
+        base={"a": "base", "b": "base", "c": "base"}, t1={"b": "t1", "c": "t1"}, t2={"c": "t2"}
+    )
+    flat = ix.flatten_dict(
+        "printer", {"name": "leaf", "inherits": "base", "include": ["t1", "t2"], "d": "leaf"}
+    )
+    assert flat["a"] == "base" and flat["b"] == "t1" and flat["c"] == "t2" and flat["d"] == "leaf"
+    assert flat["name"] == "leaf"
+    assert "include" not in flat and "inherits" not in flat
+    own = ix.flatten_dict("printer", {"name": "leaf", "include": ["t1"], "b": "own"})
+    assert own["b"] == "own"
+
+
+def test_flatten_include_recursive():
+    ix = _ix(t1={"include": ["t2"], "x": 1}, t2={"inherits": "base", "y": 2}, base={"z": 3})
+    flat = ix.flatten_dict("printer", {"name": "leaf", "include": ["t1"]})
+    assert (flat["x"], flat["y"], flat["z"]) == (1, 2, 3)
+
+
+def test_flatten_include_cycle_and_missing():
+    ix = _ix(t1={"include": ["t2"]}, t2={"include": ["t1"]})
+    with pytest.raises(ProfileError, match="cycle"):
+        ix.flatten_dict("printer", {"name": "leaf", "include": ["t1"]})
+    with pytest.raises(ProfileError, match="unknown include"):
+        ix.flatten_dict("printer", {"name": "leaf", "include": ["nope"]})

@@ -693,3 +693,57 @@ async def test_visibility_hides_items_on_invisible_assigned_printer(
     listing = await client.get("/api/queue")
     ids = [e["id"] for e in listing.json()]
     assert entry.id not in ids
+
+
+async def _failed_entry(db_session, seed_file, slug: str, *, with_recipe: bool):
+    model, revision = await _model_and_revision(db_session, slug)
+    f = await seed_file(
+        model,
+        revision,
+        "job.gcode.3mf",
+        b"gc",
+        blob_format=BlobFormat.GCODE_3MF,
+        blob_kind=BlobKind.SLICED,
+    )
+    recipe = await _recipe(db_session, slug) if with_recipe else None
+    entry = PrintQueueEntry(
+        model_id=model.id,
+        file_id=f.id,
+        sliced_file_id=f.id,
+        recipe_id=recipe.id if recipe else None,
+        state=QueueState.FAILED,
+        position=1,
+        attempts=3,
+        slice_task_id="t-1",
+    )
+    db_session.add(entry)
+    await db_session.commit()
+    await db_session.refresh(entry)
+    return entry, f
+
+
+async def test_retry_recipe_entry_clears_sliced_file(
+    authenticated_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    entry, _ = await _failed_entry(db_session, seed_file, "retry-recipe", with_recipe=True)
+    r = await authenticated_client.post(f"/api/queue/{entry.id}/retry")
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "waiting"
+    await db_session.refresh(entry)
+    assert entry.sliced_file_id is None
+    assert entry.slice_task_id is None and entry.slicing_started_at is None
+
+
+async def test_retry_non_recipe_entry_keeps_sliced_file(
+    authenticated_client: httpx.AsyncClient,
+    db_session: AsyncSession,
+    seed_file: Callable[..., Awaitable[File]],
+) -> None:
+    entry, f = await _failed_entry(db_session, seed_file, "retry-norecipe", with_recipe=False)
+    r = await authenticated_client.post(f"/api/queue/{entry.id}/retry")
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "ready"
+    await db_session.refresh(entry)
+    assert entry.sliced_file_id == f.id

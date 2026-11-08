@@ -427,6 +427,13 @@ _TRANSIENT_EXITS = {134, 137, 139}
 def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):
     """Sanitize known-bad values up front; on a 422 range error, clamp the
     offending key everywhere and retry once within the same attempt."""
+    for d in (printer_profile, process_profile, *filament_profiles):
+        if isinstance(d, dict) and "include" in d:
+            # ValueError is a permanent failure (see `_is_permanent`).
+            raise ValueError(
+                f'Profile "{d.get("name", "?")}" is incomplete (unresolved include '
+                "from an older slicer bundle) — re-sync profiles from the slicer sidecar."
+            )
     printer, changed_p = sanitize_profile(printer_profile)
     process, changed_x = sanitize_profile(process_profile)
     filaments = []

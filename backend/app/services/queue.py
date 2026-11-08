@@ -608,8 +608,9 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     the attempt counter and dispatch bookkeeping so the dispatcher's own
     eligibility filter (`waiting`/`ready`, `attempts < QUEUE_MAX_ATTEMPTS`)
     picks it back up on its next tick -- re-slicing first if it has a
-    recipe and no sliced file yet, otherwise going straight back to
-    `ready`.
+    recipe, otherwise going straight back to `ready`. A recipe entry drops
+    its sliced file (and slice bookkeeping) so it re-slices with the
+    *current* profiles; a pre-sliced upload (no recipe) keeps its file.
     """
     entry = await _get_entry_or_404(db, entry_id)
     if entry.hold_reason == billing.HOLD_OVER_BUDGET:
@@ -645,17 +646,14 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
     # Clone into a fresh queue row (new id -> fresh reservation keys) and
     # retire the old one instead of resetting it in place.
     already_charged = await db.run_sync(lambda s: billing.charged(s, entry.id))
+    reslice = entry.recipe_id is not None
     if already_charged:
-        new_state = (
-            QueueState.WAITING
-            if entry.recipe_id is not None and entry.sliced_file_id is None
-            else QueueState.READY
-        )
+        new_state = QueueState.WAITING if reslice else QueueState.READY
         position = await _append_position(db, front=False)
         clone = PrintQueueEntry(
             model_id=entry.model_id,
             file_id=entry.file_id,
-            sliced_file_id=entry.sliced_file_id,
+            sliced_file_id=None if reslice else entry.sliced_file_id,
             printer_id=entry.printer_id,
             recipe_id=entry.recipe_id,
             plate=entry.plate,
@@ -700,11 +698,11 @@ async def retry_entry(db: AsyncSession, settings: Settings, entry_id: int) -> Qu
         out = await _to_out(db, settings, [clone])
         return out[0]
 
-    entry.state = (
-        QueueState.WAITING
-        if entry.recipe_id is not None and entry.sliced_file_id is None
-        else QueueState.READY
-    )
+    if reslice:
+        entry.sliced_file_id = None
+        entry.slice_task_id = None
+        entry.slicing_started_at = None
+    entry.state = QueueState.WAITING if reslice else QueueState.READY
     entry.attempts = 0
     entry.last_error = None
     entry.last_log = None
