@@ -511,6 +511,12 @@ function PrintDialogBody({
   function submitPlates(extra: Partial<QueueEnqueuePlatesBody>, onSuccess: () => void) {
     if (effectiveFileId == null) return;
     const { batch_id: _batch, ...fields } = draftToFields(sched);
+    const batchFields =
+      typeof batchChoice.mode === "number"
+        ? { batch_id: batchChoice.mode }
+        : batchChoice.mode === "new" && batchChoice.name.trim()
+          ? { name: batchChoice.name.trim() }
+          : {};
     const plateMaps: Record<string, number[]> = {};
     if (profileMode !== "recipe" && !anyPrinter) {
       plateList.forEach((p, i) => {
@@ -526,6 +532,7 @@ function PrintDialogBody({
         plate_ams_mappings: Object.keys(plateMaps).length > 0 ? plateMaps : undefined,
         cost_center_id: billingOn ? costCenterId : undefined,
         ...fields,
+        ...batchFields,
         ...extra,
       },
       {
@@ -906,6 +913,7 @@ function PrintDialogBody({
                   plates={recipePlates}
                   value={allMode ? null : plate}
                   allowAll
+                  queueAll
                   onChange={(next) => { setTouched(true); setPlate(next); setAllPlates(next == null); }}
                 />
               ) : (
@@ -917,6 +925,7 @@ function PrintDialogBody({
                 plates={plan?.plates ?? []}
                 value={allMode ? null : effectivePlate}
                 allowAll={(plan?.plates.length ?? 0) >= 2}
+                queueAll
                 onChange={(next) => { setTouched(true); setPlate(next); setAllPlates(next == null); }}
                 preview={false}
               />
@@ -1086,9 +1095,6 @@ function PrintDialogBody({
                       </SelectContent>
                     </Select>
                   </div>
-                ) : null}
-                {allMode ? (
-                  <p className="text-xs text-muted-foreground">{t("printDialog.allPlatesBatchNote")}</p>
                 ) : null}
                 <SchedulingSection
                   open={schedOpen}

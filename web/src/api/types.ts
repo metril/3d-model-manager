@@ -2633,6 +2633,8 @@ export interface QueueEnqueuePlatesBody extends Omit<QueueSchedulingFields, "bat
   cost_center_id?: number | null;
   force?: boolean;
   name?: string;
+  /** Add the plate entries to this existing batch. */
+  batch_id?: number | null;
 }
 
 export type BatchStatus = "draft" | "active" | "done" | "cancelled";

@@ -509,6 +509,7 @@ async def enqueue_file(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "only sliced .gcode.3mf files can be queued without a recipe",
             )
+        await guard_plate_index(db, file, payload.plate)
         state = QueueState.READY
         sliced_file_id = file.id  # already sliced -- nothing for slice_file to do
 

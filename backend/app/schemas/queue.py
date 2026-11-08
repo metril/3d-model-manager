@@ -90,6 +90,8 @@ class QueueEnqueuePlatesIn(BaseModel):
     preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
     force: bool = False
     name: str | None = Field(default=None, max_length=200)
+    # Add the plate entries to this existing batch instead of creating one.
+    batch_id: int | None = None
 
     @model_validator(mode="after")
     def _plates_valid(self) -> QueueEnqueuePlatesIn:

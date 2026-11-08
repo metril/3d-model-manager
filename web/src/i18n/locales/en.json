@@ -1974,6 +1974,7 @@
     "plateImgAlt": "Plate {{index}}",
     "allPlatesCount_one": "{{count}} plate",
     "allPlatesCount_other": "{{count}} plates",
+    "allPlatesQueued": "Each plate is queued as its own print.",
     "allPlatesNote": "All plates are sliced, but only plate 1 prints.",
     "tooLarge": "Too large"
   },
@@ -2759,7 +2760,6 @@
   "printDialog": {
     "mappedOnAssign": "Filament is mapped when a printer is assigned.",
     "plateFilaments": "Plate {{n}}",
-    "allPlatesBatchNote": "All plates are queued together as one batch.",
     "queuedPlates_one": "Queued {{count}} plate",
     "queuedPlates_other": "Queued {{count}} plates",
     "steps": {

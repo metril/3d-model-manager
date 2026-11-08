@@ -236,6 +236,17 @@ def slice_file(self, queue_entry_id: int) -> None:
             )
             entry.slicing_started_at = None
             terminal = entry.state == QueueState.FAILED
+            if terminal:
+                # All-plates batch: the siblings share this one slice, so they
+                # fail with it instead of each re-slicing (one notification below).
+                for sib in slice_siblings(session, entry):
+                    if sib.sliced_file_id is None and sib.state in (
+                        QueueState.WAITING,
+                        QueueState.SLICING,
+                    ):
+                        sib.state = QueueState.FAILED
+                        sib.last_error = entry.last_error
+                        sib.slicing_started_at = None
             name = _entry_name(session, entry)
             file_id = entry.file_id
             session.commit()

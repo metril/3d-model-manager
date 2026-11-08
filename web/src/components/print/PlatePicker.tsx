@@ -21,6 +21,7 @@ export function PlatePicker({
   value,
   onChange,
   allowAll = false,
+  queueAll = false,
   preview = true,
   source,
 }: {
@@ -29,6 +30,8 @@ export function PlatePicker({
   value: number | null;
   onChange: (plate: number | null) => void;
   allowAll?: boolean;
+  /** "All plates" queues every plate (the print dialog) instead of printing plate 1 only. */
+  queueAll?: boolean;
   preview?: boolean;
   /** MakerWorld provenance: its per-plate time/weight fill gaps in `plates`. */
   source?: SourceMeta | null;
@@ -100,7 +103,7 @@ export function PlatePicker({
         ))}
       </div>
       {allowAll && value == null ? (
-        <p className="text-xs text-muted-foreground">{t("profiles.allPlatesNote")}</p>
+        <p className="text-xs text-muted-foreground">{queueAll ? t("profiles.allPlatesQueued") : t("profiles.allPlatesNote")}</p>
       ) : null}
       {preview && blobHash && selected?.has_glb ? (
         <Suspense fallback={<div className="h-48 w-full animate-pulse rounded-lg bg-muted" />}>

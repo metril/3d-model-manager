@@ -870,7 +870,7 @@ describe("PrintDialog plate before slicing", () => {
     renderDialog({ kind: "file", fileId: 10, format: "3mf" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Plate" })).toHaveAttribute("aria-current", "step"));
     expect(screen.getByText("Too large")).toBeInTheDocument();
-    expect(screen.getByText(/only plate 1 prints/)).toBeInTheDocument();
+    expect(screen.getByText(/Each plate is queued/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /Plate 2/ }));
     expect(await screen.findByTestId("plate-preview")).toHaveTextContent("preview 2");
@@ -903,6 +903,29 @@ describe("PrintDialog plate before slicing", () => {
       expect(postMock).toHaveBeenCalledWith("/queue/plates", expect.objectContaining({ recipe_id: 9, file_id: 10, plates: [1, 2, 3] })),
     );
     expect(postMock.mock.calls.some((c) => c[0] === "/queue")).toBe(false);
+  });
+
+  it("All plates honours the batch picker (existing batch id rides on /queue/plates)", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["queue:review"], printer_access: null };
+    multiPlate();
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/batches"
+        ? Promise.resolve([{ id: 3, name: "Gears", status: "active" }])
+        : path === "/printers/plugs/summary"
+          ? Promise.resolve({ plugs: {} })
+          : base(path),
+    );
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Plate" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.click(screen.getByRole("button", { name: "Profile" }));
+    fireEvent.click(await screen.findByLabelText("PLA fast"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Scheduling/ }));
+    await screen.findByRole("option", { name: "Gears" });
+    fireEvent.change(await screen.findByLabelText("Batch"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue/plates", expect.objectContaining({ batch_id: 3, plates: [1, 2, 3] })));
   });
 
   it("Any available printer queues with no printer", async () => {

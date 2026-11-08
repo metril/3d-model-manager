@@ -353,6 +353,8 @@ async def enqueue_plates(
     file = await library.get_live_file(db, payload.file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {payload.file_id} not found")
+    if payload.batch_id is not None:
+        return await _enqueue_plates_into(db, settings, payload, ctx)
     name = payload.name or f"{file.rel_path.rsplit('/', 1)[-1].split('.')[0]} (all plates)"
     batch = await create_batch(
         db,
@@ -387,3 +389,44 @@ async def enqueue_plates(
         .order_by(PrintQueueEntry.position)
     )
     return await queue_service._to_out(db, settings, list(rows))
+
+
+async def _enqueue_plates_into(
+    db: AsyncSession, settings: Settings, payload: QueueEnqueuePlatesIn, ctx: AuthContext
+) -> list[QueueEntryOut]:
+    batch = await get_or_404(db, payload.batch_id)
+    if not (ctx.is_admin or ctx.can("queue:review")) and batch.created_by_user_id != ctx.user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"batch {payload.batch_id} not found")
+    if batch.status in ("cancelled", "done"):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}")
+    created: list[int] = []
+    try:
+        for plate in sorted(payload.plates):
+            entry = await queue_service.enqueue_file(
+                db,
+                settings,
+                QueueEnqueueIn(
+                    file_id=payload.file_id,
+                    plate=plate,
+                    printer_id=payload.printer_id,
+                    recipe_id=payload.recipe_id,
+                    copies=payload.copies,
+                    ams_mapping=(payload.plate_ams_mappings or {}).get(str(plate))
+                    or payload.ams_mapping,
+                    options=payload.options,
+                    cost_center_id=payload.cost_center_id,
+                    batch_id=batch.id,
+                    force=payload.force,
+                    **{k: getattr(payload, k) for k in _SCHEDULING if getattr(payload, k)},
+                ),
+                ctx,
+                slice_options={ALL_PLATES_KEY: True} if payload.recipe_id else None,
+            )
+            created.append(entry.id)
+    except HTTPException:
+        await db.rollback()
+        for entry_id in created:
+            await queue_service.remove_entry(db, entry_id)
+        raise
+    rows = await db.scalars(select(PrintQueueEntry).where(PrintQueueEntry.id.in_(created)))
+    return await queue_service._to_out(db, settings, sorted(rows, key=lambda e: e.position))
