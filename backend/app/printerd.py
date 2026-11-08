@@ -489,7 +489,8 @@ class PrinterWorker:
         restart an existing stamp is kept (a prior acknowledgement survives)."""
         if gcode == prev and prev is not None:
             return
-        if gcode != "FAILED" and prev != "FAILED":
+        # A new RUNNING print also supersedes an unacknowledged error failure.
+        if gcode != "FAILED" and prev != "FAILED" and gcode != "RUNNING":
             return
         try:
             with base.sync_session() as session:
@@ -685,6 +686,28 @@ class PrinterWorker:
             return True
         return job.id not in self._live_progressed and sig == baseline
 
+    def _effective_state(self, job, public: PrinterPublicState, new_state):
+        """A ``print_error`` left over from a previous print (same word as when
+        the job was sent) must not fail a job the printer is now preparing or
+        running: judge it by gcode_state alone until the error changes."""
+        if (
+            not public.print_error
+            or job.started_at is not None
+            or job.state not in _LIVE_JOB_STATES
+            or public.gcode_state not in ("PREPARE", "RUNNING", "PAUSE")
+        ):
+            return new_state
+        base_err = self._live_errors.setdefault(
+            job.id,
+            (
+                str(public.print_error or 0),
+                frozenset((h.get("attr"), h.get("code")) for h in (public.hms or [])),
+            ),
+        )
+        if str(public.print_error) != base_err[0]:
+            return new_state
+        return self.adapter.job_state(dataclasses.replace(public, print_error=0))
+
     def _transition_active_job(self, public: PrinterPublicState) -> None:
         new_state = self.adapter.job_state(public)
         if new_state is None:
@@ -732,6 +755,7 @@ class PrinterWorker:
                     {"job_id": job.id, "subtask_name": public.subtask_name},
                 )
                 return
+            new_state = self._effective_state(job, public, new_state)
             if self._stale_for_live_job(job, public, new_state):
                 return
             if (
@@ -750,6 +774,10 @@ class PrinterWorker:
                 printer_row = session.get(Printer, self.printer_id)
                 if printer_row is not None:
                     printer_row.awaiting_plate_clear = True
+                    if new_state == PrintJobState.FAILED and public.gcode_state != "FAILED":
+                        # Failed with an error but reported IDLE: hold the
+                        # printer like a FAILED report until a person clears it.
+                        printer_row.failed_at = datetime.now(UTC)
             prev_state = job.state
             result: ArchiveResult | None = None
             if new_state in _TERMINAL:

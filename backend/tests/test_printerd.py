@@ -1229,3 +1229,29 @@ def test_prepare_clears_starting_timeout(worker):
     w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
     with base.sync_session() as s:
         assert s.get(PrintJob, job_id).starting_at is None
+
+
+def test_idle_print_error_after_prepare_fails_job_and_holds_printer(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "IDLE", "subtask_name": "old"})
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "IDLE", "subtask_name": "tdmm", "print_error": 83902467})
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == "failed" and job.printer_error == "83902467"
+        printer = s.get(Printer, pid)
+        assert printer.failed_at is not None and printer.awaiting_plate_clear
+
+
+def test_stale_print_error_does_not_fail_new_job(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467})
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467})
+    w.handle_report({"gcode_state": "PREPARE", "print_error": 83902467, "subtask_name": "tdmm"})
+    assert _state(job_id) == "starting"
+    w.handle_report({"gcode_state": "RUNNING", "print_error": 83902467, "subtask_name": "tdmm"})
+    assert _state(job_id) == "printing"
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is None

@@ -35,7 +35,7 @@ from app.models.printing import PlateReference, Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
-from app.services import billing, drying_tick, ha_state, queue_schedule
+from app.services import billing, drying_tick, ha_state, hms, queue_schedule
 from app.services import camera_state as cs
 from app.services import plate_detection as pd
 from app.services import spool_inventory as sinv
@@ -369,6 +369,18 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
     item.state = QueueState.FAILED if item.attempts >= QUEUE_MAX_ATTEMPTS else QueueState.READY
 
 
+def _printer_rejected(job: PrintJob) -> bool:
+    """A never-started job the printer itself failed: ``printer_error`` is the
+    numeric ``print_error`` word (upload/start-timeout errors are text)."""
+    return job.started_at is None and (job.printer_error or "").isdigit()
+
+
+def _printer_error_text(code: str) -> str:
+    entry = hms.decode_print_error(int(code))
+    text = entry.get("description")
+    return f"printer error {entry['code']}" + (f": {text}" if text else "")[:180]
+
+
 def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> None:
     """Step 1 (I5): a `dispatched` item's job now tells the whole story --
     FINISHED means the print actually completed (-> `done`, the item's
@@ -436,6 +448,13 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
                 "canceled" if job.state == PrintJobState.CANCELED else "print failed"
             )
             queue_schedule.note_finished(client, item, session)
+        elif job.state == PrintJobState.FAILED and _printer_rejected(job):
+            # The printer took the job and failed it with an error code
+            # (e.g. IDLE + print_error): retrying onto the same machine would
+            # loop. Final; the printer is held until a person clears the plate.
+            item.state = QueueState.FAILED
+            item.last_error = _printer_error_text(job.printer_error)
+            queue_schedule.note_finished(client, item, session)
         elif job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
             counts["retried"] += 1
@@ -485,10 +504,10 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
             busy.add(p.id)
             continue
         gcode = (state or {}).get("gcode_state")
-        if gcode == "FAILED":
+        if gcode == "FAILED" or gcode in DISPATCH_IDLE_STATES:
             if failed_hold_reason(p, gcode) is not None:
                 busy.add(p.id)
-        elif gcode not in DISPATCH_IDLE_STATES:
+        else:
             busy.add(p.id)
     return busy
 

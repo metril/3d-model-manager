@@ -1335,3 +1335,80 @@ def test_send_resolves_real_plate(
         dispatcher.dispatch_once(s, client, get_settings())
     client.close()
     assert sent == [expected]
+
+
+def _error_failed_run(redis_url: str, *, ack_between: bool = False):
+    """A dispatched entry whose job the printer failed with print_error while
+    reporting IDLE (printerd stamped ``failed_at``), plus a second READY entry."""
+    settings = get_settings()
+    now = datetime.now(UTC)
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="idle-error")
+        printer = _seed_printer(s, name="IdleErrP")
+        admin_id = _seed_admin(s)
+        printer.failed_at = now - timedelta(seconds=10)
+        printer.awaiting_plate_clear = True
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.FAILED,
+            printer_error="83902467",
+        )
+        s.add(job)
+        s.flush()
+        first = _seed_entry(
+            s, model=model, file=file, state=QueueState.DISPATCHED, created_by=admin_id
+        )
+        first.print_job_id = job.id
+        first.assigned_printer_id = printer.id
+        second = _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        s.commit()
+        ids = (first.id, second.id, printer.id)
+    _seed_state(redis_url, ids[2], IDLE_STATE)
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        c1 = dispatcher.dispatch_once(s, client, settings)
+    with base.sync_session() as s:
+        c2 = dispatcher.dispatch_once(s, client, settings)
+    c3 = None
+    if ack_between:
+        with base.sync_session() as s:
+            p = s.get(Printer, ids[2])
+            p.awaiting_plate_clear = False
+            p.plate_cleared_at = datetime.now(UTC)
+            s.commit()
+        with base.sync_session() as s:
+            c3 = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    return ids, c1, c2, c3
+
+
+def test_idle_print_error_holds_printer_and_fails_entry_without_retry(redis_url: str, fake_adapter):
+    ids, c1, c2, _ = _error_failed_run(redis_url)
+    assert c1["sent"] == 0 and c1["retried"] == 0 and c2["sent"] == 0
+    with base.sync_session() as s:
+        first = s.get(PrintQueueEntry, ids[0])
+        assert first.state == QueueState.FAILED and first.attempts == 0
+        assert first.last_error.startswith("printer error 0500_4003")
+        assert s.get(PrintQueueEntry, ids[1]).state == QueueState.READY
+
+
+def test_clear_plate_releases_exactly_one_dispatch(redis_url: str, fake_adapter):
+    _, _, _, c3 = _error_failed_run(redis_url, ack_between=True)
+    assert c3["sent"] == 1
+
+
+def test_stale_idle_error_without_failure_does_not_hold(redis_url: str, fake_adapter):
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="stale-err")
+        printer = _seed_printer(s, name="StaleErrP")
+        admin_id = _seed_admin(s)
+        _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        pid = printer.id
+        s.commit()
+    _seed_state(redis_url, pid, {**IDLE_STATE, "print_error": 83902467})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        assert dispatcher.dispatch_once(s, client, get_settings())["sent"] == 1
+    client.close()

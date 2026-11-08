@@ -40,9 +40,15 @@ def failure_acknowledged(printer) -> bool:
 
 
 def failed_hold_reason(printer, gcode_state: str | None) -> str | None:
-    """``failed_unacknowledged`` while the printer reports FAILED and nobody
-    has confirmed the plate since."""
-    if gcode_state == "FAILED" and not failure_acknowledged(printer):
+    """``failed_unacknowledged`` while the printer reports FAILED -- or sits
+    idle after a print it rejected with an error (``failed_at`` stamped by
+    printerd) -- and nobody has confirmed the plate since. An idle printer
+    with no ``failed_at`` (a stale ``print_error``) never holds."""
+    if failure_acknowledged(printer):
+        return None
+    if gcode_state == "FAILED" or (
+        gcode_state in DISPATCH_IDLE_STATES and printer.failed_at is not None
+    ):
         return "failed_unacknowledged"
     return None
 
