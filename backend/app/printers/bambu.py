@@ -86,6 +86,20 @@ def dual_ams_mapping(mapping) -> tuple[list[int], list[dict]]:
     return flat, detail
 
 
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+SUBTASK_NAME_MAX = 64
+
+
+def safe_subtask_name(name: str | None, fallback: str, suffix: str = "") -> str:
+    """Printer-screen job title: control chars dropped, whitespace collapsed,
+    base capped so base + ``suffix`` fits ``SUBTASK_NAME_MAX`` (the suffix is
+    never truncated); falls back to ``fallback`` (the remote name without its
+    ``.gcode.3mf`` suffix) when the base ends up empty."""
+    room = max(SUBTASK_NAME_MAX - len(suffix), 1)
+    base = " ".join(_CTRL_RE.sub(" ", name or "").split())[:room].rstrip()
+    return (base or fallback.removesuffix(".3mf").removesuffix(".gcode")) + suffix
+
+
 def project_file_payload(spec: PrintSpec, dual: bool = False) -> dict:
     """Mirrors the vendored ``start_print_3mf`` payload (bambulabs_api
     v2.6.6, ``PrinterMQTTClient.start_print_3mf``) key-for-key, except
@@ -98,6 +112,7 @@ def project_file_payload(spec: PrintSpec, dual: bool = False) -> dict:
             "param": f"Metadata/plate_{spec.plate}.gcode",
             "file": spec.remote_name,
             "url": f"ftp:///{spec.remote_name}",
+            "subtask_name": safe_subtask_name(spec.subtask_name, spec.remote_name),
             "bed_leveling": spec.bed_levelling,
             "bed_type": "textured_plate",
             "flow_cali": spec.flow_cali,

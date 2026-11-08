@@ -38,6 +38,7 @@ def test_project_file_payload_golden():
             "param": "Metadata/plate_2.gcode",
             "file": "tdmm-7.gcode.3mf",
             "url": "ftp:///tdmm-7.gcode.3mf",
+            "subtask_name": "w",
             "bed_leveling": False,
             "bed_type": "textured_plate",
             "flow_cali": True,
@@ -186,3 +187,20 @@ def test_upload_error_with_size_mismatch_raises(monkeypatch, tmp_path):
     with pytest.raises(OSError):
         a.upload_file("tdmm-7.gcode.3mf", src)
     assert mqtt.published_calls == []
+
+
+def test_payload_includes_sanitised_subtask_name():
+    p = project_file_payload(_spec(subtask_name="  My\x00 \n  Model\tName  "))["print"]
+    assert p["subtask_name"] == "My Model Name"
+    long = project_file_payload(_spec(subtask_name="a" * 200))["print"]["subtask_name"]
+    assert len(long) == bambu.SUBTASK_NAME_MAX
+
+
+@pytest.mark.parametrize("blank", ["", "  \x01\n "])
+def test_payload_subtask_name_falls_back_to_remote_stem(blank):
+    assert project_file_payload(_spec(subtask_name=blank))["print"]["subtask_name"] == "tdmm-7"
+
+
+def test_safe_subtask_name_suffix_survives_cap():
+    out = bambu.safe_subtask_name("M" * 70, "tdmm-7.gcode.3mf", " \u2013 plate 3")
+    assert len(out) == bambu.SUBTASK_NAME_MAX and out.endswith(" \u2013 plate 3")

@@ -30,9 +30,10 @@ import redis
 from sqlalchemy import select, update
 
 from app.config import Settings, get_settings
-from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
+from app.models import Blob, File, Model, Printer, PrintJob, PrintQueueEntry, Revision
 from app.models.enums import TRASH_HOLD, PrintJobState, QueueState
 from app.printers import gcode3mf, pause_eta
+from app.printers.bambu import safe_subtask_name
 from app.printers.base import PrinterConnection, PrintSpec, request_command_sync
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
@@ -61,6 +62,7 @@ def _start_via_printerd(client, printer_id: int, spec: PrintSpec) -> None:
         "project_start",
         {
             "remote_name": spec.remote_name,
+            "subtask_name": spec.subtask_name,
             "plate": spec.plate,
             "use_ams": spec.use_ams,
             "ams_mapping": list(spec.ams_mapping),
@@ -171,7 +173,13 @@ def _send_to_printer(
         blob = s.get(Blob, file.blob_hash)
         printer_id, kind = printer.id, printer.kind
         blob_hash = blob.hash
-        subtask = job.subtask_name or file.rel_path
+        model_name = s.scalar(
+            select(Model.name)
+            .join(Revision, Revision.model_id == Model.id)
+            .where(Revision.id == file.revision_id)
+        )
+        job_subtask_set = bool(job.subtask_name)
+        subtask = job.subtask_name or model_name or file.rel_path
     conn: PrinterConnection | None = None
     try:
         # Decrypt HERE, inside the try: a rotated/corrupted Fernet key raises
@@ -201,8 +209,14 @@ def _send_to_printer(
             try:
                 gcode3mf.assert_plate_available(path, options["plate"])
                 pause_points = pause_eta.pause_points_from_3mf(path, options["plate"])
+                plates = gcode3mf.plates_in_gcode_3mf(path)
             except gcode3mf.NotSendableError as e:
                 raise SendError(str(e)) from e
+            spec_remote = f"tdmm-{print_job_id}.gcode.3mf"
+            if not job_subtask_set and len(plates) > 1:
+                subtask = safe_subtask_name(
+                    subtask, spec_remote, f" \u2013 plate {options['plate']}"
+                )
             spec = PrintSpec(
                 source_path=path,
                 remote_name=f"tdmm-{print_job_id}.gcode.3mf",

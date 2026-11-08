@@ -845,6 +845,7 @@ async def test_spool_kprofile_delete_respects_printer_visibility(
 
 _START_ARGS = {
     "remote_name": "tdmm-7.gcode.3mf",
+    "subtask_name": "Benchy",
     "plate": 3,
     "use_ams": True,
     "ams_mapping": [1],
@@ -886,3 +887,19 @@ def test_request_command_sync_no_receivers(rds):
     from app.printers.base import request_command_sync
 
     assert request_command_sync(rds, 1, "x", {}, 0.2)["code"] == "no_printerd"
+
+
+def test_project_start_subtask_name_validation_and_default():
+    assert cmds.INTERNAL["project_start"].validate(dict(_START_ARGS))["subtask_name"] == "Benchy"
+    no_name = {k: v for k, v in _START_ARGS.items() if k != "subtask_name"}
+    assert cmds.INTERNAL["project_start"].validate(no_name)["subtask_name"] == "tdmm-7.gcode.3mf"
+    for bad in (5, "x" * 257):
+        with pytest.raises(cmds.CommandError):
+            cmds.INTERNAL["project_start"].validate({**_START_ARGS, "subtask_name": bad})
+
+
+def test_project_start_passes_subtask_name_to_adapter(worker):
+    w, _ = worker
+    w._merged = {"gcode_state": "IDLE"}
+    assert w.handle_command("project_start", dict(_START_ARGS))["ok"]
+    assert w.adapter.uploaded[0].subtask_name == "Benchy"

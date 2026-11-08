@@ -298,8 +298,12 @@ def _v_project_start(args: dict) -> dict:
         or any(isinstance(m, bool) or not isinstance(m, int) or not -1 <= m <= 255 for m in mapping)
     ):
         raise CommandError("invalid", "ams_mapping must be a list of slot ints")
+    subtask = args.get("subtask_name")
+    if subtask is not None and (not isinstance(subtask, str) or len(subtask) > 256):
+        raise CommandError("invalid", "subtask_name must be a string of at most 256 chars")
     return {
         "remote_name": remote,
+        "subtask_name": subtask or remote,
         "plate": _num(args, "plate", 1, 99, integer=True),
         "use_ams": _bool(args, "use_ams"),
         "ams_mapping": tuple(mapping),
@@ -310,7 +314,7 @@ def _v_project_start(args: dict) -> dict:
 
 
 def _run_project_start(adapter: PrinterAdapter, x: dict) -> None:
-    adapter.start_project(PrintSpec(source_path=Path(), subtask_name=x["remote_name"], **x))
+    adapter.start_project(PrintSpec(source_path=Path(), **x))
 
 
 def _drying_ams_id(args: dict) -> int:

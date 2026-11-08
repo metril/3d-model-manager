@@ -54,7 +54,6 @@ def fake_adapter(monkeypatch: pytest.MonkeyPatch) -> FakePrinterAdapter:
             adapter.start_project(
                 PrintSpec(
                     source_path=None,
-                    subtask_name=args["remote_name"],
                     **{**args, "ams_mapping": tuple(args["ams_mapping"])},
                 )
             )
