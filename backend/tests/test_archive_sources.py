@@ -146,3 +146,73 @@ def test_stage_library_file_reuses_stored_blob(monkeypatch):
         monkeypatch.setattr(archive_sources, "resolve_backend_for_file_sync", boom)
         assert archive_sources._stage_library_file(s, settings, f) == (None, sha, len(data))
         s.rollback()
+
+
+def _fake_stage(monkeypatch):
+    def fake_stage(s, st, f):
+        data = f"data:{f.rel_path}".encode()
+        tmp = archive_sources.stage_dir(st) / f"t-{f.id}"
+        tmp.write_bytes(data)
+        return tmp, hashlib.sha256(data).hexdigest(), len(data)
+
+    monkeypatch.setattr(archive_sources, "_stage_library_file", fake_stage)
+
+
+def _two_models() -> tuple[int, int]:
+    with sync_session() as s:
+        return _library_model(s, "alpha", trashed=False)[0], _library_model(s, "beta", False)[0]
+
+
+async def test_relink_swaps_linked_source_for_new_models(
+    authenticated_client, db_session, monkeypatch
+):
+    _fake_stage(monkeypatch)
+    a = await _arc(db_session, await _printer(db_session))
+    aid = a.id
+    alpha, beta = _two_models()
+    c = authenticated_client
+    r = await c.patch(f"/api/archives/{aid}", json={"model_id": alpha})
+    assert r.status_code == 200, r.text
+    assert (await c.get(f"/api/archives/{aid}/source")).content == b"data:alpha.3mf"
+    r = await c.patch(f"/api/archives/{aid}", json={"model_id": beta})
+    assert r.status_code == 200, r.text
+    assert (await c.get(f"/api/archives/{aid}/source")).content == b"data:beta.3mf"
+    with sync_session() as s:
+        assert s.get(PrintArchive, aid).source_linked is True
+
+
+async def test_unlink_clears_linked_source_but_not_manual_one(
+    authenticated_client, db_session, monkeypatch
+):
+    _fake_stage(monkeypatch)
+    p = await _printer(db_session)
+    linked, manual = await _arc(db_session, p), await _arc(db_session, p)
+    lid, mid_ = linked.id, manual.id
+    alpha, beta = _two_models()
+    c = authenticated_client
+    assert (await c.patch(f"/api/archives/{lid}", json={"model_id": alpha})).status_code == 200
+    assert (await c.get(f"/api/archives/{lid}/source")).status_code == 200
+    assert (await c.patch(f"/api/archives/{lid}", json={"model_id": None})).status_code == 200
+    assert (await c.get(f"/api/archives/{lid}/source")).status_code == 404
+
+    up = await c.put(f"/api/archives/{mid_}/source", files={"file": ("mine.3mf", DATA, "x/y")})
+    assert up.status_code == 200 and not up.json()["source_linked"]
+    for target in (alpha, beta, None):
+        assert (
+            await c.patch(f"/api/archives/{mid_}", json={"model_id": target})
+        ).status_code == 200
+        got = await c.get(f"/api/archives/{mid_}/source")
+        assert got.status_code == 200 and got.content == DATA
+
+
+async def test_resync_failure_does_not_fail_patch(authenticated_client, db_session, monkeypatch):
+    a = await _arc(db_session, await _printer(db_session))
+    aid = a.id
+    alpha, _beta = _two_models()
+
+    def boom(*_a, **_k):
+        raise RuntimeError("stage failed")
+
+    monkeypatch.setattr(archive_sources, "link_from_model", boom)
+    r = await authenticated_client.patch(f"/api/archives/{aid}", json={"model_id": alpha})
+    assert r.status_code == 200 and r.json()["model_id"] == alpha
