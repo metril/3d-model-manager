@@ -909,3 +909,21 @@ async def test_batch_all_plates_any_printer_per_plate_mapping(
     with base.sync_session() as s:
         maps = {p: s.get(PrintQueueEntry, e["id"]).ams_mapping for p, e in by_plate.items()}
     assert maps == {1: [0], 2: [5, 6], 3: [0]}
+
+
+async def test_queue_plates_endpoint(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    fid = _file_id()
+    r = await c.post(
+        "/api/queue/plates",
+        json={"file_id": fid, "plates": [1, 2, 3], "plate_ams_mappings": {"3": [1]}},
+    )
+    assert r.status_code == 201, r.text
+    out = r.json()
+    assert [e["plate"] for e in out] == [1, 2, 3]
+    assert len({e["batch"]["id"] for e in out}) == 1
+    assert all(e["printer_id"] is None for e in out)
+    bad = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [1, 1]})
+    assert bad.status_code == 422
+    missing = await c.post("/api/queue/plates", json={"file_id": 99999, "plates": [1]})
+    assert missing.status_code == 404

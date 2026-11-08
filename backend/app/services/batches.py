@@ -15,7 +15,7 @@ from app.models.enums import QueueState
 from app.models.library import File, Model, PrintBatch, PrintQueueEntry, Revision
 from app.models.slicing import PrintRecipe
 from app.schemas.batches import BatchIn, BatchOut, BatchPatch, BatchProgress
-from app.schemas.queue import QueueEnqueueIn
+from app.schemas.queue import QueueEnqueueIn, QueueEnqueuePlatesIn, QueueEntryOut
 from app.services import library
 from app.services import queue as queue_service
 from app.services.bed_fit import guard_files_fit
@@ -342,3 +342,48 @@ async def delete_batch(db: AsyncSession, batch_id: int, ctx: AuthContext) -> Non
         )
     )
     await db.commit()
+
+
+async def enqueue_plates(
+    db: AsyncSession, settings: Settings, payload: QueueEnqueuePlatesIn, ctx: AuthContext
+) -> list[QueueEntryOut]:
+    """Queue every listed plate of one file as a batch of single-plate entries
+    (``printer_id`` None = any printer). A recipe slices the project once and
+    every plate entry reuses it (``all_plates``)."""
+    file = await library.get_live_file(db, payload.file_id)
+    if file is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"file {payload.file_id} not found")
+    name = payload.name or f"{file.rel_path.rsplit('/', 1)[-1].split('.')[0]} (all plates)"
+    batch = await create_batch(
+        db,
+        settings,
+        BatchIn(
+            name=name,
+            file_id=payload.file_id,
+            recipe_id=payload.recipe_id,
+            printer_id=payload.printer_id,
+            quantity=len(payload.plates),
+            plate_targets={str(p): 1 for p in payload.plates},
+            cost_center_id=payload.cost_center_id,
+            ams_mapping=payload.ams_mapping,
+            plate_ams_mappings=payload.plate_ams_mappings,
+            options=payload.options,
+            copies_per_entry=payload.copies,
+            all_plates=True,
+            **{k: getattr(payload, k) for k in _SCHEDULING},
+        ),
+        ctx,
+    )
+    try:
+        await dispatch_batch(db, settings, batch.id, ctx, force=payload.force)
+    except HTTPException:
+        await db.rollback()
+        await db.delete(await get_or_404(db, batch.id))  # no half-made draft left behind
+        await db.commit()
+        raise
+    rows = await db.scalars(
+        select(PrintQueueEntry)
+        .where(PrintQueueEntry.batch_id == batch.id)
+        .order_by(PrintQueueEntry.position)
+    )
+    return await queue_service._to_out(db, settings, list(rows))

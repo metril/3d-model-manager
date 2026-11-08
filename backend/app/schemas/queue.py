@@ -67,6 +67,37 @@ class QueueEnqueueIn(BaseModel):
     force: bool = False
 
 
+class QueueEnqueuePlatesIn(BaseModel):
+    """``POST /queue/plates``: one entry per plate of a file, grouped into a
+    print batch. ``printer_id`` None = any compatible printer (the dispatcher
+    assigns each plate to the next idle one and maps AMS at that moment)."""
+
+    file_id: int
+    plates: list[int] = Field(min_length=1, max_length=50)
+    printer_id: int | None = None
+    recipe_id: int | None = None
+    copies: int = Field(1, ge=1, le=50)
+    ams_mapping: list[int] | None = None
+    # plate number (as string) -> AMS mapping for that plate; falls back to ``ams_mapping``.
+    plate_ams_mappings: dict[str, list[int]] | None = None
+    options: PlanOptions | None = None
+    cost_center_id: int | None = None
+    scheduled_at: datetime | None = None
+    manual_start: bool = False
+    require_previous_success: bool = False
+    auto_off_after: bool = False
+    preheat_override: Literal["on", "off"] | None = None
+    preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
+    force: bool = False
+    name: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _plates_valid(self) -> QueueEnqueuePlatesIn:
+        if any(p < 1 for p in self.plates) or len(set(self.plates)) != len(self.plates):
+            raise ValueError("plates must be unique plate numbers >= 1")
+        return self
+
+
 class ReviewIn(BaseModel):
     """``POST /queue/{entry_id}/review`` payload (P7 review/billing plan
     Task 6)."""
