@@ -677,6 +677,11 @@ async def test_preheat_settings_roundtrip(authenticated_client: httpx.AsyncClien
 def _file_id() -> int:
     with base.sync_session() as s:
         _, _, file = _seed_model_file(s, slug=f"batch-{datetime.now(UTC).timestamp()}")
+        from app.models.processing import BlobMeta
+
+        meta = s.get(BlobMeta, file.blob_hash)
+        meta.raw = {"plates": [{**meta.raw["plates"][0], "index": i} for i in (1, 2, 3)]}
+        s.commit()
         return file.id
 
 
@@ -971,3 +976,20 @@ async def test_queue_plates_into_existing_batch(authenticated_client: httpx.Asyn
     assert {e["batch"]["id"] for e in r.json()} == {b["id"]} and len(r.json()) == 2
     nf = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [1], "batch_id": 99999})
     assert nf.status_code == 404
+
+
+async def test_queue_plate_only_slice_uses_real_index(authenticated_client: httpx.AsyncClient):
+    from app.models.processing import BlobMeta
+
+    c = authenticated_client
+    fid = _file_id()
+    with base.sync_session() as s:
+        f = s.get(File, fid)
+        s.merge(BlobMeta(blob_hash=f.blob_hash, plate_count=1, raw={"plates": [{"index": 3}]}))
+        s.commit()
+    r = await c.post("/api/queue", json={"file_id": fid, "plate": 3})
+    assert r.status_code == 201, r.text
+    r = await c.post("/api/queue", json={"file_id": fid, "plate": 1})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_plate"
+    r = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [3]})
+    assert r.status_code == 201, r.text

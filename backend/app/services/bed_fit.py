@@ -290,17 +290,25 @@ async def guard_plate_index(db: AsyncSession, file, plate: int | None) -> None:
     if not plate or plate < 1:
         return
     meta = await db.get(BlobMeta, file.blob_hash)
+    from app.services.plates import plate_indices
+
+    indices = plate_indices(meta) if meta is not None else []
     count = meta.plate_count if meta is not None else None
-    if count is not None and plate > count:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            {
-                "code": "invalid_plate",
-                "message": f"plate {plate} does not exist (file has {count})",
-                "plate": plate,
-                "plate_count": count,
-            },
-        )
+    if indices:
+        if plate in indices:
+            return
+        count = len(indices)
+    elif count is None or plate <= count:
+        return
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        {
+            "code": "invalid_plate",
+            "message": f"plate {plate} does not exist (file has {count})",
+            "plate": plate,
+            "plate_count": count,
+        },
+    )
 
 
 async def guard_recipe_fit(

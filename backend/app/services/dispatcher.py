@@ -42,6 +42,7 @@ from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.notify import events
 from app.services.permissions import PrinterAcl, printer_acl_sync
+from app.services.plates import resolve_plate
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import (
     DISPATCH_IDLE_STATES,
@@ -517,7 +518,7 @@ def _needs_for_item(session: Session, item: PrintQueueEntry) -> Needs | None:
     if meta is None:
         return None
     plates = (meta.raw or {}).get("plates") or []
-    plate_no = item.plate if item.plate is not None else (plates[0]["index"] if plates else None)
+    plate_no = resolve_plate(meta, item.plate)
     plate = next((p for p in plates if p["index"] == plate_no), None)
     filaments = (plate or {}).get("filaments") or []
     needs = [
@@ -680,9 +681,11 @@ def _send_one(
 ) -> None:
     target.copies = 1
     opts = target.print_options or {}
+    sliced = session.get(File, target.sliced_file_id)
+    meta = session.get(BlobMeta, sliced.blob_hash) if sliced is not None else None
     req = PrintRequest(
         file_id=target.sliced_file_id,
-        plate=target.plate or 1,
+        plate=resolve_plate(meta, target.plate or None, 1),
         use_ams=use_ams,
         ams_mapping=mapping,
         bed_levelling=opts.get("bed_levelling", True),

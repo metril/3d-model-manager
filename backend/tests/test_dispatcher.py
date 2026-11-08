@@ -1273,3 +1273,35 @@ def test_reconcile_fails_job_stuck_starting_and_retries(redis_url: str, fake_ada
         )
         assert s.get(PrintJob, recent_id).state == PrintJobState.STARTING
         assert s.get(PrintQueueEntry, entry_id).attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("indices", "entry_plate", "expected"), [([3], None, 3), ([1, 2], None, 1), ([3], 3, 3)]
+)
+def test_send_resolves_real_plate(
+    redis_url: str, fake_adapter, monkeypatch, indices, entry_plate, expected
+):
+    sent = []
+
+    def fake_create(session, settings, client, printer_id, req, user_id):
+        sent.append(req.plate)
+        raise ValueError("stop")
+
+    monkeypatch.setattr(dispatcher, "create_job_sync", fake_create)
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=f"plate-{indices}-{entry_plate}")
+        meta = s.get(BlobMeta, file.blob_hash)
+        meta.raw = {"plates": [{"index": i, "filaments": []} for i in indices]}
+        printer = _seed_printer(s, name=f"PlateP{indices}{entry_plate}")
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.READY, created_by=_seed_admin(s)
+        )
+        entry.plate = entry_plate
+        s.commit()
+        pid = printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, get_settings())
+    client.close()
+    assert sent == [expected]
