@@ -15,10 +15,11 @@ vi.mock("three", async (orig) => ({
 
 import { init } from "gcode-preview";
 
-import { layerZHeights } from "@/lib/gcodeLayerZ";
+import { countSliceLayers, layerZHeights, sliceLayerLabel } from "@/lib/gcodeLayerZ";
 
 const GCODE = [
   "G28",
+  "M201 X20000 Y20000 Z1500 E5000", // not a move: must not count as extruding
   "G1 Z0.2 F600", // layer 1 Z move
   "G1 X10 Y10 E1", // opens layer 1 @0.2
   "G1 X20 Y10 E2",
@@ -46,6 +47,20 @@ describe("layerZHeights", () => {
     // The lib's own Layer.height is thickness, not Z -- the bug being fixed.
     expect(preview.layers[3].height).not.toBe(0.6);
     preview.dispose();
+  });
+
+  it("maps slider positions to slicer layers (purge line offset)", () => {
+    const text = "; Z_HEIGHT: 0.2\n; Z_HEIGHT: 0.4\n; Z_HEIGHT: 0.6\n";
+    expect(countSliceLayers(text)).toBe(3);
+    // preamble + purge + 3 layers = 5 positions
+    expect(sliceLayerLabel(5, 5, 3)).toEqual({ layer: 3, total: 3 });
+    expect(sliceLayerLabel(2, 5, 3).layer).toBe(0);
+    expect(countSliceLayers("; CHANGE_LAYER\n; CHANGE_LAYER\n")).toBe(2);
+  });
+
+  it("falls back to offset 1 without layer comments", () => {
+    expect(countSliceLayers("G1 X1\n")).toBe(0);
+    expect(sliceLayerLabel(4, 4, 0)).toEqual({ layer: 3, total: 3 });
   });
 
   it("returns null for a layer with no extruding XY move", () => {

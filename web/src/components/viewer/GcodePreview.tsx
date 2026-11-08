@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WebGLPreview } from "gcode-preview";
 
 import { usePrinters, usePrinterStatus } from "@/api/printers";
-import { layerZHeights } from "@/lib/gcodeLayerZ";
+import { countSliceLayers, layerZHeights, sliceLayerLabel } from "@/lib/gcodeLayerZ";
 import { isTooLarge, TOO_LARGE_TO_PREVIEW_BYTES } from "@/lib/gcodeLimits";
 import { useTranslation } from "react-i18next";
 
@@ -56,6 +56,7 @@ export function GcodePreview({
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "too-large">("loading");
   const [layerCount, setLayerCount] = useState(0);
   const [layer, setLayer] = useState(1);
+  const sliceLayersRef = useRef(0);
   const layerZRef = useRef<(number | null)[]>([]);
 
   const printers = usePrinters();
@@ -112,6 +113,7 @@ export function GcodePreview({
         preview.render();
         previewRef.current = preview;
         layerZRef.current = layerZHeights(preview.layers);
+        sliceLayersRef.current = countSliceLayers(text);
 
         const total = preview.maxLayerIndex + 1;
         setLayerCount(total);
@@ -173,6 +175,8 @@ export function GcodePreview({
 
   const currentHeight = layerZRef.current[layer - 1] ?? null;
 
+  const shown = sliceLayerLabel(layer, layerCount, sliceLayersRef.current);
+
   if (status === "error") {
     return <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.gcode.error")}</p>;
   }
@@ -205,7 +209,9 @@ export function GcodePreview({
             aria-label={t("viewer.gcode.layer")}
           />
           <p className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-            {t("viewer.gcode.layerOf", { layer, total: layerCount })}
+            {shown.layer <= 0
+              ? t("viewer.gcode.start")
+              : t("viewer.gcode.layerOf", { layer: shown.layer, total: shown.total })}
             {currentHeight !== null ? ` · Z ${currentHeight.toFixed(2)} mm` : ""}
           </p>
         </div>
