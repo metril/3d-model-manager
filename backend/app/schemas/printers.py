@@ -380,6 +380,9 @@ class PrinterStatusOut(BaseModel):
     next_pause: NextPauseOut | None = None
     # T3: from the DB (printers.awaiting_plate_clear), overlaid by the status route.
     awaiting_plate_clear: bool = False
+    # The printer reports FAILED and nobody confirmed the plate since: the
+    # queue won't send until clear-plate is confirmed.
+    failed_unacknowledged: bool = False
     # T1: firmware-aware capabilities (set by the status route; None offline).
     capabilities: CapabilitiesOut | None = None
     # The tray currently feeding the nozzle (``tray_now`` resolved through
@@ -408,6 +411,7 @@ STATE_FIELDS: tuple[str, ...] = tuple(
         "online",
         "trays",
         "awaiting_plate_clear",
+        "failed_unacknowledged",
         "capabilities",
         "active_tray",
         "print_job",

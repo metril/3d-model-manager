@@ -403,6 +403,11 @@ function QueueRow({
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
           <HeldChip reason={entry.printer_hold_reason} />
+          {entry.waiting_reason === "printer_failed" ? (
+            <Badge variant="outline" className={STATE_CLASSES.held} title={t("queuePage.printerFailed")}>
+              {t("queuePage.printerFailed")}
+            </Badge>
+          ) : null}
           <ReviewChips entry={entry} />
           <ScheduleChips entry={entry} />
         </div>

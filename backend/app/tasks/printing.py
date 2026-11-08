@@ -113,6 +113,8 @@ def _set_job_state(
         values["printer_error"] = error
     if state in (PrintJobState.FAILED, PrintJobState.CANCELED):
         values["finished_at"] = datetime.now(UTC)
+    if state == PrintJobState.STARTING:
+        values["starting_at"] = datetime.now(UTC)
     with base.sync_session() as s:
         printer_id = s.execute(
             update(PrintJob)

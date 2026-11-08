@@ -72,6 +72,13 @@ describe("StatusSection", () => {
     expect(container.querySelector("img")).toHaveAttribute("src", "/api/archives/9/thumbnail");
   });
 
+  it("failed and unacknowledged: shows the confirm-the-plate message", async () => {
+    const it = a1Mini({}, { gcode_state: "FAILED", failed_unacknowledged: true });
+    renderCard(<StatusSection printerId={1} status={it.status} activeJob={null} lastRuns={[]} canControl />);
+    expect(await screen.findByText(/Printer reports a failed print/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark plate cleared" })).toBeInTheDocument();
+  });
+
   it("offline: only the last print, no repeated status", async () => {
     const it = a1Mini({}, { online: false });
     renderCard(<StatusSection printerId={1} status={it.status} activeJob={null} lastRuns={[RUN]} canControl />);

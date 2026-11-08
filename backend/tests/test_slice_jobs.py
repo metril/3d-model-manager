@@ -361,7 +361,7 @@ async def test_queue_unexpected_error_does_not_stay_slicing(
     slicing.slice_file(entry.id)
     await db_session.refresh(entry)
     assert entry.state == QueueState.WAITING and entry.attempts == 1
-    assert "disk gone" in entry.last_error
+    assert "OSError" in entry.last_error and "disk gone" not in entry.last_error
 
 
 async def test_sweeper_fails_stuck_jobs(db_session, seed_file) -> None:

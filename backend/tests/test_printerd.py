@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 import redis as redis_lib
@@ -121,6 +122,7 @@ def test_finish_sets_finished_at(worker):
 def test_error_report_fails_job(worker):
     w, _adapter, pid, _client = worker
     job_id = _seed_active_job(pid)
+    w.handle_report(cass.SNAPSHOT_PRINTING)
     w.handle_report(cass.SNAPSHOT_ERROR)
     with base.sync_session() as s:
         job = s.get(PrintJob, job_id)
@@ -764,6 +766,7 @@ def test_enqueue_failure_is_swallowed(worker, monkeypatch):
     monkeypatch.setattr(printerd_module, "_enqueue_archive", boom)
     w, _adapter, pid, _ = worker
     job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
     w.handle_report({"gcode_state": "FINISH"})
     assert _state(job_id) == "finished"
 
@@ -1154,3 +1157,75 @@ def test_next_pause_in_status_and_one_shot_heads_up(worker, monkeypatch):
         assert pauses[0][2]["minutes"] == 3 and pauses[0][2]["layer"] == 70
     finally:
         client.delete(pause_eta.warned_key(pid, 99), pause_eta.points_key(pid))
+
+
+def _seed_job_in(pid: int, state: PrintJobState) -> int:
+    with base.sync_session() as s:
+        job = PrintJob(printer_id=pid, file_id=None, state=state, subtask_name="tdmm")
+        s.add(job)
+        s.commit()
+        return job.id
+
+
+def test_stale_failed_does_not_fail_new_app_job_and_running_links_it(worker):
+    w, _adapter, pid, _ = worker
+    # printerd restarted: it has no previous gcode state, printer still FAILED.
+    job_id = _seed_job_in(pid, PrintJobState.UPLOADING)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    assert _state(job_id) == "uploading"
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    assert _state(job_id) == "printing"
+    with base.sync_session() as s:
+        jobs = s.query(PrintJob).filter(PrintJob.printer_id == pid).all()
+        assert [j.id for j in jobs] == [job_id]
+
+
+def test_real_failure_after_prepare_still_fails_job(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.QUEUED)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "tdmm"})
+    assert _state(job_id) == "failed"
+
+
+def test_failed_at_tracks_failed_state(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED"})
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is not None
+    w.handle_report({"gcode_state": "IDLE"})
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is None
+
+
+def test_new_print_error_fails_starting_job_without_prepare(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})  # baseline
+    assert _state(job_id) == "starting"
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old", "print_error": 50348044})
+    assert _state(job_id) in ("failed", "canceled")
+
+
+def test_new_hms_fails_starting_job_without_prepare(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    w.handle_report(
+        {"gcode_state": "FAILED", "subtask_name": "old", "hms": [{"attr": 1, "code": 2}]}
+    )
+    assert _state(job_id) == "failed"
+
+
+def test_prepare_clears_starting_timeout(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).starting_at = datetime.now(UTC)
+        s.commit()
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).starting_at is None

@@ -73,6 +73,11 @@ from app.tasks import base
 
 log = logging.getLogger("printerd")
 _TERMINAL = {PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED}
+_LIVE_JOB_STATES = {
+    PrintJobState.QUEUED.value,
+    PrintJobState.UPLOADING.value,
+    PrintJobState.STARTING.value,
+}
 # The lib keeps its own state fresh from the MQTT stream; request_full_status()
 # is a cheap LOCAL read of the lib's accessors, so poll it every few seconds.
 _POLL_INTERVAL_S = 2.5
@@ -220,6 +225,11 @@ class PrinterWorker:
         self._nozzle_seen: float | None = None
         self._prev_gcode: str | None = None
         self._stale_terminal = False
+        # job id -> (gcode_state, subtask_name) the printer showed when we first
+        # saw that job in flight; ids that went through PREPARE/RUNNING since.
+        self._live_baseline: dict[int, tuple] = {}
+        self._live_errors: dict[int, tuple] = {}
+        self._live_progressed: set[int] = set()
         self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
         self._reply_evt = threading.Event()
@@ -463,12 +473,37 @@ class PrinterWorker:
         self._stale_terminal = (
             public.gcode_state in ("FINISH", "FAILED") and public.gcode_state == self._prev_gcode
         )
+        prev_gcode = self._prev_gcode
         self._prev_gcode = public.gcode_state
+        self._track_failed_at(public.gcode_state, prev_gcode)
         self._write_public(public)
         self._auto_assign_on_tray_change(public)
         self._persist_nozzle(public)
         self._reapply_on_idle(public)
         self._transition_active_job(public)
+
+    def _track_failed_at(self, gcode: str | None, prev: str | None) -> None:
+        """Stamp ``printers.failed_at`` when the printer enters FAILED and clear
+        it when it leaves, so the dispatcher can tell whether a person confirmed
+        the plate (``plate_cleared_at``) since. On the first report after a
+        restart an existing stamp is kept (a prior acknowledgement survives)."""
+        if gcode == prev and prev is not None:
+            return
+        if gcode != "FAILED" and prev != "FAILED":
+            return
+        try:
+            with base.sync_session() as session:
+                printer = session.get(Printer, self.printer_id)
+                if printer is None:
+                    return
+                if gcode == "FAILED":
+                    if prev is not None or printer.failed_at is None:
+                        printer.failed_at = datetime.now(UTC)
+                elif printer.failed_at is not None:
+                    printer.failed_at = None
+                session.commit()
+        except Exception:
+            log.exception("printerd: failed_at update failed for printer %s", self.printer_id)
 
     def _persist_nozzle(self, public: PrinterPublicState) -> None:
         """Remember the last-seen nozzle on the printer row (so the Profiles
@@ -620,6 +655,36 @@ class PrinterWorker:
             .first()
         )
 
+    def _stale_for_live_job(self, job, public: PrinterPublicState, new_state) -> bool:
+        """True when a terminal printer state belongs to the PREVIOUS print: the
+        job is still queued/uploading/starting (never started) and the printer
+        shows the same (gcode_state, subtask_name) it did when we first saw the
+        job, without having gone through PREPARE/RUNNING for it."""
+        if job.started_at is not None or job.state not in _LIVE_JOB_STATES:
+            self._live_baseline.pop(job.id, None)
+            self._live_errors.pop(job.id, None)
+            self._live_progressed.discard(job.id)
+            return False
+        sig = (public.gcode_state, public.subtask_name)
+        error_sig = (
+            str(public.print_error or 0),
+            frozenset((h.get("attr"), h.get("code")) for h in (public.hms or [])),
+        )
+        baseline = self._live_baseline.setdefault(job.id, sig)
+        base_err = self._live_errors.setdefault(job.id, error_sig)
+        if new_state in (PrintJobState.STARTING, PrintJobState.PRINTING, PrintJobState.PAUSED):
+            self._live_progressed.add(job.id)
+            return False
+        if new_state not in (PrintJobState.FINISHED, PrintJobState.FAILED):
+            return False
+        # An instant rejection: a NEW print_error / HMS entry that wasn't there
+        # when the job was sent is a real failure even without PREPARE/RUNNING.
+        if (error_sig[0] != "0" and error_sig[0] != base_err[0]) or (error_sig[1] - base_err[1]):
+            return False
+        if self._stale_terminal and job.state == PrintJobState.STARTING.value:
+            return True
+        return job.id not in self._live_progressed and sig == baseline
+
     def _transition_active_job(self, public: PrinterPublicState) -> None:
         new_state = self.adapter.job_state(public)
         if new_state is None:
@@ -667,15 +732,18 @@ class PrinterWorker:
                     {"job_id": job.id, "subtask_name": public.subtask_name},
                 )
                 return
-            if job.state == new_state.value:
+            if self._stale_for_live_job(job, public, new_state):
                 return
             if (
-                self._stale_terminal
+                job.id in self._live_progressed
                 and job.state == PrintJobState.STARTING.value
-                and job.started_at is None
-                and new_state in (PrintJobState.FINISHED, PrintJobState.FAILED)
+                and job.starting_at is not None
             ):
-                # Stale report from the PREVIOUS print: the new one hasn't begun.
+                # The printer picked the job up (PREPARE/RUNNING/PAUSE): the
+                # start-timeout no longer applies.
+                job.starting_at = None
+                session.commit()
+            if job.state == new_state.value:
                 return
             if new_state in (PrintJobState.FINISHED, PrintJobState.FAILED):
                 # T3: the plate needs clearing -- set before the CANCELED remap below.
