@@ -32,6 +32,7 @@ from app.printers.camera_a1 import (
     CameraTimeout,
     FrameParser,
     auth_packet,
+    repair_jpeg,
 )
 
 JPEG = b"\xff\xd8\xff\xe0" + bytes(10) + b"\xff\xd9"
@@ -258,3 +259,69 @@ def test_stop_event_ends_iteration(tls_server_silent):
 def test_close_before_enter_never_hangs():
     client = CameraA1Client("127.0.0.1", "12345678", port=65500)
     client.close()  # must not hang/raise even though __enter__ never ran
+
+
+# --- repair_jpeg (spliced-frame firmware quirk) ---------------------------
+
+
+def _parts() -> tuple[bytes, bytes]:
+    import io
+
+    from PIL import Image
+
+    img = Image.effect_noise((96, 96), 60).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", restart_marker_blocks=2)
+    data = buf.getvalue()
+    assert b"\xff\xdd" in data[:700]
+    sos = data.index(b"\xff\xda")
+    start = sos + 2 + int.from_bytes(data[sos + 2 : sos + 4], "big")
+    return data[:start], data[start:-2]
+
+
+def test_repair_jpeg_removes_stale_scan() -> None:
+    import io
+
+    from PIL import Image
+
+    headers, scan = _parts()
+    spliced = headers + scan[: len(scan) // 4] + b"\xff\xd9" + scan + b"\xff\xd9"
+    fixed = repair_jpeg(spliced)
+    assert fixed == headers + scan + b"\xff\xd9"
+    img = Image.open(io.BytesIO(fixed))
+    img.load()  # raises on truncation
+
+
+def test_repair_jpeg_clean_unchanged() -> None:
+    headers, scan = _parts()
+    clean = headers + scan + b"\xff\xd9"
+    assert repair_jpeg(clean) == clean
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        b"",
+        b"\xff\xd8",
+        b"garbage",
+        b"\xff\xd8\xff\xe0\x00\x10abc\xff\xd9",
+        b"\xff\xd8\xff\xda\xff\xff\xff\xd9",
+    ],
+)
+def test_repair_jpeg_malformed_unchanged(bad: bytes) -> None:
+    assert repair_jpeg(bad) == bad
+
+
+def test_repair_jpeg_ignores_eoi_inside_app_segment() -> None:
+    headers, scan = _parts()
+    app = b"\xff\xe1" + (2 + 6).to_bytes(2, "big") + b"ab\xff\xd9cd"
+    h = headers[:2] + app + headers[2:]
+    clean = h + scan + b"\xff\xd9"
+    assert repair_jpeg(clean) == clean
+
+
+def test_frame_parser_repairs_spliced_payload() -> None:
+    headers, scan = _parts()
+    spliced = headers + scan[:20] + b"\xff\xd9" + scan + b"\xff\xd9"
+    frame = struct.pack("<I", len(spliced)) + b"\0" * 12 + spliced
+    assert FrameParser().feed(frame) == [headers + scan + b"\xff\xd9"]

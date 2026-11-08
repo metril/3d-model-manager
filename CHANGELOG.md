@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.2](https://github.com/metril/3d-model-manager/compare/v0.20.1...v0.20.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **camera:** repair the A1's spliced JPEG frames ([#284](https://github.com/metril/3d-model-manager/issues/284)) ([141e3ea](https://github.com/metril/3d-model-manager/commit/141e3eac1c83325ab27dcc1acd76e0b108338038))
+* **printing:** show the model name on the printer for queued prints ([#283](https://github.com/metril/3d-model-manager/issues/283)) ([1936e7f](https://github.com/metril/3d-model-manager/commit/1936e7f165b4c08e826deeeeecfc843f0fb9fc8e))
+
 ## [0.20.1](https://github.com/metril/3d-model-manager/compare/v0.20.0...v0.20.1) (2026-11-08)
 
 

@@ -6,6 +6,11 @@ once the TLS handshake completes, followed by a stream of
 ``<little-endian u32 length><12 reserved bytes><payload>`` frames whose
 payload is a JPEG image.
 
+Firmware quirk: the A1 sends a spliced JPEG, ``[SOI + headers through SOS]
+[partial stale scan][EOI][complete scan, no headers][EOI]``. Decoders show
+garbage (or the stale part). ``repair_jpeg`` drops the stale scan so the
+result is ``headers + complete scan + EOI``; ``FrameParser`` applies it.
+
 Import-safety: stdlib ``socket``/``ssl``/``struct``/``threading`` only --
 no ``bambulabs_api`` import here (see ``tests/test_flag_off_imports.py``'s
 intent for the MQTT client; this module follows the same discipline).
@@ -57,6 +62,69 @@ def auth_packet(username: str, access_code: str) -> bytes:
     return struct.pack("<IIII", 0x40, 0x3000, 0, 0) + u.ljust(32, b"\0") + c.ljust(32, b"\0")
 
 
+_STANDALONE = frozenset([0x01, *range(0xD0, 0xD8)])  # TEM, RSTn
+
+
+def _scan_start(p: bytes) -> int | None:
+    """Offset just past the SOS segment, walking header segments by length
+    (never scanning for FFD9 inside them). None if malformed."""
+    n = len(p)
+    i = 2
+    while i + 4 <= n:
+        if p[i] != 0xFF:
+            return None
+        m = p[i + 1]
+        if m == 0xFF:  # fill byte
+            i += 1
+            continue
+        if m in _STANDALONE:
+            i += 2
+            continue
+        if m in (0xD8, 0xD9):
+            return None
+        seg = int.from_bytes(p[i + 2 : i + 4], "big")
+        if seg < 2:
+            return None
+        i += 2 + seg
+        if m == 0xDA:
+            return i if i <= n else None
+    return None
+
+
+def repair_jpeg(payload: bytes) -> bytes:
+    """Undo the A1's spliced-JPEG quirk (see module docstring). Returns the
+    input unchanged if it is not spliced or is malformed; never raises."""
+    try:
+        if payload[:2] != JPEG_SOI or payload[-2:] != JPEG_EOI:
+            return payload
+        start = _scan_start(payload)
+        if start is None:
+            return payload
+        end = len(payload) - 2
+        last = -1
+        i = start
+        while True:
+            i = payload.find(b"\xff", i, end)
+            if i < 0 or i + 1 >= len(payload):
+                break
+            m = payload[i + 1]
+            if m == 0xD9:
+                last = i
+                i += 2
+            elif m == 0xFF:
+                i += 1
+            else:
+                i += 2
+        if last < 0:
+            return payload
+        tail = payload[last + 2 :]
+        if len(tail) <= 2 or tail[-2:] != JPEG_EOI:
+            return payload
+        return payload[:start] + tail
+    except Exception:
+        return payload
+
+
 class FrameParser:
     """Incremental parser: feed it arbitrarily-chunked bytes off the wire,
     get back the complete JPEG payloads that chunk completed. Non-JPEG
@@ -80,7 +148,7 @@ class FrameParser:
             payload = bytes(self._buf[HEADER_LEN:end])
             del self._buf[:end]
             if payload[:2] == JPEG_SOI and payload[-2:] == JPEG_EOI:
-                out.append(payload)
+                out.append(repair_jpeg(payload))
         return out
 
 
