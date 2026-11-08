@@ -49,6 +49,7 @@ from app.services.printer_state import (
     DISPATCH_IDLE_STATES,
     START_TIMEOUT_ERROR,
     STATE_UNKNOWN_ERROR,
+    data_gap_key,
     failed_hold_reason,
     read_state_sync,
 )
@@ -425,8 +426,7 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         select(PrintJob).where(
             PrintJob.state == PrintJobState.STARTING,
             PrintJob.started_at.is_(None),
-            PrintJob.starting_at.is_not(None),
-            PrintJob.starting_at < start_cutoff,
+            func.coalesce(PrintJob.starting_at, PrintJob.created_at) < start_cutoff,
         )
     ).all():
         state = read_state_sync(client, unstarted.printer_id) if client is not None else None
@@ -435,6 +435,13 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
             continue  # the printer is visibly working on it
         err = int((state or {}).get("print_error") or 0)
         at_send = unstarted.print_error_at_send
+        sent_at = unstarted.starting_at or unstarted.created_at
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=UTC)
+        gap_raw = client.get(data_gap_key(unstarted.printer_id)) if client is not None else None
+        # Status continuously available since the job was sent? Missing key =
+        # printerd's start time unknown -> assume not.
+        continuous = gap_raw is not None and float(gap_raw) <= sent_at.timestamp()
         printer = session.get(Printer, unstarted.printer_id)
         if gcode not in ("IDLE", "FINISH", "FAILED"):
             # Unknown state (MQTT drop, printerd restart, expired key): the
@@ -455,6 +462,12 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
             unstarted.printer_error = str(err)
             printer.awaiting_plate_clear = True
             printer.failed_at = datetime.now(UTC)
+        elif not continuous:
+            # A gap in the status since the send: the print may have run unseen.
+            unstarted.printer_error = STATE_UNKNOWN_ERROR
+            if printer is not None:
+                printer.awaiting_plate_clear = True
+                printer.failed_at = datetime.now(UTC)
         else:
             unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.state = PrintJobState.FAILED

@@ -17,7 +17,7 @@ from app.printers.base import PrinterConnection, state_key
 from app.printers.fake import FakeCamera, FakePrinterAdapter
 from app.services import camera_state as cs
 from app.services import spool_inventory
-from app.services.printer_state import STATE_UNKNOWN_ERROR, failed_hold_reason
+from app.services.printer_state import STATE_UNKNOWN_ERROR, data_gap_key, failed_hold_reason
 from app.tasks import base
 from tests.cassettes import bambu_snapshots as cass
 
@@ -1304,14 +1304,20 @@ def test_stale_error_ignores_status_hms_and_name_change_on_idle(worker):
         assert s.get(Printer, pid).failed_at is None
 
 
-def test_user_cancel_ending_idle_does_not_hold_printer(worker):
+def test_cancel_ending_idle_holds_only_after_the_print_started(worker):
     w, _adapter, pid, _ = worker
-    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
-    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    # cancelled during PREPARE: nothing on the bed, no hold
+    j1 = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
     w.handle_report({"gcode_state": "IDLE", "print_error": 50348044, "subtask_name": "tdmm"})
-    assert _state(job_id) == "canceled"
-    with base.sync_session() as s:
-        assert s.get(Printer, pid).failed_at is None
+    assert _state(j1) == "canceled"
+    assert _failed_at(pid) is None
+    # cancelled mid-print: partial print on the bed, hold until clear-plate
+    j2 = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "RUNNING", "print_error": 0, "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "IDLE", "print_error": 50348044, "subtask_name": "tdmm"})
+    assert _state(j2) == "canceled"
+    assert _failed_at(pid) is not None
 
 
 def test_prepare_keeps_starting_timeout(worker):
@@ -1388,7 +1394,7 @@ def test_started_job_ending_idle_with_baseline_code_and_stop_is_canceled(worker)
     w._stop_requested = True
     w.handle_report({"gcode_state": "IDLE", "print_error": x, "subtask_name": "tdmm"})
     assert _state(job_id) == "canceled"
-    assert _failed_at(pid) is None
+    assert _failed_at(pid) is not None  # started: partial print on the bed
 
 
 def test_same_code_rejection_after_prepare_fails_job(worker):
@@ -1404,21 +1410,26 @@ def test_same_code_rejection_after_prepare_fails_job(worker):
     assert _failed_at(pid) is not None
 
 
-def test_cancel_reported_as_failed_never_holds(worker):
+def test_cancel_reported_as_failed_holds_only_after_the_print_started(worker):
     w, _adapter, pid, _ = worker
-    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
-    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    j1 = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
     w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
-    assert _state(job_id) == "canceled"
+    assert _state(j1) == "canceled"
     assert _failed_at(pid) is None
     w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
     with base.sync_session() as s:
         assert failed_hold_reason(s.get(Printer, pid), "FAILED") is None
     w.handle_report({"gcode_state": "IDLE"})
-    # a later genuine failure (no job) still holds
-    w.handle_report({"gcode_state": "RUNNING"})
-    w.handle_report({"gcode_state": "FAILED"})
+    # cancelled at 60%: the partial print is still there
+    j2 = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
+    assert _state(j2) == "canceled"
     assert _failed_at(pid) is not None
+    with base.sync_session() as s:
+        assert failed_hold_reason(s.get(Printer, pid), "FAILED") == "failed_unacknowledged"
+        assert failed_hold_reason(s.get(Printer, pid), "IDLE") == "failed_unacknowledged"
 
 
 def test_real_failure_with_stale_cancel_baseline_is_not_canceled(worker):
@@ -1428,3 +1439,38 @@ def test_real_failure_with_stale_cancel_baseline_is_not_canceled(worker):
     w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
     assert _state(job_id) == "failed"
     assert _failed_at(pid) is not None
+
+
+def test_unknown_timeout_job_adopted_on_terminal_report_and_archived(worker, monkeypatch):
+    calls = []
+    monkeypatch.setattr(printerd_module, "_enqueue_archive", lambda j, r: calls.append((j, r)))
+    w, _adapter, pid, _ = worker
+    with base.sync_session() as s:
+        job = PrintJob(
+            printer_id=pid,
+            file_id=None,
+            state=PrintJobState.FAILED,
+            subtask_name="tdmm",
+            printer_error=STATE_UNKNOWN_ERROR,
+            finished_at=datetime.now(UTC),
+        )
+        s.add(job)
+        s.get(Printer, pid).failed_at = datetime.now(UTC)
+        s.commit()
+        job_id = job.id
+    w.handle_report({"gcode_state": "FINISH", "subtask_name": "tdmm"})
+    assert _state(job_id) == "finished"
+    assert calls == [(job_id, ArchiveResult.COMPLETED)]
+    with base.sync_session() as s:
+        assert s.query(PrintJob).filter(PrintJob.printer_id == pid).count() == 1
+        printer = s.get(Printer, pid)
+        assert printer.failed_at is not None and printer.awaiting_plate_clear  # still held
+
+
+def test_printerd_publishes_data_gaps(worker):
+    w, _adapter, pid, client = worker
+    client.delete(data_gap_key(pid))
+    w.handle_report({"gcode_state": "IDLE"})
+    assert client.get(data_gap_key(pid)) is None
+    w.handle_report({"connected": False})
+    assert client.get(data_gap_key(pid)) is not None

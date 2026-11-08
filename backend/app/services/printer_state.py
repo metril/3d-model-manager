@@ -47,6 +47,12 @@ def failure_acknowledged(printer) -> bool:
     )
 
 
+def data_gap_key(printer_id: int) -> str:
+    """Redis key: epoch seconds of printerd's last no-data moment (link down,
+    stale report, or its own start) for this printer."""
+    return f"printer:{printer_id}:data_gap_at"
+
+
 def hold_unacknowledged(printer) -> bool:
     """``failed_at`` is stamped and no clear-plate has come after it. The one
     predicate the dispatcher, status and the clear-plate endpoint share."""

@@ -32,7 +32,12 @@ from app.security import hash_password
 from app.services import dispatcher
 from app.services.ams_match import FilamentNeed
 from app.services.dispatcher import Candidate, Needs, compatibility_reason, select_printers
-from app.services.printer_state import START_TIMEOUT_ERROR, STATE_UNKNOWN_ERROR, dispatch_idle
+from app.services.printer_state import (
+    START_TIMEOUT_ERROR,
+    STATE_UNKNOWN_ERROR,
+    data_gap_key,
+    dispatch_idle,
+)
 from app.tasks import base
 from app.tasks import dispatch as dispatch_task
 
@@ -161,6 +166,7 @@ def _seed_member_with_access(session, printer_ids: list[int]) -> int:
 def _seed_state(redis_url: str, printer_id: int, state: dict) -> None:
     c = redis_lib.Redis.from_url(redis_url)
     c.set(state_key(printer_id), json.dumps(state))
+    c.set(data_gap_key(printer_id), "1")  # status continuously available
     c.close()
 
 
@@ -1508,7 +1514,15 @@ def test_failed_state_job_without_code_is_final(redis_url: str, fake_adapter):
         assert e.state == QueueState.FAILED and e.attempts == 0
 
 
-def _stuck_no_state(redis_url: str, *, state: dict | None, err_at_send: int | None, slug: str):
+def _stuck_no_state(
+    redis_url: str,
+    *,
+    state: dict | None,
+    err_at_send: int | None,
+    slug: str,
+    gap_at: float | None = None,
+    no_starting_at: bool = False,
+):
     settings = get_settings()
     with base.sync_session() as s:
         model, _, file = _seed_model_file(s, slug=slug)
@@ -1519,7 +1533,8 @@ def _stuck_no_state(redis_url: str, *, state: dict | None, err_at_send: int | No
             file_id=file.id,
             origin=PrintJobOrigin.APP,
             state=PrintJobState.STARTING,
-            starting_at=datetime.now(UTC) - timedelta(hours=1),
+            starting_at=None if no_starting_at else datetime.now(UTC) - timedelta(hours=1),
+            created_at=datetime.now(UTC) - timedelta(hours=1),
             print_error_at_send=err_at_send,
         )
         s.add(job)
@@ -1533,6 +1548,13 @@ def _stuck_no_state(redis_url: str, *, state: dict | None, err_at_send: int | No
         ids = (entry.id, job.id, printer.id)
     if state is not None:
         _seed_state(redis_url, ids[2], {**IDLE_STATE, **state})
+        if gap_at is not None:
+            c = redis_lib.Redis.from_url(redis_url)
+            if gap_at < 0:
+                c.delete(data_gap_key(ids[2]))
+            else:
+                c.set(data_gap_key(ids[2]), repr(gap_at))
+            c.close()
     client = redis_lib.Redis.from_url(redis_url)
     with base.sync_session() as s:
         dispatcher.dispatch_once(s, client, settings)
@@ -1573,3 +1595,33 @@ def test_timeout_with_null_baseline_takes_timeout_path(redis_url: str, fake_adap
     with base.sync_session() as s:
         assert s.get(PrintJob, ids[1]).printer_error == START_TIMEOUT_ERROR
         assert s.get(Printer, ids[2]).failed_at is None
+
+
+@pytest.mark.parametrize("gap", ["after", "missing"])
+def test_timeout_after_status_gap_is_final_and_holds(redis_url: str, fake_adapter, gap):
+    """The print may have run unseen while the link was down: never re-send."""
+    ids = _stuck_no_state(
+        redis_url,
+        state={"gcode_state": "FINISH"},
+        err_at_send=0,
+        slug=f"gap-{gap}",
+        gap_at=(datetime.now(UTC).timestamp() - 60) if gap == "after" else -1,
+    )
+    with base.sync_session() as s:
+        assert s.get(PrintJob, ids[1]).printer_error == STATE_UNKNOWN_ERROR
+        entry = s.get(PrintQueueEntry, ids[0])
+        assert entry.state == QueueState.FAILED and entry.attempts == 0
+        assert s.get(Printer, ids[2]).failed_at is not None
+
+
+def test_job_stuck_starting_without_starting_at_times_out(redis_url: str, fake_adapter):
+    ids = _stuck_no_state(
+        redis_url,
+        state={"gcode_state": "IDLE"},
+        err_at_send=None,
+        slug="no-starting-at",
+        no_starting_at=True,
+    )
+    with base.sync_session() as s:
+        job = s.get(PrintJob, ids[1])
+        assert job.state == PrintJobState.FAILED and job.printer_error == START_TIMEOUT_ERROR

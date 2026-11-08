@@ -623,3 +623,44 @@ async def test_send_without_plate_uses_files_real_plate(
     assert r.status_code == 201, r.text
     job = await db_session.scalar(select(PrintJob).where(PrintJob.printer_id == pid))
     assert job is not None and job.plate == 3
+
+
+def test_send_records_start_facts_and_reported_name(
+    printer_enabled, library_root, redis_url, fake_adapter
+):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    send_to_printer(job_id, DEFAULT_OPTS)
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.starting_at is not None and job.print_error_at_send == 0
+        assert job.subtask_name  # what the printer will report, for re-adoption
+
+
+def test_printerd_moved_job_to_starting_first_still_gets_start_facts(
+    printer_enabled, library_root, redis_url
+):
+    from app.tasks.printing import _set_job_state
+
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).state = PrintJobState.STARTING.value  # a PREPARE poll won
+        s.commit()
+    assert _set_job_state(
+        settings,
+        job_id,
+        PrintJobState.STARTING,
+        expect=(PrintJobState.UPLOADING, PrintJobState.STARTING),
+        print_error_at_send=0,
+        subtask_name="x",
+    )
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.starting_at is not None and job.print_error_at_send == 0
+        assert job.subtask_name == "x"
