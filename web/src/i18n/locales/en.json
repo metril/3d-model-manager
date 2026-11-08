@@ -2596,7 +2596,8 @@
       "tooLarge": "Too large to preview in the browser.",
       "loading": "Loading preview…",
       "layer": "Layer",
-      "layerOf": "Layer {{layer}} / {{total}}"
+      "layerOf": "Layer {{layer}} / {{total}}",
+      "start": "Start"
     }
   },
   "camera": {
