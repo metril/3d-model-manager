@@ -385,6 +385,9 @@ def _archive_job(
     arc.plate = plate_no
     arc.est_filament = est
     model_id, revision_id = _resolve_model(session, job, sha)
+    if model_id is None and arc.model_id is not None:
+        # Keep a manual link across a same-file merge or a fetch retry.
+        model_id, revision_id = arc.model_id, arc.revision_id
     arc.model_id = model_id
     arc.revision_id = revision_id
     if model_id is not None:

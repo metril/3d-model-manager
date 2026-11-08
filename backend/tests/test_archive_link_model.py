@@ -132,3 +132,60 @@ async def test_invisible_archive_denied(
     assert r.status_code == 404
     await db_session.refresh(a)
     assert a.model_id is None
+
+
+async def test_link_moves_every_run_of_the_archive(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, printer_row: Printer
+):
+    a = await _orphan(db_session, printer_row)
+    job2 = PrintJob(
+        printer_id=printer_row.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="x",
+        state=PrintJobState.FINISHED,
+        started_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    db_session.add(job2)
+    await db_session.flush()
+    first = (await db_session.scalars(select(Print))).one()
+    first.archive_id = a.id
+    db_session.add(Print(print_job_id=job2.id, archive_id=a.id, printed_at=first.printed_at))
+    a.run_count = 2
+    await db_session.commit()
+    m1, _ = await _model(db_session, "m1", rev=False)
+    m2, _ = await _model(db_session, "m2", rev=False)
+    m1id, m2id, aid = m1.id, m2.id, a.id
+    c = authenticated_client
+    assert (await c.patch(f"/api/archives/{aid}", json={"model_id": m1id})).status_code == 200
+    db_session.expire_all()
+    rows = (await db_session.scalars(select(Print))).all()
+    assert [r.model_id for r in rows] == [m1id, m1id]
+    assert (await db_session.get(Model, m1id)).print_count == 2
+    assert (await c.patch(f"/api/archives/{aid}", json={"model_id": m2id})).status_code == 200
+    db_session.expire_all()
+    assert (await db_session.get(Model, m1id)).print_count == 0
+    assert (await db_session.get(Model, m2id)).print_count == 2
+
+
+async def test_omitted_fields_keep_current_values(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, printer_row: Printer
+):
+    a = await _orphan(db_session, printer_row)
+    m, rid = await _model(db_session, "m1")
+    m2, rid2 = await _model(db_session, "m2")
+    mid, m2id, aid = m.id, m2.id, a.id
+    c = authenticated_client
+    base = {"model_id": mid, "revision_id": rid}
+    assert (await c.patch(f"/api/archives/{aid}", json=base)).status_code == 200
+    # revision-only change validates against the current model
+    r = await c.patch(f"/api/archives/{aid}", json={"revision_id": rid2})
+    assert r.status_code == 422
+    # same model again keeps the revision
+    r = await c.patch(f"/api/archives/{aid}", json={"model_id": mid})
+    assert r.json()["model_id"] == mid and r.json()["revision_id"] == rid
+    # revision null alone does not unlink
+    r = await c.patch(f"/api/archives/{aid}", json={"revision_id": None})
+    assert r.json()["model_id"] == mid and r.json()["revision_id"] is None
+    # changing the model clears the revision
+    r = await c.patch(f"/api/archives/{aid}", json={"model_id": m2id})
+    assert r.json()["model_id"] == m2id and r.json()["revision_id"] is None

@@ -6,13 +6,14 @@ listable when the printer feature flag is off (history outlives the flag).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,6 +41,8 @@ from app.services.archive import archive_path
 from app.services.archive_blobs import blob_hashes, release_blobs, unlink_all
 from app.services.print_plan import build_plan
 from app.services.redis_pool import get_async_redis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/archives", tags=["archives"])
 
@@ -206,6 +209,7 @@ async def patch_archive(
     body: ArchivePatchIn,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
 ) -> ArchiveOut:
     arc, job, printer, _m, run = await _get_visible(db, ctx, archive_id)
     require_writer(ctx, job, printer)
@@ -241,9 +245,14 @@ async def patch_archive(
             )
             arc.result_override = new
             archive_confirm.sync_run_result(arc, run)
+    model_changed = False
     if "model_id" in fields or "revision_id" in fields:
-        await _set_model(db, ctx, arc, job, printer, run, body)
+        model_changed = await _set_model(db, ctx, arc, job, printer, body)
     await db.commit()
+    if model_changed:
+        await anyio.to_thread.run_sync(
+            lambda: _resync_sources(archive_id, settings, clear_linked=True)
+        )
     return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
 
 
@@ -253,18 +262,27 @@ async def _set_model(
     arc: PrintArchive,
     job: PrintJob,
     printer: Printer,
-    run: Print | None,
     body: ArchivePatchIn,
-) -> None:
-    """Link (or unlink) the archive's model: archive, run and the models'
-    ``print_count`` change together. Relinking replaces the old link; a null
-    ``model_id`` unlinks. A trashed or missing model is a 404, a revision of
-    another model a 422. ``print_jobs.origin`` is left alone."""
-    new_id, new_rev = body.model_id, body.revision_id
+) -> bool:
+    """Link (or unlink) the archive's model; returns True when it changed.
+
+    Omitted fields keep their current value; ``model_id: null`` unlinks. The
+    revision is cleared only when the model changes, and is validated against
+    the effective model (404 for a missing/trashed model, 422 for a revision of
+    another model). Every run row of the archive (``prints.archive_id``, plus
+    the latest job's legacy row) moves with it, and each model's
+    ``print_count`` changes by the rows actually moved. ``print_jobs.origin``
+    is left alone."""
+    fields = body.model_fields_set
+    await db.execute(select(PrintArchive.id).where(PrintArchive.id == arc.id).with_for_update())
+    await db.refresh(arc)
+    old_id, old_rev = arc.model_id, arc.revision_id
+    new_id = body.model_id if "model_id" in fields else old_id
+    changed_model = new_id != old_id
+    new_rev = body.revision_id if "revision_id" in fields else (None if changed_model else old_rev)
     if new_id is None and new_rev is not None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "revision_id needs model_id")
-    model: Model | None = None
-    if new_id is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "revision_id needs a model")
+    if new_id is not None and (changed_model or new_rev != old_rev):
         model = await db.get(Model, new_id)
         if model is None or model.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {new_id} not found")
@@ -274,18 +292,39 @@ async def _set_model(
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_CONTENT, "revision does not belong to model"
                 )
-    old_id = arc.model_id
-    if (old_id, arc.revision_id) == (new_id, new_rev):
-        return
-    if old_id != new_id and run is not None:
-        old = await db.get(Model, old_id) if old_id is not None else None
-        if old is not None:
-            old.print_count = max(0, old.print_count - 1)
-        if model is not None:
-            model.print_count += 1
+    if (old_id, old_rev) == (new_id, new_rev):
+        return False
     arc.model_id, arc.revision_id = new_id, new_rev
-    if run is not None:
-        run.model_id = new_id
+    if changed_model:
+        rows = (
+            await db.execute(
+                select(Print.id, Print.model_id)
+                .where(or_(Print.archive_id == arc.id, Print.print_job_id == job.id))
+                .with_for_update()
+            )
+        ).all()
+        moved: dict[int | None, int] = {}
+        for _rid, mid in rows:
+            moved[mid] = moved.get(mid, 0) + 1
+        if rows:
+            await db.execute(
+                update(Print).where(Print.id.in_([r[0] for r in rows])).values(model_id=new_id)
+            )
+        for mid, n in moved.items():
+            if mid is not None and mid != new_id:
+                await db.execute(
+                    update(Model)
+                    .where(Model.id == mid)
+                    .values(print_count=func.greatest(Model.print_count - n, 0))
+                )
+        if new_id is not None:
+            gained = len(rows) - moved.get(new_id, 0)
+            if gained:
+                await db.execute(
+                    update(Model)
+                    .where(Model.id == new_id)
+                    .values(print_count=Model.print_count + gained)
+                )
     db.add(
         AuditLog(
             user_id=ctx.user.id,
@@ -301,6 +340,26 @@ async def _set_model(
             },
         )
     )
+    return changed_model
+
+
+def _resync_sources(archive_id: int, settings: Settings, clear_linked: bool) -> None:
+    """After a model change: drop a source taken from the old model, then fill
+    empty slots from the new one. Best effort -- never fails the PATCH."""
+    from app.services import archive_sources
+    from app.tasks.base import sync_session
+
+    try:
+        with sync_session() as s:
+            arc = s.get(PrintArchive, archive_id)
+            if arc is None:
+                return
+            if clear_linked and arc.source_linked:
+                archive_sources.clear(s, settings, arc, "source")
+            archive_sources.link_from_model(s, settings, arc)
+            s.commit()
+    except Exception:
+        logger.exception("source resync failed for archive %s", archive_id)
 
 
 @router.put("/{archive_id}/tags", response_model=list[TagRef])
