@@ -267,6 +267,8 @@ def _archive_job(
     job = session.get(PrintJob, print_job_id)
     if job is None:
         raise LookupError(f"print job {print_job_id} not found")
+    if job.archive_dismissed_at is not None:
+        raise LookupError(f"print job {print_job_id} was deleted")
     printer = session.get(Printer, job.printer_id)
     if printer is None:
         raise LookupError(f"printer {job.printer_id} not found")
@@ -483,6 +485,9 @@ def mark_archive_error(
 ) -> None:
     """Record a non-retried failure (e.g. task time limit) on the archive row."""
     session.rollback()
+    job = session.get(PrintJob, print_job_id)
+    if job is None or job.archive_dismissed_at is not None:
+        return  # the run was deleted on purpose: don't re-create its archive
     arc = session.scalars(
         select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
     ).first()

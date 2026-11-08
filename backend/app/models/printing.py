@@ -157,6 +157,10 @@ class PrintJob(Base):
     # When the start command was sent (state -> STARTING); cleared once the
     # printer reports PREPARE/RUNNING. The dispatcher fails a job stuck here.
     starting_at: Mapped[datetime | None]
+    # Set when the run's archive/print was deleted on purpose: the job row stays
+    # (spool usage, queue, billing reference it) but `archive_sweep` must never
+    # re-archive it and the job lists hide it.
+    archive_dismissed_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (Index("ix_print_jobs_printer_state", "printer_id", "state"),)
     # Slicer filament index -> AMS tray, as sent (app-origin jobs only).

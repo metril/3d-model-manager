@@ -354,7 +354,7 @@ async def list_print_jobs(
         return []
     stmt = (
         select(PrintJob)
-        .where(PrintJob.printer_id.in_(ids))
+        .where(PrintJob.printer_id.in_(ids), PrintJob.archive_dismissed_at.is_(None))
         .order_by(PrintJob.id.desc())
         .limit(limit)
         .offset(offset)
