@@ -43,7 +43,11 @@ from app.services.ams_match import FilamentNeed, TrayInfo
 from app.services.notify import events
 from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
-from app.services.printer_state import DISPATCH_IDLE_STATES, read_state_sync
+from app.services.printer_state import (
+    DISPATCH_IDLE_STATES,
+    failed_hold_reason,
+    read_state_sync,
+)
 from app.services.queue_position import append_position_sync
 from app.services.queue_preheat import get_preheat_config_sync
 from app.services.queue_settings import get_queue_config_sync
@@ -303,7 +307,7 @@ def plate_gate(
 
 
 def eligible_queue_items(
-    session: Session, *, include_deferred: bool = False
+    session: Session, *, include_deferred: bool = False, include_manual: bool = False
 ) -> list[PrintQueueEntry]:
     """THE single filter P7/P8 extend (module docstring). P6: a per-file
     entry (``file_id`` set -- bare legacy entries never dispatch),
@@ -313,6 +317,9 @@ def eligible_queue_items(
     below, not here (a hold can clear without touching the item itself).
     T4: excludes ``scheduled_at`` in the future and unreleased ``manual_start``
     entries unless ``include_deferred`` (used to ask "is more work queued?").
+    ``include_manual`` keeps unreleased ``manual_start`` entries (so they can
+    slice) while still dropping future-scheduled ones; the dispatch loop never
+    sends them.
     """
     stmt = (
         select(PrintQueueEntry)
@@ -330,17 +337,20 @@ def eligible_queue_items(
     if not include_deferred:
         stmt = stmt.where(
             or_(PrintQueueEntry.scheduled_at.is_(None), PrintQueueEntry.scheduled_at <= func.now()),
-            or_(
-                PrintQueueEntry.manual_start.is_(False),
-                PrintQueueEntry.released_at.is_not(None),
-            ),
         )
+        if not include_manual:
+            stmt = stmt.where(
+                or_(
+                    PrintQueueEntry.manual_start.is_(False),
+                    PrintQueueEntry.released_at.is_not(None),
+                )
+            )
     return list(session.scalars(stmt).all())
 
 
 def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
     item.attempts += 1
-    item.last_error = error
+    item.last_error = " ".join(error.split())[:200]
     item.assigned_printer_id = None
     item.print_job_id = None
     item.state = QueueState.FAILED if item.attempts >= QUEUE_MAX_ATTEMPTS else QueueState.READY
@@ -449,7 +459,11 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
         if _still_booting(client, p.id, state):
             busy.add(p.id)
             continue
-        if (state or {}).get("gcode_state") not in DISPATCH_IDLE_STATES:
+        gcode = (state or {}).get("gcode_state")
+        if gcode == "FAILED":
+            if failed_hold_reason(p, gcode) is not None:
+                busy.add(p.id)
+        elif gcode not in DISPATCH_IDLE_STATES:
             busy.add(p.id)
     return busy
 
@@ -845,7 +859,11 @@ def dispatch_once(
 ) -> dict:
     counts = {"sliced": 0, "sent": 0, "held": 0, "retried": 0, "done": 0, "skipped": 0}
     _reconcile(session, counts, client)
-    items = eligible_queue_items(session)
+    all_items = eligible_queue_items(session, include_manual=True)
+    # Unreleased manual-start entries may slice (so the G-code can be reviewed)
+    # but are never sent, woken for, or preheated for.
+    manual_held = {i.id for i in all_items if i.manual_start and i.released_at is None}
+    items = [i for i in all_items if i.id not in manual_held]
     acl_cache: dict = {}
     memo: dict = {}
     _wake_plugs(session, settings, client, items, acl_cache, memo)
@@ -856,7 +874,7 @@ def dispatch_once(
     used_this_tick: set[int] = set()
 
     plate_cache: dict = {}
-    for item in items:
+    for item in all_items:
         if keepalive is not None and not keepalive():
             break  # lost the dispatch lock: stop, another tick owns the queue
         plate_held = (
@@ -883,6 +901,9 @@ def dispatch_once(
                 session.commit()
                 slice_file.delay(item.id)
                 counts["sliced"] += 1
+            continue
+
+        if item.id in manual_held:
             continue
 
         if plate_held:

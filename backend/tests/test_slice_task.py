@@ -635,3 +635,50 @@ def test_unresolved_include_is_permanent_and_never_reaches_client(
         assert 'Profile "Stale Process" is incomplete' in e.last_error
         assert "re-sync profiles" in e.last_error
     assert fake.calls == 0
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_reslice_with_existing_same_name_file_gets_numbered_path(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    outputs = iter([sliced_3mf_bytes, sliced_3mf_bytes + b"\0", sliced_3mf_bytes + b"\0\0"])
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=next(outputs))
+    )
+    paths = []
+    for _ in range(3):  # retry_entry: sliced_file_id cleared, state back to slicing
+        slicing.slice_file(entry_id)
+        with base.sync_session() as session:
+            e = session.get(PrintQueueEntry, entry_id)
+            assert e.state == QueueState.READY, e.last_error
+            paths.append(session.get(File, e.sliced_file_id).rel_path)
+            e.sliced_file_id = None
+            e.state = QueueState.SLICING
+            session.commit()
+    stem = f"DotC Part 1 - My Recipe (q{entry_id} p1)"
+    assert paths == [f"{stem}.gcode.3mf", f"{stem} (2).gcode.3mf", f"{stem} (3).gcode.3mf"]
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_last_error_never_stores_raw_exception_text(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes)
+    )
+    raw = "(psycopg.errors.UniqueViolation) INSERT INTO files (a) VALUES (%(a)s) [parameters: {}]"
+
+    def boom(*a, **k):
+        raise RuntimeError(raw)
+
+    monkeypatch.setattr(slicing.library, "store_imported_file_sync", boom)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.last_error is not None
+        assert "INSERT" not in e.last_error and "parameters" not in e.last_error
+        assert len(e.last_error) < 100

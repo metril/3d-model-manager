@@ -865,6 +865,99 @@ def test_waiting_recipe_kicks_slice(redis_url: str, monkeypatch: pytest.MonkeyPa
         assert s.get(PrintQueueEntry, entry_id).state == QueueState.SLICING
 
 
+def _failed_printer_run(redis_url: str, *, acked: bool) -> int:
+    settings = get_settings()
+    now = datetime.now(UTC)
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=f"failed-{acked}")
+        printer = _seed_printer(s, name=f"FP{acked}")
+        admin_id = _seed_admin(s)
+        printer.failed_at = now - timedelta(minutes=5)
+        if acked:
+            printer.plate_cleared_at = now - timedelta(minutes=1)
+        _seed_entry(s, model=model, file=file, state=QueueState.READY, created_by=admin_id)
+        pid = printer.id
+        s.commit()
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "FAILED"})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    return counts["sent"]
+
+
+def test_failed_printer_busy_until_acknowledged(redis_url: str, fake_adapter):
+    assert _failed_printer_run(redis_url, acked=False) == 0
+
+
+def test_failed_printer_dispatchable_after_acknowledgement(redis_url: str, fake_adapter):
+    assert _failed_printer_run(redis_url, acked=True) == 1
+
+
+def _manual_recipe_entry(s, slug: str, state):
+    model, _, file = _seed_model_file(s, slug=slug)
+    pp = SlicerProfile(name="pp", kind=ProfileKind.PRINTER, data={})
+    pc = SlicerProfile(name="pc", kind=ProfileKind.PROCESS, data={})
+    s.add_all([pp, pc])
+    s.flush()
+    recipe = PrintRecipe(
+        name="r1",
+        printer_profile_id=pp.id,
+        process_profile_id=pc.id,
+        filament_profile_ids=[None],
+        bed_type="textured_plate",
+        options={},
+    )
+    s.add(recipe)
+    s.flush()
+    entry = PrintQueueEntry(
+        model_id=model.id,
+        file_id=file.id,
+        sliced_file_id=None if state == QueueState.WAITING else file.id,
+        recipe_id=recipe.id,
+        plate=1,
+        copies=1,
+        state=state,
+        position=1,
+        created_by_user_id=_seed_admin(s),
+        manual_start=True,
+    )
+    s.add(entry)
+    s.commit()
+    return entry.id
+
+
+def test_manual_start_entry_slices_but_is_not_sent(redis_url: str, monkeypatch, fake_adapter):
+    settings = get_settings()
+    with base.sync_session() as s:
+        waiting_id = _manual_recipe_entry(s, "manual-waiting", QueueState.WAITING)
+    calls: list[int] = []
+    monkeypatch.setattr("app.tasks.slicing.slice_file.delay", lambda qid: calls.append(qid))
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    assert counts["sliced"] == 1 and calls == [waiting_id]
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, waiting_id).state == QueueState.SLICING
+
+    # Once sliced (ready) and with an idle printer, it still isn't sent.
+    with base.sync_session() as s:
+        s.get(PrintQueueEntry, waiting_id).state = QueueState.READY
+        s.get(PrintQueueEntry, waiting_id).sliced_file_id = s.get(
+            PrintQueueEntry, waiting_id
+        ).file_id
+        printer = _seed_printer(s, name="MP")
+        pid = printer.id
+        s.commit()
+    _seed_state(redis_url, pid, IDLE_STATE)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["sent"] == 0
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, waiting_id).state == QueueState.READY
+
+
 # ---------------------------------------------------------------------------
 # beat task: lock + off-switch
 # ---------------------------------------------------------------------------

@@ -22,6 +22,27 @@ ALLOWED_PREFLIGHT_STATES = {"IDLE", "FINISH", "FAILED"}  # RESEARCH §4
 DISPATCH_IDLE_STATES = {"IDLE", "FINISH"}
 
 
+def failure_acknowledged(printer) -> bool:
+    """A person confirmed the plate (``POST /printers/{id}/clear-plate``) AFTER
+    printerd last saw the printer enter FAILED. Independent of the
+    ``require_plate_clear`` gate: a failed print always needs a person's eyes."""
+    failed, cleared = printer.failed_at, printer.plate_cleared_at
+    return (
+        failed is not None
+        and cleared is not None
+        and cleared >= failed
+        and not printer.awaiting_plate_clear
+    )
+
+
+def failed_hold_reason(printer, gcode_state: str | None) -> str | None:
+    """``failed_unacknowledged`` while the printer reports FAILED and nobody
+    has confirmed the plate since."""
+    if gcode_state == "FAILED" and not failure_acknowledged(printer):
+        return "failed_unacknowledged"
+    return None
+
+
 def preflight_ok(state: dict | None) -> bool:
     return bool(state) and state.get("gcode_state") in ALLOWED_PREFLIGHT_STATES
 

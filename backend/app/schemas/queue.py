@@ -236,7 +236,7 @@ class QueueEntryOut(BaseModel):
     # ``hold_reason`` when ``state == skipped`` (e.g. "previous_failed").
     skipped_reason: str | None = None
     # Why a waiting/ready entry is not being dispatched:
-    # scheduled | manual | plate | <hold_reason> | None.
+    # scheduled | manual | plate | printer_failed | <hold_reason> | None.
     waiting_reason: str | None = None
     batch_id: int | None = None
     batch: BatchRefOut | None = None
