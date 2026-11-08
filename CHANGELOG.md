@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.3](https://github.com/metril/3d-model-manager/compare/v0.20.2...v0.20.3) (2026-11-08)
+
+
+### Bug Fixes
+
+* **profiles:** resolve include templates and refuse incomplete profiles ([#286](https://github.com/metril/3d-model-manager/issues/286)) ([8813f3c](https://github.com/metril/3d-model-manager/commit/8813f3ccf0fa4599f4529999484085fc3123adb6))
+
 ## [0.20.2](https://github.com/metril/3d-model-manager/compare/v0.20.1...v0.20.2) (2026-11-08)
 
 
