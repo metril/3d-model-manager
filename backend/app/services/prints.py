@@ -10,14 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import PrintResult, PrintSource
+from app.models.enums import PrintJobState, PrintResult, PrintSource
 from app.models.library import Material, Model, Print
-from app.models.printing import PrintJob
+from app.models.printing import PrintArchive, PrintJob
 from app.schemas.prints import PrintOut
 from app.services.costing import CostRates, price_run
 
@@ -168,22 +168,76 @@ async def patch_print(
     return PrintOut.from_model(row)
 
 
+async def purge_finished_jobs(db: AsyncSession, job_ids: set[int]) -> None:
+    """Drop the terminal ``print_jobs`` rows behind deleted runs.
+
+    Without this ``archive_sweep`` sees a terminal job with no archive and
+    re-archives it, resurrecting the run. A job an archive still points at is
+    kept. Spool usage / queue / detections keep their rows (FK SET NULL);
+    only the per-job Spoolman push marker cascades.
+    """
+    if not job_ids:
+        return
+    await db.execute(
+        delete(PrintJob).where(
+            PrintJob.id.in_(job_ids),
+            PrintJob.state.in_([s.value for s in _TERMINAL]),
+            ~select(PrintArchive.id).where(PrintArchive.print_job_id == PrintJob.id).exists(),
+        )
+    )
+
+
+_TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
+
+
+async def delete_runs_of_archive(db: AsyncSession, archive_id: int, latest_job_id: int) -> set[int]:
+    """Delete every run (``prints`` row) folded into an archive and fix each
+    model's ``print_count``. Returns the runs' job ids; the caller deletes the
+    archive, flushes, then calls :func:`purge_finished_jobs`."""
+    rows = (
+        (
+            await db.execute(
+                select(Print).where(
+                    or_(Print.archive_id == archive_id, Print.print_job_id == latest_job_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    job_ids = {latest_job_id} | {r.print_job_id for r in rows if r.print_job_id is not None}
+    per_model: dict[int, int] = {}
+    for r in rows:
+        if r.model_id is not None:
+            per_model[r.model_id] = per_model.get(r.model_id, 0) + 1
+        await db.delete(r)
+    for model_id, n in per_model.items():
+        await db.execute(
+            update(Model)
+            .where(Model.id == model_id)
+            .values(print_count=func.greatest(Model.print_count - n, 0))
+        )
+    return job_ids
+
+
 async def delete_print(db: AsyncSession, print_id: int) -> None:
     row = await _get_print_or_404(db, print_id)
     model_id = row.model_id
+    job_id = row.print_job_id
     await db.delete(row)
-    if model_id is None:
-        await db.commit()
-        return
-    # `GREATEST(..., 0)` is a pure defensive floor -- normal operation never
-    # needs it, since every print row was counted exactly once by
-    # `create_print` above; it only guards against a print_count that was
-    # already out of sync (pre-migration data, a bug) going negative.
-    await db.execute(
-        update(Model)
-        .where(Model.id == model_id)
-        .values(print_count=func.greatest(Model.print_count - 1, 0))
-    )
+    if model_id is not None:
+        # `GREATEST(..., 0)` is a pure defensive floor -- normal operation never
+        # needs it, since every print row was counted exactly once by
+        # `create_print` above; it only guards against a print_count that was
+        # already out of sync (pre-migration data, a bug) going negative.
+        await db.execute(
+            update(Model)
+            .where(Model.id == model_id)
+            .values(print_count=func.greatest(Model.print_count - 1, 0))
+        )
+    if job_id is not None:
+        await db.flush()
+        await purge_finished_jobs(db, {job_id})
     await db.commit()
 
 

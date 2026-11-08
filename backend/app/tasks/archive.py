@@ -29,6 +29,8 @@ from app.tasks.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 _SWEEP_GRACE_S = 60
+# A lost enqueue is picked up within minutes; never resurrect older jobs.
+_SWEEP_MAX_AGE = timedelta(hours=24)
 _TIMELAPSE_FETCH_DELAY_S = 90
 _TIMELAPSE_RETRY_DELAY_S = 120
 # Covers the full span a retried archive_print could still be going
@@ -221,6 +223,7 @@ def archive_sweep() -> int:
             .where(
                 PrintJob.state.in_([s.value for s in _SWEEP_RESULT]),
                 PrintJob.finished_at < cutoff,
+                PrintJob.finished_at > datetime.now(UTC) - _SWEEP_MAX_AGE,
                 PrintArchive.id.is_(None),
                 Print.id.is_(None),
                 # never started on the printer: nothing to archive

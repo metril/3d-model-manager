@@ -36,6 +36,7 @@ from app.schemas.library import TagIdsIn, TagRef
 from app.schemas.print_flow import PlanIn, PlanOut
 from app.schemas.prints import PrintOut
 from app.services import archive_confirm
+from app.services import prints as prints_svc
 from app.services import tags as tags_svc
 from app.services.archive import archive_path
 from app.services.archive_blobs import blob_hashes, release_blobs, unlink_all
@@ -397,8 +398,12 @@ async def delete_archive(
             payload={"archive_id": arc.id, "print_job_id": arc.print_job_id},
         )
     )
+    # "Delete run" means gone: drop its runs (fixing print_count) and the
+    # terminal jobs, or archive_sweep would re-archive them.
+    job_ids = await prints_svc.delete_runs_of_archive(db, arc.id, arc.print_job_id)
     await db.delete(arc)
     await db.flush()
+    await prints_svc.purge_finished_jobs(db, job_ids)
     paths = await db.run_sync(lambda s: _release(s, settings, hashes))
     await db.commit()
     await anyio.to_thread.run_sync(unlink_all, paths)

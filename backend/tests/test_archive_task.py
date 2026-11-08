@@ -1,9 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import redis as redis_lib
 from celery.exceptions import Retry
 from sqlalchemy import select
 
-from app.models import PrintArchive
+from app.models import PrintArchive, PrintJob
 from app.tasks import archive as task_mod
 from app.tasks.archive import archive_print, media_schedule_lock_key
 
@@ -128,3 +130,18 @@ def test_archive_sweep_is_scheduled():
     entry = celery_app.conf.beat_schedule["archive-sweep"]
     assert entry["task"] == "app.tasks.archive.archive_sweep" and entry["schedule"] == 300
     assert "dispatch-scheduled" in celery_app.conf.beat_schedule
+
+
+def _sweep_ready(seed, *job_ids, age=timedelta(minutes=10)):
+    for jid in job_ids:
+        seed.s.get(PrintJob, jid).finished_at = datetime.now(UTC) - age
+    seed.s.commit()
+
+
+def test_archive_sweep_ignores_jobs_older_than_a_day(seed, monkeypatch):
+    old = seed.job(subtask="A")
+    _sweep_ready(seed, old, age=timedelta(days=2))
+    calls = []
+    monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
+    task_mod.archive_sweep.apply()
+    assert calls == []

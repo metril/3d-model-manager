@@ -177,3 +177,104 @@ async def test_runs_endpoint_and_list_summary(
     assert len(runs) == 2 and [r["is_latest"] for r in runs].count(True) == 1
     assert next(r for r in runs if r["is_latest"])["print_job_id"] == a.print_job_id
     assert (await c.get("/api/archives/99999/runs")).status_code == 404
+
+
+async def _fold_run(db: AsyncSession, printer: Printer, arc: PrintArchive, model: Model):
+    """An older run folded into ``arc`` (run_count > 1)."""
+    job = PrintJob(
+        printer_id=printer.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        subtask_name="older",
+        state=PrintJobState.FINISHED,
+        started_at=datetime(2025, 12, 31, tzinfo=UTC),
+        finished_at=datetime(2025, 12, 31, 1, tzinfo=UTC),
+    )
+    db.add(job)
+    await db.flush()
+    db.add(
+        Print(
+            model_id=model.id,
+            print_job_id=job.id,
+            archive_id=arc.id,
+            printed_at=datetime(2025, 12, 31, tzinfo=UTC),
+        )
+    )
+    await db.commit()
+    return job.id
+
+
+def _sweep(monkeypatch) -> list:
+    from app.tasks import archive as task_mod
+
+    calls: list = []
+    monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
+    task_mod.archive_sweep.apply()
+    return calls
+
+
+async def _recent(db: AsyncSession, *job_ids: int) -> None:
+    for jid in job_ids:
+        (await db.get(PrintJob, jid)).finished_at = datetime.now(UTC) - timedelta(minutes=10)
+    await db.commit()
+
+
+async def test_deleted_archive_runs_stay_deleted(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    p = await _printer(db_session, "p")
+    m = Model(slug="m", name="M", print_count=3)
+    db_session.add(m)
+    await db_session.commit()
+    arc = await _archive(db_session, p, model=m)
+    arc_id, arc_job, mid = arc.id, arc.print_job_id, m.id
+    old_job = await _fold_run(db_session, p, arc, m)
+    other = await _archive(db_session, p, model=m, n=5)  # untouched bystander
+    keep_job = other.print_job_id
+    await _recent(db_session, arc_job, old_job, keep_job)
+
+    r = await authenticated_client.delete(f"/api/archives/{arc_id}")
+    assert r.status_code == 204
+    assert _sweep(monkeypatch) == []
+    db_session.expire_all()
+    assert (await db_session.get(Model, mid)).print_count == 1
+    left = (await db_session.execute(select(Print.print_job_id))).scalars().all()
+    assert left == [keep_job]
+    assert await db_session.get(PrintJob, old_job) is None
+    assert await db_session.get(PrintJob, keep_job) is not None
+    stats = (await authenticated_client.get("/api/stats/records?days=365")).json()
+    assert "older" not in str(stats)
+
+
+async def test_delete_print_does_not_resurrect_run(
+    authenticated_client: httpx.AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    p = await _printer(db_session, "p")
+    m = Model(slug="m", name="M", print_count=2)
+    db_session.add(m)
+    await db_session.commit()
+    arc = await _archive(db_session, p, model=m)
+    arc_id, arc_job, mid = arc.id, arc.print_job_id, m.id
+    old_job = await _fold_run(db_session, p, arc, m)
+    await _recent(db_session, arc_job, old_job)
+    run = (
+        await db_session.execute(select(Print).where(Print.print_job_id == old_job))
+    ).scalar_one()
+    r = await authenticated_client.delete(f"/api/prints/{run.id}")
+    assert r.status_code == 204
+    assert _sweep(monkeypatch) == []
+    db_session.expire_all()
+    assert (await db_session.get(Model, mid)).print_count == 1
+    assert await db_session.get(PrintArchive, arc_id) is not None
+
+
+async def test_sweep_still_picks_up_lost_enqueue(db_session: AsyncSession, monkeypatch):
+    p = await _printer(db_session, "p")
+    job = PrintJob(
+        printer_id=p.id,
+        origin=PrintJobOrigin.EXTERNAL,
+        state=PrintJobState.FINISHED,
+        finished_at=datetime.now(UTC) - timedelta(minutes=10),
+    )
+    db_session.add(job)
+    await db_session.commit()
+    assert _sweep(monkeypatch) == [[job.id, "completed"]]
