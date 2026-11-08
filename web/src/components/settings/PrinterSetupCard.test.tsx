@@ -254,7 +254,7 @@ describe("PrinterSetupCard", () => {
     renderCard();
 
     await screen.findByDisplayValue("Bambu A1");
-    fireEvent.change(screen.getAllByLabelText("Build volume X (mm)")[0], { target: { value: "300" } });
+    fireEvent.change(screen.getAllByLabelText("X (mm)")[0], { target: { value: "300" } });
     fireEvent.change(screen.getAllByLabelText("Y (mm)")[0], { target: { value: "300" } });
     fireEvent.change(screen.getAllByLabelText("Z (mm)")[0], { target: { value: "400" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -271,7 +271,7 @@ describe("PrinterSetupCard", () => {
     renderCard();
 
     await screen.findByDisplayValue("Bambu A1");
-    fireEvent.change(screen.getAllByLabelText("Build volume X (mm)")[0], { target: { value: "" } });
+    fireEvent.change(screen.getAllByLabelText("X (mm)")[0], { target: { value: "" } });
     fireEvent.change(screen.getAllByLabelText("Y (mm)")[0], { target: { value: "" } });
     fireEvent.change(screen.getAllByLabelText("Z (mm)")[0], { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

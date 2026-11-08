@@ -48,7 +48,7 @@ function FileRow({ file }: { file: StorageTreeFile }) {
         <p className="truncate text-sm font-medium" title={file.rel_path}>
           {file.name}
         </p>
-        <p className="truncate text-xs text-muted-foreground">{humanizeBytes(file.size)}</p>
+        <p className="truncate text-xs text-muted-foreground" title={humanizeBytes(file.size)}>{humanizeBytes(file.size)}</p>
       </div>
       <Link
         to="/models/$slug"
@@ -102,7 +102,7 @@ function ModelHeaderStrip({ model }: { model: ModelSummary }) {
   return (
     <Card className="flex-row items-center justify-between gap-3 p-4">
       <div className="min-w-0 space-y-1.5">
-        <h2 className="truncate text-sm font-semibold">{model.name}</h2>
+        <h2 className="truncate text-sm font-semibold" title={model.name}>{model.name}</h2>
         <div className="flex flex-wrap items-center gap-1.5">
           {model.category && (
             <Badge variant="outline" className="gap-1">
@@ -319,7 +319,7 @@ export function FolderBrowser({ path, onNavigate }: { path: string; onNavigate: 
                     >
                       <FolderIcon className="size-8 shrink-0 text-muted-foreground" />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{dir.name}</span>
+                        <span className="block truncate text-sm font-medium" title={dir.name}>{dir.name}</span>
                         <span className="block text-xs text-muted-foreground">
                           {t("folderBrowser.fileCount", { count: dir.file_count })}, {t("folderBrowser.modelCount", { count: dir.model_count })}
                         </span>

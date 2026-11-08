@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
 
 const ROW_H = 52;
 // checkbox | tag | 7 count columns | actions
-const GRID = "grid grid-cols-[2rem_minmax(12rem,1fr)_repeat(7,3.75rem)_7.5rem] items-center gap-2 px-3";
+const GRID = "grid grid-cols-[2rem_minmax(12rem,1fr)_repeat(7,4.75rem)_7.5rem] items-center gap-2 px-3";
 const MIN_W = "min-w-[52rem]";
 
 const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.detail : fallback);
@@ -180,7 +180,7 @@ export function TagManager() {
         onClick={() => toggleSort(key)}
         aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
         className={cn(
-          "inline-flex items-center gap-0.5 rounded px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground",
+          "inline-flex items-center gap-0.5 rounded pl-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground",
           align === "text-right" && "justify-end",
           active && "text-foreground",
         )}

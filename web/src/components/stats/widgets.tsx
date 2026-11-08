@@ -135,7 +135,8 @@ export function Heatmap({ d }: { d: StatsDashboard }) {
         role="img"
         aria-label={t("stats.w.heatmap")}
         viewBox={`0 0 ${24 * (cell + gap) + 30} ${7 * (cell + gap) + 16}`}
-        className="min-w-[32rem] w-full"
+        preserveAspectRatio="xMinYMin meet"
+        className="w-full min-w-[32rem] max-w-[36rem]"
       >
         {counts.map((row, wd) => (
           <g key={wd}>

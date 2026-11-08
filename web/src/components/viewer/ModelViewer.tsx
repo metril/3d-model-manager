@@ -1310,7 +1310,7 @@ export default function ModelViewer({
           already-finished output instead. Face clicks tween the camera
           around the default controls' target and call `invalidate()` per
           step, so this works under `frameloop="demand"` unmodified. */}
-      <GizmoHelper alignment="bottom-left" margin={[64, 64]} renderPriority={2}>
+      <GizmoHelper alignment="bottom-left" margin={[64, 112]} renderPriority={2}>
         <GizmoViewcube />
         <CameraPresetTween preset={tools.cameraPreset} onSettled={handlePresetSettled} />
       </GizmoHelper>

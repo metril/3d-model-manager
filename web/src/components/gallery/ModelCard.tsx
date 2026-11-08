@@ -221,7 +221,7 @@ export function ModelCard({
               data-testid="hover-overlay"
             >
               {dimsLabel !== null ? (
-                <span className="tabular-mono truncate text-xs text-white">{dimsLabel}</span>
+                <span className="tabular-mono truncate text-xs text-white" title={dimsLabel}>{dimsLabel}</span>
               ) : (
                 <span />
               )}

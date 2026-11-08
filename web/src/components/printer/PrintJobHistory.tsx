@@ -34,7 +34,9 @@ function RunRow({
   onOpen,
   selected,
   onToggle,
+  showPrinter,
 }: {
+  showPrinter: boolean;
   run: ArchiveOut;
   onOpen: () => void;
   selected: boolean;
@@ -67,8 +69,8 @@ function RunRow({
           <img src={archiveThumbnailUrl(run.id)} alt="" className="size-10 rounded object-cover" />
         ) : null}
       </TableCell>
-      <TableCell className="max-w-64 truncate text-sm">{name}</TableCell>
-      <TableCell>{run.printer_name}</TableCell>
+      <TableCell className="max-w-64 truncate text-sm" title={name}>{name}</TableCell>
+      {showPrinter ? <TableCell>{run.printer_name}</TableCell> : null}
       <TableCell>
         <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
         <RunCountBadge count={run.run_count} />
@@ -76,14 +78,14 @@ function RunRow({
       <TableCell className="font-mono tabular-nums">
         {run.duration_s != null ? humanizeDuration(run.duration_s) : "--"}
       </TableCell>
-      <TableCell className="font-mono tabular-nums">
+      <TableCell className="hidden font-mono tabular-nums @2xl:table-cell">
         {run.run?.filament_g != null ? `${run.run.filament_g} g` : "--"}
       </TableCell>
-      <TableCell className="font-mono tabular-nums">{run.run ? formatCost(run.run.total_cost) : "--"}</TableCell>
-      <TableCell onClick={(e) => e.stopPropagation()}>
+      <TableCell className="hidden font-mono tabular-nums @2xl:table-cell">{run.run ? formatCost(run.run.total_cost) : "--"}</TableCell>
+      <TableCell className="hidden @2xl:table-cell" onClick={(e) => e.stopPropagation()}>
         <EntityTags target={{ kind: "archive", id: run.id }} tags={run.tag_refs} />
       </TableCell>
-      <TableCell>{run.run?.quality ?? ""}</TableCell>
+      <TableCell className="hidden @2xl:table-cell">{run.run?.quality ?? ""}</TableCell>
       <TableCell>{formatDateTime(run.finished_at ?? run.created_at)}</TableCell>
     </TableRow>
   );
@@ -171,19 +173,20 @@ export function PrintJobHistory({
         ) : !rows || rows.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">{t("printJobHistory.empty")}</p>
         ) : (
+          <div className="@container">
           <Table className="data-table">
             <TableHeader>
               <TableRow>
                 <TableHead />
                 <TableHead />
                 <TableHead>{t("printJobHistory.col.name")}</TableHead>
-                <TableHead>{t("printJobHistory.col.printer")}</TableHead>
+                {fixedPrinterId == null ? <TableHead>{t("printJobHistory.col.printer")}</TableHead> : null}
                 <TableHead>{t("printJobHistory.col.result")}</TableHead>
                 <TableHead>{t("printJobHistory.col.duration")}</TableHead>
-                <TableHead>{t("printJobHistory.col.grams")}</TableHead>
-                <TableHead>{t("printJobHistory.col.cost")}</TableHead>
-                <TableHead>{t("printJobHistory.col.tags")}</TableHead>
-                <TableHead>{t("printJobHistory.col.quality")}</TableHead>
+                <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.grams")}</TableHead>
+                <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.cost")}</TableHead>
+                <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.tags")}</TableHead>
+                <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.quality")}</TableHead>
                 <TableHead>{t("printJobHistory.col.finished")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -192,6 +195,7 @@ export function PrintJobHistory({
                 <RunRow
                   key={run.id}
                   run={run}
+                  showPrinter={fixedPrinterId == null}
                   onOpen={() => setOpenId(run.id)}
                   selected={selection.ids.includes(run.id)}
                   onToggle={() => selection.toggle(run.id)}
@@ -199,6 +203,7 @@ export function PrintJobHistory({
               ))}
             </TableBody>
           </Table>
+          </div>
         )}
       </CardContent>
       <RunDetailSheet archiveId={openId} onOpenChange={(open) => !open && setOpenId(null)} />
