@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GcodePreview } from "@/components/viewer/GcodePreview";
@@ -14,7 +14,12 @@ const fakePreview = {
   dispose,
   maxLayerIndex: 2,
   endLayer: undefined as number | undefined,
-  layers: [{ height: 0.2 }, { height: 0.4 }, { height: 0.6 }],
+  // [preamble, layer 1, layer 2]; `height` is thickness (0.2) like the real lib.
+  layers: [
+    { height: 0, commands: [{ params: { z: 0 } }] },
+    { height: 0.2, commands: [{ params: { z: 0.2 } }, { params: { x: 1, y: 1, e: 1 } }] },
+    { height: 0.2, commands: [{ params: { z: 0.4 } }, { params: { x: 2, y: 2, e: 1 } }] },
+  ],
 };
 
 vi.mock("gcode-preview", () => ({
@@ -67,6 +72,17 @@ describe("GcodePreview", () => {
     render(<GcodePreview fileId={42} />);
 
     await waitFor(() => expect(screen.getByText(/Layer 3 \/ 3/)).toBeInTheDocument());
+    // Z is the layer's real height (0.40), not its 0.20 thickness.
+    expect(screen.getByText(/Z 0\.40 mm/)).toBeInTheDocument();
+  });
+
+  it("omits the Z text for the preamble layer", async () => {
+    render(<GcodePreview fileId={42} />);
+
+    await waitFor(() => expect(screen.getByText(/Layer 3 \/ 3/)).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+    await waitFor(() => expect(screen.getByText(/Layer 1 \/ 3/)).toBeInTheDocument());
+    expect(screen.queryByText(/Z \d/)).not.toBeInTheDocument();
   });
 
   it("shows an error state when the fetch fails", async () => {

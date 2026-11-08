@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WebGLPreview } from "gcode-preview";
 
 import { usePrinters, usePrinterStatus } from "@/api/printers";
+import { layerZHeights } from "@/lib/gcodeLayerZ";
 import { isTooLarge, TOO_LARGE_TO_PREVIEW_BYTES } from "@/lib/gcodeLimits";
 import { useTranslation } from "react-i18next";
 
@@ -55,6 +56,7 @@ export function GcodePreview({
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "too-large">("loading");
   const [layerCount, setLayerCount] = useState(0);
   const [layer, setLayer] = useState(1);
+  const layerZRef = useRef<(number | null)[]>([]);
 
   const printers = usePrinters();
   const firstPrinterId = printers.data?.[0]?.id;
@@ -109,6 +111,7 @@ export function GcodePreview({
         preview.processGCode(text);
         preview.render();
         previewRef.current = preview;
+        layerZRef.current = layerZHeights(preview.layers);
 
         const total = preview.maxLayerIndex + 1;
         setLayerCount(total);
@@ -168,7 +171,7 @@ export function GcodePreview({
     };
   }, []);
 
-  const currentHeight = previewRef.current?.layers[layer - 1]?.height ?? null;
+  const currentHeight = layerZRef.current[layer - 1] ?? null;
 
   if (status === "error") {
     return <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.gcode.error")}</p>;
