@@ -32,7 +32,7 @@ from app.security import hash_password
 from app.services import dispatcher
 from app.services.ams_match import FilamentNeed
 from app.services.dispatcher import Candidate, Needs, compatibility_reason, select_printers
-from app.services.printer_state import dispatch_idle
+from app.services.printer_state import START_TIMEOUT_ERROR, dispatch_idle
 from app.tasks import base
 from app.tasks import dispatch as dispatch_task
 
@@ -1412,3 +1412,97 @@ def test_stale_idle_error_without_failure_does_not_hold(redis_url: str, fake_ada
     with base.sync_session() as s:
         assert dispatcher.dispatch_once(s, client, get_settings())["sent"] == 1
     client.close()
+
+
+def _stuck_starting(redis_url: str, state: dict, *, err_at_send: int = 0):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=f"stuck-{state.get('gcode_state')}")
+        printer = _seed_printer(s, name=f"StuckP-{state.get('gcode_state')}")
+        admin_id = _seed_admin(s)
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.STARTING,
+            starting_at=datetime.now(UTC) - timedelta(hours=1),
+            print_error_at_send=err_at_send,
+        )
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.DISPATCHED, created_by=admin_id
+        )
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        ids = (entry.id, job.id, printer.id)
+    _seed_state(redis_url, ids[2], {**IDLE_STATE, **state})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    return ids
+
+
+def test_starting_timeout_skipped_while_printer_prepares(redis_url: str, fake_adapter):
+    ids = _stuck_starting(redis_url, {"gcode_state": "PREPARE"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, ids[1]).state == PrintJobState.STARTING
+
+
+def test_stuck_starting_idle_with_new_error_goes_final_and_holds(redis_url: str, fake_adapter):
+    ids = _stuck_starting(redis_url, {"gcode_state": "IDLE", "print_error": 83902467})
+    with base.sync_session() as s:
+        job = s.get(PrintJob, ids[1])
+        assert job.state == PrintJobState.FAILED and job.printer_error == "83902467"
+        entry = s.get(PrintQueueEntry, ids[0])
+        assert entry.state == QueueState.FAILED and entry.attempts == 0
+        printer = s.get(Printer, ids[2])
+        assert printer.failed_at is not None and printer.awaiting_plate_clear
+
+
+def test_stuck_starting_idle_without_error_times_out_and_retries(redis_url: str, fake_adapter):
+    ids = _stuck_starting(redis_url, {"gcode_state": "IDLE", "print_error": 0})
+    with base.sync_session() as s:
+        job = s.get(PrintJob, ids[1])
+        assert job.state == PrintJobState.FAILED and job.printer_error == START_TIMEOUT_ERROR
+        assert s.get(PrintQueueEntry, ids[0]).attempts == 1
+        assert s.get(Printer, ids[2]).failed_at is None
+
+
+def test_stuck_starting_idle_with_baseline_error_times_out(redis_url: str, fake_adapter):
+    ids = _stuck_starting(
+        redis_url, {"gcode_state": "IDLE", "print_error": 83902467}, err_at_send=83902467
+    )
+    with base.sync_session() as s:
+        assert s.get(PrintJob, ids[1]).printer_error == START_TIMEOUT_ERROR
+
+
+def test_failed_state_job_without_code_is_final(redis_url: str, fake_adapter):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="failed-nocode")
+        printer = _seed_printer(s, name="NoCodeP")
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            state=PrintJobState.FAILED,
+            raw_status={"gcode_state": "FAILED"},
+        )
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        eid, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "RUNNING"})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["retried"] == 0
+    with base.sync_session() as s:
+        e = s.get(PrintQueueEntry, eid)
+        assert e.state == QueueState.FAILED and e.attempts == 0

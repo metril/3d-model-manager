@@ -425,6 +425,10 @@ async def print_sd(
         clean = cmds.validate("sd_print", args)
     except cmds.CommandError as e:
         return _err(400, e.code, e.message)
+    st = None
+    with contextlib.suppress(Exception):
+        st = await _state(settings, printer_id)
+    err_at_send = int(st.get("print_error") or 0) if st else None
     resp = await run_command(db, settings, ctx, printer, "sd_print", args)
     if resp.status_code not in (200, 202):
         return resp
@@ -436,6 +440,7 @@ async def print_sd(
         created_by_user_id=ctx.user.id,
         state=PrintJobState.STARTING,
         starting_at=datetime.now(UTC),
+        print_error_at_send=err_at_send,
         plate=clean["plate"] or 1,
         subtask_name=name,
     )

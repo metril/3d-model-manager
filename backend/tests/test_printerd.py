@@ -1159,9 +1159,15 @@ def test_next_pause_in_status_and_one_shot_heads_up(worker, monkeypatch):
         client.delete(pause_eta.warned_key(pid, 99), pause_eta.points_key(pid))
 
 
-def _seed_job_in(pid: int, state: PrintJobState) -> int:
+def _seed_job_in(pid: int, state: PrintJobState, err_at_send: int | None = None) -> int:
     with base.sync_session() as s:
-        job = PrintJob(printer_id=pid, file_id=None, state=state, subtask_name="tdmm")
+        job = PrintJob(
+            printer_id=pid,
+            file_id=None,
+            state=state,
+            subtask_name="tdmm",
+            print_error_at_send=err_at_send,
+        )
         s.add(job)
         s.commit()
         return job.id
@@ -1196,6 +1202,23 @@ def test_failed_at_tracks_failed_state(worker):
     w.handle_report({"gcode_state": "FAILED"})
     with base.sync_session() as s:
         assert s.get(Printer, pid).failed_at is not None
+    # A failure stays held after leaving FAILED until acknowledged...
+    w.handle_report({"gcode_state": "IDLE"})
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is not None
+    # ...and a new print (e.g. started at the printer) supersedes it.
+    w.handle_report({"gcode_state": "RUNNING"})
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is None
+
+
+def test_failed_at_cleared_once_acknowledged(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED"})
+    with base.sync_session() as s:
+        s.get(Printer, pid).plate_cleared_at = datetime.now(UTC)
+        s.commit()
     w.handle_report({"gcode_state": "IDLE"})
     with base.sync_session() as s:
         assert s.get(Printer, pid).failed_at is None
@@ -1215,20 +1238,9 @@ def test_new_hms_fails_starting_job_without_prepare(worker):
     job_id = _seed_job_in(pid, PrintJobState.STARTING)
     w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
     w.handle_report(
-        {"gcode_state": "FAILED", "subtask_name": "old", "hms": [{"attr": 1, "code": 2}]}
+        {"gcode_state": "FAILED", "subtask_name": "old", "hms": [{"attr": 1, "code": 0x10002}]}
     )
     assert _state(job_id) == "failed"
-
-
-def test_prepare_clears_starting_timeout(worker):
-    w, _adapter, pid, _ = worker
-    job_id = _seed_job_in(pid, PrintJobState.STARTING)
-    with base.sync_session() as s:
-        s.get(PrintJob, job_id).starting_at = datetime.now(UTC)
-        s.commit()
-    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
-    with base.sync_session() as s:
-        assert s.get(PrintJob, job_id).starting_at is None
 
 
 def test_idle_print_error_after_prepare_fails_job_and_holds_printer(worker):
@@ -1246,12 +1258,67 @@ def test_idle_print_error_after_prepare_fails_job_and_holds_printer(worker):
 
 def test_stale_print_error_does_not_fail_new_job(worker):
     w, _adapter, pid, _ = worker
-    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467})
-    job_id = _seed_job_in(pid, PrintJobState.STARTING)
-    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467})
-    w.handle_report({"gcode_state": "PREPARE", "print_error": 83902467, "subtask_name": "tdmm"})
+    x = 83902467
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=x)
+    w.handle_report({"gcode_state": "IDLE", "print_error": x})
+    w.handle_report({"gcode_state": "PREPARE", "print_error": x, "subtask_name": "tdmm"})
     assert _state(job_id) == "starting"
-    w.handle_report({"gcode_state": "RUNNING", "print_error": 83902467, "subtask_name": "tdmm"})
-    assert _state(job_id) == "printing"
+    for g, expect in (
+        ("RUNNING", "printing"),
+        ("RUNNING", "printing"),
+        ("PAUSE", "paused"),
+        ("RUNNING", "printing"),
+        ("FINISH", "finished"),
+    ):
+        w.handle_report({"gcode_state": g, "print_error": x, "subtask_name": "tdmm"})
+        assert _state(job_id) == expect
     with base.sync_session() as s:
         assert s.get(Printer, pid).failed_at is None
+
+
+def test_instant_rejection_from_clean_printer_is_real_failure(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == "failed"
+        assert s.get(Printer, pid).failed_at is not None
+
+
+def test_stale_error_ignores_status_hms_and_name_change_on_idle(worker):
+    w, _adapter, pid, _ = worker
+    x = 83902467
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=x)
+    w.handle_report({"gcode_state": "IDLE", "print_error": x, "subtask_name": "a"})
+    w.handle_report(
+        {
+            "gcode_state": "IDLE",
+            "print_error": x,
+            "subtask_name": "b",
+            "hms": [{"attr": 1, "code": 0x100}],
+        }
+    )
+    assert _state(job_id) == "starting"
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is None
+
+
+def test_user_cancel_ending_idle_does_not_hold_printer(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "IDLE", "print_error": 50348044, "subtask_name": "tdmm"})
+    assert _state(job_id) == "canceled"
+    with base.sync_session() as s:
+        assert s.get(Printer, pid).failed_at is None
+
+
+def test_prepare_keeps_starting_timeout(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).starting_at = datetime.now(UTC)
+        s.commit()
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).starting_at is not None

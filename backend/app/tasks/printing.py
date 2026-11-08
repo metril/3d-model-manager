@@ -104,6 +104,7 @@ def _set_job_state(
     *,
     error: str | None = None,
     expect: tuple[PrintJobState, ...] = _LIVE_STATES,
+    print_error_at_send: int | None = None,
 ) -> bool:
     """Forward-only compare-and-set: the row moves to ``state`` only while it
     is still in one of ``expect`` (default: the not-yet-printing states), so a
@@ -115,6 +116,8 @@ def _set_job_state(
         values["finished_at"] = datetime.now(UTC)
     if state == PrintJobState.STARTING:
         values["starting_at"] = datetime.now(UTC)
+        if print_error_at_send is not None:
+            values["print_error_at_send"] = print_error_at_send
     with base.sync_session() as s:
         printer_id = s.execute(
             update(PrintJob)
@@ -244,7 +247,13 @@ def _send_to_printer(
             with contextlib.suppress(Exception):
                 pause_eta.store_points(client, printer_id, print_job_id, pause_points)
         _set_job_state(
-            settings, print_job_id, PrintJobState.STARTING, expect=(PrintJobState.UPLOADING,)
+            settings,
+            print_job_id,
+            PrintJobState.STARTING,
+            expect=(PrintJobState.UPLOADING,),
+            # The printer's error word from the preflight read (before the
+            # start command): the same word later is a leftover, not a failure.
+            print_error_at_send=int(state.get("print_error") or 0) if state else None,
         )
     except Exception as exc:
         _set_job_state(settings, print_job_id, PrintJobState.FAILED, error=_scrub(exc, conn))

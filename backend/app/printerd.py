@@ -117,6 +117,13 @@ def terminal_result(
     return ArchiveResult.FAILED
 
 
+def _hms_code(h: dict) -> int:
+    try:
+        return int(h.get("code") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def hms_payload(code: str) -> dict:
     """Notification payload for a 16-hex HMS code, decoded via the HMS catalog."""
     pretty = "_".join(code[i : i + 4] for i in range(0, 16, 4))
@@ -228,7 +235,8 @@ class PrinterWorker:
         # job id -> (gcode_state, subtask_name) the printer showed when we first
         # saw that job in flight; ids that went through PREPARE/RUNNING since.
         self._live_baseline: dict[int, tuple] = {}
-        self._live_errors: dict[int, tuple] = {}
+        self._live_errors: dict[int, int] = {}
+        self._live_hms: dict[int, frozenset] = {}
         self._live_progressed: set[int] = set()
         self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
@@ -489,7 +497,7 @@ class PrinterWorker:
         restart an existing stamp is kept (a prior acknowledgement survives)."""
         if gcode == prev and prev is not None:
             return
-        # A new RUNNING print also supersedes an unacknowledged error failure.
+        # A new RUNNING print supersedes an unacknowledged failure.
         if gcode != "FAILED" and prev != "FAILED" and gcode != "RUNNING":
             return
         try:
@@ -501,7 +509,14 @@ class PrinterWorker:
                     if prev is not None or printer.failed_at is None:
                         printer.failed_at = datetime.now(UTC)
                 elif printer.failed_at is not None:
-                    printer.failed_at = None
+                    acked = (
+                        printer.plate_cleared_at is not None
+                        and printer.plate_cleared_at >= printer.failed_at
+                    )
+                    # A failure stays held after leaving FAILED until a person
+                    # acknowledges it; a new RUNNING print clears it.
+                    if gcode == "RUNNING" or acked:
+                        printer.failed_at = None
                 session.commit()
         except Exception:
             log.exception("printerd: failed_at update failed for printer %s", self.printer_id)
@@ -656,23 +671,32 @@ class PrinterWorker:
             .first()
         )
 
+    def _error_baseline(self, job, public: PrinterPublicState) -> int:
+        """The printer's ``print_error`` when this job was sent (persisted, so it
+        survives a printerd restart); first-seen value for legacy rows."""
+        if job.print_error_at_send is not None:
+            return int(job.print_error_at_send)
+        return self._live_errors.setdefault(job.id, int(public.print_error or 0))
+
     def _stale_for_live_job(self, job, public: PrinterPublicState, new_state) -> bool:
         """True when a terminal printer state belongs to the PREVIOUS print: the
         job is still queued/uploading/starting (never started) and the printer
-        shows the same (gcode_state, subtask_name) it did when we first saw the
-        job, without having gone through PREPARE/RUNNING for it."""
+        shows the same state it did when we first saw the job, without having
+        gone through PREPARE/RUNNING for it."""
         if job.started_at is not None or job.state not in _LIVE_JOB_STATES:
             self._live_baseline.pop(job.id, None)
-            self._live_errors.pop(job.id, None)
+            self._live_hms.pop(job.id, None)
             self._live_progressed.discard(job.id)
             return False
-        sig = (public.gcode_state, public.subtask_name)
-        error_sig = (
-            str(public.print_error or 0),
-            frozenset((h.get("attr"), h.get("code")) for h in (public.hms or [])),
+        # The IDLE signature ignores subtask_name (it changes on its own).
+        sig = (public.gcode_state, None if public.gcode_state == "IDLE" else public.subtask_name)
+        # Only fault-level HMS codes (>= 0x4000) count, like hms.decode_state.
+        hms_now = frozenset(
+            (h.get("attr"), h.get("code")) for h in (public.hms or []) if _hms_code(h) >= 0x4000
         )
         baseline = self._live_baseline.setdefault(job.id, sig)
-        base_err = self._live_errors.setdefault(job.id, error_sig)
+        base_hms = self._live_hms.setdefault(job.id, hms_now)
+        base_err = self._error_baseline(job, public)
         if new_state in (PrintJobState.STARTING, PrintJobState.PRINTING, PrintJobState.PAUSED):
             self._live_progressed.add(job.id)
             return False
@@ -680,31 +704,18 @@ class PrinterWorker:
             return False
         # An instant rejection: a NEW print_error / HMS entry that wasn't there
         # when the job was sent is a real failure even without PREPARE/RUNNING.
-        if (error_sig[0] != "0" and error_sig[0] != base_err[0]) or (error_sig[1] - base_err[1]):
+        err = int(public.print_error or 0)
+        if (err != 0 and err != base_err) or (hms_now - base_hms):
             return False
         if self._stale_terminal and job.state == PrintJobState.STARTING.value:
             return True
         return job.id not in self._live_progressed and sig == baseline
 
     def _effective_state(self, job, public: PrinterPublicState, new_state):
-        """A ``print_error`` left over from a previous print (same word as when
-        the job was sent) must not fail a job the printer is now preparing or
-        running: judge it by gcode_state alone until the error changes."""
-        if (
-            not public.print_error
-            or job.started_at is not None
-            or job.state not in _LIVE_JOB_STATES
-            or public.gcode_state not in ("PREPARE", "RUNNING", "PAUSE")
-        ):
-            return new_state
-        base_err = self._live_errors.setdefault(
-            job.id,
-            (
-                str(public.print_error or 0),
-                frozenset((h.get("attr"), h.get("code")) for h in (public.hms or [])),
-            ),
-        )
-        if str(public.print_error) != base_err[0]:
+        """A ``print_error`` equal to the one the printer held when this job was
+        sent is a leftover of a previous print for the job's whole life: judge
+        the job by gcode_state alone. A different non-zero error is real."""
+        if not public.print_error or int(public.print_error) != self._error_baseline(job, public):
             return new_state
         return self.adapter.job_state(dataclasses.replace(public, print_error=0))
 
@@ -756,17 +767,10 @@ class PrinterWorker:
                 )
                 return
             new_state = self._effective_state(job, public, new_state)
+            if new_state is None:
+                return
             if self._stale_for_live_job(job, public, new_state):
                 return
-            if (
-                job.id in self._live_progressed
-                and job.state == PrintJobState.STARTING.value
-                and job.starting_at is not None
-            ):
-                # The printer picked the job up (PREPARE/RUNNING/PAUSE): the
-                # start-timeout no longer applies.
-                job.starting_at = None
-                session.commit()
             if job.state == new_state.value:
                 return
             if new_state in (PrintJobState.FINISHED, PrintJobState.FAILED):
@@ -774,10 +778,6 @@ class PrinterWorker:
                 printer_row = session.get(Printer, self.printer_id)
                 if printer_row is not None:
                     printer_row.awaiting_plate_clear = True
-                    if new_state == PrintJobState.FAILED and public.gcode_state != "FAILED":
-                        # Failed with an error but reported IDLE: hold the
-                        # printer like a FAILED report until a person clears it.
-                        printer_row.failed_at = datetime.now(UTC)
             prev_state = job.state
             result: ArchiveResult | None = None
             if new_state in _TERMINAL:
@@ -785,6 +785,12 @@ class PrinterWorker:
                 if result in (ArchiveResult.CANCELED, ArchiveResult.STOPPED):
                     new_state = PrintJobState.CANCELED
                 self._stop_requested = False
+                if result == ArchiveResult.FAILED and public.gcode_state != "FAILED":
+                    # A real failure reported as IDLE: hold the printer like a
+                    # FAILED report until a person clears it.
+                    printer_row = session.get(Printer, self.printer_id)
+                    if printer_row is not None:
+                        printer_row.failed_at = datetime.now(UTC)
             if new_state == PrintJobState.PRINTING:
                 self._stop_requested = False
             job.state = new_state.value

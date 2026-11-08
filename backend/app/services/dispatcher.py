@@ -372,10 +372,14 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
 def _printer_rejected(job: PrintJob) -> bool:
     """A never-started job the printer itself failed: ``printer_error`` is the
     numeric ``print_error`` word (upload/start-timeout errors are text)."""
-    return job.started_at is None and (job.printer_error or "").isdigit()
+    return job.started_at is None and (
+        (job.printer_error or "").isdigit() or (job.raw_status or {}).get("gcode_state") == "FAILED"
+    )
 
 
-def _printer_error_text(code: str) -> str:
+def _printer_error_text(code: str | None) -> str:
+    if not (code or "").isdigit():
+        return code or "printer reported the print failed"
     entry = hms.decode_print_error(int(code))
     text = entry.get("description")
     return f"printer error {entry['code']}" + (f": {text}" if text else "")[:180]
@@ -421,8 +425,21 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
             PrintJob.starting_at < start_cutoff,
         )
     ).all():
+        state = read_state_sync(client, unstarted.printer_id) if client is not None else None
+        gcode = (state or {}).get("gcode_state")
+        if gcode in ("PREPARE", "RUNNING", "PAUSE"):
+            continue  # the printer is visibly working on it
+        err = int((state or {}).get("print_error") or 0)
+        printer = session.get(Printer, unstarted.printer_id)
+        if err and err != (unstarted.print_error_at_send or 0) and printer is not None:
+            # The printer took the job and dropped it with a new error that
+            # printerd never saw as a transition: final, and hold the printer.
+            unstarted.printer_error = str(err)
+            printer.awaiting_plate_clear = True
+            printer.failed_at = datetime.now(UTC)
+        else:
+            unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.state = PrintJobState.FAILED
-        unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.finished_at = datetime.now(UTC)
     session.flush()
 
