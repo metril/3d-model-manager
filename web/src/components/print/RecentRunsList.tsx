@@ -44,39 +44,48 @@ function RunRow({
   const canGrade = run.run != null && can("library:write");
 
   return (
-    <li className="flex items-center gap-2 py-1.5">
-      <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={t("archiveX.compare.select", { name })} />
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpen(run.id)}>
-        <StateBadge tone={toneForResult(run.result)} label="" aria-hidden="true" className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
-        <RunCountBadge count={run.run_count} />
-      </button>
-      <span className="shrink-0 text-xs text-muted-foreground">{run.printer_name}</span>
-      <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-        {grams != null ? `${grams}g` : "—"}
-      </span>
-      <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-        {formatCost(run.run?.total_cost)}
-      </span>
-      {canGrade && run.run ? (
-        <div className="flex shrink-0 gap-1">
-          <Button
-            size="sm"
-            variant={run.run.quality === "good" ? "secondary" : "outline"}
-            className={run.run.quality === "good" ? "border-state-finished text-state-finished" : undefined}
-            onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "good" } })}
-          >
-            {t("runDetail.good")}
-          </Button>
-          <Button
-            size="sm"
-            variant={run.run.quality === "reject" ? "destructive" : "outline"}
-            onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "reject" } })}
-          >
-            {t("runDetail.reject")}
-          </Button>
+    <li className="flex items-start gap-2 py-1.5">
+      <Checkbox
+        className="mt-1"
+        checked={selected}
+        onCheckedChange={onToggle}
+        aria-label={t("archiveX.compare.select", { name })}
+      />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpen(run.id)}>
+            <StateBadge tone={toneForResult(run.result)} label="" aria-hidden="true" className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+            <RunCountBadge count={run.run_count} />
+          </button>
+          {canGrade && run.run ? (
+            <div className="flex shrink-0 gap-1">
+              <Button
+                size="sm"
+                variant={run.run.quality === "good" ? "secondary" : "outline"}
+                className={run.run.quality === "good" ? "border-state-finished text-state-finished" : undefined}
+                onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "good" } })}
+              >
+                {t("runDetail.good")}
+              </Button>
+              <Button
+                size="sm"
+                variant={run.run.quality === "reject" ? "destructive" : "outline"}
+                onClick={() => patch.mutate({ id: run.run!.id, patch: { quality: "reject" } })}
+              >
+                {t("runDetail.reject")}
+              </Button>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate">{run.printer_name}</span>
+          <span aria-hidden="true">·</span>
+          <span className="font-mono tabular-nums">{grams != null ? `${grams}g` : "—"}</span>
+          <span aria-hidden="true">·</span>
+          <span className="font-mono tabular-nums">{formatCost(run.run?.total_cost)}</span>
+        </div>
+      </div>
     </li>
   );
 }

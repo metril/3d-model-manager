@@ -51,7 +51,7 @@ export function SpoolmanLink({ spool }: { spool: SpoolOut }) {
       ) : (
         <select
           aria-label={t("spoolmanLink.spool")}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-9 rounded-md border border-input bg-background ps-3 text-sm"
           value={choice}
           onChange={(e) => setChoice(e.target.value)}
         >

@@ -221,7 +221,7 @@ export function PrintCostCard() {
             <Label htmlFor="energy-price-source">{t("settingsPrintCost.priceSource")}</Label>
             <select
               id="energy-price-source"
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-9 rounded-md border border-input bg-background ps-3 text-sm"
               value={priceSource ?? "fixed"}
               onChange={(e) => setPriceSource(e.target.value as "fixed" | "homeassistant")}
             >
