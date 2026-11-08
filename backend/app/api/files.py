@@ -6,6 +6,7 @@ decisions).
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import zipfile
 from collections.abc import Iterator
@@ -213,32 +214,44 @@ def _spool_to_temp_file(backend: StorageBackend, storage_path: str) -> Path:
     return tmp_path
 
 
+_PLATE_GCODE_RE = re.compile(r"Metadata/plate_(\d+)\.gcode")
+
+
 def _resolve_gcode_member(tmp_path: Path, plate: int | None) -> tuple[str, int]:
     """Resolve which zip member (name + uncompressed ``ZipInfo.file_size``,
     for ``Content-Length``) holds the requested plate's embedded
     ``.gcode``, via the same ``model_settings.config`` plate->gcode mapping
     the pipeline's own metadata extraction uses. Defaults to the
-    lowest-numbered plate when ``plate`` is omitted. On ANY exception
+    lowest-numbered plate whose gcode member exists when ``plate`` is omitted. On ANY exception
     (including the 404s raised here), removes ``tmp_path`` -- the caller
     only reaches ownership of cleanup on success, via the streaming
     generator below.
     """
     try:
         with zipfile.ZipFile(tmp_path) as zf:
+            names = set(zf.namelist())
             model_settings = slicedmeta.read_zip_member(zf, slicedmeta.MODEL_SETTINGS_PATH)
             plate_files = slicedmeta.parse_model_settings(model_settings)
-            if not plate_files:
+            # plate -> gcode member that actually exists in THIS zip. A
+            # plate-only slice keeps every source plate in model_settings
+            # but ships just one ``plate_N.gcode``.
+            available: dict[int, str] = {}
+            for number, entry in plate_files.items():
+                member_name = (entry or {}).get("gcode_file")
+                if member_name and member_name in names:
+                    available[number] = member_name
+            if not available:
+                for name in names:
+                    match = _PLATE_GCODE_RE.fullmatch(name)
+                    if match:
+                        available[int(match.group(1))] = name
+            if not available:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "no embedded gcode in this file")
-            chosen = plate if plate is not None else min(plate_files)
-            gcode_member = (plate_files.get(chosen) or {}).get("gcode_file")
+            chosen = plate if plate is not None else min(available)
+            gcode_member = available.get(chosen)
             if gcode_member is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, f"no gcode for plate {chosen}")
-            try:
-                info = zf.getinfo(gcode_member)
-            except KeyError as exc:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND, "embedded gcode member missing"
-                ) from exc
+            info = zf.getinfo(gcode_member)
             return gcode_member, info.file_size
     except BaseException:
         tmp_path.unlink(missing_ok=True)

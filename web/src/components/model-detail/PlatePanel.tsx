@@ -182,7 +182,7 @@ export function PlatePanel({
                 </div>
               }
             >
-              <GcodePreview fileId={file.id} />
+              <GcodePreview fileId={file.id} {...(plates.length === 1 ? { plate: plates[0].index } : {})} />
             </Suspense>
           </div>
         ) : (
