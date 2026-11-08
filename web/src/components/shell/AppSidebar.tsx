@@ -502,6 +502,17 @@ export function AppSidebar({
             ))}
           </SidebarSection>
         )}
+      <SidebarSection
+        name="system"
+        label={t("nav.System")}
+        rail={collapsed}
+        active={visibleSystemItems.some(itemActive)}
+        locationKey={pathname}
+      >
+        {visibleSystemItems.map((item) => (
+          <NavLink key={item.to as string} item={item} collapsed={collapsed} />
+        ))}
+      </SidebarSection>
       </nav>
       <div
         aria-hidden="true"
@@ -513,17 +524,6 @@ export function AppSidebar({
       />
       </div>
       <div className="flex shrink-0 flex-col gap-1 border-t border-sidebar-border px-2 py-2">
-        <SidebarSection
-          name="system"
-          label={t("nav.System")}
-          rail={collapsed}
-          active={visibleSystemItems.some(itemActive)}
-          locationKey={pathname}
-        >
-          {visibleSystemItems.map((item) => (
-            <NavLink key={item.to as string} item={item} collapsed={collapsed} />
-          ))}
-        </SidebarSection>
         <ServiceStatusDot collapsed={collapsed} />
         <SidebarPrinterWidget collapsed={collapsed} />
       </div>
