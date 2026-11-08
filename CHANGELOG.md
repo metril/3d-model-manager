@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/metril/3d-model-manager/compare/v0.19.2...v0.20.0) (2026-11-08)
+
+
+### Features
+
+* **viewer:** print one or all plates to a chosen or any available printer ([#279](https://github.com/metril/3d-model-manager/issues/279)) ([bc75b3c](https://github.com/metril/3d-model-manager/commit/bc75b3cb3393e8504ca83ef94b3d11d49f13eacc))
+
 ## [0.19.2](https://github.com/metril/3d-model-manager/compare/v0.19.1...v0.19.2) (2026-11-07)
 
 
