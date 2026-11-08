@@ -157,14 +157,16 @@ def _build_slice_request(
     model: bytes | BinaryIO,
     filename: str,
     printer_profile: dict,
-    process_profile: dict,
+    process_profile: dict | None,
     filament_profiles: list[dict],
     bed_type: str,
     options: SliceOptions,
 ) -> dict:
     """Image-specific: the multipart shape the `/slice` endpoint expects.
     Every profile travels as a JSON file part -- never a name/id -- so the
-    sidecar never needs to query our database."""
+    sidecar never needs to query our database. ``process_profile=None``
+    omits that part: the slicer then keeps the model file's own process
+    settings."""
     import json
 
     files = [
@@ -173,9 +175,19 @@ def _build_slice_request(
             "printer_profile",
             ("printer_profile.json", json.dumps(printer_profile).encode(), "application/json"),
         ),
-        (
-            "process_profile",
-            ("process_profile.json", json.dumps(process_profile).encode(), "application/json"),
+        *(
+            [
+                (
+                    "process_profile",
+                    (
+                        "process_profile.json",
+                        json.dumps(process_profile).encode(),
+                        "application/json",
+                    ),
+                )
+            ]
+            if process_profile is not None
+            else []
         ),
         (
             "filament_profiles",
@@ -326,7 +338,7 @@ class SlicerClient:
         model: bytes | Path,
         filename: str,
         printer_profile: dict,
-        process_profile: dict,
+        process_profile: dict | None,
         filament_profiles: list[dict],
         bed_type: str,
         options: SliceOptions,

@@ -73,6 +73,9 @@ SLICING_STALE_S = 900
 # ``slice_options`` marker on a "print all plates" batch's recipe entries: the
 # whole project is sliced once (plate=None) and every plate entry reuses it.
 ALL_PLATES_KEY = "all_plates"
+# ``slice_options`` / slice-job options flag: slice with the 3MF's own process
+# settings instead of the recipe's process profile.
+FILE_SETTINGS_KEY = "file_settings"
 
 
 def slice_siblings(session: Session, item: PrintQueueEntry) -> list[PrintQueueEntry]:
@@ -88,7 +91,13 @@ def slice_siblings(session: Session, item: PrintQueueEntry) -> list[PrintQueueEn
             PrintQueueEntry.id != item.id,
         )
     ).all()
-    return [r for r in rows if (r.slice_options or {}).get(ALL_PLATES_KEY)]
+    mine = bool((item.slice_options or {}).get(FILE_SETTINGS_KEY))
+    return [
+        r
+        for r in rows
+        if (r.slice_options or {}).get(ALL_PLATES_KEY)
+        and bool((r.slice_options or {}).get(FILE_SETTINGS_KEY)) == mine
+    ]
 
 
 # A job claimed into UPLOADING that never reached the printer (`started_at IS

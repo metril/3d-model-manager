@@ -51,6 +51,8 @@ class BatchIn(_SchedulingIn):
     # Print every plate of one file: a recipe slices the whole project ONCE and
     # each plate entry reuses that sliced file.
     all_plates: bool = False
+    # Slice with the file's own process settings, not the recipe's process profile.
+    file_settings: bool = False
 
     _plates = field_validator("plate_targets")(_check_plates)
 

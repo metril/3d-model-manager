@@ -691,6 +691,7 @@ async def test_get_file_format(
         "format": "stl",
         "blob_hash": file.blob_hash,
         "plates": None,
+        "embedded": None,
     }
 
     assert (await authenticated_client.get("/api/files/999999")).status_code == 404
