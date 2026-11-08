@@ -8,6 +8,7 @@ import type { ArchiveOut, PrintEntry } from "@/api/types";
 import { ArchiveRuns, RunCountBadge } from "@/components/print/ArchiveRuns";
 import { ArchiveToolpath } from "@/components/print/ArchiveToolpath";
 import { ArchiveEditor, PhotoGallery, VerdictCard } from "@/components/print/ArchiveExtras";
+import { LinkModelDialog } from "@/components/print/LinkModelDialog";
 import { SourceFiles } from "@/components/print/SourceFiles";
 import { TimelapseEditorDialog } from "@/components/print/TimelapseEditorDialog";
 import { PrintDialog } from "@/components/print/PrintDialog";
@@ -115,6 +116,7 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
   const [tlOpen, setTlOpen] = useState(false);
   const { data: me, can } = useAuth();
   const [reprintOpen, setReprintOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const run = archive.run;
   const canGrade =
     run != null &&
@@ -153,6 +155,14 @@ function Body({ archive, onDeleted }: { archive: ArchiveOut; onDeleted: () => vo
         {archive.duration_s != null ? <span className="tabular-nums">{humanizeDuration(archive.duration_s)}</span> : null}
         <span>{formatDateTime(archive.finished_at ?? archive.created_at)}</span>
       </div>
+      {archive.model_id == null && canWriteArchive ? (
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => setLinkOpen(true)}>
+            {t("runDetail.linkModel.action")}
+          </Button>
+          <LinkModelDialog archiveId={archive.id} open={linkOpen} onOpenChange={setLinkOpen} />
+        </>
+      ) : null}
       <EntityTags target={{ kind: "archive", id: archive.id }} tags={archive.tag_refs} readOnly={!canWriteArchive} />
       {note ? <p className="text-muted-foreground">{t(note)}</p> : null}
       {archive.fetch_error ? <p className="text-destructive">{archive.fetch_error}</p> : null}

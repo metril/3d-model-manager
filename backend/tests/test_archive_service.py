@@ -420,3 +420,24 @@ def test_reprint_keeps_first_date_and_locks_row(fake_adapter, sliced_3mf_bytes, 
         event.remove(eng, "before_cursor_execute", listener)
     assert b.id == a.id and b.created_at == first
     assert any("FOR UPDATE" in x and "print_archives" in x for x in stmts)
+
+
+def test_manual_link_survives_reprint_merge_and_redelivery(fake_adapter, sliced_3mf_bytes, seed):
+    s, settings = seed.s, get_settings()
+    fake_adapter.files["/cache/Same_plate_1.3mf"] = sliced_3mf_bytes
+    j1 = seed.job(subtask="Same_plate_1")
+    a1 = archive_job(s, settings, j1, ArchiveResult.COMPLETED)
+    assert a1.model_id is None
+    mid = seed.model("Other")
+    a1.model_id = mid
+    _run(s, j1).model_id = mid
+    s.get(Model, mid).print_count = 1
+    s.commit()
+    j2 = seed.job(subtask="Same_plate_1")
+    a2 = archive_job(s, settings, j2, ArchiveResult.COMPLETED)
+    assert a2.id == a1.id and a2.model_id == mid
+    assert _run(s, j2).model_id == mid and s.get(Model, mid).print_count == 2
+    # redelivery / retry of an already archived job neither unlinks nor recounts
+    archive_job(s, settings, j2, ArchiveResult.COMPLETED)
+    assert _run(s, j2).model_id == mid and _run(s, j1).model_id == mid
+    assert s.get(Model, mid).print_count == 2

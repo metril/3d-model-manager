@@ -3771,6 +3771,15 @@
     "to": "To"
   },
   "runDetail": {
+    "linkModel": {
+      "action": "Link to model",
+      "title": "Link to a model",
+      "hint": "This run was not matched to a library model. Pick the model it printed.",
+      "search": "Search models",
+      "none": "No models found",
+      "done": "Linked to {{name}}",
+      "failed": "Could not link the model"
+    },
     "fetch": {
       "pending": "Fetching files from the printer...",
       "missing": "The printer no longer has this run's files.",

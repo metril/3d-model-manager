@@ -2534,6 +2534,9 @@ export interface ArchivePatchIn {
   notes?: string | null;
   tags?: string[];
   result_override?: ArchiveResult | null;
+  /** Link (number) or unlink (null) the archive's library model. */
+  model_id?: number | null;
+  revision_id?: number | null;
 }
 
 export interface CompareOut {

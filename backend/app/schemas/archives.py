@@ -111,6 +111,10 @@ class ArchivePatchIn(BaseModel):
     notes: str | None = Field(None, max_length=10000)
     tags: list[str] | None = None
     result_override: ArchiveResult | None = None
+    # Link (or, with null, unlink) the archive's library model. ``revision_id``
+    # is only meaningful with a non-null ``model_id`` and must belong to it.
+    model_id: int | None = None
+    revision_id: int | None = None
 
 
 class VerdictIn(BaseModel):
