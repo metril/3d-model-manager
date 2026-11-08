@@ -211,8 +211,8 @@ describe("AddPage", () => {
     const prCard = screen.getByText("PR Two").closest("[data-slot='card']");
     if (!tvCard || !prCard) throw new Error("result cards not found");
     // per-card site badge (lowercase site value; the toggle chips use labels)
-    expect(within(tvCard as HTMLElement).getByText("thingiverse")).toBeInTheDocument();
-    expect(within(prCard as HTMLElement).getByText("printables")).toBeInTheDocument();
+    expect(within(tvCard as HTMLElement).getByText("Thingiverse")).toBeInTheDocument();
+    expect(within(prCard as HTMLElement).getByText("Printables")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(fetchNextPageMock).toHaveBeenCalled();

@@ -21,6 +21,7 @@ import {
 import { useOrcaSlicerEnabled } from "@/api/orcaslicer";
 import { openOrcaSlicerWindow } from "@/components/orcaslicer/orcaslicerNav";
 import { ALL_NAV_ITEMS, filterNavItems, printerNavItems } from "@/components/shell/navItems";
+import { paletteFilter } from "@/components/shell/paletteFilter";
 import { useNavLabel } from "@/components/shell/useNavLabel";
 
 // The print wizard is heavy and only needed once "Print…" is picked.
@@ -100,7 +101,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <>
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog open={open} onOpenChange={onOpenChange} filter={paletteFilter}>
       <CommandInput placeholder={t("cmdk.placeholder")} value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>{t("cmdk.empty")}</CommandEmpty>

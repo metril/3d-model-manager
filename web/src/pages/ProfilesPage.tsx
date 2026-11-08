@@ -47,7 +47,7 @@ function SidecarHealthChip() {
   if (!health.data?.configured) return <Badge variant="secondary">{t("profilesPage.sidecarOff")}</Badge>;
   return (
     <Badge variant={health.data.ok ? "outline" : "destructive"}>
-      {health.data.ok ? t("profilesPage.sidecarOk", { version: health.data.version ?? "?" }) : t("profilesPage.sidecarDown")}
+      {health.data.ok ? t("profilesPage.sidecarOk", { version: (health.data.version ?? "?").replace(/^v/i, "") }) : t("profilesPage.sidecarDown")}
     </Badge>
   );
 }
@@ -142,9 +142,9 @@ function ProfilesTab({
               <TableBody>
                 {(profiles.data ?? []).map((p) => (
                   <TableRow key={p.id} className={p.in_scope === false ? "opacity-50" : undefined}>
-                    <TableCell className="font-medium">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        {p.name}
+                    <TableCell className="max-w-72 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        <span className="min-w-0 truncate" title={p.name}>{p.name}</span>
                         <ScopeBadges universal={isUniversal(p)} reason={p.in_scope === false ? p.scope_reason : null} />
                       </span>
                     </TableCell>
@@ -157,7 +157,7 @@ function ProfilesTab({
                         {p.layer_height_mm != null ? `${p.layer_height_mm} mm` : "—"}
                       </TableCell>
                     ) : null}
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       <Badge variant="outline">{p.cloud_source ? t("profilesPage.cloudSource", { source: p.cloud_source }) : p.source}</Badge>
                     </TableCell>
                   </TableRow>

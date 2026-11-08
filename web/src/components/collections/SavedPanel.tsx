@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/format";
+import { siteLabel } from "@/lib/importSites";
 import { useOpenMap } from "@/lib/useOpenMap";
 
 /** "Saved" surface (M8 H): the remote collections/likes you follow, what a sync
@@ -139,7 +140,7 @@ function FollowedRow({ collection }: { collection: FollowedCollection }) {
         <p className="truncate text-sm font-medium text-foreground">{collection.title}</p>
         <EntityTags target={{ kind: "collection", id: collection.id }} tags={collection.tag_refs} className="my-0.5" />
         <p className="font-mono text-xs text-muted-foreground">
-          <span className="capitalize">{collection.site}</span> · {collection.kind} ·{" "}
+          <span>{siteLabel(collection.site)}</span> · {collection.kind} ·{" "}
           {collection.last_synced_at
             ? t("collections.synced", { date: formatDate(collection.last_synced_at) })
             : t("collections.neverSynced")}
@@ -379,8 +380,8 @@ function ReviewCard({ item }: { item: PendingImport }) {
         ) : (
           <ImageIcon className="size-8 text-muted-foreground" />
         )}
-        <Badge variant="secondary" className="absolute top-1.5 left-1.5 capitalize backdrop-blur-sm">
-          {item.site}
+        <Badge variant="secondary" className="absolute top-1.5 left-1.5 backdrop-blur-sm">
+          {siteLabel(item.site)}
         </Badge>
       </div>
       <CardContent className="flex flex-1 flex-col gap-1.5">
@@ -505,7 +506,7 @@ export function BrowseCard() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{list.title}</p>
                     <p className="font-mono text-xs text-muted-foreground">
-                      <span className="capitalize">{list.site}</span> · {list.kind}
+                      <span>{siteLabel(list.site)}</span> · {list.kind}
                       {list.count !== null ? ` · ${t("collections.modelsCount", { count: list.count })}` : ""}
                     </p>
                   </div>

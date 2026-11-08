@@ -98,6 +98,10 @@
     margin-right: 0;
   }
 }
+.dockview-theme-tdmm .dv-tab:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--primary) 70%, transparent);
+  outline-offset: -2px;
+}
 .dockview-theme-tdmm .dv-tab:hover {
   background-color: color-mix(in oklch, var(--accent) 70%, transparent);
   color: var(--foreground);

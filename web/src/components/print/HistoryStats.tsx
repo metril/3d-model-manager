@@ -40,13 +40,13 @@ const RESULT_BADGE: Record<PrintResult, { variant: "destructive" | "outline"; cl
 
 /** A labeled horizontal bar, its width relative to `max` -- the CSS-only
  * "chart" the Global Constraints bundle rule calls for. */
-function Bar({ label, value, max }: { label: string; value: number; max: number }) {
+function Bar({ label, value, max, valueLabel }: { label: string; value: number; max: number; valueLabel?: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span className="text-foreground">{label}</span>
-        <span className="text-muted-foreground">{value}</span>
+        <span className="text-muted-foreground">{valueLabel ?? value}</span>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
         <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
@@ -285,7 +285,7 @@ export function HistoryStats() {
               <p className="text-sm text-muted-foreground">{t("histStats.noFiles")}</p>
             ) : (
               backendEntries.map(([name, bytes]) => (
-                <Bar key={name} label={`${name} — ${humanizeBytes(bytes)}`} value={bytes} max={maxBackendBytes} />
+                <Bar key={name} label={name} valueLabel={humanizeBytes(bytes)} value={bytes} max={maxBackendBytes} />
               ))
             )}
           </CardContent>
@@ -341,17 +341,18 @@ export function HistoryStats() {
               stats.recent_prints.slice(0, 10).map((entry) => {
                 const badge = RESULT_BADGE[entry.result];
                 return (
-                  <div key={entry.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <div key={entry.id} className="flex items-center gap-2 text-sm whitespace-nowrap">
                     {entry.model_slug ? (
                       <Link
                         to="/models/$slug"
                         params={{ slug: entry.model_slug }}
-                        className="truncate font-medium text-foreground hover:underline"
+                        className="min-w-0 truncate font-medium text-foreground hover:underline"
+                        title={entry.model_name ?? undefined}
                       >
                         {entry.model_name}
                       </Link>
                     ) : (
-                      <span className="truncate font-medium text-foreground">{entry.model_name}</span>
+                      <span className="min-w-0 truncate font-medium text-foreground" title={entry.model_name ?? undefined}>{entry.model_name}</span>
                     )}
                     <Badge variant={badge.variant} className={badge.className}>
                       {t(RESULT_LABELS[entry.result])}

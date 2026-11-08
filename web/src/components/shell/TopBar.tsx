@@ -64,7 +64,7 @@ export function TopBar({
           <ArrowLeftIcon className="size-4" />
         </Button>
       )}
-      <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground" title={crumb}>{crumb}</div>
+      <div className="min-w-16 flex-1 truncate text-sm text-muted-foreground" title={crumb}>{crumb}</div>
       <PlugSwitchbar />
       <UpdateBadge />
       <Button

@@ -865,7 +865,8 @@ function PrintDialogBody({
                         <li key={m.id}>
                           <button
                             type="button"
-                            className="w-full py-2 text-left text-sm hover:underline"
+                            aria-current={pickedModelId === m.id ? "true" : undefined}
+                            className={cn("w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted", pickedModelId === m.id && "bg-accent font-medium")}
                             onClick={() => { setTouched(true); setPickedModelId(m.id); }}
                           >
                             {m.name}
@@ -881,7 +882,8 @@ function PrintDialogBody({
                         <li key={f.id}>
                           <button
                             type="button"
-                            className="w-full py-2 text-left text-sm hover:underline"
+                            aria-current={effectiveFileId === f.id ? "true" : undefined}
+                            className={cn("w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted", effectiveFileId === f.id && "bg-accent font-medium")}
                             onClick={() => { setTouched(true); setPickedFileId(f.id); }}
                           >
                             {f.rel_path}
@@ -1234,7 +1236,7 @@ function PrintDialogBody({
         </div>
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
           {profileMode === "recipe" ? (
-            <p className="text-sm text-muted-foreground">{selectedRecipe?.name ?? t("printDialog.recipe")}</p>
+            <p className="truncate rounded-md bg-muted px-2 py-1 text-sm text-foreground/80">{selectedRecipe?.name ?? t("printDialog.recipe")}</p>
           ) : (
             <SpecRow
               items={[

@@ -18,7 +18,7 @@ import { PageContainer } from "@/components/ui/page-container";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SwitchRow } from "@/components/ui/switch-row";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { detectSite } from "@/lib/importSites";
+import { detectSite, siteLabel } from "@/lib/importSites";
 import { useDebouncedValue } from "@/lib/format";
 import type { ImportSite, ModelDetail, SearchResult } from "@/api/types";
 
@@ -49,7 +49,7 @@ export function AddPage() {
       </div>
 
       <Tabs defaultValue="upload">
-        <TabsList>
+        <TabsList className="mb-4">
           <TabsTrigger value="upload">{t("addPage.upload")}</TabsTrigger>
           <TabsTrigger value="url">{t("addPage.importUrl")}</TabsTrigger>
           <TabsTrigger value="search">{t("addPage.search")}</TabsTrigger>
@@ -99,7 +99,7 @@ function UploadPanel() {
   }
 
   return (
-    <Card className="max-w-3xl">
+    <Card className="w-full max-w-3xl">
       <CardHeader>
         <CardTitle>{t("addPage.upload")}</CardTitle>
         <CardDescription>{t("addPage.uploadDesc")}</CardDescription>
@@ -153,7 +153,7 @@ function UrlImportCard({ onImportStarted }: { onImportStarted: (id: number) => v
   }
 
   return (
-    <Card className="max-w-3xl">
+    <Card className="w-full max-w-3xl">
       <CardHeader>
         <CardTitle>{t("addPage.modelUrl")}</CardTitle>
         <CardDescription>{t("addPage.siteDetected")}</CardDescription>
@@ -261,7 +261,7 @@ function SearchPanel({ onImportStarted }: { onImportStarted: (id: number) => voi
           })}
         </div>
 
-        <div className="flex max-w-3xl flex-col gap-1.5">
+        <div className="flex w-full max-w-3xl flex-col gap-1.5">
           <Label htmlFor="search-query">{t("addPage.query")}</Label>
           <Input
             id="search-query"
@@ -358,8 +358,8 @@ function SearchResultCard({
         ) : (
           <ImageIcon className="size-8 text-muted-foreground" />
         )}
-        <Badge variant="secondary" className="absolute top-1.5 left-1.5 capitalize backdrop-blur-sm">
-          {result.site}
+        <Badge variant="secondary" className="absolute top-1.5 left-1.5 backdrop-blur-sm">
+          {siteLabel(result.site)}
         </Badge>
       </div>
       <CardContent className="flex flex-col gap-1.5">
