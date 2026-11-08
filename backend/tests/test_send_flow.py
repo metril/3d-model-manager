@@ -199,9 +199,7 @@ def _seed_printer_and_job(settings, redis_url, *, content, fmt) -> tuple[int, in
         )
         s.add(f)
         s.flush()
-        job = PrintJob(
-            printer_id=printer.id, file_id=f.id, state=PrintJobState.QUEUED, subtask_name="w"
-        )
+        job = PrintJob(printer_id=printer.id, file_id=f.id, state=PrintJobState.QUEUED)
         s.add(job)
         s.commit()
         return printer.id, job.id
@@ -542,6 +540,7 @@ def test_send_uploads_then_starts_via_bus_without_mqtt(
     assert [c for c, _ in fake_adapter.bus_calls] == ["project_start"]
     args = fake_adapter.bus_calls[0][1]
     assert args["remote_name"] == f"tdmm-{job_id}.gcode.3mf" and args["plate"] == 1
+    assert args["subtask_name"] == "TD"  # the model name, not the file's rel_path
     assert fake_adapter.connected is False  # the worker never opens MQTT
     with base.sync_session() as s:
         assert s.get(PrintJob, job_id).state == PrintJobState.STARTING.value
