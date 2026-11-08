@@ -45,8 +45,10 @@ from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.plates import resolve_plate
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import (
+    CANCEL_ERROR_CODES,
     DISPATCH_IDLE_STATES,
     START_TIMEOUT_ERROR,
+    STATE_UNKNOWN_ERROR,
     failed_hold_reason,
     read_state_sync,
 )
@@ -373,7 +375,9 @@ def _printer_rejected(job: PrintJob) -> bool:
     """A never-started job the printer itself failed: ``printer_error`` is the
     numeric ``print_error`` word (upload/start-timeout errors are text)."""
     return job.started_at is None and (
-        (job.printer_error or "").isdigit() or (job.raw_status or {}).get("gcode_state") == "FAILED"
+        (job.printer_error or "").isdigit()
+        or job.printer_error == STATE_UNKNOWN_ERROR
+        or (job.raw_status or {}).get("gcode_state") == "FAILED"
     )
 
 
@@ -430,8 +434,22 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         if gcode in ("PREPARE", "RUNNING", "PAUSE"):
             continue  # the printer is visibly working on it
         err = int((state or {}).get("print_error") or 0)
+        at_send = unstarted.print_error_at_send
         printer = session.get(Printer, unstarted.printer_id)
-        if err and err != (unstarted.print_error_at_send or 0) and printer is not None:
+        if gcode not in ("IDLE", "FINISH", "FAILED"):
+            # Unknown state (MQTT drop, printerd restart, expired key): the
+            # printer may still be printing this file. Never re-send it; hold.
+            unstarted.printer_error = STATE_UNKNOWN_ERROR
+            if printer is not None:
+                printer.awaiting_plate_clear = True
+                printer.failed_at = datetime.now(UTC)
+        elif (
+            err
+            and at_send is not None
+            and err != at_send
+            and err not in CANCEL_ERROR_CODES
+            and printer is not None
+        ):
             # The printer took the job and dropped it with a new error that
             # printerd never saw as a transition: final, and hold the printer.
             unstarted.printer_error = str(err)

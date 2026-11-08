@@ -17,6 +17,7 @@ from app.printers.base import PrinterConnection, state_key
 from app.printers.fake import FakeCamera, FakePrinterAdapter
 from app.services import camera_state as cs
 from app.services import spool_inventory
+from app.services.printer_state import STATE_UNKNOWN_ERROR, failed_hold_reason
 from app.tasks import base
 from tests.cassettes import bambu_snapshots as cass
 
@@ -1322,3 +1323,108 @@ def test_prepare_keeps_starting_timeout(worker):
     w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
     with base.sync_session() as s:
         assert s.get(PrintJob, job_id).starting_at is not None
+
+
+def _failed_at(pid):
+    with base.sync_session() as s:
+        return s.get(Printer, pid).failed_at
+
+
+def test_unknown_timeout_job_is_readopted_on_running(worker):
+    w, _adapter, pid, _ = worker
+    with base.sync_session() as s:
+        job = PrintJob(
+            printer_id=pid,
+            file_id=None,
+            state=PrintJobState.FAILED,
+            subtask_name="tdmm",
+            printer_error=STATE_UNKNOWN_ERROR,
+            finished_at=datetime.now(UTC),
+        )
+        s.add(job)
+        s.commit()
+        job_id = job.id
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    assert _state(job_id) == "printing"
+    with base.sync_session() as s:
+        assert s.query(PrintJob).filter(PrintJob.printer_id == pid).count() == 1
+        assert s.get(PrintJob, job_id).printer_error is None
+
+
+def test_first_seen_zero_seeds_legacy_baseline(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)  # print_error_at_send NULL
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    assert _state(job_id) == "printing"
+    w.handle_report({"gcode_state": "IDLE", "print_error": 83902467, "subtask_name": "tdmm"})
+    assert _state(job_id) == "failed"
+    assert _failed_at(pid) is not None
+
+
+def test_external_job_records_zero_baseline(worker):
+    w, _adapter, pid, _ = worker
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "x"})
+    with base.sync_session() as s:
+        job = s.query(PrintJob).filter(PrintJob.printer_id == pid).one()
+        assert job.print_error_at_send == 0
+
+
+def test_started_job_ending_idle_with_baseline_code_fails_and_holds(worker):
+    w, _adapter, pid, _ = worker
+    x = 50348044
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=x)
+    w.handle_report({"gcode_state": "RUNNING", "print_error": x, "subtask_name": "tdmm"})
+    assert _state(job_id) == "printing"
+    w.handle_report({"gcode_state": "IDLE", "print_error": x, "subtask_name": "tdmm"})
+    assert _state(job_id) == "failed"
+    assert _failed_at(pid) is not None
+
+
+def test_started_job_ending_idle_with_baseline_code_and_stop_is_canceled(worker):
+    w, _adapter, pid, _ = worker
+    x = 83902467
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=x)
+    w.handle_report({"gcode_state": "RUNNING", "print_error": x, "subtask_name": "tdmm"})
+    w._stop_requested = True
+    w.handle_report({"gcode_state": "IDLE", "print_error": x, "subtask_name": "tdmm"})
+    assert _state(job_id) == "canceled"
+    assert _failed_at(pid) is None
+
+
+def test_same_code_rejection_after_prepare_fails_job(worker):
+    w, _adapter, pid, _ = worker
+    x = 83902467
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=x)
+    w.handle_report({"gcode_state": "IDLE", "print_error": x})
+    w.handle_report({"gcode_state": "PREPARE", "print_error": x, "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "IDLE", "print_error": x})
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == "failed" and job.printer_error == str(x)
+    assert _failed_at(pid) is not None
+
+
+def test_cancel_reported_as_failed_never_holds(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=0)
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
+    assert _state(job_id) == "canceled"
+    assert _failed_at(pid) is None
+    w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
+    with base.sync_session() as s:
+        assert failed_hold_reason(s.get(Printer, pid), "FAILED") is None
+    w.handle_report({"gcode_state": "IDLE"})
+    # a later genuine failure (no job) still holds
+    w.handle_report({"gcode_state": "RUNNING"})
+    w.handle_report({"gcode_state": "FAILED"})
+    assert _failed_at(pid) is not None
+
+
+def test_real_failure_with_stale_cancel_baseline_is_not_canceled(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING, err_at_send=50348044)
+    w.handle_report({"gcode_state": "RUNNING", "print_error": 50348044, "subtask_name": "tdmm"})
+    w.handle_report({"gcode_state": "FAILED", "print_error": 50348044, "subtask_name": "tdmm"})
+    assert _state(job_id) == "failed"
+    assert _failed_at(pid) is not None

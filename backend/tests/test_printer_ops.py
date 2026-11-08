@@ -924,3 +924,17 @@ async def test_sd_print_job_times_out_when_printer_never_starts(
         j = s.get(PrintJob, job_id)
         assert j.state == PrintJobState.FAILED.value
         assert j.printer_error == "printer did not start the job"
+
+
+async def test_clear_plate_releases_idle_failure_hold(
+    authenticated_client, printer_enabled, set_state
+):
+    pid = await _printer(authenticated_client)
+    set_state(pid, **IDLE)
+    with base.sync_session() as s:
+        s.get(Printer, pid).failed_at = datetime.now(UTC)
+        s.commit()
+    r = await authenticated_client.post(f"/api/printers/{pid}/clear-plate")
+    assert r.status_code == 200
+    r = await authenticated_client.post(f"/api/printers/{pid}/clear-plate")
+    assert r.status_code == 400  # acknowledged: nothing left to clear

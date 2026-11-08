@@ -25,7 +25,7 @@ import logging
 import signal
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import redis
 from sqlalchemy import select
@@ -33,7 +33,8 @@ from sqlalchemy import select
 from app.config import Settings, get_settings
 from app.logging_config import LevelPoller, configure_logging
 from app.models import Printer, PrintJob
-from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState
+from app.models.enums import ArchiveResult, PrintJobOrigin, PrintJobState, QueueState
+from app.models.library import PrintQueueEntry
 from app.printers import commands as cmds
 from app.printers import pause_eta
 from app.printers.base import (
@@ -65,6 +66,7 @@ from app.services.energy_price import sample_energy_price
 from app.services.events import publish_print_job_event_sync
 from app.services.notify import hms_dedup
 from app.services.notify.events import emit_bg
+from app.services.printer_state import CANCEL_ERROR_CODES, STATE_UNKNOWN_ERROR
 from app.services.queue_settings import get_queue_config_sync
 from app.services.redis_pool import get_sync_redis
 from app.services.server_config import seed_all_sync_safe
@@ -88,9 +90,6 @@ STALE_AFTER_S = 120.0
 STATE_TTL_S = 300
 # Q8b: sensor-history sampling cadence (no extra printer polling).
 SENSOR_INTERVAL_S = 60.0
-# Bambu print_error code the printer reports when a print is cancelled
-# (0x0300400C). Pending live verification (P2 Task 12).
-CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
 # How long a command waits for the printer's MQTT reply (adapters that emit
 # replies only). Must stay well under the API's 3 s wait.
 REPLY_WAIT_S = 1.5
@@ -231,6 +230,7 @@ class PrinterWorker:
         self._tray_sig: tuple | None = None
         self._nozzle_seen: float | None = None
         self._prev_gcode: str | None = None
+        self._report_prev: str | None = None  # gcode of the report before this one
         self._stale_terminal = False
         # job id -> (gcode_state, subtask_name) the printer showed when we first
         # saw that job in flight; ids that went through PREPARE/RUNNING since.
@@ -482,6 +482,7 @@ class PrinterWorker:
             public.gcode_state in ("FINISH", "FAILED") and public.gcode_state == self._prev_gcode
         )
         prev_gcode = self._prev_gcode
+        self._report_prev = prev_gcode
         self._prev_gcode = public.gcode_state
         self._track_failed_at(public.gcode_state, prev_gcode)
         self._write_public(public)
@@ -714,10 +715,75 @@ class PrinterWorker:
     def _effective_state(self, job, public: PrinterPublicState, new_state):
         """A ``print_error`` equal to the one the printer held when this job was
         sent is a leftover of a previous print for the job's whole life: judge
-        the job by gcode_state alone. A different non-zero error is real."""
-        if not public.print_error or int(public.print_error) != self._error_baseline(job, public):
+        the job by gcode_state alone. A different non-zero error is real.
+
+        Exception: a job the printer was preparing/running that drops to IDLE
+        has ended even though only the stale code remains -- never let it sit
+        in PRINTING/STARTING (and let the next item print onto the plate)."""
+        base_err = self._error_baseline(job, public)  # seeds a legacy row at zero too
+        err = int(public.print_error or 0)
+        if not err or err != base_err:
             return new_state
-        return self.adapter.job_state(dataclasses.replace(public, print_error=0))
+        masked = self.adapter.job_state(dataclasses.replace(public, print_error=0))
+        if (
+            masked is None
+            and public.gcode_state == "IDLE"
+            and self._report_prev in ("PREPARE", "RUNNING", "PAUSE")
+            and (job.started_at is not None or job.state == PrintJobState.STARTING.value)
+        ):
+            return PrintJobState.FAILED
+        return masked
+
+    def _adopt_unknown_timeout_job(self, session, public: PrinterPublicState) -> bool:
+        """The printer starts running a file whose job reconcile failed as
+        "state unknown" (link dropped at the timeout): re-attach the job instead
+        of recording an unrelated EXTERNAL one. Needs a matching subtask_name."""
+        if not public.subtask_name:
+            return False
+        job = (
+            session.execute(
+                select(PrintJob)
+                .where(
+                    PrintJob.printer_id == self.printer_id,
+                    PrintJob.state == PrintJobState.FAILED.value,
+                    PrintJob.started_at.is_(None),
+                    PrintJob.printer_error == STATE_UNKNOWN_ERROR,
+                    PrintJob.subtask_name == public.subtask_name,
+                    PrintJob.finished_at > datetime.now(UTC) - timedelta(hours=6),
+                )
+                .order_by(PrintJob.id.desc())
+            )
+            .scalars()
+            .first()
+        )
+        if job is None:
+            return False
+        now = datetime.now(UTC)
+        job.state = PrintJobState.PRINTING.value
+        job.started_at = now
+        job.finished_at = None
+        job.printer_error = None
+        job.raw_status = self._merged
+        job.tray_snapshot = {"start": _tray_pcts(public.trays)}
+        for entry in session.scalars(
+            select(PrintQueueEntry).where(
+                PrintQueueEntry.print_job_id == job.id,
+                PrintQueueEntry.state == QueueState.FAILED,
+            )
+        ).all():
+            entry.state = QueueState.DISPATCHED
+            entry.last_error = None
+        printer_row = session.get(Printer, self.printer_id)
+        if printer_row is not None:
+            printer_row.awaiting_plate_clear = False
+        session.commit()
+        publish_print_job_event_sync(
+            self.settings.redis_url,
+            print_job_id=job.id,
+            printer_id=self.printer_id,
+            state=PrintJobState.PRINTING.value,
+        )
+        return True
 
     def _transition_active_job(self, public: PrinterPublicState) -> None:
         new_state = self.adapter.job_state(public)
@@ -727,6 +793,8 @@ class PrinterWorker:
             job = self._active_job(session)
             if job is None:
                 if new_state != PrintJobState.PRINTING:
+                    return
+                if self._adopt_unknown_timeout_job(session, public):
                     return
                 self._stop_requested = False
                 with contextlib.suppress(Exception):
@@ -740,6 +808,7 @@ class PrinterWorker:
                     file_id=None,
                     origin=PrintJobOrigin.EXTERNAL,
                     created_by_user_id=None,
+                    print_error_at_send=0,
                     state=PrintJobState.PRINTING,
                     started_at=datetime.now(UTC),
                     subtask_name=public.subtask_name,
@@ -781,16 +850,23 @@ class PrinterWorker:
             prev_state = job.state
             result: ArchiveResult | None = None
             if new_state in _TERMINAL:
-                result = terminal_result(new_state, public.print_error, self._stop_requested)
+                # An error equal to the send-time one is a leftover, not a cancel.
+                stale = int(public.print_error or 0) == self._error_baseline(job, public)
+                result = terminal_result(
+                    new_state, 0 if stale else public.print_error, self._stop_requested
+                )
                 if result in (ArchiveResult.CANCELED, ArchiveResult.STOPPED):
                     new_state = PrintJobState.CANCELED
                 self._stop_requested = False
-                if result == ArchiveResult.FAILED and public.gcode_state != "FAILED":
-                    # A real failure reported as IDLE: hold the printer like a
-                    # FAILED report until a person clears it.
-                    printer_row = session.get(Printer, self.printer_id)
-                    if printer_row is not None:
+                printer_row = session.get(Printer, self.printer_id)
+                if printer_row is not None:
+                    if result == ArchiveResult.FAILED and public.gcode_state != "FAILED":
+                        # A real failure reported as IDLE: hold the printer like
+                        # a FAILED report until a person clears it.
                         printer_row.failed_at = datetime.now(UTC)
+                    elif result in (ArchiveResult.CANCELED, ArchiveResult.STOPPED):
+                        # A cancel (even one reported as FAILED) never holds.
+                        printer_row.failed_at = None
             if new_state == PrintJobState.PRINTING:
                 self._stop_requested = False
             job.state = new_state.value

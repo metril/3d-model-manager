@@ -32,7 +32,7 @@ from app.security import hash_password
 from app.services import dispatcher
 from app.services.ams_match import FilamentNeed
 from app.services.dispatcher import Candidate, Needs, compatibility_reason, select_printers
-from app.services.printer_state import START_TIMEOUT_ERROR, dispatch_idle
+from app.services.printer_state import START_TIMEOUT_ERROR, STATE_UNKNOWN_ERROR, dispatch_idle
 from app.tasks import base
 from app.tasks import dispatch as dispatch_task
 
@@ -1506,3 +1506,70 @@ def test_failed_state_job_without_code_is_final(redis_url: str, fake_adapter):
     with base.sync_session() as s:
         e = s.get(PrintQueueEntry, eid)
         assert e.state == QueueState.FAILED and e.attempts == 0
+
+
+def _stuck_no_state(redis_url: str, *, state: dict | None, err_at_send: int | None, slug: str):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=slug)
+        printer = _seed_printer(s, name=f"P-{slug}")
+        admin_id = _seed_admin(s)
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.STARTING,
+            starting_at=datetime.now(UTC) - timedelta(hours=1),
+            print_error_at_send=err_at_send,
+        )
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.DISPATCHED, created_by=admin_id
+        )
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        ids = (entry.id, job.id, printer.id)
+    if state is not None:
+        _seed_state(redis_url, ids[2], {**IDLE_STATE, **state})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    return ids
+
+
+def test_starting_timeout_with_unknown_state_is_final_and_holds(redis_url: str, fake_adapter):
+    ids = _stuck_no_state(redis_url, state=None, err_at_send=0, slug="unknown-state")
+    with base.sync_session() as s:
+        job = s.get(PrintJob, ids[1])
+        assert job.state == PrintJobState.FAILED and job.printer_error == STATE_UNKNOWN_ERROR
+        entry = s.get(PrintQueueEntry, ids[0])
+        assert entry.state == QueueState.FAILED and entry.attempts == 0
+        assert "unknown" in entry.last_error
+        assert s.get(Printer, ids[2]).failed_at is not None
+
+
+def test_timeout_with_cancel_code_is_plain_timeout(redis_url: str, fake_adapter):
+    ids = _stuck_no_state(
+        redis_url,
+        state={"gcode_state": "IDLE", "print_error": 50348044},
+        err_at_send=0,
+        slug="cancel-code",
+    )
+    with base.sync_session() as s:
+        assert s.get(PrintJob, ids[1]).printer_error == START_TIMEOUT_ERROR
+        assert s.get(Printer, ids[2]).failed_at is None
+
+
+def test_timeout_with_null_baseline_takes_timeout_path(redis_url: str, fake_adapter):
+    ids = _stuck_no_state(
+        redis_url,
+        state={"gcode_state": "IDLE", "print_error": 83902467},
+        err_at_send=None,
+        slug="null-baseline",
+    )
+    with base.sync_session() as s:
+        assert s.get(PrintJob, ids[1]).printer_error == START_TIMEOUT_ERROR
+        assert s.get(Printer, ids[2]).failed_at is None
