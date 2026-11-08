@@ -150,7 +150,7 @@ function CreateForm() {
           <Label htmlFor="api-key-expiry">{t("apiKeys.expires")}</Label>
           <select
             id="api-key-expiry"
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+            className="h-8 rounded-lg border border-input bg-transparent ps-2 text-sm"
             value={expiry}
             onChange={(e) => setExpiry(e.target.value)}
           >

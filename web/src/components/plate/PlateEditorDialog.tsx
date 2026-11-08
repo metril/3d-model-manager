@@ -835,7 +835,7 @@ export function PlateEditorDialog({
               id="plate-printer"
               value={profileId}
               onChange={(e) => setProfileId(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+              className="h-8 rounded-lg border border-input bg-transparent ps-2 text-sm"
             >
               <option value="">{t("plate.customBed")}</option>
               {usable.map(({ profile, bed: b }) => (

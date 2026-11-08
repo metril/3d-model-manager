@@ -362,7 +362,7 @@ function ArchivesCard({ projectId, canWrite }: { projectId: number; canWrite: bo
           <div className="flex gap-2 pt-2">
             <select
               aria-label={t("projectDetail.archiveToLink")}
-              className="h-8 flex-1 rounded-md border bg-background px-2 text-sm"
+              className="h-8 flex-1 rounded-md border bg-background ps-2 text-sm"
               value={pick}
               onChange={(e) => setPick(e.target.value)}
             >
@@ -551,7 +551,7 @@ function Header({ project, canWrite, canPrint }: { project: ProjectDetail; canWr
       <div className="flex flex-wrap items-center gap-3">
         <select
           aria-label={t("projectDetail.status")}
-          className="h-8 rounded-md border bg-background px-2 text-sm"
+          className="h-8 rounded-md border bg-background ps-2 text-sm"
           value={project.status}
           disabled={!canWrite}
           onChange={(e) => patch.mutate({ status: e.target.value as ProjectStatus })}
