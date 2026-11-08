@@ -28,8 +28,8 @@ const DEFAULT_BUILD_VOLUME = { x: 256, y: 256, z: 256 };
  * extracts a `.gcode.3mf`'s embedded plate gcode; a bare `.gcode` file
  * would just stream itself, though `PlatePanel` only mounts this for
  * sliced files today. */
-function gcodeDownloadUrl(fileId: number): string {
-  return `/api/files/${fileId}/download?member=gcode`;
+function gcodeDownloadUrl(fileId: number, plate?: number): string {
+  return `/api/files/${fileId}/download?member=gcode${plate !== undefined ? `&plate=${plate}` : ""}`;
 }
 
 /** Above this, don't even try to load the gcode text into the browser
@@ -39,10 +39,13 @@ function gcodeDownloadUrl(fileId: number): string {
 
 export function GcodePreview({
   fileId,
+  plate,
   buildVolume,
   extrusionColor,
 }: {
   fileId: number;
+  /** Sliced plate index; omit to let the backend pick the first plate present. */
+  plate?: number;
   buildVolume?: { x: number; y: number; z: number };
   extrusionColor?: string;
 }) {
@@ -79,7 +82,7 @@ export function GcodePreview({
       try {
         const [{ init }, response] = await Promise.all([
           import("gcode-preview"),
-          fetch(gcodeDownloadUrl(fileId), { credentials: "include", signal: controller.signal }),
+          fetch(gcodeDownloadUrl(fileId, plate), { credentials: "include", signal: controller.signal }),
         ]);
         if (!response.ok) throw new Error(`gcode download failed: ${response.status}`);
 
@@ -124,7 +127,7 @@ export function GcodePreview({
       previewRef.current = null;
     };
     // Colour is applied by the effect below without re-parsing.
-  }, [fileId, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z]);
+  }, [fileId, plate, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z]);
 
   useEffect(() => {
     const preview = previewRef.current;

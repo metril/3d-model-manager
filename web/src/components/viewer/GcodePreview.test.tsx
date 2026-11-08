@@ -44,6 +44,14 @@ describe("GcodePreview", () => {
     ) as unknown as typeof fetch;
   });
 
+  it("passes the plate param when the sliced plate is known", async () => {
+    render(<GcodePreview fileId={42} plate={3} />);
+
+    await waitFor(() => expect(processGCode).toHaveBeenCalled());
+    const url = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(url).toBe("/api/files/42/download?member=gcode&plate=3");
+  });
+
   it("fetches the file's embedded gcode via the member=gcode download param", async () => {
     render(<GcodePreview fileId={42} />);
 
