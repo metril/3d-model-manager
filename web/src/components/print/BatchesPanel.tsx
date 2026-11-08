@@ -238,7 +238,7 @@ function BatchDialog({
               <Label htmlFor="batch-printer">{t("queueSched.batches.printer")}</Label>
               <select
                 id="batch-printer"
-                className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
+                className="h-8 w-44 rounded-md border border-input bg-transparent ps-2 text-sm"
                 disabled={!structural}
                 value={printerId}
                 onChange={(e) => setPrinterId(e.target.value)}

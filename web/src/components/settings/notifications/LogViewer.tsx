@@ -30,7 +30,7 @@ export function LogViewer() {
           <Label htmlFor="nl-status">{t("settingsNotifLog.status")}</Label>
           <select
             id="nl-status"
-            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            className="h-9 rounded-md border border-input bg-transparent ps-3 text-sm"
             value={status}
             onChange={(e) => {
               setStatus(e.target.value);

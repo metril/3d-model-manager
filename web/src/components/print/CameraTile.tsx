@@ -452,7 +452,7 @@ export function CameraTile({
                 setFpsOverride(Number(e.target.value));
                 setLoaded(false);
               }}
-              className="h-6 rounded bg-black/50 px-1 text-xs text-white"
+              className="h-6 rounded bg-black/50 ps-1 text-xs text-white"
             >
               {fps === undefined ? <option value="">{t("cameraTile.fps")}</option> : null}
               {FPS_CHOICES.map((f) => (

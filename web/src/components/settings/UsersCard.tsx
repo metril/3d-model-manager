@@ -45,7 +45,7 @@ function RoleSelect({
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value as UserRole)}
-      className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+      className="h-8 rounded-lg border border-input bg-transparent ps-2 text-sm"
     >
       {ROLES.map((r) => (
         <option key={r} value={r}>

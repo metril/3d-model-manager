@@ -193,7 +193,7 @@ export function ProjectsPage() {
           <>
             <select
               aria-label={t("projectsPage.statusFilter")}
-              className="h-8 rounded-md border bg-background px-2 text-sm"
+              className="h-8 rounded-md border bg-background ps-2 text-sm"
               value={status}
               onChange={(e) => setStatus(e.target.value as ProjectStatus | "")}
             >

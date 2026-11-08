@@ -141,7 +141,7 @@ function BatchPicker({ value, onChange }: { value: BatchChoice; onChange: (b: Ba
       <Label htmlFor="sched-batch">{t("queueSched.batch")}</Label>
       <select
         id="sched-batch"
-        className="h-8 w-64 rounded-md border border-input bg-transparent px-2 text-sm"
+        className="h-8 w-64 rounded-md border border-input bg-transparent ps-2 text-sm"
         value={selectValue}
         onChange={(e) => {
           const v = e.target.value;

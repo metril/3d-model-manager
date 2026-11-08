@@ -99,7 +99,7 @@ export function AppearanceCard() {
             id="ui-language"
             value={i18n.resolvedLanguage ?? "en"}
             onChange={(e) => void i18n.changeLanguage(e.target.value)}
-            className="block h-8 rounded-lg border border-input bg-background px-2 text-sm"
+            className="block h-8 rounded-lg border border-input bg-background ps-2 text-sm"
           >
             {Object.entries(LANGUAGES).map(([code, name]) => (
               <option key={code} value={code}>
