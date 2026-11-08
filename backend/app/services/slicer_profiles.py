@@ -56,19 +56,60 @@ class ProfileImportError(ValueError):
     a cycle), or a zip whose members try to escape the extraction dir."""
 
 
-def resolve(name: str, by_name: dict[str, dict], _seen: frozenset[str] = frozenset()) -> dict:
-    """Flattens `name`'s `inherits` chain within `by_name` (one kind-folder's
-    worth of presets) into a single dict, child keys winning over inherited
-    ones, with no `inherits` key left in the result."""
+_MAX_DEPTH = 32
+
+# Identity/metadata keys of an `include` template; never merged onto the leaf.
+INCLUDE_SKIP_KEYS = frozenset(
+    {
+        "name",
+        "from",
+        "instantiation",
+        "setting_id",
+        "filament_id",
+        "type",
+        "inherits",
+        "include",
+        "version",
+        "description",
+        "renamed_from",
+    }
+)
+
+
+def resolve(
+    name: str,
+    by_name: dict[str, dict],
+    _seen: frozenset[str] = frozenset(),
+) -> dict:
+    """Flattens `name`'s `inherits` chain and `include` templates within
+    `by_name` (one kind-folder's worth of presets) into a single dict. Merge
+    order: inherited base, each include in listed order, then the preset's
+    own keys (child wins). No `inherits`/`include` key is left in the result."""
     if name in _seen:
         raise ProfileImportError(f"inherits cycle at {name!r}")
+    if len(_seen) > _MAX_DEPTH:
+        raise ProfileImportError("inherits chain too deep")
     raw = by_name.get(name)
     if raw is None:
         raise ProfileImportError(f"missing parent {name!r}")
-    parent = raw.get("inherits")
-    base = resolve(parent, by_name, _seen | {name}) if parent else {}
-    merged = {**base, **raw}
+    seen = _seen | {name}
+    merged: dict = {}
+    if raw.get("inherits"):
+        merged.update(resolve(raw["inherits"], by_name, seen))
+    includes = raw.get("include") or []
+    if isinstance(includes, str):
+        includes = [includes]
+    for ref in includes:
+        merged.update(
+            {
+                k: v
+                for k, v in resolve(str(ref), by_name, seen).items()
+                if k not in INCLUDE_SKIP_KEYS
+            }
+        )
+    merged.update(raw)
     merged.pop("inherits", None)
+    merged.pop("include", None)
     return merged
 
 
@@ -275,7 +316,8 @@ def upsert_profiles(
     """Get-or-creates a `SlicerProfile` row per `(kind, name)` -- a
     re-import of the same bundle updates `data`/`printer_model`/`nozzle_mm`
     in place rather than duplicating. Returns `{"created", "updated",
-    "skipped"}`.
+    "skipped"}`. Profiles whose data still has an unresolved `include` key
+    are skipped (and counted) rather than imported.
 
     `source=ProfileSource.SYNCED` (sidecar sync): new rows are tagged
     `synced`; an existing row is only refreshed when it is itself `synced`
@@ -286,6 +328,11 @@ def upsert_profiles(
     updated = 0
     skipped = 0
     for profile in parsed:
+        if isinstance(profile.data, dict) and "include" in profile.data:
+            # Stale, unresolved flatten from an older slicer bundle: refuse it
+            # so it can't overwrite/seed rows with incomplete G-code.
+            skipped += 1
+            continue
         meta = profile.meta or derive_profile_meta(
             profile.kind,
             profile.data,

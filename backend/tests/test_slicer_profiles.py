@@ -235,3 +235,75 @@ def test_load_folder_recurses_vendor_subfolders(tmp_path):
     (tmp_path / "filament" / "filament_name_map.json").write_text(json.dumps({"a": "b"}))
     (tmp_path / "filament" / "SUNLU" / "s.json").write_text(json.dumps({"name": "SUNLU PLA+"}))
     assert set(_load_folder(tmp_path, "filament")) == {"Top", "SUNLU PLA+"}
+
+
+# ---------------------------------------------------------------------------
+# include templates + stale-data import guard
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_include_order_recursion_and_child_wins():
+    by_name = {
+        "base": {"name": "base", "a": "base", "b": "base", "c": "base"},
+        "t1": {"name": "t1", "include": ["t2"], "b": "t1", "c": "t1"},
+        "t2": {"name": "t2", "inherits": "base", "c": "t2", "e": "t2"},
+        "t3": {"name": "t3", "c": "t3"},
+        "leaf": {"name": "leaf", "inherits": "base", "include": ["t1", "t3"], "d": "leaf"},
+    }
+    merged = resolve("leaf", by_name)
+    assert merged["a"] == "base" and merged["e"] == "t2" and merged["d"] == "leaf"
+    assert merged["b"] == "t1" and merged["c"] == "t3"
+    assert merged["name"] == "leaf"
+    assert "include" not in merged and "inherits" not in merged
+    by_name["leaf"]["c"] = "own"
+    assert resolve("leaf", by_name)["c"] == "own"
+
+
+def test_resolve_include_cycle_and_missing_raise():
+    cyc = {"a": {"name": "a", "include": ["b"]}, "b": {"name": "b", "include": ["a"]}}
+    with pytest.raises(ProfileImportError):
+        resolve("a", cyc)
+    with pytest.raises(ProfileImportError):
+        resolve("x", {"x": {"name": "x", "include": ["ghost"]}})
+
+
+@pytest.mark.asyncio
+async def test_upsert_skips_unresolved_include(db_session):
+    from app.tasks import base
+
+    parsed = [
+        ParsedProfile(
+            kind=ProfileKind.PRINTER,
+            name="stale",
+            printer_model=None,
+            nozzle_mm=None,
+            data={"name": "stale", "include": ["t"]},
+        ),
+        ParsedProfile(
+            kind=ProfileKind.PRINTER,
+            name="ok",
+            printer_model=None,
+            nozzle_mm=None,
+            data={"name": "ok"},
+        ),
+    ]
+    with base.sync_session() as session:
+        result = upsert_profiles(session, parsed, user_id=None, source=ProfileSource.SYNCED)
+    assert result == {"created": 1, "updated": 0, "skipped": 1}
+    rows = (await db_session.execute(SlicerProfile.__table__.select())).fetchall()
+    assert [r.name for r in rows] == ["ok"]
+
+
+def test_resolve_include_skips_template_identity_keys():
+    by_name = {
+        "t1": {
+            "name": "t1",
+            "instantiation": "false",
+            "setting_id": "T1",
+            "from": "system",
+            "x": 1,
+        },
+        "leaf": {"name": "leaf", "include": ["t1"]},
+    }
+    merged = resolve("leaf", by_name)
+    assert merged == {"name": "leaf", "x": 1}

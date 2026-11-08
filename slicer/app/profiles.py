@@ -38,6 +38,24 @@ def strip_unsafe(profile: dict) -> dict:
     return {k: v for k, v in profile.items() if k not in UNSAFE_KEYS}
 
 
+# Identity/metadata keys of an `include` template; never merged onto the leaf.
+INCLUDE_SKIP_KEYS = frozenset(
+    {
+        "name",
+        "from",
+        "instantiation",
+        "setting_id",
+        "filament_id",
+        "type",
+        "inherits",
+        "include",
+        "version",
+        "description",
+        "renamed_from",
+    }
+)
+
+
 class ProfileError(ValueError):
     """Unknown parent, inherits cycle, or chain too deep."""
 
@@ -81,29 +99,42 @@ class ProfileIndex:
                     self.by_kind[kind][name] = raw
                     self.vendor[kind][name] = rel[0] if len(rel) > 1 else vendor
 
-    def flatten_dict(self, kind: str, raw: dict) -> dict:
-        """Resolve `raw`'s `inherits` chain against the bundled presets of
-        `kind`; child keys win. Used for bundled and user-posted profiles."""
+    def _resolve(self, kind: str, raw: dict, path: frozenset[str], depth: int) -> dict:
+        """Merge order: inherited base, each `include` in listed order, then
+        `raw`'s own keys (child wins). `inherits`/`include` are dropped."""
+        if depth > MAX_DEPTH:
+            raise ProfileError("inherits chain too deep")
         pool = self.by_kind[kind]
-        chain = [raw]
-        seen = {str(raw.get("name", ""))}
-        cur = raw
-        while cur.get("inherits"):
-            parent_name = str(cur["inherits"])
-            if parent_name in seen:
-                raise ProfileError(f"inherits cycle at {parent_name!r}")
-            if len(chain) > MAX_DEPTH:
-                raise ProfileError("inherits chain too deep")
-            parent = pool.get(parent_name)
-            if parent is None:
-                raise ProfileError(f"unknown parent profile {parent_name!r}")
-            seen.add(parent_name)
-            chain.append(parent)
-            cur = parent
+
+        def target(ref, label: str) -> dict:
+            ref = str(ref)
+            if ref in path:
+                raise ProfileError(f"inherits cycle at {ref!r}")
+            found = pool.get(ref)
+            if found is None:
+                raise ProfileError(f"unknown {label} profile {ref!r}")
+            return self._resolve(kind, found, path | {ref}, depth + 1)
+
         merged: dict = {}
-        for item in reversed(chain):
-            merged.update(item)
+        if raw.get("inherits"):
+            merged.update(target(raw["inherits"], "parent"))
+        includes = raw.get("include") or []
+        if isinstance(includes, str):
+            includes = [includes]
+        for ref in includes:
+            merged.update(
+                {k: v for k, v in target(ref, "include").items() if k not in INCLUDE_SKIP_KEYS}
+            )
+        merged.update(raw)
         merged.pop("inherits", None)
+        merged.pop("include", None)
+        return merged
+
+    def flatten_dict(self, kind: str, raw: dict) -> dict:
+        """Resolve `raw`'s `inherits` chain and `include` templates against the
+        bundled presets of `kind`; child keys win. Used for bundled and
+        user-posted profiles."""
+        merged = self._resolve(kind, raw, frozenset({str(raw.get("name", ""))}), 0)
         return strip_unsafe(merged)
 
     def flatten(self, kind: str, name: str) -> dict:

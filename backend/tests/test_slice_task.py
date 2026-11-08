@@ -617,3 +617,21 @@ def test_all_plates_permanent_failure_fails_siblings_once(monkeypatch: pytest.Mo
         assert a.state == b.state == QueueState.FAILED
         assert b.last_error == a.last_error and b.attempts == 0
     assert [n[0] for n in notes] == ["slice_failed"]
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_unresolved_include_is_permanent_and_never_reaches_client(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    _set_process_data({"name": "Stale Process", "include": ["tmpl"]})
+    fake = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.state == QueueState.FAILED and e.attempts == 1
+        assert 'Profile "Stale Process" is incomplete' in e.last_error
+        assert "re-sync profiles" in e.last_error
+    assert fake.calls == 0
