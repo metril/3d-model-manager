@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/metril/3d-model-manager/compare/v0.20.0...v0.20.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **printing:** start queued prints through printerd's MQTT session ([#281](https://github.com/metril/3d-model-manager/issues/281)) ([11260e8](https://github.com/metril/3d-model-manager/commit/11260e85f96591b8506927858775f213aceb714c))
+
 ## [0.20.0](https://github.com/metril/3d-model-manager/compare/v0.19.2...v0.20.0) (2026-11-08)
 
 
