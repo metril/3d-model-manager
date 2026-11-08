@@ -7,8 +7,15 @@ from __future__ import annotations
 
 def sliced_plate_indices(meta) -> list[int]:
     """Plate indices of a sliced file's metadata, in file order (empty if unknown)."""
-    plates = ((getattr(meta, "raw", None) or {}).get("plates")) or []
-    return [p["index"] for p in plates if isinstance(p, dict) and isinstance(p.get("index"), int)]
+    plates = [
+        p
+        for p in ((getattr(meta, "raw", None) or {}).get("plates")) or []
+        if isinstance(p, dict) and isinstance(p.get("index"), int)
+    ]
+    # Prefer plates that really carry G-code (``gcode_file``) when the metadata records it.
+    if any(p.get("gcode_file") for p in plates):
+        plates = [p for p in plates if p.get("gcode_file")]
+    return [p["index"] for p in plates]
 
 
 def plate_indices(meta) -> list[int]:

@@ -281,8 +281,10 @@ async def fit_for_selection(
 
 
 async def guard_plate_index(db: AsyncSession, file, plate: int | None) -> None:
-    """422 ``invalid_plate`` when ``plate`` is past the file's plate count
-    (0/None = all plates, always valid). Unknown counts are not blocking."""
+    """422 ``invalid_plate`` when ``plate`` is not one of the file's real plate
+    indices (a single-plate slice may hold only plate 3), falling back to the
+    plate count where no indices are known. 0/None = all plates, always valid;
+    unknown counts are not blocking. The payload lists ``available_plates``."""
     from fastapi import HTTPException, status
 
     from app.models.processing import BlobMeta
@@ -304,9 +306,12 @@ async def guard_plate_index(db: AsyncSession, file, plate: int | None) -> None:
         status.HTTP_422_UNPROCESSABLE_CONTENT,
         {
             "code": "invalid_plate",
-            "message": f"plate {plate} does not exist (file has {count})",
+            "message": f"plate {plate} does not exist (file has {count}"
+            + (f": plates {', '.join(map(str, indices))}" if indices else "")
+            + ")",
             "plate": plate,
             "plate_count": count,
+            "available_plates": indices,
         },
     )
 

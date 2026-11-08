@@ -941,7 +941,7 @@ async def test_queue_rejects_unknown_plate_on_sliced_file(authenticated_client: 
     fid = _file_id()
     with base.sync_session() as s:
         f = s.get(File, fid)
-        s.merge(BlobMeta(blob_hash=f.blob_hash, plate_count=2))
+        s.merge(BlobMeta(blob_hash=f.blob_hash, plate_count=2, raw={}))
         s.commit()
     r = await c.post("/api/queue", json={"file_id": fid, "plate": 99})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_plate"
@@ -949,6 +949,8 @@ async def test_queue_rejects_unknown_plate_on_sliced_file(authenticated_client: 
     assert r.status_code == 422
     assert (await c.get("/api/queue")).json() == []  # nothing half-queued
     assert (await c.post("/api/queue", json={"file_id": fid, "plate": 2})).status_code == 201
+    r = await c.post("/api/queue", json={"file_id": fid, "plate": 3})
+    assert r.status_code == 422  # count fallback: no indices known, 3 > plate_count 2
 
 
 async def test_batch_creator_manages_own_batches(make_user, make_group, login_as):
@@ -990,6 +992,8 @@ async def test_queue_plate_only_slice_uses_real_index(authenticated_client: http
     r = await c.post("/api/queue", json={"file_id": fid, "plate": 3})
     assert r.status_code == 201, r.text
     r = await c.post("/api/queue", json={"file_id": fid, "plate": 1})
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_plate"
+    d = r.json()["detail"]
+    assert r.status_code == 422 and d["code"] == "invalid_plate"
+    assert d["available_plates"] == [3] and "plates 3" in d["message"]
     r = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [3]})
     assert r.status_code == 201, r.text
