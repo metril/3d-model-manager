@@ -107,21 +107,27 @@ async def _get_profile_or_404(db: AsyncSession, profile_id: int) -> SlicerProfil
 async def _recipe_outs(db: AsyncSession, rows: Sequence[PrintRecipe]) -> list[RecipeOut]:
     """``RecipeOut`` rows with their process profile's name + layer height,
     resolved with one query for all recipes (no N+1)."""
-    ids = {r.process_profile_id for r in rows}
-    procs: dict[int, tuple[str, float | None]] = {}
+    ids = {r.process_profile_id for r in rows} | {r.printer_profile_id for r in rows}
+    found_rows: dict[int, tuple[str, float | None, float | None]] = {}
     if ids:
         found = await db.execute(
-            select(SlicerProfile.id, SlicerProfile.name, SlicerProfile.layer_height_mm).where(
-                SlicerProfile.id.in_(ids)
-            )
+            select(
+                SlicerProfile.id,
+                SlicerProfile.name,
+                SlicerProfile.layer_height_mm,
+                SlicerProfile.nozzle_mm,
+            ).where(SlicerProfile.id.in_(ids))
         )
-        procs = {pid: (name, lh) for pid, name, lh in found.all()}
+        found_rows = {pid: (name, lh, nz) for pid, name, lh, nz in found.all()}
     out = []
     for row in rows:
         item = RecipeOut.model_validate(row, from_attributes=True)
-        name, lh = procs.get(row.process_profile_id, (None, None))
-        item.process_profile_name = name
-        item.process_layer_height_mm = lh
+        proc = found_rows.get(row.process_profile_id)
+        printer = found_rows.get(row.printer_profile_id)
+        item.process_profile_name = proc[0] if proc else None
+        item.process_layer_height_mm = proc[1] if proc else None
+        item.printer_profile_name = printer[0] if printer else None
+        item.printer_nozzle_mm = printer[2] if printer else None
         out.append(item)
     return out
 

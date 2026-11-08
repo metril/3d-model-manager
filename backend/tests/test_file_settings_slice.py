@@ -3,18 +3,64 @@ no process profile reaches the slicer; the recipe's printer + filament still do.
 
 from __future__ import annotations
 
+import io
+import json
 import uuid
+import zipfile
 
 import httpx
 import pytest
 
-from app.models.library import File, PrintQueueEntry
+from app.models.enums import BlobFormat, BlobKind
+from app.models.library import File, Model, PrintQueueEntry, Revision
 from app.models.slicing import SliceJob
 from app.tasks import slicing
 from tests.server_helpers import set_server
-from tests.test_slice_jobs import FakeClient, _fetch_stub, _setup  # noqa: F401
+from tests.test_slice_jobs import FakeClient, _setup
 
 pytestmark = pytest.mark.usefixtures("library_root")
+
+
+def _project_3mf() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "Metadata/project_settings.config",
+            json.dumps({"layer_height": "0.2", "nozzle_diameter": ["0.4"]}),
+        )
+    return buf.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def _fetch_stub(monkeypatch: pytest.MonkeyPatch):
+    from app.services import derivatives
+
+    def _fake_fetch(session, settings, blob_hash, dest_dir, suffix):
+        dest = dest_dir / f"blob{suffix}"
+        dest.write_bytes(_project_3mf())
+        return dest
+
+    monkeypatch.setattr(derivatives, "fetch_blob_to_temp", _fake_fetch)
+
+
+async def _setup_3mf(db, seed_file, slug):
+    _, _stl, recipe = await _setup(db, seed_file, slug)
+    model = Model(slug=f"{slug}-3mf", name=slug)
+    db.add(model)
+    await db.flush()
+    rev = Revision(model_id=model.id, number=1, dir_name="rev-001_init")
+    db.add(rev)
+    await db.commit()
+    await db.refresh(rev)
+    f = await seed_file(
+        model,
+        rev,
+        "part.3mf",
+        _project_3mf(),
+        blob_format=BlobFormat.THREEMF,
+        blob_kind=BlobKind.MESH,
+    )
+    return f, recipe
 
 
 class _SpyClient(FakeClient):
@@ -30,7 +76,7 @@ async def test_slice_job_file_settings_sends_no_process_profile(
     monkeypatch: pytest.MonkeyPatch,
     sliced_3mf_bytes: bytes,
 ) -> None:
-    _, f, recipe = await _setup(db_session, seed_file, "sj-fs")
+    f, recipe = await _setup_3mf(db_session, seed_file, "sj-fs")
     await set_server(slicer_enabled=True, slicer_url="http://s:1")
     spy = _SpyClient(result=sliced_3mf_bytes)
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: spy)
@@ -65,7 +111,7 @@ async def test_queue_plates_file_settings_reaches_entries(
 ) -> None:
     from sqlalchemy import select
 
-    _, f, recipe = await _setup(db_session, seed_file, "q-fs-plates")
+    f, recipe = await _setup_3mf(db_session, seed_file, "q-fs-plates")
     await set_server(slicer_enabled=True, slicer_url="http://s:1")
     r = await authenticated_client.post(
         "/api/queue/plates",
@@ -85,7 +131,7 @@ async def test_queue_plates_file_settings_reaches_entries(
 async def test_queue_enqueue_file_settings_sets_slice_options(
     authenticated_client: httpx.AsyncClient, db_session, seed_file
 ) -> None:
-    _, f, recipe = await _setup(db_session, seed_file, "q-fs")
+    f, recipe = await _setup_3mf(db_session, seed_file, "q-fs")
     await set_server(slicer_enabled=True, slicer_url="http://s:1")
     r = await authenticated_client.post(
         "/api/queue",

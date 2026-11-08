@@ -49,17 +49,27 @@ export function RecipeProcessLine({
 export function FileSettingsOption({
   id,
   embedded,
+  recipe,
   checked,
   onChange,
 }: {
   id: string;
   embedded: EmbeddedSettings | null | undefined;
+  /** The recipe that would slice it, to compare its printer with the file's. */
+  recipe?: PrintRecipe | null;
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
   const { t } = useTranslation();
   // A file with no embedded process settings (STL, bare 3MF) has nothing to keep.
   if (!embedded) return null;
+  const filePrinter = embedded.printer_settings_id?.trim().toLowerCase();
+  const recipePrinter = recipe?.printer_profile_name?.trim().toLowerCase();
+  const printerDiffers = !!filePrinter && !!recipePrinter && filePrinter !== recipePrinter;
+  const nozzleDiffers =
+    embedded.nozzle_mm != null &&
+    recipe?.printer_nozzle_mm != null &&
+    Math.abs(embedded.nozzle_mm - recipe.printer_nozzle_mm) > 0.001;
   return (
     <div className="grid gap-1.5 rounded-md border border-border p-2" data-testid="file-settings-option">
       <p className="text-xs text-muted-foreground">{t("recipeProcess.note")}</p>
@@ -76,6 +86,19 @@ export function FileSettingsOption({
         </Label>
       </div>
       {checked ? <p className="text-xs text-muted-foreground">{t("recipeProcess.keepFileHint")}</p> : null}
+      {checked && nozzleDiffers ? (
+        <p role="alert" className="text-xs font-medium text-destructive">
+          {t("recipeProcess.nozzleDiffers", { file: embedded.nozzle_mm, printer: recipe?.printer_nozzle_mm })}
+        </p>
+      ) : null}
+      {checked && printerDiffers ? (
+        <p role="alert" className="text-xs font-medium text-amber-600 dark:text-amber-400">
+          {t("recipeProcess.printerDiffers", {
+            file: embedded.printer_settings_id,
+            printer: recipe?.printer_profile_name,
+          })}
+        </p>
+      ) : null}
     </div>
   );
 }

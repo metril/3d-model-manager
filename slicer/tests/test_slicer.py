@@ -127,6 +127,20 @@ def test_run_slice_nonzero_exit_has_log_tail(fake_cli):
     assert ei.value.exit_code == 3 and "boom" in ei.value.log_tail
 
 
+def test_run_slice_failure_carries_error_string_on_both_paths(fake_cli):
+    for mode, rc, text in (
+        ("failjson", 238, "slicer exited 238: Invalid parameter value(s)"),
+        ("exit0json", -24, "slicer exited -24: Unsupported 3MF version"),
+    ):
+        job = _job(None, mode)
+        try:
+            with pytest.raises(runner.SliceFailed) as ei:
+                _run(job, fake_cli)
+        finally:
+            runner.cleanup(job.dir)
+        assert str(ei.value) == text and ei.value.exit_code == rc
+
+
 def test_run_slice_exit0_without_output_is_failure(fake_cli):
     job = _job(None, "silent")
     try:

@@ -191,10 +191,17 @@ def read_bed(zf: zipfile.ZipFile) -> tuple[float, float] | None:
     return parse_printable_area(cfg) if isinstance(cfg, dict) else None
 
 
-def read_embedded_process(zf: zipfile.ZipFile) -> dict | None:
-    """The 3MF's own process settings summary from ``project_settings.config``:
-    ``{layer_height, print_settings_id, printer_settings_id}``. ``None`` when the
-    file has no (parsable) project settings."""
+# A real ``project_settings.config`` is ~50 KB; refuse anything absurd on a
+# user-triggered read.
+MAX_PROJECT_SETTINGS_BYTES = 8 * 1024 * 1024
+
+
+def _read_project_settings(zf: zipfile.ZipFile) -> dict | None:
+    try:
+        if zf.getinfo(PROJECT_SETTINGS).file_size > MAX_PROJECT_SETTINGS_BYTES:
+            return None
+    except KeyError:
+        return None
     data = slicedmeta.read_zip_member(zf, PROJECT_SETTINGS)
     if data is None:
         return None
@@ -202,17 +209,85 @@ def read_embedded_process(zf: zipfile.ZipFile) -> dict | None:
         cfg = json.loads(data)
     except ValueError:
         return None
-    if not isinstance(cfg, dict):
-        return None
+    return cfg if isinstance(cfg, dict) else None
+
+
+def _finite(value: object) -> float | None:
     try:
-        layer = float(str(cfg.get("layer_height")).strip())
+        out = float(str(value).strip())
     except (TypeError, ValueError):
-        layer = None
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _str_id(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def read_embedded_process(zf: zipfile.ZipFile) -> dict | None:
+    """The 3MF's own process settings summary from ``project_settings.config``:
+    ``{layer_height, nozzle_mm, print_settings_id, printer_settings_id}``.
+    ``None`` when the file has no (parsable, sanely sized) project settings.
+    Values of the wrong type come back as ``None``."""
+    cfg = _read_project_settings(zf)
+    if cfg is None:
+        return None
+    nozzle = cfg.get("nozzle_diameter")
     return {
-        "layer_height": layer,
-        "print_settings_id": cfg.get("print_settings_id") or None,
-        "printer_settings_id": cfg.get("printer_settings_id") or None,
+        "layer_height": _finite(cfg.get("layer_height")),
+        "nozzle_mm": _finite(nozzle[0] if isinstance(nozzle, list) and nozzle else nozzle),
+        "print_settings_id": _str_id(cfg.get("print_settings_id")),
+        "printer_settings_id": _str_id(cfg.get("printer_settings_id")),
     }
+
+
+def clamp_project_settings(path: Path, ranges: dict[str, tuple[float, float]]) -> list[str]:
+    """Clamp/drop out-of-range keys inside ``path``'s ``project_settings.config``
+    (rewrites the zip in place when anything changed). Returns the changed keys."""
+    from app.services.profile_sanitize import clamp_key
+
+    with zipfile.ZipFile(path) as zf:
+        cfg = _read_project_settings(zf)
+        if cfg is None:
+            return []
+        changed = [k for k, (lo, hi) in ranges.items() if clamp_key(cfg, k, lo, hi)]
+        if not changed:
+            return []
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as out:
+            for item in zf.infolist():
+                data = (
+                    json.dumps(cfg).encode()
+                    if item.filename == PROJECT_SETTINGS
+                    else zf.read(item.filename)
+                )
+                out.writestr(item, data)
+    tmp.replace(path)
+    return changed
+
+
+def sliced_object_count(path: Path) -> int | None:
+    """Objects listed across the plates of a sliced ``.gcode.3mf``'s
+    ``slice_info.config`` (``None`` if unreadable)."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            data = slicedmeta.read_zip_member(zf, "Metadata/slice_info.config")
+    except (zipfile.BadZipFile, OSError):
+        return None
+    if data is None:
+        return None
+    return len(re.findall(rb"<object\b", data))
+
+
+def source_object_counts(path: Path) -> dict[int, int] | None:
+    """``{plate index: object count}`` of an unsliced project 3MF (``None`` when
+    the file carries no plate data)."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            plates = parse_unsliced_plates(zf)
+    except (zipfile.BadZipFile, OSError):
+        return None
+    return {p["index"]: len(p["object_ids"]) for p in plates} or None
 
 
 _ITEM_RE = re.compile(rb"<(?:[\w.-]+:)?item\b([^>]*)>")

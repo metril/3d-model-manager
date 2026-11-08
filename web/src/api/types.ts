@@ -2192,6 +2192,9 @@ export interface PrintRecipe {
   /** The process profile this recipe slices with (replaces the file's own settings). */
   process_profile_name?: string | null;
   process_layer_height_mm?: number | null;
+  /** The recipe's printer profile (compared with the machine a 3MF was made for). */
+  printer_profile_name?: string | null;
+  printer_nozzle_mm?: number | null;
   /** Only set when listed with `?printer_id=`; null/absent otherwise. */
   compatible?: boolean | null;
   incompatible_reason?: string | null;

@@ -23,6 +23,14 @@ elif mode == "hangout":
     time.sleep(60)
 elif mode == "fail":
     print("boom on stderr", file=sys.stderr); sys.exit(3)
+elif mode == "failjson":
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "result.json").write_text(json.dumps({"return_code": -18, "error_string": "Invalid parameter value(s)"}))
+    sys.exit(238)
+elif mode == "exit0json":
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "result.json").write_text(json.dumps({"return_code": -24, "error_string": "Unsupported 3MF version"}))
+    sys.exit(0)
 elif mode == "silent":
     sys.exit(0)
 else:

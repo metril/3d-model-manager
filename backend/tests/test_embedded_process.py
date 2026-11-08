@@ -37,6 +37,7 @@ def test_reads_layer_height_and_ids():
     )
     assert out == {
         "layer_height": 0.2,
+        "nozzle_mm": None,
         "print_settings_id": "0.20mm Standard @BBL X1C",
         "printer_settings_id": "Bambu Lab P1S 0.4 nozzle",
     }

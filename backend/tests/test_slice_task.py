@@ -104,6 +104,15 @@ def _seed(
     return entry
 
 
+def _write_project_3mf(dest: Path, cfg: dict | None = None) -> None:
+    import json
+    import zipfile
+
+    cfg = {"layer_height": "0.2", "nozzle_diameter": ["0.4"], **(cfg or {})}
+    with zipfile.ZipFile(dest, "w") as zf:
+        zf.writestr("Metadata/project_settings.config", json.dumps(cfg))
+
+
 @pytest.fixture(autouse=True)
 def _verify_source_blob(data_dir: Path, monkeypatch: pytest.MonkeyPatch):
     """`derivatives.fetch_blob_to_temp` requires a verified File row AND a
@@ -151,6 +160,14 @@ def test_file_settings_slice_sends_no_process_profile(
         session.commit()
         entry_id = entry.id
 
+    from app.services import derivatives
+
+    def _fetch_project(session, settings, blob_hash, dest_dir, suffix):
+        dest = dest_dir / f"blob{suffix}"
+        _write_project_3mf(dest)
+        return dest
+
+    monkeypatch.setattr(derivatives, "fetch_blob_to_temp", _fetch_project)
     fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
     monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
     slicing.slice_file(entry_id)

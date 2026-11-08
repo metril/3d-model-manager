@@ -42,6 +42,7 @@ from app.schemas.queue import (
     SlicedPlateOut,
 )
 from app.services import billing, ha_state, library, review
+from app.services import file_settings as file_settings_service
 from app.services.app_config import get_app_config
 from app.services.bed_fit import guard_plate_index, guard_recipe_fit
 from app.services.dispatcher import FILE_SETTINGS_KEY
@@ -525,6 +526,10 @@ async def enqueue_file(
                 "file is not in a format the slicer can accept",
             )
         await guard_plate_index(db, file, payload.plate)
+        if payload.file_settings:
+            await file_settings_service.require_usable(
+                db, settings, file, recipe.printer_profile_id
+            )
         if not payload.force:
             await guard_recipe_fit(db, recipe, file, slice_options, settings, payload.plate)
         state = QueueState.WAITING

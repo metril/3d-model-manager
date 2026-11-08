@@ -365,12 +365,16 @@ function PrintDialogBody({
     if (prev == null || prev === effectiveFileId || source.kind === "archive") return;
     setPlate(null);
     setAutoAdvanced(false);
+    // The option belongs to the previous file's embedded settings.
+    setFileSettings(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveFileId]);
   // Plates (and the blob hash for their thumbnails/GLBs) of the chosen file:
   // an unsliced project lists them too, so the plate is picked BEFORE slicing.
   const filePlatesQ = useFilePlates(effectiveFileId, open);
   const blobHash = filePlatesQ.data?.blob_hash ?? null;
+  // Only a file that embeds process settings can keep them (never send a stale tick).
+  const fileSettingsOn = fileSettings && !!filePlatesQ.data?.embedded;
   const recipePlates = selectablePlates(filePlatesQ.data?.plates);
 
   // `plate`/`printerId` state only holds an EXPLICIT choice -- omitted from
@@ -453,6 +457,10 @@ function PrintDialogBody({
     setRefusedFor(null);
     setRecipeSearch("");
   }, [open, source.kind, archiveSourceId]);
+  // A draft batch keeps the options it was created with; a changed choice needs a new one.
+  useEffect(() => {
+    setDraftBatchId(null);
+  }, [fileSettings]);
   const enqueueRaw = useEnqueue();
   const enqueuePlates = useEnqueuePlates();
   const createBatch = useCreateBatch();
@@ -782,7 +790,7 @@ function PrintDialogBody({
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
       submitPlates(
-        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettings ? { file_settings: true } : {}) },
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettingsOn ? { file_settings: true } : {}) },
         queuedPlatesDone,
       );
       return;
@@ -796,7 +804,7 @@ function PrintDialogBody({
         copies,
         front: true,
         ...(forced ? { force: true } : {}),
-        ...(fileSettings ? { file_settings: true } : {}),
+        ...(fileSettingsOn ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -810,7 +818,7 @@ function PrintDialogBody({
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
       submitPlates(
-        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettings ? { file_settings: true } : {}) },
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettingsOn ? { file_settings: true } : {}) },
         queuedPlatesDone,
       );
       return;
@@ -824,7 +832,7 @@ function PrintDialogBody({
         copies,
         front: false,
         ...(forced ? { force: true } : {}),
-        ...(fileSettings ? { file_settings: true } : {}),
+        ...(fileSettingsOn ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -1011,6 +1019,7 @@ function PrintDialogBody({
                   <FileSettingsOption
                     id="print-dialog-file-settings"
                     embedded={filePlatesQ.data?.embedded}
+                    recipe={selectedRecipe}
                     checked={fileSettings}
                     onChange={setFileSettings}
                   />

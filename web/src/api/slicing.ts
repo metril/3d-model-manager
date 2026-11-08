@@ -265,6 +265,7 @@ export interface FilePlates {
 }
 export interface EmbeddedSettings {
   layer_height: number | null;
+  nozzle_mm?: number | null;
   print_settings_id: string | null;
   printer_settings_id: string | null;
 }

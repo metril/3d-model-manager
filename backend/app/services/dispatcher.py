@@ -90,7 +90,13 @@ def slice_siblings(session: Session, item: PrintQueueEntry) -> list[PrintQueueEn
             PrintQueueEntry.id != item.id,
         )
     ).all()
-    return [r for r in rows if (r.slice_options or {}).get(ALL_PLATES_KEY)]
+    mine = bool((item.slice_options or {}).get(FILE_SETTINGS_KEY))
+    return [
+        r
+        for r in rows
+        if (r.slice_options or {}).get(ALL_PLATES_KEY)
+        and bool((r.slice_options or {}).get(FILE_SETTINGS_KEY)) == mine
+    ]
 
 
 # A job claimed into UPLOADING that never reached the printer (`started_at IS

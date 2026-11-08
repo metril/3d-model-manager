@@ -130,7 +130,7 @@ function SliceDialogBody({
     if (pipelineMode) return submitPipeline();
     if (recipeId == null) return;
     start.mutate(
-      { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge, fileSettings },
+      { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge, fileSettings: fileSettings && !!filePlatesQ.data?.embedded },
       {
         onSuccess: (job) => {
           trackSlice({ id: job.id, fileName: name });
@@ -253,6 +253,7 @@ function SliceDialogBody({
         <FileSettingsOption
           id="slice-file-settings"
           embedded={filePlatesQ.data?.embedded}
+          recipe={allRecipes.find((r) => r.id === recipeId)}
           checked={fileSettings}
           onChange={setFileSettings}
         />

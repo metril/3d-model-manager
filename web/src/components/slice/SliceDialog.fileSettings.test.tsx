@@ -75,6 +75,37 @@ describe("SliceDialog recipe process info", () => {
     expect(postMock.mock.calls[0][1]).toMatchObject({ recipe_id: 3, file_settings: true });
   });
 
+  it("warns when the file was made for another printer or nozzle", async () => {
+    getMock.mockImplementation((path: string) => {
+      if (path === "/printers") return Promise.resolve([]);
+      if (path.startsWith("/recipes"))
+        return Promise.resolve([
+          {
+            id: 3,
+            name: "Draft",
+            process_profile_name: "0.28mm",
+            process_layer_height_mm: 0.28,
+            printer_profile_name: "Bambu Lab A1 mini 0.8 nozzle",
+            printer_nozzle_mm: 0.8,
+          },
+        ]);
+      if (path === "/slicer/health") return Promise.resolve({ configured: true, ok: true });
+      if (path === "/files/5")
+        return Promise.resolve({
+          format: "3mf",
+          embedded: { layer_height: 0.2, nozzle_mm: 0.4, print_settings_id: "x", printer_settings_id: "Bambu Lab P1S 0.4 nozzle" },
+        });
+      return Promise.resolve(null);
+    });
+    render(host());
+    fireEvent.click(await screen.findByLabelText(/Draft/));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/Keep this file's own process settings/));
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.map((a) => a.textContent).join(" ")).toMatch(/0\.4 mm nozzle but the recipe's printer uses 0\.8 mm/);
+    expect(alerts.map((a) => a.textContent).join(" ")).toMatch(/made for Bambu Lab P1S 0\.4 nozzle/);
+  });
+
   it("hides the option for a file with no embedded settings", async () => {
     mockApi(null);
     render(host());

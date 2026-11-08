@@ -22,6 +22,7 @@ import logging
 import re
 import tempfile
 import uuid
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -37,8 +38,9 @@ from app.importers.download import StagedFile
 from app.models import PrintRecipe, SliceJob, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, QueueState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
-from app.pipeline import slicedmeta
+from app.pipeline import plates3mf, slicedmeta
 from app.services import billing, derivatives, events, library, spool
+from app.services import file_settings as file_settings_service
 from app.services.app_config import get_app_config_sync
 from app.services.dispatcher import (
     ALL_PLATES_KEY,
@@ -47,7 +49,12 @@ from app.services.dispatcher import (
     slice_siblings,
 )
 from app.services.print_plan import estimate_item_sync
-from app.services.profile_sanitize import clamp_key, parse_range_error, sanitize_profile
+from app.services.profile_sanitize import (
+    KNOWN_RANGES,
+    clamp_key,
+    parse_range_error,
+    sanitize_profile,
+)
 from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
@@ -351,6 +358,30 @@ def _sliced_rel_path(source_rel_path: str, recipe_name: str, tag: str, plate: in
     return f"{stem} - {recipe_name} ({tag} p{plate}).gcode.3mf"
 
 
+def _guard_arrange_spill(src_path: Path, out_path: Path, meta, plate: int | None) -> None:
+    """Auto-arrange can move parts onto more plates than the source has, or
+    off the one plate being sliced; only the plates the print flow knows about
+    are ever printed, so those parts would silently vanish. Fail instead."""
+    src_counts = plates3mf.source_object_counts(src_path)
+    src_plates = len(src_counts) if src_counts else 1
+    if not plate:
+        if len(meta.plates) > src_plates:
+            raise ValueError(
+                f"auto-arrange spread the parts over {len(meta.plates)} plates (the file has "
+                f"{src_plates}); the extra plates would not be printed. Turn off auto-arrange "
+                "or use a larger bed."
+            )
+        return
+    wanted = (src_counts or {}).get(plate)
+    got = plates3mf.sliced_object_count(out_path)
+    if wanted and got is not None and got < wanted:
+        raise ValueError(
+            f"auto-arrange could not fit all {wanted} parts of plate {plate} on one plate "
+            f"({got} were sliced); the rest would be dropped. Turn off auto-arrange or use a "
+            "larger bed."
+        )
+
+
 @dataclass
 class SliceOutcome:
     file_id: int
@@ -415,6 +446,8 @@ def _is_permanent(exc: BaseException) -> bool:
     """Deterministic failures that a retry can never fix."""
     if isinstance(exc, ValueError):
         return True
+    if isinstance(exc, SlicerError) and exc.status == 400:
+        return True  # the sidecar rejected the request itself; resending can't help
     if not (isinstance(exc, SlicerError) and exc.status == 422):
         return False
     # The sidecar 422s every SliceFailed, incl. OOM/crash/no-output (retryable).
@@ -430,10 +463,23 @@ _EXIT_RE = re.compile(r"slicer exited (-?\d+)")
 _TRANSIENT_EXITS = {134, 137, 139}
 
 
-def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):
-    # process_profile None = slice with the model file's own process settings.
+_MAX_RANGE_RETRIES = 8
+
+
+def _slice_with_sanitize(
+    client,
+    *,
+    printer_profile,
+    process_profile,
+    filament_profiles,
+    sanitize_model: Path | None = None,
+    **kw,
+):
     """Sanitize known-bad values up front; on a 422 range error, clamp the
-    offending key everywhere and retry once within the same attempt."""
+    offending key everywhere and retry within the same attempt.
+    ``process_profile`` None = slice with the model file's own process
+    settings; ``sanitize_model`` (that 3MF's temp copy) is then clamped too,
+    since its embedded values reach the slicer unfiltered."""
     for d in (printer_profile, process_profile, *filament_profiles):
         if isinstance(d, dict) and "include" in d:
             # ValueError is a permanent failure (see `_is_permanent`).
@@ -451,28 +497,37 @@ def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_p
         fixed, ch = sanitize_profile(f)
         filaments.append(fixed)
         changed_f += ch
-    if changed_p or changed_x or changed_f:
-        logger.info("sanitized profile keys: %s", sorted({*changed_p, *changed_x, *changed_f}))
-    try:
-        return client.slice(
-            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+    changed_m = (
+        plates3mf.clamp_project_settings(sanitize_model, KNOWN_RANGES)
+        if sanitize_model is not None
+        else []
+    )
+    if changed_p or changed_x or changed_f or changed_m:
+        logger.info(
+            "sanitized profile keys: %s", sorted({*changed_p, *changed_x, *changed_f, *changed_m})
         )
-    except SlicerError as exc:
-        if exc.status != 422:
-            raise
-        parsed = parse_range_error(f"{exc}\n{exc.log_tail or ''}")
-        if parsed is None:
-            raise
-        key, lo, hi = parsed
-        drafts = [d for d in (printer, process, *filaments) if d is not None]
-        if not any(clamp_key(d, key, lo, hi) for d in drafts):
-            raise
-        for d in drafts:
-            clamp_key(d, key, lo, hi)
-        logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
-        return client.slice(
-            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
-        )
+    for attempt in range(_MAX_RANGE_RETRIES + 1):
+        try:
+            return client.slice(
+                printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+            )
+        except SlicerError as exc:
+            if exc.status != 422 or attempt == _MAX_RANGE_RETRIES:
+                raise
+            parsed = parse_range_error(f"{exc}\n{exc.log_tail or ''}")
+            if parsed is None:
+                raise
+            key, lo, hi = parsed
+            drafts = [d for d in (printer, process, *filaments) if d is not None]
+            changed = [clamp_key(d, key, lo, hi) for d in drafts]
+            if sanitize_model is not None and plates3mf.clamp_project_settings(
+                sanitize_model, {key: (lo, hi)}
+            ):
+                changed.append(True)
+            if not any(changed):
+                raise
+            logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def slice_source(
@@ -537,6 +592,17 @@ def slice_source(
         except LookupError as exc:
             raise ValueError(str(exc)) from exc
 
+        if file_settings:
+            embedded = None
+            if suffix.lower() == ".3mf":
+                try:
+                    with zipfile.ZipFile(src_path) as zf:
+                        embedded = plates3mf.read_embedded_process(zf)
+                except (zipfile.BadZipFile, OSError):
+                    embedded = None
+            reason = file_settings_service.unusable_reason(embedded, printer_profile)
+            if reason is not None:
+                raise ValueError(reason)  # permanent: the choice can never work
         options = SliceOptions(
             auto_orient=bool(merged_options.get("auto_orient", False)),
             arrange=bool(merged_options.get("arrange", False)),
@@ -552,6 +618,7 @@ def slice_source(
             bed_type=recipe.bed_type,
             options=options,
             job_id=job_id,
+            sanitize_model=src_path if file_settings else None,
         )
 
         run_log = getattr(client, "last_log_tail", None)
@@ -563,6 +630,9 @@ def slice_source(
         plate_indexes = {p["index"] for p in meta.plates}
         if plate_indexes and expected_plate not in plate_indexes:
             raise ValueError(f"sliced output has no plate {expected_plate}")
+
+        if options.arrange:
+            _guard_arrange_spill(src_path, out_path, meta, plate)
 
         if (
             meta.printer_model

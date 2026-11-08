@@ -122,6 +122,9 @@ class RecipeOut(BaseModel):
     # file's own process settings) and its layer height.
     process_profile_name: str | None = None
     process_layer_height_mm: float | None = None
+    # The recipe's printer profile (vs the machine a 3MF was made for).
+    printer_profile_name: str | None = None
+    printer_nozzle_mm: float | None = None
     # Set only when listed with ``?printer_id=``; ``None`` otherwise.
     compatible: bool | None = None
     incompatible_reason: str | None = None
