@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.22.0](https://github.com/metril/3d-model-manager/compare/v0.21.1...v0.22.0) (2026-11-08)
+
+
+### Features
+
+* **slicing:** show recipe process settings and keep a file's own ([#301](https://github.com/metril/3d-model-manager/issues/301)) ([0be4096](https://github.com/metril/3d-model-manager/commit/0be40969da2e861695b3762a6120a81845428fdf))
+
+
+### Bug Fixes
+
+* **archives:** keep deleted runs deleted ([#302](https://github.com/metril/3d-model-manager/issues/302)) ([20b3b3f](https://github.com/metril/3d-model-manager/commit/20b3b3f52a1f946cd41752cb1f59ddb6008088b9))
+
 ## [0.21.1](https://github.com/metril/3d-model-manager/compare/v0.21.0...v0.21.1) (2026-11-08)
 
 
