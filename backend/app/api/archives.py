@@ -21,7 +21,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AuditLog, File, Model, Printer, PrintJob
 from app.models.enums import ArchiveResult, BlobFormat, VerdictSource
-from app.models.library import Blob, Print
+from app.models.library import Blob, Print, Revision
 from app.models.printing import PrintArchive
 from app.schemas.archives import (
     ArchiveOut,
@@ -241,8 +241,66 @@ async def patch_archive(
             )
             arc.result_override = new
             archive_confirm.sync_run_result(arc, run)
+    if "model_id" in fields or "revision_id" in fields:
+        await _set_model(db, ctx, arc, job, printer, run, body)
     await db.commit()
     return (await _with_tag_refs(db, [archive_out(await _get_visible(db, ctx, archive_id))]))[0]
+
+
+async def _set_model(
+    db: AsyncSession,
+    ctx: AuthContext,
+    arc: PrintArchive,
+    job: PrintJob,
+    printer: Printer,
+    run: Print | None,
+    body: ArchivePatchIn,
+) -> None:
+    """Link (or unlink) the archive's model: archive, run and the models'
+    ``print_count`` change together. Relinking replaces the old link; a null
+    ``model_id`` unlinks. A trashed or missing model is a 404, a revision of
+    another model a 422. ``print_jobs.origin`` is left alone."""
+    new_id, new_rev = body.model_id, body.revision_id
+    if new_id is None and new_rev is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "revision_id needs model_id")
+    model: Model | None = None
+    if new_id is not None:
+        model = await db.get(Model, new_id)
+        if model is None or model.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"model {new_id} not found")
+        if new_rev is not None:
+            rev = await db.get(Revision, new_rev)
+            if rev is None or rev.model_id != new_id:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "revision does not belong to model"
+                )
+    old_id = arc.model_id
+    if (old_id, arc.revision_id) == (new_id, new_rev):
+        return
+    if old_id != new_id and run is not None:
+        old = await db.get(Model, old_id) if old_id is not None else None
+        if old is not None:
+            old.print_count = max(0, old.print_count - 1)
+        if model is not None:
+            model.print_count += 1
+    arc.model_id, arc.revision_id = new_id, new_rev
+    if run is not None:
+        run.model_id = new_id
+    db.add(
+        AuditLog(
+            user_id=ctx.user.id,
+            created_by_user_id=ctx.user.id,
+            printer_id=printer.id,
+            action="archive.link_model",
+            payload={
+                "archive_id": arc.id,
+                "job_id": job.id,
+                "from": old_id,
+                "to": new_id,
+                "revision_id": new_rev,
+            },
+        )
+    )
 
 
 @router.put("/{archive_id}/tags", response_model=list[TagRef])
