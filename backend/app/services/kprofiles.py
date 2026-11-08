@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -18,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Printer, SpoolSlot
 from app.models.kprofiles import SpoolKProfile
-from app.printers.base import cmd_result_key, command_channel
+from app.printers.base import request_command_sync
 from app.printers.capabilities import capabilities_for
 
 log = logging.getLogger(__name__)
@@ -305,18 +303,8 @@ def request_reapply_sync(redis_client, printer_id: int, wait_s: float = 3.0) -> 
     """Ask printerd to run the drift fixer now (used right before a queued job
     is sent) and wait briefly for it. Best effort: never raises."""
     try:
-        request_id = uuid.uuid4().hex
-        receivers = redis_client.publish(
-            command_channel(printer_id),
-            json.dumps({"command": "kprofile_reapply", "args": {}, "request_id": request_id}),
-        )
-        if not receivers:  # printerd is not listening
-            return False
-        deadline = time.monotonic() + wait_s
-        while time.monotonic() < deadline:
-            if redis_client.get(cmd_result_key(printer_id, request_id)):
-                return True
-            time.sleep(0.1)
+        res = request_command_sync(redis_client, printer_id, "kprofile_reapply", {}, wait_s)
+        return res.get("code") not in ("no_printerd", "timeout")
     except Exception as e:  # noqa: BLE001
         log.warning("kprofile reapply request failed: %s", type(e).__name__)
     return False

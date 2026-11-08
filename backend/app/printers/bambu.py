@@ -1534,16 +1534,12 @@ class BambuLanAdapter(PrinterAdapter):
             raise OSError(f"FTPS upload {remote} failed")
 
     # -- send ----------------------------------------------------------
-    def upload_and_start(self, spec: PrintSpec) -> None:
-        p = self._client()
-        # Own FTPS client (bounded by FTP_TIMEOUT_S; raises OSError on a falsy
-        # result) instead of the lib's, whose upload has no timeout and
-        # swallows a None result.
-        self.upload_file(spec.remote_name, spec.source_path)  # -> /cache/<remote_name>
+    def start_project(self, spec: PrintSpec) -> None:
         # The lib's start_print/start_print_3mf hardcodes bed_leveling=True
         # and drops timelapse entirely, so we publish the raw project_file
         # command ourselves (project_file_payload) to carry both from spec.
-        _publish_raw(p, project_file_payload(spec, self._dual()))
+        # Runs in printerd (live MQTT session); the worker only FTPS-uploads.
+        _publish_raw(self._client(), project_file_payload(spec, self._dual()))
 
     # -- T3 print options / slots / SD ---------------------------------
     def set_xcam(self, module: str, enable: bool, sensitivity: str) -> None:

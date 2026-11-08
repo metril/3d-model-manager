@@ -15,7 +15,7 @@ API request and this task actually running):
   moment of sending, not carried over from the API's own read.
 
 In both cases the failure happens BEFORE ``build_adapter``/
-``upload_and_start`` are ever reached, so a rejected job never touches the
+``upload_file`` are ever reached, so a rejected job never touches the
 printer.
 """
 
@@ -33,7 +33,7 @@ from app.config import Settings, get_settings
 from app.models import Blob, File, Printer, PrintJob, PrintQueueEntry
 from app.models.enums import TRASH_HOLD, PrintJobState, QueueState
 from app.printers import gcode3mf, pause_eta
-from app.printers.base import PrinterConnection, PrintSpec
+from app.printers.base import PrinterConnection, PrintSpec, request_command_sync
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
 from app.services import derivatives, kprofiles
@@ -47,6 +47,33 @@ from app.tasks.celery_app import celery_app
 
 class SendError(RuntimeError):
     """Actionable send-flow failure surfaced on the print_jobs row."""
+
+
+START_WAIT_S = 15.0  # printerd's reply wait (REPLY_WAIT_S) plus headroom
+
+
+def _start_via_printerd(client, printer_id: int, spec: PrintSpec) -> None:
+    """Ask printerd (which holds the live MQTT session) to publish the
+    ``project_file`` start for the file just uploaded."""
+    res = request_command_sync(
+        client,
+        printer_id,
+        "project_start",
+        {
+            "remote_name": spec.remote_name,
+            "plate": spec.plate,
+            "use_ams": spec.use_ams,
+            "ams_mapping": list(spec.ams_mapping),
+            "bed_levelling": spec.bed_levelling,
+            "flow_cali": spec.flow_cali,
+            "timelapse": spec.timelapse,
+        },
+        START_WAIT_S,
+    )
+    if res.get("code") == "no_printerd":
+        raise SendError("printerd is not running for this printer")
+    if not res.get("ok"):
+        raise SendError(str(res.get("message") or res.get("code") or "printer start failed"))
 
 
 def _scrub(exc: Exception, conn: PrinterConnection | None) -> str:
@@ -192,10 +219,12 @@ def _send_to_printer(
                 kprofiles.request_reapply_sync(client, printer_id)
             adapter = build_adapter(kind, conn)
             try:
-                adapter.upload_and_start(spec)
+                # FTPS only: this worker has no MQTT session (never connect()ed).
+                adapter.upload_file(spec.remote_name, spec.source_path)
             finally:
                 with contextlib.suppress(Exception):
                     adapter.close()
+            _start_via_printerd(client, printer_id, spec)
             with contextlib.suppress(Exception):
                 pause_eta.store_points(client, printer_id, print_job_id, pause_points)
         _set_job_state(

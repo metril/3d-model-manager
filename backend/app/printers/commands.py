@@ -7,8 +7,9 @@ import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
-from app.printers.base import PrinterAdapter
+from app.printers.base import PrinterAdapter, PrintSpec
 from app.services import drying
 
 JOG_STEPS = (1, 10, 50)
@@ -282,6 +283,36 @@ def _v_sd_print(args: dict) -> dict:
     return {"path": path, "plate": plate, "use_ams": _bool(args, "use_ams", True)}
 
 
+_REMOTE_NAME_RE = re.compile(r"tdmm-\d{1,12}\.gcode\.3mf")
+
+
+def _v_project_start(args: dict) -> dict:
+    """Internal (worker -> printerd) start of an already-uploaded plate."""
+    remote = args.get("remote_name")
+    if not isinstance(remote, str) or not _REMOTE_NAME_RE.fullmatch(remote):
+        raise CommandError("invalid", "remote_name must look like tdmm-<id>.gcode.3mf")
+    mapping = args.get("ams_mapping")
+    if (
+        not isinstance(mapping, list | tuple)
+        or len(mapping) > 32
+        or any(isinstance(m, bool) or not isinstance(m, int) or not -1 <= m <= 255 for m in mapping)
+    ):
+        raise CommandError("invalid", "ams_mapping must be a list of slot ints")
+    return {
+        "remote_name": remote,
+        "plate": _num(args, "plate", 1, 99, integer=True),
+        "use_ams": _bool(args, "use_ams"),
+        "ams_mapping": tuple(mapping),
+        "bed_levelling": _bool(args, "bed_levelling"),
+        "flow_cali": _bool(args, "flow_cali"),
+        "timelapse": _bool(args, "timelapse"),
+    }
+
+
+def _run_project_start(adapter: PrinterAdapter, x: dict) -> None:
+    adapter.start_project(PrintSpec(source_path=Path(), subtask_name=x["remote_name"], **x))
+
+
 def _drying_ams_id(args: dict) -> int:
     ams_id = _num(args, "ams_id", 0, 135, integer=True)
     if not (ams_id <= 3 or ams_id >= 128):
@@ -512,6 +543,11 @@ DISPATCH: dict[str, Spec] = {
         ),
         refuse_printing=True,
     ),
+}
+# Internal commands: executed by printerd but deliberately NOT in DISPATCH, so
+# the public API / relays (which validate against DISPATCH) can never run them.
+INTERNAL: dict[str, Spec] = {
+    "project_start": Spec(_v_project_start, _run_project_start, refuse_printing=True),
 }
 ALWAYS_ALLOWED = frozenset({"pause", "resume", "stop"})  # attempted even if dev mode is off
 
