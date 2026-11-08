@@ -93,6 +93,8 @@ def slice_siblings(session: Session, item: PrintQueueEntry) -> list[PrintQueueEn
 # NULL`) for this long lost its worker (OOM / redeploy between claim and
 # upload); `_reconcile` fails it so the printer unblocks and the item retries.
 UPLOADING_STALE_S = 900
+# A job sent to the printer that never reports PREPARE/RUNNING/PAUSE in this long.
+STARTING_STALE_S = 300
 
 
 @dataclass(frozen=True)
@@ -387,6 +389,18 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         stuck.state = PrintJobState.FAILED
         stuck.printer_error = stuck.printer_error or "upload interrupted (worker lost)"
         stuck.finished_at = datetime.now(UTC)
+    start_cutoff = datetime.now(UTC) - timedelta(seconds=STARTING_STALE_S)
+    for unstarted in session.scalars(
+        select(PrintJob).where(
+            PrintJob.state == PrintJobState.STARTING,
+            PrintJob.started_at.is_(None),
+            PrintJob.starting_at.is_not(None),
+            PrintJob.starting_at < start_cutoff,
+        )
+    ).all():
+        unstarted.state = PrintJobState.FAILED
+        unstarted.printer_error = unstarted.printer_error or "printer did not start the job"
+        unstarted.finished_at = datetime.now(UTC)
     session.flush()
 
     items = session.scalars(

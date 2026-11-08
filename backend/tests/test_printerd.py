@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 import redis as redis_lib
@@ -1198,3 +1199,33 @@ def test_failed_at_tracks_failed_state(worker):
     w.handle_report({"gcode_state": "IDLE"})
     with base.sync_session() as s:
         assert s.get(Printer, pid).failed_at is None
+
+
+def test_new_print_error_fails_starting_job_without_prepare(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})  # baseline
+    assert _state(job_id) == "starting"
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old", "print_error": 50348044})
+    assert _state(job_id) in ("failed", "canceled")
+
+
+def test_new_hms_fails_starting_job_without_prepare(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    w.handle_report(
+        {"gcode_state": "FAILED", "subtask_name": "old", "hms": [{"attr": 1, "code": 2}]}
+    )
+    assert _state(job_id) == "failed"
+
+
+def test_prepare_clears_starting_timeout(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_job_in(pid, PrintJobState.STARTING)
+    with base.sync_session() as s:
+        s.get(PrintJob, job_id).starting_at = datetime.now(UTC)
+        s.commit()
+    w.handle_report({"gcode_state": "PREPARE", "subtask_name": "tdmm"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).starting_at is None

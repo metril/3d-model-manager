@@ -154,6 +154,9 @@ class PrintJob(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+    # When the start command was sent (state -> STARTING); cleared once the
+    # printer reports PREPARE/RUNNING. The dispatcher fails a job stuck here.
+    starting_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (Index("ix_print_jobs_printer_state", "printer_id", "state"),)
     # Slicer filament index -> AMS tray, as sent (app-origin jobs only).

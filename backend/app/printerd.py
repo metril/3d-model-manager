@@ -228,6 +228,7 @@ class PrinterWorker:
         # job id -> (gcode_state, subtask_name) the printer showed when we first
         # saw that job in flight; ids that went through PREPARE/RUNNING since.
         self._live_baseline: dict[int, tuple] = {}
+        self._live_errors: dict[int, tuple] = {}
         self._live_progressed: set[int] = set()
         self.devmode = DevModeTracker()
         self._public: PrinterPublicState | None = None
@@ -661,14 +662,24 @@ class PrinterWorker:
         job, without having gone through PREPARE/RUNNING for it."""
         if job.started_at is not None or job.state not in _LIVE_JOB_STATES:
             self._live_baseline.pop(job.id, None)
+            self._live_errors.pop(job.id, None)
             self._live_progressed.discard(job.id)
             return False
         sig = (public.gcode_state, public.subtask_name)
+        error_sig = (
+            str(public.print_error or 0),
+            frozenset((h.get("attr"), h.get("code")) for h in (public.hms or [])),
+        )
         baseline = self._live_baseline.setdefault(job.id, sig)
+        base_err = self._live_errors.setdefault(job.id, error_sig)
         if new_state in (PrintJobState.STARTING, PrintJobState.PRINTING, PrintJobState.PAUSED):
             self._live_progressed.add(job.id)
             return False
         if new_state not in (PrintJobState.FINISHED, PrintJobState.FAILED):
+            return False
+        # An instant rejection: a NEW print_error / HMS entry that wasn't there
+        # when the job was sent is a real failure even without PREPARE/RUNNING.
+        if (error_sig[0] != "0" and error_sig[0] != base_err[0]) or (error_sig[1] - base_err[1]):
             return False
         if self._stale_terminal and job.state == PrintJobState.STARTING.value:
             return True
@@ -723,6 +734,15 @@ class PrinterWorker:
                 return
             if self._stale_for_live_job(job, public, new_state):
                 return
+            if (
+                job.id in self._live_progressed
+                and job.state == PrintJobState.STARTING.value
+                and job.starting_at is not None
+            ):
+                # The printer picked the job up (PREPARE/RUNNING/PAUSE): the
+                # start-timeout no longer applies.
+                job.starting_at = None
+                session.commit()
             if job.state == new_state.value:
                 return
             if new_state in (PrintJobState.FINISHED, PrintJobState.FAILED):

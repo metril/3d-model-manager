@@ -1228,3 +1228,48 @@ def test_acl_built_once_per_user_per_tick(
         dispatcher.dispatch_once(s, client, get_settings())
     client.close()
     assert calls == [member_id]
+
+
+def test_reconcile_fails_job_stuck_starting_and_retries(redis_url: str, fake_adapter):
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="stuck-starting")
+        printer = _seed_printer(s, name="StuckStartP")
+        admin_id = _seed_admin(s)
+        old = datetime.now(UTC) - timedelta(seconds=dispatcher.STARTING_STALE_S + 60)
+        stuck = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.STARTING,
+            starting_at=old,
+        )
+        recent = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            origin=PrintJobOrigin.APP,
+            state=PrintJobState.STARTING,
+            starting_at=datetime.now(UTC),
+        )
+        s.add_all([stuck, recent])
+        s.flush()
+        entry = _seed_entry(
+            s, model=model, file=file, state=QueueState.DISPATCHED, created_by=admin_id
+        )
+        entry.print_job_id = stuck.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid, stuck_id, recent_id = entry.id, printer.id, stuck.id, recent.id
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": "FAILED"})
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["retried"] == 1
+    with base.sync_session() as s:
+        j = s.get(PrintJob, stuck_id)
+        assert (
+            j.state == PrintJobState.FAILED and j.printer_error == "printer did not start the job"
+        )
+        assert s.get(PrintJob, recent_id).state == PrintJobState.STARTING
+        assert s.get(PrintQueueEntry, entry_id).attempts == 1

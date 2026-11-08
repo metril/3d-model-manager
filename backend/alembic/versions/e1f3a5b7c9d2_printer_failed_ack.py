@@ -20,7 +20,10 @@ def upgrade() -> None:
         "printers", sa.Column("plate_cleared_at", sa.DateTime(timezone=True), nullable=True)
     )
 
+    op.add_column("print_jobs", sa.Column("starting_at", sa.DateTime(timezone=True), nullable=True))
+
 
 def downgrade() -> None:
+    op.drop_column("print_jobs", "starting_at")
     op.drop_column("printers", "plate_cleared_at")
     op.drop_column("printers", "failed_at")
