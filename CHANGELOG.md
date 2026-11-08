@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/metril/3d-model-manager/compare/v0.21.0...v0.21.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **queue:** re-queue sliced files that hold a single plate ([#299](https://github.com/metril/3d-model-manager/issues/299)) ([717e0e9](https://github.com/metril/3d-model-manager/commit/717e0e9618e379666e8cfdf48b8e24afbfcf9de1))
+
 ## [0.21.0](https://github.com/metril/3d-model-manager/compare/v0.20.4...v0.21.0) (2026-11-08)
 
 
