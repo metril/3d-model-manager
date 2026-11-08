@@ -626,8 +626,9 @@ def slice_source(
         out_path.write_bytes(out_bytes)
         meta = slicedmeta.parse_gcode_3mf(out_path)
 
-        expected_plate = plate if plate else 1  # 0/None = all plates -> plate 1 prints
         plate_indexes = {p["index"] for p in meta.plates}
+        # 0/None = all plates -> the lowest plate in the output prints
+        expected_plate = plate or (min(plate_indexes) if plate_indexes else 1)
         if plate_indexes and expected_plate not in plate_indexes:
             raise ValueError(f"sliced output has no plate {expected_plate}")
 
