@@ -5,7 +5,7 @@ import pytest
 from app.models.enums import PrintJobState
 from app.printers import bambu
 from app.printers.bambu import BambuLanAdapter
-from app.printers.base import PrinterConnection, PrinterPublicState, PrintSpec
+from app.printers.base import PrinterConnection, PrinterPublicState
 from tests.cassettes import bambu_snapshots as snap
 
 CONN = PrinterConnection(host="1.2.3.4", serial="0309ABC", access_code="12345678")
@@ -136,11 +136,9 @@ def test_request_full_status_emits_snapshot(monkeypatch):
     assert seen and a.public_state(seen[0]).gcode_state == "RUNNING"
 
 
-def test_upload_and_start_uploads_file(monkeypatch, tmp_path):
-    """``upload_and_start`` uploads via the bounded FTPS client; the project_file
-    publish itself (and never calling ``start_print``) is covered in
-    ``tests/test_bambu_project_file.py`` against a fake ``mqtt_client``
-    (this stub has no ``mqtt_client`` attribute)."""
+def test_upload_file_uses_bounded_ftps(monkeypatch, tmp_path):
+    """``upload_file`` uploads via the bounded FTPS client; the project_file
+    publish (start_project) is covered in ``tests/test_bambu_project_file.py``."""
     a, stub = _stub_adapter(monkeypatch)
     monkeypatch.setattr(
         bambu,
@@ -151,17 +149,7 @@ def test_upload_and_start_uploads_file(monkeypatch, tmp_path):
     )
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
-    with pytest.raises(AttributeError):
-        a.upload_and_start(
-            PrintSpec(
-                source_path=src,
-                remote_name="tdmm-7.gcode.3mf",
-                plate=2,
-                subtask_name="w",
-                use_ams=True,
-                ams_mapping=(1,),
-            )
-        )
+    a.upload_file("tdmm-7.gcode.3mf", src)
     assert stub.uploaded == ["tdmm-7.gcode.3mf"]
     assert stub.started == []
 

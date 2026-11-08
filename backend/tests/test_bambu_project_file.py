@@ -122,17 +122,15 @@ def _adapter_with(monkeypatch, printer, ftp_result="226 ok", **ftp_kw) -> BambuL
     return BambuLanAdapter(CONN)
 
 
-def test_upload_and_start_publishes_payload_and_never_calls_start_print(monkeypatch, tmp_path):
+def test_start_project_publishes_payload_and_never_calls_start_print(monkeypatch):
     mqtt = _FakeMqttClient(connected=True, published=True)
     printer = _FakePrinter(mqtt)
     a = _adapter_with(monkeypatch, printer)
-    src = tmp_path / "job.gcode.3mf"
-    src.write_bytes(b"zip")
-    spec = _spec(source_path=src)
+    spec = _spec()
 
-    a.upload_and_start(spec)
+    a.start_project(spec)
 
-    assert printer.uploaded == ["tdmm-7.gcode.3mf"]
+    assert printer.uploaded == []  # FTPS is the worker's job, not start's
     assert printer.start_print_called is False
     assert len(mqtt.published_calls) == 1
     topic, payload = mqtt.published_calls[0]
@@ -140,37 +138,28 @@ def test_upload_and_start_publishes_payload_and_never_calls_start_print(monkeypa
     assert json.loads(payload) == project_file_payload(spec)
 
 
-def test_upload_and_start_raises_when_mqtt_disconnected(monkeypatch, tmp_path):
-    mqtt = _FakeMqttClient(connected=False, published=True)
-    printer = _FakePrinter(mqtt)
+def test_start_project_raises_when_mqtt_disconnected(monkeypatch):
+    printer = _FakePrinter(_FakeMqttClient(connected=False, published=True))
     a = _adapter_with(monkeypatch, printer)
-    src = tmp_path / "job.gcode.3mf"
-    src.write_bytes(b"zip")
-
     with pytest.raises(OSError):
-        a.upload_and_start(_spec(source_path=src))
+        a.start_project(_spec())
 
 
-def test_upload_and_start_raises_when_publish_not_confirmed(monkeypatch, tmp_path):
-    mqtt = _FakeMqttClient(connected=True, published=False)
-    printer = _FakePrinter(mqtt)
+def test_start_project_raises_when_publish_not_confirmed(monkeypatch):
+    printer = _FakePrinter(_FakeMqttClient(connected=True, published=False))
     a = _adapter_with(monkeypatch, printer)
-    src = tmp_path / "job.gcode.3mf"
-    src.write_bytes(b"zip")
-
     with pytest.raises(OSError):
-        a.upload_and_start(_spec(source_path=src))
+        a.start_project(_spec())
 
 
-def test_upload_and_start_raises_when_ftp_upload_fails(monkeypatch, tmp_path):
+def test_upload_file_ftp_failure_raises(monkeypatch, tmp_path):
     mqtt = _FakeMqttClient(connected=True, published=True)
     printer = _FakePrinter(mqtt)
     a = _adapter_with(monkeypatch, printer, ftp_result=None)
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
-
     with pytest.raises(OSError):
-        a.upload_and_start(_spec(source_path=src))
+        a.upload_file("tdmm-7.gcode.3mf", src)
     assert mqtt.published_calls == []
 
 
@@ -184,8 +173,8 @@ def test_upload_timeout_after_all_bytes_sent_proceeds_when_size_matches(monkeypa
     a = _adapter_with(monkeypatch, printer, raises=TimeoutError("no 226"), listing=_listing(3))
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
-    a.upload_and_start(_spec(source_path=src))
-    assert len(mqtt.published_calls) == 1
+    a.upload_file("tdmm-7.gcode.3mf", src)
+    assert printer.uploaded == ["tdmm-7.gcode.3mf"]
 
 
 def test_upload_error_with_size_mismatch_raises(monkeypatch, tmp_path):
@@ -195,5 +184,5 @@ def test_upload_error_with_size_mismatch_raises(monkeypatch, tmp_path):
     src = tmp_path / "job.gcode.3mf"
     src.write_bytes(b"zip")
     with pytest.raises(OSError):
-        a.upload_and_start(_spec(source_path=src))
+        a.upload_file("tdmm-7.gcode.3mf", src)
     assert mqtt.published_calls == []

@@ -10,7 +10,10 @@ its own build function.
 
 from __future__ import annotations
 
+import json
 import threading
+import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, fields
@@ -177,6 +180,35 @@ def cmd_result_key(printer_id: int, request_id: str) -> str:
 
 CMD_RESULT_TTL_S = 30
 
+
+def request_command_sync(
+    redis_client, printer_id: int, command: str, args: dict | None, wait_s: float
+) -> dict:
+    """Publish ``command`` on the printer's bus (as a sync caller, e.g. a
+    worker) and poll for printerd's result. Always returns a result dict:
+    printerd's own, or ``{"ok": False, "code": "no_printerd" | "timeout"}``
+    when nobody is listening / no result arrived within ``wait_s``."""
+    request_id = uuid.uuid4().hex
+    receivers = redis_client.publish(
+        command_channel(printer_id),
+        json.dumps({"command": command, "args": args or {}, "request_id": request_id}),
+    )
+    if not receivers:
+        return {"ok": False, "code": "no_printerd", "message": "printerd is not running"}
+    key = cmd_result_key(printer_id, request_id)
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        raw = redis_client.get(key)
+        if raw:
+            try:
+                res = json.loads(raw)
+            except ValueError:
+                res = None
+            return res if isinstance(res, dict) else {"ok": True}
+        time.sleep(0.1)
+    return {"ok": False, "code": "timeout", "message": "printerd did not answer in time"}
+
+
 ReplyHandler = Callable[[dict], None]
 
 
@@ -208,8 +240,6 @@ class PrinterAdapter(ABC):
     def set_report_handler(self, handler: ReportHandler) -> None: ...
     @abstractmethod
     def request_full_status(self) -> None: ...  # MQTT pushall
-    @abstractmethod
-    def upload_and_start(self, spec: PrintSpec) -> None: ...
     @abstractmethod
     def pause(self) -> None: ...
     @abstractmethod
@@ -311,6 +341,11 @@ class PrinterAdapter(ABC):
 
     def upload_file(self, remote: str, local: Path) -> None:
         """FTPS-upload ``local`` to ``remote`` on the printer's SD card (Q5)."""
+        raise NotImplementedError
+
+    def start_project(self, spec: PrintSpec) -> None:
+        """Publish the ``project_file`` start for an already-uploaded file.
+        Needs the live MQTT session, so it runs in printerd, not the worker."""
         raise NotImplementedError
 
     # T3 printer ops.

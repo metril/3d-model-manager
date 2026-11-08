@@ -154,7 +154,7 @@ class FakePrinterAdapter(PrinterAdapter):
     def upload_file(self, remote: str, local) -> None:
         self.files_uploaded.append((remote, local.stat().st_size))
 
-    def upload_and_start(self, spec: PrintSpec) -> None:
+    def start_project(self, spec: PrintSpec) -> None:
         self.uploaded.append(spec)
 
     def _record(self, name: str, *args) -> None:

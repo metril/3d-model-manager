@@ -841,3 +841,48 @@ async def test_spool_kprofile_delete_respects_printer_visibility(
     ]
     r = await member_client.delete(f"/api/spools/{sp}/kprofiles/{pid}")
     assert r.status_code == 404
+
+
+_START_ARGS = {
+    "remote_name": "tdmm-7.gcode.3mf",
+    "plate": 3,
+    "use_ams": True,
+    "ams_mapping": [1],
+    "bed_levelling": False,
+    "flow_cali": True,
+    "timelapse": True,
+}
+
+
+def test_project_start_internal_publishes_and_is_not_public(worker):
+    w, pid = worker
+    w._merged = {"gcode_state": "IDLE"}
+    res = w.handle_command("project_start", dict(_START_ARGS))
+    assert res["ok"]
+    spec = w.adapter.uploaded[0]
+    assert (spec.remote_name, spec.plate, spec.ams_mapping, spec.timelapse) == (
+        "tdmm-7.gcode.3mf",
+        3,
+        (1,),
+        True,
+    )
+    # internal only: neither the API validator nor DISPATCH knows it
+    assert "project_start" not in cmds.DISPATCH
+    with pytest.raises(cmds.CommandError):
+        cmds.validate("project_start", dict(_START_ARGS))
+
+
+def test_project_start_refused_while_printing_and_validates(worker):
+    w, pid = worker
+    w._merged = {"gcode_state": "RUNNING"}
+    assert w.handle_command("project_start", dict(_START_ARGS))["code"] == "printing"
+    w._merged = {"gcode_state": "IDLE"}
+    bad = w.handle_command("project_start", {**_START_ARGS, "remote_name": "../etc/passwd"})
+    assert bad["code"] == "invalid"
+    assert w.adapter.uploaded == []
+
+
+def test_request_command_sync_no_receivers(rds):
+    from app.printers.base import request_command_sync
+
+    assert request_command_sync(rds, 1, "x", {}, 0.2)["code"] == "no_printerd"

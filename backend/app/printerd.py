@@ -793,7 +793,7 @@ class PrinterWorker:
     def _execute(self, command: str, args: dict) -> dict:
         if command == "kprofile_reapply":
             return self._reapply_command()
-        spec = cmds.DISPATCH.get(command)
+        spec = cmds.DISPATCH.get(command) or cmds.INTERNAL.get(command)
         if spec is None:
             log.warning("printerd: unknown command %r for printer %s", command, self.printer_id)
             return {"ok": False, "code": "unsupported", "message": f"unknown command {command}"}

@@ -250,7 +250,7 @@ def test_task_bare_gcode_refused_never_uploads(
 ):
     """Invariant 1, task layer: even with the printer IDLE (preflight would
     pass) and the API's fast .gcode.3mf check bypassed entirely, a bare
-    .gcode payload must never reach upload_and_start -- the task's own
+    .gcode payload must never reach the printer -- the task's own
     archive-open is the authoritative gate, not the blob's format label."""
     settings = get_settings()
     pid, job_id = _seed_printer_and_job(
@@ -331,7 +331,7 @@ def test_task_decrypt_failure_marks_failed_never_uploads(
     is otherwise undecryptable), ``connection_from_printer`` raises
     ``cryptography.fernet.InvalidToken``. That decrypt now happens INSIDE the
     task's try/except, so the job must land FAILED (never stuck QUEUED),
-    upload_and_start must never be invoked, and -- since there is no
+    the upload must never be invoked, and -- since there is no
     plaintext code to leak in the first place -- the failure text must not
     contain it either."""
     from cryptography.fernet import Fernet
@@ -374,10 +374,10 @@ def test_task_scrubs_access_code_from_failure_message(
     )
     _seed_state(redis_url, pid, "IDLE")
 
-    def _raise(spec):
+    def _raise(remote, local):
         raise RuntimeError("ftps auth failed for access code 12345678")
 
-    fake_adapter.upload_and_start = _raise
+    fake_adapter.upload_file = _raise
     with pytest.raises(RuntimeError):
         send_to_printer(job_id, DEFAULT_OPTS)
     with base.sync_session() as s:
@@ -495,15 +495,80 @@ def test_cancel_during_upload_stays_canceled(
         settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
     )
     _seed_state(redis_url, pid, "IDLE")
-    orig = fake_adapter.upload_and_start
+    orig = fake_adapter.upload_file
 
-    def _cancel_then_upload(spec):
+    def _cancel_then_upload(remote, local):
         with base.sync_session() as s:
             s.get(PrintJob, job_id).state = PrintJobState.CANCELED.value
             s.commit()
-        return orig(spec)
+        return orig(remote, local)
 
-    monkeypatch.setattr(fake_adapter, "upload_and_start", _cancel_then_upload)
+    monkeypatch.setattr(fake_adapter, "upload_file", _cancel_then_upload)
     send_to_printer(job_id, DEFAULT_OPTS)
     with base.sync_session() as s:
         assert s.get(PrintJob, job_id).state == PrintJobState.CANCELED.value
+
+
+# ---------------------------------------------------------------------------
+# Start goes through printerd's command bus (the worker has no MQTT session).
+# ---------------------------------------------------------------------------
+
+
+def _send_error_for(redis_url, fake_adapter, result):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    fake_adapter.bus_result = result
+    with pytest.raises(SendError):
+        send_to_printer(job_id, DEFAULT_OPTS)
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.state == PrintJobState.FAILED.value
+        return job.printer_error or ""
+
+
+def test_send_uploads_then_starts_via_bus_without_mqtt(
+    printer_enabled, library_root, redis_url, fake_adapter
+):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    send_to_printer(job_id, DEFAULT_OPTS)
+    assert len(fake_adapter.files_uploaded) == 1
+    assert [c for c, _ in fake_adapter.bus_calls] == ["project_start"]
+    args = fake_adapter.bus_calls[0][1]
+    assert args["remote_name"] == f"tdmm-{job_id}.gcode.3mf" and args["plate"] == 1
+    assert fake_adapter.connected is False  # the worker never opens MQTT
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == PrintJobState.STARTING.value
+
+
+def test_send_fails_when_printerd_not_running(
+    printer_enabled, library_root, redis_url, fake_adapter
+):
+    err = _send_error_for(
+        redis_url, fake_adapter, {"ok": False, "code": "no_printerd", "message": "x"}
+    )
+    assert "printerd is not running" in err
+
+
+def test_send_fails_on_printerd_timeout(printer_enabled, library_root, redis_url, fake_adapter):
+    err = _send_error_for(
+        redis_url,
+        fake_adapter,
+        {"ok": False, "code": "timeout", "message": "printerd did not answer in time"},
+    )
+    assert "did not answer" in err
+
+
+def test_send_fails_on_printerd_refusal(printer_enabled, library_root, redis_url, fake_adapter):
+    err = _send_error_for(
+        redis_url,
+        fake_adapter,
+        {"ok": False, "code": "dev_mode_off", "message": "verify failed"},
+    )
+    assert "verify failed" in err
