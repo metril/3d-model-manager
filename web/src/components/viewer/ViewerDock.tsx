@@ -65,9 +65,10 @@ export function ViewerDock({
     // harmless, the nearest one just wins for this subtree.
     <TooltipProvider>
     <div
-      className="pointer-events-auto flex max-w-[calc(100%-1rem)] flex-nowrap items-center gap-1 overflow-x-auto rounded-full border border-border bg-card/95 px-2 py-1.5 shadow-lg backdrop-blur-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="pointer-events-auto flex max-w-[calc(100%-1rem)] items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1.5 shadow-lg backdrop-blur-sm"
       onKeyDown={(event) => event.stopPropagation()}
     >
+      <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] pr-6 [&::-webkit-scrollbar]:hidden">
       <SegmentedControl
         label={t("viewer.cam.label")}
         options={CAMERA_PRESET_OPTIONS}
@@ -110,7 +111,8 @@ export function ViewerDock({
         </TooltipTrigger>
         <TooltipContent>{t("viewer.dock.gridTip")}</TooltipContent>
       </Tooltip>
-      {morePanel}
+      </div>
+      <div className="flex shrink-0 items-center">{morePanel}</div>
     </div>
     </TooltipProvider>
   );

@@ -87,13 +87,13 @@ export function SpoolsPage() {
 
   return (
     <PageContainer width="default">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">{t("spoolsPage.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("spoolsPage.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/inventory/materials" className="text-sm text-muted-foreground hover:underline">
+          <Link to="/inventory/materials" className="text-sm text-primary underline-offset-4 hover:underline">
             {t("spoolsPage.materials")}
           </Link>
           {tab === "spools" && can("inventory:write") ? (
@@ -108,7 +108,7 @@ export function SpoolsPage() {
         value={tab}
         onValueChange={(v) => void navigate({ to: "/inventory/spools", search: (prev) => ({ ...prev, tab: v === "spools" ? undefined : v }) })}
       >
-        <TabsList aria-label={t("spoolAdmin.tabs.label")}>
+        <TabsList aria-label={t("spoolAdmin.tabs.label")} className="h-auto max-w-full flex-wrap justify-start">
           {TABS.map((x) => (
             <TabsTrigger key={x} value={x}>
               {t(`spoolAdmin.tabs.${x}`)}

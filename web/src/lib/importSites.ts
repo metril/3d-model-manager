@@ -25,3 +25,12 @@ export function detectSite(rawUrl: string): DetectedSite {
   const hit = HOSTS[host];
   return hit ? { ...hit } : { site: null, label: "", supported: false };
 }
+
+const SITE_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(HOSTS).map((h) => [h.site, h.label]),
+);
+
+/** Display name for a stored site slug ("makerworld" -> "MakerWorld"); unknown slugs pass through. */
+export function siteLabel(site: string): string {
+  return SITE_LABELS[site] ?? site;
+}
