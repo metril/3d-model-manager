@@ -142,6 +142,30 @@ def test_slice_success_ready(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: 
 
 
 @pytest.mark.usefixtures("migrated_db")
+def test_file_settings_slice_sends_no_process_profile(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry = _seed(session)
+        entry.slice_options = {"file_settings": True}
+        session.commit()
+        entry_id = entry.id
+
+    fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+    slicing.slice_file(entry_id)
+
+    assert fake_client.seen["process_profile"] is None
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.READY
+        new_file = session.get(File, refreshed.sliced_file_id)
+        assert new_file.rel_path == (
+            f"DotC Part 1 - My Recipe, file settings (q{entry_id} p1).gcode.3mf"
+        )
+
+
+@pytest.mark.usefixtures("migrated_db")
 def test_slice_failure_retries_then_fails(monkeypatch: pytest.MonkeyPatch):
     with base.sync_session() as session:
         entry = _seed(session)

@@ -40,7 +40,12 @@ from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
 from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
-from app.services.dispatcher import ALL_PLATES_KEY, QUEUE_MAX_ATTEMPTS, slice_siblings
+from app.services.dispatcher import (
+    ALL_PLATES_KEY,
+    FILE_SETTINGS_KEY,
+    QUEUE_MAX_ATTEMPTS,
+    slice_siblings,
+)
 from app.services.print_plan import estimate_item_sync
 from app.services.profile_sanitize import clamp_key, parse_range_error, sanitize_profile
 from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
@@ -426,6 +431,7 @@ _TRANSIENT_EXITS = {134, 137, 139}
 
 
 def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):
+    # process_profile None = slice with the model file's own process settings.
     """Sanitize known-bad values up front; on a 422 range error, clamp the
     offending key everywhere and retry once within the same attempt."""
     for d in (printer_profile, process_profile, *filament_profiles):
@@ -436,7 +442,9 @@ def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_p
                 "from an older slicer bundle) — re-sync profiles from the slicer sidecar."
             )
     printer, changed_p = sanitize_profile(printer_profile)
-    process, changed_x = sanitize_profile(process_profile)
+    process, changed_x = (
+        sanitize_profile(process_profile) if process_profile is not None else (None, [])
+    )
     filaments = []
     changed_f: list[str] = []
     for f in filament_profiles:
@@ -456,9 +464,10 @@ def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_p
         if parsed is None:
             raise
         key, lo, hi = parsed
-        if not any(clamp_key(d, key, lo, hi) for d in (printer, process, *filaments)):
+        drafts = [d for d in (printer, process, *filaments) if d is not None]
+        if not any(clamp_key(d, key, lo, hi) for d in drafts):
             raise
-        for d in (printer, process, *filaments):
+        for d in drafts:
             clamp_key(d, key, lo, hi)
         logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
         return client.slice(
@@ -502,7 +511,12 @@ def slice_source(
 
     printer_profile = session.get(SlicerProfile, recipe.printer_profile_id)
     process_profile = session.get(SlicerProfile, recipe.process_profile_id)
-    if printer_profile is None or process_profile is None:
+    merged_options = {**(recipe.options or {}), **(option_overrides or {})}
+    # Slice with the file's own process settings: send no process profile (the
+    # slicer keeps the 3MF's embedded one); printer + filament still come
+    # from the recipe.
+    file_settings = bool(merged_options.get(FILE_SETTINGS_KEY))
+    if printer_profile is None or (process_profile is None and not file_settings):
         raise ValueError("recipe's printer/process profile is missing")
 
     filament_profiles = []
@@ -523,7 +537,6 @@ def slice_source(
         except LookupError as exc:
             raise ValueError(str(exc)) from exc
 
-        merged_options = {**(recipe.options or {}), **(option_overrides or {})}
         options = SliceOptions(
             auto_orient=bool(merged_options.get("auto_orient", False)),
             arrange=bool(merged_options.get("arrange", False)),
@@ -534,7 +547,7 @@ def slice_source(
             model=src_path,
             filename=file.rel_path,
             printer_profile=printer_profile.data,
-            process_profile=process_profile.data,
+            process_profile=None if file_settings else process_profile.data,
             filament_profiles=filament_profiles,
             bed_type=recipe.bed_type,
             options=options,
@@ -564,7 +577,12 @@ def slice_source(
         if keep is not None and not keep():
             raise SlicerCancelled("slice cancelled before the result was stored")
 
-        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, tag, expected_plate)
+        new_rel_path = _sliced_rel_path(
+            file.rel_path,
+            f"{recipe.name}, file settings" if file_settings else recipe.name,
+            tag,
+            expected_plate,
+        )
         digest = blake3(out_bytes).hexdigest()
 
         # C1: never delete an existing sliced File -- a PrintJob (or

@@ -207,6 +207,31 @@ def test_slice_roundtrip_with_client_contract(api):
     assert r.status_code == 200 and zipfile.is_zipfile(io.BytesIO(r.content))
 
 
+def test_slice_without_process_profile_uses_printer_only(api, monkeypatch):
+    seen = {}
+    real = runner.run_slice
+
+    async def spy(**kw):
+        seen["settings"] = [p.name for p in kw["job"].settings]
+        return await real(**kw)
+
+    monkeypatch.setattr(runner, "run_slice", spy)
+    mod = _client_module()
+    req = mod._build_slice_request(
+        model=b"ok",
+        filename="cube.3mf",
+        printer_profile={"name": "A1M 0.4", "inherits": "base", "printer_model": "A1M"},
+        process_profile=None,
+        filament_profiles=[{"name": "PLA basic"}],
+        bed_type="textured_plate",
+        options=mod.SliceOptions(),
+    )
+    assert "process_profile" not in [k for k, _ in req["files"]]
+    r = api.post("/slice", **req)
+    assert r.status_code == 200 and zipfile.is_zipfile(io.BytesIO(r.content))
+    assert seen["settings"] == ["printer.json"]
+
+
 def test_slice_bad_profile_400(api):
     req = _body()
     req["files"] = [

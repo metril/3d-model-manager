@@ -191,6 +191,30 @@ def read_bed(zf: zipfile.ZipFile) -> tuple[float, float] | None:
     return parse_printable_area(cfg) if isinstance(cfg, dict) else None
 
 
+def read_embedded_process(zf: zipfile.ZipFile) -> dict | None:
+    """The 3MF's own process settings summary from ``project_settings.config``:
+    ``{layer_height, print_settings_id, printer_settings_id}``. ``None`` when the
+    file has no (parsable) project settings."""
+    data = slicedmeta.read_zip_member(zf, PROJECT_SETTINGS)
+    if data is None:
+        return None
+    try:
+        cfg = json.loads(data)
+    except ValueError:
+        return None
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        layer = float(str(cfg.get("layer_height")).strip())
+    except (TypeError, ValueError):
+        layer = None
+    return {
+        "layer_height": layer,
+        "print_settings_id": cfg.get("print_settings_id") or None,
+        "printer_settings_id": cfg.get("printer_settings_id") or None,
+    }
+
+
 _ITEM_RE = re.compile(rb"<(?:[\w.-]+:)?item\b([^>]*)>")
 _OBJECTID_RE = re.compile(rb"\bobjectid\s*=\s*[\"'](\d+)[\"']")
 

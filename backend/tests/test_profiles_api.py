@@ -105,6 +105,8 @@ async def test_recipe_create_round_trip(
     r = await authenticated_client.get(f"/api/recipes/{recipe_id}")
     assert r.status_code == 200
     assert r.json()["name"] == "Recipe 1"
+    assert r.json()["process_profile_name"] == "Pr1"
+    assert r.json()["process_layer_height_mm"] is None
 
     r = await authenticated_client.patch(f"/api/recipes/{recipe_id}", json={"name": "Renamed"})
     assert r.status_code == 200

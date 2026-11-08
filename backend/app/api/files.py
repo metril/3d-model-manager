@@ -55,6 +55,12 @@ router = APIRouter(prefix="/files", tags=["files"])
 public_router = APIRouter(prefix="/files", tags=["files"])
 
 
+class EmbeddedSettingsOut(BaseModel):
+    layer_height: float | None = None
+    print_settings_id: str | None = None
+    printer_settings_id: str | None = None
+
+
 class FileFormatOut(BaseModel):
     id: int
     rel_path: str
@@ -63,6 +69,23 @@ class FileFormatOut(BaseModel):
     # Plates of the file (sliced or unsliced multi-plate project), for the
     # print/slice plate pickers; ``None`` when the blob has no plate data.
     plates: list[PlateOut] | None = None
+    # A raw (unsliced) 3MF's own process settings -- what a recipe's process
+    # profile would replace. ``None`` for other formats / no project settings.
+    embedded: EmbeddedSettingsOut | None = None
+
+
+def _read_embedded(backend, storage_path: str) -> dict | None:
+    import io
+
+    from app.pipeline import plates3mf
+    from app.services.derivatives import _RangedReader
+
+    reader = io.BufferedReader(_RangedReader(backend, storage_path), buffer_size=1 << 16)
+    try:
+        with zipfile.ZipFile(reader) as zf:
+            return plates3mf.read_embedded_process(zf)
+    finally:
+        reader.close()
 
 
 @router.get("/{file_id}", response_model=FileFormatOut)
@@ -87,12 +110,20 @@ async def get_file_format(
             settings, [blob], await library._cost_rates(db, settings)
         )
     )[blob.hash]
+    embedded = None
+    if blob.format == BlobFormat.THREEMF:
+        try:
+            backend = await resolve_backend_for_file(db, settings, file)
+            embedded = await anyio.to_thread.run_sync(_read_embedded, backend, file.storage_path)
+        except Exception:  # best-effort hint; never fail the lookup
+            embedded = None
     return FileFormatOut(
         id=file.id,
         rel_path=file.rel_path,
         format=blob.format,
         blob_hash=blob.hash,
         plates=enrichment.meta.plates if enrichment.meta else None,
+        embedded=EmbeddedSettingsOut(**embedded) if embedded else None,
     )
 
 

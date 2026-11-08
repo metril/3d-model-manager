@@ -417,6 +417,7 @@ async def _enqueue_plates_into(
                     cost_center_id=payload.cost_center_id,
                     batch_id=batch.id,
                     force=payload.force,
+                    file_settings=payload.file_settings,
                     **{k: getattr(payload, k) for k in _SCHEDULING if getattr(payload, k)},
                 ),
                 ctx,

@@ -44,6 +44,7 @@ from app.schemas.queue import (
 from app.services import billing, ha_state, library, review
 from app.services.app_config import get_app_config
 from app.services.bed_fit import guard_plate_index, guard_recipe_fit
+from app.services.dispatcher import FILE_SETTINGS_KEY
 from app.services.print_plan import estimate_item_sync
 from app.services.queue_filaments import details_for_entries
 from app.services.queue_position import QUEUE_POSITION_LOCK
@@ -510,6 +511,8 @@ async def enqueue_file(
     blob = await db.get(Blob, file.blob_hash)
 
     sliced_file_id: int | None = None
+    if payload.recipe_id is not None and payload.file_settings:
+        slice_options = {**(slice_options or {}), FILE_SETTINGS_KEY: True}
     if payload.recipe_id is not None:
         if not (await get_server_config(db, settings)).slicer_enabled:
             raise HTTPException(status.HTTP_409_CONFLICT, "slicer_disabled")
