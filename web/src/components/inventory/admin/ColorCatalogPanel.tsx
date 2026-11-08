@@ -214,7 +214,7 @@ export function ColorCatalogPanel() {
                         <Button
                           type="button"
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
                           aria-label={t("spoolAdmin.common.editNamed", { name: c.color_name })}
                           onClick={() => {
                             setEditing(c);
@@ -226,7 +226,8 @@ export function ColorCatalogPanel() {
                         <Button
                           type="button"
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                           aria-label={t("spoolAdmin.common.deleteNamed", { name: c.color_name })}
                           onClick={() =>
                             del.mutate(c.id, {

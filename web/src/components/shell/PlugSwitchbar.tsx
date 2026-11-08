@@ -15,14 +15,14 @@ export function PlugSwitchbar() {
   const bar = (plugs.data ?? []).filter((p) => p.show_in_switchbar);
   if (bar.length === 0) return null;
   return (
-    <div className="flex items-center gap-3" data-testid="plug-switchbar">
+    <div className="flex shrink-0 items-center gap-2 sm:gap-3" data-testid="plug-switchbar">
       {bar.map((p) => {
         const on = p.last_state === "on";
         const label = p.name || t("plugSwitch.fallback", { id: p.id });
         return (
-          <label key={p.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <label key={p.id} title={label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <PlugIcon className="size-3.5" />
-            <span className="max-w-24 truncate">{label}</span>
+            <span className="hidden max-w-24 truncate sm:inline">{label}</span>
             <Switch
               aria-label={t("plugSwitch.power", { label })}
               checked={on}

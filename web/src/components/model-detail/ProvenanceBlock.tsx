@@ -3,18 +3,16 @@ import { Link } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { siteLabel } from "@/lib/importSites";
 import type { ModelDetail } from "@/api/types";
 
-const SITE_LABELS: Record<string, string> = {
-  thingiverse: "Thingiverse", printables: "Printables", makerworld: "MakerWorld",
-};
 
 /** Attribution for an imported model (FULL line 232: provenance always shown
  * — CC attribution requires it). Renders nothing for a manually-created model. */
 export function ProvenanceBlock({ model }: { model: ModelDetail }) {
   const { t } = useTranslation();
   if (!model.source_url && !model.source_site && !model.source_author) return null;
-  const label = model.source_site ? (SITE_LABELS[model.source_site] ?? model.source_site) : t("mdProv.source");
+  const label = model.source_site ? (siteLabel(model.source_site)) : t("mdProv.source");
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="provenance">
       <span>{t("mdProv.importedFrom")}</span>

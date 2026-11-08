@@ -265,7 +265,7 @@ function MorePanelBody({
         </div>
       )}
 
-      <div className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground">
+      <div className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground max-sm:hidden [@media(hover:none)]:hidden">
         <span className="font-medium tracking-wide uppercase">{t("viewer.hotkeys")}</span>
         <span>{t("viewer.hotkeyLegend")}</span>
         <span data-testid="plate-hotkeys">{t("viewer.hotkeyPlates")}</span>

@@ -89,8 +89,9 @@ export function PrintCalendar({ onSelectDay }: { onSelectDay: (date: string) => 
                 >
                   <span className="font-medium">{i + 1}</span>
                   {has ? (
-                    <span className="font-mono tabular-nums">
-                      {day.count} · {day.hours.toFixed(1)}h
+                    <span className="font-mono tabular-nums whitespace-nowrap" title={`${day.count} · ${day.hours.toFixed(1)}h`}>
+                      {day.count}
+                      <span className="hidden sm:inline"> · {day.hours.toFixed(1)}h</span>
                     </span>
                   ) : null}
                 </button>

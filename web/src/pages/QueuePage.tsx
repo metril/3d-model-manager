@@ -286,7 +286,7 @@ function QueueLane({
 }) {
   const { t } = useTranslation();
   return (
-    <Card className="w-96 shrink-0">
+    <Card className="w-full min-w-0 shrink-0 sm:w-96">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm">{title}</CardTitle>
