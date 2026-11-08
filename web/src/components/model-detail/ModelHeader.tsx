@@ -293,6 +293,7 @@ export function ModelHeader({
                 }}
                 source={printRequest?.fileId != null ? { kind: "file", fileId: printRequest.fileId, format: "3mf" } : { kind: "model", modelId: model.id }}
                 initialPlate={printRequest?.plate ?? null}
+                initialAllPlates={printRequest?.allPlates ?? false}
                 initialFileId={printRequest?.plate ? printRequest.fileId : null}
               />
             </>

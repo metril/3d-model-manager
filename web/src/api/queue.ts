@@ -12,6 +12,7 @@ import type {
   BatchIn,
   BatchPatch,
   QueueEnqueueBody,
+  QueueEnqueuePlatesBody,
   QueueEntry,
   QueuePreheatSettings,
   QueueSettings,
@@ -62,6 +63,15 @@ export function useEnqueue() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: QueueEnqueueBody) => api.post<QueueEntry>("/queue", body),
+    onSuccess: () => invalidateQueue(queryClient),
+  });
+}
+
+/** `POST /queue/plates` -- one entry per plate, grouped in a batch. */
+export function useEnqueuePlates() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: QueueEnqueuePlatesBody) => api.post<QueueEntry[]>("/queue/plates", body),
     onSuccess: () => invalidateQueue(queryClient),
   });
 }

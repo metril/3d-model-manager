@@ -17,6 +17,7 @@ from app.models.library import PrintQueueEntry
 from app.models.printing import Printer
 from app.schemas.queue import (
     QueueEnqueueIn,
+    QueueEnqueuePlatesIn,
     QueueEntryOut,
     QueueReorderIn,
     ReviewCountOut,
@@ -89,6 +90,27 @@ async def enqueue(
     else:
         _notify_enqueued(entry, ctx)
     return entry
+
+
+@router.post(
+    "/plates",
+    status_code=status.HTTP_201_CREATED,
+    response_model=list[QueueEntryOut],
+    dependencies=[Depends(require_perm("printers:print"))],
+)
+async def enqueue_plates(
+    payload: QueueEnqueuePlatesIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    ctx: AuthContext = Depends(require_session),
+) -> list[QueueEntryOut]:
+    """One entry per plate, grouped in a batch; ``printer_id`` null = any printer."""
+    from app.services import batches as batches_service
+
+    entries = await batches_service.enqueue_plates(db, settings, payload, ctx)
+    for entry in entries:
+        _notify_enqueued(entry, ctx)
+    return entries
 
 
 @router.get(

@@ -34,12 +34,15 @@ export function PrinterPicker({
   value,
   onChange,
   idPrefix,
+  anyOption,
 }: {
   printers: PickerPrinter[];
   value: number | null;
   /** `auto` is true when the picker chose the sole online printer itself. */
   onChange: (id: number, auto: boolean) => void;
   idPrefix: string;
+  /** "Any available printer": the queue assigns an idle compatible one. */
+  anyOption?: { selected: boolean; onSelect: () => void };
 }) {
   const { t } = useTranslation();
   const onlineIds = useOnlinePrinterIds();
@@ -61,7 +64,18 @@ export function PrinterPicker({
   );
 
   return (
-    <RadioGroup value={value != null ? String(value) : ""} onValueChange={(v) => onChange(Number(v), false)}>
+    <RadioGroup
+      value={anyOption?.selected ? "any" : value != null ? String(value) : ""}
+      onValueChange={(v) => (v === "any" ? anyOption?.onSelect() : onChange(Number(v), false))}
+    >
+      {anyOption ? (
+        <div className="flex items-center gap-2">
+          <RadioGroupItem value="any" id={`${idPrefix}-any`} />
+          <Label htmlFor={`${idPrefix}-any`} className="font-normal">
+            {t("printerPicker.any")}
+          </Label>
+        </div>
+      ) : null}
       {online.map(row)}
       {online.length === 0 && offline.length > 0 ? (
         <p className="text-sm text-muted-foreground">{t("printerPicker.noneOnline")}</p>

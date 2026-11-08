@@ -2619,6 +2619,24 @@ export interface QueueSchedulingFields {
   batch_id?: number | null;
 }
 
+/** `POST /queue/plates`: one entry per plate in a batch; `printer_id` null = any printer. */
+export interface QueueEnqueuePlatesBody extends Omit<QueueSchedulingFields, "batch_id"> {
+  file_id: number;
+  plates: number[];
+  printer_id?: number | null;
+  recipe_id?: number | null;
+  copies?: number;
+  ams_mapping?: number[] | null;
+  /** plate number -> AMS mapping for that plate. */
+  plate_ams_mappings?: Record<string, number[]> | null;
+  options?: PlanOptions | null;
+  cost_center_id?: number | null;
+  force?: boolean;
+  name?: string;
+  /** Add the plate entries to this existing batch. */
+  batch_id?: number | null;
+}
+
 export type BatchStatus = "draft" | "active" | "done" | "cancelled";
 
 export interface BatchProgress {

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.models import AuditLog, Setting
 from app.models.enums import ArchiveFetchState, ArchiveResult, PrintJobState, QueueState
-from app.models.library import PrintBatch, PrintQueueEntry
+from app.models.library import File, PrintBatch, PrintQueueEntry
 from app.models.printing import PrintArchive, Printer, PrintJob
 from app.printers.capabilities import capabilities_for
 from app.services import dispatcher, queue_schedule
@@ -885,3 +885,89 @@ async def test_ungrouped_active_batch_reports_done(authenticated_client: httpx.A
     await c.post(f"/api/batches/{b['id']}/dispatch")
     r = await c.post(f"/api/batches/{b['id']}/ungroup")
     assert r.json()["progress"]["total"] == 0 and r.json()["status"] == "done"
+
+
+async def test_batch_all_plates_any_printer_per_plate_mapping(
+    authenticated_client: httpx.AsyncClient,
+):
+    c = authenticated_client
+    b = await _new_batch(
+        c,
+        quantity=3,
+        plate_targets={"1": 1, "2": 1, "3": 1},
+        ams_mapping=[0],
+        plate_ams_mappings={"2": [5, 6]},
+        all_plates=True,
+    )
+    r = await c.post(f"/api/batches/{b['id']}/dispatch")
+    assert r.status_code == 200, r.text
+    entries = (await c.get(f"/api/queue?batch_id={b['id']}")).json()
+    by_plate = {e["plate"]: e for e in entries}
+    assert sorted(by_plate) == [1, 2, 3]
+    assert {e["batch"]["id"] for e in entries} == {b["id"]}
+    assert all(e["printer_id"] is None and e["copies"] == 1 for e in entries)  # any printer
+    with base.sync_session() as s:
+        maps = {p: s.get(PrintQueueEntry, e["id"]).ams_mapping for p, e in by_plate.items()}
+    assert maps == {1: [0], 2: [5, 6], 3: [0]}
+
+
+async def test_queue_plates_endpoint(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    fid = _file_id()
+    r = await c.post(
+        "/api/queue/plates",
+        json={"file_id": fid, "plates": [1, 2, 3], "plate_ams_mappings": {"3": [1]}},
+    )
+    assert r.status_code == 201, r.text
+    out = r.json()
+    assert [e["plate"] for e in out] == [1, 2, 3]
+    assert len({e["batch"]["id"] for e in out}) == 1
+    assert all(e["printer_id"] is None for e in out)
+    bad = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [1, 1]})
+    assert bad.status_code == 422
+    missing = await c.post("/api/queue/plates", json={"file_id": 99999, "plates": [1]})
+    assert missing.status_code == 404
+
+
+async def test_queue_rejects_unknown_plate_on_sliced_file(authenticated_client: httpx.AsyncClient):
+    from app.models.processing import BlobMeta
+
+    c = authenticated_client
+    fid = _file_id()
+    with base.sync_session() as s:
+        f = s.get(File, fid)
+        s.merge(BlobMeta(blob_hash=f.blob_hash, plate_count=2))
+        s.commit()
+    r = await c.post("/api/queue", json={"file_id": fid, "plate": 99})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_plate"
+    r = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [1, 99]})
+    assert r.status_code == 422
+    assert (await c.get("/api/queue")).json() == []  # nothing half-queued
+    assert (await c.post("/api/queue", json={"file_id": fid, "plate": 2})).status_code == 201
+
+
+async def test_batch_creator_manages_own_batches(make_user, make_group, login_as):
+    a = await make_user("member")
+    b = await make_user("member")
+    await make_group("printers", permissions=["printers:print"], members=[a, b])
+    ca, cb = await login_as(a), await login_as(b)
+    batch = await _new_batch(ca, quantity=1)
+    assert [x["id"] for x in (await ca.get("/api/batches")).json()] == [batch["id"]]
+    assert (await cb.get("/api/batches")).json() == []
+    assert (await cb.get(f"/api/batches/{batch['id']}")).status_code == 404
+    assert (await cb.delete(f"/api/batches/{batch['id']}")).status_code == 404
+    assert (await ca.get(f"/api/batches/{batch['id']}")).status_code == 200
+    assert (await ca.delete(f"/api/batches/{batch['id']}")).status_code == 204
+
+
+async def test_queue_plates_into_existing_batch(authenticated_client: httpx.AsyncClient):
+    c = authenticated_client
+    b = await _new_batch(c, quantity=1)
+    fid = b["file_id"]
+    r = await c.post(
+        "/api/queue/plates", json={"file_id": fid, "plates": [1, 2], "batch_id": b["id"]}
+    )
+    assert r.status_code == 201, r.text
+    assert {e["batch"]["id"] for e in r.json()} == {b["id"]} and len(r.json()) == 2
+    nf = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [1], "batch_id": 99999})
+    assert nf.status_code == 404

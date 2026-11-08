@@ -536,3 +536,84 @@ def test_422_config_marker_is_permanent(monkeypatch: pytest.MonkeyPatch):
     with base.sync_session() as session:
         e = session.get(PrintQueueEntry, entry_id)
         assert e.state == QueueState.FAILED and e.attempts == 1
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_all_plates_siblings_share_one_slice(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    from app.models.library import PrintBatch
+
+    with base.sync_session() as session:
+        first = _seed(session, plate=1)
+        batch = PrintBatch(name="all", model_id=first.model_id, quantity=2, status="active")
+        session.add(batch)
+        session.flush()
+        opts = {slicing.ALL_PLATES_KEY: True}
+        second = PrintQueueEntry(
+            model_id=first.model_id,
+            position=2,
+            file_id=first.file_id,
+            recipe_id=first.recipe_id,
+            plate=2,
+            state=QueueState.SLICING,
+        )
+        first.batch_id = batch.id
+        first.slice_options = opts
+        second.batch_id = batch.id
+        second.slice_options = opts
+        session.add(second)
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+    slicing.slice_file(first_id)
+    slicing.slice_file(second_id)
+
+    assert fake_client.calls == 1
+    assert fake_client.seen["options"].plate is None  # whole project, once
+    with base.sync_session() as session:
+        a, b = session.get(PrintQueueEntry, first_id), session.get(PrintQueueEntry, second_id)
+        assert a.sliced_file_id is not None and a.sliced_file_id == b.sliced_file_id
+        assert (a.plate, b.plate) == (1, 2) and b.state == QueueState.READY
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_all_plates_permanent_failure_fails_siblings_once(monkeypatch: pytest.MonkeyPatch):
+    from app.models.library import PrintBatch
+
+    with base.sync_session() as session:
+        first = _seed(session, plate=1)
+        batch = PrintBatch(name="all", model_id=first.model_id, quantity=2, status="active")
+        session.add(batch)
+        session.flush()
+        opts = {slicing.ALL_PLATES_KEY: True}
+        second = PrintQueueEntry(
+            model_id=first.model_id,
+            position=2,
+            file_id=first.file_id,
+            recipe_id=first.recipe_id,
+            plate=2,
+            state=QueueState.WAITING,
+        )
+        first.batch_id = batch.id
+        first.slice_options = opts
+        second.batch_id = batch.id
+        second.slice_options = opts
+        session.add(second)
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    notes: list[tuple] = []
+    monkeypatch.setattr(slicing, "_notify", lambda event, payload: notes.append((event, payload)))
+    fake_client = FakeSlicerClient(side_effect=ValueError("permanent"))
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+    slicing.slice_file(first_id)
+
+    assert fake_client.calls == 1
+    with base.sync_session() as session:
+        a, b = session.get(PrintQueueEntry, first_id), session.get(PrintQueueEntry, second_id)
+        assert a.state == b.state == QueueState.FAILED
+        assert b.last_error == a.last_error and b.attempts == 0
+    assert [n[0] for n in notes] == ["slice_failed"]

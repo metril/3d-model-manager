@@ -38,4 +38,10 @@ describe("PlatePicker", () => {
     expect(screen.queryByRole("radio", { name: /All plates/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId("plate-preview")).not.toBeInTheDocument();
   });
+
+  it("says each plate is queued when queueAll is set", () => {
+    render(<PlatePicker blobHash="h" plates={[plate(1), plate(2)]} value={null} onChange={() => {}} allowAll queueAll />);
+    expect(screen.getByText("Each plate is queued as its own print.")).toBeInTheDocument();
+    expect(screen.queryByText(/only plate 1 prints/)).not.toBeInTheDocument();
+  });
 });

@@ -35,7 +35,7 @@
  * `/print/plan`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -44,7 +44,7 @@ import { useAuth } from "@/api/auth";
 import { api, ApiError } from "@/api/client";
 import { useCostCenters, useFinanceConfig } from "@/api/finance";
 import { BedFitChip } from "@/components/slice/BedFitChip";
-import { useCreateBatch, useDispatchBatch, useEnqueue } from "@/api/queue";
+import { useCreateBatch, useDispatchBatch, useEnqueue, useEnqueuePlates } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
 import { needsReview } from "@/lib/permissions";
@@ -55,7 +55,7 @@ import { useFileBedFit, useFilePlates, useRecipes, useSlicerHealth } from "@/api
 import { PauseWarning } from "@/components/print/PauseWarning";
 import { PlatePicker } from "@/components/print/PlatePicker";
 import { plateForFile, selectablePlates } from "@/components/viewer/plates";
-import type { BlobFormat, PlanFilament, QueueEnqueueBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
+import type { BlobFormat, PlanFilament, PlanOut, QueueEnqueueBody, QueueEnqueuePlatesBody, PlanFilamentStatus, RevisionDetail, RevisionSummary } from "@/api/types";
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
@@ -207,6 +207,7 @@ function PrintDialogBody({
   sliceOnly: sliceOnlyProp = false,
   initialPlate,
   initialFileId,
+  initialAllPlates = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -220,6 +221,8 @@ function PrintDialogBody({
   initialPlate?: number | null;
   /** The file `initialPlate` was picked on; the seed applies only while that file is the effective one. */
   initialFileId?: number | null;
+  /** Start with "All plates" selected (e.g. the viewer's all-plates view). */
+  initialAllPlates?: boolean;
 }) {
   // A file source's format: passed by the caller, else fetched.
   const passedFormat = source.kind === "file" ? source.format : undefined;
@@ -235,6 +238,9 @@ function PrintDialogBody({
   const [pickedFileId, setPickedFileId] = useState<number | null>(null);
   const [plate, setPlate] = useState<number | null>(null);
   const [printerId, setPrinterId] = useState<number | null>(printerIdProp ?? null);
+  // Explicit "All plates" / "Any available printer" choices.
+  const [allPlates, setAllPlates] = useState(initialAllPlates);
+  const [anyPrinter, setAnyPrinter] = useState(false);
   const [sliceOnly, setSliceOnly] = useState(sliceOnlyProp);
   const [overrides, setOverrides] = useState<Record<number, number>>({});
   const [bedLevelling, setBedLevelling] = useState(true);
@@ -267,6 +273,8 @@ function PrintDialogBody({
     setPickedFileId(null);
     setPlate(plateForFile(initialPlate, initialFileId, effectiveFileId));
     setPrinterId(printerIdProp ?? null);
+    setAllPlates(initialAllPlates);
+    setAnyPrinter(false);
     setSliceOnly(sliceOnlyProp);
     setOverrides({});
     setOptionsSeeded(false);
@@ -281,7 +289,7 @@ function PrintDialogBody({
     setBatchChoice(NO_BATCH);
     setTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, printerIdProp, sliceOnlyProp, initialPlate, initialFileId, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
+  }, [open, printerIdProp, sliceOnlyProp, initialPlate, initialFileId, initialAllPlates, source.kind, source.kind === "file" ? source.fileId : null, source.kind === "model" ? source.modelId : null, source.kind === "archive" ? source.archiveId : null]);
 
   // Once a file source's format is known it decides the mode: sliced ->
   // as-sliced (never a recipe), anything else -> recipe. Runs after the
@@ -380,7 +388,22 @@ function PrintDialogBody({
     return usable.length === 1 ? usable[0].id : null;
   })();
   const effectivePlate = plate ?? plan?.plate ?? null;
-  const effectivePrinterId = printerId ?? plan?.printer_id ?? soleRecipePrinterId;
+  const effectivePrinterId = anyPrinter ? null : printerId ?? plan?.printer_id ?? soleRecipePrinterId;
+  // "All plates": one queue entry per plate (a recipe slices the project once).
+  // A multi-plate recipe file with no plate picked yet counts as all plates.
+  const plateList = profileMode === "recipe" ? recipePlates : plan?.plates ?? [];
+  const allMode = plateList.length >= 2 && (allPlates || (profileMode === "recipe" && plate == null));
+  // Specific printer + already-sliced file: each plate maps its own filaments.
+  const perPlatePlans = useQueries({
+    queries: plateList.map((p) => {
+      const body = { file_id: effectiveFileId as number, plate: p.index, printer_id: effectivePrinterId ?? undefined, overrides };
+      return {
+        queryKey: ["print-plan", body] as const,
+        queryFn: () => api.post<PlanOut>("/print/plan", body),
+        enabled: allMode && profileMode !== "recipe" && !usingReprintPlan && !anyPrinter && effectiveFileId != null,
+      };
+    }),
+  });
 
   // Seed the toggle defaults from the plan's own defaults exactly once, so
   // later refetches (an override, a plate change) never clobber what the
@@ -427,10 +450,11 @@ function PrintDialogBody({
     setRecipeSearch("");
   }, [open, source.kind, archiveSourceId]);
   const enqueueRaw = useEnqueue();
+  const enqueuePlates = useEnqueuePlates();
   const createBatch = useCreateBatch();
   const dispatchBatch = useDispatchBatch();
   const enqueue = {
-    isPending: enqueueRaw.isPending || createBatch.isPending || dispatchBatch.isPending,
+    isPending: enqueueRaw.isPending || enqueuePlates.isPending || createBatch.isPending || dispatchBatch.isPending,
   };
   const schedActive = isScheduleSet(sched) || batchChoice.mode !== null;
 
@@ -483,6 +507,42 @@ function PrintDialogBody({
       },
     );
   }
+  /** All-plates queue submit: one batch entry per plate, any printer allowed. */
+  function submitPlates(extra: Partial<QueueEnqueuePlatesBody>, onSuccess: () => void) {
+    if (effectiveFileId == null) return;
+    const { batch_id: _batch, ...fields } = draftToFields(sched);
+    const batchFields =
+      typeof batchChoice.mode === "number"
+        ? { batch_id: batchChoice.mode }
+        : batchChoice.mode === "new" && batchChoice.name.trim()
+          ? { name: batchChoice.name.trim() }
+          : {};
+    const plateMaps: Record<string, number[]> = {};
+    if (profileMode !== "recipe" && !anyPrinter) {
+      plateList.forEach((p, i) => {
+        const m = perPlatePlans[i]?.data?.ams_mapping;
+        if (m) plateMaps[String(p.index)] = m;
+      });
+    }
+    enqueuePlates.mutate(
+      {
+        file_id: effectiveFileId,
+        plates: plateList.map((p) => p.index),
+        printer_id: effectivePrinterId,
+        plate_ams_mappings: Object.keys(plateMaps).length > 0 ? plateMaps : undefined,
+        cost_center_id: billingOn ? costCenterId : undefined,
+        ...fields,
+        ...batchFields,
+        ...extra,
+      },
+      {
+        onSuccess,
+        onError: (e) => {
+          if (e instanceof ApiError && e.code === "does_not_fit") setRefusedFor(extra.recipe_id ?? null);
+        },
+      },
+    );
+  }
   const sendPrint = useSendPrint();
   const auth = useAuth();
   const financeConfig = useFinanceConfig();
@@ -531,10 +591,16 @@ function PrintDialogBody({
       })),
     [planPrinters],
   );
-  const handlePickPrinter = useCallback((id: number, auto: boolean) => {
-    if (!auto) setTouched(true);
-    setPrinterId(id);
-  }, []);
+  const handlePickPrinter = useCallback(
+    (id: number, auto: boolean) => {
+      if (auto && anyPrinter) return; // never undo an explicit "any printer"
+      if (!auto) setTouched(true);
+      setAnyPrinter(false);
+      setPrinterId(id);
+    },
+    [anyPrinter],
+  );
+  const canPickAny = printerIdProp == null && source.kind !== "archive" && pickerPrinters.length > 1;
 
   const recent = useRecentModelsQuery(source.kind === "pick" && modelQuery.trim().length === 0);
   const debouncedModelQuery = useDebouncedValue(modelQuery, 300);
@@ -581,7 +647,10 @@ function PrintDialogBody({
 
   const formatUnknown = source.kind === "file" && fileFormat == null;
 
-  const hasRed = (plan?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
+  const redIn = (p?: PlanOut) => (p?.filaments ?? []).some((f) => f.status === "none" || f.status === "type");
+  const hasRed = anyPrinter ? false : allMode ? perPlatePlans.some((q) => redIn(q.data)) : redIn(plan);
+  // Several plates or no fixed printer: can only be queued, not sent directly.
+  const queueOnly = allMode || anyPrinter;
   // A reprint seeds `printerId` from the archived run before the person
   // ever visits the Send step -- that pre-selected printer can be busy or
   // incompatible by now, and the radio group only disables an OPTION, it
@@ -619,7 +688,7 @@ function PrintDialogBody({
         file_id: effectiveFileId,
         plate: effectivePlate ?? undefined,
         printer_id: effectivePrinterId ?? undefined,
-        ams_mapping: plan?.ams_mapping ?? undefined,
+        ams_mapping: anyPrinter ? undefined : plan?.ams_mapping ?? undefined,
         options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse },
         front: true,
         cost_center_id: billingOn ? costCenterId : undefined,
@@ -677,12 +746,16 @@ function PrintDialogBody({
   // so the dispatcher can send it unchanged later (state `ready`).
   function handleAddToQueue() {
     if (effectiveFileId == null) return;
+    if (allMode) {
+      submitPlates({ options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse } }, queuedPlatesDone);
+      return;
+    }
     submitQueue(
       {
         file_id: effectiveFileId,
         plate: effectivePlate ?? undefined,
         printer_id: effectivePrinterId ?? undefined,
-        ams_mapping: plan?.ams_mapping ?? undefined,
+        ams_mapping: anyPrinter ? undefined : plan?.ams_mapping ?? undefined,
         options: { bed_levelling: bedLevelling, flow_cali: flowCali, timelapse },
       },
       () => {
@@ -694,8 +767,18 @@ function PrintDialogBody({
 
   // Recipe "Slice and send": inserted at the front (`front: true`, state
   // `waiting`) -- the dispatcher slices with the recipe then sends.
+  function queuedPlatesDone() {
+    close();
+    toast.success(t("printDialog.queuedPlates", { count: plateList.length }));
+    onSent?.();
+  }
+
   function handleSliceAndSend() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
+    if (allMode) {
+      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      return;
+    }
     submitQueue(
       {
         file_id: effectiveFileId,
@@ -716,6 +799,10 @@ function PrintDialogBody({
   // Recipe "Add to queue": appended at the end (`front: false`).
   function handleQueueRecipe() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
+    if (allMode) {
+      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      return;
+    }
     submitQueue(
       {
         file_id: effectiveFileId,
@@ -824,9 +911,10 @@ function PrintDialogBody({
                 <PlatePicker
                   blobHash={blobHash}
                   plates={recipePlates}
-                  value={plate}
+                  value={allMode ? null : plate}
                   allowAll
-                  onChange={(next) => { setTouched(true); setPlate(next); }}
+                  queueAll
+                  onChange={(next) => { setTouched(true); setPlate(next); setAllPlates(next == null); }}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t("printDialog.mappedAfterSlicing")}</p>
@@ -835,8 +923,10 @@ function PrintDialogBody({
               <PlatePicker
                 blobHash={blobHash}
                 plates={plan?.plates ?? []}
-                value={effectivePlate}
-                onChange={(next) => { setTouched(true); setPlate(next); }}
+                value={allMode ? null : effectivePlate}
+                allowAll={(plan?.plates.length ?? 0) >= 2}
+                queueAll
+                onChange={(next) => { setTouched(true); setPlate(next); setAllPlates(next == null); }}
                 preview={false}
               />
             ) : null}
@@ -920,6 +1010,28 @@ function PrintDialogBody({
 
             {step === FILAMENT && profileMode === "recipe" ? (
               <p className="text-sm text-muted-foreground">{t("printDialog.mappedAfterSlicing")}</p>
+            ) : step === FILAMENT && anyPrinter ? (
+              <p className="text-sm text-muted-foreground">{t("printDialog.mappedOnAssign")}</p>
+            ) : step === FILAMENT && allMode ? (
+              <div className="space-y-2">
+                {plateList.map((p, i) => (
+                  <details key={p.index} className="rounded-[6px] border border-border p-2" open={plateList.length <= 3}>
+                    <summary className="cursor-pointer text-sm font-medium">{t("printDialog.plateFilaments", { n: p.index })}</summary>
+                    <div className="mt-2 space-y-2">
+                      {(perPlatePlans[i]?.data?.filaments ?? []).map((f) => (
+                        <FilamentRow
+                          key={f.filament_id}
+                          filament={f}
+                          trays={trays}
+                          onOverride={(filamentId, tray) =>
+                            { setTouched(true); setOverrides((prev) => ({ ...prev, [filamentId]: tray })); }
+                          }
+                        />
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
             ) : step === FILAMENT ? (
               <div className="space-y-2">
                 {(plan?.filaments ?? []).map((f) => (
@@ -940,12 +1052,13 @@ function PrintDialogBody({
 
             {step === SEND ? (
               <div className="space-y-4">
-                <PauseWarning plates={pauseSourcePlates} plate={effectivePlate} />
+                <PauseWarning plates={pauseSourcePlates} plate={allMode ? null : effectivePlate} />
                 <PrinterPicker
                   idPrefix="print-dialog-printer"
                   value={effectivePrinterId}
                   printers={pickerPrinters}
                   onChange={handlePickPrinter}
+                  anyOption={canPickAny ? { selected: anyPrinter, onSelect: () => { setTouched(true); setAnyPrinter(true); } } : undefined}
                 />
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm">
@@ -1063,6 +1176,13 @@ function PrintDialogBody({
                     </>
                   ) : (
                     <>
+                      {queueOnly ? (
+                        effectiveFileId != null ? (
+                          <Button type="button" onClick={handleAddToQueue} disabled={enqueue.isPending}>
+                            {t("printDialog.addToQueue")}
+                          </Button>
+                        ) : null
+                      ) : (
                       <div className="flex flex-col gap-1">
                         <Button
                           type="button"
@@ -1099,7 +1219,8 @@ function PrintDialogBody({
                           </span>
                         ) : null}
                       </div>
-                      {effectiveFileId != null ? (
+                      )}
+                      {!queueOnly && effectiveFileId != null ? (
                         <Button type="button" variant="outline" onClick={handleAddToQueue} disabled={enqueue.isPending}>
                           {t("printDialog.addToQueue")}
                         </Button>

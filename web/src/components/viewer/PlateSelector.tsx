@@ -47,8 +47,8 @@ export function PlateSelector({
   files?: ViewerPlateFile[];
   hasAllFiles?: boolean;
   onFileChange?: (blobHash: string) => void;
-  /** Shown as a "Print plate N" button once a plate is selected. */
-  onPrint?: (plate: number) => void;
+  /** "Print plate N" for a selected plate, or "Print all plates" (plate null) in the all-plates view. */
+  onPrint?: (plate: number | null) => void;
 }) {
   const { t } = useTranslation();
   const labelId = useId();
@@ -60,7 +60,8 @@ export function PlateSelector({
   const showPicker = !!files && files.length > 0 && !!onFileChange;
   const single = plates && plates.length === 1 ? plates[0].index : null;
   const printPlate = value ?? single;
-  if (!showPicker && list.length === 0 && !(onPrint && printPlate != null)) return null;
+  const canPrintHere = !!onPrint && (printPlate != null || list.length > 1);
+  if (!showPicker && list.length === 0 && !canPrintHere) return null;
   const chip = (active: boolean) =>
     cn(
       "pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-xs backdrop-blur-sm",
@@ -181,9 +182,9 @@ export function PlateSelector({
           ))}
         </div>
       ) : null}
-      {onPrint && printPlate != null ? (
+      {onPrint && canPrintHere ? (
         <Button type="button" size="sm" className="pointer-events-auto h-7 rounded-full px-3 text-xs" onClick={() => onPrint(printPlate)}>
-          {t("profiles.printPlate", { n: printPlate })}
+          {printPlate != null ? t("profiles.printPlate", { n: printPlate }) : t("profiles.printAllPlates")}
         </Button>
       ) : null}
     </div>
