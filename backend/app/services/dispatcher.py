@@ -45,6 +45,7 @@ from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import (
     DISPATCH_IDLE_STATES,
+    START_TIMEOUT_ERROR,
     failed_hold_reason,
     read_state_sync,
 )
@@ -399,7 +400,7 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         )
     ).all():
         unstarted.state = PrintJobState.FAILED
-        unstarted.printer_error = unstarted.printer_error or "printer did not start the job"
+        unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.finished_at = datetime.now(UTC)
     session.flush()
 

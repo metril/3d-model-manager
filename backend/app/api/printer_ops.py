@@ -9,6 +9,7 @@ import ftplib
 import os
 import tempfile
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -434,6 +435,7 @@ async def print_sd(
         origin=PrintJobOrigin.EXTERNAL,
         created_by_user_id=ctx.user.id,
         state=PrintJobState.STARTING,
+        starting_at=datetime.now(UTC),
         plate=clean["plate"] or 1,
         subtask_name=name,
     )
