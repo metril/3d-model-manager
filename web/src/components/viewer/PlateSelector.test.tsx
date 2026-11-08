@@ -35,10 +35,11 @@ describe("PlateSelector", () => {
 });
 
 describe("PlateSelector print", () => {
-  it("offers Print plate N only with a selected plate and calls onPrint", () => {
+  it("offers Print all plates in the all-plates view and Print plate N once selected", () => {
     const onPrint = vi.fn();
     const { rerender } = render(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={null} onChange={() => {}} onPrint={onPrint} />);
-    expect(screen.queryByRole("button", { name: /Print plate/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Print all plates" }));
+    expect(onPrint).toHaveBeenCalledWith(null);
     rerender(<PlateSelector blobHash="h" plates={[plate(1), plate(2)]} value={2} onChange={() => {}} onPrint={onPrint} />);
     fireEvent.click(screen.getByRole("button", { name: "Print plate 2" }));
     expect(onPrint).toHaveBeenCalledWith(2);

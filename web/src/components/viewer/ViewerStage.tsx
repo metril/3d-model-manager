@@ -694,7 +694,7 @@ export function ViewerStage({
                 canPrint
                   ? (plate) => {
                       const file = plateInfo.files?.find((f) => f.blobHash === plateInfo.blobHash);
-                      if (file) openPrint({ fileId: file.fileId, plate });
+                      if (file) openPrint({ fileId: file.fileId, plate, allPlates: plate == null });
                     }
                   : undefined
               }

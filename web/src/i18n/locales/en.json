@@ -1942,6 +1942,7 @@
   "profiles": {
     "title": "Print profiles",
     "printPlate": "Print plate {{n}}",
+    "printAllPlates": "Print all plates",
     "plateCount_one": "{{count}} plate",
     "plateCount_other": "{{count}} plates",
     "by": "by {{author}}",
@@ -2756,6 +2757,11 @@
     "download": "Download"
   },
   "printDialog": {
+    "mappedOnAssign": "Filament is mapped when a printer is assigned.",
+    "plateFilaments": "Plate {{n}}",
+    "allPlatesBatchNote": "All plates are queued together as one batch.",
+    "queuedPlates_one": "Queued {{count}} plate",
+    "queuedPlates_other": "Queued {{count}} plates",
     "steps": {
       "source": "Source",
       "plate": "Plate",
@@ -4675,6 +4681,7 @@
     "dbm": "{{n}}dBm"
   },
   "printerPicker": {
+    "any": "Any available printer",
     "noneOnline": "No printers are online.",
     "offline": "Offline ({{n}})"
   },

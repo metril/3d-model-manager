@@ -9,6 +9,8 @@ export interface PrintDialogRequest {
   /** null = open the model-level dialog (no pre-picked file). */
   fileId: number | null;
   plate: number | null;
+  /** Open with "All plates" selected (plate stays null). */
+  allPlates?: boolean;
 }
 
 let request: PrintDialogRequest | null = null;
@@ -24,7 +26,7 @@ function subscribe(l: () => void) {
 }
 
 export function openPrint(next: PrintDialogRequest) {
-  request = { fileId: next.fileId, plate: next.plate };
+  request = next.allPlates ? { fileId: next.fileId, plate: next.plate, allPlates: true } : { fileId: next.fileId, plate: next.plate };
   emit();
 }
 
