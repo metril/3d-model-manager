@@ -445,3 +445,11 @@ def test_flatten_include_cycle_and_missing():
         ix.flatten_dict("printer", {"name": "leaf", "include": ["t1"]})
     with pytest.raises(ProfileError, match="unknown include"):
         ix.flatten_dict("printer", {"name": "leaf", "include": ["nope"]})
+
+
+def test_flatten_include_skips_template_identity_keys():
+    meta = {"instantiation": "false", "setting_id": "T1", "from": "system", "version": "1"}
+    ix = _ix(t1={**meta, "x": 1})
+    flat = ix.flatten_dict("printer", {"name": "leaf", "include": ["t1"]})
+    assert flat["x"] == 1 and flat["name"] == "leaf"
+    assert not any(k in flat for k in ("instantiation", "setting_id", "from", "version"))

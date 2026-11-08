@@ -58,6 +58,23 @@ class ProfileImportError(ValueError):
 
 _MAX_DEPTH = 32
 
+# Identity/metadata keys of an `include` template; never merged onto the leaf.
+INCLUDE_SKIP_KEYS = frozenset(
+    {
+        "name",
+        "from",
+        "instantiation",
+        "setting_id",
+        "filament_id",
+        "type",
+        "inherits",
+        "include",
+        "version",
+        "description",
+        "renamed_from",
+    }
+)
+
 
 def resolve(
     name: str,
@@ -83,7 +100,13 @@ def resolve(
     if isinstance(includes, str):
         includes = [includes]
     for ref in includes:
-        merged.update(resolve(str(ref), by_name, seen))
+        merged.update(
+            {
+                k: v
+                for k, v in resolve(str(ref), by_name, seen).items()
+                if k not in INCLUDE_SKIP_KEYS
+            }
+        )
     merged.update(raw)
     merged.pop("inherits", None)
     merged.pop("include", None)

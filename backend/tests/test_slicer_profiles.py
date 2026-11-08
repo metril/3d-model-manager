@@ -292,3 +292,18 @@ async def test_upsert_skips_unresolved_include(db_session):
     assert result == {"created": 1, "updated": 0, "skipped": 1}
     rows = (await db_session.execute(SlicerProfile.__table__.select())).fetchall()
     assert [r.name for r in rows] == ["ok"]
+
+
+def test_resolve_include_skips_template_identity_keys():
+    by_name = {
+        "t1": {
+            "name": "t1",
+            "instantiation": "false",
+            "setting_id": "T1",
+            "from": "system",
+            "x": 1,
+        },
+        "leaf": {"name": "leaf", "include": ["t1"]},
+    }
+    merged = resolve("leaf", by_name)
+    assert merged == {"name": "leaf", "x": 1}

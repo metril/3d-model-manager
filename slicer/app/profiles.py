@@ -38,6 +38,24 @@ def strip_unsafe(profile: dict) -> dict:
     return {k: v for k, v in profile.items() if k not in UNSAFE_KEYS}
 
 
+# Identity/metadata keys of an `include` template; never merged onto the leaf.
+INCLUDE_SKIP_KEYS = frozenset(
+    {
+        "name",
+        "from",
+        "instantiation",
+        "setting_id",
+        "filament_id",
+        "type",
+        "inherits",
+        "include",
+        "version",
+        "description",
+        "renamed_from",
+    }
+)
+
+
 class ProfileError(ValueError):
     """Unknown parent, inherits cycle, or chain too deep."""
 
@@ -104,7 +122,9 @@ class ProfileIndex:
         if isinstance(includes, str):
             includes = [includes]
         for ref in includes:
-            merged.update(target(ref, "include"))
+            merged.update(
+                {k: v for k, v in target(ref, "include").items() if k not in INCLUDE_SKIP_KEYS}
+            )
         merged.update(raw)
         merged.pop("inherits", None)
         merged.pop("include", None)
