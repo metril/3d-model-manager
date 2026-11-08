@@ -682,3 +682,28 @@ def test_last_error_never_stores_raw_exception_text(
         assert e.last_error is not None
         assert "INSERT" not in e.last_error and "parameters" not in e.last_error
         assert len(e.last_error) < 100
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_plate_zero_uses_lowest_output_plate(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    import dataclasses
+
+    real = slicing.slicedmeta.parse_gcode_3mf
+
+    def only_plate_3(path):
+        m = real(path)
+        return dataclasses.replace(m, plates=[{**p, "index": 3} for p in m.plates[:1]])
+
+    monkeypatch.setattr(slicing.slicedmeta, "parse_gcode_3mf", only_plate_3)
+    with base.sync_session() as session:
+        entry_id = _seed(session, plate=0).id
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes)
+    )
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.sliced_file_id is not None, refreshed.last_error
+        assert "p3)" in session.get(File, refreshed.sliced_file_id).rel_path

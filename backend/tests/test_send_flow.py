@@ -590,3 +590,36 @@ def test_send_long_model_name_keeps_plate_suffix(
     send_to_printer(job_id, {**DEFAULT_OPTS, "plate": 3})
     name = fake_adapter.bus_calls[0][1]["subtask_name"]
     assert len(name) <= 64 and name.endswith("\u2013 plate 3") and name.startswith("MMM")
+
+
+async def test_send_without_plate_uses_files_real_plate(
+    authenticated_client,
+    printer_enabled,
+    library_root,
+    seed_file,
+    db_session,
+    redis_url,
+    fake_adapter,
+):
+    from sqlalchemy import select
+
+    from app.models.printing import PrintJob
+    from app.models.processing import BlobMeta
+
+    pid = await _make_printer(authenticated_client)
+    import io
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(corpus.sliced_gcode_3mf()))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as out:
+        for n in src.namelist():
+            out.writestr(n.replace("plate_1.gcode", "plate_3.gcode"), src.read(n))
+    f = await _sliced_file(db_session, seed_file, content=buf.getvalue())
+    db_session.add(BlobMeta(blob_hash=f.blob_hash, raw={"plates": [{"index": 3}]}))
+    await db_session.commit()
+    _seed_state(redis_url, pid, "IDLE")
+    r = await authenticated_client.post(f"/api/printers/{pid}/print", json={"file_id": f.id})
+    assert r.status_code == 201, r.text
+    job = await db_session.scalar(select(PrintJob).where(PrintJob.printer_id == pid))
+    assert job is not None and job.plate == 3
