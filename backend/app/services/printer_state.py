@@ -15,6 +15,10 @@ from app.printers.base import state_key
 
 ALLOWED_PREFLIGHT_STATES = {"IDLE", "FINISH", "FAILED"}  # RESEARCH §4
 
+# printer_error stamped on a STARTING job the printer never picked up (reconcile
+# timeout). Also the marker archive_sweep uses to skip it: nothing ran.
+START_TIMEOUT_ERROR = "printer did not start the job"
+
 # P6 Task 7: the dispatcher's own, narrower "idle" set -- a manual send may
 # retry a FAILED printer (ALLOWED_PREFLIGHT_STATES above), but the
 # dispatcher must never pick one on its own; a previous failure needs a

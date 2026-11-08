@@ -95,6 +95,33 @@ def test_archive_sweep_enqueues_unarchived_terminal_jobs(seed, monkeypatch):
     assert calls == [[old, "completed"]]
 
 
+def test_archive_sweep_skips_start_timeout_but_keeps_real_rejections(seed, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import PrintJob
+    from app.models.enums import PrintJobState
+    from app.services.printer_state import START_TIMEOUT_ERROR
+
+    _, _, file_id = seed.model_file("same") if hasattr(seed, "model_file") else (None, None, None)
+    good = seed.job(subtask="A", file_id=file_id)
+    timed_out = seed.job(subtask="A", file_id=file_id, duration_s=None)
+    rejected = seed.job(subtask="A", file_id=file_id, duration_s=None)
+    seed.s.add(PrintArchive(print_job_id=good, result="completed", fetch_state="done"))
+    old = datetime.now(UTC) - timedelta(minutes=10)
+    for jid, err in ((timed_out, START_TIMEOUT_ERROR), (rejected, "AMS jam")):
+        j = seed.s.get(PrintJob, jid)
+        j.state, j.printer_error, j.finished_at = PrintJobState.FAILED, err, old
+    seed.s.get(PrintJob, good).finished_at = old
+    seed.s.commit()
+    calls = []
+    monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
+    task_mod.archive_sweep.apply()
+    assert calls == [[rejected, "failed"]]
+    seed.s.expire_all()
+    arcs = seed.s.scalars(select(PrintArchive)).all()
+    assert [(a.print_job_id, a.result) for a in arcs] == [(good, "completed")]
+
+
 def test_archive_sweep_is_scheduled():
     from app.tasks.celery_app import celery_app
 
