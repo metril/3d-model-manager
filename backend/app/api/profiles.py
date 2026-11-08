@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +102,34 @@ async def _get_profile_or_404(db: AsyncSession, profile_id: int) -> SlicerProfil
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "profile not found")
     return profile
+
+
+async def _recipe_outs(db: AsyncSession, rows: Sequence[PrintRecipe]) -> list[RecipeOut]:
+    """``RecipeOut`` rows with their process profile's name + layer height,
+    resolved with one query for all recipes (no N+1)."""
+    ids = {r.process_profile_id for r in rows} | {r.printer_profile_id for r in rows}
+    found_rows: dict[int, tuple[str, float | None, float | None]] = {}
+    if ids:
+        found = await db.execute(
+            select(
+                SlicerProfile.id,
+                SlicerProfile.name,
+                SlicerProfile.layer_height_mm,
+                SlicerProfile.nozzle_mm,
+            ).where(SlicerProfile.id.in_(ids))
+        )
+        found_rows = {pid: (name, lh, nz) for pid, name, lh, nz in found.all()}
+    out = []
+    for row in rows:
+        item = RecipeOut.model_validate(row, from_attributes=True)
+        proc = found_rows.get(row.process_profile_id)
+        printer = found_rows.get(row.printer_profile_id)
+        item.process_profile_name = proc[0] if proc else None
+        item.process_layer_height_mm = proc[1] if proc else None
+        item.printer_profile_name = printer[0] if printer else None
+        item.printer_nozzle_mm = printer[2] if printer else None
+        out.append(item)
+    return out
 
 
 async def _get_recipe_or_404(db: AsyncSession, recipe_id: int) -> PrintRecipe:
@@ -582,7 +611,7 @@ async def list_recipes(
     if q and q.strip():
         stmt = stmt.where(PrintRecipe.name.ilike(_ilike_escape(q.strip()), escape="\\"))
     rows = (await db.execute(stmt)).scalars().all()
-    out = [RecipeOut.model_validate(row, from_attributes=True) for row in rows]
+    out = await _recipe_outs(db, rows)
     scoped = printer_id is not None or nozzle_mm is not None or layer_height_mm is not None
     if not scoped:
         return out
@@ -620,7 +649,7 @@ async def list_recipes(
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)
 async def get_recipe(recipe_id: int, db: AsyncSession = Depends(get_db)) -> RecipeOut:
     recipe = await _get_recipe_or_404(db, recipe_id)
-    return RecipeOut.model_validate(recipe, from_attributes=True)
+    return (await _recipe_outs(db, [recipe]))[0]
 
 
 @router.post(
@@ -640,7 +669,7 @@ async def create_recipe(
     db.add(recipe)
     await db.commit()
     await db.refresh(recipe)
-    return RecipeOut.model_validate(recipe, from_attributes=True)
+    return (await _recipe_outs(db, [recipe]))[0]
 
 
 @router.patch(
@@ -662,7 +691,7 @@ async def update_recipe(
         setattr(recipe, field, value)
     await db.commit()
     await db.refresh(recipe)
-    return RecipeOut.model_validate(recipe, from_attributes=True)
+    return (await _recipe_outs(db, [recipe]))[0]
 
 
 @router.delete(

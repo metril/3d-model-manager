@@ -7,6 +7,8 @@ import re
 # key -> (lo, hi) accepted by OrcaSlicer's CLI.
 KNOWN_RANGES: dict[str, tuple[float, float]] = {
     "tree_support_wall_count": (0, 2),
+    # Bambu Studio 2.x writes -1 here; Orca only accepts >= 0.
+    "raft_first_layer_expansion": (0, 1e9),
 }
 
 _RANGE_RE = re.compile(r"(\w+): (-?[\d.]+) not in range \[(-?[\d.]+),\s*(-?[\d.]+)\]")

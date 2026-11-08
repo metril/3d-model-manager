@@ -2703,6 +2703,17 @@
   "installApp": {
     "install": "Install app"
   },
+  "recipeProcess": {
+    "line": "Process: {{name}}",
+    "differs": "file uses {{layer}} mm",
+    "note": "The recipe's process settings (layer height, walls, infill, brim, ...) replace the ones saved in this file.",
+    "fileHas": "This file's own settings: {{profile}}",
+    "unnamed": "unnamed profile",
+    "keepFile": "Keep this file's own process settings (recipe printer + filament only)",
+    "keepFileHint": "The recipe's process profile is not applied. The printer and filament profiles still are.",
+    "printerDiffers": "This file was made for {{file}}, but the recipe prints on {{printer}}. Its speeds, accelerations and line widths come from the file, tuned for the other machine.",
+    "nozzleDiffers": "This file is set up for a {{file}} mm nozzle but the recipe's printer uses {{printer}} mm. Slicing will be refused."
+  },
   "sliceDialog": {
     "queued": "Queued {{name}}; it slices, then prints",
     "pipelineError": "Could not run the pipeline",

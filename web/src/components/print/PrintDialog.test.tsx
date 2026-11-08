@@ -529,6 +529,65 @@ describe("PrintDialog", () => {
     expect(screen.queryByRole("button", { name: "Send now" })).not.toBeInTheDocument();
   });
 
+  it("shows the recipe's process + the file's own layer height and can keep the file's settings", async () => {
+    recipesBox.current = [
+      { ...(RECIPE as object), process_profile_name: "0.28mm Extra Draft", process_layer_height_mm: 0.28 },
+    ];
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/files/10"
+        ? Promise.resolve({
+            id: 10,
+            rel_path: "a.3mf",
+            format: "3mf",
+            embedded: { layer_height: 0.2, print_settings_id: "0.20mm Standard @BBL X1C", printer_settings_id: null },
+          })
+        : base(path),
+    );
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" });
+    const line = await screen.findByTestId("recipe-process-9");
+    expect(line).toHaveTextContent("Process: 0.28mm Extra Draft · 0.28 mm");
+    expect(line).toHaveTextContent("file uses 0.2 mm");
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(await screen.findByLabelText(/Keep this file's own process settings/));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/queue",
+        expect.objectContaining({ recipe_id: 9, file_settings: true }),
+      ),
+    );
+  });
+
+  it("drops a ticked 'keep file settings' when the file changes to one without embedded settings", async () => {
+    recipesBox.current = [{ ...(RECIPE as object), process_profile_name: "P", process_layer_height_mm: 0.28 }];
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/files/10")
+        return Promise.resolve({ id: 10, rel_path: "a.3mf", format: "3mf", embedded: { layer_height: 0.2, print_settings_id: "x", printer_settings_id: null } });
+      if (path === "/files/11") return Promise.resolve({ id: 11, rel_path: "b.stl", format: "stl", embedded: null });
+      return base(path);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (fileId: number, format: string) => (
+      <QueryClientProvider client={queryClient}>
+        <PrintDialog open onOpenChange={() => {}} source={{ kind: "file", fileId, format }} onSent={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui(10, "3mf"));
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(await screen.findByLabelText(/Keep this file's own process settings/));
+    rerender(ui(11, "stl"));
+    expect(screen.queryByLabelText(/Keep this file's own process settings/)).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ file_id: 11, recipe_id: 9 })));
+    const body = postMock.mock.calls.find((c) => c[0] === "/queue")![1] as Record<string, unknown>;
+    expect(body.file_settings).toBeUndefined();
+  });
+
   it("Slice and send posts the recipe with front:true and toasts the printer name", async () => {
     renderDialog({ kind: "file", fileId: 10, format: "stl" });
     fireEvent.click(await screen.findByLabelText("PLA fast"));

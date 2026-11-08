@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.models import Blob, File, Model, PrintRecipe, Revision, SliceJob
 from app.schemas.slicing import SliceJobIn, SliceJobOut
+from app.services import file_settings as file_settings_service
 from app.services import library
 from app.services.bed_fit import guard_plate_index, guard_recipe_fit
+from app.services.dispatcher import FILE_SETTINGS_KEY
 from app.services.queue import SLICEABLE_FORMATS
 from app.services.server_config import get_server_config
 from app.services.slicer_client import client_from_config
@@ -67,6 +69,9 @@ async def create_job(
     await guard_plate_index(db, file, payload.plate)
     if not payload.force:
         await guard_recipe_fit(db, recipe, file, options, settings, payload.plate)
+    if payload.file_settings:
+        await file_settings_service.require_usable(db, settings, file, recipe.printer_profile_id)
+        options = {**(options or {}), FILE_SETTINGS_KEY: True}
     job_id = uuid.uuid4()
     job = SliceJob(
         id=job_id,

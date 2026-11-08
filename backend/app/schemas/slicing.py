@@ -118,6 +118,13 @@ class RecipeOut(BaseModel):
     n: int | None = None
     created_by_user_id: int | None = None
     created_at: datetime
+    # The process profile the recipe slices with (it replaces the model
+    # file's own process settings) and its layer height.
+    process_profile_name: str | None = None
+    process_layer_height_mm: float | None = None
+    # The recipe's printer profile (vs the machine a 3MF was made for).
+    printer_profile_name: str | None = None
+    printer_nozzle_mm: float | None = None
     # Set only when listed with ``?printer_id=``; ``None`` otherwise.
     compatible: bool | None = None
     incompatible_reason: str | None = None
@@ -142,6 +149,9 @@ class SliceJobIn(BaseModel):
     plate: int | None = Field(None, ge=1)
     # Slice even when the part doesn't fit the recipe's printer bed.
     force: bool = False
+    # Keep the file's own process settings; only the recipe's printer and
+    # filament profiles apply.
+    file_settings: bool = False
 
 
 class SliceJobOut(BaseModel):

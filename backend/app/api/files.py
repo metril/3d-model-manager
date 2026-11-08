@@ -38,6 +38,7 @@ from app.schemas.jobs import JobOut
 from app.schemas.library import FileMoveIn, PlateOut
 from app.services import library, signed_urls
 from app.services.bed_fit import fit_for_selection
+from app.services.file_settings import embedded_for_file
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
 from app.services.server_config import ServerConfig, get_server_config, public_origin
 from app.services.storage_backends import resolve_backend_for_file
@@ -55,6 +56,13 @@ router = APIRouter(prefix="/files", tags=["files"])
 public_router = APIRouter(prefix="/files", tags=["files"])
 
 
+class EmbeddedSettingsOut(BaseModel):
+    layer_height: float | None = None
+    nozzle_mm: float | None = None
+    print_settings_id: str | None = None
+    printer_settings_id: str | None = None
+
+
 class FileFormatOut(BaseModel):
     id: int
     rel_path: str
@@ -63,6 +71,9 @@ class FileFormatOut(BaseModel):
     # Plates of the file (sliced or unsliced multi-plate project), for the
     # print/slice plate pickers; ``None`` when the blob has no plate data.
     plates: list[PlateOut] | None = None
+    # A raw (unsliced) 3MF's own process settings -- what a recipe's process
+    # profile would replace. ``None`` for other formats / no project settings.
+    embedded: EmbeddedSettingsOut | None = None
 
 
 @router.get("/{file_id}", response_model=FileFormatOut)
@@ -87,12 +98,20 @@ async def get_file_format(
             settings, [blob], await library._cost_rates(db, settings)
         )
     )[blob.hash]
+    embedded = None
+    raw = await embedded_for_file(db, settings, file, blob)
+    if raw:
+        try:
+            embedded = EmbeddedSettingsOut(**raw)
+        except ValueError:  # best-effort hint; never fail the lookup
+            embedded = None
     return FileFormatOut(
         id=file.id,
         rel_path=file.rel_path,
         format=blob.format,
         blob_hash=blob.hash,
         plates=enrichment.meta.plates if enrichment.meta else None,
+        embedded=embedded,
     )
 
 
