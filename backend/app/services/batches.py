@@ -164,6 +164,7 @@ async def create_batch(
             "copies_per_entry": payload.copies_per_entry,
             "plate_ams_mappings": payload.plate_ams_mappings,
             "all_plates": payload.all_plates,
+            "file_settings": payload.file_settings,
         },
         created_by_user_id=ctx.user.id,
     )
@@ -266,6 +267,7 @@ async def dispatch_batch(
                     cost_center_id=batch.cost_center_id,
                     batch_id=batch.id,
                     force=force,
+                    file_settings=bool(opts.get("file_settings")),
                     **{k: opts[k] for k in _SCHEDULING if opts.get(k) is not None},
                 ),
                 ctx,
@@ -372,6 +374,7 @@ async def enqueue_plates(
             options=payload.options,
             copies_per_entry=payload.copies,
             all_plates=True,
+            file_settings=payload.file_settings,
             **{k: getattr(payload, k) for k in _SCHEDULING},
         ),
         ctx,

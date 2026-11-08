@@ -18,6 +18,7 @@ import { PlatePicker } from "@/components/print/PlatePicker";
 import { selectablePlates } from "@/components/viewer/plates";
 import { BedFitChip } from "@/components/slice/BedFitChip";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
+import { FileSettingsOption, RecipeProcessLine } from "@/components/slice/RecipeProcess";
 import { trackSlice } from "@/components/slice/sliceTracker";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -59,6 +60,7 @@ function SliceDialogBody({
   const [mode, setMode] = useState<"recipe" | "pipeline">("recipe");
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [recipeId, setRecipeId] = useState<number | null>(null);
+  const [fileSettings, setFileSettings] = useState(false);
   const [plate, setPlate] = useState<number | null>(initialPlate ?? null);
   useEffect(() => {
     if (open) setPlate(initialPlate ?? null);
@@ -128,7 +130,7 @@ function SliceDialogBody({
     if (pipelineMode) return submitPipeline();
     if (recipeId == null) return;
     start.mutate(
-      { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge },
+      { fileId: file.id, recipeId, plate: plateN, force: force && tooLarge, fileSettings },
       {
         onSuccess: (job) => {
           trackSlice({ id: job.id, fileName: name });
@@ -151,6 +153,7 @@ function SliceDialogBody({
           setMode("recipe");
           setPipelineId(null);
           setRecipeId(null);
+          setFileSettings(false);
           setPlate(null);
           setSearch("");
           setPrinterId(null);
@@ -238,12 +241,21 @@ function SliceDialogBody({
                     {r.compatible === false && r.incompatible_reason ? (
                       <span className="ml-1 text-xs text-muted-foreground">({r.incompatible_reason})</span>
                     ) : null}
+                    <RecipeProcessLine recipe={r} embedded={filePlatesQ.data?.embedded} ignored={fileSettings} />
                   </Label>
                 </div>
               ))}
             </RadioGroup>
           )}
         </div>
+      )}
+      {pipelineMode ? null : (
+        <FileSettingsOption
+          id="slice-file-settings"
+          embedded={filePlatesQ.data?.embedded}
+          checked={fileSettings}
+          onChange={setFileSettings}
+        />
       )}
       {printerOptions.length > 0 ? (
         <div className="grid gap-1.5">

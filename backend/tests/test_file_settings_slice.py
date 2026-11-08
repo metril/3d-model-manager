@@ -60,6 +60,28 @@ async def test_slice_job_file_settings_sends_no_process_profile(
     assert spy.kwargs["process_profile"] is not None
 
 
+async def test_queue_plates_file_settings_reaches_entries(
+    authenticated_client: httpx.AsyncClient, db_session, seed_file
+) -> None:
+    from sqlalchemy import select
+
+    _, f, recipe = await _setup(db_session, seed_file, "q-fs-plates")
+    await set_server(slicer_enabled=True, slicer_url="http://s:1")
+    r = await authenticated_client.post(
+        "/api/queue/plates",
+        json={
+            "file_id": f.id,
+            "plates": [1],
+            "recipe_id": recipe.id,
+            "file_settings": True,
+            "force": True,
+        },
+    )
+    assert r.status_code in (200, 201), r.text
+    rows = (await db_session.execute(select(PrintQueueEntry))).scalars().all()
+    assert rows and all((e.slice_options or {}).get("file_settings") for e in rows)
+
+
 async def test_queue_enqueue_file_settings_sets_slice_options(
     authenticated_client: httpx.AsyncClient, db_session, seed_file
 ) -> None:

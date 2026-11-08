@@ -1798,6 +1798,8 @@ export interface QueueEnqueueBody extends QueueSchedulingFields {
   cost_center_id?: number | null;
   /** Queue a recipe slice even when the part does not fit the printer bed. */
   force?: boolean;
+  /** Slice with the file's own process settings, not the recipe's process profile. */
+  file_settings?: boolean;
 }
 
 // -- review gate (backend/app/models/enums.py `ReviewState`, P7 review/
@@ -2187,6 +2189,9 @@ export interface PrintRecipe {
   n: number | null;
   created_by_user_id: number | null;
   created_at: string;
+  /** The process profile this recipe slices with (replaces the file's own settings). */
+  process_profile_name?: string | null;
+  process_layer_height_mm?: number | null;
   /** Only set when listed with `?printer_id=`; null/absent otherwise. */
   compatible?: boolean | null;
   incompatible_reason?: string | null;
@@ -2637,6 +2642,7 @@ export interface QueueEnqueuePlatesBody extends Omit<QueueSchedulingFields, "bat
   options?: PlanOptions | null;
   cost_center_id?: number | null;
   force?: boolean;
+  file_settings?: boolean;
   name?: string;
   /** Add the plate entries to this existing batch. */
   batch_id?: number | null;
@@ -2680,6 +2686,8 @@ export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
   model_id?: number | null;
   file_id?: number | null;
   recipe_id?: number | null;
+  /** Slice with the file's own process settings, not the recipe's process profile. */
+  file_settings?: boolean;
   printer_id?: number | null;
   quantity: number;
   due_date?: string | null;

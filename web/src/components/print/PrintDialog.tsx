@@ -59,6 +59,7 @@ import type { BlobFormat, PlanFilament, PlanOut, QueueEnqueueBody, QueueEnqueueP
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
+import { FileSettingsOption, RecipeProcessLine } from "@/components/slice/RecipeProcess";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -250,6 +251,8 @@ function PrintDialogBody({
   const [modelQuery, setModelQuery] = useState("");
   const [profileMode, setProfileMode] = useState<"as-sliced" | "recipe">("as-sliced");
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
+  // Slice with the file's own process settings instead of the recipe's process profile.
+  const [fileSettings, setFileSettings] = useState(false);
   const [recipeSearch, setRecipeSearch] = useState("");
   const debouncedRecipeSearch = useDebouncedValue(recipeSearch, 250);
   const [copies, setCopies] = useState(1);
@@ -281,6 +284,7 @@ function PrintDialogBody({
     setModelQuery("");
     setProfileMode(sliceOnlyProp ? "recipe" : "as-sliced");
     setSelectedRecipeId(null);
+    setFileSettings(false);
     setCopies(1);
     setCostCenterId(null);
     setCostCenterSeeded(false);
@@ -480,6 +484,7 @@ function PrintDialogBody({
           quantity: batchChoice.quantity,
           file_id: body.file_id ?? null,
           recipe_id: body.recipe_id ?? null,
+          ...(body.file_settings ? { file_settings: true } : {}),
           printer_id: body.printer_id ?? null,
           plate_targets: body.plate != null ? { [String(body.plate)]: batchChoice.quantity } : {},
           cost_center_id: body.cost_center_id ?? null,
@@ -776,7 +781,10 @@ function PrintDialogBody({
   function handleSliceAndSend() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
-      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      submitPlates(
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettings ? { file_settings: true } : {}) },
+        queuedPlatesDone,
+      );
       return;
     }
     submitQueue(
@@ -788,6 +796,7 @@ function PrintDialogBody({
         copies,
         front: true,
         ...(forced ? { force: true } : {}),
+        ...(fileSettings ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -800,7 +809,10 @@ function PrintDialogBody({
   function handleQueueRecipe() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
-      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      submitPlates(
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettings ? { file_settings: true } : {}) },
+        queuedPlatesDone,
+      );
       return;
     }
     submitQueue(
@@ -812,6 +824,7 @@ function PrintDialogBody({
         copies,
         front: false,
         ...(forced ? { force: true } : {}),
+        ...(fileSettings ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -976,6 +989,7 @@ function PrintDialogBody({
                     />
                     <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
                       {r.name}
+                      <RecipeProcessLine recipe={r} embedded={filePlatesQ.data?.embedded} ignored={fileSettings} />
                     </Label>
                     {r.compatible === false && r.incompatible_reason ? (
                       <span className="text-xs text-muted-foreground">{r.incompatible_reason}</span>
@@ -992,6 +1006,14 @@ function PrintDialogBody({
                     </Link>
                     .
                   </p>
+                ) : null}
+                {profileMode === "recipe" && !effectiveIsSliced ? (
+                  <FileSettingsOption
+                    id="print-dialog-file-settings"
+                    embedded={filePlatesQ.data?.embedded}
+                    checked={fileSettings}
+                    onChange={setFileSettings}
+                  />
                 ) : null}
                 {profileMode === "recipe" && !effectiveIsSliced ? <BedFitChip fit={bedFit.data} /> : null}
                 {tooLarge ? (
