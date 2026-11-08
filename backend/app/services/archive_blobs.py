@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import File, PrintArchive
+from app.models import File, Print, PrintArchive, PrintJob
 from app.models.enums import BlobFormat
 from app.models.library import Blob
 
@@ -91,10 +91,20 @@ def unlink_all(paths: list[Path]) -> None:
 
 def delete_archives(session: Session, settings: Settings, ids: list[int]) -> int:
     """Delete archive rows (never ``print_jobs``) and release their blobs.
-    Returns bytes freed; commits."""
+    Returns bytes freed; commits. The runs' jobs are tombstoned so
+    ``archive_sweep`` doesn't re-archive them."""
     hashes: set[str] = set()
     for arc in session.scalars(select(PrintArchive).where(PrintArchive.id.in_(ids))):
         hashes |= blob_hashes(arc)
+        job_ids = {arc.print_job_id} | set(
+            session.scalars(select(Print.print_job_id).where(Print.archive_id == arc.id))
+        )
+        session.execute(
+            update(PrintJob)
+            .where(PrintJob.id.in_({j for j in job_ids if j is not None}))
+            .where(PrintJob.archive_dismissed_at.is_(None))
+            .values(archive_dismissed_at=func.now())
+        )
         session.delete(arc)
     session.flush()
     freed, paths = release_blobs(session, settings, hashes)

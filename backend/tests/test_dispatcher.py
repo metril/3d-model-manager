@@ -592,6 +592,36 @@ def test_reconcile_job_finished_marks_entry_done(redis_url: str, fake_adapter):
         assert s.get(PrintQueueEntry, entry_id).state == QueueState.DONE
 
 
+def test_reconcile_dismissed_finished_job_marks_entry_done(redis_url: str, fake_adapter):
+    """A deleted run keeps its (tombstoned) job row, so a DISPATCHED entry still
+    reconciles to DONE instead of sticking forever."""
+    settings = get_settings()
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug="reconcile-dismissed")
+        printer = _seed_printer(s, name="ReconcileDismissedP")
+        job = PrintJob(
+            printer_id=printer.id,
+            file_id=file.id,
+            state=PrintJobState.FINISHED,
+            archive_dismissed_at=datetime.now(UTC),
+        )
+        s.add(job)
+        s.flush()
+        entry = _seed_entry(s, model=model, file=file, state=QueueState.DISPATCHED)
+        entry.print_job_id = job.id
+        entry.assigned_printer_id = printer.id
+        s.commit()
+        entry_id, pid = entry.id, printer.id
+    _seed_state(redis_url, pid, IDLE_STATE)
+    client = redis_lib.Redis.from_url(redis_url)
+    with base.sync_session() as s:
+        counts = dispatcher.dispatch_once(s, client, settings)
+    client.close()
+    assert counts["done"] == 1
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, entry_id).state == QueueState.DONE
+
+
 def test_reconcile_job_canceled_marks_entry_failed_no_retry(redis_url: str, fake_adapter):
     """I5: CANCELED is final -- no retry, straight to `failed`."""
     settings = get_settings()

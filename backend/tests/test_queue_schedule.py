@@ -997,3 +997,16 @@ async def test_queue_plate_only_slice_uses_real_index(authenticated_client: http
     assert d["available_plates"] == [3] and "plates 3" in d["message"]
     r = await c.post("/api/queue/plates", json={"file_id": fid, "plates": [3]})
     assert r.status_code == 201, r.text
+
+
+def test_previous_done_with_deleted_run_still_runs(redis_url: str, fake_adapter, emitted):
+    """The predecessor's archive/run was deleted: its (tombstoned) job stays, and
+    the gate treats it as a plain finished print rather than a failure."""
+
+    def build(s, m, f, pid):
+        e = _prev(s, m, f, pid, state=QueueState.DONE, job_state=PrintJobState.FINISHED)
+        s.get(PrintJob, e.print_job_id).archive_dismissed_at = datetime.now(UTC)
+
+    cid = _scenario(redis_url, "prev-dismissed", build)
+    _tick(redis_url)
+    assert _get(cid).state == QueueState.DISPATCHED and not emitted

@@ -39,7 +39,7 @@ from app.services import archive_confirm
 from app.services import prints as prints_svc
 from app.services import tags as tags_svc
 from app.services.archive import archive_path
-from app.services.archive_blobs import blob_hashes, release_blobs, unlink_all
+from app.services.archive_blobs import unlink_all
 from app.services.print_plan import build_plan
 from app.services.redis_pool import get_async_redis
 
@@ -388,7 +388,6 @@ async def delete_archive(
     settings: Settings = Depends(get_settings),
 ) -> Response:
     arc, _job, printer, _m, _r = await _get_visible(db, ctx, archive_id)
-    hashes = blob_hashes(arc)
     db.add(
         AuditLog(
             user_id=ctx.user.id,
@@ -398,20 +397,10 @@ async def delete_archive(
             payload={"archive_id": arc.id, "print_job_id": arc.print_job_id},
         )
     )
-    # "Delete run" means gone: drop its runs (fixing print_count) and the
-    # terminal jobs, or archive_sweep would re-archive them.
-    job_ids = await prints_svc.delete_runs_of_archive(db, arc.id, arc.print_job_id)
-    await db.delete(arc)
-    await db.flush()
-    await prints_svc.purge_finished_jobs(db, job_ids)
-    paths = await db.run_sync(lambda s: _release(s, settings, hashes))
+    paths = await prints_svc.delete_archive_full(db, arc, settings)
     await db.commit()
     await anyio.to_thread.run_sync(unlink_all, paths)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-def _release(sync_session: Any, settings: Settings, hashes: set[str]) -> list:
-    return release_blobs(sync_session, settings, hashes)[1]
 
 
 @router.post("/{archive_id}/verdict", response_model=ArchiveOut)

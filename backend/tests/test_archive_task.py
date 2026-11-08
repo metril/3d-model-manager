@@ -138,10 +138,44 @@ def _sweep_ready(seed, *job_ids, age=timedelta(minutes=10)):
     seed.s.commit()
 
 
-def test_archive_sweep_ignores_jobs_older_than_a_day(seed, monkeypatch):
+def test_archive_sweep_still_picks_up_old_lost_enqueue(seed, monkeypatch):
+    """No age bound: a worker outage longer than a day must not lose real prints."""
     old = seed.job(subtask="A")
-    _sweep_ready(seed, old, age=timedelta(days=2))
+    _sweep_ready(seed, old, age=timedelta(days=5))
+    calls = []
+    monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
+    task_mod.archive_sweep.apply()
+    assert calls == [[old, "completed"]]
+
+
+def test_archive_sweep_skips_retention_deleted_jobs(seed, monkeypatch):
+    from app.config import get_settings
+    from app.services.archive_blobs import delete_archives
+
+    job = seed.job(subtask="A")
+    seed.s.add(PrintArchive(print_job_id=job, result="completed", fetch_state="done"))
+    _sweep_ready(seed, job)
+    arc_id = seed.s.scalar(select(PrintArchive.id))
+    delete_archives(seed.s, get_settings(), [arc_id])
     calls = []
     monkeypatch.setattr(task_mod.archive_print, "apply_async", lambda args: calls.append(args))
     task_mod.archive_sweep.apply()
     assert calls == []
+    seed.s.expire_all()
+    assert seed.s.get(PrintJob, job) is not None  # retention keeps the job
+
+
+def test_archive_print_on_dismissed_job_is_a_noop(seed, monkeypatch):
+    job = seed.job(subtask="A")
+    seed.s.get(PrintJob, job).archive_dismissed_at = datetime.now(UTC)
+    seed.s.commit()
+    monkeypatch.setattr(task_mod, "_snapshot_and_schedule_timelapse", lambda *a: None)
+    archive_print.apply(args=[job, "completed"])
+    seed.s.expire_all()
+    assert seed.s.scalar(select(PrintArchive)) is None
+    # and the error-tombstone path can't re-create it either
+    from app.models.enums import ArchiveResult
+    from app.services.archive import mark_archive_error
+
+    mark_archive_error(seed.s, job, ArchiveResult.COMPLETED, "x")
+    assert seed.s.scalar(select(PrintArchive)) is None

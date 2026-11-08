@@ -7,18 +7,22 @@ model for the two model-scoped routes, so ``model_id`` here is trusted.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.enums import PrintJobState, PrintResult, PrintSource
+from app.config import Settings
+from app.models.enums import ArchiveResult, PrintJobState, PrintResult, PrintSource
 from app.models.library import Material, Model, Print
 from app.models.printing import PrintArchive, PrintJob
 from app.schemas.prints import PrintOut
+from app.services.archive_blobs import blob_hashes, release_blobs
 from app.services.costing import CostRates, price_run
 
 
@@ -168,77 +172,184 @@ async def patch_print(
     return PrintOut.from_model(row)
 
 
-async def purge_finished_jobs(db: AsyncSession, job_ids: set[int]) -> None:
-    """Drop the terminal ``print_jobs`` rows behind deleted runs.
-
-    Without this ``archive_sweep`` sees a terminal job with no archive and
-    re-archives it, resurrecting the run. A job an archive still points at is
-    kept. Spool usage / queue / detections keep their rows (FK SET NULL);
-    only the per-job Spoolman push marker cascades.
-    """
-    if not job_ids:
-        return
-    await db.execute(
-        delete(PrintJob).where(
-            PrintJob.id.in_(job_ids),
-            PrintJob.state.in_([s.value for s in _TERMINAL]),
-            ~select(PrintArchive.id).where(PrintArchive.print_job_id == PrintJob.id).exists(),
+async def _dismiss_jobs(db: AsyncSession, job_ids: set[int]) -> None:
+    """Tombstone the jobs of deleted runs. The rows stay (spool usage, queue
+    entries and billing reference them) but ``archive_sweep`` skips them and
+    the job lists hide them -- otherwise a deleted run is re-archived."""
+    if job_ids:
+        await db.execute(
+            update(PrintJob)
+            .where(PrintJob.id.in_(job_ids), PrintJob.archive_dismissed_at.is_(None))
+            .values(archive_dismissed_at=func.now())
         )
+
+
+async def _runs_of(db: AsyncSession, arc: PrintArchive) -> list[Print]:
+    """Every run (``prints`` row) folded into ``arc``, oldest first. The
+    newest run may be linked only by ``print_job_id``."""
+    stmt = (
+        select(Print)
+        .where(or_(Print.archive_id == arc.id, Print.print_job_id == arc.print_job_id))
+        .order_by(Print.printed_at, Print.id)
     )
+    return list((await db.execute(stmt)).scalars().all())
 
 
-_TERMINAL = (PrintJobState.FINISHED, PrintJobState.FAILED, PrintJobState.CANCELED)
-
-
-async def delete_runs_of_archive(db: AsyncSession, archive_id: int, latest_job_id: int) -> set[int]:
-    """Delete every run (``prints`` row) folded into an archive and fix each
-    model's ``print_count``. Returns the runs' job ids; the caller deletes the
-    archive, flushes, then calls :func:`purge_finished_jobs`."""
-    rows = (
-        (
-            await db.execute(
-                select(Print).where(
-                    or_(Print.archive_id == archive_id, Print.print_job_id == latest_job_id)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    job_ids = {latest_job_id} | {r.print_job_id for r in rows if r.print_job_id is not None}
+async def _decrement_counts(db: AsyncSession, rows: list[Print]) -> None:
     per_model: dict[int, int] = {}
     for r in rows:
         if r.model_id is not None:
             per_model[r.model_id] = per_model.get(r.model_id, 0) + 1
-        await db.delete(r)
     for model_id, n in per_model.items():
+        # `GREATEST(..., 0)` is a pure defensive floor for an already-drifted count.
         await db.execute(
             update(Model)
             .where(Model.id == model_id)
             .values(print_count=func.greatest(Model.print_count - n, 0))
         )
-    return job_ids
 
 
-async def delete_print(db: AsyncSession, print_id: int) -> None:
-    row = await _get_print_or_404(db, print_id)
-    model_id = row.model_id
-    job_id = row.print_job_id
-    await db.delete(row)
-    if model_id is not None:
-        # `GREATEST(..., 0)` is a pure defensive floor -- normal operation never
-        # needs it, since every print row was counted exactly once by
-        # `create_print` above; it only guards against a print_count that was
-        # already out of sync (pre-migration data, a bug) going negative.
-        await db.execute(
-            update(Model)
-            .where(Model.id == model_id)
-            .values(print_count=func.greatest(Model.print_count - 1, 0))
+def _release(sync_session: SyncSession, settings: Settings, hashes: set[str]) -> list[Path]:
+    return release_blobs(sync_session, settings, hashes)[1]
+
+
+async def delete_archive_full(
+    db: AsyncSession, arc: PrintArchive, settings: Settings
+) -> list[Path]:
+    """ "Delete run": drop the archive and every run folded into it (fixing
+    ``print_count``) and release its blobs. The jobs are kept but tombstoned.
+    The caller commits, then unlinks the returned paths."""
+    hashes = blob_hashes(arc)
+    runs = await _runs_of(db, arc)
+    job_ids = {arc.print_job_id} | {r.print_job_id for r in runs if r.print_job_id is not None}
+    await _dismiss_jobs(db, job_ids)
+    await _decrement_counts(db, runs)
+    for r in runs:
+        await db.delete(r)
+    await db.delete(arc)
+    await db.flush()
+    return await db.run_sync(lambda s: _release(s, settings, hashes))
+
+
+_RUN_PHOTO = re.compile(r"^run(\d+)-(photo|timelapse)\.(.+)$")
+_RESULT_OF_STATE = {
+    PrintJobState.FINISHED: ArchiveResult.COMPLETED,
+    PrintJobState.FAILED: ArchiveResult.FAILED,
+    PrintJobState.CANCELED: ArchiveResult.CANCELED,
+}
+_VERDICT_COLS = (
+    "user_verdict",
+    "user_verdict_source",
+    "verdict_at",
+    "verdict_by_user_id",
+    "result_override",
+    "confirm_token",
+    "confirm_token_used_at",
+    "confirm_expires_at",
+    "timelapse_frames",
+    "timelapse_layers",
+    "media_note",
+)
+
+
+def _drop_run_photos(
+    arc: PrintArchive, n: int, *, restore: bool
+) -> tuple[set[str], dict[str, str]]:
+    """Take run ``n``'s ``runN-photo``/``runN-timelapse`` entries out of
+    ``arc.photos`` and renumber later runs down by one. Returns (blobs freed,
+    {kind: blob} taken out for ``restore``)."""
+    kept: list[dict] = []
+    freed: set[str] = set()
+    restored: dict[str, str] = {}
+    for ph in arc.photos or []:
+        m = _RUN_PHOTO.match(ph.get("filename") or "")
+        k = int(m.group(1)) if m else None
+        if m is None or k < n:
+            kept.append(ph)
+        elif k == n:
+            if restore and ph.get("blob"):
+                restored[m.group(2)] = ph["blob"]
+            elif ph.get("blob"):
+                freed.add(ph["blob"])
+        else:
+            kept.append({**ph, "filename": f"run{k - 1}-{m.group(2)}.{m.group(3)}"})
+    arc.photos = kept
+    return freed, restored
+
+
+async def _remove_run(
+    db: AsyncSession, row: Print, arc: PrintArchive, runs: list[Print], settings: Settings
+) -> list[Path]:
+    """Delete one run of a multi-run archive (``runs`` has >1 entry)."""
+    remaining = [r for r in runs if r.id != row.id]
+    # Per-run photo names are only trustworthy while the ordinals line up.
+    consistent = len(runs) == arc.run_count
+    freed: set[str] = set()
+    if row.print_job_id == arc.print_job_id:
+        # The latest run: the previous one becomes the archive's current run.
+        freed |= {h for h in (arc.snapshot_blob, arc.timelapse_blob) if h}
+        arc.snapshot_blob = arc.timelapse_blob = None
+        for col in _VERDICT_COLS:
+            setattr(arc, col, None)
+        arc.confirm_requested = False
+        job = (
+            await db.get(PrintJob, remaining[-1].print_job_id)
+            if remaining[-1].print_job_id
+            else None
         )
-    if job_id is not None:
-        await db.flush()
-        await purge_finished_jobs(db, {job_id})
+        if job is not None:
+            arc.print_job_id = job.id
+            arc.result = _RESULT_OF_STATE.get(job.state, arc.result)
+            if job.started_at and job.finished_at:
+                arc.duration_s = int((job.finished_at - job.started_at).total_seconds())
+        if consistent:
+            # The previous run's media was rolled into photos as run{N-1}-*.
+            _, restored = _drop_run_photos(arc, len(remaining), restore=True)
+            arc.snapshot_blob = restored.get("photo")
+            arc.timelapse_blob = restored.get("timelapse")
+    elif consistent:
+        idx = next(i for i, r in enumerate(runs) if r.id == row.id)
+        freed |= _drop_run_photos(arc, idx + 1, restore=False)[0]
+    arc.run_count = max(arc.run_count - 1, 1)
+    await db.delete(row)
+    await db.flush()
+    freed -= {h for h in (arc.snapshot_blob, arc.timelapse_blob) if h}
+    return await db.run_sync(lambda s: _release(s, settings, freed))
+
+
+async def delete_print(db: AsyncSession, print_id: int, settings: Settings) -> list[Path]:
+    """Delete a run. Its job row is kept but tombstoned so ``archive_sweep``
+    can't re-archive it. An archive it belonged to loses the run (repointing at
+    the newest remaining one) or goes away with its last run. Commits; the
+    caller unlinks the returned (released-blob) paths."""
+    row = await _get_print_or_404(db, print_id)
+    arc = None
+    if row.archive_id is not None:
+        match = PrintArchive.id == row.archive_id
+    elif row.print_job_id is not None:
+        match = PrintArchive.print_job_id == row.print_job_id
+    else:
+        match = None
+    if match is not None:
+        arc = (
+            (await db.execute(select(PrintArchive).where(match).with_for_update()))
+            .scalars()
+            .first()
+        )
+    paths: list[Path] = []
+    runs = await _runs_of(db, arc) if arc is not None else []
+    if arc is not None and len(runs) > 1:
+        await _dismiss_jobs(db, {row.print_job_id} if row.print_job_id else set())
+        paths = await _remove_run(db, row, arc, runs, settings)
+        await _decrement_counts(db, [row])
+    elif arc is not None:
+        paths = await delete_archive_full(db, arc, settings)
+    else:
+        await _dismiss_jobs(db, {row.print_job_id} if row.print_job_id else set())
+        await _decrement_counts(db, [row])
+        await db.delete(row)
     await db.commit()
+    return paths
 
 
 async def recount_print_counts(db: AsyncSession) -> None:

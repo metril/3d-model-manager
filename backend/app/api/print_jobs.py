@@ -27,7 +27,12 @@ async def list_print_jobs(
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
 ) -> list[PrintJobOut]:
-    stmt = select(PrintJob).order_by(PrintJob.id.desc()).limit(limit)
+    stmt = (
+        select(PrintJob)
+        .where(PrintJob.archive_dismissed_at.is_(None))
+        .order_by(PrintJob.id.desc())
+        .limit(limit)
+    )
     visible = visible_printer_ids(ctx)
     if visible is not None:
         stmt = stmt.where(PrintJob.printer_id.in_(visible))
