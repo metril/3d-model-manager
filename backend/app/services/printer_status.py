@@ -24,6 +24,7 @@ from app.schemas.printers import (
     status_from_state,
 )
 from app.services import derivatives, spool_inventory
+from app.services.printer_state import failed_hold_reason
 
 ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
 _EXTERNAL_TRAY = 254
@@ -143,6 +144,7 @@ async def build_status(
     else:
         out = status_from_state(state)
         out.awaiting_plate_clear = printer.awaiting_plate_clear
+        out.failed_unacknowledged = failed_hold_reason(printer, out.gcode_state) is not None
         out.capabilities = CapabilitiesOut(
             **capabilities_for(
                 printer.model, printer.serial, ((state.get("firmware") or {}).get("ota"))

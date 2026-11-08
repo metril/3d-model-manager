@@ -237,6 +237,21 @@ async def _to_out(
                 await db.execute(select(Printer.id).where(Printer.awaiting_plate_clear.is_(True)))
             ).scalars()
         )
+    failed_blocked: set[int] = set()
+    if any(e.state in (QueueState.WAITING, QueueState.READY) for e in entries):
+        failed_blocked = set(
+            (
+                await db.execute(
+                    select(Printer.id).where(
+                        Printer.failed_at.is_not(None),
+                        or_(
+                            Printer.plate_cleared_at.is_(None),
+                            Printer.plate_cleared_at < Printer.failed_at,
+                        ),
+                    )
+                )
+            ).scalars()
+        )
     sliced_meta_by_file = await _sliced_metas(db, entries)
     details_by_entry = await details_for_entries(db, settings, entries)
     now = datetime.now(UTC)
@@ -295,7 +310,7 @@ async def _to_out(
                 released_at=e.released_at,
                 stage=e.stage,
                 skipped_reason=e.hold_reason if e.state == QueueState.SKIPPED else None,
-                waiting_reason=_waiting_reason(e, now, plate_blocked),
+                waiting_reason=_waiting_reason(e, now, plate_blocked, failed_blocked),
                 filaments=details_by_entry[e.id].filaments if e.id in details_by_entry else [],
                 colour_mismatch=e.id in details_by_entry and details_by_entry[e.id].colour_mismatch,
                 estimated_cost=details_by_entry[e.id].estimated_cost
@@ -340,7 +355,12 @@ async def _sliced_metas(db: AsyncSession, entries: list[PrintQueueEntry]) -> dic
     return out
 
 
-def _waiting_reason(e: PrintQueueEntry, now: datetime, plate_blocked: set[int]) -> str | None:
+def _waiting_reason(
+    e: PrintQueueEntry,
+    now: datetime,
+    plate_blocked: set[int],
+    failed_blocked: frozenset[int] | set[int] = frozenset(),
+) -> str | None:
     """Why a waiting/ready entry is not being dispatched right now."""
     if e.state not in (QueueState.WAITING, QueueState.READY):
         return None
@@ -353,6 +373,8 @@ def _waiting_reason(e: PrintQueueEntry, now: datetime, plate_blocked: set[int]) 
     target = e.printer_id or e.assigned_printer_id
     if target is not None and target in plate_blocked:
         return "plate"
+    if target is not None and target in failed_blocked:
+        return "printer_failed"
     return None
 
 
