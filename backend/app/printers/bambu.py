@@ -90,12 +90,14 @@ _CTRL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 SUBTASK_NAME_MAX = 64
 
 
-def safe_subtask_name(name: str | None, fallback: str) -> str:
+def safe_subtask_name(name: str | None, fallback: str, suffix: str = "") -> str:
     """Printer-screen job title: control chars dropped, whitespace collapsed,
-    capped at ``SUBTASK_NAME_MAX``; falls back to ``fallback`` (the remote
-    name with its ``.gcode.3mf`` suffix removed) when nothing is left."""
-    clean = " ".join(_CTRL_RE.sub(" ", name or "").split())[:SUBTASK_NAME_MAX].strip()
-    return clean or fallback.removesuffix(".3mf").removesuffix(".gcode")
+    base capped so base + ``suffix`` fits ``SUBTASK_NAME_MAX`` (the suffix is
+    never truncated); falls back to ``fallback`` (the remote name without its
+    ``.gcode.3mf`` suffix) when the base ends up empty."""
+    room = max(SUBTASK_NAME_MAX - len(suffix), 1)
+    base = " ".join(_CTRL_RE.sub(" ", name or "").split())[:room].rstrip()
+    return (base or fallback.removesuffix(".3mf").removesuffix(".gcode")) + suffix
 
 
 def project_file_payload(spec: PrintSpec, dual: bool = False) -> dict:

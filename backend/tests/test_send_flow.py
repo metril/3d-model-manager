@@ -571,3 +571,22 @@ def test_send_fails_on_printerd_refusal(printer_enabled, library_root, redis_url
         {"ok": False, "code": "dev_mode_off", "message": "verify failed"},
     )
     assert "verify failed" in err
+
+
+def test_send_long_model_name_keeps_plate_suffix(
+    printer_enabled, library_root, redis_url, fake_adapter, monkeypatch
+):
+    settings = get_settings()
+    pid, job_id = _seed_printer_and_job(
+        settings, redis_url, content=corpus.sliced_gcode_3mf(), fmt=BlobFormat.GCODE_3MF
+    )
+    _seed_state(redis_url, pid, "IDLE")
+    with base.sync_session() as s:
+        s.execute(Model.__table__.update().values(name="M" * 70))
+        s.commit()
+    monkeypatch.setattr("app.tasks.printing.gcode3mf.plates_in_gcode_3mf", lambda p: [1, 2, 3])
+    monkeypatch.setattr("app.tasks.printing.gcode3mf.assert_plate_available", lambda p, n: None)
+    monkeypatch.setattr("app.tasks.printing.pause_eta.pause_points_from_3mf", lambda p, n: [])
+    send_to_printer(job_id, {**DEFAULT_OPTS, "plate": 3})
+    name = fake_adapter.bus_calls[0][1]["subtask_name"]
+    assert len(name) <= 64 and name.endswith("\u2013 plate 3") and name.startswith("MMM")

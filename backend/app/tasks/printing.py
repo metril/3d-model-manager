@@ -33,6 +33,7 @@ from app.config import Settings, get_settings
 from app.models import Blob, File, Model, Printer, PrintJob, PrintQueueEntry, Revision
 from app.models.enums import TRASH_HOLD, PrintJobState, QueueState
 from app.printers import gcode3mf, pause_eta
+from app.printers.bambu import safe_subtask_name
 from app.printers.base import PrinterConnection, PrintSpec, request_command_sync
 from app.printers.connection import connection_from_printer
 from app.printers.registry import build_adapter
@@ -211,8 +212,11 @@ def _send_to_printer(
                 plates = gcode3mf.plates_in_gcode_3mf(path)
             except gcode3mf.NotSendableError as e:
                 raise SendError(str(e)) from e
+            spec_remote = f"tdmm-{print_job_id}.gcode.3mf"
             if not job_subtask_set and len(plates) > 1:
-                subtask = f"{subtask} \u2013 plate {options['plate']}"
+                subtask = safe_subtask_name(
+                    subtask, spec_remote, f" \u2013 plate {options['plate']}"
+                )
             spec = PrintSpec(
                 source_path=path,
                 remote_name=f"tdmm-{print_job_id}.gcode.3mf",

@@ -199,3 +199,8 @@ def test_payload_includes_sanitised_subtask_name():
 @pytest.mark.parametrize("blank", ["", "  \x01\n "])
 def test_payload_subtask_name_falls_back_to_remote_stem(blank):
     assert project_file_payload(_spec(subtask_name=blank))["print"]["subtask_name"] == "tdmm-7"
+
+
+def test_safe_subtask_name_suffix_survives_cap():
+    out = bambu.safe_subtask_name("M" * 70, "tdmm-7.gcode.3mf", " \u2013 plate 3")
+    assert len(out) == bambu.SUBTASK_NAME_MAX and out.endswith(" \u2013 plate 3")
