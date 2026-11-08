@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.21.0](https://github.com/metril/3d-model-manager/compare/v0.20.4...v0.21.0) (2026-11-08)
+
+
+### Features
+
+* **archives:** link an archive to a model ([#297](https://github.com/metril/3d-model-manager/issues/297)) ([600627c](https://github.com/metril/3d-model-manager/commit/600627c52c7cf2feb82235e975429ac21cb3c5a0))
+
+
+### Bug Fixes
+
+* **printing:** time out SD-card prints that never start ([#296](https://github.com/metril/3d-model-manager/issues/296)) ([ecb1ca4](https://github.com/metril/3d-model-manager/commit/ecb1ca46b24499705ea518dda6e49fb62d4c09ce))
+* **viewer:** show real layer height in the sliced preview ([#295](https://github.com/metril/3d-model-manager/issues/295)) ([92fb169](https://github.com/metril/3d-model-manager/commit/92fb16930bf18c5aab4f81dee6264371a0b66b24))
+
 ## [0.20.4](https://github.com/metril/3d-model-manager/compare/v0.20.3...v0.20.4) (2026-11-08)
 
 
