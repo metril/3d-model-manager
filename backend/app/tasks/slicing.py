@@ -40,7 +40,7 @@ from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
 from app.pipeline import slicedmeta
 from app.services import billing, derivatives, events, library, spool
 from app.services.app_config import get_app_config_sync
-from app.services.dispatcher import QUEUE_MAX_ATTEMPTS
+from app.services.dispatcher import ALL_PLATES_KEY, QUEUE_MAX_ATTEMPTS, slice_siblings
 from app.services.print_plan import estimate_item_sync
 from app.services.profile_sanitize import clamp_key, parse_range_error, sanitize_profile
 from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
@@ -373,13 +373,20 @@ def _slice(
     """Queue flavour of `slice_source`."""
     if entry.file_id is None:
         raise ValueError("queue entry has no source file")
+    all_plates = bool((entry.slice_options or {}).get(ALL_PLATES_KEY))
+    if all_plates:
+        # Print-all-plates: a sibling plate entry already sliced the whole
+        # project -- reuse that file instead of slicing again.
+        for sib in slice_siblings(session, entry):
+            if sib.sliced_file_id is not None:
+                return SliceOutcome(sib.sliced_file_id, {})
     return slice_source(
         session,
         settings,
         client,
         file_id=entry.file_id,
         recipe_id=entry.recipe_id,
-        plate=entry.plate,
+        plate=None if all_plates else entry.plate,
         tag=f"q{entry.id}",
         job_id=queue_job_id(entry.id),
         keep=keep,

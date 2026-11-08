@@ -19,6 +19,7 @@ from app.schemas.queue import QueueEnqueueIn
 from app.services import library
 from app.services import queue as queue_service
 from app.services.bed_fit import guard_files_fit
+from app.services.dispatcher import ALL_PLATES_KEY
 
 _SCHEDULING = (
     "scheduled_at",
@@ -161,6 +162,8 @@ async def create_batch(
             "ams_mapping": payload.ams_mapping,
             "print_options": payload.options.model_dump() if payload.options else None,
             "copies_per_entry": payload.copies_per_entry,
+            "plate_ams_mappings": payload.plate_ams_mappings,
+            "all_plates": payload.all_plates,
         },
         created_by_user_id=ctx.user.id,
     )
@@ -257,7 +260,8 @@ async def dispatch_batch(
                     printer_id=batch.printer_id,
                     recipe_id=batch.recipe_id,
                     copies=opts.get("copies_per_entry", 1),
-                    ams_mapping=opts.get("ams_mapping"),
+                    ams_mapping=(opts.get("plate_ams_mappings") or {}).get(str(plate))
+                    or opts.get("ams_mapping"),
                     options=opts.get("print_options"),
                     cost_center_id=batch.cost_center_id,
                     batch_id=batch.id,
@@ -265,6 +269,9 @@ async def dispatch_batch(
                     **{k: opts[k] for k in _SCHEDULING if opts.get(k) is not None},
                 ),
                 ctx,
+                slice_options=(
+                    {ALL_PLATES_KEY: True} if opts.get("all_plates") and batch.recipe_id else None
+                ),
             )
             created.append(entry.id)
     except HTTPException:

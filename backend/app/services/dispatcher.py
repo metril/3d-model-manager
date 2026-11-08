@@ -63,6 +63,28 @@ SLICES_PER_TICK = 3
 # never got a result back (worker crash/kill mid-slice) -- `_reconcile`
 # bounces it back to `waiting` rather than leaving it stuck forever.
 SLICING_STALE_S = 900
+
+# ``slice_options`` marker on a "print all plates" batch's recipe entries: the
+# whole project is sliced once (plate=None) and every plate entry reuses it.
+ALL_PLATES_KEY = "all_plates"
+
+
+def slice_siblings(session: Session, item: PrintQueueEntry) -> list[PrintQueueEntry]:
+    """Other entries sharing this all-plates entry's one slice (same batch,
+    source file and recipe); empty for any ordinary entry."""
+    if item.batch_id is None or not (item.slice_options or {}).get(ALL_PLATES_KEY):
+        return []
+    rows = session.scalars(
+        select(PrintQueueEntry).where(
+            PrintQueueEntry.batch_id == item.batch_id,
+            PrintQueueEntry.file_id == item.file_id,
+            PrintQueueEntry.recipe_id == item.recipe_id,
+            PrintQueueEntry.id != item.id,
+        )
+    ).all()
+    return [r for r in rows if (r.slice_options or {}).get(ALL_PLATES_KEY)]
+
+
 # A job claimed into UPLOADING that never reached the printer (`started_at IS
 # NULL`) for this long lost its worker (OOM / redeploy between claim and
 # upload); `_reconcile` fails it so the printer unblocks and the item retries.
@@ -847,6 +869,12 @@ def dispatch_once(
                 item.recipe_id is not None
                 and item.sliced_file_id is None
                 and counts["sliced"] < SLICES_PER_TICK
+                # A sibling plate is already slicing the shared project: wait
+                # for it and adopt its result instead of slicing again.
+                and not any(
+                    sib.state == QueueState.SLICING and sib.sliced_file_id is None
+                    for sib in slice_siblings(session, item)
+                )
             ):
                 from app.tasks.slicing import slice_file
 

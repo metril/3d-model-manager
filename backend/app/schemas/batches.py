@@ -46,8 +46,20 @@ class BatchIn(_SchedulingIn):
     ams_mapping: list[int] | None = None
     options: PlanOptions | None = None
     copies_per_entry: int = Field(1, ge=1, le=50)
+    # Per-plate AMS mapping (plate number -> mapping); falls back to ``ams_mapping``.
+    plate_ams_mappings: dict[str, list[int]] | None = None
+    # Print every plate of one file: a recipe slices the whole project ONCE and
+    # each plate entry reuses that sliced file.
+    all_plates: bool = False
 
     _plates = field_validator("plate_targets")(_check_plates)
+
+    @field_validator("plate_ams_mappings")
+    @classmethod
+    def _check_plate_maps(cls, v: dict[str, list[int]] | None) -> dict[str, list[int]] | None:
+        if v is not None and any(not k.isdigit() or int(k) < 1 for k in v):
+            raise ValueError("plate_ams_mappings keys must be plate numbers >= 1")
+        return v
 
 
 class BatchDispatchIn(BaseModel):

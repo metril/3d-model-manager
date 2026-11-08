@@ -885,3 +885,27 @@ async def test_ungrouped_active_batch_reports_done(authenticated_client: httpx.A
     await c.post(f"/api/batches/{b['id']}/dispatch")
     r = await c.post(f"/api/batches/{b['id']}/ungroup")
     assert r.json()["progress"]["total"] == 0 and r.json()["status"] == "done"
+
+
+async def test_batch_all_plates_any_printer_per_plate_mapping(
+    authenticated_client: httpx.AsyncClient,
+):
+    c = authenticated_client
+    b = await _new_batch(
+        c,
+        quantity=3,
+        plate_targets={"1": 1, "2": 1, "3": 1},
+        ams_mapping=[0],
+        plate_ams_mappings={"2": [5, 6]},
+        all_plates=True,
+    )
+    r = await c.post(f"/api/batches/{b['id']}/dispatch")
+    assert r.status_code == 200, r.text
+    entries = (await c.get(f"/api/queue?batch_id={b['id']}")).json()
+    by_plate = {e["plate"]: e for e in entries}
+    assert sorted(by_plate) == [1, 2, 3]
+    assert {e["batch"]["id"] for e in entries} == {b["id"]}
+    assert all(e["printer_id"] is None and e["copies"] == 1 for e in entries)  # any printer
+    with base.sync_session() as s:
+        maps = {p: s.get(PrintQueueEntry, e["id"]).ams_mapping for p, e in by_plate.items()}
+    assert maps == {1: [0], 2: [5, 6], 3: [0]}
