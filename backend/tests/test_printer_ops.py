@@ -4,7 +4,10 @@ labels, SD browser + print-from-SD."""
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import redis as redis_lib
@@ -774,3 +777,150 @@ def test_stale_finish_does_not_close_starting_job(worker):
         assert len(jobs) == 1 and jobs[0].state == PrintJobState.STARTING.value
         assert jobs[0].finished_at is None
     assert _flag(pid) is False
+
+
+# -- failed-print coverage ----------------------------------------------------
+
+
+def _pw_printer_ready(pid: int) -> None:
+    with base.sync_session() as s:
+        p = s.get(Printer, pid)
+        p.model = "A1 mini"
+        p.access_code_enc = encrypt_secret(get_settings(), "12345678")
+        s.commit()
+
+
+def _seed_ready_entry(backend, slug: str, printer_id: int | None = None) -> int:
+    from app.models.enums import QueueState
+    from tests.test_dispatcher import _seed_admin, _seed_entry, _seed_model_file
+
+    with base.sync_session() as s:
+        model, _, file = _seed_model_file(s, slug=slug)
+        file.storage_path = f"{slug}/rev-001/{slug}.gcode.3mf"
+        file.verified_at = datetime.now(UTC)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("Metadata/plate_1.gcode", "G28\n")
+        backend.write(file.storage_path, [buf.getvalue()])
+        admin = _seed_admin(s)
+        e = _seed_entry(
+            s,
+            model=model,
+            file=file,
+            state=QueueState.READY,
+            printer_id=printer_id,
+            created_by=admin,
+        )
+        return e.id
+
+
+def _tick(redis_url: str, pid: int, gcode_state: str) -> dict:
+    """One dispatcher pass with a full printer state (trays/nozzle) in redis."""
+    from tests.test_dispatcher import IDLE_STATE, _seed_state
+
+    _seed_state(redis_url, pid, {**IDLE_STATE, "gcode_state": gcode_state})
+    c = redis_lib.Redis.from_url(redis_url)
+    try:
+        with base.sync_session() as s:
+            return dispatcher.dispatch_once(s, c, get_settings())
+    finally:
+        c.close()
+
+
+def _jobs(pid: int) -> list[PrintJob]:
+    with base.sync_session() as s:
+        return list(s.scalars(select(PrintJob).where(PrintJob.printer_id == pid)).all())
+
+
+async def test_failed_print_blocks_queue_until_clear_plate_then_dispatches(
+    authenticated_client, worker, redis_url, fake_adapter, backend
+):
+    from app.models import PrintQueueEntry
+
+    w, pid = worker
+    _pw_printer_ready(pid)
+    _seed_ready_entry(backend, "fp-first")
+    w.handle_report({"gcode_state": "IDLE"})
+    # tick 1 sends the first entry; the printer picks it up then fails mid-print
+    assert _tick(redis_url, pid, "IDLE")["sent"] == 1
+    (job,) = _jobs(pid)
+    job_id, subtask = job.id, job.subtask_name
+    for st in ("PREPARE", "RUNNING", "FAILED"):
+        w.handle_report({"gcode_state": st, "subtask_name": subtask})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).state == PrintJobState.FAILED.value
+        assert s.get(Printer, pid).failed_at is not None
+
+    # a second entry waits, flagged printer_failed in the API
+    second_id = _seed_ready_entry(
+        backend, "fp-second", pid
+    )  # pinned: the API flags only pinned entries
+    assert _tick(redis_url, pid, "FAILED")["sent"] == 0
+    r = await authenticated_client.get("/api/queue")
+    assert r.status_code == 200, r.text
+    rows = {row["id"]: row for row in r.json()}
+    assert rows[second_id]["waiting_reason"] == "printer_failed"
+
+    # clear plate (printer still FAILED) -> next entry dispatches and links, one new job
+    r = await authenticated_client.post(f"/api/printers/{pid}/clear-plate")
+    assert r.status_code == 200, r.text
+    rows = {row["id"]: row for row in (await authenticated_client.get("/api/queue")).json()}
+    assert rows[second_id]["waiting_reason"] != "printer_failed"
+    assert _tick(redis_url, pid, "FAILED")["sent"] == 1
+    new = [j for j in _jobs(pid) if j.id != job_id]
+    assert len(new) == 1
+    new_id, sub2 = new[0].id, new[0].subtask_name
+    with base.sync_session() as s:
+        assert s.get(PrintQueueEntry, second_id).print_job_id == new_id
+    for st in ("PREPARE", "RUNNING"):
+        w.handle_report({"gcode_state": st, "subtask_name": sub2})
+    jobs = _jobs(pid)
+    assert len(jobs) == 2  # no EXTERNAL duplicate
+    assert {j.id: j.state for j in jobs}[new_id] == PrintJobState.PRINTING.value
+
+
+def test_stale_failed_then_new_print_links_model_job_no_external(
+    worker, redis_url, fake_adapter, backend
+):
+    w, pid = worker
+    _pw_printer_ready(pid)
+    _seed_ready_entry(backend, "stale-new")
+    # printer left FAILED by a previous print; a person already cleared the plate
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})
+    with base.sync_session() as s:
+        p = s.get(Printer, pid)
+        p.plate_cleared_at = datetime.now(UTC) + timedelta(seconds=1)
+        p.awaiting_plate_clear = False
+        s.commit()
+    assert _tick(redis_url, pid, "FAILED")["sent"] == 1
+    (job,) = _jobs(pid)
+    job_id, subtask = job.id, job.subtask_name
+    w.handle_report({"gcode_state": "FAILED", "subtask_name": "old"})  # still stale
+    w.handle_report({"gcode_state": "RUNNING", "subtask_name": subtask})
+    jobs = _jobs(pid)
+    assert [j.id for j in jobs] == [job_id]
+    assert jobs[0].file_id is not None and jobs[0].origin != PrintJobOrigin.EXTERNAL
+    assert jobs[0].state == PrintJobState.PRINTING.value
+
+
+async def test_sd_print_job_times_out_when_printer_never_starts(
+    authenticated_client, sd, set_state, printerd_stub, redis_url
+):
+    pid = await _printer(authenticated_client)
+    set_state(pid, **IDLE)
+    printerd_stub(pid, {"ok": True})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/files/print", json={"path": "/cache/b.gcode.3mf"}
+    )
+    assert r.status_code == 200, r.text
+    job_id = r.json()["job_id"]
+    with base.sync_session() as s:
+        job = s.get(PrintJob, job_id)
+        assert job.starting_at is not None
+        job.starting_at = datetime.now(UTC) - timedelta(seconds=dispatcher.STARTING_STALE_S + 60)
+        s.commit()
+    _tick(redis_url, pid, "IDLE")
+    with base.sync_session() as s:
+        j = s.get(PrintJob, job_id)
+        assert j.state == PrintJobState.FAILED.value
+        assert j.printer_error == "printer did not start the job"
