@@ -91,7 +91,7 @@ export function SettingsPage() {
           value={search.tab ?? "general"}
           onValueChange={(v) => void navigate({ to: "/settings", search: { tab: v }, replace: true })}
         >
-          <TabsList>
+          <TabsList className="h-auto max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
             <TabsTrigger value="general">{t("settings.tabs.general")}</TabsTrigger>
             <TabsTrigger value="tags">{t("settings.tabs.tags")}</TabsTrigger>
             {canSettings && <TabsTrigger value="storage">{t("settings.tabs.storage")}</TabsTrigger>}

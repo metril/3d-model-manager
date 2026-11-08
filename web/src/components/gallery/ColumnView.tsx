@@ -43,7 +43,7 @@ function Column({
               onClick={() => onDir(d.path)}
             >
               <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="flex-1 truncate">{d.name}</span>
+              <span className="flex-1 truncate" title={d.name}>{d.name}</span>
               <ChevronRightIcon className="size-3.5 text-muted-foreground" />
             </button>
           ))}
@@ -56,7 +56,7 @@ function Column({
               className={cn(item, selectedFile === f.id && "bg-muted font-medium")}
               onClick={() => onFile(f)}
             >
-              <span className="flex-1 truncate">{f.name}</span>
+              <span className="flex-1 truncate" title={f.name}>{f.name}</span>
               <span className="text-xs text-muted-foreground">{humanizeBytes(f.size)}</span>
             </button>
           ))}

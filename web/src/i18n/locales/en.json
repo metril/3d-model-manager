@@ -4640,7 +4640,7 @@
     "wear": "Wear cost (per hour)",
     "wearHint": "Added to the machine rate for this printer. Blank = no extra wear charge.",
     "volume": "Build volume (mm)",
-    "volumeX": "Build volume X (mm)",
+    "volumeX": "X (mm)",
     "volumeY": "Y (mm)",
     "volumeZ": "Z (mm)",
     "saving": "Saving...",

@@ -649,7 +649,7 @@ export function LibraryPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative max-w-sm flex-1">
+          <div className="relative min-w-56 max-w-sm flex-1 basis-full sm:basis-0">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchInputRef}
