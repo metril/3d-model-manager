@@ -1222,6 +1222,7 @@
   },
   "printerOps": {
     "plateNeedsClearing": "Plate needs clearing",
+    "failedNeedsConfirm": "Printer reports a failed print — confirm the plate is clear to continue",
     "markCleared": "Mark plate cleared",
     "plateCleared": "Plate marked as cleared",
     "printOptions": {
@@ -3094,6 +3095,7 @@
       "skipped": "Skipped"
     },
     "heldReason": "Held: {{reason}}",
+    "printerFailed": "Printer reports a failed print — confirm the plate is clear to continue",
     "pendingReview": "Pending review",
     "rejected": "Rejected",
     "overBudget": "Over budget",

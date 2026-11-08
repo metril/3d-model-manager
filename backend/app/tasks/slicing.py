@@ -227,7 +227,7 @@ def slice_file(self, queue_entry_id: int) -> None:
             if entry is None:
                 return
             entry.attempts += 1
-            entry.last_error = str(exc)
+            entry.last_error = _public_error(exc)
             entry.last_log = getattr(exc, "log_tail", None)
             entry.state = (
                 QueueState.FAILED
@@ -248,6 +248,7 @@ def slice_file(self, queue_entry_id: int) -> None:
                         sib.last_error = entry.last_error
                         sib.slicing_started_at = None
             name = _entry_name(session, entry)
+            entry_error = entry.last_error
             file_id = entry.file_id
             session.commit()
             _publish(
@@ -259,7 +260,7 @@ def slice_file(self, queue_entry_id: int) -> None:
             if terminal:
                 _notify(
                     "slice_failed",
-                    {"name": name, "error": str(exc)[:300], "queue_id": queue_entry_id},
+                    {"name": name, "error": entry_error, "queue_id": queue_entry_id},
                 )
             return
 
@@ -581,6 +582,11 @@ def slice_source(
         if existing is not None:
             return SliceOutcome(existing.id, _meta_summary(meta), log_tail=run_log)
 
+        # A retried entry re-slices to the same name; that earlier File must
+        # survive (a PrintJob references it) and (revision_id, rel_path) is
+        # unique, so pick a free " (2)", " (3)", ... path.
+        new_rel_path = _unique_rel_path(session, revision.id, new_rel_path)
+
         spool.ensure_spool_dir(settings)
         token = uuid.uuid4()
         spool_file_path = spool.spool_path(settings, token)
@@ -599,6 +605,32 @@ def slice_source(
             session, model=model, revision=revision, staged=staged
         )
         return SliceOutcome(new_file.id, _meta_summary(meta), created=True, log_tail=run_log)
+
+
+def _unique_rel_path(session, revision_id: int, rel_path: str) -> str:
+    """``rel_path`` if no File in the revision uses it, else the first free
+    ``<stem> (n).gcode.3mf`` (n >= 2)."""
+    taken = set(
+        session.execute(select(File.rel_path).where(File.revision_id == revision_id)).scalars()
+    )
+    if rel_path not in taken:
+        return rel_path
+    suffix = ".gcode.3mf"
+    stem = rel_path[: -len(suffix)] if rel_path.endswith(suffix) else rel_path
+    ext = suffix if rel_path.endswith(suffix) else ""
+    n = 2
+    while f"{stem} ({n}){ext}" in taken:
+        n += 1
+    return f"{stem} ({n}){ext}"
+
+
+def _public_error(exc: BaseException) -> str:
+    """Short, human last_error: a library/DB exception (SQL text + bound
+    parameters) never reaches the queue row; its message is logged instead."""
+    if isinstance(exc, (SlicerError, ValueError, SlicerUnavailable)):
+        text = " ".join(str(exc).split())
+        return text[:200] if text else type(exc).__name__
+    return f"slicing failed ({type(exc).__name__}; see server log)"
 
 
 # --- standalone slice jobs (`POST /files/{id}/slice`) ---------------------

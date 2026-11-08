@@ -110,9 +110,9 @@ export function StatusSection({
             <p className="pc-t12 text-muted-foreground">{t("card.status.nothing")}</p>
           )}
           {failedPct != null ? <ProgressBar tone="failed" pct={failedPct} /> : null}
-          {status.awaiting_plate_clear ? (
+          {status.awaiting_plate_clear || status.failed_unacknowledged ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{t("printerOps.plateNeedsClearing")}</Badge>
+              <Badge variant="secondary">{t(status.failed_unacknowledged ? "printerOps.failedNeedsConfirm" : "printerOps.plateNeedsClearing")}</Badge>
               {canControl ? (
                 <Button
                   type="button"

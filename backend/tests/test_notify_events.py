@@ -41,6 +41,8 @@ def test_printerd_emits_job_lifecycle(worker, emitted):  # noqa: F811
 def test_printerd_emits_job_failed_on_error(worker, emitted):  # noqa: F811
     w, _a, pid, _c = worker
     _seed_active_job(pid)
+    w.handle_report(cass.SNAPSHOT_PRINTING)
+    emitted.clear()
     w.handle_report(cass.SNAPSHOT_ERROR)
     assert [e[0] for e in emitted] == ["job_failed"]
 

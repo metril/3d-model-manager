@@ -10,6 +10,7 @@ import asyncio
 import json
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
@@ -325,6 +326,7 @@ async def clear_plate(
         if (state or {}).get("gcode_state") not in ("FINISH", "FAILED"):
             return _err(400, "not_awaiting", "the printer is not awaiting a plate clear")
     printer.awaiting_plate_clear = False
+    printer.plate_cleared_at = datetime.now(UTC)
     db.add(
         AuditLog(
             user_id=ctx.user.id,
