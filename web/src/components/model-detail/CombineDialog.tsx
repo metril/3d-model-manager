@@ -149,7 +149,7 @@ export function CombineDialog({
             id="combine-printer"
             value={profileId}
             onChange={(e) => setProfileId(e.target.value)}
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+            className="h-8 rounded-lg border border-input bg-transparent ps-2 text-sm"
           >
             <option value="">{t("mdCombine.customBed")}</option>
             {usable.map(({ profile, bed: b }) => (
@@ -181,7 +181,7 @@ export function CombineDialog({
             id="combine-layout"
             value={layout}
             onChange={(e) => setLayout(e.target.value as "grid" | "auto")}
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+            className="h-8 rounded-lg border border-input bg-transparent ps-2 text-sm"
           >
             <option value="auto">{t("mdCombine.layoutAuto")}</option>
             <option value="grid">{t("mdCombine.layoutGrid")}</option>
