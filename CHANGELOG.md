@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.2](https://github.com/metril/3d-model-manager/compare/v0.22.1...v0.22.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **printing:** refuse direct prints until the plate is cleared ([#306](https://github.com/metril/3d-model-manager/issues/306)) ([b6357b0](https://github.com/metril/3d-model-manager/commit/b6357b0892a8b2181ad8b3d3d16dbf97f5434600))
+
 ## [0.22.1](https://github.com/metril/3d-model-manager/compare/v0.22.0...v0.22.1) (2026-11-09)
 
 
