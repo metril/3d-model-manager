@@ -5,16 +5,19 @@ SD-card print and the ``clear-plate`` route."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import anyio
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AuthContext
 from app.models import AuditLog, Printer
 from app.services import hooks
 from app.services.printer_state import failed_hold_reason
 from app.services.queue_settings import get_queue_config
+
+if TYPE_CHECKING:
+    from app.api.deps import AuthContext
 
 PLATE_NOT_CLEARED = "plate_not_cleared"
 PRINTER_FAILED = "printer_failed"
