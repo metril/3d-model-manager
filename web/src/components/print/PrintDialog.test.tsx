@@ -385,6 +385,60 @@ describe("PrintDialog", () => {
     expect(postMock).not.toHaveBeenCalledWith("/queue", expect.anything());
   });
 
+  async function openSend(waitEnabled = true) {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendNow = await screen.findByRole("button", { name: "Send now" });
+    if (waitEnabled) await waitFor(() => expect(sendNow).not.toBeDisabled());
+    return sendNow;
+  }
+
+  it("a plate_not_cleared 409 offers 'Plate is clear, print now', which resends with plate_cleared", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["printers:control"], printer_access: null };
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: { plate_cleared?: boolean }) => {
+      if (path === "/print/send" && !body?.plate_cleared) {
+        return Promise.reject(new ApiError(409, "plate hold", "plate_not_cleared"));
+      }
+      return original(path, body);
+    });
+    fireEvent.click(await openSend());
+    expect(await screen.findByText(/hasn't been cleared since the last print/)).toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalledWith("/queue", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Plate is clear, print now" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/print/send", expect.objectContaining({ plate_cleared: true })),
+    );
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Sent to printer"));
+  });
+
+  it("the plan's hold warns up front and hides the action without control access", async () => {
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path === "/print/plan" ? Promise.resolve(basePlan({ hold: "printer_failed" })) : original(path, body),
+    );
+    await openSend(false);
+    expect(await screen.findByText(/last print failed/)).toBeInTheDocument();
+    expect(screen.getByText(/control access/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plate is clear, print now" })).not.toBeInTheDocument();
+  });
+
+  it("the hold's confirm respects the same gates as Send now (unresolved red row)", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["printers:control"], printer_access: null };
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path === "/print/plan" ? Promise.resolve(basePlan({ hold: "plate_not_cleared" })) : original(path, body),
+    );
+    const sendNow = await openSend(false);
+    expect(sendNow).toBeDisabled();
+    const confirm = await screen.findByRole("button", { name: "Plate is clear, print now" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(postMock).not.toHaveBeenCalledWith("/print/send", expect.anything());
+  });
+
   it("I3: falls back to enqueue on a queue_required 409", async () => {
     const original = postMock.getMockImplementation()!;
     postMock.mockImplementation((path: string, body?: unknown) => {

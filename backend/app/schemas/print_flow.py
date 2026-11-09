@@ -50,6 +50,8 @@ class PlanOut(BaseModel):
     est_grams: float | None
     est_cost: float | None
     warnings: list[str]
+    # `plate_not_cleared` | `printer_failed`: a direct send needs `plate_cleared`.
+    hold: str | None = None
     options: PlanOptions = Field(default_factory=PlanOptions)
 
 

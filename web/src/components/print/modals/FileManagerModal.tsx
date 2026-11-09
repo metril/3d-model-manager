@@ -9,6 +9,7 @@ import type { RemoteFile } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { holdOfError, type PrintHold } from "@/lib/printHold";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function isPrintable(name: string): boolean {
@@ -50,6 +51,7 @@ export function FileManagerModal({
   const [selected, setSelected] = useState<RemoteFile | null>(null);
   const [toDelete, setToDelete] = useState<RemoteFile | null>(null);
   const [toPrint, setToPrint] = useState<RemoteFile | null>(null);
+  const [held, setHeld] = useState<{ file: RemoteFile; hold: PrintHold } | null>(null);
   const goTo = (p: string) => {
     setSelected(null);
     setPath(p);
@@ -195,6 +197,29 @@ export function FileManagerModal({
             onConfirm={() => {
               const f = toPrint;
               void print.mutateAsync({ path: f.path }).then(
+                () => {
+                  toast.success(t("printerOps.files.printStarted"));
+                  onOpenChange(false);
+                },
+                (e) => {
+                  const hold = holdOfError(e);
+                  if (hold) setHeld({ file: f, hold });
+                },
+              );
+            }}
+          />
+        ) : null}
+        {held ? (
+          <ConfirmDialog
+            open
+            onOpenChange={(o) => !o && setHeld(null)}
+            title={t(`printHold.${held.hold}`)}
+            description={t("printHold.confirmDesc")}
+            confirmLabel={t("printHold.printNow")}
+            onConfirm={() => {
+              const f = held.file;
+              setHeld(null);
+              void print.mutateAsync({ path: f.path, plate_cleared: true }).then(
                 () => {
                   toast.success(t("printerOps.files.printStarted"));
                   onOpenChange(false);

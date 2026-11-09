@@ -938,3 +938,47 @@ async def test_clear_plate_releases_idle_failure_hold(
     assert r.status_code == 200
     r = await authenticated_client.post(f"/api/printers/{pid}/clear-plate")
     assert r.status_code == 400  # acknowledged: nothing left to clear
+
+
+@pytest.mark.parametrize("kind", ["plate", "failed"])
+async def test_sd_print_refused_on_hold_and_confirmable(
+    authenticated_client, sd, set_state, printerd_stub, kind
+):
+    pid = await _printer(authenticated_client)
+    r = await authenticated_client.put("/api/settings/queue", json={"require_plate_clear": True})
+    assert r.status_code == 200
+    with base.sync_session() as s:
+        row = s.get(Printer, pid)
+        row.awaiting_plate_clear = kind == "plate"
+        if kind == "failed":
+            row.failed_at = datetime.now(UTC) - timedelta(minutes=5)
+        s.commit()
+    set_state(pid, **{**IDLE, "gcode_state": "FINISH"})
+    printerd_stub(pid, {"ok": True})
+    url, body = f"/api/printers/{pid}/files/print", {"path": "/cache/b.gcode.3mf"}
+    r = await authenticated_client.post(url, json=body)
+    code = "plate_not_cleared" if kind == "plate" else "printer_failed"
+    assert r.status_code == 409 and r.json()["detail"]["code"] == code
+    r = await authenticated_client.post(url, json={**body, "plate_cleared": True})
+    assert r.status_code == 200, r.text
+    with base.sync_session() as s:
+        assert s.scalars(select(AuditLog).where(AuditLog.action == "clear_plate")).first()
+        assert s.get(Printer, pid).awaiting_plate_clear is False
+
+
+async def test_sd_print_confirm_refused_send_keeps_hold(
+    authenticated_client, sd, set_state, printerd_stub
+):
+    pid = await _printer(authenticated_client)
+    r = await authenticated_client.put("/api/settings/queue", json={"require_plate_clear": True})
+    assert r.status_code == 200
+    _set_flag(pid, True)
+    set_state(pid, **{**IDLE, "gcode_state": "RUNNING"})
+    printerd_stub(pid, {"ok": True})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/files/print", json={"path": "/a.3mf", "plate_cleared": True}
+    )
+    assert r.status_code == 409 and r.json()["code"] == "printing"
+    assert _flag(pid) is True
+    with base.sync_session() as s:
+        assert s.scalars(select(AuditLog).where(AuditLog.action == "clear_plate")).first() is None

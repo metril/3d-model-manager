@@ -35,7 +35,7 @@ from app.models.processing import BlobMeta
 from app.schemas.library import PlateOut
 from app.schemas.print_flow import PlanFilament, PlanIn, PlanOut, PlanPrinter
 from app.schemas.printers import PrintRequest, SpoolBriefOut
-from app.services import derivatives, library
+from app.services import derivatives, library, plate_guard
 from app.services import spool_inventory as sinv
 from app.services.ams_match import FilamentNeed, Match, TrayInfo, match, to_ams_mapping
 from app.services.app_config import get_app_config, get_app_config_sync
@@ -368,6 +368,11 @@ async def build_plan(
     est_duration_s = plate.get("prediction_s")
     est_grams = plate.get("weight_g")
     plan_printer = next((p for p in printable if p.id == printer_id), None)
+    hold = (
+        await plate_guard.direct_hold(db, plan_printer, states.get(printer_id))
+        if plan_printer is not None
+        else None
+    )
     est_cost = estimate_cost(
         plate, usages, rates, plan_printer.wear_cost_per_hour if plan_printer else None
     )
@@ -392,6 +397,7 @@ async def build_plan(
         est_grams=est_grams,
         est_cost=est_cost,
         warnings=warnings,
+        hold=hold,
     )
 
 
@@ -442,6 +448,9 @@ async def create_job(
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"printer not ready (state={gs}); must be IDLE/FINISH/FAILED"
         )
+    acked = await plate_guard.check_direct_hold(db, ctx, printer, state, req.plate_cleared)
+    if acked:
+        plate_guard.acknowledge_plate(db, ctx, printer)  # commits with the job row below
     if "plate" not in req.model_fields_set:
         req.plate = resolve_plate(await db.get(BlobMeta, file.blob_hash), None, 1)
     job = PrintJob(
@@ -454,7 +463,9 @@ async def create_job(
         created_by_user_id=ctx.user.id,
     )
     db.add(job)
-    await db.commit()
+    await db.commit()  # the plate acknowledgement (if any) lands with the job row
+    if acked:
+        await plate_guard.fire_cleared(printer_id, ctx)
     await db.refresh(job)
     try:
         send_to_printer.apply_async(args=[job.id, req.model_dump()])

@@ -132,6 +132,7 @@ class SdPrintIn(BaseModel):
     path: str
     plate: int | None = Field(default=None, ge=1, le=99)
     use_ams: bool = True
+    plate_cleared: bool = False
 
 
 class AmsBackupSlotOut(BaseModel):

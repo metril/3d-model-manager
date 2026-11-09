@@ -2770,6 +2770,14 @@
     "unplayable": "Can't play in this browser",
     "download": "Download"
   },
+  "printHold": {
+    "plate_not_cleared": "The plate hasn't been cleared since the last print. Printing now could collide with the part still on the bed.",
+    "printer_failed": "The last print failed and hasn't been acknowledged. Make sure the failed part is off the bed before printing.",
+    "confirmDesc": "Only continue if the build plate is empty.",
+    "printNow": "Plate is clear, print now",
+    "cancel": "Cancel",
+    "needsControl": "Someone with control access to this printer must confirm the plate is clear."
+  },
   "printDialog": {
     "mappedOnAssign": "Filament is mapped when a printer is assigned.",
     "plateFilaments": "Plate {{n}}",

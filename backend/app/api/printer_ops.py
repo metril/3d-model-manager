@@ -46,7 +46,7 @@ from app.schemas.printer_ops import (
     SdPrintIn,
     SdStorageOut,
 )
-from app.services import ams_backup, kprofiles
+from app.services import ams_backup, kprofiles, plate_guard
 from app.services.printer_state import read_state_async
 from app.services.redis_pool import get_async_redis
 
@@ -420,18 +420,23 @@ async def print_sd(
     """Start a print of ``.3mf`` / ``.gcode.3mf`` already on the SD card and
     record an EXTERNAL ``print_jobs`` row (no library file behind it)."""
     printer = await _get_enabled_or_404(db, printer_id)
-    args = payload.model_dump()
+    args = payload.model_dump(exclude={"plate_cleared"})
     try:
         clean = cmds.validate("sd_print", args)
     except cmds.CommandError as e:
         return _err(400, e.code, e.message)
     st = None
-    with contextlib.suppress(Exception):
+    try:
         st = await _state(settings, printer_id)
+    except Exception:
+        return _err(409, "state_unavailable", "printer state could not be read; try again")
     err_at_send = int(st.get("print_error") or 0) if st else None
+    needs_ack = await plate_guard.check_direct_hold(db, ctx, printer, st, payload.plate_cleared)
     resp = await run_command(db, settings, ctx, printer, "sd_print", args)
     if resp.status_code not in (200, 202):
         return resp
+    if needs_ack:
+        plate_guard.acknowledge_plate(db, ctx, printer)  # commits with the job row below
     name = clean["path"].rsplit("/", 1)[-1]
     job = PrintJob(
         printer_id=printer_id,
@@ -446,4 +451,6 @@ async def print_sd(
     )
     db.add(job)
     await db.commit()
+    if needs_ack:
+        await plate_guard.fire_cleared(printer_id, ctx)
     return JSONResponse(status_code=resp.status_code, content={"ok": True, "job_id": job.id})

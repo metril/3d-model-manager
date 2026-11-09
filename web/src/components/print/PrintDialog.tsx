@@ -47,7 +47,8 @@ import { BedFitChip } from "@/components/slice/BedFitChip";
 import { useCreateBatch, useDispatchBatch, useEnqueue, useEnqueuePlates } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
-import { needsReview } from "@/lib/permissions";
+import { canPrinter as canOnPrinter, needsReview } from "@/lib/permissions";
+import { asPrintHold, holdOfError } from "@/lib/printHold";
 import { useMountedWhileOpen } from "@/lib/useMountedWhileOpen";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
@@ -689,6 +690,23 @@ function PrintDialogBody({
     batchChoice !== NO_BATCH ||
     JSON.stringify(sched) !== JSON.stringify(EMPTY_SCHEDULE);
   const submitting = sendPrint.isPending || enqueue.isPending;
+  // A direct send is refused while the plate/failed hold applies: either the
+  // plan already says so, or the send came back 409 with the hold's code.
+  const sentHold = sendPrint.variables?.printer_id === effectivePrinterId ? holdOfError(sendPrint.error) : null;
+  const printHold = sentHold ?? asPrintHold(plan?.hold);
+  const mayConfirmHold = effectivePrinterId != null && canOnPrinter(auth.data, effectivePrinterId, "control");
+
+  // One gate for "Send now" and the hold's "Plate is clear, print now": the
+  // server doesn't check the mapping or compatibility, so the confirm must not
+  // bypass what the button already enforces. M4: in "Send next" mode this
+  // enqueues rather than sending straight to the printer, so `printerNotReady`
+  // only blocks a direct send.
+  const sendDisabled =
+    effectivePrinterId == null ||
+    hasRed ||
+    (!(sendNext || schedActive) && printerNotReady) ||
+    sendPrint.isPending ||
+    enqueue.isPending;
 
   function close() {
     onOpenChange(false);
@@ -716,7 +734,7 @@ function PrintDialogBody({
     );
   }
 
-  function handleSend() {
+  function handleSend(plateCleared = false) {
     if (!plan || effectivePrinterId == null || effectiveFileId == null) return;
     if (sendNext || schedActive) {
       handleSendNext();
@@ -732,6 +750,7 @@ function PrintDialogBody({
         bed_levelling: bedLevelling,
         flow_cali: flowCali,
         timelapse,
+        ...(plateCleared ? { plate_cleared: true } : {}),
       },
       {
         onSuccess: () => {
@@ -1147,7 +1166,25 @@ function PrintDialogBody({
                     ))}
                   </ul>
                 ) : null}
+                {printHold && !(sendNext || schedActive) && !queueOnly && profileMode !== "recipe" ? (
+                  <div role="alert" className="space-y-2 rounded-md border border-warning/50 p-3 text-sm">
+                    <p>{t(`printHold.${printHold}`)}</p>
+                    {mayConfirmHold ? (
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" disabled={sendDisabled} onClick={() => handleSend(true)}>
+                          {t("printHold.printNow")}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={close}>
+                          {t("printHold.cancel")}
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">{t("printHold.needsControl")}</p>
+                    )}
+                  </div>
+                ) : null}
                 {sendPrint.isError &&
+                !sentHold &&
                 !(
                   sendPrint.error instanceof ApiError &&
                   sendPrint.error.status === 409 &&
@@ -1219,18 +1256,8 @@ function PrintDialogBody({
                       <div className="flex flex-col gap-1">
                         <Button
                           type="button"
-                          onClick={handleSend}
-                          disabled={
-                            effectivePrinterId == null ||
-                            hasRed ||
-                            // M4: in "Send next" mode this enqueues rather than
-                            // sending straight to the printer -- queueing is
-                            // the whole point when the printer isn't ready
-                            // yet, so `printerNotReady` only blocks "Send now".
-                            (!(sendNext || schedActive) && printerNotReady) ||
-                            sendPrint.isPending ||
-                            enqueue.isPending
-                          }
+                          onClick={() => handleSend()}
+                          disabled={sendDisabled}
                         >
                           {sendPrint.isPending || enqueue.isPending
                             ? t("printDialog.sending")
