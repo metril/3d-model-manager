@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import redis
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.config import Settings, get_settings
 from app.models import Blob, File, Model, Printer, PrintJob, PrintQueueEntry, Revision
@@ -104,6 +104,8 @@ def _set_job_state(
     *,
     error: str | None = None,
     expect: tuple[PrintJobState, ...] = _LIVE_STATES,
+    print_error_at_send: int | None = None,
+    subtask_name: str | None = None,
 ) -> bool:
     """Forward-only compare-and-set: the row moves to ``state`` only while it
     is still in one of ``expect`` (default: the not-yet-printing states), so a
@@ -114,7 +116,15 @@ def _set_job_state(
     if state in (PrintJobState.FAILED, PrintJobState.CANCELED):
         values["finished_at"] = datetime.now(UTC)
     if state == PrintJobState.STARTING:
-        values["starting_at"] = datetime.now(UTC)
+        # printerd may already have moved the row to STARTING (a PREPARE poll
+        # during the reply wait): fill the send-time facts only where missing.
+        values["starting_at"] = func.coalesce(PrintJob.starting_at, datetime.now(UTC))
+        if print_error_at_send is not None:
+            values["print_error_at_send"] = func.coalesce(
+                PrintJob.print_error_at_send, print_error_at_send
+            )
+        if subtask_name:
+            values["subtask_name"] = subtask_name
     with base.sync_session() as s:
         printer_id = s.execute(
             update(PrintJob)
@@ -244,7 +254,16 @@ def _send_to_printer(
             with contextlib.suppress(Exception):
                 pause_eta.store_points(client, printer_id, print_job_id, pause_points)
         _set_job_state(
-            settings, print_job_id, PrintJobState.STARTING, expect=(PrintJobState.UPLOADING,)
+            settings,
+            print_job_id,
+            PrintJobState.STARTING,
+            expect=(PrintJobState.UPLOADING, PrintJobState.STARTING),
+            # The name the printer will report, so a late-appearing print can
+            # be matched back to this job.
+            subtask_name=safe_subtask_name(spec.subtask_name, spec.remote_name),
+            # The printer's error word from the preflight read (before the
+            # start command): the same word later is a leftover, not a failure.
+            print_error_at_send=int(state.get("print_error") or 0) if state else None,
         )
     except Exception as exc:
         _set_job_state(settings, print_job_id, PrintJobState.FAILED, error=_scrub(exc, conn))

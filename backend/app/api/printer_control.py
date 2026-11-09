@@ -37,7 +37,7 @@ from app.printers.base import cmd_result_key, command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.gcode3mf import printable_objects
 from app.services import drying, hooks
-from app.services.printer_state import read_state_async
+from app.services.printer_state import hold_unacknowledged, read_state_async
 from app.services.redis_pool import get_async_redis
 from app.services.storage_backends import resolve_backend_for_file
 
@@ -317,7 +317,7 @@ async def clear_plate(
     400 ``not_awaiting`` unless the flag is set or the printer sits in
     FINISH/FAILED."""
     printer = await _get_or_404(db, printer_id)
-    if not printer.awaiting_plate_clear:
+    if not printer.awaiting_plate_clear and not hold_unacknowledged(printer):
         client = get_async_redis(settings.redis_url)
         try:
             state = await read_state_async(client, printer_id)

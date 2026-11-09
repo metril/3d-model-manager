@@ -35,7 +35,7 @@ from app.models.printing import PlateReference, Printer, PrintJob
 from app.models.processing import BlobMeta
 from app.models.slicing import PrintRecipe
 from app.schemas.printers import PrintRequest
-from app.services import billing, drying_tick, ha_state, queue_schedule
+from app.services import billing, drying_tick, ha_state, hms, queue_schedule
 from app.services import camera_state as cs
 from app.services import plate_detection as pd
 from app.services import spool_inventory as sinv
@@ -45,8 +45,11 @@ from app.services.permissions import PrinterAcl, printer_acl_sync
 from app.services.plates import resolve_plate
 from app.services.print_plan import NotSendableError, create_job_sync, model_matches, plan_mapping
 from app.services.printer_state import (
+    CANCEL_ERROR_CODES,
     DISPATCH_IDLE_STATES,
     START_TIMEOUT_ERROR,
+    STATE_UNKNOWN_ERROR,
+    data_gap_key,
     failed_hold_reason,
     read_state_sync,
 )
@@ -369,6 +372,24 @@ def _bump_attempt(item: PrintQueueEntry, error: str) -> None:
     item.state = QueueState.FAILED if item.attempts >= QUEUE_MAX_ATTEMPTS else QueueState.READY
 
 
+def _printer_rejected(job: PrintJob) -> bool:
+    """A never-started job the printer itself failed: ``printer_error`` is the
+    numeric ``print_error`` word (upload/start-timeout errors are text)."""
+    return job.started_at is None and (
+        (job.printer_error or "").isdigit()
+        or job.printer_error == STATE_UNKNOWN_ERROR
+        or (job.raw_status or {}).get("gcode_state") == "FAILED"
+    )
+
+
+def _printer_error_text(code: str | None) -> str:
+    if not (code or "").isdigit():
+        return code or "printer reported the print failed"
+    entry = hms.decode_print_error(int(code))
+    text = entry.get("description")
+    return f"printer error {entry['code']}" + (f": {text}" if text else "")[:180]
+
+
 def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> None:
     """Step 1 (I5): a `dispatched` item's job now tells the whole story --
     FINISHED means the print actually completed (-> `done`, the item's
@@ -405,12 +426,51 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
         select(PrintJob).where(
             PrintJob.state == PrintJobState.STARTING,
             PrintJob.started_at.is_(None),
-            PrintJob.starting_at.is_not(None),
-            PrintJob.starting_at < start_cutoff,
+            func.coalesce(PrintJob.starting_at, PrintJob.created_at) < start_cutoff,
         )
     ).all():
+        state = read_state_sync(client, unstarted.printer_id) if client is not None else None
+        gcode = (state or {}).get("gcode_state")
+        if gcode in ("PREPARE", "RUNNING", "PAUSE"):
+            continue  # the printer is visibly working on it
+        err = int((state or {}).get("print_error") or 0)
+        at_send = unstarted.print_error_at_send
+        sent_at = unstarted.starting_at or unstarted.created_at
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=UTC)
+        gap_raw = client.get(data_gap_key(unstarted.printer_id)) if client is not None else None
+        # Status continuously available since the job was sent? Missing key =
+        # printerd's start time unknown -> assume not.
+        continuous = gap_raw is not None and float(gap_raw) <= sent_at.timestamp()
+        printer = session.get(Printer, unstarted.printer_id)
+        if gcode not in ("IDLE", "FINISH", "FAILED"):
+            # Unknown state (MQTT drop, printerd restart, expired key): the
+            # printer may still be printing this file. Never re-send it; hold.
+            unstarted.printer_error = STATE_UNKNOWN_ERROR
+            if printer is not None:
+                printer.awaiting_plate_clear = True
+                printer.failed_at = datetime.now(UTC)
+        elif (
+            err
+            and at_send is not None
+            and err != at_send
+            and err not in CANCEL_ERROR_CODES
+            and printer is not None
+        ):
+            # The printer took the job and dropped it with a new error that
+            # printerd never saw as a transition: final, and hold the printer.
+            unstarted.printer_error = str(err)
+            printer.awaiting_plate_clear = True
+            printer.failed_at = datetime.now(UTC)
+        elif not continuous:
+            # A gap in the status since the send: the print may have run unseen.
+            unstarted.printer_error = STATE_UNKNOWN_ERROR
+            if printer is not None:
+                printer.awaiting_plate_clear = True
+                printer.failed_at = datetime.now(UTC)
+        else:
+            unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.state = PrintJobState.FAILED
-        unstarted.printer_error = START_TIMEOUT_ERROR
         unstarted.finished_at = datetime.now(UTC)
     session.flush()
 
@@ -435,6 +495,13 @@ def _reconcile(session: Session, counts: dict, client: Redis | None = None) -> N
             item.last_error = job.printer_error or (
                 "canceled" if job.state == PrintJobState.CANCELED else "print failed"
             )
+            queue_schedule.note_finished(client, item, session)
+        elif job.state == PrintJobState.FAILED and _printer_rejected(job):
+            # The printer took the job and failed it with an error code
+            # (e.g. IDLE + print_error): retrying onto the same machine would
+            # loop. Final; the printer is held until a person clears the plate.
+            item.state = QueueState.FAILED
+            item.last_error = _printer_error_text(job.printer_error)
             queue_schedule.note_finished(client, item, session)
         elif job.state == PrintJobState.FAILED and job.started_at is None:
             _bump_attempt(item, job.printer_error or "send failed")
@@ -485,10 +552,10 @@ def _busy_printer_ids(session: Session, client: Redis) -> set[int]:
             busy.add(p.id)
             continue
         gcode = (state or {}).get("gcode_state")
-        if gcode == "FAILED":
+        if gcode == "FAILED" or gcode in DISPATCH_IDLE_STATES:
             if failed_hold_reason(p, gcode) is not None:
                 busy.add(p.id)
-        elif gcode not in DISPATCH_IDLE_STATES:
+        else:
             busy.add(p.id)
     return busy
 

@@ -21,7 +21,7 @@ from app.services import layer_timelapse
 from app.services.archive import ArchiveFetchError, archive_job, mark_archive_error
 from app.services.archive_lookup import archive_for_job
 from app.services.archive_media import attach_snapshot, fetch_timelapse_for
-from app.services.printer_state import START_TIMEOUT_ERROR
+from app.services.printer_state import START_TIMEOUT_ERROR, STATE_UNKNOWN_ERROR
 from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -234,6 +234,7 @@ def archive_sweep() -> int:
                 Print.id.is_(None),
                 # never started on the printer: nothing to archive
                 PrintJob.printer_error.is_distinct_from(START_TIMEOUT_ERROR),
+                PrintJob.printer_error.is_distinct_from(STATE_UNKNOWN_ERROR),
             )
         ).all()
     if rows:
