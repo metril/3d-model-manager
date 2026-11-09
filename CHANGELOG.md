@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.3](https://github.com/metril/3d-model-manager/compare/v0.22.2...v0.22.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* **worker:** break the import cycle that crashed Celery at startup ([#308](https://github.com/metril/3d-model-manager/issues/308)) ([025e4b4](https://github.com/metril/3d-model-manager/commit/025e4b40144410e86f43db625ef382a37cc77457))
+
 ## [0.22.2](https://github.com/metril/3d-model-manager/compare/v0.22.1...v0.22.2) (2026-11-09)
 
 
