@@ -376,7 +376,14 @@ async def start_print(
 ) -> PrintJobOut:
     _visible(auth, printer_id)
     auth.ctx.require_printer(printer_id, "print")
-    return await printers_api.start_print(printer_id, payload, db, settings, auth.ctx)
+    try:
+        return await printers_api.start_print(printer_id, payload, db, settings, auth.ctx)
+    except HTTPException as exc:
+        # This API's 409s carry a plain string (e.g. `queue_required`); keep the
+        # hold's machine code as that string instead of the object detail.
+        if isinstance(exc.detail, dict) and exc.detail.get("code"):
+            raise HTTPException(exc.status_code, exc.detail["code"]) from exc
+        raise
 
 
 async def _command(

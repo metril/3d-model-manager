@@ -54,13 +54,13 @@ async def fire_cleared(printer_id: int, ctx: AuthContext) -> None:
     await anyio.to_thread.run_sync(hooks.plate_cleared, printer_id, ctx.user.id)  # sync DB hook
 
 
-async def enforce_direct_hold(
+async def check_direct_hold(
     db: AsyncSession, ctx: AuthContext, printer: Printer, state: dict | None, confirmed: bool
 ) -> bool:
     """409 ``{code, message}`` when a hold applies and the caller didn't confirm.
-    A confirm needs printer "control" access (403 otherwise) and stages the
-    acknowledgement on the session; returns True so the caller commits it with
-    its own write and then calls ``fire_cleared``."""
+    A confirm needs printer "control" access (403 otherwise). Stages nothing:
+    returns True when the caller must ``acknowledge_plate`` once the send has
+    actually been accepted, then commit and ``fire_cleared``."""
     code = await direct_hold(db, printer, state)
     if code is None:
         return False
@@ -69,5 +69,4 @@ async def enforce_direct_hold(
             status.HTTP_409_CONFLICT, detail={"code": code, "message": MESSAGES[code]}
         )
     ctx.require_printer(printer.id, "control")
-    acknowledge_plate(db, ctx, printer)
     return True

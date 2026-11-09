@@ -696,6 +696,18 @@ function PrintDialogBody({
   const printHold = sentHold ?? asPrintHold(plan?.hold);
   const mayConfirmHold = effectivePrinterId != null && canOnPrinter(auth.data, effectivePrinterId, "control");
 
+  // One gate for "Send now" and the hold's "Plate is clear, print now": the
+  // server doesn't check the mapping or compatibility, so the confirm must not
+  // bypass what the button already enforces. M4: in "Send next" mode this
+  // enqueues rather than sending straight to the printer, so `printerNotReady`
+  // only blocks a direct send.
+  const sendDisabled =
+    effectivePrinterId == null ||
+    hasRed ||
+    (!(sendNext || schedActive) && printerNotReady) ||
+    sendPrint.isPending ||
+    enqueue.isPending;
+
   function close() {
     onOpenChange(false);
   }
@@ -1159,7 +1171,7 @@ function PrintDialogBody({
                     <p>{t(`printHold.${printHold}`)}</p>
                     {mayConfirmHold ? (
                       <div className="flex gap-2">
-                        <Button type="button" size="sm" disabled={sendPrint.isPending} onClick={() => handleSend(true)}>
+                        <Button type="button" size="sm" disabled={sendDisabled} onClick={() => handleSend(true)}>
                           {t("printHold.printNow")}
                         </Button>
                         <Button type="button" size="sm" variant="outline" onClick={close}>
@@ -1245,17 +1257,7 @@ function PrintDialogBody({
                         <Button
                           type="button"
                           onClick={() => handleSend()}
-                          disabled={
-                            effectivePrinterId == null ||
-                            hasRed ||
-                            // M4: in "Send next" mode this enqueues rather than
-                            // sending straight to the printer -- queueing is
-                            // the whole point when the printer isn't ready
-                            // yet, so `printerNotReady` only blocks "Send now".
-                            (!(sendNext || schedActive) && printerNotReady) ||
-                            sendPrint.isPending ||
-                            enqueue.isPending
-                          }
+                          disabled={sendDisabled}
                         >
                           {sendPrint.isPending || enqueue.isPending
                             ? t("printDialog.sending")

@@ -964,3 +964,21 @@ async def test_sd_print_refused_on_hold_and_confirmable(
     with base.sync_session() as s:
         assert s.scalars(select(AuditLog).where(AuditLog.action == "clear_plate")).first()
         assert s.get(Printer, pid).awaiting_plate_clear is False
+
+
+async def test_sd_print_confirm_refused_send_keeps_hold(
+    authenticated_client, sd, set_state, printerd_stub
+):
+    pid = await _printer(authenticated_client)
+    r = await authenticated_client.put("/api/settings/queue", json={"require_plate_clear": True})
+    assert r.status_code == 200
+    _set_flag(pid, True)
+    set_state(pid, **{**IDLE, "gcode_state": "RUNNING"})
+    printerd_stub(pid, {"ok": True})
+    r = await authenticated_client.post(
+        f"/api/printers/{pid}/files/print", json={"path": "/a.3mf", "plate_cleared": True}
+    )
+    assert r.status_code == 409 and r.json()["code"] == "printing"
+    assert _flag(pid) is True
+    with base.sync_session() as s:
+        assert s.scalars(select(AuditLog).where(AuditLog.action == "clear_plate")).first() is None

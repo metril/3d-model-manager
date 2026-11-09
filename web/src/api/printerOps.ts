@@ -210,7 +210,9 @@ export function usePrintSdFile(printerId: number) {
       invalidateStatus(qc, printerId);
       void qc.invalidateQueries({ queryKey: ["printers", printerId, "active-job"] });
     },
-    // A plate/failed hold is handled by the caller's confirm step, not a toast.
+    // The global handler would toast behind the confirm dialog; the onError
+    // below toasts every non-hold failure exactly once.
+    meta: { silentError: true },
     onError: (e) => {
       if (!holdOfError(e)) toastControlError(e);
     },

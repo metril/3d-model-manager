@@ -448,7 +448,9 @@ async def create_job(
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"printer not ready (state={gs}); must be IDLE/FINISH/FAILED"
         )
-    acked = await plate_guard.enforce_direct_hold(db, ctx, printer, state, req.plate_cleared)
+    acked = await plate_guard.check_direct_hold(db, ctx, printer, state, req.plate_cleared)
+    if acked:
+        plate_guard.acknowledge_plate(db, ctx, printer)  # commits with the job row below
     if "plate" not in req.model_fields_set:
         req.plate = resolve_plate(await db.get(BlobMeta, file.blob_hash), None, 1)
     job = PrintJob(

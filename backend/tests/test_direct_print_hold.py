@@ -76,7 +76,7 @@ async def test_hold_refuses_with_code(
         _clear_state(redis_url, p.id)
 
 
-async def test_gate_off_plate_ok_but_failed_still_refuses(
+async def test_gate_off_plate_wait_does_not_block(
     authenticated_client, db_session, seed_file, redis_url, fake_adapter
 ):
     await _gate(authenticated_client, False)
@@ -137,6 +137,7 @@ async def test_plate_cleared_needs_control(
 ):
     await _gate(authenticated_client, True)
     f, p = await _setup(db_session, seed_file, redis_url, awaiting=True)
+    pid = p.id
     await make_group("g", members=[member], printer_access={p.id: (True, False, False)})
     try:
         body = {"file_id": f.id, "printer_id": p.id}
@@ -145,8 +146,12 @@ async def test_plate_cleared_needs_control(
         r = await member_client.post("/api/print/send", json={**body, "plate_cleared": True})
         assert r.status_code == 403
         assert not fake_adapter.uploaded
+        await db_session.rollback()
+        row = await db_session.get(Printer, pid, populate_existing=True)
+        assert row.awaiting_plate_clear is True and row.plate_cleared_at is None
+        assert (await db_session.scalars(select(AuditLog))).all() == []
     finally:
-        _clear_state(redis_url, p.id)
+        _clear_state(redis_url, pid)
 
 
 async def test_no_hold_sends_normally(
@@ -172,5 +177,43 @@ async def test_plan_reports_hold(authenticated_client, db_session, seed_file, re
         )
         assert r.status_code == 200, r.text
         assert r.json()["hold"] == "plate_not_cleared"
+    finally:
+        _clear_state(redis_url, p.id)
+
+
+async def test_plate_cleared_without_hold_records_nothing(
+    authenticated_client, db_session, seed_file, redis_url, fake_adapter
+):
+    await _gate(authenticated_client, True)
+    f, p = await _setup(db_session, seed_file, redis_url)
+    pid = p.id
+    try:
+        url, body = _routes(f, p)["send"]
+        r = await authenticated_client.post(url, json={**body, "plate_cleared": True})
+        assert r.status_code == 201, r.text
+        await db_session.rollback()
+        row = await db_session.get(Printer, pid, populate_existing=True)
+        assert row.plate_cleared_at is None
+        assert (await db_session.scalars(select(AuditLog))).all() == []
+    finally:
+        _clear_state(redis_url, pid)
+
+
+async def test_ext_v2_print_hold_string_detail_and_flag(
+    authenticated_client, db_session, seed_file, redis_url, fake_adapter
+):
+    await _gate(authenticated_client, True)
+    f, p = await _setup(db_session, seed_file, redis_url, awaiting=True)
+    r = await authenticated_client.post(
+        "/api/settings/api-keys", json={"label": "k", "scopes": ["read", "queue", "control"]}
+    )
+    assert r.status_code == 201, r.text
+    h = {"X-API-Key": r.json()["key"]}
+    try:
+        url, body = f"/api/ext/v2/printers/{p.id}/print", {"file_id": f.id, "plate": 1}
+        r = await authenticated_client.post(url, json=body, headers=h)
+        assert r.status_code == 409 and r.json()["detail"] == "plate_not_cleared"
+        r = await authenticated_client.post(url, json={**body, "plate_cleared": True}, headers=h)
+        assert r.status_code == 201, r.text
     finally:
         _clear_state(redis_url, p.id)
