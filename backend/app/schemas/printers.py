@@ -443,6 +443,8 @@ class PrintRequest(BaseModel):
     bed_levelling: bool = True
     flow_cali: bool = True
     timelapse: bool = False
+    # Explicit "plate is clear, print anyway" (needs printer control access).
+    plate_cleared: bool = False
 
 
 class PrintJobOut(BaseModel):

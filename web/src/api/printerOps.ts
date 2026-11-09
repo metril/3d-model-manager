@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { toastControlError } from "@/api/printerControl";
+import { holdOfError } from "@/lib/printHold";
 import type {
   DiagnosticIn,
   DiagnosticReport,
@@ -203,13 +204,16 @@ export function useDeletePrinterFile(printerId: number) {
 export function usePrintSdFile(printerId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { path: string; plate?: number; use_ams?: boolean }) =>
+    mutationFn: (v: { path: string; plate?: number; use_ams?: boolean; plate_cleared?: boolean }) =>
       api.post<{ ok: boolean; job_id: number }>(`/printers/${printerId}/files/print`, { use_ams: true, ...v }),
     onSuccess: () => {
       invalidateStatus(qc, printerId);
       void qc.invalidateQueries({ queryKey: ["printers", printerId, "active-job"] });
     },
-    onError: toastControlError,
+    // A plate/failed hold is handled by the caller's confirm step, not a toast.
+    onError: (e) => {
+      if (!holdOfError(e)) toastControlError(e);
+    },
   });
 }
 

@@ -1198,10 +1198,14 @@ export interface PlanOut {
   est_grams: number | null;
   est_cost: number | null;
   warnings: string[];
+  /** `plate_not_cleared` | `printer_failed`: a direct send needs `plate_cleared`. */
+  hold?: string | null;
   options: PlanOptions;
 }
 
 export interface PrintRequest {
+  /** Confirms the plate is empty (needs printer control access). */
+  plate_cleared?: boolean;
   file_id: number;
   plate?: number;
   subtask_name?: string | null;
