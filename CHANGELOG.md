@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/metril/3d-model-manager/compare/v0.22.0...v0.22.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **queue:** hold the printer after a print error reported as idle ([#304](https://github.com/metril/3d-model-manager/issues/304)) ([3db4eb8](https://github.com/metril/3d-model-manager/commit/3db4eb81271409752f503269bfd1eb84644ea3ce))
+
 ## [0.22.0](https://github.com/metril/3d-model-manager/compare/v0.21.1...v0.22.0) (2026-11-08)
 
 
