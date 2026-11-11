@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useLayoutLocked } from "@/lib/layoutLock";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { resetLayout } from "./layoutStore";
 import { PANEL_IDS, PANEL_TITLE_KEYS } from "./panelMeta";
@@ -19,6 +20,7 @@ import { PANEL_IDS, PANEL_TITLE_KEYS } from "./panelMeta";
 /** Header dropdown: show/hide each registry panel, or reset to the default layout. */
 export function PanelsMenu({ api }: { api: DockviewApi }) {
   const { t } = useTranslation();
+  const locked = useLayoutLocked();
   const [present, setPresent] = useState(() => new Set(api.panels.map((p) => p.id)));
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
           <DropdownMenuCheckboxItem
             key={id}
             checked={present.has(id)}
+            disabled={locked}
             onSelect={(event) => event.preventDefault()}
             onCheckedChange={(checked) => {
               if (checked) addPanelAtDefault(api, id);
@@ -51,7 +54,9 @@ export function PanelsMenu({ api }: { api: DockviewApi }) {
           </DropdownMenuCheckboxItem>
         ))}
         <DropdownMenuSeparator />
+        {locked ? <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("layoutLock.panelsLocked")}</div> : null}
         <DropdownMenuItem
+          disabled={locked}
           onSelect={() => {
             resetLayout();
             buildDefaultLayout(api);

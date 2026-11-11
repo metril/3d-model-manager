@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LAYOUT_KEY, flushLayout } from "./layoutStore";
 import i18n from "i18next";
+import { reloadLayoutLock, setLayoutLocked } from "@/lib/layoutLock";
 import { PANEL_TITLE_KEYS } from "./panelMeta";
 import { PanelsMenu } from "./PanelsMenu";
 import { PrintDashProvider, type PrintDashValue } from "./PrintDashContext";
@@ -43,7 +44,10 @@ beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 800 });
 });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  reloadLayoutLock();
+});
 
 describe("PrintDock", () => {
   it("builds the default layout with a tab per panel", async () => {
@@ -51,7 +55,17 @@ describe("PrintDock", () => {
     for (const title of Object.values(PANEL_TITLE_KEYS).map((k) => i18n.t(k))) expect(await screen.findByText(title)).toBeInTheDocument();
   });
 
+  it("locks panels by default: no close buttons, panel toggles disabled", async () => {
+    render(<Harness />);
+    await screen.findByText(i18n.t(PANEL_TITLE_KEYS.queue));
+    expect(document.querySelector(".dv-default-tab-action")).toBeNull();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Panels" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitemcheckbox", { name: i18n.t(PANEL_TITLE_KEYS.forecast) })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Unlock layout to change panels")).toBeInTheDocument();
+  });
+
   it("persists the layout, and Reset layout restores the default", async () => {
+    setLayoutLocked(false);
     const tabs = () => Array.from(document.querySelectorAll(".dv-tab")).map((el) => el.textContent);
     render(<Harness />);
     await waitFor(() => expect(tabs()).toContain(i18n.t(PANEL_TITLE_KEYS.forecast)));

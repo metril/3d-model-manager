@@ -1,4 +1,5 @@
 import { closePrint, openPrint, usePrintDialogRequest } from "@/components/print/printDialogStore";
+import { LayoutLockToggle } from "@/components/shell/LayoutLockToggle";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -313,6 +314,7 @@ export function ModelHeader({
             {t("mdHeader.addToQueue")}
           </Button>
           {panelsMenu}
+          {panelsMenu ? <LayoutLockToggle /> : null}
           <Button type="button" variant="ghost" onClick={onToggleEditMode}>
             <PencilIcon />
             {editMode ? t("mdHeader.done") : t("common.edit")}

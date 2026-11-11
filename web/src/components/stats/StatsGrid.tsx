@@ -21,6 +21,7 @@ import type { StatsDashboard } from "@/api/stats";
 import { WIDGETS } from "@/components/stats/registry";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLayoutLocked } from "@/lib/layoutLock";
 import { cn } from "@/lib/utils";
 import type { WidgetId, WidgetLayout } from "@/lib/statsLayout";
 
@@ -30,13 +31,15 @@ function SortableWidget({
   w,
   data,
   onResize,
+  locked,
 }: {
+  locked: boolean;
   w: WidgetLayout;
   data: StatsDashboard;
   onResize: (id: WidgetId) => void;
 }) {
   const { t } = useTranslation();
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id, disabled: locked });
   const Body = WIDGETS[w.id];
   const name = t(`stats.w.${w.id}`);
   return (
@@ -47,7 +50,7 @@ function SortableWidget({
       className={cn("sm:col-span-2", SPAN[w.size], w.size === 1 && "sm:col-span-1", isDragging && "z-10 opacity-80 shadow-lg")}
     >
       <CardHeader className="grid-cols-[auto_1fr_auto] items-center gap-1">
-        <button
+        {locked ? <span aria-hidden /> : <button
           type="button"
           className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-muted"
           aria-label={t("stats.drag", { name })}
@@ -55,9 +58,9 @@ function SortableWidget({
           {...listeners}
         >
           <GripVerticalIcon className="size-4" />
-        </button>
+        </button>}
         <CardTitle className="flex-1 text-sm">{name}</CardTitle>
-        <Button
+        {locked ? null : <Button
           type="button"
           variant="ghost"
           size="icon-sm"
@@ -65,7 +68,7 @@ function SortableWidget({
           onClick={() => onResize(w.id)}
         >
           <Maximize2Icon className="size-3.5" />
-        </Button>
+        </Button>}
       </CardHeader>
       <CardContent>
         <Body d={data} />
@@ -87,6 +90,7 @@ export function StatsGrid({
   onReorder: (activeId: string, overId: string) => void;
   onResize: (id: WidgetId) => void;
 }) {
+  const locked = useLayoutLocked();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -99,7 +103,7 @@ export function StatsGrid({
       <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {widgets.map((w) => (
-            <SortableWidget key={w.id} w={w} data={data} onResize={onResize} />
+            <SortableWidget key={w.id} locked={locked} w={w} data={data} onResize={onResize} />
           ))}
         </div>
       </SortableContext>
