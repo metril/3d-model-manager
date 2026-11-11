@@ -4,7 +4,8 @@ import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockvie
 import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import { LockableTab, tabMenuItems, useDockLock } from "@/components/dock/lockGating";
+import { LockableTab } from "@/components/dock/lockGating";
+import { tabMenuItems, useDockLock } from "@/components/dock/lockGatingHooks";
 import { useLayoutLocked } from "@/lib/layoutLock";
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
