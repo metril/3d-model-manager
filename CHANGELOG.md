@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0](https://github.com/metril/3d-model-manager/compare/v0.22.4...v0.23.0) (2026-11-11)
+
+
+### Features
+
+* **web:** gate layout editing behind an Edit layout toggle ([#313](https://github.com/metril/3d-model-manager/issues/313)) ([71c4b8b](https://github.com/metril/3d-model-manager/commit/71c4b8bd7c79e6ccc95743dae5fcdba2701fd6b5))
+
 ## [0.22.4](https://github.com/metril/3d-model-manager/compare/v0.22.3...v0.22.4) (2026-11-11)
 
 
