@@ -169,7 +169,7 @@ def mediamtx_port(tmp_path_factory):
             except OSError:
                 if time.monotonic() > deadline:
                     pytest.fail("mediamtx rtsps port never accepted connections")
-                time.sleep(0.5)
+                time.sleep(0.1)
         yield port, host
     finally:
         c.stop()
@@ -182,6 +182,33 @@ def test_mediamtx_fixture_rtsps_port_ready(mediamtx_port) -> None:
     socket.create_connection((host, port), timeout=5).close()
 
 
+def _wait_published(host: str, port: int, path: str, timeout: float = 60) -> None:
+    """Poll an RTSP DESCRIBE (cheap, 0.1s cadence) until the publisher's path
+    answers 200, instead of burning ffmpeg start-ups + their 10s timeouts."""
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    req = (
+        f"DESCRIBE rtsp://{host}:{port}/{path} RTSP/1.0\r\nCSeq: 1\r\n"
+        "Accept: application/sdp\r\n\r\n"
+    ).encode()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with (
+                socket.create_connection((host, port), timeout=2) as raw,
+                ctx.wrap_socket(raw, server_hostname=host) as tls,
+            ):
+                tls.sendall(req)
+                if b" 200 " in tls.recv(256).split(b"\r\n", 1)[0]:
+                    return
+        except OSError:
+            pass
+        time.sleep(0.1)
+
+
 @pytest.mark.integration
 def test_rtsps_testpattern_yields_jpeg_frames(mediamtx_port) -> None:
     if shutil.which("ffmpeg") is None:
@@ -190,6 +217,7 @@ def test_rtsps_testpattern_yields_jpeg_frames(mediamtx_port) -> None:
         pytest.skip("ffmpeg not installed")
     port, host = mediamtx_port
     url = f"rtsps://bblp:code@{host}:{port}/streaming/live/1"
+    _wait_published(host, port, "streaming/live/1")
     frames: list[bytes] = []
     deadline = time.monotonic() + 60
     # The publisher (runOnInit ffmpeg) may still be starting: ffmpeg exits
@@ -203,7 +231,7 @@ def test_rtsps_testpattern_yields_jpeg_frames(mediamtx_port) -> None:
                     if len(frames) >= 3:
                         break
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     assert len(frames) >= 3
     assert all(f[:2] == b"\xff\xd8" and f[-2:] == b"\xff\xd9" for f in frames)
 
