@@ -10,7 +10,7 @@ import { useStudioSelection } from "@/components/model-detail/studioSelection";
 import { ModelDetailDock } from "@/components/model-detail/dock/ModelDetailDock";
 import { ModelDetailProvider } from "@/components/model-detail/dock/ModelDetailContext";
 import { LayoutMenu } from "@/components/dock/LayoutMenu";
-import { addPanelAtDefault, buildDefaultLayout } from "@/components/model-detail/dock/defaultLayout";
+import { addPanelAtDefault, buildDefaultLayout, hasProfileContent } from "@/components/model-detail/dock/defaultLayout";
 import { resetLayout } from "@/components/model-detail/dock/layoutStore";
 import { PANEL_IDS, PANEL_TITLE_KEYS } from "@/components/model-detail/dock/panelMeta";
 import { StackedPanels } from "@/components/model-detail/dock/StackedPanels";
@@ -94,7 +94,7 @@ export function ModelDetailPage() {
                 panels={{ api: dockApi, ids: PANEL_IDS, titleKeys: PANEL_TITLE_KEYS, add: addPanelAtDefault }}
                 onReset={() => {
                   resetLayout();
-                  buildDefaultLayout(dockApi);
+                  buildDefaultLayout(dockApi, { hasSliced: hasProfileContent(model.current_revision?.files ?? []) });
                 }}
               />
             ) : undefined

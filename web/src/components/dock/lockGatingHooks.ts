@@ -9,7 +9,8 @@ export function tabMenuItems(locked: boolean) {
 }
 
 /** Applies the lock live (no remount): disables drag/drop/split/float and
- * locks every group, re-applying to groups added later. Sash resize stays. */
+ * locks every group, re-applying to groups added later. Sash resize is
+ * blocked by the `tdmm-dock-locked` wrapper class (see dockTheme.css). */
 export function useDockLock(api: DockviewApi | null): boolean {
   const locked = useLayoutLocked();
   useEffect(() => {

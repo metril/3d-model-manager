@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -38,7 +39,6 @@ function SortableWidget({
   w: WidgetLayout;
   data: StatsDashboard;
   onResize: (id: WidgetId) => void;
-  onReset?: () => void;
 }) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id, disabled: locked });
@@ -95,17 +95,21 @@ export function StatsGrid({
   onReset?: () => void;
 }) {
   const locked = useLayoutLocked();
+  const [dragging, setDragging] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   function onDragEnd(e: DragEndEvent) {
+    setDragging(false);
     if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
   }
   return (
     <>
-    <LayoutEditBanner onReset={onReset} />
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <LayoutEditBanner onReset={onReset} suspendEsc={dragging} />
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={() => setDragging(true)}
+      onDragCancel={() => setDragging(false)}
+      onDragEnd={onDragEnd}>
       <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {widgets.map((w) => (

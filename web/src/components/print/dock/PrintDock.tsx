@@ -138,7 +138,7 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
           buildDefaultLayout(dockApi);
         }}
       />
-      <div ref={wrapRef} className="w-full" style={{ height: height ?? "calc(100svh - 10rem)" }} data-testid="print-dock">
+      <div ref={wrapRef} className={locked ? "w-full tdmm-dock-locked" : "w-full"} style={{ height: height ?? "calc(100svh - 10rem)" }} data-testid="print-dock">
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}

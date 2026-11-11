@@ -25,10 +25,13 @@ export interface LayoutMenuPanels {
 export function LayoutMenu({
   panels,
   onReset,
+  canEdit = true,
   children,
 }: {
   panels?: LayoutMenuPanels;
   onReset: () => void;
+  /** False hides Rearrange/panels/Reset (e.g. the classic, non-dock page). */
+  canEdit?: boolean;
   /** Extra items (e.g. a view-mode radio group), rendered above the layout items. */
   children?: ReactNode;
 }) {
@@ -54,10 +57,10 @@ export function LayoutMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {children}
-        {children ? <DropdownMenuSeparator /> : null}
-        <DropdownMenuItem onSelect={() => setLayoutLocked(false)}>{t("layout.rearrange")}</DropdownMenuItem>
-        {panels ? <DropdownMenuSeparator /> : null}
-        {panels?.ids.map((id) => (
+        {children && canEdit ? <DropdownMenuSeparator /> : null}
+        {canEdit ? <DropdownMenuItem onSelect={() => setLayoutLocked(false)}>{t("layout.rearrange")}</DropdownMenuItem> : null}
+        {canEdit && panels ? <DropdownMenuSeparator /> : null}
+        {canEdit && panels?.ids.map((id) => (
           <DropdownMenuCheckboxItem
             key={id}
             checked={present.has(id)}
@@ -70,8 +73,8 @@ export function LayoutMenu({
             {t(panels.titleKeys[id])}
           </DropdownMenuCheckboxItem>
         ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onReset}>{t("layout.reset")}</DropdownMenuItem>
+        {canEdit ? <DropdownMenuSeparator /> : null}
+        {canEdit ? <DropdownMenuItem onSelect={onReset}>{t("layout.reset")}</DropdownMenuItem> : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

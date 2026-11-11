@@ -3,20 +3,23 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { isEditableTarget } from "@/hooks/useHotkeys";
 import { setLayoutLocked, useLayoutLocked } from "@/lib/layoutLock";
 
 /** Sticky strip shown while the layout is unlocked. Esc or Done re-locks. */
-export function LayoutEditBanner({ onReset }: { onReset?: () => void }) {
+export function LayoutEditBanner({ onReset, suspendEsc }: { onReset?: () => void; suspendEsc?: boolean }) {
   const { t } = useTranslation();
   const locked = useLayoutLocked();
+  // Never leave the (module-level) unlock flag set after leaving the page.
+  useEffect(() => () => setLayoutLocked(true), []);
   useEffect(() => {
-    if (locked) return;
+    if (locked || suspendEsc) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) setLayoutLocked(true);
+      if (e.key === "Escape" && !e.defaultPrevented && !isEditableTarget(e.target)) setLayoutLocked(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [locked]);
+  }, [locked, suspendEsc]);
   if (locked) return null;
   return (
     <div

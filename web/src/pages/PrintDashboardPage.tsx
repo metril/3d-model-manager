@@ -135,6 +135,7 @@ export function PrintDashboardPage() {
         {canDock ? (
           <div className="flex items-center gap-2">
             <LayoutMenu
+              canEdit={dockOn}
               panels={dockOn && dockApi ? { api: dockApi, ids: PANEL_IDS, titleKeys: PANEL_TITLE_KEYS, add: addPanelAtDefault } : undefined}
               onReset={() => {
                 if (!dockApi) return;

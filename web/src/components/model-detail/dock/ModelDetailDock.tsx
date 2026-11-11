@@ -161,7 +161,7 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
       />
       <div
         ref={wrapRef}
-        className="w-full"
+        className={locked ? "w-full tdmm-dock-locked" : "w-full"}
         style={{ height: height ?? "calc(100svh - 10rem)" }}
         data-testid="model-detail-dock">
         <DockviewReact
