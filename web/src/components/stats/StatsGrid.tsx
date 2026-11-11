@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -21,6 +22,7 @@ import type { StatsDashboard } from "@/api/stats";
 import { WIDGETS } from "@/components/stats/registry";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LayoutEditBanner } from "@/components/dock/LayoutEditBanner";
 import { useLayoutLocked } from "@/lib/layoutLock";
 import { cn } from "@/lib/utils";
 import type { WidgetId, WidgetLayout } from "@/lib/statsLayout";
@@ -84,22 +86,30 @@ export function StatsGrid({
   data,
   onReorder,
   onResize,
+  onReset,
 }: {
   widgets: WidgetLayout[];
   data: StatsDashboard;
   onReorder: (activeId: string, overId: string) => void;
   onResize: (id: WidgetId) => void;
+  onReset?: () => void;
 }) {
   const locked = useLayoutLocked();
+  const [dragging, setDragging] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   function onDragEnd(e: DragEndEvent) {
+    setDragging(false);
     if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
   }
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <>
+    <LayoutEditBanner onReset={onReset} suspendEsc={dragging} />
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={() => setDragging(true)}
+      onDragCancel={() => setDragging(false)}
+      onDragEnd={onDragEnd}>
       <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {widgets.map((w) => (
@@ -108,5 +118,6 @@ export function StatsGrid({
         </div>
       </SortableContext>
     </DndContext>
+    </>
   );
 }

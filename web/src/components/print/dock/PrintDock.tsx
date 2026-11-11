@@ -6,10 +6,11 @@ import { toast } from "sonner";
 import { syncThemeInto } from "@/components/model-detail/dock/popoutTheme";
 import { LockableTab } from "@/components/dock/lockGating";
 import { tabMenuItems, useDockLock } from "@/components/dock/lockGatingHooks";
+import { LayoutEditBanner } from "@/components/dock/LayoutEditBanner";
 import { useLayoutLocked } from "@/lib/layoutLock";
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
-import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
+import { flushLayout, loadLayout, resetLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS } from "./panels";
 import { PANEL_TITLE_KEYS } from "./panelMeta";
 import i18n from "i18next";
@@ -130,7 +131,14 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
 
   return (
     <RelocateContext.Provider value={emitter}>
-      <div ref={wrapRef} className="w-full" style={{ height: height ?? "calc(100svh - 10rem)" }} data-testid="print-dock">
+      <LayoutEditBanner
+        onReset={() => {
+          if (!dockApi) return;
+          resetLayout();
+          buildDefaultLayout(dockApi);
+        }}
+      />
+      <div ref={wrapRef} className={locked ? "w-full tdmm-dock-locked" : "w-full"} style={{ height: height ?? "calc(100svh - 10rem)" }} data-testid="print-dock">
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}

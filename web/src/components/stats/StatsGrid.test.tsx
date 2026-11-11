@@ -26,6 +26,7 @@ describe("StatsGrid lock", () => {
   it("shows them when unlocked", () => {
     setLayoutLocked(false);
     render(<StatsGrid widgets={widgets} data={{} as StatsDashboard} onReorder={() => {}} onResize={() => {}} />);
-    expect(screen.getAllByRole("button")).toHaveLength(4);
+    expect(screen.getAllByRole("button")).toHaveLength(5);
+    expect(screen.getByTestId("layout-edit-banner")).toBeInTheDocument();
   });
 });

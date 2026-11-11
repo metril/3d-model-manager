@@ -132,3 +132,8 @@
 [data-radix-popper-content-wrapper] {
   z-index: 1000 !important;
 }
+
+/* Locked layout: panels can't be resized either (sashes ignore the pointer). */
+.tdmm-dock-locked .dv-sash {
+  pointer-events: none;
+}

@@ -3252,7 +3252,8 @@
     "trash": "Move to trash",
     "movedToTrash": "Moved to trash",
     "undo": "Undo",
-    "restored": "Restored"
+    "restored": "Restored",
+    "editDetails": "Edit details"
   },
   "settingsMakerworld": {
     "title": "MakerWorld profiles",
@@ -4698,17 +4699,6 @@
     "fps": "fps",
     "fpsN": "{{n}} fps"
   },
-  "layoutLock": {
-    "edit": "Edit layout",
-    "done": "Done",
-    "unlockHint": "Unlock the layout to rearrange or close panels",
-    "lockHint": "Lock the layout (Esc)",
-    "panelsLocked": "Unlock layout to change panels"
-  },
-  "panelsMenu": {
-    "panels": "Panels",
-    "reset": "Reset layout"
-  },
   "railPanels": {
     "noCameras": "No cameras available."
   },
@@ -4917,8 +4907,6 @@
     "label": "Tags"
   },
   "mdPanels": {
-    "panels": "Panels",
-    "reset": "Reset layout",
     "viewer": "3D viewer",
     "description": "Description",
     "tagsLinks": "Tags & links",
@@ -5001,5 +4989,13 @@
     "inactiveEnergy": "Inactive: energy link {{name}} already supplies this printer's power",
     "inactivePlug": "Inactive: plug {{name}} already supplies this printer's power",
     "inactivePlugAnon": "Inactive: a smart plug already supplies this printer's power"
+  },
+  "layout": {
+    "menu": "Layout",
+    "rearrange": "Rearrange panels…",
+    "banner": "Editing layout — drag to move, drag edges to resize",
+    "reset": "Reset layout",
+    "done": "Done",
+    "doneHint": "Done (Esc)"
   }
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { LayoutLockToggle } from "@/components/shell/LayoutLockToggle";
-import { useLayoutLocked } from "@/lib/layoutLock";
+import { LayoutMenu } from "@/components/dock/LayoutMenu";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
@@ -31,7 +30,7 @@ export function StatsPage() {
     setPrefs(next);
     savePrefs(userId, next);
   }
-  const locked = useLayoutLocked();
+  const resetPrefs = () => update({ ...DEFAULT_PREFS, days: prefs.days });
   const stats = useStatsDashboard(prefs.days);
 
   return (
@@ -55,10 +54,7 @@ export function StatsPage() {
             </Button>
           ))}
         </div>
-        <LayoutLockToggle />
-        <Button type="button" size="sm" variant="ghost" disabled={locked} onClick={() => update({ ...DEFAULT_PREFS, days: prefs.days })}>
-          {t("stats.reset")}
-        </Button>
+        <LayoutMenu onReset={resetPrefs} />
       </div>
       {stats.isLoading ? (
         <Skeleton className="h-72 w-full rounded-xl" />
@@ -78,6 +74,7 @@ export function StatsPage() {
           widgets={prefs.widgets}
           data={stats.data}
           onReorder={(a, o) => update({ ...prefs, widgets: reorder(prefs.widgets, a, o) })}
+          onReset={resetPrefs}
           onResize={(id) => update({ ...prefs, widgets: cycleSize(prefs.widgets, id) })}
         />
       )}

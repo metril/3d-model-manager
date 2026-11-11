@@ -6,11 +6,12 @@ import { toast } from "sonner";
 
 import { LockableTab } from "@/components/dock/lockGating";
 import { tabMenuItems, useDockLock } from "@/components/dock/lockGatingHooks";
+import { LayoutEditBanner } from "@/components/dock/LayoutEditBanner";
 import { useLayoutLocked } from "@/lib/layoutLock";
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { useModelDetail } from "./ModelDetailContext";
 import { buildDefaultLayout, addPanelAtDefault, hasProfileContent } from "./defaultLayout";
-import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
+import { flushLayout, loadLayout, resetLayout, saveLayout } from "./layoutStore";
 import { DOCK_COMPONENTS, PANEL_TITLE_KEYS } from "./panels";
 import i18n from "i18next";
 
@@ -151,9 +152,16 @@ export function ModelDetailDock({ onApi }: { onApi?: (api: DockviewApi | null) =
 
   return (
     <RelocateContext.Provider value={emitter}>
+      <LayoutEditBanner
+        onReset={() => {
+          if (!dockApi) return;
+          resetLayout();
+          buildDefaultLayout(dockApi, { hasSliced });
+        }}
+      />
       <div
         ref={wrapRef}
-        className="w-full"
+        className={locked ? "w-full tdmm-dock-locked" : "w-full"}
         style={{ height: height ?? "calc(100svh - 10rem)" }}
         data-testid="model-detail-dock">
         <DockviewReact

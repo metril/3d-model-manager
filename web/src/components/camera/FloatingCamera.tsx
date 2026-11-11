@@ -59,6 +59,7 @@ export function FloatingCamera() {
       if (document.fullscreenElement) return;
       const active = document.activeElement;
       if (active && active !== document.body && !rootRef.current?.contains(active)) return;
+      e.preventDefault();
       floatingCamera.close();
     };
     document.addEventListener("keydown", onKey);
