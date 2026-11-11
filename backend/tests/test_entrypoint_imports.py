@@ -12,10 +12,11 @@ import pytest
 
 BACKEND = Path(__file__).resolve().parent.parent
 
+# app.main (uvicorn app.main:app) is imported fresh by test_flag_off_imports,
+# which also asserts no printer-lib leak -- no need to pay a second cold import.
 ENTRY_MODULES = [
     "app.tasks.celery_app",  # celery -A app.tasks.celery_app (worker + beat)
     "app.printerd",  # python -m app.printerd
-    "app.main",  # uvicorn app.main:app
     "app.virtual_printer",  # python -m app.virtual_printer
 ]
 

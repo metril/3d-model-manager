@@ -18,8 +18,6 @@ import pytest
 from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from alembic import command
 from app.config import get_settings
@@ -31,6 +29,7 @@ from app.security import hash_password
 from app.storage.local import LocalStorageBackend
 from app.tasks.base import get_sync_engine, get_sync_sessionmaker
 from tests import corpus as corpus_module
+from tests import shared_infra
 from tests.corpus import CorpusPaths
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -65,6 +64,34 @@ if _GLTFPACK_BIN_DIR.is_dir():
     os.environ["PATH"] = f"{_GLTFPACK_BIN_DIR}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """xdist controller: start the shared Postgres + Redis once, before workers."""
+    config.tdmm_infra = None  # type: ignore[attr-defined]
+    if hasattr(config, "workerinput") or config.option.collectonly:
+        return
+    n = getattr(config.option, "numprocesses", None)
+    if n and getattr(config.option, "dist", "no") != "no":
+        config.tdmm_infra = shared_infra.start_shared()  # type: ignore[attr-defined]
+
+
+def pytest_configure_node(node) -> None:  # xdist hook
+    info = getattr(node.config, "tdmm_infra", None)
+    if info:
+        node.workerinput["tdmm_infra"] = info
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    if not hasattr(config, "workerinput"):
+        shared_infra.stop_shared()
+
+
+def _shared_info(config: pytest.Config) -> tuple[dict | None, str]:
+    wi = getattr(config, "workerinput", None)
+    if not wi:
+        return None, ""
+    return wi.get("tdmm_infra"), wi["workerid"]
+
+
 def _reset_settings_and_engine_caches() -> None:
     """``get_settings``/``get_engine``/``get_sessionmaker`` (API async world)
     and ``get_sync_engine``/``get_sync_sessionmaker`` (worker sync world, see
@@ -80,13 +107,21 @@ def _reset_settings_and_engine_caches() -> None:
 
 
 @pytest.fixture(scope="session")
-def postgres_url() -> Iterator[str]:
-    """Start one Postgres container for the whole test session."""
-    with PostgresContainer("postgres:16-alpine") as container:
-        url = container.get_connection_url(driver="asyncpg")
+def postgres_url(request: pytest.FixtureRequest) -> Iterator[str]:
+    """One Postgres per session: a per-worker database on the controller's
+    shared container under xdist, else this process's own container."""
+    info, wid = _shared_info(request.config)
+    if info:
+        url = shared_infra.worker_postgres_url(info, wid)
         os.environ["DATABASE_URL"] = url
         _reset_settings_and_engine_caches()
         yield url
+    else:
+        with shared_infra.make_postgres() as container:
+            url = container.get_connection_url(driver="asyncpg")
+            os.environ["DATABASE_URL"] = url
+            _reset_settings_and_engine_caches()
+            yield url
     del os.environ["DATABASE_URL"]
     _reset_settings_and_engine_caches()
 
@@ -105,22 +140,30 @@ def _flush_redis() -> Iterator[None]:
         import redis as redis_lib
 
         c = redis_lib.Redis.from_url(_REDIS_URL_STARTED[0])
-        c.flushall()
+        c.flushdb()
         c.close()
 
 
 @pytest.fixture(scope="session")
-def redis_url() -> Iterator[str]:
+def redis_url(request: pytest.FixtureRequest) -> Iterator[str]:
     """Start one Redis container for the whole test session (Task 6: SSE +
     Celery job-event publishing). fakeredis is deliberately not used -- the
     M1 global constraints require real infra for integration tests.
     """
-    with RedisContainer("redis:7-alpine") as container:
-        url = f"redis://{container.get_container_host_ip()}:{container.get_exposed_port(container.port)}/0"
+    info, wid = _shared_info(request.config)
+    if info:
+        url = shared_infra.worker_redis_url(info, wid)
         os.environ["REDIS_URL"] = url
         _REDIS_URL_STARTED.append(url)
         _reset_settings_and_engine_caches()
         yield url
+    else:
+        with shared_infra.make_redis() as container:
+            url = f"redis://{container.get_container_host_ip()}:{container.get_exposed_port(container.port)}/0"
+            os.environ["REDIS_URL"] = url
+            _REDIS_URL_STARTED.append(url)
+            _reset_settings_and_engine_caches()
+            yield url
     _REDIS_URL_STARTED.clear()
     del os.environ["REDIS_URL"]
     _reset_settings_and_engine_caches()

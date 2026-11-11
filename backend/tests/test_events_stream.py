@@ -121,6 +121,18 @@ async def _events(client, headers=None, params=None, *, until, timeout=10):
     return evs, pings
 
 
+async def _wait_subscriber(rds, timeout: float = 10.0) -> None:
+    """Block until the SSE handler has subscribed to the events channel, so a
+    publish isn't lost under CPU contention (a fixed sleep raced)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if rds.pubsub_numsub(CHANNEL)[0][1] > 0:
+            await asyncio.sleep(0.1)
+            return
+        await asyncio.sleep(0.05)
+
+
 def _set(rds, pid, **state):
     rds.set(state_key(pid), json.dumps(state))
 
@@ -216,7 +228,7 @@ async def test_print_job_event_filtered_by_allowlist(live_client, fast, redis_ur
     h = {"X-API-Key": key}
 
     async def publish():
-        await asyncio.sleep(0.4)
+        await _wait_subscriber(fast)
         for pid, jid in ((p2, 1), (p1, 2)):
             fast.publish(
                 CHANNEL,
@@ -254,7 +266,7 @@ async def test_session_with_printer_ids_drops_foreign_print_job(live_client, fas
     p2 = await _mk_printer(live_client, "SERF2XYZ")
 
     async def publish():
-        await asyncio.sleep(0.4)
+        await _wait_subscriber(fast)
         for pid, jid in ((p2, 1), (p1, 2)):
             ev = {"type": "print_job.updated", "print_job_id": jid, "printer_id": pid, "state": "x"}
             fast.publish(CHANNEL, json.dumps(ev))
