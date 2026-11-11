@@ -5,12 +5,11 @@ MakerWorld useful in the search UI immediately. ``list_files``/
 ``resolve_download`` (the actual file download) additionally need a
 Bambu-authenticated call (task B2, ``app.services.bambu_auth``): without a
 connected account both still raise ``ImportRejected`` with a clear,
-user-facing message; with one, they hit the authenticated download endpoint
--- see ``_fetch_authed_download_url``'s docstring for exactly how
-UNVERIFIED that endpoint is. ``_client`` is the ONE httpx seam tests
-monkeypatch for the anonymous calls (same contract as
-``printables._client``/``thingiverse._client``); ``_authed_client`` is the
-analogous seam for the Bearer-authenticated download call.
+user-facing message; with one, they hit the authenticated f3mf download
+endpoint (see ``_fetch_instance_3mf_url``). ``_client`` is the ONE httpx seam
+tests monkeypatch for the anonymous calls (same contract as
+``printables._client``/``thingiverse._client``); ``_raw_model_client`` is the
+analogous seam for the Bearer-authenticated download calls.
 
 Cloudflare note (live-verified): the `/api/v1/...` JSON endpoints and the
 Next.js SSR data route (`/_next/data/<buildId>/...json`) + the `/en` shell HTML
@@ -211,25 +210,10 @@ def _makerworld_build_id(client: httpx.Client, *, force: bool = False) -> str:
     return match.group(1)
 
 
-def _authed_client(token: str, region: str = "global") -> httpx.Client:
-    """The Bearer-authenticated seam (mirrors ``thingiverse._client(token)``)
-    -- used ONLY by ``_fetch_authed_download_url`` for the token-gated
-    download call, which lives on the Bambu account host
-    (``api.bambulab.com``/``.cn``), NOT ``makerworld.com``."""
-    from app.services.bambu_auth import base_url_for_region
-
-    return httpx.Client(
-        base_url=base_url_for_region(region),
-        timeout=30.0,
-        follow_redirects=True,
-        headers={"User-Agent": _UA, "Authorization": f"Bearer {token}"},
-    )
-
-
 def _raw_model_client(token: str) -> httpx.Client:
     """Bearer-authenticated seam for the raw "all files" download call, which
-    (unlike ``_authed_client``) lives on ``makerworld.com`` and wants the web
-    headers. Monkeypatchable like ``_authed_client``/``_favorites_client``."""
+    and per-instance f3mf calls, which live on ``makerworld.com`` and want the
+    web headers. Monkeypatchable like ``_favorites_client``."""
     return _ImpersonatingClient(  # type: ignore[return-value]
         _BASE_URL,
         {
@@ -293,7 +277,7 @@ def _require_bambu_session() -> tuple[str, str]:
 
 def _favorites_client(token: str) -> httpx.Client:
     """The cookie-authenticated `/api/v1` seam for the profile/favorites reads
-    below (mirrors `_client`/`_authed_client` -- a monkeypatchable module
+    below (mirrors `_client` -- a monkeypatchable module
     function tests swap independently of the anonymous `_client` and SSR
     `_web_client` seams). Headers match the live-captured browser request
     (mw_capture_notes.md's grounding); the `token` cookie is the actual auth."""
@@ -498,64 +482,59 @@ class MakerWorldImporter:
         return files
 
     def resolve_download(self, external_id: str, file: ImportFile) -> ResolvedDownload:
-        token, region = _require_bambu_session()
+        token, _region = _require_bambu_session()
         if file.remote_id == _RAW_REMOTE_ID:
             # Always our sanitized `.zip` name: the response's `name` is
             # unsanitized and a non-`.zip` suffix would skip extraction.
             url = self._fetch_raw_model_url(external_id, token)
             return ResolvedDownload(url=url, filename=file.filename)
-        # The download endpoint (see `_fetch_authed_download_url`) is keyed
-        # on `profileId` (carried through as `file.remote_id`) + the
-        # design's `modelId` string -- re-fetch the (anonymous, cheap)
-        # design detail rather than widening `ImportFile` with a MakerWorld-
-        # specific field just to carry `modelId` from `list_files` to here.
+        # The f3mf endpoint is keyed on the instance `id`, while `file.remote_id`
+        # is the stable `profileId` (kept for dedupe) -- re-fetch the
+        # (anonymous, cheap) design to map one to the other.
+        from app.tasks.importing import ImportRejected
+
         d = self._design(external_id)
-        url = self._fetch_authed_download_url(
-            profile_id=file.remote_id, model_id=d.get("modelId"), token=token, region=region
+        instance_id = next(
+            (
+                inst.get("id")
+                for inst in d.get("instances") or []
+                if str(inst.get("profileId")) == str(file.remote_id) and inst.get("id")
+            ),
+            None,
         )
+        if instance_id is None:
+            raise ImportRejected("That print profile no longer exists on MakerWorld.")
+        url = self._fetch_instance_3mf_url(str(instance_id), token)
         return ResolvedDownload(url=url, filename=file.filename)
 
-    # === UNVERIFIED: Bambu-authenticated download endpoint (B2) ===========
-    def _fetch_authed_download_url(
-        self, *, profile_id: str, model_id: str | None, token: str, region: str
-    ) -> str:
-        """ISOLATED on purpose: this is the ONE piece of the importer that
-        could NOT be live-verified (grounding probe: every anonymous
-        candidate path 404s, and this one requires a real logged-in Bambu
-        token). It targets the endpoint documented in this project's own
-        approved design spec (``docs/superpowers/specs/2026-07-04-3d-model-
-        manager-design-full.md`` line 230): ``GET /v1/iot-service/api/user/
-        profile/{profileId}?model_id=<id>`` on the Bambu account host
-        (``api.bambulab.com``/``.cn`` -- the SAME host that issues the
-        Bearer token, not ``makerworld.com``), returning a short-TTL (~5 min)
-        presigned S3 file URL that must be fetched immediately, never
-        cached/normalized.
+    def _fetch_instance_3mf_url(self, instance_id: str, token: str) -> str:
+        """Presigned URL for one print profile's 3MF.
 
-        NEITHER the exact response field carrying that URL NOR whether
-        ``model_id`` wants the design's numeric ``id`` or its ``modelId``
-        string (used here, since the query-param name matches that JSON key
-        literally) was ever captured against a real Bambu account -- this
-        MUST be re-verified against a live connected account before it's
-        trusted in production. If the real shape differs, only this method
-        (and the field-name tolerance list below) should need adjusting.
-        """
-        with _authed_client(token, region) as c:
+        LIVE-VERIFIED 2026-11-11: ``GET {makerworld.com/api/v1}/design-service/
+        instance/{instanceId}/f3mf?type=download`` with the Bambu access token
+        as ``Authorization: Bearer`` (web headers) returns ``{"name":
+        "<x>.3mf", "url": "https://makerworld.bblmw.com/.../instance/<uuid>.3mf",
+        "highCompression": ""}``. Replaces the iot-service profile endpoint,
+        which now returns an empty ``url`` for every profile."""
+        from app.tasks.importing import ImportRejected
+
+        with _raw_model_client(token) as c:
             r = c.get(
-                f"/iot-service/api/user/profile/{profile_id}",
-                params={"model_id": model_id or ""},
+                f"/design-service/instance/{instance_id}/f3mf",
+                params={"type": "download"},
             )
+            if r.status_code in (401, 403):
+                raise ImportRejected(_BAMBU_SESSION_EXPIRED)
             r.raise_for_status()
             body = r.json()
         url = _extract_download_url(body)
-        if url:
-            return url
-        from app.tasks.importing import ImportRejected
-
-        raise ImportRejected(
-            "MakerWorld's authenticated download response didn't include a recognizable "
-            "file URL (the endpoint's shape may have changed -- see "
-            "MakerWorldImporter._fetch_authed_download_url)."
-        )
+        if not url:
+            raise ImportRejected(
+                "MakerWorld's print-profile download response didn't include a recognizable "
+                "file URL (the endpoint's shape may have changed -- see "
+                "MakerWorldImporter._fetch_instance_3mf_url)."
+            )
+        return url
 
     def _fetch_raw_model_url(self, external_id: str, token: str) -> str:
         """Presigned URL for the design's raw "all files" zip.
