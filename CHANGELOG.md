@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/metril/3d-model-manager/compare/v0.23.0...v0.24.0) (2026-11-11)
+
+
+### Features
+
+* **web:** Layout menu + edit banner for dock/stats layout lock ([#318](https://github.com/metril/3d-model-manager/issues/318)) ([4101790](https://github.com/metril/3d-model-manager/commit/41017904e561455bfdb2e49661285ee6b3268fff))
+
 ## [0.23.0](https://github.com/metril/3d-model-manager/compare/v0.22.4...v0.23.0) (2026-11-11)
 
 
