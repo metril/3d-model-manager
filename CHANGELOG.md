@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.4](https://github.com/metril/3d-model-manager/compare/v0.22.3...v0.22.4) (2026-11-11)
+
+
+### Bug Fixes
+
+* **import:** download MakerWorld print profiles via the f3mf endpoint ([#310](https://github.com/metril/3d-model-manager/issues/310)) ([d0b2f9a](https://github.com/metril/3d-model-manager/commit/d0b2f9a8063bdfa6ded9a0c35b3cbf72c9511af0))
+
 ## [0.22.3](https://github.com/metril/3d-model-manager/compare/v0.22.2...v0.22.3) (2026-11-09)
 
 
