@@ -4,6 +4,9 @@ import { ExternalLinkIcon, Undo2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { syncThemeInto } from "@/components/model-detail/dock/popoutTheme";
+import { LockableTab } from "@/components/dock/lockGating";
+import { tabMenuItems, useDockLock } from "@/components/dock/lockGatingHooks";
+import { useLayoutLocked } from "@/lib/layoutLock";
 import { RelocateContext, createRelocateEmitter } from "@/lib/windowRelocate";
 import { addPanelAtDefault, buildDefaultLayout } from "./defaultLayout";
 import { flushLayout, loadLayout, saveLayout } from "./layoutStore";
@@ -28,7 +31,9 @@ const DOCK_THEME = { name: "tdmm", className: "dockview-theme-tdmm", gap: 6 };
  * pop-out) close the window, which docks the panels back. */
 function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps) {
   const { t } = useTranslation();
+  const locked = useLayoutLocked();
   const inPopout = api.location.type === "popout";
+  if (locked && !inPopout) return null;
   return (
     <button
       type="button"
@@ -50,6 +55,8 @@ function PopoutAction({ group, api, containerApi }: IDockviewHeaderActionsProps)
 export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void }) {
   const { t } = useTranslation();
   const emitter = useMemo(() => createRelocateEmitter(), []);
+  const [dockApi, setDockApi] = useState<DockviewApi | null>(null);
+  const locked = useDockLock(dockApi);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);
   useLayoutEffect(() => {
@@ -98,6 +105,7 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
         emitter.emit();
       });
       api.onDidOpenPopoutWindowFail(() => toast.error(t("printDock.popupBlocked")));
+      setDockApi(api);
       onApi?.(api);
     },
     [emitter, onApi, t],
@@ -126,7 +134,8 @@ export function PrintDock({ onApi }: { onApi?: (api: DockviewApi | null) => void
         <DockviewReact
           components={DOCK_COMPONENTS}
           rightHeaderActionsComponent={PopoutAction}
-          getTabContextMenuItems={() => ["popout", "maximize", "separator", "close"]}
+          defaultTabComponent={LockableTab}
+          getTabContextMenuItems={() => tabMenuItems(locked)}
           popoutUrl={POPOUT_URL}
           theme={DOCK_THEME}
           onReady={handleReady}

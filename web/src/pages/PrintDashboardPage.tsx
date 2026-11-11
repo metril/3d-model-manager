@@ -12,6 +12,7 @@
  * for `can_print` items (the token mint requires that permission; smaller
  * cards link to the detail page's camera instead of streaming N feeds).
  */
+import { LayoutLockToggle } from "@/components/shell/LayoutLockToggle";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
@@ -131,6 +132,7 @@ export function PrintDashboardPage() {
         {canDock ? (
           <div className="flex items-center gap-2">
             {dockOn && dockApi ? <PanelsMenu api={dockApi} /> : null}
+            {dockOn ? <LayoutLockToggle /> : null}
             <Button type="button" size="sm" variant="outline" aria-pressed={dockOn} onClick={toggleDock}>
               {dockOn ? t("printPage.classic") : t("printPage.customize")}
             </Button>

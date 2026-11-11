@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { LayoutLockToggle } from "@/components/shell/LayoutLockToggle";
+import { useLayoutLocked } from "@/lib/layoutLock";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/api/auth";
@@ -29,6 +31,7 @@ export function StatsPage() {
     setPrefs(next);
     savePrefs(userId, next);
   }
+  const locked = useLayoutLocked();
   const stats = useStatsDashboard(prefs.days);
 
   return (
@@ -52,7 +55,8 @@ export function StatsPage() {
             </Button>
           ))}
         </div>
-        <Button type="button" size="sm" variant="ghost" onClick={() => update({ ...DEFAULT_PREFS, days: prefs.days })}>
+        <LayoutLockToggle />
+        <Button type="button" size="sm" variant="ghost" disabled={locked} onClick={() => update({ ...DEFAULT_PREFS, days: prefs.days })}>
           {t("stats.reset")}
         </Button>
       </div>

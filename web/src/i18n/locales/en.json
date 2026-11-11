@@ -4698,6 +4698,13 @@
     "fps": "fps",
     "fpsN": "{{n}} fps"
   },
+  "layoutLock": {
+    "edit": "Edit layout",
+    "done": "Done",
+    "unlockHint": "Unlock the layout to rearrange or close panels",
+    "lockHint": "Lock the layout (Esc)",
+    "panelsLocked": "Unlock layout to change panels"
+  },
   "panelsMenu": {
     "panels": "Panels",
     "reset": "Reset layout"

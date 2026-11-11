@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StatsDashboard } from "@/api/stats";
 import { StatsPage } from "@/pages/StatsPage";
+import { setLayoutLocked } from "@/lib/layoutLock";
 import { loadPrefs } from "@/lib/statsLayout";
 
 const payload: StatsDashboard = {
@@ -60,6 +61,7 @@ describe("StatsPage", () => {
   });
 
   it("resize button cycles the widget span and persists it", async () => {
+    setLayoutLocked(false);
     renderPage();
     await screen.findByText("Benchy", { exact: false });
     const card = document.querySelector('[data-widget="success"]') as HTMLElement;
