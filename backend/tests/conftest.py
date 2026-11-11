@@ -65,7 +65,7 @@ if _GLTFPACK_BIN_DIR.is_dir():
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """xdist controller: start the shared Postgres + Redis once, before workers."""
+    """xdist controller: start the shared Postgres once, before workers."""
     config.tdmm_infra = None  # type: ignore[attr-defined]
     if hasattr(config, "workerinput") or config.option.collectonly:
         return
@@ -140,7 +140,7 @@ def _flush_redis() -> Iterator[None]:
         import redis as redis_lib
 
         c = redis_lib.Redis.from_url(_REDIS_URL_STARTED[0])
-        c.flushdb()
+        c.flushall()
         c.close()
 
 
@@ -150,20 +150,13 @@ def redis_url(request: pytest.FixtureRequest) -> Iterator[str]:
     Celery job-event publishing). fakeredis is deliberately not used -- the
     M1 global constraints require real infra for integration tests.
     """
-    info, wid = _shared_info(request.config)
-    if info:
-        url = shared_infra.worker_redis_url(info, wid)
+    # Redis pub/sub channels ignore the db index, so each worker keeps its own container.
+    with shared_infra.make_redis() as container:
+        url = f"redis://{container.get_container_host_ip()}:{container.get_exposed_port(container.port)}/0"
         os.environ["REDIS_URL"] = url
         _REDIS_URL_STARTED.append(url)
         _reset_settings_and_engine_caches()
         yield url
-    else:
-        with shared_infra.make_redis() as container:
-            url = f"redis://{container.get_container_host_ip()}:{container.get_exposed_port(container.port)}/0"
-            os.environ["REDIS_URL"] = url
-            _REDIS_URL_STARTED.append(url)
-            _reset_settings_and_engine_caches()
-            yield url
     _REDIS_URL_STARTED.clear()
     del os.environ["REDIS_URL"]
     _reset_settings_and_engine_caches()

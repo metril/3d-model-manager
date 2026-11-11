@@ -1,10 +1,10 @@
-"""One Postgres + one Redis container per pytest session, shared by xdist workers.
+"""One Postgres container per pytest session, shared by xdist workers.
 
-The xdist *controller* starts both containers (in parallel) before spawning
-workers and stops them at exit, so each worker only creates its own database
-(``tdmm_<worker>``) and uses its own Redis db index instead of paying ~5s for
-its own pair of containers. Without xdist (or if startup fails) the per-process
-fixtures in ``conftest.py`` start their own containers as before.
+The xdist *controller* starts Postgres before spawning workers and stops it at
+exit; each worker only creates its own database (``tdmm_<worker>``). Redis is
+NOT shared: pub/sub channels ignore the db index and printer ids repeat across
+worker databases, so every worker keeps its own (non-persistent) Redis.
+Without xdist (or if startup fails) ``conftest.py`` starts its own Postgres.
 
 Postgres runs with durability off on tmpfs; Redis with persistence off.
 """
@@ -12,7 +12,6 @@ Postgres runs with durability off on tmpfs; Redis with persistence off.
 from __future__ import annotations
 
 import contextlib
-import threading
 from typing import Any
 
 import psycopg
@@ -26,7 +25,7 @@ REDIS_IMAGE = "redis:7-alpine"
 PG_FAST_ARGS = (
     "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=500"
 )
-REDIS_FAST_ARGS = 'redis-server --save "" --appendonly no --databases 1024'
+REDIS_FAST_ARGS = 'redis-server --save "" --appendonly no'
 
 
 def make_postgres() -> PostgresContainer:
@@ -45,37 +44,18 @@ _containers: list[Any] = []
 
 
 def start_shared() -> dict[str, Any] | None:
-    """Controller only: start both containers concurrently. None on failure."""
-    results: dict[str, Any] = {}
-    errors: list[BaseException] = []
-
-    def run(name: str, make: Any) -> None:
-        try:
-            c = make()
-            c.start()
-            _containers.append(c)
-            results[name] = c
-        except BaseException as exc:  # noqa: BLE001
-            errors.append(exc)
-
-    threads = [
-        threading.Thread(target=run, args=("pg", make_postgres)),
-        threading.Thread(target=run, args=("redis", make_redis)),
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    if errors:
-        stop_shared()
+    """Controller only: start the shared Postgres. None on failure."""
+    try:
+        pg = make_postgres()
+        pg.start()
+    except Exception:  # noqa: BLE001
         return None
-    pg, rd = results["pg"], results["redis"]
+    _containers.append(pg)
     return {
         "pg_admin_dsn": (
             f"postgresql://{pg.username}:{pg.password}@{pg.get_container_host_ip()}"
             f":{pg.get_exposed_port(pg.port)}/{pg.dbname}"
         ),
-        "redis_base": f"redis://{rd.get_container_host_ip()}:{rd.get_exposed_port(rd.port)}",
     }
 
 
@@ -93,8 +73,3 @@ def worker_postgres_url(info: dict[str, Any], worker_id: str) -> str:
         conn.execute(f'CREATE DATABASE "{name}"')
     url = make_url(info["pg_admin_dsn"]).set(drivername="postgresql+asyncpg", database=name)
     return url.render_as_string(hide_password=False)
-
-
-def worker_redis_url(info: dict[str, Any], worker_id: str) -> str:
-    digits = "".join(ch for ch in worker_id if ch.isdigit()) or "0"
-    return f"{info['redis_base']}/{int(digits) % 1024}"
