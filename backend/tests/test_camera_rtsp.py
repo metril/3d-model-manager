@@ -197,11 +197,13 @@ def _wait_published(host: str, port: int, path: str, timeout: float = 60) -> Non
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection((host, port), timeout=2) as raw:
-                with ctx.wrap_socket(raw, server_hostname=host) as tls:
-                    tls.sendall(req)
-                    if b" 200 " in tls.recv(256).split(b"\r\n", 1)[0]:
-                        return
+            with (
+                socket.create_connection((host, port), timeout=2) as raw,
+                ctx.wrap_socket(raw, server_hostname=host) as tls,
+            ):
+                tls.sendall(req)
+                if b" 200 " in tls.recv(256).split(b"\r\n", 1)[0]:
+                    return
         except OSError:
             pass
         time.sleep(0.1)

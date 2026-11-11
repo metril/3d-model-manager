@@ -11,6 +11,7 @@ Postgres runs with durability off on tmpfs; Redis with persistence off.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from typing import Any
 
@@ -80,10 +81,8 @@ def start_shared() -> dict[str, Any] | None:
 
 def stop_shared() -> None:
     while _containers:
-        try:
+        with contextlib.suppress(Exception):
             _containers.pop().stop()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def worker_postgres_url(info: dict[str, Any], worker_id: str) -> str:
