@@ -779,38 +779,56 @@ def test_list_list_items_uid_never_falls_back_to_cache(monkeypatch, _items_db):
     assert MakerWorldImporter().list_list_items(uid) == []
 
 
-def test_resolve_download_hits_authed_endpoint_and_returns_presigned_url(monkeypatch):
-    # NOTE: this authenticated download response shape is DOCUMENTED-NOT-
-    # LIVE-CAPTURED (see MakerWorldImporter._fetch_authed_download_url's
-    # docstring) -- the fixture body below is a best guess, not a recorded
-    # real response, and must be reconciled against a real Bambu account at
-    # acceptance.
+def _f3mf_client(status_code, body=None, seen=None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request.url.path)
+        assert dict(request.url.params) == {"type": "download"}
+        assert request.headers.get("Authorization") == "Bearer test-access-token"
+        return httpx.Response(status_code, json=body or {})
+
+    return lambda token: httpx.Client(
+        base_url="https://makerworld.com/api/v1",
+        headers={"Authorization": f"Bearer {token}"},
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def _resolve_profile(monkeypatch, remote_id, client):
     monkeypatch.setattr(makerworld, "_bambu_session", lambda: ("test-access-token", "global"))
     monkeypatch.setattr(makerworld, "_client", lambda: _mock_design_client(fx.DESIGN_3018898))
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/iot-service/api/user/profile/12345"
-        assert dict(request.url.params) == {"model_id": fx.DESIGN_3018898["modelId"]}
-        assert request.headers.get("Authorization") == "Bearer test-access-token"
-        return httpx.Response(200, json={"url": "https://makerworld.bblmw.com/signed/file.zip"})
-
-    monkeypatch.setattr(
-        makerworld,
-        "_authed_client",
-        lambda token, region="global": httpx.Client(
-            base_url="https://api.bambulab.com/v1",
-            headers={"Authorization": f"Bearer {token}"},
-            transport=httpx.MockTransport(handler),
-        ),
+    monkeypatch.setattr(makerworld, "_raw_model_client", client)
+    return MakerWorldImporter().resolve_download(
+        fx.DESIGN_ID, ImportFile(remote_id=remote_id, filename="Default-3391581.zip")
     )
-    out = MakerWorldImporter().resolve_download(
-        fx.DESIGN_ID, ImportFile(remote_id="12345", filename="Default-3391581.zip")
-    )
-    assert out.url == "https://makerworld.bblmw.com/signed/file.zip"
+
+
+def test_resolve_download_maps_profile_to_instance_f3mf(monkeypatch):
+    seen: list[str] = []
+    body = {"name": "x.3mf", "url": "https://makerworld.bblmw.com/signed/file.3mf"}
+    out = _resolve_profile(monkeypatch, "12345", _f3mf_client(200, body, seen))
+    # profileId 12345 -> instance id 3391581
+    assert seen == ["/api/v1/design-service/instance/3391581/f3mf"]
+    assert out.url == body["url"]
     assert out.filename == "Default-3391581.zip"
-    # No Bearer forwarded to the presigned CDN URL itself (Thingiverse
-    # posture: never leak the app/account token to a public/signed asset URL).
+    # No Bearer forwarded to the presigned CDN URL itself.
     assert out.headers == {}
+
+
+def test_resolve_download_unknown_profile_is_rejected(monkeypatch):
+    with pytest.raises(ImportRejected, match="no longer exists"):
+        _resolve_profile(monkeypatch, "999", _f3mf_client(200, {"url": "https://x/y.3mf"}))
+
+
+def test_resolve_download_f3mf_forbidden_is_session_expired(monkeypatch):
+    with pytest.raises(ImportRejected) as exc_info:
+        _resolve_profile(monkeypatch, "12345", _f3mf_client(403))
+    assert str(exc_info.value) == makerworld._BAMBU_SESSION_EXPIRED
+
+
+def test_resolve_download_f3mf_empty_url_is_rejected(monkeypatch):
+    with pytest.raises(ImportRejected, match="recognizable"):
+        _resolve_profile(monkeypatch, "12345", _f3mf_client(200, {"name": "x.3mf", "url": ""}))
 
 
 def test_named_list_uses_collection_path_and_pages(monkeypatch):

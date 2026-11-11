@@ -61,7 +61,7 @@ query PrintProfile($id: ID!) {
 # entry for it, which `_post` turns into a hard `RuntimeError` that would
 # regress `fetch_metadata` itself. MUST be reconciled against a live query
 # before this is trusted in production (mirrors makerworld.py's own
-# UNVERIFIED `_fetch_authed_download_url` posture).
+# UNVERIFIED download posture).
 
 # Discovered live (Workstream B task B1) via GraphQL introspection on the
 # anonymous endpoint: the root Query type has no field literally named
@@ -109,7 +109,7 @@ def _client() -> httpx.Client:
 
 def _authed_client(token: str) -> httpx.Client:
     """Bearer-authenticated GraphQL seam (Workstream A task A1; mirrors
-    ``makerworld._authed_client``) -- same as ``_client()`` plus the
+    ``thingiverse._client``) -- same as ``_client()`` plus the
     ``Authorization`` header, kept as its own module-level function so tests
     can monkeypatch it independently of the anonymous ``_client``. Used by
     ``fetch_identity`` now, and by the A4 list/likes queries next."""
