@@ -9,7 +9,10 @@ import { ModelHeader } from "@/components/model-detail/ModelHeader";
 import { useStudioSelection } from "@/components/model-detail/studioSelection";
 import { ModelDetailDock } from "@/components/model-detail/dock/ModelDetailDock";
 import { ModelDetailProvider } from "@/components/model-detail/dock/ModelDetailContext";
-import { PanelsMenu } from "@/components/model-detail/dock/PanelsMenu";
+import { LayoutMenu } from "@/components/dock/LayoutMenu";
+import { addPanelAtDefault, buildDefaultLayout } from "@/components/model-detail/dock/defaultLayout";
+import { resetLayout } from "@/components/model-detail/dock/layoutStore";
+import { PANEL_IDS, PANEL_TITLE_KEYS } from "@/components/model-detail/dock/panelMeta";
 import { StackedPanels } from "@/components/model-detail/dock/StackedPanels";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/api/client";
@@ -85,7 +88,17 @@ export function ModelDetailPage() {
           editMode={editMode}
           onToggleEditMode={() => setEditMode((prev) => !prev)}
           onOpenRelocate={() => setRelocateOpen(true)}
-          panelsMenu={docked && dockApi ? <PanelsMenu api={dockApi} /> : undefined}
+          panelsMenu={
+            docked && dockApi ? (
+              <LayoutMenu
+                panels={{ api: dockApi, ids: PANEL_IDS, titleKeys: PANEL_TITLE_KEYS, add: addPanelAtDefault }}
+                onReset={() => {
+                  resetLayout();
+                  buildDefaultLayout(dockApi);
+                }}
+              />
+            ) : undefined
+          }
         />
         <ArchivedBanner model={model} />
         {docked ? <ModelDetailDock onApi={setDockApi} /> : <StackedPanels />}

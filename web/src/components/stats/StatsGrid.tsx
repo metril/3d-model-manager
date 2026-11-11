@@ -21,6 +21,7 @@ import type { StatsDashboard } from "@/api/stats";
 import { WIDGETS } from "@/components/stats/registry";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LayoutEditBanner } from "@/components/dock/LayoutEditBanner";
 import { useLayoutLocked } from "@/lib/layoutLock";
 import { cn } from "@/lib/utils";
 import type { WidgetId, WidgetLayout } from "@/lib/statsLayout";
@@ -37,6 +38,7 @@ function SortableWidget({
   w: WidgetLayout;
   data: StatsDashboard;
   onResize: (id: WidgetId) => void;
+  onReset?: () => void;
 }) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: w.id, disabled: locked });
@@ -84,11 +86,13 @@ export function StatsGrid({
   data,
   onReorder,
   onResize,
+  onReset,
 }: {
   widgets: WidgetLayout[];
   data: StatsDashboard;
   onReorder: (activeId: string, overId: string) => void;
   onResize: (id: WidgetId) => void;
+  onReset?: () => void;
 }) {
   const locked = useLayoutLocked();
   const sensors = useSensors(
@@ -99,6 +103,8 @@ export function StatsGrid({
     if (e.over && e.active.id !== e.over.id) onReorder(String(e.active.id), String(e.over.id));
   }
   return (
+    <>
+    <LayoutEditBanner onReset={onReset} />
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={widgets.map((w) => w.id)} strategy={rectSortingStrategy}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -108,5 +114,6 @@ export function StatsGrid({
         </div>
       </SortableContext>
     </DndContext>
+    </>
   );
 }

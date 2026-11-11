@@ -623,10 +623,12 @@ describe("PrintDashboardPage dock", () => {
     renderPage();
     await screen.findByText("Printer 1");
     expect(screen.queryByTestId("print-dock")).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Customize layout" }));
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Layout" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Customize layout" }));
     expect(await screen.findByTestId("print-dock")).toBeInTheDocument();
     expect(localStorage.getItem("tdmm.printDashDock.v1")).toBe("1");
-    fireEvent.click(await screen.findByRole("button", { name: "Classic layout" }));
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Layout" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Classic layout" }));
     await waitFor(() => expect(screen.queryByTestId("print-dock")).toBeNull());
     expect(localStorage.getItem("tdmm.printDashDock.v1")).toBeNull();
     expect(await screen.findByText("Printer 1")).toBeInTheDocument();

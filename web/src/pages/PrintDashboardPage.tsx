@@ -12,7 +12,11 @@
  * for `can_print` items (the token mint requires that permission; smaller
  * cards link to the detail page's camera instead of streaming N feeds).
  */
-import { LayoutLockToggle } from "@/components/shell/LayoutLockToggle";
+import { LayoutMenu } from "@/components/dock/LayoutMenu";
+import { DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { addPanelAtDefault, buildDefaultLayout } from "@/components/print/dock/defaultLayout";
+import { resetLayout } from "@/components/print/dock/layoutStore";
+import { PANEL_IDS, PANEL_TITLE_KEYS } from "@/components/print/dock/panelMeta";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { DockviewApi } from "dockview-react";
@@ -24,7 +28,6 @@ import { usePrintersOverview } from "@/api/printers";
 import { useReviewCount } from "@/api/queue";
 import { useCardSize } from "@/components/print/card/cardSize";
 import { PrintDock } from "@/components/print/dock/PrintDock";
-import { PanelsMenu } from "@/components/print/dock/PanelsMenu";
 import { PrintDashProvider, type PrintDashValue } from "@/components/print/dock/PrintDashContext";
 import { PrintersPanel } from "@/components/print/dock/PrintersPanel";
 import { RailStack } from "@/components/print/dock/RailPanels";
@@ -131,11 +134,19 @@ export function PrintDashboardPage() {
         </div>
         {canDock ? (
           <div className="flex items-center gap-2">
-            {dockOn && dockApi ? <PanelsMenu api={dockApi} /> : null}
-            {dockOn ? <LayoutLockToggle /> : null}
-            <Button type="button" size="sm" variant="outline" aria-pressed={dockOn} onClick={toggleDock}>
-              {dockOn ? t("printPage.classic") : t("printPage.customize")}
-            </Button>
+            <LayoutMenu
+              panels={dockOn && dockApi ? { api: dockApi, ids: PANEL_IDS, titleKeys: PANEL_TITLE_KEYS, add: addPanelAtDefault } : undefined}
+              onReset={() => {
+                if (!dockApi) return;
+                resetLayout();
+                buildDefaultLayout(dockApi);
+              }}
+            >
+              <DropdownMenuRadioGroup value={dockOn ? "custom" : "classic"} onValueChange={(v) => (v === "custom") !== dockOn && toggleDock()}>
+                <DropdownMenuRadioItem value="classic">{t("printPage.classic")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="custom">{t("printPage.customize")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </LayoutMenu>
           </div>
         ) : null}
       </div>

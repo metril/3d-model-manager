@@ -140,7 +140,7 @@ describe("ModelHeader -- read-only by default", () => {
   it("shows an outline Edit toggle button", async () => {
     renderHeader(false);
 
-    const toggle = await screen.findByRole("button", { name: "Edit" });
+    const toggle = await screen.findByRole("button", { name: "Edit details" });
     expect(toggle).toBeInTheDocument();
   });
 
@@ -156,7 +156,7 @@ describe("ModelHeader -- edit mode", () => {
   it("toggling Edit calls onToggleEditMode", async () => {
     const { onToggleEditMode } = renderHeader(false);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details" }));
 
     expect(onToggleEditMode).toHaveBeenCalledOnce();
   });
