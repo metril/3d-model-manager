@@ -104,6 +104,15 @@ def _seed(
     return entry
 
 
+def _write_project_3mf(dest: Path, cfg: dict | None = None) -> None:
+    import json
+    import zipfile
+
+    cfg = {"layer_height": "0.2", "nozzle_diameter": ["0.4"], **(cfg or {})}
+    with zipfile.ZipFile(dest, "w") as zf:
+        zf.writestr("Metadata/project_settings.config", json.dumps(cfg))
+
+
 @pytest.fixture(autouse=True)
 def _verify_source_blob(data_dir: Path, monkeypatch: pytest.MonkeyPatch):
     """`derivatives.fetch_blob_to_temp` requires a verified File row AND a
@@ -139,6 +148,38 @@ def test_slice_success_ready(monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: 
         assert new_file.rel_path == f"DotC Part 1 - My Recipe (q{entry_id} p1).gcode.3mf"
         source_file = session.get(File, refreshed.file_id)
         assert new_file.revision_id == source_file.revision_id
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_file_settings_slice_sends_no_process_profile(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry = _seed(session)
+        entry.slice_options = {"file_settings": True}
+        session.commit()
+        entry_id = entry.id
+
+    from app.services import derivatives
+
+    def _fetch_project(session, settings, blob_hash, dest_dir, suffix):
+        dest = dest_dir / f"blob{suffix}"
+        _write_project_3mf(dest)
+        return dest
+
+    monkeypatch.setattr(derivatives, "fetch_blob_to_temp", _fetch_project)
+    fake_client = FakeSlicerClient(result=sliced_3mf_bytes)
+    monkeypatch.setattr(slicing, "client_from_config", lambda cfg: fake_client)
+    slicing.slice_file(entry_id)
+
+    assert fake_client.seen["process_profile"] is None
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.state == QueueState.READY
+        new_file = session.get(File, refreshed.sliced_file_id)
+        assert new_file.rel_path == (
+            f"DotC Part 1 - My Recipe, file settings (q{entry_id} p1).gcode.3mf"
+        )
 
 
 @pytest.mark.usefixtures("migrated_db")
@@ -635,3 +676,75 @@ def test_unresolved_include_is_permanent_and_never_reaches_client(
         assert 'Profile "Stale Process" is incomplete' in e.last_error
         assert "re-sync profiles" in e.last_error
     assert fake.calls == 0
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_reslice_with_existing_same_name_file_gets_numbered_path(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    outputs = iter([sliced_3mf_bytes, sliced_3mf_bytes + b"\0", sliced_3mf_bytes + b"\0\0"])
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=next(outputs))
+    )
+    paths = []
+    for _ in range(3):  # retry_entry: sliced_file_id cleared, state back to slicing
+        slicing.slice_file(entry_id)
+        with base.sync_session() as session:
+            e = session.get(PrintQueueEntry, entry_id)
+            assert e.state == QueueState.READY, e.last_error
+            paths.append(session.get(File, e.sliced_file_id).rel_path)
+            e.sliced_file_id = None
+            e.state = QueueState.SLICING
+            session.commit()
+    stem = f"DotC Part 1 - My Recipe (q{entry_id} p1)"
+    assert paths == [f"{stem}.gcode.3mf", f"{stem} (2).gcode.3mf", f"{stem} (3).gcode.3mf"]
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_last_error_never_stores_raw_exception_text(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    with base.sync_session() as session:
+        entry_id = _seed(session).id
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes)
+    )
+    raw = "(psycopg.errors.UniqueViolation) INSERT INTO files (a) VALUES (%(a)s) [parameters: {}]"
+
+    def boom(*a, **k):
+        raise RuntimeError(raw)
+
+    monkeypatch.setattr(slicing.library, "store_imported_file_sync", boom)
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        e = session.get(PrintQueueEntry, entry_id)
+        assert e.last_error is not None
+        assert "INSERT" not in e.last_error and "parameters" not in e.last_error
+        assert len(e.last_error) < 100
+
+
+@pytest.mark.usefixtures("migrated_db")
+def test_plate_zero_uses_lowest_output_plate(
+    monkeypatch: pytest.MonkeyPatch, sliced_3mf_bytes: bytes
+):
+    import dataclasses
+
+    real = slicing.slicedmeta.parse_gcode_3mf
+
+    def only_plate_3(path):
+        m = real(path)
+        return dataclasses.replace(m, plates=[{**p, "index": 3} for p in m.plates[:1]])
+
+    monkeypatch.setattr(slicing.slicedmeta, "parse_gcode_3mf", only_plate_3)
+    with base.sync_session() as session:
+        entry_id = _seed(session, plate=0).id
+    monkeypatch.setattr(
+        slicing, "client_from_config", lambda cfg: FakeSlicerClient(result=sliced_3mf_bytes)
+    )
+    slicing.slice_file(entry_id)
+    with base.sync_session() as session:
+        refreshed = session.get(PrintQueueEntry, entry_id)
+        assert refreshed.sliced_file_id is not None, refreshed.last_error
+        assert "p3)" in session.get(File, refreshed.sliced_file_id).rel_path

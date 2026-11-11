@@ -1222,6 +1222,7 @@
   },
   "printerOps": {
     "plateNeedsClearing": "Plate needs clearing",
+    "failedNeedsConfirm": "Printer reports a failed print — confirm the plate is clear to continue",
     "markCleared": "Mark plate cleared",
     "plateCleared": "Plate marked as cleared",
     "printOptions": {
@@ -2595,7 +2596,8 @@
       "tooLarge": "Too large to preview in the browser.",
       "loading": "Loading preview…",
       "layer": "Layer",
-      "layerOf": "Layer {{layer}} / {{total}}"
+      "layerOf": "Layer {{layer}} / {{total}}",
+      "start": "Start"
     }
   },
   "camera": {
@@ -2701,6 +2703,17 @@
   "installApp": {
     "install": "Install app"
   },
+  "recipeProcess": {
+    "line": "Process: {{name}}",
+    "differs": "file uses {{layer}} mm",
+    "note": "The recipe's process settings (layer height, walls, infill, brim, ...) replace the ones saved in this file.",
+    "fileHas": "This file's own settings: {{profile}}",
+    "unnamed": "unnamed profile",
+    "keepFile": "Keep this file's own process settings (recipe printer + filament only)",
+    "keepFileHint": "The recipe's process profile is not applied. The printer and filament profiles still are.",
+    "printerDiffers": "This file was made for {{file}}, but the recipe prints on {{printer}}. Its speeds, accelerations and line widths come from the file, tuned for the other machine.",
+    "nozzleDiffers": "This file is set up for a {{file}} mm nozzle but the recipe's printer uses {{printer}} mm. Slicing will be refused."
+  },
   "sliceDialog": {
     "queued": "Queued {{name}}; it slices, then prints",
     "pipelineError": "Could not run the pipeline",
@@ -2756,6 +2769,14 @@
   "timelapsePlayer": {
     "unplayable": "Can't play in this browser",
     "download": "Download"
+  },
+  "printHold": {
+    "plate_not_cleared": "The plate hasn't been cleared since the last print. Printing now could collide with the part still on the bed.",
+    "printer_failed": "The last print failed and hasn't been acknowledged. Make sure the failed part is off the bed before printing.",
+    "confirmDesc": "Only continue if the build plate is empty.",
+    "printNow": "Plate is clear, print now",
+    "cancel": "Cancel",
+    "needsControl": "Someone with control access to this printer must confirm the plate is clear."
   },
   "printDialog": {
     "mappedOnAssign": "Filament is mapped when a printer is assigned.",
@@ -3094,6 +3115,7 @@
       "skipped": "Skipped"
     },
     "heldReason": "Held: {{reason}}",
+    "printerFailed": "Printer reports a failed print — confirm the plate is clear to continue",
     "pendingReview": "Pending review",
     "rejected": "Rejected",
     "overBudget": "Over budget",
@@ -3768,6 +3790,15 @@
     "to": "To"
   },
   "runDetail": {
+    "linkModel": {
+      "action": "Link to model",
+      "title": "Link to a model",
+      "hint": "This run was not matched to a library model. Pick the model it printed.",
+      "search": "Search models",
+      "none": "No models found",
+      "done": "Linked to {{name}}",
+      "failed": "Could not link the model"
+    },
     "fetch": {
       "pending": "Fetching files from the printer...",
       "missing": "The printer no longer has this run's files.",
@@ -4640,7 +4671,7 @@
     "wear": "Wear cost (per hour)",
     "wearHint": "Added to the machine rate for this printer. Blank = no extra wear charge.",
     "volume": "Build volume (mm)",
-    "volumeX": "Build volume X (mm)",
+    "volumeX": "X (mm)",
     "volumeY": "Y (mm)",
     "volumeZ": "Z (mm)",
     "saving": "Saving...",

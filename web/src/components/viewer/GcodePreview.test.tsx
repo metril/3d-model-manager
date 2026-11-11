@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GcodePreview } from "@/components/viewer/GcodePreview";
@@ -14,7 +14,12 @@ const fakePreview = {
   dispose,
   maxLayerIndex: 2,
   endLayer: undefined as number | undefined,
-  layers: [{ height: 0.2 }, { height: 0.4 }, { height: 0.6 }],
+  // [preamble, layer 1, layer 2]; `height` is thickness (0.2) like the real lib.
+  layers: [
+    { height: 0, commands: [{ gcode: "G1", params: { z: 0 } }] },
+    { height: 0.2, commands: [{ gcode: "G1", params: { z: 0.2 } }, { gcode: "G1", params: { x: 1, y: 1, e: 1 } }] },
+    { height: 0.2, commands: [{ gcode: "G1", params: { z: 0.4 } }, { gcode: "G1", params: { x: 2, y: 2, e: 1 } }] },
+  ],
 };
 
 vi.mock("gcode-preview", () => ({
@@ -44,6 +49,14 @@ describe("GcodePreview", () => {
     ) as unknown as typeof fetch;
   });
 
+  it("passes the plate param when the sliced plate is known", async () => {
+    render(<GcodePreview fileId={42} plate={3} />);
+
+    await waitFor(() => expect(processGCode).toHaveBeenCalled());
+    const url = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(url).toBe("/api/files/42/download?member=gcode&plate=3");
+  });
+
   it("fetches the file's embedded gcode via the member=gcode download param", async () => {
     render(<GcodePreview fileId={42} />);
 
@@ -58,7 +71,34 @@ describe("GcodePreview", () => {
   it("shows the layer readout once loaded", async () => {
     render(<GcodePreview fileId={42} />);
 
-    await waitFor(() => expect(screen.getByText(/Layer 3 \/ 3/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Layer 2 \/ 2/)).toBeInTheDocument());
+    // Z is the layer's real height (0.40), not its 0.20 thickness.
+    expect(screen.getByText(/Z 0\.40 mm/)).toBeInTheDocument();
+  });
+
+  it("omits the Z text for the preamble layer", async () => {
+    render(<GcodePreview fileId={42} />);
+
+    await waitFor(() => expect(screen.getByText(/Layer 2 \/ 2/)).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "1" } });
+    await waitFor(() => expect(screen.getByText(/Start/)).toBeInTheDocument());
+    expect(screen.queryByText(/Z \d/)).not.toBeInTheDocument();
+  });
+
+  it("numbers layers by the slicer's Z_HEIGHT comments, with Start before them", async () => {
+    // 3 slider positions = preamble + purge + 1 slicer layer -> offset 2.
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        headers: { get: () => null },
+        text: () => Promise.resolve("; Z_HEIGHT: 0.2\nG1 X0 Y0\n"),
+      } as unknown as Response),
+    ) as unknown as typeof fetch;
+    render(<GcodePreview fileId={42} />);
+
+    await waitFor(() => expect(screen.getByText(/Layer 1 \/ 1/)).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "2" } });
+    await waitFor(() => expect(screen.getByText(/Start/)).toBeInTheDocument());
   });
 
   it("shows an error state when the fetch fails", async () => {

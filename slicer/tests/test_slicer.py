@@ -127,6 +127,20 @@ def test_run_slice_nonzero_exit_has_log_tail(fake_cli):
     assert ei.value.exit_code == 3 and "boom" in ei.value.log_tail
 
 
+def test_run_slice_failure_carries_error_string_on_both_paths(fake_cli):
+    for mode, rc, text in (
+        ("failjson", 238, "slicer exited 238: Invalid parameter value(s)"),
+        ("exit0json", -24, "slicer exited -24: Unsupported 3MF version"),
+    ):
+        job = _job(None, mode)
+        try:
+            with pytest.raises(runner.SliceFailed) as ei:
+                _run(job, fake_cli)
+        finally:
+            runner.cleanup(job.dir)
+        assert str(ei.value) == text and ei.value.exit_code == rc
+
+
 def test_run_slice_exit0_without_output_is_failure(fake_cli):
     job = _job(None, "silent")
     try:
@@ -205,6 +219,31 @@ def test_health_and_profiles(api):
 def test_slice_roundtrip_with_client_contract(api):
     r = api.post("/slice", **_body())
     assert r.status_code == 200 and zipfile.is_zipfile(io.BytesIO(r.content))
+
+
+def test_slice_without_process_profile_uses_printer_only(api, monkeypatch):
+    seen = {}
+    real = runner.run_slice
+
+    async def spy(**kw):
+        seen["settings"] = [p.name for p in kw["job"].settings]
+        return await real(**kw)
+
+    monkeypatch.setattr(runner, "run_slice", spy)
+    mod = _client_module()
+    req = mod._build_slice_request(
+        model=b"ok",
+        filename="cube.3mf",
+        printer_profile={"name": "A1M 0.4", "inherits": "base", "printer_model": "A1M"},
+        process_profile=None,
+        filament_profiles=[{"name": "PLA basic"}],
+        bed_type="textured_plate",
+        options=mod.SliceOptions(),
+    )
+    assert "process_profile" not in [k for k, _ in req["files"]]
+    r = api.post("/slice", **req)
+    assert r.status_code == 200 and zipfile.is_zipfile(io.BytesIO(r.content))
+    assert seen["settings"] == ["printer.json"]
 
 
 def test_slice_bad_profile_400(api):

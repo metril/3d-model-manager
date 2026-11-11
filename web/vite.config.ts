@@ -25,6 +25,9 @@ function stampServiceWorker() {
 export default defineConfig({
   plugins: [react(), tailwindcss(), stampServiceWorker()],
   resolve: {
+    // gcode-preview and stats-gl nest their own three (0.159 / 0.170); one copy
+    // avoids "Multiple instances of Three.js being imported".
+    dedupe: ['three'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },

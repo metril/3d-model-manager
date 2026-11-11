@@ -267,6 +267,8 @@ def _archive_job(
     job = session.get(PrintJob, print_job_id)
     if job is None:
         raise LookupError(f"print job {print_job_id} not found")
+    if job.archive_dismissed_at is not None:
+        raise LookupError(f"print job {print_job_id} was deleted")
     printer = session.get(Printer, job.printer_id)
     if printer is None:
         raise LookupError(f"printer {job.printer_id} not found")
@@ -385,6 +387,9 @@ def _archive_job(
     arc.plate = plate_no
     arc.est_filament = est
     model_id, revision_id = _resolve_model(session, job, sha)
+    if model_id is None and arc.model_id is not None:
+        # Keep a manual link across a same-file merge or a fetch retry.
+        model_id, revision_id = arc.model_id, arc.revision_id
     arc.model_id = model_id
     arc.revision_id = revision_id
     if model_id is not None:
@@ -480,6 +485,9 @@ def mark_archive_error(
 ) -> None:
     """Record a non-retried failure (e.g. task time limit) on the archive row."""
     session.rollback()
+    job = session.get(PrintJob, print_job_id)
+    if job is None or job.archive_dismissed_at is not None:
+        return  # the run was deleted on purpose: don't re-create its archive
     arc = session.scalars(
         select(PrintArchive).where(PrintArchive.print_job_id == print_job_id)
     ).first()

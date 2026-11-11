@@ -224,16 +224,22 @@ async def run_slice(
     if handle is not None and handle.cancelled:
         raise SliceCancelled("cancelled", proc.returncode, tail)
     result = job.dir / "out" / OUT_NAME
-    if proc.returncode != 0:
-        raise SliceFailed(f"slicer exited {proc.returncode}", proc.returncode, tail)
+    # Orca's own explanation of a failure lives in result.json; keep it on
+    # both paths (the CLI can also fail with exit 0).
     rc_file = job.dir / "out" / "result.json"
+    info: dict = {}
     if rc_file.is_file():
         with contextlib.suppress(OSError, ValueError):
-            info = json.loads(rc_file.read_text())
-            if info.get("return_code", 0) != 0:
-                raise SliceFailed(
-                    str(info.get("error_string") or "slice failed"), info["return_code"], tail
-                )
+            loaded = json.loads(rc_file.read_text())
+            if isinstance(loaded, dict):
+                info = loaded
+    detail = str(info.get("error_string") or "").strip()
+    if proc.returncode != 0:
+        msg = f"slicer exited {proc.returncode}"
+        raise SliceFailed(f"{msg}: {detail}" if detail else msg, proc.returncode, tail)
+    code = info.get("return_code", 0)
+    if isinstance(code, int) and code != 0:
+        raise SliceFailed(f"slicer exited {code}: {detail or 'slice failed'}", code, tail)
     if not result.is_file():
         raise SliceFailed("slicer produced no output", proc.returncode, tail)
     return result.read_bytes()

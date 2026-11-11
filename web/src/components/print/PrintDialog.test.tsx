@@ -385,6 +385,60 @@ describe("PrintDialog", () => {
     expect(postMock).not.toHaveBeenCalledWith("/queue", expect.anything());
   });
 
+  async function openSend(waitEnabled = true) {
+    renderDialog({ kind: "file", fileId: 10 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Filament" })).toHaveAttribute("aria-current", "step"));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Tray for PLA" }), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendNow = await screen.findByRole("button", { name: "Send now" });
+    if (waitEnabled) await waitFor(() => expect(sendNow).not.toBeDisabled());
+    return sendNow;
+  }
+
+  it("a plate_not_cleared 409 offers 'Plate is clear, print now', which resends with plate_cleared", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["printers:control"], printer_access: null };
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: { plate_cleared?: boolean }) => {
+      if (path === "/print/send" && !body?.plate_cleared) {
+        return Promise.reject(new ApiError(409, "plate hold", "plate_not_cleared"));
+      }
+      return original(path, body);
+    });
+    fireEvent.click(await openSend());
+    expect(await screen.findByText(/hasn't been cleared since the last print/)).toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalledWith("/queue", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Plate is clear, print now" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith("/print/send", expect.objectContaining({ plate_cleared: true })),
+    );
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Sent to printer"));
+  });
+
+  it("the plan's hold warns up front and hides the action without control access", async () => {
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path === "/print/plan" ? Promise.resolve(basePlan({ hold: "printer_failed" })) : original(path, body),
+    );
+    await openSend(false);
+    expect(await screen.findByText(/last print failed/)).toBeInTheDocument();
+    expect(screen.getByText(/control access/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plate is clear, print now" })).not.toBeInTheDocument();
+  });
+
+  it("the hold's confirm respects the same gates as Send now (unresolved red row)", async () => {
+    authDataBox.current = { id: 1, role: "member", permissions: ["printers:control"], printer_access: null };
+    const original = postMock.getMockImplementation()!;
+    postMock.mockImplementation((path: string, body?: unknown) =>
+      path === "/print/plan" ? Promise.resolve(basePlan({ hold: "plate_not_cleared" })) : original(path, body),
+    );
+    const sendNow = await openSend(false);
+    expect(sendNow).toBeDisabled();
+    const confirm = await screen.findByRole("button", { name: "Plate is clear, print now" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(postMock).not.toHaveBeenCalledWith("/print/send", expect.anything());
+  });
+
   it("I3: falls back to enqueue on a queue_required 409", async () => {
     const original = postMock.getMockImplementation()!;
     postMock.mockImplementation((path: string, body?: unknown) => {
@@ -527,6 +581,65 @@ describe("PrintDialog", () => {
     expect(await screen.findByRole("button", { name: "Slice and send" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add to queue" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send now" })).not.toBeInTheDocument();
+  });
+
+  it("shows the recipe's process + the file's own layer height and can keep the file's settings", async () => {
+    recipesBox.current = [
+      { ...(RECIPE as object), process_profile_name: "0.28mm Extra Draft", process_layer_height_mm: 0.28 },
+    ];
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) =>
+      path === "/files/10"
+        ? Promise.resolve({
+            id: 10,
+            rel_path: "a.3mf",
+            format: "3mf",
+            embedded: { layer_height: 0.2, print_settings_id: "0.20mm Standard @BBL X1C", printer_settings_id: null },
+          })
+        : base(path),
+    );
+    renderDialog({ kind: "file", fileId: 10, format: "3mf" });
+    const line = await screen.findByTestId("recipe-process-9");
+    expect(line).toHaveTextContent("Process: 0.28mm Extra Draft · 0.28 mm");
+    expect(line).toHaveTextContent("file uses 0.2 mm");
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(await screen.findByLabelText(/Keep this file's own process settings/));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        "/queue",
+        expect.objectContaining({ recipe_id: 9, file_settings: true }),
+      ),
+    );
+  });
+
+  it("drops a ticked 'keep file settings' when the file changes to one without embedded settings", async () => {
+    recipesBox.current = [{ ...(RECIPE as object), process_profile_name: "P", process_layer_height_mm: 0.28 }];
+    const base = getMock.getMockImplementation()!;
+    getMock.mockImplementation((path: string) => {
+      if (path === "/files/10")
+        return Promise.resolve({ id: 10, rel_path: "a.3mf", format: "3mf", embedded: { layer_height: 0.2, print_settings_id: "x", printer_settings_id: null } });
+      if (path === "/files/11") return Promise.resolve({ id: 11, rel_path: "b.stl", format: "stl", embedded: null });
+      return base(path);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (fileId: number, format: string) => (
+      <QueryClientProvider client={queryClient}>
+        <PrintDialog open onOpenChange={() => {}} source={{ kind: "file", fileId, format }} onSent={vi.fn()} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui(10, "3mf"));
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(await screen.findByLabelText(/Keep this file's own process settings/));
+    rerender(ui(11, "stl"));
+    expect(screen.queryByLabelText(/Keep this file's own process settings/)).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/^PLA fast/));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Slice and send" }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/queue", expect.objectContaining({ file_id: 11, recipe_id: 9 })));
+    const body = postMock.mock.calls.find((c) => c[0] === "/queue")![1] as Record<string, unknown>;
+    expect(body.file_settings).toBeUndefined();
   });
 
   it("Slice and send posts the recipe with front:true and toasts the printer name", async () => {

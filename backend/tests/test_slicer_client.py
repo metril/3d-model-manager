@@ -231,6 +231,25 @@ def test_slice_contract():
 
 
 @respx.mock
+def test_slice_without_process_profile_omits_the_part():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert b'name="process_profile"' not in request.content
+        assert b'name="printer_profile"' in request.content
+        return httpx.Response(200, content=_zip_bytes())
+
+    respx.post(f"{BASE_URL}/slice").mock(side_effect=handler)
+    SlicerClient(BASE_URL).slice(
+        model=b"x",
+        filename="model.3mf",
+        printer_profile={},
+        process_profile=None,
+        filament_profiles=[],
+        bed_type="textured_pei",
+        options=SliceOptions(),
+    )
+
+
+@respx.mock
 def test_slice_non_2xx_raises_slicer_error():
     respx.post(f"{BASE_URL}/slice").mock(return_value=httpx.Response(500, text="boom"))
     client = SlicerClient(BASE_URL)

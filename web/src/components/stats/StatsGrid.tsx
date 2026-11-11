@@ -46,7 +46,7 @@ function SortableWidget({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn("sm:col-span-2", SPAN[w.size], w.size === 1 && "sm:col-span-1", isDragging && "z-10 opacity-80 shadow-lg")}
     >
-      <CardHeader className="flex-row items-center gap-1">
+      <CardHeader className="grid-cols-[auto_1fr_auto] items-center gap-1">
         <button
           type="button"
           className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-muted"

@@ -65,6 +65,8 @@ class QueueEnqueueIn(BaseModel):
     batch_id: int | None = None
     # Queue a recipe slice even when the part does not fit the printer bed.
     force: bool = False
+    # Slice with the file's own process settings, not the recipe's process profile.
+    file_settings: bool = False
 
 
 class QueueEnqueuePlatesIn(BaseModel):
@@ -89,6 +91,7 @@ class QueueEnqueuePlatesIn(BaseModel):
     preheat_override: Literal["on", "off"] | None = None
     preheat_chamber_target: int | None = Field(default=None, ge=0, le=65)
     force: bool = False
+    file_settings: bool = False
     name: str | None = Field(default=None, max_length=200)
     # Add the plate entries to this existing batch instead of creating one.
     batch_id: int | None = None
@@ -236,7 +239,7 @@ class QueueEntryOut(BaseModel):
     # ``hold_reason`` when ``state == skipped`` (e.g. "previous_failed").
     skipped_reason: str | None = None
     # Why a waiting/ready entry is not being dispatched:
-    # scheduled | manual | plate | <hold_reason> | None.
+    # scheduled | manual | plate | printer_failed | <hold_reason> | None.
     waiting_reason: str | None = None
     batch_id: int | None = None
     batch: BatchRefOut | None = None

@@ -108,7 +108,7 @@ export function ProfileScopeBar({
             value={search.nozzle != null ? String(search.nozzle) : "auto"}
             onValueChange={(v) => onPatch({ nozzle: v === "auto" ? undefined : Number(v) })}
           >
-            <SelectTrigger id="scope-nozzle" aria-label={t("profileScope.nozzle")} className="w-28">
+            <SelectTrigger id="scope-nozzle" aria-label={t("profileScope.nozzle")} className="w-40">
               <SelectValue placeholder={t("profileScope.any")} />
             </SelectTrigger>
             <SelectContent>

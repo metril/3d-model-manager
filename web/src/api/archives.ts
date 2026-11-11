@@ -117,6 +117,21 @@ export function usePatchArchive() {
   });
 }
 
+/** Link an archive to a library model (or unlink with `null`). Also refreshes
+ * the model pages, print history and stats that derive from the link. */
+export function useLinkArchiveModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, modelId, revisionId }: { id: number; modelId: number | null; revisionId?: number | null }) =>
+      api.patch<ArchiveOut>(`/archives/${id}`, { model_id: modelId, revision_id: revisionId ?? null }),
+    onSuccess: () => {
+      for (const key of ["archives", "models", "prints", "stats", "printers"]) {
+        void qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
+  });
+}
+
 export function useDeleteArchive() {
   const qc = useQueryClient();
   return useMutation({

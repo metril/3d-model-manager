@@ -9,6 +9,7 @@ PATCH/DELETE address a print row directly by its own id.
 
 from __future__ import annotations
 
+import anyio
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,7 @@ from app.schemas.prints import PrintCreateIn, PrintOut, PrintPatchIn
 from app.services import library
 from app.services import prints as prints_service
 from app.services.app_config import get_app_config
+from app.services.archive_blobs import unlink_all
 from app.services.costing import CostRates
 
 router = APIRouter(tags=["prints"])
@@ -102,8 +104,10 @@ async def delete_print(
     print_id: int,
     db: AsyncSession = Depends(get_db),
     ctx: AuthContext = Depends(require_session),
+    settings: Settings = Depends(get_settings),
 ) -> None:
     row = await db.get(Print, print_id)
     if row is not None:  # unknown id falls through to the service's 404
         require_owner_or_admin(ctx, row.created_by_user_id)
-    await prints_service.delete_print(db, print_id)
+    paths = await prints_service.delete_print(db, print_id, settings)
+    await anyio.to_thread.run_sync(unlink_all, paths)

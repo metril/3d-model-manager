@@ -15,11 +15,63 @@ from app.printers.base import state_key
 
 ALLOWED_PREFLIGHT_STATES = {"IDLE", "FINISH", "FAILED"}  # RESEARCH §4
 
+# printer_error stamped on a STARTING job the printer never picked up (reconcile
+# timeout). Also the marker archive_sweep uses to skip it: nothing ran.
+START_TIMEOUT_ERROR = "printer did not start the job"
+
+# printer_error stamped on a STARTING job that timed out while the printer's
+# state was unknown (no Redis data): it may still be printing the file, so the
+# queue entry is final (never re-sent) and the printer is held.
+STATE_UNKNOWN_ERROR = "printer state unknown at timeout"
+
+# Bambu print_error words that mean "the print was cancelled" (not a fault).
+CANCEL_ERROR_CODES: frozenset[int] = frozenset({50348044})
+
 # P6 Task 7: the dispatcher's own, narrower "idle" set -- a manual send may
 # retry a FAILED printer (ALLOWED_PREFLIGHT_STATES above), but the
 # dispatcher must never pick one on its own; a previous failure needs a
 # person's eyes, not another silent auto-retry onto the same machine.
 DISPATCH_IDLE_STATES = {"IDLE", "FINISH"}
+
+
+def failure_acknowledged(printer) -> bool:
+    """A person confirmed the plate (``POST /printers/{id}/clear-plate``) AFTER
+    printerd last saw the printer enter FAILED. Independent of the
+    ``require_plate_clear`` gate: a failed print always needs a person's eyes."""
+    failed, cleared = printer.failed_at, printer.plate_cleared_at
+    return (
+        failed is not None
+        and cleared is not None
+        and cleared >= failed
+        and not printer.awaiting_plate_clear
+    )
+
+
+def data_gap_key(printer_id: int) -> str:
+    """Redis key: epoch seconds of printerd's last no-data moment (link down,
+    stale report, or its own start) for this printer."""
+    return f"printer:{printer_id}:data_gap_at"
+
+
+def hold_unacknowledged(printer) -> bool:
+    """``failed_at`` is stamped and no clear-plate has come after it. The one
+    predicate the dispatcher, status and the clear-plate endpoint share."""
+    failed, cleared = printer.failed_at, printer.plate_cleared_at
+    return failed is not None and (cleared is None or cleared < failed)
+
+
+def failed_hold_reason(printer, gcode_state: str | None) -> str | None:
+    """``failed_unacknowledged`` while the printer reports FAILED, or sits idle,
+    after a failure printerd stamped (``failed_at``) that nobody has confirmed.
+    A cancel clears the stamp, so it never holds; an idle printer with a stale
+    ``print_error`` and no stamp never holds either."""
+    if (
+        (gcode_state == "FAILED" or gcode_state in DISPATCH_IDLE_STATES)
+        and not failure_acknowledged(printer)
+        and printer.failed_at is not None
+    ):
+        return "failed_unacknowledged"
+    return None
 
 
 def preflight_ok(state: dict | None) -> bool:

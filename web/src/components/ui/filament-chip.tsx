@@ -71,7 +71,7 @@ function FilamentChip({
         <span
           aria-hidden="true"
           title={description}
-          className={cn(swatchClass, "shrink-0 rounded-full border border-border/60")}
+          className={cn(swatchClass, "shrink-0 rounded-full border border-border/60 ring-1 ring-inset ring-foreground/15")}
           style={{ backgroundColor: hex }}
         />
       ) : (

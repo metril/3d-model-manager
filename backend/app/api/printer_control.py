@@ -35,8 +35,8 @@ from app.printers import commands as cmds
 from app.printers.base import cmd_result_key, command_channel
 from app.printers.capabilities import capabilities_for
 from app.printers.gcode3mf import printable_objects
-from app.services import drying, hooks
-from app.services.printer_state import read_state_async
+from app.services import drying, plate_guard
+from app.services.printer_state import hold_unacknowledged, read_state_async
 from app.services.redis_pool import get_async_redis
 from app.services.storage_backends import resolve_backend_for_file
 
@@ -316,7 +316,7 @@ async def clear_plate(
     400 ``not_awaiting`` unless the flag is set or the printer sits in
     FINISH/FAILED."""
     printer = await _get_or_404(db, printer_id)
-    if not printer.awaiting_plate_clear:
+    if not printer.awaiting_plate_clear and not hold_unacknowledged(printer):
         client = get_async_redis(settings.redis_url)
         try:
             state = await read_state_async(client, printer_id)
@@ -324,18 +324,9 @@ async def clear_plate(
             await client.aclose()
         if (state or {}).get("gcode_state") not in ("FINISH", "FAILED"):
             return _err(400, "not_awaiting", "the printer is not awaiting a plate clear")
-    printer.awaiting_plate_clear = False
-    db.add(
-        AuditLog(
-            user_id=ctx.user.id,
-            created_by_user_id=ctx.user.id,
-            printer_id=printer.id,
-            action="clear_plate",
-            payload={},
-        )
-    )
+    plate_guard.acknowledge_plate(db, ctx, printer)
     await db.commit()
-    await anyio.to_thread.run_sync(hooks.plate_cleared, printer_id, ctx.user.id)  # sync DB hook
+    await plate_guard.fire_cleared(printer_id, ctx)
     return JSONResponse(status_code=200, content={"awaiting_plate_clear": False})
 
 

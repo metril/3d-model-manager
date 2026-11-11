@@ -49,7 +49,7 @@ export function PrintersPanel() {
           {t("printersPanel.sort")}
           <select
             aria-label={t("printersPanel.sortAria")}
-            className="h-8 rounded-md border bg-card px-2 text-sm"
+            className="h-8 rounded-md border bg-card ps-2 text-sm"
             value={search.sort ?? "name"}
             onChange={(e) => patchSearch({ sort: e.target.value === "name" ? undefined : (e.target.value as PrintDashSearch["sort"]) })}
           >

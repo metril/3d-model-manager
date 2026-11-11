@@ -161,16 +161,20 @@ export function useStartSlice() {
       recipeId,
       plate,
       force,
+      fileSettings,
     }: {
       fileId: number;
       recipeId: number;
       plate?: number | null;
       force?: boolean;
+      /** Keep the file's own process settings instead of the recipe's process profile. */
+      fileSettings?: boolean;
     }) =>
       api.post<SliceJob>(`/files/${fileId}/slice`, {
         recipe_id: recipeId,
         plate: plate ?? null,
         ...(force ? { force: true } : {}),
+        ...(fileSettings ? { file_settings: true } : {}),
       }),
   });
 }
@@ -256,6 +260,14 @@ export interface FilePlates {
   format: string;
   blob_hash?: string;
   plates?: PlateOut[] | null;
+  /** A raw 3MF's own process settings (what a recipe's process profile replaces). */
+  embedded?: EmbeddedSettings | null;
+}
+export interface EmbeddedSettings {
+  layer_height: number | null;
+  nozzle_mm?: number | null;
+  print_settings_id: string | null;
+  printer_settings_id: string | null;
 }
 export function useFilePlates(fileId: number | null, enabled = true) {
   return useQuery({

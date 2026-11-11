@@ -28,7 +28,7 @@ export function ArchiveToolpath({ archiveId, archivePlate }: { archiveId: number
               <label className="flex items-center gap-2 text-sm">
                 {t("archiveX.toolpath.plate")}
                 <select
-                  className="rounded-md border bg-background px-2 py-1"
+                  className="rounded-md border bg-background ps-2 py-1"
                   value={current}
                   onChange={(e) => setPlate(Number(e.target.value))}
                 >

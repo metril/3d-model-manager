@@ -286,7 +286,7 @@ function QueueLane({
 }) {
   const { t } = useTranslation();
   return (
-    <Card className="w-96 shrink-0">
+    <Card className="w-full min-w-0 shrink-0 sm:w-96">
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm">{title}</CardTitle>
@@ -403,6 +403,11 @@ function QueueRow({
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <QueueStateChip state={state} lastError={entry.last_error} attempts={entry.attempts ?? 0} />
           <HeldChip reason={entry.printer_hold_reason} />
+          {entry.waiting_reason === "printer_failed" ? (
+            <Badge variant="outline" className={STATE_CLASSES.held} title={t("queuePage.printerFailed")}>
+              {t("queuePage.printerFailed")}
+            </Badge>
+          ) : null}
           <ReviewChips entry={entry} />
           <ScheduleChips entry={entry} />
         </div>

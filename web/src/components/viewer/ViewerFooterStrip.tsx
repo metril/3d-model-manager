@@ -32,7 +32,7 @@ export function ViewerFooterStrip({
           {names}
         </span>
       )}
-      <span className="shrink-0">{t("viewer.dragHint")}</span>
+      <span className="shrink-0 max-sm:hidden [@media(hover:none)]:hidden">{t("viewer.dragHint")}</span>
     </div>
   );
 }

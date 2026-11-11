@@ -99,7 +99,7 @@ export function StudioSurface({
       {selection?.type === "file" && sliced.length > 1 && (
         <select
           aria-label={t("mdStudio.slicedFile")}
-          className="h-7 max-w-48 rounded-md border border-border bg-card px-1 text-xs"
+          className="h-7 max-w-48 rounded-md border border-border bg-card ps-1 text-xs"
           value={selection.id}
           onChange={(e) => {
             const f = sliced.find((x) => x.id === Number(e.target.value));

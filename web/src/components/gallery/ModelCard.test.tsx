@@ -144,7 +144,7 @@ describe("ModelCard", () => {
   it("shows a source badge when the model was imported, none for a manual model", async () => {
     renderCard({ ...MODEL, source_site: "thingiverse" });
 
-    expect(await screen.findByTestId("source-badge")).toHaveTextContent("thingiverse");
+    expect(await screen.findByTestId("source-badge")).toHaveTextContent("Thingiverse");
   });
 
   it("renders no source badge for a manually-created model", async () => {

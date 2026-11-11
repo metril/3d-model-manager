@@ -6,6 +6,7 @@ decisions).
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import zipfile
 from collections.abc import Iterator
@@ -37,6 +38,7 @@ from app.schemas.jobs import JobOut
 from app.schemas.library import FileMoveIn, PlateOut
 from app.services import library, signed_urls
 from app.services.bed_fit import fit_for_selection
+from app.services.file_settings import embedded_for_file
 from app.services.http_names import content_disposition_attachment, content_disposition_inline
 from app.services.server_config import ServerConfig, get_server_config, public_origin
 from app.services.storage_backends import resolve_backend_for_file
@@ -54,6 +56,13 @@ router = APIRouter(prefix="/files", tags=["files"])
 public_router = APIRouter(prefix="/files", tags=["files"])
 
 
+class EmbeddedSettingsOut(BaseModel):
+    layer_height: float | None = None
+    nozzle_mm: float | None = None
+    print_settings_id: str | None = None
+    printer_settings_id: str | None = None
+
+
 class FileFormatOut(BaseModel):
     id: int
     rel_path: str
@@ -62,6 +71,9 @@ class FileFormatOut(BaseModel):
     # Plates of the file (sliced or unsliced multi-plate project), for the
     # print/slice plate pickers; ``None`` when the blob has no plate data.
     plates: list[PlateOut] | None = None
+    # A raw (unsliced) 3MF's own process settings -- what a recipe's process
+    # profile would replace. ``None`` for other formats / no project settings.
+    embedded: EmbeddedSettingsOut | None = None
 
 
 @router.get("/{file_id}", response_model=FileFormatOut)
@@ -86,12 +98,20 @@ async def get_file_format(
             settings, [blob], await library._cost_rates(db, settings)
         )
     )[blob.hash]
+    embedded = None
+    raw = await embedded_for_file(db, settings, file, blob)
+    if raw:
+        try:
+            embedded = EmbeddedSettingsOut(**raw)
+        except ValueError:  # best-effort hint; never fail the lookup
+            embedded = None
     return FileFormatOut(
         id=file.id,
         rel_path=file.rel_path,
         format=blob.format,
         blob_hash=blob.hash,
         plates=enrichment.meta.plates if enrichment.meta else None,
+        embedded=embedded,
     )
 
 
@@ -213,32 +233,44 @@ def _spool_to_temp_file(backend: StorageBackend, storage_path: str) -> Path:
     return tmp_path
 
 
+_PLATE_GCODE_RE = re.compile(r"Metadata/plate_(\d+)\.gcode")
+
+
 def _resolve_gcode_member(tmp_path: Path, plate: int | None) -> tuple[str, int]:
     """Resolve which zip member (name + uncompressed ``ZipInfo.file_size``,
     for ``Content-Length``) holds the requested plate's embedded
     ``.gcode``, via the same ``model_settings.config`` plate->gcode mapping
     the pipeline's own metadata extraction uses. Defaults to the
-    lowest-numbered plate when ``plate`` is omitted. On ANY exception
+    lowest-numbered plate whose gcode member exists when ``plate`` is omitted. On ANY exception
     (including the 404s raised here), removes ``tmp_path`` -- the caller
     only reaches ownership of cleanup on success, via the streaming
     generator below.
     """
     try:
         with zipfile.ZipFile(tmp_path) as zf:
+            names = set(zf.namelist())
             model_settings = slicedmeta.read_zip_member(zf, slicedmeta.MODEL_SETTINGS_PATH)
             plate_files = slicedmeta.parse_model_settings(model_settings)
-            if not plate_files:
+            # plate -> gcode member that actually exists in THIS zip. A
+            # plate-only slice keeps every source plate in model_settings
+            # but ships just one ``plate_N.gcode``.
+            available: dict[int, str] = {}
+            for number, entry in plate_files.items():
+                member_name = (entry or {}).get("gcode_file")
+                if member_name and member_name in names:
+                    available[number] = member_name
+            if not available:
+                for name in names:
+                    match = _PLATE_GCODE_RE.fullmatch(name)
+                    if match:
+                        available[int(match.group(1))] = name
+            if not available:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "no embedded gcode in this file")
-            chosen = plate if plate is not None else min(plate_files)
-            gcode_member = (plate_files.get(chosen) or {}).get("gcode_file")
+            chosen = plate if plate is not None else min(available)
+            gcode_member = available.get(chosen)
             if gcode_member is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, f"no gcode for plate {chosen}")
-            try:
-                info = zf.getinfo(gcode_member)
-            except KeyError as exc:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND, "embedded gcode member missing"
-                ) from exc
+            info = zf.getinfo(gcode_member)
             return gcode_member, info.file_size
     except BaseException:
         tmp_path.unlink(missing_ok=True)

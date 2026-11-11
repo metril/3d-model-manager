@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.22.3](https://github.com/metril/3d-model-manager/compare/v0.22.2...v0.22.3) (2026-11-09)
+
+
+### Bug Fixes
+
+* **worker:** break the import cycle that crashed Celery at startup ([#308](https://github.com/metril/3d-model-manager/issues/308)) ([025e4b4](https://github.com/metril/3d-model-manager/commit/025e4b40144410e86f43db625ef382a37cc77457))
+
+## [0.22.2](https://github.com/metril/3d-model-manager/compare/v0.22.1...v0.22.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **printing:** refuse direct prints until the plate is cleared ([#306](https://github.com/metril/3d-model-manager/issues/306)) ([b6357b0](https://github.com/metril/3d-model-manager/commit/b6357b0892a8b2181ad8b3d3d16dbf97f5434600))
+
+## [0.22.1](https://github.com/metril/3d-model-manager/compare/v0.22.0...v0.22.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **queue:** hold the printer after a print error reported as idle ([#304](https://github.com/metril/3d-model-manager/issues/304)) ([3db4eb8](https://github.com/metril/3d-model-manager/commit/3db4eb81271409752f503269bfd1eb84644ea3ce))
+
+## [0.22.0](https://github.com/metril/3d-model-manager/compare/v0.21.1...v0.22.0) (2026-11-08)
+
+
+### Features
+
+* **slicing:** show recipe process settings and keep a file's own ([#301](https://github.com/metril/3d-model-manager/issues/301)) ([0be4096](https://github.com/metril/3d-model-manager/commit/0be40969da2e861695b3762a6120a81845428fdf))
+
+
+### Bug Fixes
+
+* **archives:** keep deleted runs deleted ([#302](https://github.com/metril/3d-model-manager/issues/302)) ([20b3b3f](https://github.com/metril/3d-model-manager/commit/20b3b3f52a1f946cd41752cb1f59ddb6008088b9))
+
+## [0.21.1](https://github.com/metril/3d-model-manager/compare/v0.21.0...v0.21.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **queue:** re-queue sliced files that hold a single plate ([#299](https://github.com/metril/3d-model-manager/issues/299)) ([717e0e9](https://github.com/metril/3d-model-manager/commit/717e0e9618e379666e8cfdf48b8e24afbfcf9de1))
+
+## [0.21.0](https://github.com/metril/3d-model-manager/compare/v0.20.4...v0.21.0) (2026-11-08)
+
+
+### Features
+
+* **archives:** link an archive to a model ([#297](https://github.com/metril/3d-model-manager/issues/297)) ([600627c](https://github.com/metril/3d-model-manager/commit/600627c52c7cf2feb82235e975429ac21cb3c5a0))
+
+
+### Bug Fixes
+
+* **printing:** time out SD-card prints that never start ([#296](https://github.com/metril/3d-model-manager/issues/296)) ([ecb1ca4](https://github.com/metril/3d-model-manager/commit/ecb1ca46b24499705ea518dda6e49fb62d4c09ce))
+* **viewer:** show real layer height in the sliced preview ([#295](https://github.com/metril/3d-model-manager/issues/295)) ([92fb169](https://github.com/metril/3d-model-manager/commit/92fb16930bf18c5aab4f81dee6264371a0b66b24))
+
+## [0.20.4](https://github.com/metril/3d-model-manager/compare/v0.20.3...v0.20.4) (2026-11-08)
+
+
+### Bug Fixes
+
+* **queue:** unblock the queue after a failed print ([#291](https://github.com/metril/3d-model-manager/issues/291)) ([e75e04f](https://github.com/metril/3d-model-manager/commit/e75e04fb66f0b0d651815ad25083388748f9c302))
+* **viewer:** load the g-code preview for plate-only slices ([#293](https://github.com/metril/3d-model-manager/issues/293)) ([bdf3bf0](https://github.com/metril/3d-model-manager/commit/bdf3bf0f1dcc219858ac84438c88529ffd599320))
+* **web:** keep select chevrons clear of text and stop recent-run rows overlapping ([#288](https://github.com/metril/3d-model-manager/issues/288)) ([1572ddc](https://github.com/metril/3d-model-manager/commit/1572ddca229c77fd5315029b06aff41de3f87c01))
+* **web:** UI audit — overlaps, truncation, sidebar, stats, viewer ([#289](https://github.com/metril/3d-model-manager/issues/289)) ([5dfea3a](https://github.com/metril/3d-model-manager/commit/5dfea3a9929d0219225da7d3dd474be6d8a21f35))
+* **web:** UI audit 2 — phone layout, drawer, palette, focus, formatting ([#294](https://github.com/metril/3d-model-manager/issues/294)) ([0efb444](https://github.com/metril/3d-model-manager/commit/0efb444af58fb83ef63ef5427be40c59844f05c3))
+
 ## [0.20.3](https://github.com/metril/3d-model-manager/compare/v0.20.2...v0.20.3) (2026-11-08)
 
 

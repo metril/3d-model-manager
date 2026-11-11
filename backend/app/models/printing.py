@@ -76,6 +76,11 @@ class Printer(Base):
     awaiting_plate_clear: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    # When printerd last saw the printer enter FAILED / when a person last
+    # confirmed the plate. A FAILED printer is dispatchable only once
+    # ``plate_cleared_at >= failed_at`` (see dispatcher.failure_acknowledged).
+    failed_at: Mapped[datetime | None] = mapped_column()
+    plate_cleared_at: Mapped[datetime | None] = mapped_column()
 
 
 class PlateReference(Base):
@@ -149,6 +154,16 @@ class PrintJob(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+    # When the start command was sent (state -> STARTING). The dispatcher fails
+    # a job stuck here unless the printer is visibly preparing/printing it.
+    starting_at: Mapped[datetime | None]
+    # The printer's ``print_error`` when the job entered STARTING (None =
+    # unknown). The same value later is a leftover of a previous print.
+    print_error_at_send: Mapped[int | None]
+    # Set when the run's archive/print was deleted on purpose: the job row stays
+    # (spool usage, queue, billing reference it) but `archive_sweep` must never
+    # re-archive it and the job lists hide it.
+    archive_dismissed_at: Mapped[datetime | None]
     raw_status: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (Index("ix_print_jobs_printer_state", "printer_id", "state"),)
     # Slicer filament index -> AMS tray, as sent (app-origin jobs only).

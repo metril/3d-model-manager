@@ -367,7 +367,7 @@ export default function GcodeToolpathViewer({ gcodeUrl, className = "", initialC
                 value={mode}
                 onChange={(e) => setMode(e.target.value as GcodeColorMode)}
                 aria-label={t("gcodeViewer.colorMode")}
-                className="rounded border bg-background px-1 py-1"
+                className="rounded border bg-background ps-1 py-1"
               >
                 {MODES.map((m) => (
                   <option key={m} value={m}>

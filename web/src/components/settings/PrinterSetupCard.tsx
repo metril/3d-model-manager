@@ -399,7 +399,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="lg"
               disabled={busy || detectSerial.isPending || draft.host.trim() === ""}
               onClick={detect}
             >
@@ -434,7 +434,7 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             value={draft.model}
             onChange={(e) => setField("model", e.target.value)}
             disabled={busy}
-            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            className="h-9 w-full rounded-md border border-input bg-transparent ps-3 text-sm"
           >
             <option value="">{t("settingsPrinterSetup.selectModel")}</option>
             {draft.model !== "" && !PRINTER_MODELS.some((g) => g.models.some((o) => o.value === draft.model)) ? (
@@ -493,8 +493,8 @@ function PrinterEditor({ printer, fill }: { printer?: PrinterOut; fill?: Fill | 
             )}
           </div>
         ) : null}
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <span className="text-sm font-medium text-foreground">{t("settingsPrinterSetup.volume")}</span>
+        <div role="group" aria-labelledby={`${idPrefix}-volume`} className="flex flex-col gap-1.5 sm:col-span-2">
+          <span id={`${idPrefix}-volume`} className="text-sm font-medium text-foreground">{t("settingsPrinterSetup.volume")}</span>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={`${idPrefix}-volume-x`}>{t("settingsPrinterSetup.volumeX")}</Label>

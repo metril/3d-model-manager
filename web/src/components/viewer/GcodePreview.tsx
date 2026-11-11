@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import type { WebGLPreview } from "gcode-preview";
 
 import { usePrinters, usePrinterStatus } from "@/api/printers";
+import { countSliceLayers, layerZHeights, sliceLayerLabel } from "@/lib/gcodeLayerZ";
 import { isTooLarge, TOO_LARGE_TO_PREVIEW_BYTES } from "@/lib/gcodeLimits";
 import { useTranslation } from "react-i18next";
 
@@ -28,8 +29,8 @@ const DEFAULT_BUILD_VOLUME = { x: 256, y: 256, z: 256 };
  * extracts a `.gcode.3mf`'s embedded plate gcode; a bare `.gcode` file
  * would just stream itself, though `PlatePanel` only mounts this for
  * sliced files today. */
-function gcodeDownloadUrl(fileId: number): string {
-  return `/api/files/${fileId}/download?member=gcode`;
+function gcodeDownloadUrl(fileId: number, plate?: number): string {
+  return `/api/files/${fileId}/download?member=gcode${plate !== undefined ? `&plate=${plate}` : ""}`;
 }
 
 /** Above this, don't even try to load the gcode text into the browser
@@ -39,10 +40,13 @@ function gcodeDownloadUrl(fileId: number): string {
 
 export function GcodePreview({
   fileId,
+  plate,
   buildVolume,
   extrusionColor,
 }: {
   fileId: number;
+  /** Sliced plate index; omit to let the backend pick the first plate present. */
+  plate?: number;
   buildVolume?: { x: number; y: number; z: number };
   extrusionColor?: string;
 }) {
@@ -52,6 +56,8 @@ export function GcodePreview({
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "too-large">("loading");
   const [layerCount, setLayerCount] = useState(0);
   const [layer, setLayer] = useState(1);
+  const sliceLayersRef = useRef(0);
+  const layerZRef = useRef<(number | null)[]>([]);
 
   const printers = usePrinters();
   const firstPrinterId = printers.data?.[0]?.id;
@@ -79,7 +85,7 @@ export function GcodePreview({
       try {
         const [{ init }, response] = await Promise.all([
           import("gcode-preview"),
-          fetch(gcodeDownloadUrl(fileId), { credentials: "include", signal: controller.signal }),
+          fetch(gcodeDownloadUrl(fileId, plate), { credentials: "include", signal: controller.signal }),
         ]);
         if (!response.ok) throw new Error(`gcode download failed: ${response.status}`);
 
@@ -106,6 +112,8 @@ export function GcodePreview({
         preview.processGCode(text);
         preview.render();
         previewRef.current = preview;
+        layerZRef.current = layerZHeights(preview.layers);
+        sliceLayersRef.current = countSliceLayers(text);
 
         const total = preview.maxLayerIndex + 1;
         setLayerCount(total);
@@ -124,7 +132,7 @@ export function GcodePreview({
       previewRef.current = null;
     };
     // Colour is applied by the effect below without re-parsing.
-  }, [fileId, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z]);
+  }, [fileId, plate, resolvedBuildVolume.x, resolvedBuildVolume.y, resolvedBuildVolume.z]);
 
   useEffect(() => {
     const preview = previewRef.current;
@@ -165,7 +173,9 @@ export function GcodePreview({
     };
   }, []);
 
-  const currentHeight = previewRef.current?.layers[layer - 1]?.height ?? null;
+  const currentHeight = layerZRef.current[layer - 1] ?? null;
+
+  const shown = sliceLayerLabel(layer, layerCount, sliceLayersRef.current);
 
   if (status === "error") {
     return <p className="py-8 text-center text-sm text-muted-foreground">{t("viewer.gcode.error")}</p>;
@@ -199,7 +209,9 @@ export function GcodePreview({
             aria-label={t("viewer.gcode.layer")}
           />
           <p className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-            {t("viewer.gcode.layerOf", { layer, total: layerCount })}
+            {shown.layer <= 0
+              ? t("viewer.gcode.start")
+              : t("viewer.gcode.layerOf", { layer: shown.layer, total: shown.total })}
             {currentHeight !== null ? ` · Z ${currentHeight.toFixed(2)} mm` : ""}
           </p>
         </div>

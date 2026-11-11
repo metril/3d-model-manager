@@ -22,6 +22,7 @@ import logging
 import re
 import tempfile
 import uuid
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -37,12 +38,23 @@ from app.importers.download import StagedFile
 from app.models import PrintRecipe, SliceJob, SlicerProfile
 from app.models.enums import BlobFormat, BlobKind, QueueState
 from app.models.library import Blob, File, Model, PrintQueueEntry, Revision
-from app.pipeline import slicedmeta
+from app.pipeline import plates3mf, slicedmeta
 from app.services import billing, derivatives, events, library, spool
+from app.services import file_settings as file_settings_service
 from app.services.app_config import get_app_config_sync
-from app.services.dispatcher import ALL_PLATES_KEY, QUEUE_MAX_ATTEMPTS, slice_siblings
+from app.services.dispatcher import (
+    ALL_PLATES_KEY,
+    FILE_SETTINGS_KEY,
+    QUEUE_MAX_ATTEMPTS,
+    slice_siblings,
+)
 from app.services.print_plan import estimate_item_sync
-from app.services.profile_sanitize import clamp_key, parse_range_error, sanitize_profile
+from app.services.profile_sanitize import (
+    KNOWN_RANGES,
+    clamp_key,
+    parse_range_error,
+    sanitize_profile,
+)
 from app.services.server_config import SLICE_TIMEOUT_MAX_S, get_server_config_sync
 from app.services.slicer_client import (
     SliceOptions,
@@ -227,7 +239,7 @@ def slice_file(self, queue_entry_id: int) -> None:
             if entry is None:
                 return
             entry.attempts += 1
-            entry.last_error = str(exc)
+            entry.last_error = _public_error(exc)
             entry.last_log = getattr(exc, "log_tail", None)
             entry.state = (
                 QueueState.FAILED
@@ -248,6 +260,7 @@ def slice_file(self, queue_entry_id: int) -> None:
                         sib.last_error = entry.last_error
                         sib.slicing_started_at = None
             name = _entry_name(session, entry)
+            entry_error = entry.last_error
             file_id = entry.file_id
             session.commit()
             _publish(
@@ -259,7 +272,7 @@ def slice_file(self, queue_entry_id: int) -> None:
             if terminal:
                 _notify(
                     "slice_failed",
-                    {"name": name, "error": str(exc)[:300], "queue_id": queue_entry_id},
+                    {"name": name, "error": entry_error, "queue_id": queue_entry_id},
                 )
             return
 
@@ -345,6 +358,30 @@ def _sliced_rel_path(source_rel_path: str, recipe_name: str, tag: str, plate: in
     return f"{stem} - {recipe_name} ({tag} p{plate}).gcode.3mf"
 
 
+def _guard_arrange_spill(src_path: Path, out_path: Path, meta, plate: int | None) -> None:
+    """Auto-arrange can move parts onto more plates than the source has, or
+    off the one plate being sliced; only the plates the print flow knows about
+    are ever printed, so those parts would silently vanish. Fail instead."""
+    src_counts = plates3mf.source_object_counts(src_path)
+    src_plates = len(src_counts) if src_counts else 1
+    if not plate:
+        if len(meta.plates) > src_plates:
+            raise ValueError(
+                f"auto-arrange spread the parts over {len(meta.plates)} plates (the file has "
+                f"{src_plates}); the extra plates would not be printed. Turn off auto-arrange "
+                "or use a larger bed."
+            )
+        return
+    wanted = (src_counts or {}).get(plate)
+    got = plates3mf.sliced_object_count(out_path)
+    if wanted and got is not None and got < wanted:
+        raise ValueError(
+            f"auto-arrange could not fit all {wanted} parts of plate {plate} on one plate "
+            f"({got} were sliced); the rest would be dropped. Turn off auto-arrange or use a "
+            "larger bed."
+        )
+
+
 @dataclass
 class SliceOutcome:
     file_id: int
@@ -409,6 +446,8 @@ def _is_permanent(exc: BaseException) -> bool:
     """Deterministic failures that a retry can never fix."""
     if isinstance(exc, ValueError):
         return True
+    if isinstance(exc, SlicerError) and exc.status == 400:
+        return True  # the sidecar rejected the request itself; resending can't help
     if not (isinstance(exc, SlicerError) and exc.status == 422):
         return False
     # The sidecar 422s every SliceFailed, incl. OOM/crash/no-output (retryable).
@@ -424,9 +463,23 @@ _EXIT_RE = re.compile(r"slicer exited (-?\d+)")
 _TRANSIENT_EXITS = {134, 137, 139}
 
 
-def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_profiles, **kw):
+_MAX_RANGE_RETRIES = 8
+
+
+def _slice_with_sanitize(
+    client,
+    *,
+    printer_profile,
+    process_profile,
+    filament_profiles,
+    sanitize_model: Path | None = None,
+    **kw,
+):
     """Sanitize known-bad values up front; on a 422 range error, clamp the
-    offending key everywhere and retry once within the same attempt."""
+    offending key everywhere and retry within the same attempt.
+    ``process_profile`` None = slice with the model file's own process
+    settings; ``sanitize_model`` (that 3MF's temp copy) is then clamped too,
+    since its embedded values reach the slicer unfiltered."""
     for d in (printer_profile, process_profile, *filament_profiles):
         if isinstance(d, dict) and "include" in d:
             # ValueError is a permanent failure (see `_is_permanent`).
@@ -435,34 +488,46 @@ def _slice_with_sanitize(client, *, printer_profile, process_profile, filament_p
                 "from an older slicer bundle) — re-sync profiles from the slicer sidecar."
             )
     printer, changed_p = sanitize_profile(printer_profile)
-    process, changed_x = sanitize_profile(process_profile)
+    process, changed_x = (
+        sanitize_profile(process_profile) if process_profile is not None else (None, [])
+    )
     filaments = []
     changed_f: list[str] = []
     for f in filament_profiles:
         fixed, ch = sanitize_profile(f)
         filaments.append(fixed)
         changed_f += ch
-    if changed_p or changed_x or changed_f:
-        logger.info("sanitized profile keys: %s", sorted({*changed_p, *changed_x, *changed_f}))
-    try:
-        return client.slice(
-            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+    changed_m = (
+        plates3mf.clamp_project_settings(sanitize_model, KNOWN_RANGES)
+        if sanitize_model is not None
+        else []
+    )
+    if changed_p or changed_x or changed_f or changed_m:
+        logger.info(
+            "sanitized profile keys: %s", sorted({*changed_p, *changed_x, *changed_f, *changed_m})
         )
-    except SlicerError as exc:
-        if exc.status != 422:
-            raise
-        parsed = parse_range_error(f"{exc}\n{exc.log_tail or ''}")
-        if parsed is None:
-            raise
-        key, lo, hi = parsed
-        if not any(clamp_key(d, key, lo, hi) for d in (printer, process, *filaments)):
-            raise
-        for d in (printer, process, *filaments):
-            clamp_key(d, key, lo, hi)
-        logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
-        return client.slice(
-            printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
-        )
+    for attempt in range(_MAX_RANGE_RETRIES + 1):
+        try:
+            return client.slice(
+                printer_profile=printer, process_profile=process, filament_profiles=filaments, **kw
+            )
+        except SlicerError as exc:
+            if exc.status != 422 or attempt == _MAX_RANGE_RETRIES:
+                raise
+            parsed = parse_range_error(f"{exc}\n{exc.log_tail or ''}")
+            if parsed is None:
+                raise
+            key, lo, hi = parsed
+            drafts = [d for d in (printer, process, *filaments) if d is not None]
+            changed = [clamp_key(d, key, lo, hi) for d in drafts]
+            if sanitize_model is not None and plates3mf.clamp_project_settings(
+                sanitize_model, {key: (lo, hi)}
+            ):
+                changed.append(True)
+            if not any(changed):
+                raise
+            logger.info("retrying slice after clamping %s to [%s, %s]", key, lo, hi)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def slice_source(
@@ -501,7 +566,12 @@ def slice_source(
 
     printer_profile = session.get(SlicerProfile, recipe.printer_profile_id)
     process_profile = session.get(SlicerProfile, recipe.process_profile_id)
-    if printer_profile is None or process_profile is None:
+    merged_options = {**(recipe.options or {}), **(option_overrides or {})}
+    # Slice with the file's own process settings: send no process profile (the
+    # slicer keeps the 3MF's embedded one); printer + filament still come
+    # from the recipe.
+    file_settings = bool(merged_options.get(FILE_SETTINGS_KEY))
+    if printer_profile is None or (process_profile is None and not file_settings):
         raise ValueError("recipe's printer/process profile is missing")
 
     filament_profiles = []
@@ -522,7 +592,17 @@ def slice_source(
         except LookupError as exc:
             raise ValueError(str(exc)) from exc
 
-        merged_options = {**(recipe.options or {}), **(option_overrides or {})}
+        if file_settings:
+            embedded = None
+            if suffix.lower() == ".3mf":
+                try:
+                    with zipfile.ZipFile(src_path) as zf:
+                        embedded = plates3mf.read_embedded_process(zf)
+                except (zipfile.BadZipFile, OSError):
+                    embedded = None
+            reason = file_settings_service.unusable_reason(embedded, printer_profile)
+            if reason is not None:
+                raise ValueError(reason)  # permanent: the choice can never work
         options = SliceOptions(
             auto_orient=bool(merged_options.get("auto_orient", False)),
             arrange=bool(merged_options.get("arrange", False)),
@@ -533,11 +613,12 @@ def slice_source(
             model=src_path,
             filename=file.rel_path,
             printer_profile=printer_profile.data,
-            process_profile=process_profile.data,
+            process_profile=None if file_settings else process_profile.data,
             filament_profiles=filament_profiles,
             bed_type=recipe.bed_type,
             options=options,
             job_id=job_id,
+            sanitize_model=src_path if file_settings else None,
         )
 
         run_log = getattr(client, "last_log_tail", None)
@@ -545,10 +626,14 @@ def slice_source(
         out_path.write_bytes(out_bytes)
         meta = slicedmeta.parse_gcode_3mf(out_path)
 
-        expected_plate = plate if plate else 1  # 0/None = all plates -> plate 1 prints
         plate_indexes = {p["index"] for p in meta.plates}
+        # 0/None = all plates -> the lowest plate in the output prints
+        expected_plate = plate or (min(plate_indexes) if plate_indexes else 1)
         if plate_indexes and expected_plate not in plate_indexes:
             raise ValueError(f"sliced output has no plate {expected_plate}")
+
+        if options.arrange:
+            _guard_arrange_spill(src_path, out_path, meta, plate)
 
         if (
             meta.printer_model
@@ -563,7 +648,12 @@ def slice_source(
         if keep is not None and not keep():
             raise SlicerCancelled("slice cancelled before the result was stored")
 
-        new_rel_path = _sliced_rel_path(file.rel_path, recipe.name, tag, expected_plate)
+        new_rel_path = _sliced_rel_path(
+            file.rel_path,
+            f"{recipe.name}, file settings" if file_settings else recipe.name,
+            tag,
+            expected_plate,
+        )
         digest = blake3(out_bytes).hexdigest()
 
         # C1: never delete an existing sliced File -- a PrintJob (or
@@ -580,6 +670,11 @@ def slice_source(
         )
         if existing is not None:
             return SliceOutcome(existing.id, _meta_summary(meta), log_tail=run_log)
+
+        # A retried entry re-slices to the same name; that earlier File must
+        # survive (a PrintJob references it) and (revision_id, rel_path) is
+        # unique, so pick a free " (2)", " (3)", ... path.
+        new_rel_path = _unique_rel_path(session, revision.id, new_rel_path)
 
         spool.ensure_spool_dir(settings)
         token = uuid.uuid4()
@@ -599,6 +694,32 @@ def slice_source(
             session, model=model, revision=revision, staged=staged
         )
         return SliceOutcome(new_file.id, _meta_summary(meta), created=True, log_tail=run_log)
+
+
+def _unique_rel_path(session, revision_id: int, rel_path: str) -> str:
+    """``rel_path`` if no File in the revision uses it, else the first free
+    ``<stem> (n).gcode.3mf`` (n >= 2)."""
+    taken = set(
+        session.execute(select(File.rel_path).where(File.revision_id == revision_id)).scalars()
+    )
+    if rel_path not in taken:
+        return rel_path
+    suffix = ".gcode.3mf"
+    stem = rel_path[: -len(suffix)] if rel_path.endswith(suffix) else rel_path
+    ext = suffix if rel_path.endswith(suffix) else ""
+    n = 2
+    while f"{stem} ({n}){ext}" in taken:
+        n += 1
+    return f"{stem} ({n}){ext}"
+
+
+def _public_error(exc: BaseException) -> str:
+    """Short, human last_error: a library/DB exception (SQL text + bound
+    parameters) never reaches the queue row; its message is logged instead."""
+    if isinstance(exc, (SlicerError, ValueError, SlicerUnavailable)):
+        text = " ".join(str(exc).split())
+        return text[:200] if text else type(exc).__name__
+    return f"slicing failed ({type(exc).__name__}; see server log)"
 
 
 # --- standalone slice jobs (`POST /files/{id}/slice`) ---------------------

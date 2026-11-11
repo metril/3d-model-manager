@@ -83,6 +83,25 @@
   font-weight: 500;
   transition: color 0.15s, background-color 0.15s;
 }
+/* Inactive tabs reserved room for their (hidden) close button, so gaps
+ * varied tab to tab. Take it out of the flow and reveal it over the tab's
+ * right edge on hover; touch devices keep it inline (always visible). */
+@media (hover: hover) {
+  .dockview-theme-tdmm .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
+    position: absolute;
+    top: 50%;
+    right: 2px;
+    transform: translateY(-50%);
+    background-color: var(--dv-inactivegroup-hiddenpanel-tab-background-color);
+  }
+  .dockview-theme-tdmm .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-content {
+    margin-right: 0;
+  }
+}
+.dockview-theme-tdmm .dv-tab:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--primary) 70%, transparent);
+  outline-offset: -2px;
+}
 .dockview-theme-tdmm .dv-tab:hover {
   background-color: color-mix(in oklch, var(--accent) 70%, transparent);
   color: var(--foreground);

@@ -64,7 +64,7 @@ export function TopBar({
           <ArrowLeftIcon className="size-4" />
         </Button>
       )}
-      <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{crumb}</div>
+      <div className="min-w-16 flex-1 truncate text-sm text-muted-foreground" title={crumb}>{crumb}</div>
       <PlugSwitchbar />
       <UpdateBadge />
       <Button
@@ -76,7 +76,7 @@ export function TopBar({
       >
         <SearchIcon className="size-3.5" />
         {t("shell.search")}
-        <kbd className="rounded border border-border bg-muted px-1 text-[10px] tabular-mono">{isMac ? "⌘K" : "Ctrl K"}</kbd>
+        <kbd className="hidden rounded border border-border sm:inline-block [@media(hover:none)]:hidden bg-muted px-1 text-[10px] tabular-mono">{isMac ? "⌘K" : "Ctrl K"}</kbd>
       </Button>
     </div>
   );

@@ -242,6 +242,53 @@ async def test_download_member_gcode_extracts_embedded_plate(
     assert response.content == corpus.bambu_gcode.read_bytes()
 
 
+def _plate_only_3mf(*, model_settings: bool, plates: tuple[int, ...] = (1, 2, 3)) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        if model_settings:
+            body = "".join(
+                f'<plate><metadata key="plater_id" value="{n}"/>'
+                f'<metadata key="gcode_file" value="Metadata/plate_{n}.gcode"/></plate>'
+                for n in plates
+            )
+            zf.writestr("Metadata/model_settings.config", f"<config>{body}</config>")
+        zf.writestr("Metadata/plate_3.gcode", "G1 X3\n")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("with_settings", [True, False])
+async def test_download_member_gcode_plate_only_slice(
+    authenticated_client: httpx.AsyncClient, with_settings: bool
+) -> None:
+    created = await _create_model(authenticated_client, f"Plate Only {with_settings}")
+    upload = await authenticated_client.put(
+        "/api/uploads",
+        params={
+            "model_id": created["id"],
+            "revision_id": created["current_revision"]["id"],
+            "rel_path": "p3.gcode.3mf",
+        },
+        content=_plate_only_3mf(model_settings=with_settings),
+    )
+    assert upload.status_code == 201, upload.text
+    url = f"/api/files/{upload.json()['file_id']}/download"
+
+    ok = await authenticated_client.get(url, params={"member": "gcode"})
+    assert ok.status_code == 200
+    assert ok.content == b"G1 X3\n"
+    assert ok.headers["content-length"] == "6"
+
+    explicit = await authenticated_client.get(url, params={"member": "gcode", "plate": 3})
+    assert explicit.status_code == 200
+
+    missing = await authenticated_client.get(url, params={"member": "gcode", "plate": 1})
+    assert missing.status_code == 404
+    assert "no gcode for plate 1" in missing.text
+
+
 async def test_download_member_gcode_streams_without_buffering_whole_member(
     corpus: CorpusPaths,
     backend: LocalStorageBackend,

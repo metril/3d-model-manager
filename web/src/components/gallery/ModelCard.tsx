@@ -17,6 +17,7 @@ import { SpecRow, type SpecItem } from "@/components/ui/spec-row";
 import { FORMAT_LABELS, formatIcon } from "@/lib/formatMeta";
 import { formatDate, humanizeDuration } from "@/lib/format";
 import { tagColorClass } from "@/lib/tagColors";
+import { siteLabel } from "@/lib/importSites";
 import { cn } from "@/lib/utils";
 import type { ModelSummary } from "@/api/types";
 
@@ -176,8 +177,8 @@ export function ModelCard({
               )}
             />
             {model.source_site && (
-              <Badge variant="secondary" className="capitalize backdrop-blur-sm" data-testid="source-badge">
-                {model.source_site}
+              <Badge variant="secondary" className="backdrop-blur-sm" data-testid="source-badge">
+                {siteLabel(model.source_site)}
               </Badge>
             )}
           </div>
@@ -221,7 +222,7 @@ export function ModelCard({
               data-testid="hover-overlay"
             >
               {dimsLabel !== null ? (
-                <span className="tabular-mono truncate text-xs text-white">{dimsLabel}</span>
+                <span className="tabular-mono truncate text-xs text-white" title={dimsLabel}>{dimsLabel}</span>
               ) : (
                 <span />
               )}

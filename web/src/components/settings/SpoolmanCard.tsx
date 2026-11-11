@@ -84,7 +84,7 @@ export function SpoolmanCard() {
             <Label htmlFor="spoolman-mode">{t("settingsSpoolman.mode")}</Label>
             <select
               id="spoolman-mode"
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-9 rounded-md border border-input bg-background ps-3 text-sm"
               value={mode}
               onChange={(e) => setMode(e.target.value as SpoolmanMode)}
             >

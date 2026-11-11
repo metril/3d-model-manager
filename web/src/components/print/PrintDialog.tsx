@@ -47,7 +47,8 @@ import { BedFitChip } from "@/components/slice/BedFitChip";
 import { useCreateBatch, useDispatchBatch, useEnqueue, useEnqueuePlates } from "@/api/queue";
 import { useFeatures } from "@/api/features";
 import { useModelSearchQuery, useRecentModelsQuery } from "@/api/library";
-import { needsReview } from "@/lib/permissions";
+import { canPrinter as canOnPrinter, needsReview } from "@/lib/permissions";
+import { asPrintHold, holdOfError } from "@/lib/printHold";
 import { useMountedWhileOpen } from "@/lib/useMountedWhileOpen";
 import { usePrintPlan, useReprint, useSendPrint } from "@/api/printFlow";
 import { usePrinterStatus, usePrinters } from "@/api/printers";
@@ -59,6 +60,7 @@ import type { BlobFormat, PlanFilament, PlanOut, QueueEnqueueBody, QueueEnqueueP
 import { SchedulingSection } from "@/components/print/SchedulingSection";
 import { TrayPicker, type TrayChoice } from "@/components/print/TrayPicker";
 import { PrinterPicker } from "@/components/slice/PrinterPicker";
+import { FileSettingsOption, RecipeProcessLine } from "@/components/slice/RecipeProcess";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -250,6 +252,8 @@ function PrintDialogBody({
   const [modelQuery, setModelQuery] = useState("");
   const [profileMode, setProfileMode] = useState<"as-sliced" | "recipe">("as-sliced");
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
+  // Slice with the file's own process settings instead of the recipe's process profile.
+  const [fileSettings, setFileSettings] = useState(false);
   const [recipeSearch, setRecipeSearch] = useState("");
   const debouncedRecipeSearch = useDebouncedValue(recipeSearch, 250);
   const [copies, setCopies] = useState(1);
@@ -281,6 +285,7 @@ function PrintDialogBody({
     setModelQuery("");
     setProfileMode(sliceOnlyProp ? "recipe" : "as-sliced");
     setSelectedRecipeId(null);
+    setFileSettings(false);
     setCopies(1);
     setCostCenterId(null);
     setCostCenterSeeded(false);
@@ -361,12 +366,16 @@ function PrintDialogBody({
     if (prev == null || prev === effectiveFileId || source.kind === "archive") return;
     setPlate(null);
     setAutoAdvanced(false);
+    // The option belongs to the previous file's embedded settings.
+    setFileSettings(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveFileId]);
   // Plates (and the blob hash for their thumbnails/GLBs) of the chosen file:
   // an unsliced project lists them too, so the plate is picked BEFORE slicing.
   const filePlatesQ = useFilePlates(effectiveFileId, open);
   const blobHash = filePlatesQ.data?.blob_hash ?? null;
+  // Only a file that embeds process settings can keep them (never send a stale tick).
+  const fileSettingsOn = fileSettings && !!filePlatesQ.data?.embedded;
   const recipePlates = selectablePlates(filePlatesQ.data?.plates);
 
   // `plate`/`printerId` state only holds an EXPLICIT choice -- omitted from
@@ -449,6 +458,10 @@ function PrintDialogBody({
     setRefusedFor(null);
     setRecipeSearch("");
   }, [open, source.kind, archiveSourceId]);
+  // A draft batch keeps the options it was created with; a changed choice needs a new one.
+  useEffect(() => {
+    setDraftBatchId(null);
+  }, [fileSettings]);
   const enqueueRaw = useEnqueue();
   const enqueuePlates = useEnqueuePlates();
   const createBatch = useCreateBatch();
@@ -480,6 +493,7 @@ function PrintDialogBody({
           quantity: batchChoice.quantity,
           file_id: body.file_id ?? null,
           recipe_id: body.recipe_id ?? null,
+          ...(body.file_settings ? { file_settings: true } : {}),
           printer_id: body.printer_id ?? null,
           plate_targets: body.plate != null ? { [String(body.plate)]: batchChoice.quantity } : {},
           cost_center_id: body.cost_center_id ?? null,
@@ -676,6 +690,23 @@ function PrintDialogBody({
     batchChoice !== NO_BATCH ||
     JSON.stringify(sched) !== JSON.stringify(EMPTY_SCHEDULE);
   const submitting = sendPrint.isPending || enqueue.isPending;
+  // A direct send is refused while the plate/failed hold applies: either the
+  // plan already says so, or the send came back 409 with the hold's code.
+  const sentHold = sendPrint.variables?.printer_id === effectivePrinterId ? holdOfError(sendPrint.error) : null;
+  const printHold = sentHold ?? asPrintHold(plan?.hold);
+  const mayConfirmHold = effectivePrinterId != null && canOnPrinter(auth.data, effectivePrinterId, "control");
+
+  // One gate for "Send now" and the hold's "Plate is clear, print now": the
+  // server doesn't check the mapping or compatibility, so the confirm must not
+  // bypass what the button already enforces. M4: in "Send next" mode this
+  // enqueues rather than sending straight to the printer, so `printerNotReady`
+  // only blocks a direct send.
+  const sendDisabled =
+    effectivePrinterId == null ||
+    hasRed ||
+    (!(sendNext || schedActive) && printerNotReady) ||
+    sendPrint.isPending ||
+    enqueue.isPending;
 
   function close() {
     onOpenChange(false);
@@ -703,7 +734,7 @@ function PrintDialogBody({
     );
   }
 
-  function handleSend() {
+  function handleSend(plateCleared = false) {
     if (!plan || effectivePrinterId == null || effectiveFileId == null) return;
     if (sendNext || schedActive) {
       handleSendNext();
@@ -719,6 +750,7 @@ function PrintDialogBody({
         bed_levelling: bedLevelling,
         flow_cali: flowCali,
         timelapse,
+        ...(plateCleared ? { plate_cleared: true } : {}),
       },
       {
         onSuccess: () => {
@@ -776,7 +808,10 @@ function PrintDialogBody({
   function handleSliceAndSend() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
-      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      submitPlates(
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettingsOn ? { file_settings: true } : {}) },
+        queuedPlatesDone,
+      );
       return;
     }
     submitQueue(
@@ -788,6 +823,7 @@ function PrintDialogBody({
         copies,
         front: true,
         ...(forced ? { force: true } : {}),
+        ...(fileSettingsOn ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -800,7 +836,10 @@ function PrintDialogBody({
   function handleQueueRecipe() {
     if (effectiveFileId == null || selectedRecipeId == null) return;
     if (allMode) {
-      submitPlates({ recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}) }, queuedPlatesDone);
+      submitPlates(
+        { recipe_id: selectedRecipeId, copies, ...(forced ? { force: true } : {}), ...(fileSettingsOn ? { file_settings: true } : {}) },
+        queuedPlatesDone,
+      );
       return;
     }
     submitQueue(
@@ -812,6 +851,7 @@ function PrintDialogBody({
         copies,
         front: false,
         ...(forced ? { force: true } : {}),
+        ...(fileSettingsOn ? { file_settings: true } : {}),
       },
       () => {
         close();
@@ -865,7 +905,8 @@ function PrintDialogBody({
                         <li key={m.id}>
                           <button
                             type="button"
-                            className="w-full py-2 text-left text-sm hover:underline"
+                            aria-current={pickedModelId === m.id ? "true" : undefined}
+                            className={cn("w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted", pickedModelId === m.id && "bg-accent font-medium")}
                             onClick={() => { setTouched(true); setPickedModelId(m.id); }}
                           >
                             {m.name}
@@ -881,7 +922,8 @@ function PrintDialogBody({
                         <li key={f.id}>
                           <button
                             type="button"
-                            className="w-full py-2 text-left text-sm hover:underline"
+                            aria-current={effectiveFileId === f.id ? "true" : undefined}
+                            className={cn("w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted", effectiveFileId === f.id && "bg-accent font-medium")}
                             onClick={() => { setTouched(true); setPickedFileId(f.id); }}
                           >
                             {f.rel_path}
@@ -974,6 +1016,7 @@ function PrintDialogBody({
                     />
                     <Label htmlFor={`print-dialog-profile-recipe-${r.id}`} className="font-normal">
                       {r.name}
+                      <RecipeProcessLine recipe={r} embedded={filePlatesQ.data?.embedded} ignored={fileSettings} />
                     </Label>
                     {r.compatible === false && r.incompatible_reason ? (
                       <span className="text-xs text-muted-foreground">{r.incompatible_reason}</span>
@@ -990,6 +1033,15 @@ function PrintDialogBody({
                     </Link>
                     .
                   </p>
+                ) : null}
+                {profileMode === "recipe" && !effectiveIsSliced ? (
+                  <FileSettingsOption
+                    id="print-dialog-file-settings"
+                    embedded={filePlatesQ.data?.embedded}
+                    recipe={selectedRecipe}
+                    checked={fileSettings}
+                    onChange={setFileSettings}
+                  />
                 ) : null}
                 {profileMode === "recipe" && !effectiveIsSliced ? <BedFitChip fit={bedFit.data} /> : null}
                 {tooLarge ? (
@@ -1114,7 +1166,25 @@ function PrintDialogBody({
                     ))}
                   </ul>
                 ) : null}
+                {printHold && !(sendNext || schedActive) && !queueOnly && profileMode !== "recipe" ? (
+                  <div role="alert" className="space-y-2 rounded-md border border-warning/50 p-3 text-sm">
+                    <p>{t(`printHold.${printHold}`)}</p>
+                    {mayConfirmHold ? (
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" disabled={sendDisabled} onClick={() => handleSend(true)}>
+                          {t("printHold.printNow")}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={close}>
+                          {t("printHold.cancel")}
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">{t("printHold.needsControl")}</p>
+                    )}
+                  </div>
+                ) : null}
                 {sendPrint.isError &&
+                !sentHold &&
                 !(
                   sendPrint.error instanceof ApiError &&
                   sendPrint.error.status === 409 &&
@@ -1186,18 +1256,8 @@ function PrintDialogBody({
                       <div className="flex flex-col gap-1">
                         <Button
                           type="button"
-                          onClick={handleSend}
-                          disabled={
-                            effectivePrinterId == null ||
-                            hasRed ||
-                            // M4: in "Send next" mode this enqueues rather than
-                            // sending straight to the printer -- queueing is
-                            // the whole point when the printer isn't ready
-                            // yet, so `printerNotReady` only blocks "Send now".
-                            (!(sendNext || schedActive) && printerNotReady) ||
-                            sendPrint.isPending ||
-                            enqueue.isPending
-                          }
+                          onClick={() => handleSend()}
+                          disabled={sendDisabled}
                         >
                           {sendPrint.isPending || enqueue.isPending
                             ? t("printDialog.sending")
@@ -1234,7 +1294,7 @@ function PrintDialogBody({
         </div>
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
           {profileMode === "recipe" ? (
-            <p className="text-sm text-muted-foreground">{selectedRecipe?.name ?? t("printDialog.recipe")}</p>
+            <p className="truncate rounded-md bg-muted px-2 py-1 text-sm text-foreground/80">{selectedRecipe?.name ?? t("printDialog.recipe")}</p>
           ) : (
             <SpecRow
               items={[

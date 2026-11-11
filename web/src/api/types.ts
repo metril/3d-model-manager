@@ -1015,6 +1015,8 @@ export interface PrinterStatusOut {
   dev_mode_reason?: string | null;
   last_report_at?: string | null;
   awaiting_plate_clear?: boolean;
+  /** Printer reports FAILED and nobody confirmed the plate since: the queue will not send. */
+  failed_unacknowledged?: boolean;
   /** Slicer-inserted pause ahead; `eta_s` null while the time is unknown. */
   next_pause?: { layer: number; eta_s: number | null } | null;
   print_options?: PrintOptions | null;
@@ -1196,10 +1198,14 @@ export interface PlanOut {
   est_grams: number | null;
   est_cost: number | null;
   warnings: string[];
+  /** `plate_not_cleared` | `printer_failed`: a direct send needs `plate_cleared`. */
+  hold?: string | null;
   options: PlanOptions;
 }
 
 export interface PrintRequest {
+  /** Confirms the plate is empty (needs printer control access). */
+  plate_cleared?: boolean;
   file_id: number;
   plate?: number;
   subtask_name?: string | null;
@@ -1796,6 +1802,8 @@ export interface QueueEnqueueBody extends QueueSchedulingFields {
   cost_center_id?: number | null;
   /** Queue a recipe slice even when the part does not fit the printer bed. */
   force?: boolean;
+  /** Slice with the file's own process settings, not the recipe's process profile. */
+  file_settings?: boolean;
 }
 
 // -- review gate (backend/app/models/enums.py `ReviewState`, P7 review/
@@ -2185,6 +2193,12 @@ export interface PrintRecipe {
   n: number | null;
   created_by_user_id: number | null;
   created_at: string;
+  /** The process profile this recipe slices with (replaces the file's own settings). */
+  process_profile_name?: string | null;
+  process_layer_height_mm?: number | null;
+  /** The recipe's printer profile (compared with the machine a 3MF was made for). */
+  printer_profile_name?: string | null;
+  printer_nozzle_mm?: number | null;
   /** Only set when listed with `?printer_id=`; null/absent otherwise. */
   compatible?: boolean | null;
   incompatible_reason?: string | null;
@@ -2532,6 +2546,9 @@ export interface ArchivePatchIn {
   notes?: string | null;
   tags?: string[];
   result_override?: ArchiveResult | null;
+  /** Link (number) or unlink (null) the archive's library model. */
+  model_id?: number | null;
+  revision_id?: number | null;
 }
 
 export interface CompareOut {
@@ -2632,6 +2649,7 @@ export interface QueueEnqueuePlatesBody extends Omit<QueueSchedulingFields, "bat
   options?: PlanOptions | null;
   cost_center_id?: number | null;
   force?: boolean;
+  file_settings?: boolean;
   name?: string;
   /** Add the plate entries to this existing batch. */
   batch_id?: number | null;
@@ -2675,6 +2693,8 @@ export interface BatchIn extends Omit<QueueSchedulingFields, "batch_id"> {
   model_id?: number | null;
   file_id?: number | null;
   recipe_id?: number | null;
+  /** Slice with the file's own process settings, not the recipe's process profile. */
+  file_settings?: boolean;
   printer_id?: number | null;
   quantity: number;
   due_date?: string | null;

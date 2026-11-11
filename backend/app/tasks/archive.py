@@ -21,6 +21,7 @@ from app.services import layer_timelapse
 from app.services.archive import ArchiveFetchError, archive_job, mark_archive_error
 from app.services.archive_lookup import archive_for_job
 from app.services.archive_media import attach_snapshot, fetch_timelapse_for
+from app.services.printer_state import START_TIMEOUT_ERROR, STATE_UNKNOWN_ERROR
 from app.services.redis_pool import get_sync_redis
 from app.tasks import base
 from app.tasks.celery_app import celery_app
@@ -136,6 +137,13 @@ def _snapshot_and_schedule_timelapse(settings: Settings, print_job_id: int) -> N
 )
 def archive_print(self, print_job_id: int, result: str) -> None:
     settings = get_settings()
+    # A retry can outlive the run: if its job is gone or tombstoned (the run was
+    # deleted), do nothing -- never re-create the archive.
+    with base.sync_session() as session:
+        job = session.get(PrintJob, print_job_id)
+        if job is None or job.archive_dismissed_at is not None:
+            logger.info("archive_print %s skipped: run was deleted", print_job_id)
+            return
     try:
         with base.sync_session() as session:
             archive_job(session, settings, print_job_id, ArchiveResult(result))
@@ -209,7 +217,8 @@ def fetch_timelapse(self, print_job_id: int) -> str:
 @celery_app.task(name="app.tasks.archive.archive_sweep")
 def archive_sweep() -> int:
     """Enqueue archiving for terminal jobs whose enqueue was lost (broker
-    down, daemon crash) -- no ``print_archives`` row after a grace period."""
+    down, daemon crash) -- no ``print_archives`` row after a grace period.
+    Jobs failed by the start timeout never ran and are skipped."""
     cutoff = datetime.now(UTC) - timedelta(seconds=_SWEEP_GRACE_S)
     with base.sync_session() as session:
         rows = session.execute(
@@ -219,10 +228,17 @@ def archive_sweep() -> int:
             .where(
                 PrintJob.state.in_([s.value for s in _SWEEP_RESULT]),
                 PrintJob.finished_at < cutoff,
+                # a deleted run (or retention purge) tombstones its job
+                PrintJob.archive_dismissed_at.is_(None),
                 PrintArchive.id.is_(None),
                 Print.id.is_(None),
+                # never started on the printer: nothing to archive
+                PrintJob.printer_error.is_distinct_from(START_TIMEOUT_ERROR),
+                PrintJob.printer_error.is_distinct_from(STATE_UNKNOWN_ERROR),
             )
         ).all()
+    if rows:
+        logger.info("archive_sweep: re-enqueuing %d unarchived job(s)", len(rows))
     for job_id, state in rows:
         archive_print.apply_async(args=[job_id, _SWEEP_RESULT[PrintJobState(state)].value])
     return len(rows)

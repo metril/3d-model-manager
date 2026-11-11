@@ -125,7 +125,7 @@ export function ExternalLinksCard() {
               id="ext-mode"
               value={openMode}
               onChange={(e) => setOpenMode(e.target.value as ExternalLink["open_mode"])}
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              className="h-9 rounded-md border border-input bg-background ps-2 text-sm"
             >
               <option value="iframe">{t("extLinks.optEmbedded")}</option>
               <option value="newtab">{t("extLinks.optNewTab")}</option>

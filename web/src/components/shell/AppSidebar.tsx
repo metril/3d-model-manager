@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   ChevronRightIcon,
   ChevronsLeftIcon,
+  XIcon,
   HelpCircle,
   LoaderCircleIcon,
   LogOut,
@@ -229,7 +230,12 @@ export function AppSidebar({
   const categories = useCategories();
   const canReview = can("queue:review");
   const reviewCount = useReviewCount({ enabled: canReview });
-  const [collapsed, setCollapsed] = useSidebarCollapsed();
+  const [collapsedPref, setCollapsed] = useSidebarCollapsed();
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const drawer = !isDesktop;
+  // The off-canvas drawer is always full-width with labels, whatever the
+  // desktop rail preference is.
+  const collapsed = collapsedPref && !drawer;
   const { t } = useTranslation();
   const navRef = useRef<HTMLElement>(null);
   const [navFade, setNavFade] = useState(false);
@@ -268,8 +274,6 @@ export function AppSidebar({
   // Below `lg` the sidebar is an off-canvas drawer: while closed it is inert
   // (not focusable, hidden from AT); while open it is a modal dialog that
   // traps Tab and hands focus back on close.
-  const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const drawer = !isDesktop;
   const drawerOpen = drawer && mobileOpen;
   const asideRef = useRef<HTMLElement>(null);
   // Resizing up to desktop leaves the drawer state stale (and the backdrop /
@@ -360,15 +364,21 @@ export function AppSidebar({
         )}
       >
         {!collapsed && <span className="truncate text-base font-semibold tracking-tight">3D Model Manager</span>}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-          onClick={() => setCollapsed((prev) => !prev)}
-        >
-          <ChevronsLeftIcon className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
-        </Button>
+        {drawer ? (
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={onCloseMobile}>
+            <XIcon className="size-4" />
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
+            onClick={() => setCollapsed((prev) => !prev)}
+          >
+            <ChevronsLeftIcon className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
+          </Button>
+        )}
       </div>
       {can("library:write") ? (
       <div className={cn("px-2 pb-2", collapsed && "px-1.5")}>
@@ -502,6 +512,17 @@ export function AppSidebar({
             ))}
           </SidebarSection>
         )}
+      <SidebarSection
+        name="system"
+        label={t("nav.System")}
+        rail={collapsed}
+        active={visibleSystemItems.some(itemActive)}
+        locationKey={pathname}
+      >
+        {visibleSystemItems.map((item) => (
+          <NavLink key={item.to as string} item={item} collapsed={collapsed} />
+        ))}
+      </SidebarSection>
       </nav>
       <div
         aria-hidden="true"
@@ -513,17 +534,6 @@ export function AppSidebar({
       />
       </div>
       <div className="flex shrink-0 flex-col gap-1 border-t border-sidebar-border px-2 py-2">
-        <SidebarSection
-          name="system"
-          label={t("nav.System")}
-          rail={collapsed}
-          active={visibleSystemItems.some(itemActive)}
-          locationKey={pathname}
-        >
-          {visibleSystemItems.map((item) => (
-            <NavLink key={item.to as string} item={item} collapsed={collapsed} />
-          ))}
-        </SidebarSection>
         <ServiceStatusDot collapsed={collapsed} />
         <SidebarPrinterWidget collapsed={collapsed} />
       </div>

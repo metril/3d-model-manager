@@ -170,6 +170,8 @@ async def slice_(request: Request):
             for key in ("printer_profile", "process_profile", "filament_profiles"):
                 part = form.get(key)
                 if not isinstance(part, UploadFile):
+                    if key == "process_profile":
+                        continue  # optional: slice with the model file's own process settings
                     return _err(400, "bad_request", f"missing {key!r} file")
                 raw[key] = _load_json(await _read_part(part, MAX_UPLOAD), key)
             raw_options = form.get("options") or "{}"
@@ -199,8 +201,11 @@ async def slice_(request: Request):
             await _spool_part(model, job_model, MAX_UPLOAD)
         except OverflowError:
             return _err(413, "too_large", f"upload exceeds {MAX_UPLOAD} bytes")
+        # No process profile (absent or `{}`): Orca keeps the 3MF's embedded
+        # process settings; printer + filament profiles still apply.
+        use_process = bool(raw.get("process_profile"))
         if not isinstance(raw["printer_profile"], dict) or not isinstance(
-            raw["process_profile"], dict
+            raw.get("process_profile") or {}, dict
         ):
             return _err(400, "bad_request", "printer/process profile must be JSON objects")
         fils = raw["filament_profiles"]
@@ -211,10 +216,9 @@ async def slice_(request: Request):
         try:
             runner.bed_type_name(bed_type)
             ix: ProfileIndex = app.state.index
-            flat = {
-                "printer": ix.flatten_dict("printer", raw["printer_profile"]),
-                "process": ix.flatten_dict("process", raw["process_profile"]),
-            }
+            flat = {"printer": ix.flatten_dict("printer", raw["printer_profile"])}
+            if use_process:
+                flat["process"] = ix.flatten_dict("process", raw["process_profile"])
             flat_fils = [ix.flatten_dict("filament", f) for f in fils]
         except (ProfileError, runner.BadRequest) as exc:
             return _err(400, "bad_profile", str(exc))
