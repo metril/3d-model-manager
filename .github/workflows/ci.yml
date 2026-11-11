@@ -15,6 +15,12 @@ name: CI
 # cold build of the whole image, including the from-source gltfpack C++ compile
 # and a uv sync over cadquery-ocp/f3d, which is a 15-25 minute round trip. It
 # lives in e2e.yml (nightly + on demand + the `run-e2e` PR label).
+#
+# Path filtering: the `changes` job (dorny/paths-filter) lets a PR skip suites
+# whose inputs it did not touch. Non-PR runs (workflow_dispatch) never skip.
+# Required checks that get skipped still report success (a job skipped by `if`
+# does); the sharded backend suite goes through the `backend-test-gate`
+# aggregator, which accepts success OR skipped.
 
 on:
   pull_request:
@@ -38,8 +44,55 @@ env:
   UV_VERSION: "0.11.29"
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # Anything that is not a pull_request (workflow_dispatch) runs everything.
+      backend: ${{ github.event_name != 'pull_request' || steps.f.outputs.backend == 'true' }}
+      web: ${{ github.event_name != 'pull_request' || steps.f.outputs.web == 'true' }}
+      extension: ${{ github.event_name != 'pull_request' || steps.f.outputs.extension == 'true' }}
+      slicer: ${{ github.event_name != 'pull_request' || steps.f.outputs.slicer == 'true' }}
+      docker: ${{ github.event_name != 'pull_request' || steps.f.outputs.docker == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: f
+        with:
+          filters: |
+            # Backend tests also read compose files, docker/orcaslicer, slicer/,
+            # extension/test/contract.json and docs/, so they track more than backend/.
+            backend:
+              - 'backend/**'
+              - 'docker/**'
+              - 'compose*.yaml'
+              - 'extension/**'
+              - 'slicer/**'
+              - 'docs/**'
+              - 'scripts/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            extension:
+              - 'extension/**'
+              - '.github/workflows/ci.yml'
+            slicer:
+              - 'slicer/**'
+              - '.github/workflows/ci.yml'
+            docker:
+              - 'backend/**'
+              - 'web/**'
+              - 'docker/**'
+              - '.dockerignore'
+              - '.github/workflows/ci.yml'
+
   backend-lint:
     name: Backend lint (ruff)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -61,9 +114,11 @@ jobs:
         run: uv run ruff format --check .
 
   backend-test:
-    name: Backend tests shard (${{ matrix.shard }}/4)
+    name: Backend tests shard (${{ matrix.shard }}/8)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    # ~3600 tests split across 4 shards, each running pytest-xdist `-n auto`
+    # ~3600 tests split across 8 shards, each running pytest-xdist `-n auto`
     # (public-repo ubuntu-latest = 4 vCPU). Every xdist worker owns its own
     # Postgres/Redis testcontainers (session fixtures are per worker process).
     # The 360-minute default is useless as a hang detector.
@@ -71,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -94,15 +149,15 @@ jobs:
         # See the setup-node comment. Without this the optimize_glb tests
         # silently degrade instead of exercising the real CLI.
         run: scripts/fetch-gltfpack.sh
-      - name: Configure apt retries and timeouts
-        # A slow Azure mirror otherwise stalls apt-get for ~25 minutes and
-        # burns the whole job timeout. Fail fast per request and retry.
-        run: |
-          printf '%s\n' \
-            'Acquire::Retries "5";' \
-            'Acquire::http::Timeout "20";' \
-            'Acquire::https::Timeout "20";' \
-            | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
+      - name: Cache apt packages
+        id: apt-cache
+        # The .debs this step needs (OSMesa/Mesa DRI/GL/ffmpeg + deps absent
+        # from the runner image) are cached, so a mirror outage only matters on
+        # a cold cache. Cache key tracks the script; a stale cache that fails dpkg falls back to apt.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-debs
+          key: apt-gl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-gl.sh') }}
       - name: Install f3d's GL runtime (OSMesa software rendering)
         timeout-minutes: 15
         # app/pipeline/render.py builds its f3d engine with create_osmesa() and
@@ -120,31 +175,15 @@ jobs:
         # symlink supplies that one name without dragging in dev headers.
         # Resolved via ldconfig rather than hardcoding the soname so a Mesa
         # major bump doesn't silently put us back on the segfaulting path.
+        #
+        # scripts/ci-install-gl.sh: offline dpkg install on a cache hit; on a
+        # miss it drops third-party apt sources, probes alternate Ubuntu
+        # mirrors (the runner default and archive.ubuntu.com can both stall)
+        # and retries update+install.
+        env:
+          APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
         run: |
-          # Mirror stalls hang apt rather than fail it, so bound each attempt
-          # and retry (re-running update first); healthy installs take ~10s. A slow
-          # mirror (~300 kB/s) can need >120s for the ~66MB ffmpeg set, but apt
-          # keeps finished .debs so each attempt makes progress.
-          ok=
-          for attempt in 1 2 3 4 5; do
-            echo "apt attempt $attempt/5"
-            if [ "$attempt" -ge 2 ]; then
-              # The runner's Azure mirror can crawl for minutes; fall back
-              # to the canonical archive for the remaining attempts.
-              sudo sed -i -E \
-                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)#http://archive.ubuntu.com/ubuntu/#' \
-                /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
-            fi
-            if sudo timeout 60 apt-get update \
-              && sudo timeout 180 apt-get install -y --no-install-recommends \
-                libosmesa6 libgl1-mesa-dri libgl1 ffmpeg; then
-              ok=1
-              break
-            fi
-            echo "::warning::apt attempt $attempt failed or timed out; retrying"
-            sleep 5
-          done
-          [ -n "$ok" ] || { echo "::error::apt failed after 5 attempts"; exit 1; }
+          scripts/ci-install-gl.sh
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.* -- f3d will segfault in the EGL fallback"
@@ -203,24 +242,30 @@ jobs:
         #     --store-durations --durations-path=.test_durations
         run: >
           uv run pytest -q -n auto --durations=20
-          --splits 4 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --splits 8 --group ${{ matrix.shard }} --splitting-algorithm least_duration
           --durations-path=.test_durations
           -m 'not e2e and not live_importer and not perf'
 
   backend-test-gate:
     # Branch protection requires this exact name; it aggregates the shards.
+    # Passes when every shard succeeded OR the suite was skipped by path filter.
     name: Backend tests (pytest + testcontainers)
     needs: backend-test
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: All shards must succeed
+      - name: All shards must succeed (or be skipped)
         run: |
           echo "shards: ${{ needs.backend-test.result }}"
-          [ "${{ needs.backend-test.result }}" = "success" ]
+          case "${{ needs.backend-test.result }}" in
+            success | skipped) ;;
+            *) exit 1 ;;
+          esac
 
   backend-perf:
     name: Backend perf harnesses (advisory)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # Non-blocking on purpose. Red here means "go look on real hardware", not
     # "block the merge" -- making it required would train everyone to ignore it,
@@ -248,6 +293,8 @@ jobs:
 
   web:
     name: Web (lint + build + vitest)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -284,6 +331,8 @@ jobs:
 
   extension:
     name: Extension tests (node:test)
+    needs: changes
+    if: needs.changes.outputs.extension == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -319,6 +368,8 @@ jobs:
 
   slicer-wrapper:
     name: Slicer wrapper tests (mocked CLI)
+    needs: changes
+    if: needs.changes.outputs.slicer == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -336,6 +387,8 @@ jobs:
 
   docker-smoke:
     name: Docker build smoke (amd64)
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     # A cold build here is slow (gltfpack compiles from source; uv sync pulls
     # cadquery-ocp/f3d) but the gha cache makes the steady state cheap, and it

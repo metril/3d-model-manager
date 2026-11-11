@@ -116,16 +116,16 @@ jobs:
         run: uv run ruff format --check .
 
   backend-test-shard:
-    name: Backend tests shard (${{ matrix.shard }}/4)
+    name: Backend tests shard (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # 4 shards x pytest-xdist `-n auto`, same as ci.yml.
+    # 8 shards x pytest-xdist `-n auto`, same as ci.yml.
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -142,44 +142,20 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - name: Fetch gltfpack
         run: scripts/fetch-gltfpack.sh
-      - name: Configure apt retries and timeouts
-        # A slow Azure mirror otherwise stalls apt-get for ~25 minutes and
-        # burns the whole job timeout. Fail fast per request and retry.
-        run: |
-          printf '%s\n' \
-            'Acquire::Retries "5";' \
-            'Acquire::http::Timeout "20";' \
-            'Acquire::https::Timeout "20";' \
-            | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
+      - name: Cache apt packages
+        id: apt-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-debs
+          key: apt-gl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-gl.sh') }}
       - name: Install f3d's GL runtime (OSMesa software rendering)
         timeout-minutes: 15
         # Without this, render.py's EGL fallback segfaults the pytest process
         # (exit 139) instead of failing a test -- see ci.yml for the full why.
+        env:
+          APT_CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
         run: |
-          # Mirror stalls hang apt rather than fail it, so bound each attempt
-          # and retry (re-running update first); healthy installs take ~10s. A slow
-          # mirror (~300 kB/s) can need >120s for the ~66MB ffmpeg set, but apt
-          # keeps finished .debs so each attempt makes progress.
-          ok=
-          for attempt in 1 2 3 4 5; do
-            echo "apt attempt $attempt/5"
-            if [ "$attempt" -ge 2 ]; then
-              # The runner's Azure mirror can crawl for minutes; fall back
-              # to the canonical archive for the remaining attempts.
-              sudo sed -i -E \
-                's#(mirror\+file:/etc/apt/apt-mirrors\.txt|https?://azure\.archive\.ubuntu\.com/ubuntu/?)#http://archive.ubuntu.com/ubuntu/#' \
-                /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list 2>/dev/null || true
-            fi
-            if sudo timeout 60 apt-get update \
-              && sudo timeout 180 apt-get install -y --no-install-recommends \
-                libosmesa6 libgl1-mesa-dri libgl1 ffmpeg; then
-              ok=1
-              break
-            fi
-            echo "::warning::apt attempt $attempt failed or timed out; retrying"
-            sleep 5
-          done
-          [ -n "$ok" ] || { echo "::error::apt failed after 5 attempts"; exit 1; }
+          scripts/ci-install-gl.sh
           so="$(ldconfig -p | awk '/libOSMesa\.so\./ {print $NF; exit}')"
           if [ -z "$so" ]; then
             echo "::error::libosmesa6 installed but ldconfig reports no libOSMesa.so.*"
@@ -213,7 +189,7 @@ jobs:
         # Sharded via pytest-split on the committed backend/.test_durations.
         run: >
           uv run pytest -q -n auto --durations=20
-          --splits 4 --group ${{ matrix.shard }} --splitting-algorithm least_duration
+          --splits 8 --group ${{ matrix.shard }} --splitting-algorithm least_duration
           --durations-path=.test_durations
           -m 'not e2e and not live_importer and not perf'
 

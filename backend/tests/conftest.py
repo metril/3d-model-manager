@@ -141,6 +141,24 @@ def _celery_eager_mode() -> None:
     celery_app.conf.task_eager_propagates = True
 
 
+@pytest.fixture(autouse=True)
+def _short_archive_frame_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """archive_print (run eagerly by printerd tests on every terminal
+    transition) would otherwise poll 12s for a camera frame that no test
+    supplies. Tests that care patch ``attach_snapshot`` themselves or call
+    ``archive_media.attach_snapshot`` directly with their own timeout."""
+    from app.services import archive_media
+    from app.tasks import archive as archive_task
+
+    real = archive_media.attach_snapshot
+
+    def quick(*args, **kwargs):
+        kwargs.setdefault("timeout", 0.2)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(archive_task, "attach_snapshot", quick)
+
+
 @pytest.fixture(scope="session")
 def migrated_db(postgres_url: str) -> str:
     """Apply the real baseline Alembic migration against the container."""

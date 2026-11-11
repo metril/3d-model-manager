@@ -125,6 +125,11 @@ async def test_detection_test_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     url = f"/api/printers/{printer_row.id}/detection/test"
+    real_wait = cs.wait_for_frame  # the no-frame 409 case must not poll the real 12s
+    monkeypatch.setattr(
+        "app.api.obico.camera_state.wait_for_frame",
+        lambda r, pid, **kw: real_wait(r, pid, **{**kw, "timeout": 0.3}),
+    )
     assert (await authenticated_client.post(url)).status_code == 409  # default URL, no frame yet
     await authenticated_client.put(
         "/api/settings/obico", json={"url": "http://ml:3333", "enabled": True}
