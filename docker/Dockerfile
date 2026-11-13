@@ -17,7 +17,7 @@ RUN npm run build
 # base -- copying it in would fail to run at all. Building from source on
 # the SAME base image as the runtime stage guarantees glibc compatibility
 # and, as a bonus, covers arm64 too (the prebuilt zip is amd64-only).
-FROM python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS gltfpack-build
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS gltfpack-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends git cmake g++ make
 
@@ -29,7 +29,7 @@ RUN cmake -S /src -B /build -DMESHOPT_BUILD_GLTFPACK=ON -DCMAKE_BUILD_TYPE=Relea
     && cmake --build /build --target gltfpack -j"$(nproc)"
 
 # ---- Stage 3: python runtime -------------------------------------------
-FROM python:3.12-slim-trixie@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54 AS runtime
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 # uv is copied in as a static binary from its own distroless image (SPEC
 # Task 9), not pip-installed.
