@@ -36,3 +36,7 @@ slicer-watch/
 .playwright-mcp/
 /*.png
 orcaslicer-exchange/
+
+# Safari build output
+extension/safari/build/
+extension/safari/out/

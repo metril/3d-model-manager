@@ -366,6 +366,24 @@ jobs:
         # Lints the generated Firefox build (background.scripts).
         run: npx --yes web-ext@8 lint --source-dir "$RUNNER_TEMP/ff" --self-hosted
 
+  extension-safari:
+    name: Extension Safari build (unsigned macOS app)
+    needs: changes
+    if: needs.changes.outputs.extension == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Build (fails on converter unsupported-key warnings)
+        run: extension/safari/build.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: extension-safari
+          path: extension/safari/out/*
+          if-no-files-found: error
+
   slicer-wrapper:
     name: Slicer wrapper tests (mocked CLI)
     needs: changes

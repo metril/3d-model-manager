@@ -46,6 +46,22 @@ app's address or the gallery sites are not yet permitted), and accept the
 prompt. Chrome grants the gallery sites at install and only asks for your
 app's address on **Save**.
 
+### Safari (macOS, unsigned)
+
+The release ships `tdmm-extension-safari-<version>.zip`, an ad-hoc-signed
+macOS app (no Apple account, not notarized):
+
+1. Unzip it, then clear quarantine:
+   `xattr -dr com.apple.quarantine "3D Model Manager.app"`, and open the app once.
+2. Safari → Settings → Advanced → tick **Show features for web developers**,
+   then Develop → **Allow Unsigned Extensions** (this resets every time Safari quits).
+3. Safari → Settings → Extensions → enable **3D Model Manager**, and set
+   website access to **Always Allow** for your server and the model sites.
+
+Safari may not fire `cookies.onChanged`; the MakerWorld cookie sync then runs
+on startup, on MakerWorld tab loads, and every 30 minutes.
+Build locally on a Mac with `extension/safari/build.sh`.
+
 **Or, for development**: point **Load unpacked** at this `extension/` folder
 directly from a source checkout. Same steps 3-5, no download — and your edits
 are live on **Reload**.
