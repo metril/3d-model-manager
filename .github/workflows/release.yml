@@ -117,7 +117,8 @@ jobs:
 
   backend-test-shard:
     name: Backend tests shard (${{ matrix.shard }}/8)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Pinned: ubuntu-latest moved to 26.04, which drops libosmesa6 (f3d needs OSMesa).
     permissions:
       contents: read
     # 8 shards x pytest-xdist `-n auto`, same as ci.yml.
@@ -147,7 +148,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/apt-debs
-          key: apt-gl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-gl.sh') }}
+          key: apt-gl-${{ runner.os }}-24.04-${{ runner.arch }}-${{ hashFiles('scripts/ci-install-gl.sh') }}
       - name: Install f3d's GL runtime (OSMesa software rendering)
         timeout-minutes: 15
         # Without this, render.py's EGL fallback segfaults the pytest process
