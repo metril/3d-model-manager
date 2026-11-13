@@ -29,6 +29,11 @@ if grep -qiE "warning.*(unsupported|not supported|unrecognized)|unsupported.*key
 fi
 
 proj="$(find "$work/xcode" -maxdepth 2 -name '*.xcodeproj' | head -1)"
+# The converter derives the parent app's id from the app name ("3D ..." ->
+# "-D-Model-Manager"), ignoring --bundle-identifier, so the appex id
+# (io.github.metril.tdmm.Extension) is no longer prefixed by it. Pin it.
+sed -i '' 's/io\.github\.metril\.-D-Model-Manager/io.github.metril.tdmm/g' "$proj/project.pbxproj"
+grep -n "PRODUCT_BUNDLE_IDENTIFIER" "$proj/project.pbxproj" | sort -u -k2 || true
 xcodebuild -project "$proj" -scheme "3D Model Manager" -configuration Release \
   -derivedDataPath "$work/derived" \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_REQUIRED=NO build
