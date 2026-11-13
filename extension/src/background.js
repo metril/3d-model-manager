@@ -426,7 +426,8 @@ chrome.webNavigation?.onHistoryStateUpdated.addListener(
 );
 
 // Primary courier trigger: the session cookie changed (sign-in, refresh).
-chrome.cookies.onChanged.addListener(({ cookie, removed }) => {
+// Safari may lack cookies.onChanged; startup + the 30-minute alarm still sync.
+chrome.cookies?.onChanged?.addListener(({ cookie, removed }) => {
   if (!removed && cookie && cookie.name === "token" && MAKERWORLD_HOSTS.has(String(cookie.domain).replace(/^\./, "").toLowerCase())) {
     runOnce("courier", runCourier).catch((err) => console.warn("courier failed", err));
   }

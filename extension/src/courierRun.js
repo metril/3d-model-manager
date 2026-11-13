@@ -17,7 +17,7 @@ export const MAKERWORLD_COOKIE_DOMAIN = "makerworld.com";
 /** The default cookie store's id (differs by browser), or `undefined`. */
 async function defaultStoreId() {
   try {
-    const stores = await chrome.cookies.getAllCookieStores?.();
+    const stores = await chrome.cookies?.getAllCookieStores?.();
     return stores?.[0]?.id;
   } catch {
     return undefined;
