@@ -9,6 +9,9 @@ import { toFirefox } from "./build-firefox-manifest.mjs";
 
 export function toSafari(manifest) {
   const { browser_specific_settings, minimum_chrome_version, ...rest } = toFirefox(manifest);
+  // Safari's converter rejects background.type; build.sh bundles the module
+  // graph into one classic script (src/background.bundle.js).
+  rest.background = { scripts: ["src/background.bundle.js"] };
   return { ...rest, permissions: (rest.permissions || []).filter((p) => p !== "webNavigation") };
 }
 

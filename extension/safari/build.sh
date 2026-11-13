@@ -14,6 +14,8 @@ rm -rf "$out" "$work"
 mkdir -p "$out" "$work/src-ext"
 
 cp -R "$ext/src" "$ext/icons" "$work/src-ext/"
+npx --yes esbuild@0.25.0 "$work/src-ext/src/background.js" --bundle --format=iife \
+  --outfile="$work/src-ext/src/background.bundle.js"
 node "$ext/scripts/build-safari-manifest.mjs" "$work/src-ext/manifest.json"
 
 log="$work/converter.log"

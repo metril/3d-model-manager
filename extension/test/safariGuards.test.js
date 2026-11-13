@@ -41,8 +41,8 @@ test("readMakerworldCookie tolerates a missing cookies API", async () => {
 test("safari manifest: scripts module background, no unsupported keys", () => {
   const m = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
   const s = toSafari(m);
-  assert.deepEqual(s.background.scripts, ["src/background.js"]);
-  assert.equal(s.background.type, "module");
+  assert.deepEqual(s.background.scripts, ["src/background.bundle.js"]);
+  assert.equal(s.background.type, undefined);
   assert.equal(s.background.service_worker, undefined);
   assert.equal(s.browser_specific_settings, undefined);
   assert.equal(s.minimum_chrome_version, undefined);
