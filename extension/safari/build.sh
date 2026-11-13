@@ -29,10 +29,14 @@ fi
 proj="$(find "$work/xcode" -maxdepth 2 -name '*.xcodeproj' | head -1)"
 xcodebuild -project "$proj" -scheme "3D Model Manager" -configuration Release \
   -derivedDataPath "$work/derived" \
-  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_REQUIRED=NO build
 
 app="$(find "$work/derived/Build/Products/Release" -maxdepth 1 -name '*.app' | head -1)"
 [ -n "$app" ] || { echo "no .app produced" >&2; exit 1; }
+for appex in "$app"/Contents/PlugIns/*.appex; do
+  codesign -dv --entitlements - "$appex" 2>&1 | tee "$work/entitlements.txt"
+  grep -q "com.apple.security.app-sandbox" "$work/entitlements.txt" || { echo "appex missing app-sandbox entitlement" >&2; exit 1; }
+done
 zip="$out/tdmm-extension-safari-${version}.zip"
 ditto -c -k --keepParent "$app" "$zip"
 (cd "$out" && shasum -a 256 "$(basename "$zip")" > "$(basename "$zip").sha256")

@@ -762,7 +762,7 @@ jobs:
   release:
     name: Attach assets to the GitHub Release
     needs: [release-please, merge, package-extension, package-extension-safari]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: always() && needs.release-please.outputs.release_created == 'true' && needs.merge.result == 'success' && needs.package-extension.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # upload assets to, and edit the body of, the Release
