@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/metril/3d-model-manager/compare/v0.25.0...v0.25.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **web:** stack print history date under name on narrow panels ([#329](https://github.com/metril/3d-model-manager/issues/329)) ([cafca25](https://github.com/metril/3d-model-manager/commit/cafca2596107aecb766b1ba54a6b10c525666064))
+
 ## [0.25.0](https://github.com/metril/3d-model-manager/compare/v0.24.0...v0.25.0) (2026-11-16)
 
 
