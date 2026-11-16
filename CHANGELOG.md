@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.2](https://github.com/metril/3d-model-manager/compare/v0.25.1...v0.25.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **web:** label only external prints on the printer card ([#331](https://github.com/metril/3d-model-manager/issues/331)) ([e4ba3af](https://github.com/metril/3d-model-manager/commit/e4ba3af669a7183c94eeb3cbbd3118ae8ec71dd8))
+
 ## [0.25.1](https://github.com/metril/3d-model-manager/compare/v0.25.0...v0.25.1) (2026-11-16)
 
 
