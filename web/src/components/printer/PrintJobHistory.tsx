@@ -44,6 +44,7 @@ function RunRow({
 }) {
   const { t } = useTranslation();
   const name = run.model_name ?? run.subtask_name ?? t("runDetail.runId", { id: run.id });
+  const finished = formatDateTime(run.finished_at ?? run.created_at);
   return (
     <TableRow
       className="cursor-pointer"
@@ -69,11 +70,21 @@ function RunRow({
           <img src={archiveThumbnailUrl(run.id)} alt="" className="size-10 rounded object-cover" />
         ) : null}
       </TableCell>
-      <TableCell className="w-full max-w-0 min-w-24 truncate text-sm" title={name}>{name}</TableCell>
-      {showPrinter ? <TableCell>{run.printer_name}</TableCell> : null}
+      <TableCell className="w-full max-w-0 min-w-24 text-sm" title={name}>
+        <div className="truncate">{name}</div>
+        {/* Narrow panels (the printer page's sidebar): printer + finished
+            collapse into a muted second line instead of their own columns. */}
+        <div className="truncate text-xs text-muted-foreground @lg:hidden">
+          {showPrinter && run.printer_name ? `${run.printer_name} · ` : ""}
+          {finished}
+        </div>
+      </TableCell>
+      {showPrinter ? <TableCell className="hidden @lg:table-cell">{run.printer_name}</TableCell> : null}
       <TableCell>
-        <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
-        <RunCountBadge count={run.run_count} />
+        <div className="flex flex-col items-start gap-1 @lg:flex-row @lg:items-center">
+          <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
+          <RunCountBadge count={run.run_count} />
+        </div>
       </TableCell>
       <TableCell className="hidden font-mono tabular-nums @md:table-cell">
         {run.duration_s != null ? humanizeDuration(run.duration_s) : "--"}
@@ -86,7 +97,7 @@ function RunRow({
         <EntityTags target={{ kind: "archive", id: run.id }} tags={run.tag_refs} />
       </TableCell>
       <TableCell className="hidden @2xl:table-cell">{run.run?.quality ?? ""}</TableCell>
-      <TableCell>{formatDateTime(run.finished_at ?? run.created_at)}</TableCell>
+      <TableCell className="hidden @lg:table-cell">{finished}</TableCell>
     </TableRow>
   );
 }
@@ -180,14 +191,14 @@ export function PrintJobHistory({
                 <TableHead />
                 <TableHead className="hidden @md:table-cell" />
                 <TableHead>{t("printJobHistory.col.name")}</TableHead>
-                {fixedPrinterId == null ? <TableHead>{t("printJobHistory.col.printer")}</TableHead> : null}
+                {fixedPrinterId == null ? <TableHead className="hidden @lg:table-cell">{t("printJobHistory.col.printer")}</TableHead> : null}
                 <TableHead>{t("printJobHistory.col.result")}</TableHead>
                 <TableHead className="hidden @md:table-cell">{t("printJobHistory.col.duration")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.grams")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.cost")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.tags")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.quality")}</TableHead>
-                <TableHead>{t("printJobHistory.col.finished")}</TableHead>
+                <TableHead className="hidden @lg:table-cell">{t("printJobHistory.col.finished")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
