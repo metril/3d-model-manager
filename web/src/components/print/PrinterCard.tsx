@@ -26,6 +26,7 @@ import { CardFooter } from "@/components/print/card/CardFooter";
 import { CardHeader } from "@/components/print/card/CardHeader";
 import { ControlsSection } from "@/components/print/card/ControlsSection";
 import { FilamentsSection } from "@/components/print/card/FilamentsSection";
+import { OpenPrinterLink } from "@/components/print/card/OpenPrinterLink";
 import { StatePill } from "@/components/print/card/StatePill";
 import { StatusSection } from "@/components/print/card/StatusSection";
 import { TONE_BORDER_T, fillStyle, trackStyle } from "@/components/print/card/tone";
@@ -119,6 +120,7 @@ function CompactCard({ item, onExpand, selected, onSelectedChange, badgeExtra }:
           ) : null}
         </span>
       </button>
+      <OpenPrinterLink id={printer.id} name={printer.name} />
     </div>
   );
 }

@@ -117,6 +117,15 @@ describe("PrinterCard", () => {
     await waitFor(() => expect(screen.queryByTestId("tile-bed")).toBeNull());
   });
 
+  it("compact S card and full card both link to the printer page", async () => {
+    const { unmount } = renderCard(<PrinterCard item={a1Mini()} size="S" />);
+    const open = await screen.findByRole("link", { name: "Open A1 Mini page" });
+    expect(open.getAttribute("href")).toMatch(/\/printers\/\d+$/);
+    unmount();
+    renderCard(<PrinterCard item={a1Mini()} size="M" />);
+    expect(await screen.findByRole("link", { name: "Open A1 Mini page" })).toBeInTheDocument();
+  });
+
   it("bulk-select checkbox calls back", async () => {
     const onSel = vi.fn();
     renderCard(<PrinterCard item={a1Mini()} selected={false} onSelectedChange={onSel} />);

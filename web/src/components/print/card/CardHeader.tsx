@@ -11,6 +11,7 @@ import type { PrinterOut, PrinterStatusOut } from "@/api/types";
 import { modelKey, printerImage, toneForGcode } from "@/lib/printerState";
 import { cn } from "@/lib/utils";
 
+import { OpenPrinterLink } from "./OpenPrinterLink";
 import { StatePill } from "./StatePill";
 
 import { nozzleLabel } from "./nozzleLabel";
@@ -55,6 +56,7 @@ export function CardHeader({
         </p>
       </div>
       {extra}
+      <OpenPrinterLink id={printer.id} name={printer.name} />
       <StatePill tone={tone} label={label} />
     </div>
   );
