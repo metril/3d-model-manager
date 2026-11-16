@@ -268,7 +268,7 @@ function fleet(): PrintersOverviewOut {
 }
 
 const cardNames = () =>
-  [...document.querySelectorAll('[data-slot="card-header"] a')].map((a) => a.textContent);
+  [...document.querySelectorAll('[data-slot="card-header"] a:not([aria-label])')].map((a) => a.textContent);
 
 describe("PrintDashboardPage summary, filters and sort", () => {
   it("summary bar counts each status and shows the next printer to free up", async () => {

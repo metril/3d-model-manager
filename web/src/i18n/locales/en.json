@@ -757,6 +757,8 @@
   "card": {
     "select": "Select {{name}}",
     "expand": "Expand {{name}}",
+    "open": "Open {{name}} page",
+    "openTip": "Open printer page",
     "back": "Back",
     "progress": "Print progress",
     "upNext": "Up next ({{n}})",
