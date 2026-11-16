@@ -24,7 +24,19 @@ describe("StatusSection", () => {
     getMock.mockResolvedValue({ job_id: 5, plate: 1, objects: [] });
   });
 
-  it("printing: name, big percent, progress, ETA row, layer, started-by; generic stage hidden", async () => {
+  it("external print is labelled; app-sent print is not", async () => {
+    const it = a1Mini({}, PRINTING);
+    const { unmount } = renderCard(
+      <StatusSection printerId={1} status={it.status} activeJob={{ ...JOB, origin: "external" }} lastRuns={[]} canControl />,
+    );
+    expect(await screen.findByText("External print")).toBeInTheDocument();
+    unmount();
+    renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
+    expect(await screen.findByText("Benchy")).toBeInTheDocument();
+    expect(screen.queryByText("External print")).toBeNull();
+  });
+
+  it("printing: name, big percent, progress, ETA row, layer; generic stage hidden", async () => {
     const it = a1Mini({}, PRINTING);
     renderCard(<StatusSection printerId={1} status={it.status} activeJob={JOB} lastRuns={[]} canControl />);
     expect(await screen.findByText("Benchy")).toBeInTheDocument();
@@ -34,7 +46,6 @@ describe("StatusSection", () => {
     expect(screen.getByText("1h 15m left")).toBeInTheDocument();
     expect(screen.getByText("Layer 10/100")).toBeInTheDocument();
     expect(screen.getByText(/ETA/)).toBeInTheDocument();
-    expect(screen.getByText(/from the app/)).toBeInTheDocument();
   });
 
   it("a specific stage is shown; paused uses a striped fill", async () => {

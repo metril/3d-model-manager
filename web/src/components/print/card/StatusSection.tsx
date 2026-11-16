@@ -147,10 +147,8 @@ export function StatusSection({
             {name}
           </p>
           {stage ? <p className="pc-t11 truncate text-muted-foreground">{stage}</p> : null}
-          {activeJob ? (
-            <p className="pc-t10 truncate text-muted-foreground">
-              {activeJob.origin === "app" ? t("card.status.startedApp") : t("card.status.startedPrinter")}
-            </p>
+          {activeJob && activeJob.origin !== "app" ? (
+            <p className="pc-t10 truncate text-muted-foreground">{t("card.status.externalPrint")}</p>
           ) : null}
         </div>
         <span className="font-mono text-2xl font-semibold tabular-nums leading-none" data-testid="job-percent">
