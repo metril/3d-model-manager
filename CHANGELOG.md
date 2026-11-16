@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.25.0](https://github.com/metril/3d-model-manager/compare/v0.24.0...v0.25.0) (2026-11-16)
+
+
+### Features
+
+* **extension:** Safari build (unsigned macOS app via CI) ([#322](https://github.com/metril/3d-model-manager/issues/322)) ([e356b4c](https://github.com/metril/3d-model-manager/commit/e356b4c9c68c4d1e3bd419798ce550e2069bd660))
+* **web:** open-printer link on dashboard printer cards ([#328](https://github.com/metril/3d-model-manager/issues/328)) ([18f3df8](https://github.com/metril/3d-model-manager/commit/18f3df8579d9d3750390a982ecdeed40dc199f75))
+
+
+### Bug Fixes
+
+* **printers:** surface plate-clear/failed hold on overview cards ([#325](https://github.com/metril/3d-model-manager/issues/325)) ([1180155](https://github.com/metril/3d-model-manager/commit/11801554a050648757f04f811598f88b3f4fb1b7))
+* **web:** stop print history table overflowing horizontally on narrow panels ([#327](https://github.com/metril/3d-model-manager/issues/327)) ([34b40b2](https://github.com/metril/3d-model-manager/commit/34b40b21a09bb7761ca09f43e24f155c2ce961de))
+* **web:** stop recipe form re-rendering every profile option per keystroke ([#326](https://github.com/metril/3d-model-manager/issues/326)) ([4f6dfc3](https://github.com/metril/3d-model-manager/commit/4f6dfc3d200c266cfb9b565853cfe19ebb9e79c7))
+
 ## [0.24.0](https://github.com/metril/3d-model-manager/compare/v0.23.0...v0.24.0) (2026-11-11)
 
 
