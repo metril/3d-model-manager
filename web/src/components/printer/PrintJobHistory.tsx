@@ -64,18 +64,18 @@ function RunRow({
           aria-label={t("archiveX.compare.select", { name })}
         />
       </TableCell>
-      <TableCell className="w-12">
+      <TableCell className="hidden w-12 @md:table-cell">
         {run.has_thumbnail ? (
           <img src={archiveThumbnailUrl(run.id)} alt="" className="size-10 rounded object-cover" />
         ) : null}
       </TableCell>
-      <TableCell className="max-w-64 truncate text-sm" title={name}>{name}</TableCell>
+      <TableCell className="w-full max-w-0 min-w-24 truncate text-sm" title={name}>{name}</TableCell>
       {showPrinter ? <TableCell>{run.printer_name}</TableCell> : null}
       <TableCell>
         <Badge variant={run.result === "completed" ? "default" : "destructive"}>{t(`resultStatus.${run.result}`, { defaultValue: run.result })}</Badge>
         <RunCountBadge count={run.run_count} />
       </TableCell>
-      <TableCell className="font-mono tabular-nums">
+      <TableCell className="hidden font-mono tabular-nums @md:table-cell">
         {run.duration_s != null ? humanizeDuration(run.duration_s) : "--"}
       </TableCell>
       <TableCell className="hidden font-mono tabular-nums @2xl:table-cell">
@@ -117,7 +117,7 @@ export function PrintJobHistory({
       <CardHeader>
         <CardTitle>{t("printJobHistory.title")}</CardTitle>
         <CardDescription>{t("printJobHistory.subtitle")}</CardDescription>
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           {fixedPrinterId == null ? (
             <Select
               aria-label={t("printJobHistory.printerFilter")}
@@ -173,16 +173,16 @@ export function PrintJobHistory({
         ) : !rows || rows.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">{t("printJobHistory.empty")}</p>
         ) : (
-          <div className="@container">
+          <div className="@container min-w-0">
           <Table className="data-table">
             <TableHeader>
               <TableRow>
                 <TableHead />
-                <TableHead />
+                <TableHead className="hidden @md:table-cell" />
                 <TableHead>{t("printJobHistory.col.name")}</TableHead>
                 {fixedPrinterId == null ? <TableHead>{t("printJobHistory.col.printer")}</TableHead> : null}
                 <TableHead>{t("printJobHistory.col.result")}</TableHead>
-                <TableHead>{t("printJobHistory.col.duration")}</TableHead>
+                <TableHead className="hidden @md:table-cell">{t("printJobHistory.col.duration")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.grams")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.cost")}</TableHead>
                 <TableHead className="hidden @2xl:table-cell">{t("printJobHistory.col.tags")}</TableHead>
