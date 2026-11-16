@@ -133,6 +133,14 @@ def normalize_status(out: PrinterStatusOut) -> PrinterStatusOut:
     return out
 
 
+def overlay_hold_flags(out: PrinterStatusOut, printer: Printer) -> PrinterStatusOut:
+    """Overlay the DB-backed dispatch-hold flags (shared by single + overview paths)."""
+    out.awaiting_plate_clear = printer.awaiting_plate_clear
+    if out.online:
+        out.failed_unacknowledged = failed_hold_reason(printer, out.gcode_state) is not None
+    return out
+
+
 async def build_status(
     db: AsyncSession, settings: Settings, printer: Printer, state: dict | None
 ) -> PrinterStatusOut:
@@ -140,11 +148,9 @@ async def build_status(
     offline). Callable with a preloaded state so a streaming consumer can
     batch its Redis reads."""
     if state is None:
-        out = PrinterStatusOut(online=False, awaiting_plate_clear=printer.awaiting_plate_clear)
+        out = overlay_hold_flags(PrinterStatusOut(online=False), printer)
     else:
-        out = status_from_state(state)
-        out.awaiting_plate_clear = printer.awaiting_plate_clear
-        out.failed_unacknowledged = failed_hold_reason(printer, out.gcode_state) is not None
+        out = overlay_hold_flags(status_from_state(state), printer)
         out.capabilities = CapabilitiesOut(
             **capabilities_for(
                 printer.model, printer.serial, ((state.get("firmware") or {}).get("ota"))
