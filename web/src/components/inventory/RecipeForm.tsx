@@ -13,7 +13,7 @@
  * fanout "first_n".
  */
 import { useTranslation } from "react-i18next";
-import { useEffect, useState, type FormEvent } from "react";
+import { memo, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
 import { usePrinters, usePrinterStatus } from "@/api/printers";
@@ -75,6 +75,19 @@ function scopedOptions(
 function optionLabel(o: ScopedOption): string {
   return o.reason ? `${o.profile.name} (${o.reason})` : o.profile.name;
 }
+
+/** Memoized: hundreds of items x 6 selects must not re-render per keystroke. */
+const ProfileItems = memo(function ProfileItems({ options }: { options: ScopedOption[] }) {
+  return (
+    <>
+      {options.map((o) => (
+        <SelectItem key={o.profile.id} value={String(o.profile.id)}>
+          {optionLabel(o)}
+        </SelectItem>
+      ))}
+    </>
+  );
+});
 
 function fieldsFor(recipe: PrintRecipe | undefined) {
   const slots = recipe?.filament_profile_ids ?? [];
@@ -147,13 +160,19 @@ export function RecipeForm({
     ? (targetStatus.data?.nozzle_mm ?? targetPrinter.nozzle_mm ?? DEFAULT_NOZZLE)
     : (selectedPrinterProfile?.nozzle_mm ?? null);
   const [showAll, setShowAll] = useState(false);
-  const scopedPrinter = scopedOptions(printerProfiles.data, targetPrinter ? scopeKey : null, scopeNozzle, showAll, [
-    fields.printerProfileId,
-  ]);
-  const scopedProcess = scopedOptions(processProfiles.data, scopeKey, scopeNozzle, showAll, [
-    fields.processProfileId,
-  ]);
-  const scopedFilament = scopedOptions(filamentProfiles.data, scopeKey, scopeNozzle, showAll, fields.filamentProfileIds);
+  const { printerProfileId, processProfileId, filamentProfileIds } = fields;
+  const scopedPrinter = useMemo(
+    () => scopedOptions(printerProfiles.data, targetPrinter ? scopeKey : null, scopeNozzle, showAll, [printerProfileId]),
+    [printerProfiles.data, targetPrinter, scopeKey, scopeNozzle, showAll, printerProfileId],
+  );
+  const scopedProcess = useMemo(
+    () => scopedOptions(processProfiles.data, scopeKey, scopeNozzle, showAll, [processProfileId]),
+    [processProfiles.data, scopeKey, scopeNozzle, showAll, processProfileId],
+  );
+  const scopedFilament = useMemo(
+    () => scopedOptions(filamentProfiles.data, scopeKey, scopeNozzle, showAll, filamentProfileIds),
+    [filamentProfiles.data, scopeKey, scopeNozzle, showAll, filamentProfileIds],
+  );
   const staleSelection = [scopedPrinter, scopedProcess, scopedFilament].some((o) => o.selectedOutOfScope);
   const bedTypes = bedTypesFor(selectedPrinterProfile);
 
@@ -228,11 +247,7 @@ export function RecipeForm({
                   <SelectValue placeholder={t("recipeForm.chooseAPrinterProfile")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {scopedPrinter.options.map((o) => (
-                    <SelectItem key={o.profile.id} value={String(o.profile.id)}>
-                      {optionLabel(o)}
-                    </SelectItem>
-                  ))}
+                  <ProfileItems options={scopedPrinter.options} />
                 </SelectContent>
               </Select>
             </div>
@@ -249,11 +264,7 @@ export function RecipeForm({
                   <SelectValue placeholder={t("recipeForm.chooseAProcessProfile")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {scopedProcess.options.map((o) => (
-                    <SelectItem key={o.profile.id} value={String(o.profile.id)}>
-                      {optionLabel(o)}
-                    </SelectItem>
-                  ))}
+                  <ProfileItems options={scopedProcess.options} />
                 </SelectContent>
               </Select>
             </div>
@@ -274,11 +285,7 @@ export function RecipeForm({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{t("recipeForm.empty")}</SelectItem>
-                      {scopedFilament.options.map((o) => (
-                        <SelectItem key={o.profile.id} value={String(o.profile.id)}>
-                          {optionLabel(o)}
-                        </SelectItem>
-                      ))}
+                      <ProfileItems options={scopedFilament.options} />
                     </SelectContent>
                   </Select>
                 ))}
