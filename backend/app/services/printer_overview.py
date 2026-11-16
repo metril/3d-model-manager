@@ -36,7 +36,7 @@ from app.schemas.printers import (
 from app.services import ha_state
 from app.services import queue as queue_service
 from app.services import spool_inventory as sinv
-from app.services.printer_status import active_job_rows
+from app.services.printer_status import active_job_rows, overlay_hold_flags
 from app.services.queue_filaments import details_for_entries
 
 
@@ -62,8 +62,10 @@ def _can(ctx: AuthContext, printer_id: int, kind: str) -> bool:
 
 
 async def _statuses(
-    db: AsyncSession, redis: Redis, printer_ids: list[int]
+    db: AsyncSession, redis: Redis, printers: list[Printer]
 ) -> dict[int, PrinterStatusOut]:
+    printer_ids = [p.id for p in printers]
+    by_id = {p.id: p for p in printers}
     if not printer_ids:
         return {}
     raws = await redis.mget([state_key(pid) for pid in printer_ids])
@@ -77,14 +79,14 @@ async def _statuses(
             except (TypeError, ValueError):
                 state = None  # corrupt value -> treat as absent (fail closed)
         if not state:
-            out[pid] = PrinterStatusOut(online=False)
+            out[pid] = overlay_hold_flags(PrinterStatusOut(online=False), by_id[pid])
         else:
             status_out = status_from_state(state)
             for t in status_out.trays:
                 spool = smap.get((pid, t.slot))
                 if spool is not None:
                     t.spool = SpoolBriefOut.from_model(spool)
-            out[pid] = status_out
+            out[pid] = overlay_hold_flags(status_out, by_id[pid])
     return out
 
 
@@ -223,7 +225,7 @@ async def build_overview(
     printers = list((await db.execute(stmt)).scalars().all())
     printer_ids = [p.id for p in printers]
 
-    statuses = await _statuses(db, redis, printer_ids)
+    statuses = await _statuses(db, redis, printers)
     active_jobs = await _active_jobs(db, settings, printer_ids)
     last_runs = await _last_runs(db, printer_ids)
     ha_alerts = await _ha_alerts(redis, printer_ids)

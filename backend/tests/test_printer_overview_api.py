@@ -249,6 +249,29 @@ async def test_overview_total_print_hours(
     assert hours == {p1.id: 3.0, p2.id: 1.0, p3.id: 0.0}
 
 
+async def test_overview_carries_hold_flags(
+    authenticated_client: httpx.AsyncClient,
+    printer_enabled: None,
+    redis_client: aioredis.Redis,
+    db_session: AsyncSession,
+):
+    online = await _printer(db_session, "hold-on")
+    offline = await _printer(db_session, "hold-off")
+    online.awaiting_plate_clear = True
+    online.failed_at = datetime(2026, 1, 1, tzinfo=UTC)
+    offline.awaiting_plate_clear = True
+    await db_session.commit()
+    await redis_client.set(state_key(online.id), json.dumps({"gcode_state": "FAILED"}))
+
+    body = (await authenticated_client.get("/api/printers/overview")).json()
+    items = {i["printer"]["id"]: i["status"] for i in body["printers"]}
+    assert items[online.id]["online"] is True
+    assert items[online.id]["awaiting_plate_clear"] is True
+    assert items[online.id]["failed_unacknowledged"] is True
+    assert items[offline.id]["online"] is False
+    assert items[offline.id]["awaiting_plate_clear"] is True
+
+
 def test_plate_thumb_url_only_for_stored_3mf():
     from app.services.printer_overview import _plate_thumb_url
 
