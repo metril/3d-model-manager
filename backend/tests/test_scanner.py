@@ -314,6 +314,26 @@ async def test_unknown_folder_adopts_as_draft_model_review_me(
     }
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+async def test_adopt_sidecar_write_failure_does_not_abort_scan(
+    db_session: AsyncSession, backend: LocalStorageBackend
+) -> None:
+    backend.write("ro-drop/thing.stl", [b"dropped-bytes"])
+    folder = Path(backend.root) / "ro-drop"
+    folder.chmod(0o555)
+    try:
+        scan_run = _run_scan(backend)
+    finally:
+        folder.chmod(0o755)
+
+    assert scan_run.state != "failed"
+    model = (await db_session.execute(select(Model).where(Model.slug == "ro-drop"))).scalar_one()
+    assert model.review_state == "adopted"
+    assert scan_run.adopted == 1
+    errors = scan_run.report["errors"]
+    assert any(e["storage_path"].endswith(".3dmm.json") for e in errors)
+
+
 # ---------------------------------------------------------------------------
 # 4b. C1 regression: TWO distinct new (unknown-fit) top-level folders with
 #     unknown-hash files land in the SAME pass-2 chunk. The second folder's

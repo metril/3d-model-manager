@@ -59,6 +59,8 @@ cleanup() {
   local status=$?
   echo "==> compose logs (api, tail 100) ----------------------------------"
   docker compose logs api --tail=100 || true
+  echo "==> compose logs (api + workers, tail 200) -------------------------"
+  docker compose logs --tail=200 api worker-io worker-cpu || true
   echo "==> tearing down the stack..."
   if [[ "$KEEP_VOLUMES" == "1" ]]; then
     docker compose down
