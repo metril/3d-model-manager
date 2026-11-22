@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.4](https://github.com/metril/3d-model-manager/compare/v0.25.3...v0.25.4) (2026-11-22)
+
+
+### Bug Fixes
+
+* **printerd:** publish ha-bridge thread only after start; guard join of unstarted thread ([#337](https://github.com/metril/3d-model-manager/issues/337)) ([cc90d5c](https://github.com/metril/3d-model-manager/commit/cc90d5cbc7f3fb0bf31c269432f388dbe08508e0))
+
 ## [0.25.3](https://github.com/metril/3d-model-manager/compare/v0.25.2...v0.25.3) (2026-11-22)
 
 
