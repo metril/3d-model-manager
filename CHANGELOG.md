@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.3](https://github.com/metril/3d-model-manager/compare/v0.25.2...v0.25.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **scan:** adopt without sidecar when folder is unwritable; e2e exec as app user ([#335](https://github.com/metril/3d-model-manager/issues/335)) ([30b445c](https://github.com/metril/3d-model-manager/commit/30b445c8adcb2bef910f3952b9746a51a54de797))
+
 ## [0.25.2](https://github.com/metril/3d-model-manager/compare/v0.25.1...v0.25.2) (2026-11-16)
 
 
