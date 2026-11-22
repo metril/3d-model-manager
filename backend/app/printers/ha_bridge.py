@@ -192,8 +192,11 @@ class HaBridge:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, daemon=True, name="ha-bridge")
-        self._thread.start()
+        thread = threading.Thread(target=self._run, daemon=True, name="ha-bridge")
+        thread.start()
+        # Publish only once started: a concurrent stop() must never see (and
+        # join) a not-yet-started thread.
+        self._thread = thread
 
     def _run(self) -> None:
         while not self._stop.wait(self.tick_s):
@@ -206,8 +209,9 @@ class HaBridge:
         self._stop.set()
         if self._client is not None:
             self._publish_offline_and_disconnect()
-        if self._thread is not None:
-            self._thread.join(timeout)
+        thread = self._thread
+        if thread is not None and thread.ident is not None:
+            thread.join(timeout)
         self._release_camera_viewers()
 
     def _release_camera_viewers(self) -> None:
