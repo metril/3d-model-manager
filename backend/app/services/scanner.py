@@ -612,6 +612,7 @@ def _resolve_adopt_target(
     models_by_slug: dict[str, Model],
     revisions_by_key: dict[tuple[int, str], Revision],
     taken: set[tuple[int, str]],
+    report: dict[str, object],
 ) -> tuple[Model, Revision, str]:
     """Where an adopted ``key`` should attach: an existing model+revision if
     it fits ``<slug>/<dir_name>/<rel...>``, otherwise a draft model (reusing
@@ -651,7 +652,12 @@ def _resolve_adopt_target(
     session.add(revision)
     session.flush()
     model.current_revision_id = revision.id
-    layout.write_sidecar(backend, model.id, slug, top)
+    try:
+        layout.write_sidecar(backend, model.id, slug, top)
+    except OSError as exc:
+        # E.g. a read-only / foreign-owned drop folder: the model is still
+        # adopted (rows are the source of truth); only the sidecar is lost.
+        _record_error(report, f"{slug}/{layout.SIDECAR_NAME}", exc)
     draft_models[top] = (model, revision)
     models_by_slug[slug] = model
     revisions_by_key[(model.id, dir_name)] = revision
@@ -705,7 +711,7 @@ def _attach_adopted_file(
     id.
     """
     model, revision, rel_path = _resolve_adopt_target(
-        session, backend, entry.key, draft_models, models_by_slug, revisions_by_key, taken
+        session, backend, entry.key, draft_models, models_by_slug, revisions_by_key, taken, report
     )
 
     file = File(

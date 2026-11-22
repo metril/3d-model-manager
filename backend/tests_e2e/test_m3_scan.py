@@ -202,9 +202,14 @@ def _poll_scan_run(client: httpx.Client, scan_run_id: int) -> dict:
     )
 
 
+# Containers run as non-root (PUID/PGID); exec as the same user so files
+# created here are writable by the app.
+_EXEC_USER = f"{os.environ.get('PUID', '1000')}:{os.environ.get('PGID', '1000')}"
+
+
 def _compose_exec(*args: str) -> None:
     subprocess.run(
-        ["docker", "compose", "exec", "-T", "api", *args],
+        ["docker", "compose", "exec", "-T", "--user", _EXEC_USER, "api", *args],
         check=True,
         cwd=REPO_ROOT,
         timeout=30,
@@ -219,7 +224,18 @@ def _compose_write_file(container_path: str, content: bytes) -> None:
     parent = container_path.rsplit("/", 1)[0]
     shell_cmd = f"mkdir -p '{parent}' && cat > '{container_path}'"
     subprocess.run(
-        ["docker", "compose", "exec", "-T", "api", "sh", "-c", shell_cmd],
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "--user",
+            _EXEC_USER,
+            "api",
+            "sh",
+            "-c",
+            shell_cmd,
+        ],
         input=content,
         check=True,
         cwd=REPO_ROOT,
