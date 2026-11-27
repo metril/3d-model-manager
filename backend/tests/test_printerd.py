@@ -1474,3 +1474,17 @@ def test_printerd_publishes_data_gaps(worker):
     assert client.get(data_gap_key(pid)) is None
     w.handle_report({"connected": False})
     assert client.get(data_gap_key(pid)) is not None
+
+
+def test_paused_at_set_on_pause_and_cleared_on_resume(worker):
+    w, _adapter, pid, _ = worker
+    job_id = _seed_active_job(pid)
+    w.handle_report({"gcode_state": "RUNNING"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).paused_at is None
+    w.handle_report({"gcode_state": "PAUSE"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).paused_at is not None
+    w.handle_report({"gcode_state": "RUNNING"})
+    with base.sync_session() as s:
+        assert s.get(PrintJob, job_id).paused_at is None

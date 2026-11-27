@@ -183,3 +183,19 @@ async def test_printer_out_has_capabilities(authenticated_client, printer_enable
     body = (await authenticated_client.get(f"/api/printers/{pid}")).json()
     assert body["capabilities"]["model_key"] == "a1mini"
     assert body["capabilities"]["verified"] is True
+
+
+async def test_status_camera_state_and_paused_at_defaults(
+    authenticated_client, printer_enabled, redis_url
+):
+    from app.services import camera_state as cs
+
+    pid = await _make_printer(authenticated_client)
+    body = (await authenticated_client.get(f"/api/printers/{pid}/status")).json()
+    assert body["camera_state"] == "off" and body["paused_at"] is None
+    c = redis_lib.Redis.from_url(redis_url)
+    c.set(cs.status_key(pid), "live", ex=15)
+    c.set(cs.frame_ts_key(pid), int(time.time() * 1000) - 30_000, ex=60)
+    c.close()
+    body = (await authenticated_client.get(f"/api/printers/{pid}/status")).json()
+    assert body["camera_state"] == "stalled"

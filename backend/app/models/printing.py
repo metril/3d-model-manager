@@ -154,6 +154,8 @@ class PrintJob(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
+    # When the job last entered PAUSED; cleared on resume/terminal.
+    paused_at: Mapped[datetime | None]
     # When the start command was sent (state -> STARTING). The dispatcher fails
     # a job stuck here unless the printer is visibly preparing/printing it.
     starting_at: Mapped[datetime | None]

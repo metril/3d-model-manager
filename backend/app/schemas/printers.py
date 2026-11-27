@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -390,6 +390,11 @@ class PrinterStatusOut(BaseModel):
     active_tray: AmsTrayOut | None = None
     # DB overlay: the in-flight print job, or None.
     print_job: StatusPrintJobOut | None = None
+    # Live camera health (derived from Redis by the status builder; stable
+    # between transitions so SSE deltas stay change-only).
+    camera_state: Literal["off", "warming", "live", "stalled"] = "off"
+    # When the in-flight print entered pause (UTC); None unless paused.
+    paused_at: datetime | None = None
 
     @field_validator("wifi_signal", mode="before")
     @classmethod
@@ -416,6 +421,8 @@ STATE_FIELDS: tuple[str, ...] = tuple(
         "active_tray",
         "print_job",
         "print_thumbnail_key",
+        "camera_state",
+        "paused_at",
     )
 )
 

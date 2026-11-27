@@ -299,3 +299,25 @@ async def test_revoked_key_ends_stream_and_ratelimit_headers(live_client, monkey
                 pass
 
         await asyncio.wait_for(drain(), 10)  # stream ends on its own
+
+
+async def test_delta_carries_camera_state_change(live_client, fast):  # noqa: F811
+    from app.services import camera_state as cs
+
+    pid = await _mk_printer(live_client, "SERCAM1X")
+    _set(fast, pid, gcode_state="IDLE", last_report_at="t0")
+    key = await _mint(live_client)
+
+    async def mutate():
+        await asyncio.sleep(0.4)
+        fast.set(cs.status_key(pid), "connecting", ex=15)
+
+    task = asyncio.create_task(mutate())
+    evs, _ = await _events(live_client, {"X-API-Key": key}, until=lambda e, p: len(e) >= 2)
+    await task
+    assert evs[0]["status"]["camera_state"] == "off"
+    assert evs[1] == {
+        "type": "printer.delta",
+        "printer_id": pid,
+        "patch": {"camera_state": "warming"},
+    }

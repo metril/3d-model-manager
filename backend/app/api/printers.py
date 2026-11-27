@@ -541,9 +541,9 @@ async def printer_status(
     client = get_async_redis(settings.redis_url)
     try:
         state = await read_state_async(client, printer_id)
+        return await build_status(db, settings, printer, state, client)
     finally:
         await client.aclose()
-    return await build_status(db, settings, printer, state)
 
 
 async def _publish_command(

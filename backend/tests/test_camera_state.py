@@ -65,7 +65,7 @@ def test_put_frame_sets_ttl_and_publishes(redis_url):
         if m and m["type"] == "message":
             msg = m
             break
-    assert msg is not None and msg["data"] == JPEG
+    assert msg is not None and cs.unpack_frame(msg["data"])[0] == JPEG
     assert r.get(cs.frame_key(pid)) == JPEG
     assert r.ttl(cs.frame_key(pid)) <= 5
 
@@ -116,3 +116,46 @@ def test_wait_for_frame_times_out_and_cleans_up(redis_url):
     result = cs.wait_for_frame(r, pid, timeout=1.0, viewer_id="vtimeout")
     assert result is None
     assert cs.viewer_count(r, pid) == 0
+
+
+def test_put_frame_stores_timestamp_and_packs_publish(redis_url):
+    r = _client(redis_url)
+    pid = 14
+    pubsub = r.pubsub()
+    pubsub.subscribe(cs.frame_channel(pid))
+    while pubsub.get_message(timeout=0.1):
+        pass
+    cs.put_frame(r, pid, JPEG, ts_ms=1_700_000_000_123)
+    assert int(r.get(cs.frame_ts_key(pid))) == 1_700_000_000_123
+    msg = None
+    while msg is None or msg["type"] != "message":
+        msg = pubsub.get_message(timeout=1.0)
+    assert cs.unpack_frame(msg["data"]) == (JPEG, 1_700_000_000_123)
+    assert cs.unpack_frame(JPEG) == (JPEG, None)  # legacy payload
+
+
+async def test_camera_state_transitions(redis_url):
+    import redis.asyncio as aioredis
+
+    r = aioredis.Redis.from_url(redis_url)
+    pid = 15
+    for k in (cs.status_key(pid), cs.frame_ts_key(pid), cs.viewers_key(pid)):
+        await r.delete(k)
+    now = time.time()
+    ms = lambda ago: int((now - ago) * 1000)  # noqa: E731
+    assert await cs.acamera_state(r, pid, now=now) == "off"
+    await r.set(cs.status_key(pid), "unsupported")
+    assert await cs.acamera_state(r, pid, now=now) == "off"
+    for st in ("connecting", "error"):
+        await r.set(cs.status_key(pid), st)
+        assert await cs.acamera_state(r, pid, now=now) == "warming"
+    await r.set(cs.status_key(pid), "live")
+    await r.set(cs.frame_ts_key(pid), ms(2))
+    assert await cs.acamera_state(r, pid, now=now) == "live"
+    await r.set(cs.frame_ts_key(pid), ms(11))
+    assert await cs.acamera_state(r, pid, now=now) == "stalled"
+    await r.delete(cs.status_key(pid))
+    assert await cs.acamera_state(r, pid, now=now) == "off"
+    await cs.aadd_viewer(r, pid, "v", now=now)
+    assert await cs.acamera_state(r, pid, now=now) == "warming"
+    await r.aclose()

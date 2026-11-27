@@ -56,6 +56,36 @@ async def test_snapshot_returns_jpeg(
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/jpeg"
     assert r.content == JPEG
+    assert "x-frame-timestamp" not in r.headers  # legacy frame without a stamp
+
+
+async def test_snapshot_reports_original_capture_time(
+    authenticated_client: httpx.AsyncClient, printer_row: Printer, redis_client: aioredis.Redis
+) -> None:
+    await redis_client.set(cs.frame_key(printer_row.id), JPEG)
+    await redis_client.set(cs.frame_ts_key(printer_row.id), 1_700_000_123_456)
+
+    r = await authenticated_client.get(f"/api/printers/{printer_row.id}/camera/snapshot")
+
+    assert r.headers["x-frame-timestamp"] == "1700000123456"
+
+
+async def test_mjpeg_every_part_carries_frame_timestamp(
+    redis_client: aioredis.Redis, printer_row: Printer
+) -> None:
+    pid = printer_row.id
+    await redis_client.set(cs.frame_key(pid), JPEG)
+    await redis_client.set(cs.frame_ts_key(pid), 1111)
+    gen = mjpeg_parts(redis_client, pid, f"stream:{uuid.uuid4()}")
+    first = await anext(gen)
+    assert b"Content-Length: %d\r\nX-Frame-Timestamp: 1111\r\n\r\n" % len(JPEG) in first
+
+    task = asyncio.ensure_future(anext(gen))
+    await asyncio.sleep(0.1)
+    await redis_client.publish(cs.frame_channel(pid), cs.pack_frame(JPEG + b"x", 2222))
+    second = await task
+    assert b"X-Frame-Timestamp: 2222\r\n\r\n" + JPEG + b"x" in second
+    await gen.aclose()
 
 
 async def test_snapshot_unsupported_404(

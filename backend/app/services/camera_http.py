@@ -44,9 +44,12 @@ def rotate_jpeg(jpeg: bytes, degrees: int) -> bytes:
 STREAM_IDLE_S = 20.0
 
 
-def _mjpeg_part(jpeg: bytes) -> bytes:
+def _mjpeg_part(jpeg: bytes, ts_ms: int | None = None) -> bytes:
+    ts = b"X-Frame-Timestamp: %d\r\n" % ts_ms if ts_ms is not None else b""
     return (
-        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(jpeg)
+        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n" % len(jpeg)
+        + ts
+        + b"\r\n"
         + jpeg
         + b"\r\n"
     )
@@ -69,13 +72,13 @@ async def mjpeg_parts(
     pubsub = redis.pubsub()
     await pubsub.subscribe(cs.frame_channel(printer_id))
     try:
-        frame = await cs.aget_frame(redis, printer_id)
+        frame, frame_ts = await cs.aget_frame_with_ts(redis, printer_id)
         now = time.monotonic()
         last_frame_at = now
         last_heartbeat_at = now
         last_yield_at = now
         if frame is not None:
-            yield _mjpeg_part(frame)
+            yield _mjpeg_part(frame, frame_ts)
 
         while True:
             message = await pubsub.get_message(timeout=1.0)
@@ -84,7 +87,8 @@ async def mjpeg_parts(
                 last_frame_at = now
                 if now - last_yield_at >= min_interval:
                     last_yield_at = now
-                    yield _mjpeg_part(message["data"])
+                    jpeg, ts_ms = cs.unpack_frame(message["data"])
+                    yield _mjpeg_part(jpeg, ts_ms)
 
             if now - last_heartbeat_at >= HEARTBEAT_S:
                 await cs.aadd_viewer(redis, printer_id, viewer_id)
@@ -147,7 +151,7 @@ async def snapshot_response(settings: Settings, printer_id: int, options: dict) 
         # on-demand worker starts warming up for the *next* request.
         await cs.aadd_viewer(redis, printer_id, f"snap:{uuid.uuid4()}")
 
-        frame = await cs.aget_frame(redis, printer_id)
+        frame, frame_ts = await cs.aget_frame_with_ts(redis, printer_id)
         if frame is None:
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -157,8 +161,9 @@ async def snapshot_response(settings: Settings, printer_id: int, options: dict) 
         rotation = rotation_of(options)
         if rotation:
             frame = await anyio.to_thread.run_sync(rotate_jpeg, frame, rotation)
-        return Response(
-            content=frame, media_type="image/jpeg", headers={"Cache-Control": "no-store"}
-        )
+        headers = {"Cache-Control": "no-store"}
+        if frame_ts is not None:
+            headers["X-Frame-Timestamp"] = str(frame_ts)
+        return Response(content=frame, media_type="image/jpeg", headers=headers)
     finally:
         await redis.aclose()

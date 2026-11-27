@@ -19,6 +19,7 @@ from app.db import get_sessionmaker
 from app.models.printing import Printer
 from app.printers.base import state_key
 from app.schemas.printers import PrinterStatusOut, status_from_state
+from app.services import camera_state
 from app.services.printer_status import build_status, normalize_status
 
 TICK_S = 1.0  # poll cadence == max delta rate per printer
@@ -87,7 +88,9 @@ def _fingerprint(state: dict | None) -> str:
     return hashlib.sha1(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
 
 
-async def _status_for(settings: Settings, pid: int, state: dict | None) -> PrinterStatusOut | None:
+async def _status_for(
+    settings: Settings, pid: int, state: dict | None, redis=None
+) -> PrinterStatusOut | None:
     fp = _fingerprint(state)
     hit = _cache.get(pid)
     if hit is not None and hit[0] == fp and time.monotonic() - hit[1] < CACHE_TTL_S:
@@ -112,6 +115,9 @@ async def _status_for(settings: Settings, pid: int, state: dict | None) -> Print
     # last_report_at is VOLATILE (excluded from the fingerprint), so a cache hit
     # carries a stale value: always overlay the live one.
     out.last_report_at = (state or {}).get("last_report_at", out.last_report_at)
+    # camera_state lives in Redis, not the fingerprinted printer state: live overlay.
+    if redis is not None:
+        out.camera_state = await camera_state.acamera_state(redis, pid)
     return out
 
 
@@ -143,7 +149,7 @@ class PrinterStream:
                 state = json.loads(raw) if raw else None
             except (TypeError, ValueError):
                 state = None
-            out = await _status_for(self.settings, pid, state)
+            out = await _status_for(self.settings, pid, state, self.redis)
             if out is None:
                 continue
             doc = out.model_dump(mode="json")
