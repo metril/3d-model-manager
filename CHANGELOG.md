@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/metril/3d-model-manager/compare/v0.25.4...v0.26.0) (2026-11-27)
+
+
+### Features
+
+* **ext:** frame timestamp, camera_state, paused_at ([#339](https://github.com/metril/3d-model-manager/issues/339)) ([c4bca14](https://github.com/metril/3d-model-manager/commit/c4bca1434d1ca7c1ad408af3448c0be3d3817a37))
+
 ## [0.25.4](https://github.com/metril/3d-model-manager/compare/v0.25.3...v0.25.4) (2026-11-22)
 
 
