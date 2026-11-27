@@ -321,3 +321,59 @@ async def test_delta_carries_camera_state_change(live_client, fast):  # noqa: F8
         "printer_id": pid,
         "patch": {"camera_state": "warming"},
     }
+
+
+async def _mk_job(pid: int, state):
+    from app.db import get_sessionmaker
+    from app.models.printing import PrintJob
+
+    async with get_sessionmaker()() as db:
+        job = PrintJob(printer_id=pid, origin="external", subtask_name="j", state=state)
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+async def _commit_pause(job_id: int):
+    from datetime import UTC, datetime
+
+    from app.db import get_sessionmaker
+    from app.models.printing import PrintJob
+
+    async with get_sessionmaker()() as db:
+        job = await db.get(PrintJob, job_id)
+        job.paused_at = datetime.now(UTC)
+        await db.commit()
+
+
+async def test_pause_race_not_cached_then_paused_at_appears(live_client, fast):  # noqa: F811
+    from app.config import get_settings
+    from app.models.printing import PrintJobState
+
+    pid = await _mk_printer(live_client, "SERPAUS1")
+    job_id = await _mk_job(pid, PrintJobState.PAUSED)  # state flipped, paused_at not yet set
+    st = {"gcode_state": "PAUSE", "last_report_at": "t0"}
+    out = await printer_stream._status_for(get_settings(), pid, st)
+    assert out.paused_at is None
+    assert pid not in printer_stream._cache  # DB lagging: must not be cached
+    await _commit_pause(job_id)
+    out = await printer_stream._status_for(get_settings(), pid, st)
+    assert out.paused_at is not None
+    assert pid in printer_stream._cache
+
+
+async def test_resume_with_stale_paused_row_hides_paused_at(live_client, fast):  # noqa: F811
+    from app.config import get_settings
+    from app.models.printing import PrintJobState
+
+    pid = await _mk_printer(live_client, "SERPAUS2")
+    job_id = await _mk_job(pid, PrintJobState.PAUSED)
+    await _commit_pause(job_id)
+    out = await printer_stream._status_for(
+        get_settings(), pid, {"gcode_state": "RUNNING", "last_report_at": "t0"}
+    )
+    assert out.paused_at is None
+    out = await printer_stream._status_for(
+        get_settings(), pid, {"gcode_state": "PAUSE", "last_report_at": "t1"}
+    )
+    assert out.paused_at is not None
