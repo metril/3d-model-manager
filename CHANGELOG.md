@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/metril/3d-model-manager/compare/v0.26.0...v0.26.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ext:** paused_at lag between live state and DB ([#341](https://github.com/metril/3d-model-manager/issues/341)) ([3f8f1c9](https://github.com/metril/3d-model-manager/commit/3f8f1c933ca19c0a3f678c5aa24dc5639f0d67e5))
+
 ## [0.26.0](https://github.com/metril/3d-model-manager/compare/v0.25.4...v0.26.0) (2026-11-27)
 
 
