@@ -355,11 +355,32 @@ async def test_pause_race_not_cached_then_paused_at_appears(live_client, fast): 
     st = {"gcode_state": "PAUSE", "last_report_at": "t0"}
     out = await printer_stream._status_for(get_settings(), pid, st)
     assert out.paused_at is None
-    assert pid not in printer_stream._cache  # DB lagging: must not be cached
     await _commit_pause(job_id)
+    await asyncio.sleep(printer_stream.TICK_S + 0.05)  # short-lived entry expires
     out = await printer_stream._status_for(get_settings(), pid, st)
     assert out.paused_at is not None
-    assert pid in printer_stream._cache
+
+
+async def test_paused_without_paused_at_builds_once_per_window(live_client, fast, monkeypatch):  # noqa: F811
+    from app.config import get_settings
+
+    pid = await _mk_printer(live_client, "SERPAUS3")  # no job row at all
+    monkeypatch.setattr(printer_stream, "TICK_S", 5.0)
+    calls = 0
+    real = printer_stream.build_status
+
+    async def counting(*a, **k):
+        nonlocal calls
+        calls += 1
+        return await real(*a, **k)
+
+    monkeypatch.setattr(printer_stream, "build_status", counting)
+    st = {"gcode_state": "PAUSE", "last_report_at": "t0"}
+    outs = await asyncio.gather(
+        *(printer_stream._status_for(get_settings(), pid, st) for _ in range(5))
+    )
+    assert calls == 1
+    assert all(o.paused_at is None for o in outs)
 
 
 async def test_resume_with_stale_paused_row_hides_paused_at(live_client, fast):  # noqa: F811
