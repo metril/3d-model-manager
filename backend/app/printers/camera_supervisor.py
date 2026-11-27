@@ -253,6 +253,7 @@ class CameraSupervisor:
                 self._workers.pop(printer_id, None)
                 self._last_viewer_at.pop(printer_id, None)
                 self._backoff.pop(printer_id, None)
+                camera_state.clear_status(self.redis, printer_id)
                 return
 
         if worker is not None and worker.alive:

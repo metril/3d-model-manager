@@ -128,9 +128,11 @@ def test_idle_shutdown_after_last_viewer(redis_url):
     clock.advance(29)
     sup.tick()
     assert pid in sup._workers
+    r.set(cs.status_key(pid), "live", ex=15)
     clock.advance(2)  # total +31
     sup.tick()
     assert pid not in sup._workers
+    assert cs.get_status(r, pid) is None  # idle stop clears status -> camera_state "off"
 
 
 def test_watchdog_restarts_stalled_worker(redis_url):

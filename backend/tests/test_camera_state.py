@@ -153,7 +153,11 @@ async def test_camera_state_transitions(redis_url):
     await r.set(cs.frame_ts_key(pid), ms(2))
     assert await cs.acamera_state(r, pid, now=now) == "live"
     await r.set(cs.frame_ts_key(pid), ms(11))
+    # idle stop: status still "live", frame stale, nobody watching -> off, never stalled
+    assert await cs.acamera_state(r, pid, now=now) == "off"
+    await cs.aadd_viewer(r, pid, "w", now=now)
     assert await cs.acamera_state(r, pid, now=now) == "stalled"
+    await r.delete(cs.viewers_key(pid))
     await r.delete(cs.status_key(pid))
     assert await cs.acamera_state(r, pid, now=now) == "off"
     await cs.aadd_viewer(r, pid, "v", now=now)

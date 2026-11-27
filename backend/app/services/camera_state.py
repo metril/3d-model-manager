@@ -98,6 +98,10 @@ def get_frame(r, printer_id: int) -> bytes | None:
     return r.get(frame_key(printer_id))
 
 
+def clear_status(r, printer_id: int) -> None:
+    r.delete(status_key(printer_id))
+
+
 def set_status(r, printer_id: int, status: str) -> None:
     r.set(status_key(printer_id), status, ex=15)
 
@@ -184,4 +188,5 @@ async def acamera_state(r, printer_id: int, *, now: float | None = None) -> str:
         return "warming"
     if ts is not None and t - int(ts) / 1000.0 <= STALL_AFTER_S:
         return "live"
-    return "stalled"
+    # Stale frame with nobody watching = the idle worker was stopped, not a stall.
+    return "stalled" if viewers else "off"

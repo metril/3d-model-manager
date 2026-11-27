@@ -196,6 +196,7 @@ async def test_status_camera_state_and_paused_at_defaults(
     c = redis_lib.Redis.from_url(redis_url)
     c.set(cs.status_key(pid), "live", ex=15)
     c.set(cs.frame_ts_key(pid), int(time.time() * 1000) - 30_000, ex=60)
+    cs.add_viewer(c, pid, "t")
     c.close()
     body = (await authenticated_client.get(f"/api/printers/{pid}/status")).json()
     assert body["camera_state"] == "stalled"
