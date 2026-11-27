@@ -914,6 +914,7 @@ class PrinterWorker:
             if new_state == PrintJobState.PRINTING:
                 self._stop_requested = False
             job.state = new_state.value
+            job.paused_at = datetime.now(UTC) if new_state == PrintJobState.PAUSED else None
             job.progress_pct = public.mc_percent
             job.remaining_min = public.mc_remaining_time
             job.layer = public.layer_num

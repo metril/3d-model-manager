@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.models.enums import PrintJobState
 from app.models.library import File, Model, Revision
 from app.models.printing import Printer, PrintJob
 from app.printers.capabilities import capabilities_for
@@ -23,7 +24,7 @@ from app.schemas.printers import (
     StatusPrintJobOut,
     status_from_state,
 )
-from app.services import derivatives, spool_inventory
+from app.services import camera_state, derivatives, spool_inventory
 from app.services.printer_state import failed_hold_reason
 
 ACTIVE_STATES = ("queued", "uploading", "starting", "printing", "paused")
@@ -142,7 +143,7 @@ def overlay_hold_flags(out: PrinterStatusOut, printer: Printer) -> PrinterStatus
 
 
 async def build_status(
-    db: AsyncSession, settings: Settings, printer: Printer, state: dict | None
+    db: AsyncSession, settings: Settings, printer: Printer, state: dict | None, redis=None
 ) -> PrinterStatusOut:
     """``state`` is printerd's last-reported dict (``None`` / corrupt ->
     offline). Callable with a preloaded state so a streaming consumer can
@@ -167,4 +168,8 @@ async def build_status(
     row = (await active_job_rows(db, [printer.id])).get(printer.id)
     if row is not None:
         out.print_job, out.print_thumbnail_key = await _job_overlay(settings, *row)
+        if row[0].state == PrintJobState.PAUSED:
+            out.paused_at = row[0].paused_at
+    if redis is not None:
+        out.camera_state = await camera_state.acamera_state(redis, printer.id)
     return normalize_status(out)
