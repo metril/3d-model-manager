@@ -110,7 +110,14 @@ async def _status_for(
                         _cache.pop(pid, None)
                         return None
                     out = await build_status(db, settings, printer, state)
-                _cache[pid] = (fp, now, out)
+                if out.gcode_state == "PAUSE" and out.paused_at is None:
+                    # DB hasn't caught up with the live pause (or no PAUSED row
+                    # exists): cache for ~one tick only, so concurrent waiters
+                    # dedupe but the next tick rebuilds instead of holding
+                    # paused_at=None for the full TTL.
+                    _cache[pid] = (fp, now - CACHE_TTL_S + TICK_S, out)
+                else:
+                    _cache[pid] = (fp, now, out)
                 out = out.model_copy()
     # last_report_at is VOLATILE (excluded from the fingerprint), so a cache hit
     # carries a stale value: always overlay the live one.

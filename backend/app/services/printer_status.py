@@ -168,7 +168,9 @@ async def build_status(
     row = (await active_job_rows(db, [printer.id])).get(printer.id)
     if row is not None:
         out.print_job, out.print_thumbnail_key = await _job_overlay(settings, *row)
-        if row[0].state == PrintJobState.PAUSED:
+        # Only while the live state is paused too: the DB row can lag (pause) or
+        # trail (resume) the Redis state, which is the fresher source.
+        if row[0].state == PrintJobState.PAUSED and out.gcode_state == "PAUSE":
             out.paused_at = row[0].paused_at
     if redis is not None:
         out.camera_state = await camera_state.acamera_state(redis, printer.id)
